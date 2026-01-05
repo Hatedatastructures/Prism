@@ -1,7 +1,7 @@
-#include <log/monitor.hpp>
+#include <trace/monitor.hpp>
 #include <iostream>
 
-namespace ngx::log
+namespace ngx::trace
 {
     coroutine_log::coroutine_log(const asio::any_io_executor& executor)
         : event_executor(executor),
@@ -213,4 +213,4 @@ namespace ngx::log
         }
     }
 
-} // namespace ngx::log
+} // namespace ngx::trace

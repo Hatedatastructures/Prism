@@ -3,7 +3,7 @@
 #include <thread>
 #include <http.hpp>
 #include <agent.hpp>
-#include <log/monitor.hpp>
+#include <trace/monitor.hpp>
 #include <iostream>
 
 namespace agent = ngx::agent;

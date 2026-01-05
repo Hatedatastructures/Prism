@@ -67,14 +67,14 @@ namespace ngx::agent
     public:
         explicit distributor(source &pool, net::io_context &ioc, std::pmr::memory_resource *mr = std::pmr::new_delete_resource());
         void load_reverse_map(const std::string &file_path);
-        [[nodiscard]] net::awaitable<internal_ptr> route_reverse(std::string_view host);
-        [[nodiscard]] net::awaitable<internal_ptr> route_direct(tcp::endpoint ep) const;
-        [[nodiscard]] net::awaitable<internal_ptr> route_forward(std::string_view host, std::string_view port);
+        [[nodiscard]] net::awaitable<exclusive_connection> route_reverse(std::string_view host);
+        [[nodiscard]] net::awaitable<exclusive_connection> route_direct(tcp::endpoint ep) const;
+        [[nodiscard]] net::awaitable<exclusive_connection> route_forward(std::string_view host, std::string_view port);
     private:
 
         source &pool_;
         tcp::resolver resolver_;
-        limit::blacklist blacklist_;
+        trace::blacklist blacklist_;
         std::pmr::memory_resource *mr_;
         unordered_map<memory::string, tcp::endpoint> reverse_map_;
     }; // class distributor

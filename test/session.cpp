@@ -11,7 +11,7 @@
 #include <agent/session.hpp>
 #include <boost/asio.hpp>
 #include <boost/asio/ssl.hpp>
-#include <log/monitor.hpp>
+#include <trace/monitor.hpp>
 
 #ifdef WIN32
     #include <windows.h>
@@ -19,7 +19,7 @@
 
 
 namespace net = boost::asio;
-namespace nlog = ngx::log;
+namespace nlog = ngx::trace;
 namespace ssl = boost::asio::ssl;
 using tcp = net::ip::tcp;
 

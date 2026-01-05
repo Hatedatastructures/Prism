@@ -56,7 +56,7 @@ namespace ngx::agent
     }; // class deleter
 
 
-    using internal_ptr = std::unique_ptr<tcp::socket, deleter>;
+    using exclusive_connection = std::unique_ptr<tcp::socket, deleter>;
 
 
     /**
@@ -85,7 +85,7 @@ namespace ngx::agent
         source &operator=(const source &) = delete;
 
         
-        [[nodiscard]] net::awaitable<internal_ptr> acquire_tcp(tcp::endpoint endpoint);
+        [[nodiscard]] net::awaitable<exclusive_connection> acquire_tcp(tcp::endpoint endpoint);
 
         void recycle(tcp::socket *s);
         void recycle(tcp::socket *s, const tcp::endpoint &endpoint);

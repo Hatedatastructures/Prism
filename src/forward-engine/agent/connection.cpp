@@ -98,7 +98,7 @@ namespace ngx::agent
      * @details 优先复用缓存中的连接。会自动剔除已断开或超时的僵尸连接。
      * 如果无可用连接，则立即新建并连接。
      */
-    net::awaitable<internal_ptr> source::acquire_tcp(tcp::endpoint endpoint)
+    net::awaitable<exclusive_connection> source::acquire_tcp(tcp::endpoint endpoint)
     {
         const auto endpoint_key = make_endpoint_key(endpoint);
 
@@ -125,7 +125,7 @@ namespace ngx::agent
                 // 检查 B: 是否僵尸
                 if (zombie_detection(s))
                 {
-                    co_return internal_ptr(s, deleter{this, endpoint, true});
+                    co_return exclusive_connection(s, deleter{this, endpoint, true});
                 }
 
                 delete s;
@@ -139,7 +139,7 @@ namespace ngx::agent
         }
 
         // 2. 缓存没命中（或都是坏的），新建连接
-        auto sock = internal_ptr(new tcp::socket(ioc_), deleter{this, endpoint, true});
+        auto sock = exclusive_connection(new tcp::socket(ioc_), deleter{this, endpoint, true});
 
         boost::system::error_code ec;
         // 3. 异步连接

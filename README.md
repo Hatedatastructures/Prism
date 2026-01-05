@@ -38,7 +38,7 @@
   - `session.hpp`：会话主链路（协议识别、HTTP/Obscura 处理、隧道与收尾）
   - `analysis.hpp/.cpp`：协议识别与目标解析
   - `distributor.hpp/.cpp`：路由与连接获取
-  - `connection.hpp/.cpp`：连接池（`internal_ptr` + `deleter` 回收）
+  - `connection.hpp/.cpp`：连接池（`monopolize_socket` + `deleter` 回收）
 - `include/forward-engine/http/*`：HTTP 类型与编解码
 - `test/*`：最小集成测试与回归用例
 

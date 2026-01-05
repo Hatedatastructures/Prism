@@ -71,7 +71,7 @@ namespace ngx::agent
    * @param port 目标端口号
    * @return 一个指向内部连接对象的智能指针
    */
-   net::awaitable<internal_ptr> distributor::route_forward(const std::string_view host, const std::string_view port)
+   net::awaitable<exclusive_connection> distributor::route_forward(const std::string_view host, const std::string_view port)
    {
       // 1. 查 DNS
       if (blacklist_.domain(host))
@@ -88,7 +88,7 @@ namespace ngx::agent
    * @param host 目标主机名
    * @return 一个指向内部连接对象的智能指针
    */
-   net::awaitable<internal_ptr> distributor::route_reverse(const std::string_view host)
+   net::awaitable<exclusive_connection> distributor::route_reverse(const std::string_view host)
    {
       // 1. 查配置表 (比如 configuration.json 加载进来的 map)
       if (auto it = reverse_map_.find(host); it != reverse_map_.end())
@@ -103,7 +103,7 @@ namespace ngx::agent
     * @param ep 目标 IP 地址和端口
     * @return 一个指向内部连接对象的智能指针
     */
-   net::awaitable<internal_ptr> distributor::route_direct(const tcp::endpoint ep) const
+   net::awaitable<exclusive_connection> distributor::route_direct(const tcp::endpoint ep) const
    {
       co_return co_await pool_.acquire_tcp(ep);
    }

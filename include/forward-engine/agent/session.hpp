@@ -85,7 +85,7 @@ namespace ngx::agent
             }
         }
 
-        static void shut_close(const internal_ptr &socket_ptr) noexcept
+        static void shut_close(const exclusive_connection &socket_ptr) noexcept
         {
             if (socket_ptr)
             {
@@ -153,11 +153,13 @@ namespace ngx::agent
 
         net::io_context &io_context_;
         std::shared_ptr<ssl::context> ssl_ctx_;
+        
         distributor &distributor_;
         socket_type client_socket_; // 客户端连接
-        internal_ptr upstream_;
+        exclusive_connection server_socket_ptr_; // 服务器连接
 
         std::array<std::byte, 16384> buffer_{};
+        alignas(std::max_align_t) std::array<std::byte, 16384> pool_buffer_{};
         std::pmr::monotonic_buffer_resource pool_;
     }; // class session
 }
@@ -168,7 +170,7 @@ namespace ngx::agent
     session<Transport>::session(net::io_context &io_context, socket_type socket, distributor &dist,
         std::shared_ptr<ssl::context> ssl_ctx)
     : io_context_(io_context), ssl_ctx_(std::move(ssl_ctx)), distributor_(dist),
-    client_socket_(std::move(socket)), pool_(buffer_.data(), buffer_.size()) {}
+    client_socket_(std::move(socket)), pool_(pool_buffer_.data(), pool_buffer_.size()) {}
 
     template <socket_concept Transport>
     session<Transport>::~session()
@@ -217,8 +219,8 @@ namespace ngx::agent
     void session<Transport>::close()
     {
         shut_close(client_socket_);
-        shut_close(upstream_);
-        upstream_.reset();
+        shut_close(server_socket_ptr_);
+        server_socket_ptr_.reset();
     }
 
     /**
@@ -284,14 +286,14 @@ namespace ngx::agent
             const auto target = analysis::resolve(req);
             if (target.forward_proxy)
             {
-                upstream_ = co_await distributor_.route_forward(target.host, target.port);
+                server_socket_ptr_ = co_await distributor_.route_forward(target.host, target.port);
             }
             else
             {
-                upstream_ = co_await distributor_.route_reverse(target.host);
+                server_socket_ptr_ = co_await distributor_.route_reverse(target.host);
             }
 
-            if (!upstream_) 
+            if (!server_socket_ptr_) 
             {
                 // std::cerr << "[Session] Failed to route to upstream." << std::endl;
                 co_return;
@@ -317,7 +319,7 @@ namespace ngx::agent
                 const auto data = http::serialize(req, &pool_);
                 boost::system::error_code ec;
                 auto token = net::redirect_error(net::use_awaitable, ec);
-                co_await adaptation::async_write(*upstream_, net::buffer(data), token);
+                co_await adaptation::async_write(*server_socket_ptr_, net::buffer(data), token);
                 if (ec && !graceful(ec))
                 {
                     throw abnormal::network_error("HTTP 请求转发失败: {}", ec.message());
@@ -329,7 +331,7 @@ namespace ngx::agent
                 // std::cerr << "[Session] Forwarding " << read_buffer.size() << " bytes of prefetched data." << std::endl;
                 boost::system::error_code ec;
                 auto token = net::redirect_error(net::use_awaitable, ec);
-                co_await adaptation::async_write(*upstream_, read_buffer.data(), token);
+                co_await adaptation::async_write(*server_socket_ptr_, read_buffer.data(), token);
                 if (ec && !graceful(ec))
                 {
                     throw abnormal::network_error("预读残留转发失败: {}", ec.message());
@@ -349,7 +351,7 @@ namespace ngx::agent
     template<socket_concept Transport>
     net::awaitable<void> session<Transport>::tunnel()
     {
-        if (!upstream_)
+        if (!server_socket_ptr_)
         {
             co_return;
         }
@@ -372,14 +374,14 @@ namespace ngx::agent
         auto client_to_upstream = [this, left_buffer]() -> net::awaitable<void>
         {
             // std::cerr << "[Session] Tunnel: Client -> Upstream started." << std::endl;
-            co_await transfer_tcp(client_socket_, *upstream_, left_buffer);
+            co_await transfer_tcp(client_socket_, *server_socket_ptr_, left_buffer);
             // std::cerr << "[Session] Tunnel: Client -> Upstream finished." << std::endl;
         };
 
         auto upstream_to_client = [this, right_buffer]() -> net::awaitable<void>
         {
             // std::cerr << "[Session] Tunnel: Upstream -> Client started." << std::endl;
-            co_await transfer_tcp(*upstream_, client_socket_, right_buffer);
+            co_await transfer_tcp(*server_socket_ptr_, client_socket_, right_buffer);
             // std::cerr << "[Session] Tunnel: Upstream -> Client finished." << std::endl;
         };
 
@@ -388,7 +390,7 @@ namespace ngx::agent
             // 并发执行，任一完成即结束
             co_await (client_to_upstream() || upstream_to_client());
         }
-        catch (const std::exception &e)
+        catch ([[maybe_unused]] const std::exception &e)
         {
             // std::cerr << "[Session] Tunnel error: " << e.what() << std::endl;
             // 记录错误但继续清理
@@ -399,8 +401,8 @@ namespace ngx::agent
         }
 
         shut_close(client_socket_);
-        shut_close(upstream_);
-        upstream_.reset();
+        shut_close(server_socket_ptr_);
+        server_socket_ptr_.reset();
     }
 
     /**
@@ -441,8 +443,8 @@ namespace ngx::agent
             co_return;
         }
 
-        upstream_ = co_await distributor_.route_forward(target.host, target.port);
-        if (!upstream_ || !upstream_->is_open())
+        server_socket_ptr_ = co_await distributor_.route_forward(target.host, target.port);
+        if (!server_socket_ptr_ || !server_socket_ptr_->is_open())
         {
             co_return;
         }
@@ -487,7 +489,7 @@ namespace ngx::agent
 
             boost::system::error_code ec;
             auto token = net::bind_cancellation_slot(cancel_slot, net::redirect_error(net::use_awaitable, ec));
-            co_await adaptation::async_write(*upstream_, buffer.data(), token);
+            co_await adaptation::async_write(*server_socket_ptr_, buffer.data(), token);
             if (ec)
             {
                 if (graceful(ec))
@@ -517,7 +519,7 @@ namespace ngx::agent
         while (true)
         {
             ec.clear();
-            const std::size_t n = co_await adaptation::async_read(*upstream_, buffer, token);
+            const std::size_t n = co_await server_socket_ptr_->async_read_some(buffer, token);
             if (ec)
             {
                 if (graceful(ec))
@@ -569,14 +571,15 @@ namespace ngx::agent
         // 获取当前协程的执行器
         auto executor = co_await net::this_coro::executor;
 
-        net::cancellation_signal cancel_obscura_to_upstream;
-        net::cancellation_signal cancel_upstream_to_obscura;
+        auto cancel_obscura_to_upstream = std::make_shared<net::cancellation_signal>();
+        auto cancel_upstream_to_obscura = std::make_shared<net::cancellation_signal>();
 
         const std::size_t half = buffer_.size() / 2;
         auto upstream_to_obscura_buffer = mutable_buf(buffer_.data(), half);
 
-        auto outoken = [self = this->shared_from_this(), proto,slot = cancel_obscura_to_upstream.slot(),
-            signal = &cancel_upstream_to_obscura]() -> net::awaitable<void>
+        auto outoken = [self = this->shared_from_this(), proto,
+            slot = cancel_obscura_to_upstream->slot(),
+            signal = cancel_upstream_to_obscura]() -> net::awaitable<void>
         {
             try
             {
@@ -590,8 +593,9 @@ namespace ngx::agent
             signal->emit(net::cancellation_type::all);
         };
 
-        auto uotoken = [self = this->shared_from_this(),proto,slot = cancel_upstream_to_obscura.slot(),
-            signal = &cancel_obscura_to_upstream, upstream_to_obscura_buffer]() -> net::awaitable<void>
+        auto uotoken = [self = this->shared_from_this(), proto,
+            slot = cancel_upstream_to_obscura->slot(),
+            signal = cancel_obscura_to_upstream, upstream_to_obscura_buffer]() -> net::awaitable<void>
         {
             try
             {
@@ -659,8 +663,8 @@ namespace ngx::agent
             }
         }
 
-        shut_close(upstream_);
-        upstream_.reset();
+        shut_close(server_socket_ptr_);
+        server_socket_ptr_.reset();
 
         if (first_error)
         {

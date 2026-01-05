@@ -13,7 +13,7 @@
 #include <boost/asio/stream_file.hpp>
 
 
-namespace ngx::log
+namespace ngx::trace
 {
     template<typename container_type>
     concept compatible = requires(const container_type& x) { boost::asio::buffer(x); };

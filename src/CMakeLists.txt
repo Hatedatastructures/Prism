@@ -4,8 +4,8 @@ set(FORWARD_LIB_SOURCES
         ../include/forward-engine/http/header.hpp
         forward-engine/http/request.cpp
         ../include/forward-engine/http/request.hpp
-        forward-engine/log/monitor.cpp
-        ../include/forward-engine/log/monitor.hpp
+        forward-engine/trace/monitor.cpp
+        ../include/forward-engine/trace/monitor.hpp
         forward-engine/http/response.cpp
         ../include/forward-engine/http/response.hpp
         forward-engine/http/serialization.cpp
@@ -30,7 +30,7 @@ set(FORWARD_LIB_SOURCES
         ../include/forward-engine/core/broker.hpp
         ../include/forward-engine/agent.hpp
         ../include/forward-engine/agent/worker.hpp
-        forward-engine/limit/blacklist.cpp
+        forward-engine/rule/blacklist.cpp
         ../include/forward-engine/memory/pointer.hpp
         ../include/forward-engine/agent/adaptation.hpp
         ../include/forward-engine/agent/analysis.hpp
@@ -42,6 +42,8 @@ set(FORWARD_LIB_SOURCES
         ../include/forward-engine/abnormal/protocol.hpp
         ../include/forward-engine/abnormal.hpp
         ../include/forward-engine/core/configuration.hpp
+        ../include/forward-engine/trace/spdlog.hpp
+        forward-engine/trace/spdlog.cpp
 )
 
 # 创建静态库
@@ -63,6 +65,7 @@ target_include_directories(${PROJECT_NAME}_static_library
 target_link_libraries(${PROJECT_NAME}_static_library
         PUBLIC
         async_simple::async_simple
+        spdlog::spdlog
         Boost::system
         OpenSSL::SSL
         OpenSSL::Crypto

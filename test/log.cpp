@@ -1,13 +1,13 @@
-#include <log/monitor.hpp>
+#include <trace/monitor.hpp>
 #include <iostream>
 #include <thread>
 #include <vector>
 #include <filesystem>
+#include <trace/spdlog.hpp>
 
-namespace nlog = ngx::log;
+namespace nlog = ngx::trace;
 namespace asio = boost::asio;
 namespace fs = std::filesystem;
-
 /**
  * @brief 测试不同级别的控制台日志输出
  * @param msg 日志实例
@@ -51,7 +51,7 @@ asio::awaitable<void> test_formatted_logs(const nlog::coroutine_log &msg)
 asio::awaitable<void> test_file_logging(nlog::coroutine_log &msg)
 {
     std::string test_dir = "test_logs";
-    std::string test_file = "test.log";
+    std::string test_file = "test.trace";
 
     // 设置输出目录
     co_await msg.set_output_directory(test_dir);
