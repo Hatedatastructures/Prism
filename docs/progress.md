@@ -2,9 +2,9 @@
 
 ## 1. 项目概况
 - **名称**：ForwardEngine
-- **目标**：基于 C++20 与 Boost.Asio 的通用代理引擎（当前以 TCP/HTTP 为主）
+- **目标**：基于 C++23 与 Boost.Asio 的通用代理引擎（当前以 TCP/HTTP 为主）
 - **开发环境**：Windows 11 + MinGW（第三方库安装在 `c:/bin`）
-- **核心依赖**：Boost.Asio/Beast、OpenSSL、CMake
+- **核心依赖**：Boost.Asio/Beast、OpenSSL、spdlog、glaze、CMake
 
 ## 2. 当前实现进度
 
@@ -30,16 +30,22 @@
 - [x] 基于 Beast WebSocket（含 SSL）的封装：`handshake/async_read/async_write`
 - [x] 端到端测试：`obscura_test` 已接入 CTest 并可运行（产物名 `obscura_test_exec`）
 
-### 2.4 日志（`include/forward-engine/log/*`）
-- [x] 协程日志：控制台/文件输出、时间戳、滚动归档（`monitor.hpp/.cpp`）
+### 2.4 日志（`include/forward-engine/trace/*`）
+- [x] 基于 `spdlog` 的日志封装：异步线程池 + 文件轮转 + 可选控制台输出（`spdlog.hpp/.cpp`）
+- [x] 协程日志接口与补充能力（`monitor.hpp/.cpp`）
 - [x] 测试：`log_test`
 
-### 2.5 构建与测试（CMake）
+### 2.5 Transformer（`include/forward-engine/transformer/*`）
+- [x] `transformer` 模块已接入：对 `glaze` 的封装入口（当前以 `JSON` 为主）
+- [ ] 待完善：在 `ngx::transformer::json` 下收敛统一读写接口与项目侧默认 `opts`
+
+### 2.6 构建与测试（CMake）
 - [x] 静态库 + 主程序 + 测试工程结构已搭好（根 `CMakeLists.txt`、`src/`、`test/`）
 - [x] MinGW 下 OpenSSL 依赖可配置与编译
 - [x] 已通过测试：`headers_test`、`request_test`、`log_test`、`session_test`、`connection_test`、`obscura_test`
   - `session_test` 覆盖：正常转发 + 上游先断/客户端先断的双向退出语义
 - [ ] 待稳定：`obscura_test`（测试用证书/路径与更多异常场景）
+- [ ] 待稳定：`spdlog_test`（已接入 CTest，但需要修复当前构建问题）
 
 ## 3. 近期待办（按当前缺口）
 - [ ] 稳定 `obscura_test`：去除绝对路径依赖，补充异常场景用例

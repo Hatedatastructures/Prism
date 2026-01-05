@@ -1,33 +1,72 @@
 #include <agent.hpp>
 #include <memory>
 #include <thread>
+#include <iostream>
+
+#include <abnormal.hpp>
 #include <http.hpp>
 #include <agent.hpp>
-#include <trace/monitor.hpp>
-#include <iostream>
+#include <trace.hpp>
+#include <rule.hpp>
+#include <transformer.hpp>
 
 namespace agent = ngx::agent;
 namespace http = ngx::http;
 namespace net = agent::net;
 
-constexpr  std::string_view cert_path = "C:\\Users\\C1373\\Desktop\\ForwardEngine\\cert.pem";
-constexpr  std::string_view key_path = "C:\\Users\\C1373\\Desktop\\ForwardEngine\\key.pem";
+const static std::string cert_path = "C:\\Users\\C1373\\Desktop\\ForwardEngine\\cert.pem";
+const static std::string key_path = "C:\\Users\\C1373\\Desktop\\ForwardEngine\\key.pem";
 
 
 // TODO: add more tests
 int main()
 {
-    constexpr unsigned short port = 8080;
-    auto threads_count = std::thread::hardware_concurrency();
-    if (threads_count == 0)
+    
+
+    try
     {
-        threads_count = 1;
+        constexpr unsigned short port = 8080U;
+        auto threads_count = std::thread::hardware_concurrency();
+        if (threads_count == 0)
+        {
+            ngx::abnormal::security("system error : {}","core acquisition failed");
+        }
+        ngx::trace::trace_config config;
+        config.file_name = "forward.log";
+        config.path_name = "logs";
+        config.max_size = 64U * 1024U * 1024U;
+        config.max_files = 8U;
+        config.queue_size = 8192U;
+        config.thread_count = 1U;
+        ngx::trace::init(config);
+
+        auto work = []()
+        {
+            ngx::agent::worker workerslot(port, cert_path, key_path);
+            workerslot.run();
+        };
+
+        std::vector<std::thread> threads;
+        threads.reserve(threads_count);
+
+        for (auto i = 0U; i < threads_count; ++i)
+        {
+            threads.emplace_back(work);
+        }
+
+        // ... 
     }
-
-    std::cout << "Starting ForwardEngine on port " << port
-              << " with " << threads_count << " threads..." << std::endl;
-
-    agent::worker w(port, {cert_path.data()}, {key_path.data()});
-    w.load_reverse_map("src/configuration.json");
-    w.run(threads_count);
+    catch(const ngx::abnormal::security& e)
+    {
+        std::cerr << e.what() << '\n';
+    }
+    catch(const std::exception& e)
+    {
+        std::cerr << e.what() << '\n';
+    }
+    catch(...)
+    {
+        std::cerr << "unknown exception" << '\n';
+    }
+    return 0;
 }

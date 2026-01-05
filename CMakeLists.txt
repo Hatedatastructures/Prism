@@ -5,7 +5,7 @@ cmake_policy(SET CMP0167 NEW)
 
 
 # 全局设置
-set(CMAKE_CXX_STANDARD 20)
+set(CMAKE_CXX_STANDARD 23)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
@@ -19,6 +19,7 @@ set(OPENSSL_USE_STATIC_LIBS TRUE)
 
 find_package(async_simple CONFIG REQUIRED)
 find_package(spdlog CONFIG REQUIRED)
+find_package(glaze CONFIG REQUIRED)
 find_package(OpenSSL REQUIRED)
 
 find_package(Boost QUIET COMPONENTS system)

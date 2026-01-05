@@ -44,6 +44,10 @@ set(FORWARD_LIB_SOURCES
         ../include/forward-engine/core/configuration.hpp
         ../include/forward-engine/trace/spdlog.hpp
         forward-engine/trace/spdlog.cpp
+        ../include/forward-engine/trace.hpp
+        ../include/forward-engine/rule.hpp
+        ../include/forward-engine/transformer.hpp
+        ../include/forward-engine/transformer/json.hpp
 )
 
 # 创建静态库
@@ -61,11 +65,15 @@ target_include_directories(${PROJECT_NAME}_static_library
         ${Boost_INCLUDE_DIRS}
 )
 
+# spdlog 集成
+find_package(spdlog CONFIG REQUIRED)
+
 # 链接依赖
 target_link_libraries(${PROJECT_NAME}_static_library
         PUBLIC
         async_simple::async_simple
         spdlog::spdlog
+        glaze::glaze
         Boost::system
         OpenSSL::SSL
         OpenSSL::Crypto

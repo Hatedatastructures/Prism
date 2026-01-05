@@ -82,3 +82,15 @@ target_link_libraries(connection_test
 )
 
 add_test(NAME connection_test COMMAND connection_test)
+
+# spdlog 测试可执行程序
+add_executable(spdlog_test
+        spdlog_test.cpp
+)
+
+target_link_libraries(spdlog_test
+        PRIVATE
+        ${PROJECT_NAME}_static_library
+)
+
+add_test(NAME spdlog_test COMMAND spdlog_test)
