@@ -1,13 +1,18 @@
 #pragma once
-
-#include <memory>
-#include <utility>
-#include <string>
-#include <string_view>
-#include <array>
 #include <cstddef>
 #include <cctype>
+
+#include <array>
+#include <memory>
+#include <string>
+#include <format>
+#include <utility>
+#include <iostream>
+#include <functional>
+#include <string_view>
 #include <memory_resource>
+
+
 #include <boost/asio.hpp>
 #include <abnormal.hpp>
 #include "analysis.hpp"
@@ -18,11 +23,23 @@
 #include <http/serialization.hpp>
 #include <boost/asio/experimental/awaitable_operators.hpp>
 
-#include <iostream>
 
 namespace ngx::agent
 {
     using tcp = boost::asio::ip::tcp;
+
+    /**
+     * @brief 会话内部日志级别
+     * @details 定义了会话过程中可能记录的日志级别，从调试到严重错误。
+     */
+    enum class level : std::uint8_t
+    {
+        debug,
+        info,
+        warn,
+        error,
+        fatal
+    };
 
     /**
      * @brief 会话管理类
@@ -42,7 +59,9 @@ namespace ngx::agent
         void start();
         void close();
 
+        void registered_log_function(std::function<void(level, std::string_view)> trace) noexcept;
     private:
+
         using mutable_buf = net::mutable_buffer;
         using cancellation_slot = net::cancellation_slot;
         using cancellation_signal = net::cancellation_signal;
@@ -59,15 +78,13 @@ namespace ngx::agent
                 || ec == error::connection_aborted || ec == error::broken_pipe || ec == error::not_connected;
         }
 
-        /**
-         * @brief 预留的日志接口
-         * @details 当前 `session` 仅负责捕获并上抛/汇总异常；真正的日志系统由更高层注入。
-         */
-        static void session_log(const std::string_view message) noexcept
-        {
-            std::cerr << "[Session Error] " << message << std::endl;
-        }
 
+        void log(level log_level, std::string_view message) const noexcept;
+
+        /**
+         * @brief 关闭 socket
+         * @details 尝试正常关闭 socket，如果失败则强制关闭。
+         */
         template <typename Socket>
         static void shut_close(Socket &socket) noexcept
         {
@@ -85,6 +102,10 @@ namespace ngx::agent
             }
         }
 
+        /**
+         * @brief 关闭 exclusive_connection 管理的 socket
+         * @details 尝试正常关闭 socket，如果失败则强制关闭。
+         */
         static void shut_close(const exclusive_connection &socket_ptr) noexcept
         {
             if (socket_ptr)
@@ -128,7 +149,7 @@ namespace ngx::agent
                         shut_close(to);
                         co_return;
                     }
-                    throw abnormal::network_error("transfer_tcp 读失败: {}", ec.message());
+                    throw abnormal::network("transfer_tcp 读失败: {}", ec.message());
                 }
 
                 if (n == 0)
@@ -146,7 +167,7 @@ namespace ngx::agent
                         shut_close(from);
                         co_return;
                     }
-                    throw abnormal::network_error("transfer_tcp 写失败: {}", ec.message());
+                    throw abnormal::network("transfer_tcp 写失败: {}", ec.message());
                 }
             }
         }
@@ -157,6 +178,8 @@ namespace ngx::agent
         distributor &distributor_;
         socket_type client_socket_; // 客户端连接
         exclusive_connection server_socket_ptr_; // 服务器连接
+
+        std::function<void(level, const std::string_view)> trace_;
 
         std::array<std::byte, 16384> buffer_{};
         alignas(std::max_align_t) std::array<std::byte, 16384> pool_buffer_{};
@@ -178,9 +201,39 @@ namespace ngx::agent
         close();
     }
 
+    /**
+     * @brief 注册日志函数
+     * @param trace 日志函数
+     * @details 该函数用于注册日志函数，以便在会话中记录日志。
+     * @warning 该函数必须在会话启动前调用，否则会什么也不记录。
+     */
+    template <socket_concept Transport>
+    void session<Transport>::registered_log_function(std::function<void(level, std::string_view)> trace) noexcept
+    {
+        trace_ = std::move(trace);
+    }
+
+    /**
+     * @brief 日志接口
+     * @details 用于记录会话过程中所有级别的日志信息。
+     */
+    template <socket_concept Transport>
+    void session<Transport>::log(level log_level, const std::string_view message) const noexcept
+    {
+        if (trace_)
+        {
+            trace_(log_level, message);
+        }
+    }
+
+    /**
+     * @brief 启动会话
+     * @details 该函数会启动会话，开始处理客户端请求。
+     */
     template <socket_concept Transport>
     void session<Transport>::start()
     {
+        log(level::info, "[Session] Session started.");
         auto process = [self = this->shared_from_this()]() -> net::awaitable<void>
         {
             co_await self->diversion();
@@ -198,11 +251,12 @@ namespace ngx::agent
             }
             catch (const abnormal::exception &e)
             {
-                session_log(e.dump());
+                const auto message = e.dump();
+                self->log(level::error, message);
             }
             catch (const std::exception &e)
             {
-                session_log(e.what());
+                self->log(level::error, e.what());
             }
 
             self->close();
@@ -218,6 +272,7 @@ namespace ngx::agent
     template <socket_concept Transport>
     void session<Transport>::close()
     {
+        log(level::debug, "[Session] Session closing.");
         shut_close(client_socket_);
         shut_close(server_socket_ptr_);
         server_socket_ptr_.reset();
@@ -243,7 +298,12 @@ namespace ngx::agent
             {
                 co_return;
             }
-            throw abnormal::network_error("diversion peek 失败: {}", ec.message());
+            throw abnormal::network("diversion peek 失败: {}", ec.message());
+        }
+
+        {
+            const auto message = std::format("[Session] Peeked `{}` bytes.", n);
+            log(level::debug, message);
         }
 
         // 2. 识别协议 (调用 analysis)
@@ -252,10 +312,12 @@ namespace ngx::agent
         // 3. 分流
         if (type == protocol_type::http)
         {
+            log(level::debug, "[Session] Detected protocol: http.");
             co_await handle_http();
         }
         else
         {
+            log(level::debug, "[Session] Detected protocol: obscura.");
             co_await handle_obscura();
         }
     }
@@ -272,18 +334,25 @@ namespace ngx::agent
         {
             pool_.release();
             http::request req(&pool_);
-            // std::cerr << "[Session] Waiting for HTTP request..." << std::endl;
+            log(level::debug, "[Session] Waiting for HTTP request...");
             const bool success = co_await http::async_read(client_socket_, req, read_buffer, &pool_);
 
             if (!success)
             {
-                // std::cerr << "[Session] HTTP read failed or connection closed." << std::endl;
+                log(level::warn, "[Session] HTTP read failed or connection closed.");
                 co_return;
             }
-            // std::cerr << "[Session] HTTP request received: " << req.method_string() << " " << req.target() << std::endl;
-
+            {
+                const auto message = std::format("[Session] HTTP request received: {} {}", req.method_string(), req.target());
+                log(level::info, message);
+            }
             //  连接上游
             const auto target = analysis::resolve(req);
+            {
+                const auto message = std::format("[Session] HTTP upstream resolving: forward_proxy=`{}` host=`{}` port=`{}`",
+                    target.forward_proxy ? "true" : "false", target.host, target.port);
+                log(level::debug, message);
+            }
             if (target.forward_proxy)
             {
                 server_socket_ptr_ = co_await distributor_.route_forward(target.host, target.port);
@@ -295,10 +364,10 @@ namespace ngx::agent
 
             if (!server_socket_ptr_) 
             {
-                // std::cerr << "[Session] Failed to route to upstream." << std::endl;
+                log(level::error, "[Session] Failed to route to upstream.");
                 co_return;
             }
-            // std::cerr << "[Session] Upstream connected." << std::endl;
+            log(level::info, "[Session] Upstream connected.");
 
             // 转发
             if (req.method() == http::verb::connect)
@@ -309,9 +378,9 @@ namespace ngx::agent
                 co_await adaptation::async_write(client_socket_, net::buffer(resp), token);
                 if (ec && !graceful(ec))
                 {
-                    throw abnormal::network_error("CONNECT 响应发送失败: {}", ec.message());
+                    throw abnormal::network("CONNECT 响应发送失败: {}", ec.message());
                 }
-                // std::cerr << "[Session] Sent 200 Connection Established." << std::endl;
+                log(level::info, "[Session] Sent 200 Connection Established.");
             }
             else
             {
@@ -322,25 +391,26 @@ namespace ngx::agent
                 co_await adaptation::async_write(*server_socket_ptr_, net::buffer(data), token);
                 if (ec && !graceful(ec))
                 {
-                    throw abnormal::network_error("HTTP 请求转发失败: {}", ec.message());
+                    throw abnormal::network("HTTP 请求转发失败: {}", ec.message());
                 }
             }
             
             if (read_buffer.size() != 0)
             {
-                // std::cerr << "[Session] Forwarding " << read_buffer.size() << " bytes of prefetched data." << std::endl;
+                const auto message = std::format("[Session] Forwarding {} bytes of prefetched data.", read_buffer.size());
+                log(level::debug, message);
                 boost::system::error_code ec;
                 auto token = net::redirect_error(net::use_awaitable, ec);
                 co_await adaptation::async_write(*server_socket_ptr_, read_buffer.data(), token);
                 if (ec && !graceful(ec))
                 {
-                    throw abnormal::network_error("预读残留转发失败: {}", ec.message());
+                    throw abnormal::network("预读残留转发失败: {}", ec.message());
                 }
                 read_buffer.consume(read_buffer.size());
             }
         } // 限制request 生命周期防止在下面request指向无效的tcp字节流
         
-        // std::cerr << "[Session] Starting tunnel..." << std::endl;
+        log(level::info, "[Session] Starting tunnel...");
         co_await tunnel();
     }
 
@@ -353,6 +423,7 @@ namespace ngx::agent
     {
         if (!server_socket_ptr_)
         {
+            log(level::warn, "[Session] Tunnel aborted: upstream socket is missing.");
             co_return;
         }
 
@@ -373,16 +444,16 @@ namespace ngx::agent
 
         auto client_to_upstream = [this, left_buffer]() -> net::awaitable<void>
         {
-            // std::cerr << "[Session] Tunnel: Client -> Upstream started." << std::endl;
+            log(level::debug, "[Session] Tunnel: Client -> Upstream started.");
             co_await transfer_tcp(client_socket_, *server_socket_ptr_, left_buffer);
-            // std::cerr << "[Session] Tunnel: Client -> Upstream finished." << std::endl;
+            log(level::debug, "[Session] Tunnel: Client -> Upstream finished.");
         };
 
         auto upstream_to_client = [this, right_buffer]() -> net::awaitable<void>
         {
-            // std::cerr << "[Session] Tunnel: Upstream -> Client started." << std::endl;
+            log(level::debug, "[Session] Tunnel: Upstream -> Client started.");
             co_await transfer_tcp(*server_socket_ptr_, client_socket_, right_buffer);
-            // std::cerr << "[Session] Tunnel: Upstream -> Client finished." << std::endl;
+            log(level::debug, "[Session] Tunnel: Upstream -> Client finished.");
         };
 
         try
@@ -392,12 +463,13 @@ namespace ngx::agent
         }
         catch ([[maybe_unused]] const std::exception &e)
         {
-            // std::cerr << "[Session] Tunnel error: " << e.what() << std::endl;
+            const auto message = std::format("[Session] Tunnel error: {}", e.what());
+            log(level::error, message);
             // 记录错误但继续清理
         }
         catch (...)
         {
-            // std::cerr << "[Session] Tunnel unknown error." << std::endl;
+            log(level::error, "[Session] Tunnel unknown error.");
         }
 
         shut_close(client_socket_);
@@ -414,6 +486,7 @@ namespace ngx::agent
     {
         if (!ssl_ctx_)
         {
+            log(level::warn, "[Session] Obscura disabled: ssl context is missing.");
             co_return;
         }
 
@@ -422,33 +495,49 @@ namespace ngx::agent
         std::string target_path;
         try
         {
+            log(level::debug, "[Session] Obscura handshake started.");
             target_path = co_await proto->handshake();
         }
         catch (const boost::system::system_error &e)
         {
-            throw abnormal::protocol_error("obscura 握手失败: {}", e.code().message());
+            throw abnormal::protocol("obscura 握手失败: {}", e.code().message());
         }
         catch (const std::exception &e)
         {
-            throw abnormal::protocol_error("obscura 握手失败: {}", e.what());
+            throw abnormal::protocol("obscura 握手失败: {}", e.what());
         }
 
         if (target_path.starts_with('/'))
         {
             target_path.erase(0, 1);
         }
+
+        if (!target_path.empty())
+        {
+            const auto message = std::format("[Session] Obscura target path: `{}`", target_path);
+            log(level::debug, message);
+        }
+
         const auto target = analysis::resolve(std::string_view(target_path), &pool_);
         if (target.host.empty())
         {
+            log(level::warn, "[Session] Obscura resolve failed: empty host.");
             co_return;
+        }
+
+        {
+            const auto message = std::format("[Session] Obscura upstream resolving: {}:{}", target.host, target.port);
+            log(level::info, message);
         }
 
         server_socket_ptr_ = co_await distributor_.route_forward(target.host, target.port);
         if (!server_socket_ptr_ || !server_socket_ptr_->is_open())
         {
+            log(level::error, "[Session] Obscura route to upstream failed.");
             co_return;
         }
 
+        log(level::info, "[Session] Obscura upstream connected.");
         co_await tunnel_obscura(std::move(proto));
     }
 
@@ -475,11 +564,11 @@ namespace ngx::agent
                 {   // 正常关闭,不抛出异常
                     co_return;
                 }
-                throw abnormal::protocol_error("obscura 读失败: {}", e.code().message());
+                throw abnormal::protocol("obscura 读失败: {}", e.code().message());
             }
             catch (const std::exception &e)
             {
-                throw abnormal::protocol_error("obscura 读失败: {}", e.what());
+                throw abnormal::protocol("obscura 读失败: {}", e.what());
             }
 
             if (n == 0)
@@ -496,7 +585,7 @@ namespace ngx::agent
                 {
                     co_return;
                 }
-                throw abnormal::network_error("写入上游失败: {}", ec.message());
+                throw abnormal::network("写入上游失败: {}", ec.message());
             }
 
             buffer.consume(n);
@@ -526,7 +615,7 @@ namespace ngx::agent
                 {
                     co_return;
                 }
-                throw abnormal::network_error("从上游读取失败: {}", ec.message());
+                throw abnormal::network("从上游读取失败: {}", ec.message());
             }
 
             if (n == 0)
@@ -545,11 +634,11 @@ namespace ngx::agent
                 {
                     co_return;
                 }
-                throw abnormal::protocol_error("obscura 写失败: {}", e.code().message());
+                throw abnormal::protocol("obscura 写失败: {}", e.code().message());
             }
             catch (const std::exception &e)
             {
-                throw abnormal::protocol_error("obscura 写失败: {}", e.what());
+                throw abnormal::protocol("obscura 写失败: {}", e.what());
             }
         }
     }
@@ -567,6 +656,8 @@ namespace ngx::agent
             co_return;
         }
 
+        log(level::info, "[Session] Obscura tunnel started.");
+
         pool_.release();
         // 获取当前协程的执行器
         auto executor = co_await net::this_coro::executor;
@@ -583,7 +674,9 @@ namespace ngx::agent
         {
             try
             {
+                self->log(level::debug, "[Session] Obscura tunnel: obscura -> upstream started.");
                 co_await self->transfer_obscura(*proto, slot);
+                self->log(level::debug, "[Session] Obscura tunnel: obscura -> upstream finished.");
             }
             catch (...)
             {
@@ -599,7 +692,9 @@ namespace ngx::agent
         {
             try
             {
+                self->log(level::debug, "[Session] Obscura tunnel: upstream -> obscura started.");
                 co_await self->transfer_obscura(*proto, slot, upstream_to_obscura_buffer);
+                self->log(level::debug, "[Session] Obscura tunnel: upstream -> obscura finished.");
             }
             catch (...)
             {
@@ -643,6 +738,7 @@ namespace ngx::agent
 
         try
         {
+            log(level::debug, "[Session] Obscura tunnel closing obscura protocol.");
             co_await proto->close();
         }
         catch (const boost::system::system_error &e)
@@ -651,7 +747,7 @@ namespace ngx::agent
             {
                 if (!first_error)
                 {
-                    first_error = std::make_exception_ptr(abnormal::protocol_error("obscura 关闭失败: {}", e.code().message()));
+                    first_error = std::make_exception_ptr(abnormal::protocol("obscura 关闭失败: {}", e.code().message()));
                 }
             }
         }
@@ -659,7 +755,7 @@ namespace ngx::agent
         {
             if (!first_error)
             {
-                first_error = std::make_exception_ptr(abnormal::protocol_error("obscura 关闭失败: {}", e.what()));
+                first_error = std::make_exception_ptr(abnormal::protocol("obscura 关闭失败: {}", e.what()));
             }
         }
 
@@ -668,7 +764,10 @@ namespace ngx::agent
 
         if (first_error)
         {
+            log(level::error, "[Session] Obscura tunnel finished with error.");
             std::rethrow_exception(first_error);
         }
+
+        log(level::info, "[Session] Obscura tunnel finished.");
     }
 }

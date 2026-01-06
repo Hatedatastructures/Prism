@@ -22,6 +22,17 @@ target_link_libraries(request_test
         ${PROJECT_NAME}_static_library
 )
 
+add_executable(glaze_test
+    glaze_test.cpp
+)
+
+target_link_libraries(glaze_test
+        PRIVATE
+        ${PROJECT_NAME}_static_library
+)
+
+add_test(NAME glaze_test COMMAND glaze_test)
+
 add_test(NAME request_test COMMAND request_test)
 
 # 日志模块测试可执行程序

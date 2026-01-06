@@ -14,8 +14,8 @@ namespace agent = ngx::agent;
 namespace http = ngx::http;
 namespace net = agent::net;
 
-const static std::string cert_path = "C:\\Users\\C1373\\Desktop\\ForwardEngine\\cert.pem";
-const static std::string key_path = "C:\\Users\\C1373\\Desktop\\ForwardEngine\\key.pem";
+const static std::string cert_path = R"(C:\Users\C1373\Desktop\ForwardEngine\cert.pem)";
+const static std::string key_path = R"(C:\Users\C1373\Desktop\ForwardEngine\key.pem)";
 
 
 // TODO: add more tests
@@ -29,7 +29,7 @@ int main()
         auto threads_count = std::thread::hardware_concurrency();
         if (threads_count == 0)
         {
-            ngx::abnormal::security("system error : {}","core acquisition failed");
+            throw ngx::abnormal::security("system error : {}","core acquisition failed");
         }
         ngx::trace::trace_config config;
         config.file_name = "forward.log";
@@ -42,8 +42,8 @@ int main()
 
         auto work = []()
         {
-            ngx::agent::worker workerslot(port, cert_path, key_path);
-            workerslot.run();
+            ngx::agent::worker worker(port, cert_path, key_path);
+            worker.run();
         };
 
         std::vector<std::thread> threads;

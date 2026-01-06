@@ -4,20 +4,24 @@
 
 namespace ngx::abnormal
 {
-    class protocol_error : public exception
+    /**
+     * @brief 协议异常
+     * @details 协议异常是指在程序运行过程中，由于协议错误而导致的异常情况。
+     */
+    class protocol : public exception
     {
     public:
         template <typename... Args>
-        explicit protocol_error(std::format_string<Args...> fmt, Args&&... args)
+        explicit protocol(std::format_string<Args...> fmt, Args&&... args)
             : exception(std::source_location::current(), fmt, std::forward<Args>(args)...)
         {}
 
         template <typename... Args>
-        explicit protocol_error(const std::source_location& loc, std::format_string<Args...> fmt, Args&&... args)
+        explicit protocol(const std::source_location& loc, std::format_string<Args...> fmt, Args&&... args)
             : exception(loc, fmt, std::forward<Args>(args)...)
         {}
 
-        explicit protocol_error(const std::string& msg,
+        explicit protocol(const std::string& msg,
                                 const std::source_location& loc = std::source_location::current())
             : exception(loc, msg)
         {}

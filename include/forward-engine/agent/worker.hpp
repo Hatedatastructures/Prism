@@ -8,11 +8,44 @@
 #include <thread>
 #include <vector>
 
+#include <trace.hpp>
+
 namespace ngx::agent
 {
 
     namespace net = boost::asio;
     using tcp = boost::asio::ip::tcp;
+    
+    /**
+     * @brief 日志转换函数
+     * @details 将 `agent::level` 转换为 `ngx::trace::level` 并记录日志。
+     * @param level `agent::level` 日志级别
+     * @param msg `std::string_view` 日志消息
+     * @note 该函数不会主动运行，需要由现有测试用例显式调用。或者根据用户自己写的log模块转换调用
+     */
+    inline auto log_transformation = [](agent::level level, std::string_view msg)
+    {
+        switch (level)
+        {
+        case agent::level::debug:
+            ngx::trace::debug("{}", msg);
+            break;
+        case agent::level::info:
+            ngx::trace::info("{}", msg);
+            break;
+        case agent::level::warn:
+            ngx::trace::warn("{}", msg);
+            break;
+        case agent::level::error:
+            ngx::trace::error("{}", msg);
+            break;
+        case agent::level::fatal:
+            ngx::trace::fatal("{}", msg);
+            break;
+        default:
+            break;
+        }
+    };
 
     class worker
     {
@@ -85,17 +118,18 @@ namespace ngx::agent
         void do_accept()
         {
             acceptor_.async_accept(
-                [this](boost::system::error_code ec, tcp::socket socket)
+                [this](const boost::system::error_code &ec, tcp::socket socket)
                 {
                     if (!ec)
                     {
                         // 创建会话，把“路由器”传给它
-                        std::make_shared<session<tcp::socket>>(
+                        auto session_ptr = std::make_shared<session<tcp::socket>>(
                             ioc_,
                             std::move(socket),
                             distributor_,
-                            ssl_ctx_)
-                            ->start();
+                            ssl_ctx_);
+                        session_ptr->registered_log_function(log_transformation);
+                        session_ptr->start();
                     }
                     do_accept();
                 });

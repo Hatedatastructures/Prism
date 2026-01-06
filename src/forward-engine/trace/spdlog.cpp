@@ -41,7 +41,7 @@ namespace ngx::trace
 
         last_config = cfg;
 
-        if (!cfg.path_name.empty())
+        if (cfg.enable_file && !cfg.path_name.empty())
         {
             std::error_code ec;
             std::filesystem::create_directories(cfg.path_name, ec);
@@ -52,32 +52,46 @@ namespace ngx::trace
             spdlog::init_thread_pool(cfg.queue_size, cfg.thread_count);
         }
 
-        const auto log_path = build_log_path(cfg);
+        trace_config effective_cfg = cfg;
+        if (effective_cfg.enable_file && effective_cfg.file_name.empty())
+        {
+            effective_cfg.file_name = effective_cfg.trace_name.empty() ? "forward_engine.log" : (effective_cfg.trace_name + ".log");
+        }
+
+        const auto log_path = build_log_path(effective_cfg);
 
         std::vector<spdlog::sink_ptr> sinks;
-        sinks.reserve(cfg.enable_console ? 2U : 1U);
+        sinks.reserve((effective_cfg.enable_file ? 1U : 0U) + (effective_cfg.enable_console ? 1U : 0U));
 
-        sinks.emplace_back(std::make_shared<spdlog::sinks::rotating_file_sink_mt>(
-            log_path.string(), cfg.max_size, cfg.max_files, true));
+        if (effective_cfg.enable_file)
+        {
+            sinks.emplace_back(std::make_shared<spdlog::sinks::rotating_file_sink_mt>(
+                log_path.string(), effective_cfg.max_size, effective_cfg.max_files, true));
+        }
 
-        if (cfg.enable_console)
+        if (effective_cfg.enable_console)
+        {
+            sinks.emplace_back(std::make_shared<spdlog::sinks::stdout_color_sink_mt>());
+        }
+
+        if (sinks.empty())
         {
             sinks.emplace_back(std::make_shared<spdlog::sinks::stdout_color_sink_mt>());
         }
 
         // 创建异步 logger
         auto logger = std::make_shared<spdlog::async_logger>(
-            cfg.trace_name,
+            effective_cfg.trace_name,
             sinks.begin(),
             sinks.end(),
             spdlog::thread_pool(),
             spdlog::async_overflow_policy::overrun_oldest);
 
-        logger->set_level(cfg.log_level);
-        logger->set_pattern(cfg.pattern);
+        logger->set_level(effective_cfg.log_level);
+        logger->set_pattern(effective_cfg.pattern);
 
         spdlog::set_default_logger(logger);
-        spdlog::set_level(cfg.log_level);
+        spdlog::set_level(effective_cfg.log_level);
         logsys = std::move(logger);
     }
 

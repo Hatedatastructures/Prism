@@ -4,6 +4,10 @@
 
 namespace ngx::abnormal
 {
+    /**
+     * @brief 安全异常
+     * @details 安全异常是指在程序运行过程中，由于安全原因而导致的异常情况。
+     */
     class security : public exception
     {
     public:

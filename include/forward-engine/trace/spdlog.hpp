@@ -65,6 +65,8 @@ namespace ngx::trace
          */
         bool enable_console = true;
 
+        bool enable_file = true;
+
         /**
          * @brief 日志级别
          * @details 默认 info 级别。可设置为 trace、debug、info、warn、error、critical
@@ -109,7 +111,7 @@ namespace ngx::trace
      * @details 日志级别为 debug。
      */
     template <typename... Args>
-    boost::asio::awaitable<void> debug(const std::string_view fmt, Args &&...args)
+    void debug(const std::string_view fmt, Args &&...args)
     {
         try
         {
@@ -121,7 +123,7 @@ namespace ngx::trace
         catch (...)
         {
         }
-        co_return;
+        return;
     }
 
     /**
@@ -129,7 +131,7 @@ namespace ngx::trace
      * @details 日志级别为 info。
      */
     template <typename... Args>
-    boost::asio::awaitable<void> info(const std::string_view fmt, Args &&...args)
+    void info(const std::string_view fmt, Args &&...args)
     {
         try
         {
@@ -141,7 +143,7 @@ namespace ngx::trace
         catch (...)
         {
         }
-        co_return;
+        return;
     }
 
     /**
@@ -149,7 +151,7 @@ namespace ngx::trace
      * @details 日志级别为 warn。
      */
     template <typename... Args>
-    boost::asio::awaitable<void> warn(const std::string_view fmt, Args &&...args)
+    void warn(const std::string_view fmt, Args &&...args)
     {
         try
         {
@@ -161,7 +163,7 @@ namespace ngx::trace
         catch (...)
         {
         }
-        co_return;
+        return;
     }
 
     /**
@@ -169,7 +171,7 @@ namespace ngx::trace
      * @details 日志级别为 error。
      */
     template <typename... Args>
-    boost::asio::awaitable<void> error(const std::string_view fmt, Args &&...args)
+    void error(const std::string_view fmt, Args &&...args)
     {
         try
         {
@@ -181,7 +183,7 @@ namespace ngx::trace
         catch (...)
         {
         }
-        co_return;
+        return;
     }
 
     /**
@@ -189,7 +191,7 @@ namespace ngx::trace
      * @details 日志级别为 critical，会立即触发程序终止。
      */
     template <typename... Args>
-    boost::asio::awaitable<void> fatal(const std::string_view fmt, Args &&...args)
+    void fatal(const std::string_view fmt, Args &&...args)
     {
         try
         {
@@ -201,6 +203,6 @@ namespace ngx::trace
         catch (...)
         {
         }
-        co_return;
+        return;
     }
 }

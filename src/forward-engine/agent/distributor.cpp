@@ -76,7 +76,7 @@ namespace ngx::agent
       // 1. 查 DNS
       if (blacklist_.domain(host))
       {
-         throw abnormal::network_error(std::format("Domain blacklisted: {}, port: {}",host,port));
+         throw abnormal::network(std::format("Domain blacklisted: {}, port: {}",host,port));
       }
       const auto results = co_await resolver_.async_resolve(host, port, net::use_awaitable);
       // 2. 找池子要连接
@@ -95,7 +95,7 @@ namespace ngx::agent
       {
          co_return co_await pool_.acquire_tcp(it->second);
       }
-      throw abnormal::network_error("Unknown host: {}", std::string_view(host));
+      throw abnormal::network("Unknown host: {}", std::string_view(host));
    }
 
    /**

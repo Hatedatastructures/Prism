@@ -53,11 +53,11 @@ net::awaitable<void> run_spdlog_test(const net::any_io_executor executor)
 
     ntrace::init(cfg);
 
-    co_await ntrace::debug("spdlog_test: debug `{}`", 1);
-    co_await ntrace::info("spdlog_test: info `{}`", 2);
-    co_await ntrace::warn("spdlog_test: warn `{}`", 3);
-    co_await ntrace::error("spdlog_test: error `{}`", 4);
-    co_await ntrace::fatal("spdlog_test: fatal `{}`", 5);
+    ntrace::debug("spdlog_test: debug `{}`", 1);
+    ntrace::info("spdlog_test: info `{}`", 2);
+    ntrace::warn("spdlog_test: warn `{}`", 3);
+    ntrace::error("spdlog_test: error `{}`", 4);
+    ntrace::fatal("spdlog_test: fatal `{}`", 5);
 
     ntrace::shutdown();
 
