@@ -1,7 +1,9 @@
-#include <forward-engine/trace/spdlog.hpp>
+#include <trace/spdlog.hpp>
 #include <spdlog/async.h>
 #include <spdlog/sinks/rotating_file_sink.h>
 #include <spdlog/sinks/stdout_color_sinks.h>
+#include <algorithm>
+#include <cctype>
 #include <filesystem>
 #include <mutex>
 #include <vector>
@@ -11,21 +13,62 @@ namespace ngx::trace
     namespace
     {
         std::mutex trace_mutex;
-        trace_config last_config{};
+        config last_config{};
         std::shared_ptr<spdlog::logger> logsys;
+
+        [[nodiscard]] spdlog::level::level_enum parse_spdlog_level(std::string_view level_str) noexcept
+        {
+            std::string normalized;
+            normalized.reserve(level_str.size());
+            for (const char ch : level_str)
+            {
+                normalized.push_back(static_cast<char>(std::tolower(static_cast<unsigned char>(ch))));
+            }
+
+            if (normalized == "trace")
+            {
+                return spdlog::level::trace;
+            }
+            if (normalized == "debug")
+            {
+                return spdlog::level::debug;
+            }
+            if (normalized == "info")
+            {
+                return spdlog::level::info;
+            }
+            if (normalized == "warn" || normalized == "warning")
+            {
+                return spdlog::level::warn;
+            }
+            if (normalized == "error" || normalized == "err")
+            {
+                return spdlog::level::err;
+            }
+            if (normalized == "critical" || normalized == "fatal")
+            {
+                return spdlog::level::critical;
+            }
+            if (normalized == "off")
+            {
+                return spdlog::level::off;
+            }
+
+            return spdlog::level::info;
+        }
 
         /**
          * @brief 构建日志文件路径
          * @param cfg 配置
          * @return 日志文件路径
          */
-        [[nodiscard]] std::filesystem::path build_log_path(const trace_config &cfg)
+        [[nodiscard]] std::filesystem::path build_log_path(const config &cfg)
         {
             if (cfg.path_name.empty())
             {
                 return std::filesystem::path(cfg.file_name);
             }
-            return cfg.path_name / cfg.file_name;
+            return std::filesystem::path(cfg.path_name) / cfg.file_name;
         }
     }
 
@@ -35,7 +78,7 @@ namespace ngx::trace
         return logsys;
     }
 
-    void init(const trace_config &cfg)
+    void init(const config &cfg)
     {
         std::scoped_lock lock(trace_mutex);
 
@@ -44,15 +87,15 @@ namespace ngx::trace
         if (cfg.enable_file && !cfg.path_name.empty())
         {
             std::error_code ec;
-            std::filesystem::create_directories(cfg.path_name, ec);
+            std::filesystem::create_directories(std::filesystem::path(cfg.path_name), ec);
         }
 
         if (!spdlog::thread_pool())
         {
-            spdlog::init_thread_pool(cfg.queue_size, cfg.thread_count);
+            spdlog::init_thread_pool(static_cast<std::size_t>(cfg.queue_size), static_cast<std::size_t>(cfg.thread_count));
         }
 
-        trace_config effective_cfg = cfg;
+        config effective_cfg = cfg;
         if (effective_cfg.enable_file && effective_cfg.file_name.empty())
         {
             effective_cfg.file_name = effective_cfg.trace_name.empty() ? "forward_engine.log" : (effective_cfg.trace_name + ".log");
@@ -66,7 +109,10 @@ namespace ngx::trace
         if (effective_cfg.enable_file)
         {
             sinks.emplace_back(std::make_shared<spdlog::sinks::rotating_file_sink_mt>(
-                log_path.string(), effective_cfg.max_size, effective_cfg.max_files, true));
+                log_path.string(),
+                static_cast<std::size_t>(effective_cfg.max_size),
+                static_cast<std::size_t>(effective_cfg.max_files),
+                true));
         }
 
         if (effective_cfg.enable_console)
@@ -87,11 +133,12 @@ namespace ngx::trace
             spdlog::thread_pool(),
             spdlog::async_overflow_policy::overrun_oldest);
 
-        logger->set_level(effective_cfg.log_level);
+        const auto log_level = parse_spdlog_level(effective_cfg.log_level);
+        logger->set_level(log_level);
         logger->set_pattern(effective_cfg.pattern);
 
         spdlog::set_default_logger(logger);
-        spdlog::set_level(effective_cfg.log_level);
+        spdlog::set_level(log_level);
         logsys = std::move(logger);
     }
 

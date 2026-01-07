@@ -509,8 +509,8 @@ int main()
     try
     {
         {
-            ngx::trace::trace_config cfg;
-            cfg.path_name = std::filesystem::path("test_logs") / "session";
+            ngx::trace::config cfg;
+            cfg.path_name = (std::filesystem::path("test_logs") / "session").string();
             cfg.file_name = "session_test.log";
             cfg.max_size = 4U * 1024U * 1024U;
             cfg.max_files = 2U;
@@ -518,7 +518,7 @@ int main()
             cfg.thread_count = 1U;
             cfg.enable_console = true;
             cfg.enable_file = false;
-            cfg.log_level = spdlog::level::debug;
+            cfg.log_level = "debug";
             cfg.trace_name = "session_test";
             ngx::trace::init(cfg);
         }

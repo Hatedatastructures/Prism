@@ -12,8 +12,12 @@
 #include <boost/asio/awaitable.hpp>
 #include <boost/asio/stream_file.hpp>
 
-
-namespace ngx::trace
+/**
+ * @namespace deprecated 
+ * @brief 已弃用的日志监控命名空间
+ * @note 该命名空间达不到性能需求且开销较大资源重，现在已弃用。
+ */
+namespace ngx::trace::deprecated
 {
     template<typename container_type>
     concept compatible = requires(const container_type& x) { boost::asio::buffer(x); };

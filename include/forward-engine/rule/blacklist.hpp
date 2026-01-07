@@ -6,7 +6,7 @@
 #include <vector>
 
 
-namespace ngx::trace
+namespace ngx::rule
 {
 
     class  blacklist

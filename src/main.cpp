@@ -31,7 +31,7 @@ int main()
         {
             throw ngx::abnormal::security("system error : {}","core acquisition failed");
         }
-        ngx::trace::trace_config config;
+        ngx::trace::config config;
         config.file_name = "forward.log";
         config.path_name = "logs";
         config.max_size = 64U * 1024U * 1024U;

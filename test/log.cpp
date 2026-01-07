@@ -5,7 +5,7 @@
 #include <filesystem>
 #include <trace/spdlog.hpp>
 
-namespace nlog = ngx::trace;
+namespace deprecated_log = ngx::trace::deprecated;
 namespace asio = boost::asio;
 namespace fs = std::filesystem;
 /**
@@ -13,13 +13,13 @@ namespace fs = std::filesystem;
  * @param msg 日志实例
  * @return `asio::awaitable<void>`
  */
-asio::awaitable<void> test_console_levels(const nlog::coroutine_log &msg)
+asio::awaitable<void> test_console_levels(const deprecated_log::coroutine_log &msg)
 {
-    co_await msg.console_write_line(nlog::level::debug, "这是一条 `debug` 级别的消息");
-    co_await msg.console_write_line(nlog::level::info, "这是一条 `info` 级别的消息");
-    co_await msg.console_write_line(nlog::level::warn, "这是一条 `warn` 级别的消息");
-    co_await msg.console_write_line(nlog::level::error, "这是一条 `error` 级别的消息");
-    co_await msg.console_write_line(nlog::level::fatal, "这是一条 `fatal` 级别的消息");
+    co_await msg.console_write_line(deprecated_log::level::debug, "这是一条 `debug` 级别的消息");
+    co_await msg.console_write_line(deprecated_log::level::info, "这是一条 `info` 级别的消息");
+    co_await msg.console_write_line(deprecated_log::level::warn, "这是一条 `warn` 级别的消息");
+    co_await msg.console_write_line(deprecated_log::level::error, "这是一条 `error` 级别的消息");
+    co_await msg.console_write_line(deprecated_log::level::fatal, "这是一条 `fatal` 级别的消息");
     co_return;
 }
 
@@ -28,16 +28,16 @@ asio::awaitable<void> test_console_levels(const nlog::coroutine_log &msg)
  * @param msg 日志实例
  * @return `asio::awaitable<void>`
  */
-asio::awaitable<void> test_formatted_logs(const nlog::coroutine_log &msg)
+asio::awaitable<void> test_formatted_logs(const deprecated_log::coroutine_log &msg)
 {
     int age = 25;
     std::string name = "张三";
     double score = 95.5;
 
-    co_await msg.console_write_fmt(nlog::level::info,
+    co_await msg.console_write_fmt(deprecated_log::level::info,
                                    "用户信息: 姓名=`{}`, 年龄=`{}`, 分数=`{:.2f}`\n", name, age, score);
 
-    co_await msg.console_write_fmt(nlog::level::warn,
+    co_await msg.console_write_fmt(deprecated_log::level::warn,
                                    "测试多个参数: `{}`, `{}`, `{}`, `{}`\n", 1, "字符串", 3.14, true);
 
     co_return;
@@ -48,7 +48,7 @@ asio::awaitable<void> test_formatted_logs(const nlog::coroutine_log &msg)
  * @param msg 日志实例
  * @return `asio::awaitable<void>`
  */
-asio::awaitable<void> test_file_logging(nlog::coroutine_log &msg)
+asio::awaitable<void> test_file_logging(deprecated_log::coroutine_log &msg)
 {
     std::string test_dir = "test_logs";
     std::string test_file = "test.trace";
@@ -60,7 +60,7 @@ asio::awaitable<void> test_file_logging(nlog::coroutine_log &msg)
     co_await msg.file_write_line(test_file, "这是一条写入文件的测试日志");
     co_await msg.file_write_line(test_file, "这是第二条文件日志，测试追加功能");
 
-    co_await msg.console_write_line(nlog::level::info, "文件日志已写入到 `" + test_dir + "/" + test_file + "`");
+    co_await msg.console_write_line(deprecated_log::level::info, "文件日志已写入到 `" + test_dir + "/" + test_file + "`");
     co_return;
 }
 
@@ -70,11 +70,11 @@ asio::awaitable<void> test_file_logging(nlog::coroutine_log &msg)
  * @param id 协程标识 ID
  * @return `asio::awaitable<void>`
  */
-asio::awaitable<void> test_concurrent_logging(const nlog::coroutine_log &msg, int id)
+asio::awaitable<void> test_concurrent_logging(const deprecated_log::coroutine_log &msg, int id)
 {
     for (int i = 0; i < 5; ++i)
     {
-        co_await msg.console_write_fmt(nlog::level::info,
+        co_await msg.console_write_fmt(deprecated_log::level::info,
                                        "来自协程 `{}` 的并发日志, 计数: `{}`\n", id, i);
         // 模拟一些异步操作
         asio::steady_timer timer(co_await asio::this_coro::executor);
@@ -89,20 +89,20 @@ asio::awaitable<void> test_concurrent_logging(const nlog::coroutine_log &msg, in
  * @param msg 日志实例
  * @return `asio::awaitable<void>`
  */
-asio::awaitable<void> async_main(nlog::coroutine_log &msg)
+asio::awaitable<void> async_main(deprecated_log::coroutine_log &msg)
 {
     try
     {
-        co_await msg.console_write_line(nlog::level::info, "=== 开始控制台级别测试 ===");
+        co_await msg.console_write_line(deprecated_log::level::info, "=== 开始控制台级别测试 ===");
         co_await test_console_levels(msg);
 
-        co_await msg.console_write_line(nlog::level::info, "=== 开始格式化日志测试 ===");
+        co_await msg.console_write_line(deprecated_log::level::info, "=== 开始格式化日志测试 ===");
         co_await test_formatted_logs(msg);
 
-        co_await msg.console_write_line(nlog::level::info, "=== 开始文件日志测试 ===");
+        co_await msg.console_write_line(deprecated_log::level::info, "=== 开始文件日志测试 ===");
         co_await test_file_logging(msg);
 
-        co_await msg.console_write_line(nlog::level::info, "=== 开始并发日志测试 ===");
+        co_await msg.console_write_line(deprecated_log::level::info, "=== 开始并发日志测试 ===");
         std::vector<asio::awaitable<void>> tasks;
         for (int i = 0; i < 20; ++i)
         {
@@ -115,7 +115,7 @@ asio::awaitable<void> async_main(nlog::coroutine_log &msg)
         timer.expires_after(std::chrono::seconds(1));
         co_await timer.async_wait(asio::use_awaitable);
 
-        co_await msg.console_write_line(nlog::level::info, "=== 所有测试完成 ===");
+        co_await msg.console_write_line(deprecated_log::level::info, "=== 所有测试完成 ===");
         co_await msg.shutdown();
     }
     catch (const std::exception &e)
@@ -134,7 +134,7 @@ int main()
         asio::io_context io_context;
 
         // 创建日志实例
-        nlog::coroutine_log msg(io_context.get_executor());
+        deprecated_log::coroutine_log msg(io_context.get_executor());
 
         // 启动主测试协程
         asio::co_spawn(io_context, async_main(msg), asio::detached);

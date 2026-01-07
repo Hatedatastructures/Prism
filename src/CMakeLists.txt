@@ -48,6 +48,11 @@ set(FORWARD_LIB_SOURCES
         ../include/forward-engine/rule.hpp
         ../include/forward-engine/transformer.hpp
         ../include/forward-engine/transformer/json.hpp
+        ../include/forward-engine/agent/config.hpp
+        ../include/forward-engine/trace/config.hpp
+        ../include/forward-engine/rule/config.hpp
+        ../include/forward-engine/memory/pool.hpp
+        ../include/forward-engine/memory.hpp
 )
 
 # 创建静态库

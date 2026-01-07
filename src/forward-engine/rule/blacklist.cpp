@@ -2,7 +2,7 @@
 #include <algorithm>
 
 
-namespace ngx::trace
+namespace ngx::rule
 {
     /**
      * @brief  加载黑名单

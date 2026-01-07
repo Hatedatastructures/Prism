@@ -11,6 +11,8 @@
 #include "connection.hpp"
 #include <rule/blacklist.hpp>
 
+#include "rule.hpp"
+
 namespace ngx::agent
 {
     namespace net = boost::asio;
@@ -74,7 +76,7 @@ namespace ngx::agent
 
         source &pool_;
         tcp::resolver resolver_;
-        trace::blacklist blacklist_;
+        rule::blacklist blacklist_;
         std::pmr::memory_resource *mr_;
         unordered_map<memory::string, tcp::endpoint> reverse_map_;
     }; // class distributor

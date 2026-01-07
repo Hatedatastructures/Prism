@@ -40,15 +40,15 @@ net::awaitable<void> run_spdlog_test(const net::any_io_executor executor)
     const fs::path path_name = fs::path("test_logs") / "spdlog";
     const std::string file_name = "spdlog_test.log";
 
-    ntrace::trace_config cfg;
-    cfg.path_name = path_name;
+    ntrace::config cfg;
+    cfg.path_name = path_name.string();
     cfg.file_name = file_name;
     cfg.max_size = 1024U * 1024U;
     cfg.max_files = 2U;
     cfg.queue_size = 8192U;
     cfg.thread_count = 1U;
     cfg.enable_console = true;
-    cfg.log_level = spdlog::level::debug;
+    cfg.log_level = "debug";
     cfg.trace_name = "spdlog_test";
 
     ntrace::init(cfg);

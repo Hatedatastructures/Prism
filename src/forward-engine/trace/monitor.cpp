@@ -1,7 +1,7 @@
 #include <trace/monitor.hpp>
 #include <iostream>
 
-namespace ngx::trace
+namespace ngx::trace::deprecated
 {
     coroutine_log::coroutine_log(const asio::any_io_executor& executor)
         : event_executor(executor),

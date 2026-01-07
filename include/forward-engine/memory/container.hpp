@@ -10,6 +10,42 @@
 namespace ngx::memory
 {
     /**
+     * @brief 内存资源
+     * @details 使用 std::pmr::memory_resource 替代 std::memory_resource
+     * @note `monotonic_buffer_resource` 上分配时，内存资源紧凑排列，缓存极其友好
+     */
+    using resource = std::pmr::memory_resource;
+
+    /**
+     * @brief 内存分配器
+     * @details 使用 std::pmr::polymorphic_allocator 替代 std::polymorphic_allocator
+     * @note `monotonic_buffer_resource` 上分配时，内存资源紧凑排列，缓存极其友好
+     */
+    template <typename Type>
+    using allocator = std::pmr::polymorphic_allocator<Type>;
+
+    /**
+     * @brief 同步池资源
+     * @details 使用 std::pmr::synchronized_pool_resource 替代 std::synchronized_pool_resource
+     * @warning 只适合作为全局默认内存资源，不适合线程局部或特定算法内部
+     */
+    using synchronized_pool = std::pmr::synchronized_pool_resource;
+
+    /**
+     * @brief 非线程安全的池资源
+     * @details 使用 std::pmr::unsynchronized_pool_resource 替代 std::unsynchronized_pool_resource
+     * @note `monotonic_buffer_resource` 上分配时，内存资源紧凑排列，缓存极其友好
+     */
+    using unsynchronized_pool = std::pmr::unsynchronized_pool_resource;
+
+    /**
+     * @brief 单调增长资源
+     * @details 使用 std::pmr::monotonic_buffer_resource 替代 std::monotonic_buffer_resource
+     * @warning 只适合作为全局默认内存资源，不适合线程局部或特定算法内部
+     */
+    using monotonic_buffer = std::pmr::monotonic_buffer_resource;
+
+    /**
      * @brief string 类型别名
      * @details 使用 std::pmr::string 替代 std::string
      * @note `monotonic_buffer_resource` 上分配时，字符串内容紧凑排列，缓存极其友好
