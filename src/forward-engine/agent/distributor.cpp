@@ -6,8 +6,8 @@
 
 namespace ngx::agent
 {
-   distributor::distributor(source &pool, net::io_context &ioc, std::pmr::memory_resource *mr)
-       : pool_(pool), resolver_(ioc), mr_(mr ? mr : std::pmr::new_delete_resource()), reverse_map_(mr_)
+   distributor::distributor(source &pool, net::io_context &ioc, memory::resource_pointer mr)
+       : pool_(pool), resolver_(ioc), mr_(mr ? mr : memory::current_resource()), reverse_map_(mr_)
    {
    }
 

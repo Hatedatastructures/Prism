@@ -5,7 +5,7 @@ namespace ngx::agent
 {
     namespace
     {
-        [[nodiscard]] std::pmr::memory_resource *resolve_mr(const http::request &req, std::pmr::memory_resource *mr) noexcept
+        [[nodiscard]] memory::resource_pointer resolve_mr(const http::request &req, memory::resource_pointer mr) noexcept
         {
             if (mr)
             {
@@ -105,7 +105,7 @@ namespace ngx::agent
      * @param req HTTP 请求对象
      * @return target 解析后的目标信息
      */
-    analysis::target analysis::resolve(const http::request &req, std::pmr::memory_resource *mr)
+    analysis::target analysis::resolve(const http::request &req, memory::resource_pointer mr)
     {
         target t(resolve_mr(req, mr));
 
@@ -135,9 +135,9 @@ namespace ngx::agent
         return t;
     }
 
-    analysis::target analysis::resolve(const std::string_view host_port, std::pmr::memory_resource *mr)
+    analysis::target analysis::resolve(const std::string_view host_port, memory::resource_pointer mr)
     {
-        target t(mr ? mr : std::pmr::get_default_resource());
+        target t(mr ? mr : memory::current_resource());
         t.forward_proxy = true;
         parse(host_port, t.host, t.port);
         return t;

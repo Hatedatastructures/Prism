@@ -102,7 +102,7 @@ namespace ngx::http
         }
     } // namespace
 
-    request::request(std::pmr::memory_resource *mr)
+    request::request(memory::resource_pointer mr)
         : method_string_(mr), target_(mr), body_(mr), headers_(mr)
     {
     }

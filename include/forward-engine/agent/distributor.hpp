@@ -4,7 +4,6 @@
 #include <functional>
 #include <string>
 #include <string_view>
-#include <memory_resource>
 #include <memory/container.hpp>
 #include <boost/asio.hpp>
 #include "obscura.hpp"
@@ -67,7 +66,7 @@ namespace ngx::agent
         using unordered_map = memory::unordered_map<Key, Value, transparent_string_hash, transparent_string_equal>;
 
     public:
-        explicit distributor(source &pool, net::io_context &ioc, std::pmr::memory_resource *mr = std::pmr::new_delete_resource());
+        explicit distributor(source &pool, net::io_context &ioc, memory::resource_pointer mr = memory::current_resource());
         void load_reverse_map(const std::string &file_path);
         [[nodiscard]] net::awaitable<exclusive_connection> route_reverse(std::string_view host);
         [[nodiscard]] net::awaitable<exclusive_connection> route_direct(tcp::endpoint ep) const;
@@ -77,7 +76,7 @@ namespace ngx::agent
         source &pool_;
         tcp::resolver resolver_;
         rule::blacklist blacklist_;
-        std::pmr::memory_resource *mr_;
+        memory::resource_pointer mr_;
         unordered_map<memory::string, tcp::endpoint> reverse_map_;
     }; // class distributor
 }

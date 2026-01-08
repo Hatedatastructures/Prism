@@ -4,6 +4,12 @@ namespace ngx::http
 {
     namespace
     {
+        /**
+         * @brief 将版本号转换为字符串
+         * @param out 输出字符串
+         * @param version_value 版本号
+         * @details 版本号必须为 `10` 的倍数，例如 `10`, `11`, `20` 等。
+         */
         void append_version_string(memory::string &out, const unsigned int version_value)
         {
             unsigned int major = version_value / 10;
@@ -20,18 +26,18 @@ namespace ngx::http
          * @brief 生成请求首行方法字符串
          * @details 优先使用 `request` 中缓存的 `method_string`，如果为空，则根据
          * 内部 `verb` 枚举值生成标准 `HTTP` 方法名字符串。
-         * @param request_instance 请求对象实例
+         * @param http_request 请求对象实例
          * @return std::string_view 方法名字符串视图
          */
-        [[nodiscard]] std::string_view resolve_request_method_string(const request &request_instance) noexcept
+        [[nodiscard]] std::string_view resolve_request_method_string(const request &http_request) noexcept
         {
-            const std::string_view cached_method = request_instance.method_string();
+            const std::string_view cached_method = http_request.method_string();
             if (!cached_method.empty())
             {
                 return cached_method;
             }
 
-            switch (request_instance.method())
+            switch (http_request.method())
             {
             case verb::delete_:
                 return "DELETE";
@@ -56,15 +62,22 @@ namespace ngx::http
             }
         }
 
-        [[nodiscard]] std::string_view resolve_response_reason_view(const response &response_instance) noexcept
+        /**
+         * @brief 生成响应首行原因字符串
+         * @details 优先使用 `response` 中缓存的 `reason_string`，如果为空，则根据
+         * 内部 `status` 枚举值生成标准 `HTTP` 原因字符串。
+         * @param http_response 响应对象实例
+         * @return std::string_view 原因字符串视图
+         */
+        [[nodiscard]] std::string_view resolve_response_reason_view(const response &http_response) noexcept
         {
-            const std::string_view reason_view = response_instance.reason();
+            const std::string_view reason_view = http_response.reason();
             if (!reason_view.empty())
             {
                 return reason_view;
             }
 
-            switch (response_instance.status())
+            switch (http_response.status())
             {
             case status::ok:
                 return "OK";
@@ -132,13 +145,13 @@ namespace ngx::http
         }
     } // namespace
 
-    memory::string serialize(const request &request_instance, std::pmr::memory_resource *mr)
+    memory::string serialize(const request &http_request, memory::resource_pointer mr)
     {
-        const std::string_view method_string = resolve_request_method_string(request_instance);
-        const auto &target_string = request_instance.target();
+        const std::string_view method_string = resolve_request_method_string(http_request);
+        const auto &target_string = http_request.target();
 
-        const headers &header_container = request_instance.header();
-        const std::string_view body_view = request_instance.body();
+        const headers &header_container = http_request.header();
+        const std::string_view body_view = http_request.body();
 
         memory::string result(mr);
         result.reserve(128 + target_string.size() + static_cast<std::size_t>(header_container.size() * 32) + body_view.size());
@@ -147,7 +160,7 @@ namespace ngx::http
         result.push_back(' ');
         result.append(target_string);
         result.append(" HTTP/");
-        append_version_string(result, request_instance.version());
+        append_version_string(result, http_request.version());
         result.append("\r\n");
 
         for (const auto &header_entry : header_container)
@@ -173,13 +186,13 @@ namespace ngx::http
         return result;
     }
 
-    memory::string serialize(const response &response_instance, std::pmr::memory_resource *mr)
+    memory::string serialize(const response &http_response, memory::resource_pointer mr)
     {
-        const unsigned int status_code_value = response_instance.status_code();
-        const std::string_view reason_view = resolve_response_reason_view(response_instance);
+        const unsigned int status_code_value = http_response.status_code();
+        const std::string_view reason_view = resolve_response_reason_view(http_response);
 
-        const headers &header_container = response_instance.header();
-        const std::string_view body_view = response_instance.body();
+        const headers &header_container = http_response.header();
+        const std::string_view body_view = http_response.body();
 
         char status_buffer[4]{};
         char *status_buffer_end = status_buffer; // 手动转换状态码性能更好
@@ -197,7 +210,7 @@ namespace ngx::http
         result.reserve(128 + static_cast<std::size_t>(header_container.size() * 32) + body_view.size());
 
         result.append("HTTP/");
-        append_version_string(result, response_instance.version());
+        append_version_string(result, http_response.version());
         result.push_back(' ');
         result.append(status_buffer, status_buffer_end);
         result.push_back(' ');

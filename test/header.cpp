@@ -4,6 +4,12 @@
 #include <cassert>
 #include <vector>
 
+#ifdef WIN32
+    #include <windows.h>
+#endif
+
+#include "memory/pool.hpp"
+
 namespace http = ngx::http;
 
 /**
@@ -132,6 +138,8 @@ void test_clear_and_reserve()
 
 int main()
 {
+    ngx::memory::system::enable_global_pooling();
+    SetConsoleOutputCP(CP_UTF8);
     std::cout << "HTTP 头字段模块测试启动..." << std::endl;
 
     try

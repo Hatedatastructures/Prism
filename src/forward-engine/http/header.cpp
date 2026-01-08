@@ -4,12 +4,12 @@
 
 namespace ngx::http
 {
-    downcase_string::downcase_string(std::pmr::memory_resource *mr)
+    downcase_string::downcase_string(memory::resource_pointer mr)
         : str_(mr)
     {
     }
 
-    downcase_string::downcase_string(std::string_view str, std::pmr::memory_resource *mr)
+    downcase_string::downcase_string(std::string_view str, memory::resource_pointer mr)
         : str_(mr)
     {
         str_.reserve(str.size());
@@ -39,24 +39,24 @@ namespace ngx::http
         return str_ == other.str_;
     }
 
-    headers::header::header(std::pmr::memory_resource *mr)
+    headers::header::header(memory::resource_pointer mr)
         : key(mr), value(mr), original_key(mr)
     {
     }
 
-    headers::header::header(const std::string_view name, const std::string_view value, std::pmr::memory_resource *mr)
+    headers::header::header(const std::string_view name, const std::string_view value, memory::resource_pointer mr)
         : key(name, mr), value(mr), original_key(mr)
     {
         this->value.assign(value.begin(), value.end());
         this->original_key.assign(name.begin(), name.end());
     }
 
-    headers::headers(std::pmr::memory_resource *mr)
+    headers::headers(memory::resource_pointer mr)
         : entries_(mr)
     {
     }
 
-    std::pmr::memory_resource *headers::resource() const noexcept
+    memory::resource_pointer headers::resource() const noexcept
     {
         return entries_.get_allocator().resource();
     }

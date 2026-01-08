@@ -104,6 +104,48 @@ Obscura 的思路可以粗略理解为：
 - 健康检查：包含基础僵尸检测与空闲超时淘汰。
 - 上限控制：避免单个端点无限积攒空闲连接。
 
+#### 6.1 内存与 PMR（分配策略与使用约定）
+
+ForwardEngine 的大部分“可变长数据”（字符串、向量、哈希表、缓冲区等）都采用 `std::pmr` 体系来做内存管理，核心目标是：
+
+- 把“分配策略”从具体容器/业务逻辑里抽离出来，让调用方决定内存来自哪里
+- 在高频路径（会话循环、HTTP 解析、序列化）中尽量复用内存，减少堆分配次数与碎片
+- 为“请求级临时对象”提供更便宜的分配与回收方式（例如线性分配器一把释放）
+
+项目对 `pmr` 的统一封装入口在 `include/forward-engine/memory/container.hpp`：
+
+- `memory::resource`：内存资源类型别名（对应 `std::pmr::memory_resource`）
+- `memory::resource_pointer`：内存资源句柄类型（用于在接口中传递）
+- `memory::current_resource()`：获取当前默认内存资源
+- `memory::string` / `memory::vector` / `memory::unordered_map`：项目内统一容器别名
+
+典型用法是“谁需要分配，就接收一个 `mr`，并把它传给需要分配的容器/缓冲区”：
+
+```cpp
+#include <memory/container.hpp>
+
+memory::string make_text(memory::resource_pointer mr = memory::current_resource())
+{
+    memory::string text(mr);
+    text.append("hello");
+    return text;
+}
+```
+
+为了让项目内的资源传递保持一致性，有两条约定：
+
+- 业务模块不直接使用 `std::pmr::get_default_resource()`；默认资源统一通过 `memory::current_resource()` 获取
+- 对外接口不直接暴露 `std::pmr::memory_resource` 的原始指针写法；统一使用 `memory::resource_pointer` 作为句柄类型
+
+另外，项目提供了两个层次的分配策略入口（`include/forward-engine/memory/pool.hpp`）：
+
+- 全局默认资源池化：`memory::system::enable_global_pooling()` 会把默认资源切换到全局同步池资源
+  - 适合：跨线程对象、生命周期不易界定的对象（例如日志、配置、路由表等）
+  - 注意：应在进程启动早期调用（例如 `main` 初始化阶段），避免某些模块提前缓存了旧的默认资源句柄
+- 请求级临时分配：`memory::frame_arena` 提供“线性分配 + 批量释放”的资源
+  - 适合：一次请求/一次循环内的临时字符串、临时缓冲、解析中间态
+  - 注意：从 `frame_arena` 分配得到的对象，不应该跨越 `reset()` 之后继续使用；也不应该被缓存到长生命周期结构中
+
 ### 7. 如何验证理解是否正确
 
 最快的验证方式是跑测试并对照主链路：

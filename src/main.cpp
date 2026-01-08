@@ -3,6 +3,7 @@
 #include <thread>
 #include <iostream>
 
+#include <memory.hpp>
 #include <abnormal.hpp>
 #include <http.hpp>
 #include <agent.hpp>
@@ -21,8 +22,8 @@ const static std::string key_path = R"(C:\Users\C1373\Desktop\ForwardEngine\key.
 // TODO: add more tests
 int main()
 {
-    
-
+    // 启用全局内存池
+    ngx::memory::system::enable_global_pooling(); 
     try
     {
         constexpr unsigned short port = 8080U;

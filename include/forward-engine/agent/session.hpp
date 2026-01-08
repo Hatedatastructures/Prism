@@ -10,8 +10,8 @@
 #include <iostream>
 #include <functional>
 #include <string_view>
-#include <memory_resource>
 
+#include <memory/pool.hpp>
 
 #include <boost/asio.hpp>
 #include <abnormal.hpp>
@@ -182,8 +182,7 @@ namespace ngx::agent
         std::function<void(level, const std::string_view)> trace_;
 
         std::array<std::byte, 16384> buffer_{};
-        alignas(std::max_align_t) std::array<std::byte, 16384> pool_buffer_{};
-        std::pmr::monotonic_buffer_resource pool_;
+        ngx::memory::frame_arena frame_arena_;
     }; // class session
 }
 
@@ -193,7 +192,7 @@ namespace ngx::agent
     session<Transport>::session(net::io_context &io_context, socket_type socket, distributor &dist,
         std::shared_ptr<ssl::context> ssl_ctx)
     : io_context_(io_context), ssl_ctx_(std::move(ssl_ctx)), distributor_(dist),
-    client_socket_(std::move(socket)), pool_(pool_buffer_.data(), pool_buffer_.size()) {}
+    client_socket_(std::move(socket)) {}
 
     template <socket_concept Transport>
     session<Transport>::~session()
@@ -329,13 +328,13 @@ namespace ngx::agent
     template <socket_concept Transport>
     net::awaitable<void> session<Transport>::handle_http()
     {
-        beast::flat_buffer read_buffer;
-
+        frame_arena_.reset();
+        auto mr = frame_arena_.get();
+        beast::basic_flat_buffer<http::network_allocator> read_buffer(http::network_allocator{mr});
         {
-            pool_.release();
-            http::request req(&pool_);
+            http::request req(mr);
             log(level::debug, "[Session] Waiting for HTTP request...");
-            const bool success = co_await http::async_read(client_socket_, req, read_buffer, &pool_);
+            const bool success = co_await http::async_read(client_socket_, req, read_buffer, mr);
 
             if (!success)
             {
@@ -385,7 +384,7 @@ namespace ngx::agent
             else
             {
                 // 序列化发送
-                const auto data = http::serialize(req, &pool_);
+                const auto data = http::serialize(req, mr);
                 boost::system::error_code ec;
                 auto token = net::redirect_error(net::use_awaitable, ec);
                 co_await adaptation::async_write(*server_socket_ptr_, net::buffer(data), token);
@@ -436,7 +435,7 @@ namespace ngx::agent
          */
         using namespace boost::asio::experimental::awaitable_operators;
 
-        pool_.release();
+        frame_arena_.reset();
 
         const std::size_t half = buffer_.size() / 2;
         auto left_buffer = mutable_buf(buffer_.data(), half);
@@ -490,7 +489,8 @@ namespace ngx::agent
             co_return;
         }
 
-        pool_.release();
+        frame_arena_.reset();
+        auto mr = frame_arena_.get();
         auto proto = std::make_shared<obscura<tcp>>(std::move(client_socket_), ssl_ctx_, role::server);
         std::string target_path;
         try
@@ -518,7 +518,7 @@ namespace ngx::agent
             log(level::debug, message);
         }
 
-        const auto target = analysis::resolve(std::string_view(target_path), &pool_);
+        const auto target = analysis::resolve(std::string_view(target_path), mr);
         if (target.host.empty())
         {
             log(level::warn, "[Session] Obscura resolve failed: empty host.");
@@ -658,7 +658,7 @@ namespace ngx::agent
 
         log(level::info, "[Session] Obscura tunnel started.");
 
-        pool_.release();
+        frame_arena_.reset();
         // 获取当前协程的执行器
         auto executor = co_await net::this_coro::executor;
 

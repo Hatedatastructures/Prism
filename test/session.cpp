@@ -12,6 +12,8 @@
 #include <boost/asio/ssl.hpp>
 #include <trace/spdlog.hpp>
 
+#include "agent/worker.hpp"
+
 #ifdef WIN32
     #include <windows.h>
 #endif
@@ -508,6 +510,7 @@ int main()
 #endif
     try
     {
+        ngx::memory::system::enable_global_pooling();
         {
             ngx::trace::config cfg;
             cfg.path_name = (std::filesystem::path("test_logs") / "session").string();

@@ -6,6 +6,7 @@
 #include <unordered_map>
 #include <unordered_set>
 #include <memory_resource>
+#include <type_traits>
 
 namespace ngx::memory
 {
@@ -15,6 +16,21 @@ namespace ngx::memory
      * @note `monotonic_buffer_resource` 上分配时，内存资源紧凑排列，缓存极其友好
      */
     using resource = std::pmr::memory_resource;
+
+    /**
+     * @brief 内存资源指针
+     * @details 指向 `resource` 对象的指针，用于内存资源管理
+     */
+    using resource_pointer = std::add_pointer_t<resource>;
+
+    /**
+     * @brief 获取当前默认内存资源
+     * @return resource_pointer 当前默认内存资源指针
+     */
+    inline auto current_resource () -> resource_pointer
+    {
+        return std::pmr::get_default_resource();
+    }
 
     /**
      * @brief 内存分配器

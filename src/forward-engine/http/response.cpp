@@ -165,7 +165,7 @@ namespace ngx::http
         }
     } // namespace
 
-    response::response(std::pmr::memory_resource *mr)
+    response::response(memory::resource_pointer mr)
         : reason_(mr), body_(mr), headers_(mr)
     {
     }

@@ -9,13 +9,20 @@
 
 </div>
 
-`ForwardEngine` 是一个基于 C++23 与 `Boost.Asio/Beast` 的代理引擎原型工程，目标是把“接入（`accept`）→ 协议识别（`peek`）→ 路由 → 上游连接 → 双向转发（隧道）→ 退出与回收”这条主链路跑通，并保持清晰的模块边界以便后续演进。
+**ForwardEngine** 是一个基于 **Modern C++ (C++23)** 的高性能代理引擎原型。它摒弃了传统回调模式，完全基于 `net::awaitable` 协程与 `Boost.Asio/Beast` 构建，旨在提供一个**低延迟、高并发、且具备深度流量伪装能力**的网络底座。
 
-## 核心特性
-- C++23：使用 `net::awaitable` + `co_await` 组织异步流程。
-- 代理会话：支持 HTTP 正向/反向代理的基本链路；支持 `CONNECT` 隧道。
-- 连接复用（TCP）：按目标端点缓存空闲连接，带基础健康检查与上限控制。
-- Obscura 封装：基于 Beast `WebSocket(SSL)` 的传输包装，提供 `handshake/async_read/async_write`。
+## ⚡ 核心特性 (Core Features)
+
+* **纯粹的 C++23 协程设计**：
+  核心链路完全基于 `co_await`，消除回调地狱，以同步代码的逻辑编写极致性能的异步网络服务。
+* **企业级网络栈**：
+  基于 **Boost.Asio** (I/O 调度) 与 **Boost.Beast** (HTTP/WebSocket)，天然支持高并发。
+* **Obscura 隐形层 (Stealth Mode)**：
+  内置流量伪装模块，将 TCP 流量封装进标准的 **WebSocket (WSS)** 协议。
+  > **实战意义**：流量特征与正常网页浏览一致，支持通过 **Cloudflare/CDN** 进行中转，极大增强抗封锁能力。
+* **现代依赖管理**：
+  * **序列化**：集成 [Glaze](https://github.com/stephenberry/glaze) 实现极速 JSON 解析。
+  * **日志**：集成 [spdlog](https://github.com/gabime/spdlog) 提供高性能异步日志。
 
 ## 构建环境（Windows 11 + MinGW）
 - 编译器：`MinGW-w64`（支持 C++23）。

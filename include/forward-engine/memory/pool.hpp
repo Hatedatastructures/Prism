@@ -87,20 +87,17 @@ namespace ngx::memory
     class pooled_object
     {
     public:
-        static void *operator new(std::size_t count)
+        static void *operator new(const std::size_t count)
         {
             if (count <= policy::max_pool_size)
             {
                 return system::global_pool()->allocate(count);
             }
-            else
-            {
-                // 大对象直接走系统堆
-                return ::operator new(count);
-            }
+            // 大对象直接走系统堆
+            return ::operator new(count);
         }
 
-        static void operator delete(void *ptr, std::size_t count)
+        static void operator delete(void *ptr, const std::size_t count)
         {
             if (count <= policy::max_pool_size)
             {
@@ -114,7 +111,7 @@ namespace ngx::memory
         }
 
         // 数组支持
-        static void *operator new[](std::size_t count)
+        static void *operator new[](const std::size_t count)
         {
             if (count <= policy::max_pool_size)
                 return system::global_pool()->allocate(count);
@@ -151,7 +148,7 @@ namespace ngx::memory
         frame_arena(const frame_arena &) = delete;
         frame_arena &operator=(const frame_arena &) = delete;
 
-        resource *get() { return &resource_; }
+        resource_pointer get() { return &resource_; }
         void reset() { resource_.release(); }
     };
 

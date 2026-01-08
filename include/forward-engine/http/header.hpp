@@ -4,7 +4,6 @@
 #include <string_view>
 #include <ranges>
 #include <algorithm>
-#include <memory_resource>
 #include <memory/container.hpp>
 namespace ngx::http
 {
@@ -16,8 +15,8 @@ namespace ngx::http
     class downcase_string
     {
     public:
-        explicit downcase_string(std::pmr::memory_resource *mr = std::pmr::get_default_resource());
-        explicit downcase_string(std::string_view str, std::pmr::memory_resource *mr = std::pmr::get_default_resource());
+        explicit downcase_string(memory::resource_pointer mr = memory::current_resource());
+        explicit downcase_string(std::string_view str, memory::resource_pointer mr = memory::current_resource());
 
         downcase_string(const downcase_string &other) = default;
         downcase_string &operator=(const downcase_string &other) = default;
@@ -56,15 +55,15 @@ namespace ngx::http
             memory::string value;
             memory::string original_key;
 
-            explicit header(std::pmr::memory_resource *mr = std::pmr::get_default_resource());
-            header(std::string_view name, std::string_view value, std::pmr::memory_resource *mr = std::pmr::get_default_resource());
+            explicit header(memory::resource_pointer mr = memory::current_resource());
+            header(std::string_view name, std::string_view value, memory::resource_pointer mr = memory::current_resource());
         }; // struct header
 
         using size_type = std::size_t;
         using container_type = memory::vector<header>;
         using iterator = container_type::const_iterator;
 
-        explicit headers(std::pmr::memory_resource *mr = std::pmr::get_default_resource());
+        explicit headers(memory::resource_pointer mr = memory::current_resource());
         headers(const headers &other) = default;
         headers &operator=(const headers &other) = default;
         ~headers() = default;
@@ -89,7 +88,7 @@ namespace ngx::http
         [[nodiscard]] iterator end() const;
 
     private:
-        [[nodiscard]] std::pmr::memory_resource *resource() const noexcept;
+        [[nodiscard]] memory::resource_pointer resource() const noexcept;
         [[nodiscard]] downcase_string make_key(std::string_view name) const;
 
         container_type entries_;

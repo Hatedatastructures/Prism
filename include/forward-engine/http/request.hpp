@@ -1,7 +1,6 @@
 #pragma once
 
 #include <string_view>
-#include <memory_resource>
 #include <memory/container.hpp>
 #include "constants.hpp"
 #include "header.hpp"
@@ -15,7 +14,7 @@ namespace ngx::http
     class request
     {
     public:
-        explicit request(std::pmr::memory_resource *mr = std::pmr::get_default_resource());
+        explicit request(memory::resource_pointer mr = memory::current_resource());
         request(const request &other) = default;
         request &operator=(const request &other) = default;
         ~request() = default;

@@ -2,7 +2,6 @@
 
 #include <string_view>
 #include <fstream>
-#include <memory_resource>
 
 // 引入 Glaze 核心库
 #include <glaze/glaze.hpp>
@@ -20,7 +19,7 @@ namespace ngx::transformer::json
      * @return memory::string 序列化后的 JSON 字符串
      */
     template <typename StructureObject>
-    [[nodiscard]] memory::string serialize(const StructureObject &value, memory::resource *mr = std::pmr::get_default_resource())
+    [[nodiscard]] memory::string serialize(const StructureObject &value, memory::resource_pointer mr = memory::current_resource())
     {
         memory::string buffer(mr);
         // glz::write_json 写入 buffer 时通常返回 void 或 error_ctx（取决于版本），这里假设写入内存通常成功
@@ -78,7 +77,7 @@ namespace ngx::transformer::json
     //  * @return glz::error_ctx 错误上下文
     //  */
     // template <typename T>
-    // [[nodiscard]] glz::error_ctx save_to_file(const std::string &path, const T &value, std::pmr::memory_resource *mr = std::pmr::get_default_resource())
+    // [[nodiscard]] glz::error_ctx save_to_file(const std::string &path, const T &value, memory::resource_pointer mr = memory::current_resource())
     // {
     //     memory::string buffer(mr);
     //     glz::write_json(value, buffer);

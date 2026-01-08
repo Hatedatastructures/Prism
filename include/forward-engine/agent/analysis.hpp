@@ -1,7 +1,6 @@
 #pragma once
 
 #include <string_view>
-#include <memory_resource>
 #include <memory/container.hpp>
 #include <http.hpp>
 
@@ -35,7 +34,7 @@ namespace ngx::agent
          */
         struct target
         {
-            explicit target(std::pmr::memory_resource *mr = std::pmr::get_default_resource())
+            explicit target(memory::resource_pointer mr = memory::current_resource())
                 : host(mr), port(mr)
             {
                 port.assign("80");
@@ -46,8 +45,8 @@ namespace ngx::agent
             bool forward_proxy{false};
         };
 
-        static target resolve(const http::request &req, std::pmr::memory_resource *mr = nullptr);
-        static target resolve(std::string_view host_port, std::pmr::memory_resource *mr = nullptr);
+        static target resolve(const http::request &req, memory::resource_pointer mr = nullptr);
+        static target resolve(std::string_view host_port, memory::resource_pointer mr = nullptr);
         static protocol_type detect(std::string_view peek_data);
 
     private:
