@@ -12,6 +12,17 @@ target_link_libraries(headers_test
 
 add_test(NAME headers_test COMMAND headers_test)
 
+add_executable(json_test
+        json_test.cpp
+)
+
+target_link_libraries(json_test
+        PRIVATE
+        ${PROJECT_NAME}_static_library
+)
+
+add_test(NAME json_test COMMAND json_test)
+
 # request 测试可执行程序
 add_executable(request_test
         request.cpp

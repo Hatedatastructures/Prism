@@ -55,27 +55,53 @@ namespace ngx::agent
             : ioc_(1),                   // 1. 初始化 IO 上下文 (hint=1 表示单线程)
               pool_(ioc_),               // 2. 初始化连接池 (依赖 ioc)
               distributor_(pool_, ioc_), // 3. 初始化路由器 (依赖 pool 和 ioc)
-              ssl_ctx_(std::make_shared<net::ssl::context>(net::ssl::context::tlsv12)),
+              ssl_ctx_(std::make_shared<net::ssl::context>(net::ssl::context::tls)),
               acceptor_(ioc_) // 4. 初始化接收器
         {
+            // -------------------------------------------------------------
+            // SSL 配置部分
+            // -------------------------------------------------------------
             try
             {
-                ssl_ctx_->use_certificate_chain_file(cert);
-                ssl_ctx_->use_private_key_file(key, net::ssl::context::pem);
+                if (!cert.empty() && !key.empty())
+                {
+                    ssl_ctx_->use_certificate_chain_file(cert);
+                    ssl_ctx_->use_private_key_file(key, net::ssl::context::pem);
+                    
+                    // 只有在证书加载成功后，才有意义去设置这些底层参数
+                    // 2. [新增] 开启 GREASE (油脂机制) - BoringSSL 特有
+                    SSL_CTX_set_grease_enabled(ssl_ctx_->native_handle(), 1);
+
+                    // 3. [新增] 开启 HTTP/2 ALPN (模拟浏览器指纹)
+                    // 长度计算：1(len) + 2(h2) + 1(len) + 8(http/1.1) = 12
+                    const unsigned char alpn[] = "\x02h2\x08http/1.1";
+                    SSL_CTX_set_alpn_protos(ssl_ctx_->native_handle(), alpn, sizeof(alpn) - 1);
+                }
+                else
+                {
+                    // 如果没有证书，可能是想跑纯 HTTP 模式？
+                    // 根据你的业务逻辑决定是否 reset
+                    // ssl_ctx_.reset(); 
+                }
             }
-            catch (...)
+            catch (const std::exception& e)
             {
-                ssl_ctx_.reset();
+                // 记录日志或直接抛出，不要带着损坏的 context 继续跑
+                // spdlog::error("SSL init failed: {}", e.what());
+                throw; // 或者 ssl_ctx_.reset(); 但后面要判空
             }
 
+            // -------------------------------------------------------------
+            // 网络监听部分
+            // -------------------------------------------------------------
             auto endpoint = tcp::endpoint(tcp::v4(), port);
             acceptor_.open(endpoint.protocol());
             acceptor_.set_option(net::socket_base::reuse_address(true));
 
             int one = 1;
-#ifdef SO_REUSEPORT
+    #ifdef SO_REUSEPORT
             setsockopt(acceptor_.native_handle(), SOL_SOCKET, SO_REUSEPORT, &one, sizeof(one));
-#endif
+    #endif
 
             acceptor_.bind(endpoint);
             acceptor_.listen();

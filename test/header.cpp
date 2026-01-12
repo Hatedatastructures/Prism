@@ -8,6 +8,7 @@
     #include <windows.h>
 #endif
 
+#include "http/request.hpp"
 #include "memory/pool.hpp"
 
 namespace http = ngx::http;
@@ -114,7 +115,6 @@ void test_iteration()
 
     std::cout << "迭代功能测试通过！" << std::endl;
 }
-
 /**
  * @brief 测试 `headers` 类的清空和空间预留
  */

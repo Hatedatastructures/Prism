@@ -1,4 +1,4 @@
-# 收集库源文件
+# 收集库源文件 (保持不变)
 set(FORWARD_LIB_SOURCES
         forward-engine/http/header.cpp
         ../include/forward-engine/http/header.hpp
@@ -55,12 +55,51 @@ set(FORWARD_LIB_SOURCES
         ../include/forward-engine/memory.hpp
 )
 
-# 创建静态库
+# =============================================================
+# BoringSSL 引用配置 (引用已安装的库)
+# =============================================================
+
+# [重要] 这里填你安装 BoringSSL 的根目录！
+# 假设你的目录结构是:
+# C:/Program Files/BoringSSL/include/openssl/...
+# C:/Program Files/BoringSSL/lib/ssl.lib
+# C:/Program Files/BoringSSL/lib/crypto.lib
+# 注意：Windows 路径分隔符要用 "/" (反斜杠)
+set(BORINGSSL_ROOT "C:/bin/BoringSSL") 
+
+# 检查路径是否存在
+if(NOT EXISTS "${BORINGSSL_ROOT}/include")
+    message(FATAL_ERROR "BoringSSL include directory not found at ${BORINGSSL_ROOT}/include")
+endif()
+
+# 查找静态库文件 (ssl.lib 和 crypto.lib)
+# 注意：BoringSSL 编译出来的名字可能是 ssl.lib/crypto.lib 或者 libssl.lib/libcrypto.lib
+find_library(LIB_SSL 
+    NAMES ssl libssl 
+    PATHS "${BORINGSSL_ROOT}/lib" "${BORINGSSL_ROOT}/lib64" 
+    NO_DEFAULT_PATH
+)
+find_library(LIB_CRYPTO 
+    NAMES crypto libcrypto 
+    PATHS "${BORINGSSL_ROOT}/lib" "${BORINGSSL_ROOT}/lib64" 
+    NO_DEFAULT_PATH
+)
+
+if(NOT LIB_SSL OR NOT LIB_CRYPTO)
+    message(FATAL_ERROR "Could not find ssl.lib or crypto.lib in ${BORINGSSL_ROOT}/lib")
+endif()
+
+message(STATUS "Found BoringSSL SSL: ${LIB_SSL}")
+message(STATUS "Found BoringSSL Crypto: ${LIB_CRYPTO}")
+
+# =============================================================
+# (配置结束)
+# =============================================================
+
 add_library(${PROJECT_NAME}_static_library STATIC
         ${FORWARD_LIB_SOURCES}
 )
 
-# 设置目标属性
 target_include_directories(${PROJECT_NAME}_static_library
         PUBLIC
         ${CMAKE_CURRENT_SOURCE_DIR}
@@ -68,20 +107,21 @@ target_include_directories(${PROJECT_NAME}_static_library
         ${CMAKE_SOURCE_DIR}/include/forward-engine
         ${boost_include_dir}
         ${Boost_INCLUDE_DIRS}
+        # [关键] 将 BoringSSL 头文件路径放在最前面，防止冲突
+        ${BORINGSSL_ROOT}/include
 )
 
-# spdlog 集成
 find_package(spdlog CONFIG REQUIRED)
 
-# 链接依赖
 target_link_libraries(${PROJECT_NAME}_static_library
         PUBLIC
         async_simple::async_simple
         spdlog::spdlog
         glaze::glaze
         Boost::system
-        OpenSSL::SSL
-        OpenSSL::Crypto
+        # [关键] 链接你找到的 lib 文件
+        ${LIB_SSL}
+        ${LIB_CRYPTO}
         ws2_32
         mswsock
         crypt32
@@ -90,19 +130,19 @@ target_link_libraries(${PROJECT_NAME}_static_library
 target_compile_definitions(${PROJECT_NAME}_static_library
         PUBLIC
         BOOST_ASIO_HEADER_ONLY
+        BOOST_ASIO_USE_OPENSSL
+        WIN32_LEAN_AND_MEAN
 )
 
-# 创建可执行程序
 add_executable(${PROJECT_NAME}
         main.cpp
 )
 
 target_compile_options(${PROJECT_NAME} PRIVATE
-        -g1          # 降低调试信息级别，减小.obj体积
-        -O1          # 轻度优化，折叠重复模板代码
-        -fno-keep-inline-dllexport # 辅助减少冗余符号（可选）
+        -g1
+        -O1
+        -fno-keep-inline-dllexport
 )
-
 
 target_link_libraries(${PROJECT_NAME}
         PRIVATE
