@@ -10,6 +10,26 @@ target_link_libraries(headers_test
         ${PROJECT_NAME}_static_library
 )
 
+add_executable(main_test
+        main_test.cpp
+)
+
+target_compile_options(main_test PRIVATE
+        -g1
+        -O1
+        -fno-keep-inline-dllexport
+        -fno-function-sections
+        -fno-data-sections
+)
+
+target_link_libraries(main_test
+        PRIVATE
+        ${PROJECT_NAME}_static_library
+)
+
+
+add_test(NAME main_test COMMAND main_test)
+
 add_test(NAME headers_test COMMAND headers_test)
 
 add_executable(json_test
@@ -116,3 +136,11 @@ target_link_libraries(spdlog_test
 )
 
 add_test(NAME spdlog_test COMMAND spdlog_test)
+
+if (MINGW)
+    foreach(target_name IN ITEMS headers_test main_test json_test request_test glaze_test log_test session_test obscura_test_exec connection_test spdlog_test)
+        if (TARGET ${target_name})
+            target_compile_options(${target_name} PRIVATE -Wa,-mbig-obj)
+        endif()
+    endforeach()
+endif()

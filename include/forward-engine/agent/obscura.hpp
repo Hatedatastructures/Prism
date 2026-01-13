@@ -17,7 +17,7 @@ namespace ngx::agent
     namespace websocket = beast::websocket;
 
     /**
-     * @brief awaitable 概念
+     * @brief awaitable 概念  
      * @tparam T awaitable 类型
      * @note awaitable 类型必须满足以下要求：
      * 

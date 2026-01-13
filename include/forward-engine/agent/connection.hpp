@@ -2,13 +2,12 @@
 
 #pragma once
 #include <array>
-#include <vector>
 #include <memory>
-#include <unordered_map>
 #include <chrono>
 #include <cstddef>
 #include <functional>
 #include <boost/asio.hpp>
+#include <memory/container.hpp>
 
 namespace ngx::agent
 {
@@ -101,7 +100,7 @@ namespace ngx::agent
         // 数据结构：hash_map + stack(模拟)
         // key: 目标 ip:port
         // value: 空闲连接列表
-        std::unordered_map<endpoint_key, std::vector<idle_item>, endpoint_hash> cache_;
+        memory::unordered_map<endpoint_key, memory::vector<idle_item>, endpoint_hash> cache_;
 
         // 单个目标最大缓存数 (防止内存爆炸)
         const std::uint32_t max_cache_endpoint_ = 32;

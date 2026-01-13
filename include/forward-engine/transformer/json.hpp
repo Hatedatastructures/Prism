@@ -82,7 +82,10 @@ namespace ngx::transformer::json
     [[nodiscard]] memory::string serialize(const StructureObject &value, memory::resource_pointer mr = memory::current_resource())
     {
         memory::string out(mr);
-        serialize(value, out);
+        if (!serialize(value, out))
+        {
+            out.clear();
+        }
         return out;
     }
 

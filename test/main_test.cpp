@@ -6,10 +6,7 @@
 
 #include <memory.hpp>
 #include <abnormal.hpp>
-#include <http.hpp>
-#include <agent.hpp>
 #include <trace.hpp>
-#include <rule.hpp>
 #include <transformer.hpp>
 #include <core/configuration.hpp>
 
@@ -41,7 +38,7 @@ ngx::core::configuration mapping_configuration()
     ngx::core::configuration config;
     try
     {
-        ngx::memory::string config_string{load_file_data("src/configuration.json")};
+        ngx::memory::string config_string{load_file_data(R"(C:\Users\C1373\Desktop\ForwardEngine\src\configuration.json)")};
         if (ngx::transformer::json::deserialize({config_string.data(), config_string.size()}, config))
         {
             return config;
@@ -54,8 +51,6 @@ ngx::core::configuration mapping_configuration()
     return {};
 }
 
-// const static std::string cert_path = R"(C:\Users\C1373\Desktop\ForwardEngine\cert.pem)";
-// const static std::string key_path = R"(C:\Users\C1373\Desktop\ForwardEngine\key.pem)";
 
 
 // TODO: add more tests
@@ -65,34 +60,19 @@ int main()
     ngx::memory::system::enable_global_pooling(); 
     try
     {
-        auto threads_count = std::thread::hardware_concurrency();
+        const auto threads_count = std::thread::hardware_concurrency();
         if (threads_count == 0)
         {
             throw ngx::abnormal::security("system error : {}","core acquisition failed");
         }
-        ngx::trace::config config;
-        config.file_name = "forward.log";
-        config.path_name = "logs";
-        config.max_size = 64U * 1024U * 1024U;
-        config.max_files = 8U;
-        config.queue_size = 8192U;
-        config.thread_count = 1U;
-        ngx::trace::init(config);
+        ngx::core::configuration config = mapping_configuration();
+        ngx::trace::init(config.trace);
 
-        auto work = []()
-        {
-            ngx::core::configuration config = mapping_configuration();
-            ngx::agent::worker worker(config.agent.addressable.port, config.agent.cert_path, config.agent.key_path);
-            worker.run();
-        };
 
-        std::vector<std::thread> threads;
-        threads.reserve(threads_count);
+        ngx::trace::info("json string : {} ", ngx::transformer::json::serialize<ngx::core::configuration>(config));
 
-        for (auto i = 0U; i < threads_count; ++i)
-        {
-            threads.emplace_back(work);
-        }
+
+        std::cout << ngx::transformer::json::serialize<ngx::core::configuration>(config) << std::endl;
 
         // ... 
     }

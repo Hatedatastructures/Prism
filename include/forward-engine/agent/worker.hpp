@@ -51,7 +51,7 @@ namespace ngx::agent
     {
     public:
         // 构造函数：初始化所有线程局部资源
-        explicit worker(const unsigned short port, const std::string &cert, const std::string &key)
+        explicit worker(const unsigned short port, const ngx::memory::string &cert, const ngx::memory::string &key)
             : ioc_(1),                   // 1. 初始化 IO 上下文 (hint=1 表示单线程)
               pool_(ioc_),               // 2. 初始化连接池 (依赖 ioc)
               distributor_(pool_, ioc_), // 3. 初始化路由器 (依赖 pool 和 ioc)
@@ -65,8 +65,8 @@ namespace ngx::agent
             {
                 if (!cert.empty() && !key.empty())
                 {
-                    ssl_ctx_->use_certificate_chain_file(cert);
-                    ssl_ctx_->use_private_key_file(key, net::ssl::context::pem);
+                    ssl_ctx_->use_certificate_chain_file({cert.data(), cert.size()});
+                    ssl_ctx_->use_private_key_file({key.data(), key.size()}, net::ssl::context::pem);
                     
                     // 只有在证书加载成功后，才有意义去设置这些底层参数
                     // 2. [新增] 开启 GREASE (油脂机制) - BoringSSL 特有
