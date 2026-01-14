@@ -13,6 +13,8 @@
             "host": "localhost",
             "port": 8081
         },
+        "cert_path": "cert.pem",
+        "key_path": "key.pem",
         "clash": false
     },
     "trace": {

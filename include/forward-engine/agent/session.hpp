@@ -46,7 +46,7 @@ namespace ngx::agent
      * @tparam Transport socket 类型
      * @note 作为会话管理类，负责管理与目标服务器（或客户端）的连接，自动处理代理转发和http请求
      */
-    template <socket_concept Transport>
+    template <SocketConcept Transport>
     class session : public std::enable_shared_from_this<session<Transport>>
     {
     public:
@@ -188,13 +188,13 @@ namespace ngx::agent
 
 namespace ngx::agent
 {
-    template <socket_concept Transport>
+    template <SocketConcept Transport>
     session<Transport>::session(net::io_context &io_context, socket_type socket, distributor &dist,
         std::shared_ptr<ssl::context> ssl_ctx)
     : io_context_(io_context), ssl_ctx_(std::move(ssl_ctx)), distributor_(dist),
     client_socket_(std::move(socket)) {}
 
-    template <socket_concept Transport>
+    template <SocketConcept Transport>
     session<Transport>::~session()
     {
         close();
@@ -206,7 +206,7 @@ namespace ngx::agent
      * @details 该函数用于注册日志函数，以便在会话中记录日志。
      * @warning 该函数必须在会话启动前调用，否则会什么也不记录。
      */
-    template <socket_concept Transport>
+    template <SocketConcept Transport>
     void session<Transport>::registered_log_function(std::function<void(level, std::string_view)> trace) noexcept
     {
         trace_ = std::move(trace);
@@ -216,7 +216,7 @@ namespace ngx::agent
      * @brief 日志接口
      * @details 用于记录会话过程中所有级别的日志信息。
      */
-    template <socket_concept Transport>
+    template <SocketConcept Transport>
     void session<Transport>::log(level log_level, const std::string_view message) const noexcept
     {
         if (trace_)
@@ -229,7 +229,7 @@ namespace ngx::agent
      * @brief 启动会话
      * @details 该函数会启动会话，开始处理客户端请求。
      */
-    template <socket_concept Transport>
+    template <SocketConcept Transport>
     void session<Transport>::start()
     {
         log(level::info, "[Session] Session started.");
@@ -268,7 +268,7 @@ namespace ngx::agent
      * @brief 关闭会话
      * @details 该函数会关闭与目标服务器（或客户端）的连接，释放相关资源。
      */
-    template <socket_concept Transport>
+    template <SocketConcept Transport>
     void session<Transport>::close()
     {
         log(level::debug, "[Session] Session closing.");
@@ -281,7 +281,7 @@ namespace ngx::agent
      * @brief 会话分发器
      * @details 该函数会根据请求协议类型，选择相应的处理函数。
      */
-    template <socket_concept Transport>
+    template <SocketConcept Transport>
     net::awaitable<void> session<Transport>::diversion()
     {
         boost::system::error_code ec;
@@ -325,7 +325,7 @@ namespace ngx::agent
      * @brief 处理HTTP请求
      * @details 该函数会从客户端读取HTTP请求，并根据请求类型进行相应的处理。
      */
-    template <socket_concept Transport>
+    template <SocketConcept Transport>
     net::awaitable<void> session<Transport>::handle_http()
     {
         frame_arena_.reset();
@@ -417,7 +417,7 @@ namespace ngx::agent
      * @brief 隧道 TCP 流量
      * @details 该函数会在客户端套接字和上游服务器套接字之间建立隧道，实现流量的双向传输。
      */
-    template<socket_concept Transport>
+    template<SocketConcept Transport>
     net::awaitable<void> session<Transport>::tunnel()
     {
         if (!server_socket_ptr_)
@@ -480,7 +480,7 @@ namespace ngx::agent
      * @brief 处理 obscura 协议
      * @details 该函数会处理 obscura 协议，并建立与上游服务器的连接。
      */
-    template <socket_concept Transport>
+    template <SocketConcept Transport>
     net::awaitable<void> session<Transport>::handle_obscura()
     {
         if (!ssl_ctx_)
@@ -547,7 +547,7 @@ namespace ngx::agent
      * @param cancel_slot 取消信号槽实例
      * @details 该函数会从 obscura 协议读取数据，并将数据写入服务器。
      */
-    template <socket_concept Transport>
+    template <SocketConcept Transport>
     net::awaitable<void> session<Transport>::transfer_obscura(obscura<tcp> &proto, const cancellation_slot cancel_slot) const
     {
         beast::flat_buffer buffer;
@@ -599,7 +599,7 @@ namespace ngx::agent
      * @param buffer 用于读取数据的缓冲区
      * @details 该函数会从服务器读取数据，并将数据写入 obscura 协议实例。
      */
-    template <socket_concept Transport>
+    template <SocketConcept Transport>
     net::awaitable<void> session<Transport>::transfer_obscura(obscura<tcp> &proto, const cancellation_slot cancel_slot, mutable_buf buffer) const
     {
         boost::system::error_code ec;
@@ -648,7 +648,7 @@ namespace ngx::agent
      * @param proto obscura 协议实例
      * @details 该函数会在客户端和服务器之间建立一个隧道，将 obscura 协议的数据进行加密传输。
      */
-    template <socket_concept Transport>
+    template <SocketConcept Transport>
     net::awaitable<void> session<Transport>::tunnel_obscura(std::shared_ptr<obscura<tcp>> proto)
     {
         if (!proto)

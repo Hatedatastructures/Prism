@@ -20,7 +20,7 @@ namespace ngx::agent
          * @param token 完成 Token
          * @return 根据 socket 类型调用对应的异步读取函数
          */
-        template <socket_concept external_socket, typename external_buffer, typename completion_token>
+        template <SocketConcept external_socket, typename external_buffer, typename completion_token>
         static auto async_read(external_socket &socket, const external_buffer &buffer, completion_token &&token)
         {
             if constexpr (requires { socket.async_read_some(buffer, token); })
@@ -45,7 +45,7 @@ namespace ngx::agent
          * @param token 完成 Token
          * @return 根据 socket 类型调用对应的异步写入函数
          */
-        template <socket_concept external_socket, typename external_buffer, typename completion_token>
+        template <SocketConcept external_socket, typename external_buffer, typename completion_token>
         static auto async_write(external_socket &socket, const external_buffer &buffer, completion_token &&token)
         {
             if constexpr (requires { socket.async_write_some(buffer, token); })
