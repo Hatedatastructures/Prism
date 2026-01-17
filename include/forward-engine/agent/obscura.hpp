@@ -166,7 +166,11 @@ namespace ngx::agent
     template <ProtocolConcept Protocol>
     net::awaitable<std::string> obscura<Protocol>::handshake(std::string_view host, std::string_view path)
     {
-        beast::get_lowest_layer(wsocket_).expires_never();
+        /**
+         * @bug 原生 Asio Socket 没有 expires_never() 这个函数。它默认就是永不超时的
+         */
+        // beast::get_lowest_layer(wsocket_).expires_never();
+        
         wsocket_.set_option(websocket::stream_base::timeout::suggested(static_cast<beast::role_type>(role_)));
 
         auto camouflage = [](websocket::request_type &req)

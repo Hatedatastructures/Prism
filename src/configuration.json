@@ -13,8 +13,10 @@
             "host": "localhost",
             "port": 8081
         },
-        "cert_path": "cert.pem",
-        "key_path": "key.pem",
+        "certificate": {
+            "key": "C:\\Users\\C1373\\Desktop\\ForwardEngine\\key.pem",
+            "cert": "C:\\Users\\C1373\\Desktop\\ForwardEngine\\cert.pem"
+        },
         "clash": false
     },
     "trace": {

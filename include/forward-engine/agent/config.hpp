@@ -5,6 +5,10 @@
 
 namespace ngx::agent
 {
+    /**
+     * @brief 端点配置
+     * @details 包含主机名和端口号
+     */
     struct endpoint
     {
         ngx::memory::string host;
@@ -17,14 +21,27 @@ namespace ngx::agent
         bool blacklist = true;
     };
 
+    /**
+     * @brief 证书配置
+     * @details 包含证书文件路径和密钥文件路径
+     */
+    struct certificate
+    {
+        ngx::memory::string key;
+        ngx::memory::string cert;
+    };
+
+    /**
+     * @brief 代理配置
+     * @details 包含限制配置、正面端点配置、可寻址端点配置、证书配置、伪装路径和是否启用Clash模式
+     */
     struct config
     {
+        limit limit;
         endpoint positive;
         endpoint addressable;
+        certificate certificate;
         ngx::memory::string camouflage;
-        limit limit;
-        ngx::memory::string cert_path;
-        ngx::memory::string key_path;
         bool clash = false;
     };
 }

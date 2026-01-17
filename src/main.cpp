@@ -82,7 +82,9 @@ int main()
         auto work = []()
         {
             ngx::core::configuration config = mapping_configuration();
-            ngx::agent::worker worker(config.agent.addressable.port, config.agent.cert_path, config.agent.key_path);
+
+            ngx::agent::config agent_config = config.agent;
+            ngx::agent::worker worker(agent_config.addressable.port, agent_config.certificate.cert, agent_config.certificate.key);
             worker.run();
         };
 

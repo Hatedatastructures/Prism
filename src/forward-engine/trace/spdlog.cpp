@@ -66,9 +66,9 @@ namespace ngx::trace
         {
             if (cfg.path_name.empty())
             {
-                return std::filesystem::path(cfg.file_name);
+                return std::filesystem::path(cfg.file_name.c_str());
             }
-            return std::filesystem::path(cfg.path_name) / cfg.file_name;
+            return std::filesystem::path(cfg.path_name.c_str()) / cfg.file_name.c_str();
         }
     }
 
@@ -87,7 +87,7 @@ namespace ngx::trace
         if (cfg.enable_file && !cfg.path_name.empty())
         {
             std::error_code ec;
-            std::filesystem::create_directories(std::filesystem::path(cfg.path_name), ec);
+            std::filesystem::create_directories(std::filesystem::path(cfg.path_name.c_str()), ec);
         }
 
         if (!spdlog::thread_pool())
@@ -126,16 +126,17 @@ namespace ngx::trace
         }
 
         // 创建异步 logger
+        const std::string logger_name = effective_cfg.trace_name.empty() ? "forward_engine" : std::string(effective_cfg.trace_name.c_str());
         auto logger = std::make_shared<spdlog::async_logger>(
-            effective_cfg.trace_name,
+            logger_name,
             sinks.begin(),
             sinks.end(),
             spdlog::thread_pool(),
             spdlog::async_overflow_policy::overrun_oldest);
 
-        const auto log_level = parse_spdlog_level(effective_cfg.log_level);
+        const auto log_level = parse_spdlog_level({effective_cfg.log_level.data(), effective_cfg.log_level.size()});
         logger->set_level(log_level);
-        logger->set_pattern(effective_cfg.pattern);
+        logger->set_pattern(std::string(effective_cfg.pattern.c_str()));
 
         spdlog::set_default_logger(logger);
         spdlog::set_level(log_level);
@@ -145,7 +146,7 @@ namespace ngx::trace
     void shutdown()
     {
         std::shared_ptr<spdlog::logger> logger;
-        std::string trace_name;
+        ngx::memory::string trace_name;
 
         {
             std::scoped_lock lock(trace_mutex);
@@ -169,7 +170,7 @@ namespace ngx::trace
         {
             if (!trace_name.empty())
             {
-                spdlog::drop(trace_name);
+                spdlog::drop(std::string(trace_name.c_str()));
             }
         }
         catch (...)
