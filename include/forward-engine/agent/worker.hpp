@@ -65,8 +65,19 @@ namespace ngx::agent
             {
                 if (!cert.empty() && !key.empty())
                 {
-                    ssl_ctx_->use_certificate_chain_file({cert.data(), cert.size()});
+                    boost::system::error_code ec;
+                    ssl_ctx_->use_certificate_chain_file({cert.data(), cert.size()},ec);
+                    if (ec)
+                    {
+                        trace::error("ssl cert load failed: " + ec.message());
+                        throw abnormal::protocol("ssl cert load failed:",ec.message());
+                    }
                     ssl_ctx_->use_private_key_file({key.data(), key.size()}, net::ssl::context::pem);
+                    if (ec)
+                    {
+                        trace::error("ssl key load failed: " + ec.message());
+                        throw abnormal::protocol("ssl key load failed:",ec.message());
+                    }
                     
                     // 只有在证书加载成功后，才有意义去设置这些底层参数
                     // 2. [新增] 开启 GREASE (油脂机制) - BoringSSL 特有
@@ -74,20 +85,26 @@ namespace ngx::agent
 
                     // 3. [新增] 开启 HTTP/2 ALPN (模拟浏览器指纹)
                     // 长度计算：1(len) + 2(h2) + 1(len) + 8(http/1.1) = 12
-                    const unsigned char alpn[] = "\x02h2\x08http/1.1";
+                    constexpr unsigned char alpn[] = "\x02h2\x08http/1.1";
                     SSL_CTX_set_alpn_protos(ssl_ctx_->native_handle(), alpn, sizeof(alpn) - 1);
                 }
                 else
                 {
                     // 如果没有证书，可能是想跑纯 HTTP 模式？
                     // 根据你的业务逻辑决定是否 reset
-                    // ssl_ctx_.reset(); 
+                    ssl_ctx_.reset(); 
+                    trace::warn("No certificate or key provided, running in plain HTTP mode");
                 }
+            }
+            catch (const abnormal::protocol& e)
+            {
+                trace::error(" protocol exception: {}", e.dump());
+                throw;
             }
             catch (const std::exception& e)
             {
                 // 记录日志或直接抛出，不要带着损坏的 context 继续跑
-                // spdlog::error("SSL init failed: {}", e.what());
+                trace::error("SSL init failed: {}", e.what());
                 throw; // 或者 ssl_ctx_.reset(); 但后面要判空
             }
 
@@ -164,7 +181,7 @@ namespace ngx::agent
         net::io_context ioc_;
         source pool_;             // 资源仓库
         distributor distributor_; // 业务大脑
-        std::shared_ptr<net::ssl::context> ssl_ctx_;
+        std::shared_ptr<ssl::context> ssl_ctx_;
         tcp::acceptor acceptor_;
     };
 
