@@ -20,8 +20,8 @@ set(FORWARD_LIB_SOURCES
         ../include/forward-engine/agent/frame.hpp
         forward-engine/agent/distributor.cpp
         ../include/forward-engine/agent/distributor.hpp
-        forward-engine/agent/connection.cpp
-        ../include/forward-engine/agent/connection.hpp
+        forward-engine/agent/source.cpp
+        ../include/forward-engine/agent/source.hpp
         ../include/forward-engine/agent/obscura.hpp
         ../include/forward-engine/agent/session.hpp
         ../include/forward-engine/rule/blacklist.hpp
@@ -53,6 +53,7 @@ set(FORWARD_LIB_SOURCES
         ../include/forward-engine/rule/config.hpp
         ../include/forward-engine/memory/pool.hpp
         ../include/forward-engine/memory.hpp
+        ../include/forward-engine/agent/transfer.hpp
 )
 
 # =============================================================

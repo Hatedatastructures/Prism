@@ -1,7 +1,7 @@
 #pragma once
 
 #include <boost/asio.hpp>
-#include <agent/connection.hpp>  // 你已经写好的连接池
+#include <agent/source.hpp>  // 你已经写好的连接池
 #include <agent/distributor.hpp> // 下一步要写的路由器
 #include <agent/session.hpp>     // 最后一步要写的会话
 #include <memory>

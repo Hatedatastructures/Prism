@@ -1,6 +1,6 @@
 #include <ranges>
 #include <cstdint>
-#include <agent/connection.hpp>
+#include <agent/source.hpp>
 
 namespace ngx::agent
 {

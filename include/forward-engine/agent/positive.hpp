@@ -8,7 +8,7 @@
 
 
 #include <agent/distributor.hpp>
-#include <agent/connection.hpp>
+#include <agent/source.hpp>
 #include <agent/adaptation.hpp>
 #include <agent/obscura.hpp>
 #include <http/request.hpp>

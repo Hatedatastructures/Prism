@@ -5,7 +5,7 @@
 #include <iostream>
 #include <memory>
 #include <string>
-#include <agent/connection.hpp>
+#include <agent/source.hpp>
 #include <agent/distributor.hpp>
 #include <agent/session.hpp>
 #include <boost/asio.hpp>

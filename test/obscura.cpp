@@ -95,7 +95,17 @@ net::awaitable<void> do_client(tcp::endpoint endpoint, std::shared_ptr<ssl::cont
 
         if (!expect_success)
         {
-            throw std::runtime_error("握手预期失败但实际成功了");
+            try
+            {
+                co_await agent->async_write(expected_msg);
+                beast::flat_buffer buffer;
+                co_await agent->async_read(buffer);
+                throw std::runtime_error("预期服务器拒绝连接，但读写仍然成功");
+            }
+            catch (const std::exception &)
+            {
+                co_return;
+            }
         }
 
         // 发送测试消息
@@ -137,8 +147,8 @@ int main()
 
         // 初始化服务器 SSL 上下文
         auto server_ctx = std::make_shared<ssl::context>(ssl::context::tlsv12);
-        server_ctx->use_certificate_chain_file("C:\\Users\\C1373\\Desktop\\ForwardEngine\\cert.pem");
-        server_ctx->use_private_key_file("C:\\Users\\C1373\\Desktop\\ForwardEngine\\key.pem", ssl::context::pem);
+        server_ctx->use_certificate_chain_file("C:\\Users\\C1373\\Desktop\\code\\ForwardEngine\\cert.pem");
+        server_ctx->use_private_key_file("C:\\Users\\C1373\\Desktop\\code\\ForwardEngine\\key.pem", ssl::context::pem);
 
         // 初始化客户端 SSL 上下文，忽略证书验证（用于自签名证书测试）
         auto client_ctx = std::make_shared<ssl::context>(ssl::context::tlsv12);

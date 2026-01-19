@@ -7,7 +7,7 @@
 #include <memory/container.hpp>
 #include <boost/asio.hpp>
 #include "obscura.hpp"
-#include "connection.hpp"
+#include "source.hpp"
 #include <rule/blacklist.hpp>
 
 #include "rule.hpp"

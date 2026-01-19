@@ -38,7 +38,7 @@ ngx::core::configuration mapping_configuration()
     ngx::core::configuration config;
     try
     {
-        ngx::memory::string config_string{load_file_data(R"(C:\Users\C1373\Desktop\ForwardEngine\src\configuration.json)")};
+        ngx::memory::string config_string{load_file_data(R"(C:\Users\C1373\Desktop\code\ForwardEngine\src\configuration.json)")};
         if (ngx::transformer::json::deserialize({config_string.data(), config_string.size()}, config))
         {
             return config;

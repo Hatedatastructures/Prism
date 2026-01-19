@@ -1,4 +1,4 @@
-#include <agent/connection.hpp>
+#include <agent/source.hpp>
 #include <boost/asio.hpp>
 #include <iostream>
 #include <cassert>

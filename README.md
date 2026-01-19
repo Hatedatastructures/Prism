@@ -7,56 +7,61 @@
 ![License](https://img.shields.io/badge/License-MIT-green)
 ![Build](https://img.shields.io/badge/Build-CMake-orange)
 
+
+
 </div>
 
-**ForwardEngine** 是一个基于 **Modern C++ (C++23)** 的高性能代理引擎原型。它摒弃了传统回调模式，完全基于 `net::awaitable` 协程与 `Boost.Asio/Beast` 构建，旨在提供一个**低延迟、高并发、且具备深度流量伪装能力**的网络底座。
+ForwardEngine 是一个基于 Modern C++（C++23）与 Boost.Asio/Beast 的代理引擎原型，核心链路使用 `net::awaitable` 协程组织，目标是提供低延迟、高并发的网络转发能力，并预留 Obscura（WSS）伪装通道。
 
-## ⚡ 核心特性 (Core Features)
+## 功能概览
+- 已支持：HTTP 正向代理（含 HTTPS `CONNECT` 隧道）
+- 已支持：Obscura（WebSocket + TLS）隧道
+- 未支持：SOCKS5（`curl -x socks5://...` 目前会被误判为 Obscura 流量而握手失败）
 
-* **纯粹的 C++23 协程设计**：
-  核心链路完全基于 `co_await`，消除回调地狱，以同步代码的逻辑编写极致性能的异步网络服务。
-* **企业级网络栈**：
-  基于 **Boost.Asio** (I/O 调度) 与 **Boost.Beast** (HTTP/WebSocket)，天然支持高并发。
-* **Obscura 隐形层 (Stealth Mode)**：
-  内置流量伪装模块，将 TCP 流量封装进标准的 **WebSocket (WSS)** 协议。
-  > **实战意义**：流量特征与正常网页浏览一致，支持通过 **Cloudflare/CDN** 进行中转，极大增强抗封锁能力。
-* **现代依赖管理**：
-  * **序列化**：集成 [Glaze](https://github.com/stephenberry/glaze) 实现极速 JSON 解析。
-  * **日志**：集成 [spdlog](https://github.com/gabime/spdlog) 提供高性能异步日志。
+## 快速上手（Windows 11 + MinGW）
+依赖默认从 `c:/bin` 查找（根目录 `CMakeLists.txt` 已配置 `CMAKE_PREFIX_PATH`、`OPENSSL_ROOT_DIR`）。
 
-## 构建环境（Windows 11 + MinGW）
-- 编译器：`MinGW-w64`（支持 C++23）。
-- 构建系统：`CMake 3.15+`。
-- 三方依赖：除标准库外，依赖从 `c:/bin` 查找（根目录 `CMakeLists.txt` 里配置了 `CMAKE_PREFIX_PATH`、`OPENSSL_ROOT_DIR`）。
+### 构建
+```bat
+cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=RelWithDebInfo
+cmake --build build -j
+```
 
-建议的依赖清单：
-- `Boost`（Asio、Beast、System 等）。
-- `OpenSSL`。
-- `spdlog`（日志底座；项目提供 `trace/spdlog.hpp` 封装）。
-- `glaze`（`JSON` 序列化/反序列化；项目提供 `transformer` 模块封装）。
-  - 具体用法见 [premise.md](docs/premise.md)。
+### 运行
+程序运行时会读取 `src/configuration.json`。默认监听端口为 `8081`（`agent.addressable.port`）。
 
-## 快速上手
-- 可执行入口通常在 `src/forward-engine/*`。
-- 测试在 `test/*`，其中 `session_test` 用于验证：
-  - `CONNECT` 隧道的双向转发是否正确
-  - 一端关闭后，另一端是否能及时收敛退出
+```bat
+build\src\Forward.exe
+```
 
-## 目录与模块
-- `include/forward-engine/agent/*`
-  - `worker.hpp`：监听端口、`accept`、创建 `session`
-  - `session.hpp`：会话主链路（协议识别、HTTP/Obscura 处理、隧道与收尾）
-  - `analysis.hpp/.cpp`：协议识别与目标解析
-  - `distributor.hpp/.cpp`：路由与连接获取
-  - `connection.hpp/.cpp`：连接池（`monopolize_socket` + `deleter` 回收）
+### 验证（curl）
+HTTP 站点可能会 301 跳转到 HTTPS（例如百度），建议加 `-L` 跟随跳转。
+
+```bat
+curl -v -L -x http://127.0.0.1:8081 http://www.baidu.com
+curl -v -L -x http://127.0.0.1:8081 https://www.baidu.com
+```
+
+### 测试
+```bat
+ctest --test-dir build --output-on-failure
+```
+
+## 配置说明（src/configuration.json）
+- `agent.addressable.host/port`：对外提供代理服务的监听地址与端口（默认 `localhost:8081`）
+- `agent.certificate.cert/key`：Obscura（TLS）所需证书与私钥路径
+- `trace.*`：日志开关、级别、格式与名称（建议排障时把 `log_level` 设为 `debug`）
+
+## 目录结构
+- `include/forward-engine/agent/*`：会话主链路、协议识别、路由与连接池
 - `include/forward-engine/http/*`：HTTP 类型与编解码
-- `include/forward-engine/trace/*`：日志封装（基于 `spdlog`）
-- `include/forward-engine/transformer/*`：数据转换封装（基于 `glaze`）
-- `test/*`：最小集成测试与回归用例
+- `include/forward-engine/trace/*`：日志封装（基于 spdlog）
+- `include/forward-engine/transformer/*`：数据转换封装（基于 glaze）
+- `test/*`：回归用例（含 `CONNECT` 转发、连接收敛、Obscura、spdlog 等）
 
 ## 已知限制
-- 连接池当前仅覆盖 TCP；尚未实现全局 LRU、后台定时清理、跨线程共享/分片池。
-- 反向代理路由表 `reverse_map_` 仍在完善中。
+- 连接池目前仅覆盖 TCP；跨线程共享/分片池与全局淘汰策略仍在完善。
+- 反向代理路由表仍在完善。
 
 ## 许可证
 本项目采用 [MIT License](LICENSE)。

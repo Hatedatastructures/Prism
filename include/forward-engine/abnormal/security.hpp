@@ -27,6 +27,6 @@ namespace ngx::abnormal
         {}
 
     protected:
-        std::string_view type_name() const noexcept override { return "SECURITY"; }
+        [[nodiscard]] std::string_view type_name() const noexcept override { return "SECURITY"; }
     };
 }

@@ -32,8 +32,9 @@
 
 ### 2.4 日志（`include/forward-engine/trace/*`）
 - [x] 基于 `spdlog` 的日志封装：异步线程池 + 文件轮转 + 可选控制台输出（`spdlog.hpp/.cpp`）
+- [x] `trace::config` 字符串字段已切换为 `ngx::memory::string`（`std::pmr::string`），与项目内存策略一致
 - [x] 协程日志接口与补充能力（`monitor.hpp/.cpp`）
-- [x] 测试：`log_test`
+- [x] 测试：`log_test`、`spdlog_test`
 
 ### 2.5 Transformer（`include/forward-engine/transformer/*`）
 - [x] `transformer` 模块已接入：对 `glaze` 的封装入口（当前以 `JSON` 为主）
@@ -49,15 +50,15 @@
 ### 2.7 构建与测试（CMake）
 - [x] 静态库 + 主程序 + 测试工程结构已搭好（根 `CMakeLists.txt`、`src/`、`test/`）
 - [x] MinGW 下 OpenSSL 依赖可配置与编译
-- [x] 已通过测试：`headers_test`、`glaze_test`、`request_test`、`log_test`、`session_test`、`connection_test`、`spdlog_test`
+- [x] 已通过测试：`headers_test`、`glaze_test`、`request_test`、`log_test`、`session_test`、`obscura_test`、`connection_test`、`spdlog_test`、`main_test`、`json_test`
   - `session_test` 覆盖：正常转发 + 上游先断/客户端先断的双向退出语义
-- [ ] 待修复：`obscura_test`
-  - 现状：CTest 记录了测试项，但运行时找不到 `obscura_test_exec.exe`（可执行产物路径/注册信息需要对齐）
+- [x] curl 端到端验证已跑通：HTTP/HTTPS 正向代理（含 `CONNECT`）
 
 ## 3. 近期待办（按当前缺口）
-- [ ] 修复 `obscura_test`：确保产物路径与 CTest 注册一致
 - [ ] 反向代理配置加载：把 `configuration.json`（或其它源）接入 `reverse_map_`
+- [ ] Transformer 收敛：在 `ngx::transformer::json` 下统一默认 `opts` 与受限解析策略
 - [ ] 连接池增强（可选）：全局 LRU/定时清理/更严格的健康检查策略
+- [ ] SOCKS5 支持（可选）：新增 `protocol_type::socks5` 与 `handle_socks5`（当前未支持，`curl -x socks5://...` 不可用）
 
 ## 4. 已知问题
 - 构建目录若混用生成器（例如同一 `build` 目录曾同时被 Ninja 与 MinGW Makefiles 使用），可能导致缓存冲突与文件锁问题；建议按生成器分离构建目录（例如 `build_mingw`）

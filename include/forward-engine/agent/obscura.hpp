@@ -217,13 +217,15 @@ namespace ngx::agent
             // [Step 3] 再进行 WebSocket 握手
             co_await wsocket_.async_handshake(host, path, net::use_awaitable);
         }
-        else // Server 模式
+        if (role_ == role::server)
         {
             // [Step 1] 服务端 SSL 握手
             co_await ssl_stream.async_handshake(ssl::stream_base::server, net::use_awaitable);
 
             // [Step 2] 服务端 WebSocket 握手 (Accept)
-            co_await wsocket_.async_accept(net::use_awaitable);
+            ssl_request req;
+            co_await wsocket_.async_accept(req, net::use_awaitable);
+            co_return std::string(req.target());
         }
 
         co_return "";
@@ -234,8 +236,8 @@ namespace ngx::agent
      * @param buffer 外部缓冲区
      * @return std::size_t 读取到的字节数
      */
-    template <ProtocolConcept protocol>
-    net::awaitable<std::size_t> obscura<protocol>::async_read(beast::flat_buffer& buffer)
+    template <ProtocolConcept Protocol>
+    net::awaitable<std::size_t> obscura<Protocol>::async_read(beast::flat_buffer& buffer)
     {
         // 直接读取到外部 buffer
         // 之前这里的 buffer_ 逻辑已移除，因为 handshake 中的 buffer 是局部的，不会有残留问题
@@ -247,8 +249,8 @@ namespace ngx::agent
      * @brief 写入数据
      * @param data 要写入的数据
      */
-    template <ProtocolConcept protocol>
-    net::awaitable<void> obscura<protocol>::async_write(std::string_view data)
+    template <ProtocolConcept Protocol>
+    net::awaitable<void> obscura<Protocol>::async_write(std::string_view data)
     {
         co_await wsocket_.async_write(net::buffer(data), net::use_awaitable);
     }

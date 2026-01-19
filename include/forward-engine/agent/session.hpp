@@ -11,17 +11,18 @@
 #include <functional>
 #include <string_view>
 
-#include <memory/pool.hpp>
-
 #include <boost/asio.hpp>
+#include <boost/asio/experimental/awaitable_operators.hpp>
+
 #include <abnormal.hpp>
+#include <memory/pool.hpp>
 #include "analysis.hpp"
 #include "obscura.hpp"
-#include "connection.hpp"
+#include "source.hpp"
 #include "adaptation.hpp"
 #include <http/deserialization.hpp>
 #include <http/serialization.hpp>
-#include <boost/asio/experimental/awaitable_operators.hpp>
+#include "transfer.hpp"
 
 
 namespace ngx::agent
@@ -39,6 +40,11 @@ namespace ngx::agent
         warn,
         error,
         fatal
+    };
+
+    class session_context
+    {
+
     };
 
     /**
