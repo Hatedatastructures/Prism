@@ -1,20 +1,23 @@
 #pragma once
 
 #include <boost/asio.hpp>
-#include <agent/source.hpp>  // 你已经写好的连接池
-#include <agent/distributor.hpp> // 下一步要写的路由器
-#include <agent/session.hpp>     // 最后一步要写的会话
+#include <forward-engine/transport/source.hpp>  // 你已经写好的连接池
+#include <forward-engine/agent/distributor.hpp> // 下一步要写的路由器
+#include <forward-engine/agent/session.hpp>     // 最后一步要写的会话
 #include <memory>
 #include <thread>
 #include <vector>
 
-#include <trace.hpp>
+#include <forward-engine/agent/config.hpp>
+#include <forward-engine/trace.hpp>
 
 namespace ngx::agent
 {
 
     namespace net = boost::asio;
     using tcp = boost::asio::ip::tcp;
+    using source = ngx::transport::source;
+    using level = ngx::transport::detail::log_level;
     
     /**
      * @brief 日志转换函数
@@ -23,23 +26,23 @@ namespace ngx::agent
      * @param msg `std::string_view` 日志消息
      * @note 该函数不会主动运行，需要由现有测试用例显式调用。或者根据用户自己写的log模块转换调用
      */
-    inline auto log_transformation = [](agent::level level, std::string_view msg)
+    inline auto log_transformation = [](level log_lvl, std::string_view msg)
     {
-        switch (level)
+        switch (log_lvl)
         {
-        case agent::level::debug:
+        case level::debug:
             ngx::trace::debug("{}", msg);
             break;
-        case agent::level::info:
+        case level::info:
             ngx::trace::info("{}", msg);
             break;
-        case agent::level::warn:
+        case level::warn:
             ngx::trace::warn("{}", msg);
             break;
-        case agent::level::error:
+        case level::error:
             ngx::trace::error("{}", msg);
             break;
-        case agent::level::fatal:
+        case level::fatal:
             ngx::trace::fatal("{}", msg);
             break;
         default:
@@ -51,13 +54,17 @@ namespace ngx::agent
     {
     public:
         // 构造函数：初始化所有线程局部资源
-        explicit worker(const unsigned short port, const ngx::memory::string &cert, const ngx::memory::string &key)
+        explicit worker(const agent::config& cfg)
             : ioc_(1),                   // 1. 初始化 IO 上下文 (hint=1 表示单线程)
               pool_(ioc_),               // 2. 初始化连接池 (依赖 ioc)
               distributor_(pool_, ioc_), // 3. 初始化路由器 (依赖 pool 和 ioc)
               ssl_ctx_(std::make_shared<net::ssl::context>(net::ssl::context::tls)),
-              acceptor_(ioc_) // 4. 初始化接收器
+              acceptor_(ioc_), // 4. 初始化接收器
+              config_(cfg)
         {
+            const auto port = cfg.addressable.port;
+            const auto& cert = cfg.certificate.cert;
+            const auto& key = cfg.certificate.key;
             // -------------------------------------------------------------
             // SSL 配置部分
             // -------------------------------------------------------------
@@ -85,12 +92,12 @@ namespace ngx::agent
 
                     // 3. [新增] 开启 HTTP/2 ALPN (模拟浏览器指纹)
                     // 长度计算：1(len) + 2(h2) + 1(len) + 8(http/1.1) = 12
-                    constexpr unsigned char alpn[] = "\x02h2\x08http/1.1";
-                    SSL_CTX_set_alpn_protos(ssl_ctx_->native_handle(), alpn, sizeof(alpn) - 1);
+                    constexpr unsigned char ALPN[] = "\x02h2\x08http/1.1";
+                    SSL_CTX_set_alpn_protos(ssl_ctx_->native_handle(), ALPN, sizeof(ALPN) - 1);
                 }
                 else
                 {
-                    // 如果没有证书，可能是想跑纯 HTTP 模式？
+                    // 如果没有证书，可能是想跑在 HTTP 模式下
                     // 根据你的业务逻辑决定是否 reset
                     ssl_ctx_.reset(); 
                     trace::warn("No certificate or key provided, running in plain HTTP mode");
@@ -172,6 +179,18 @@ namespace ngx::agent
                             distributor_,
                             ssl_ctx_);
                         session_ptr->registered_log_function(log_transformation);
+                        
+                        // 设置密码验证器
+                        session_ptr->set_password_verifier([this](std::string_view hash) -> bool {
+                            if (config_.authentication.passwords.empty()) {
+                                return true; // 如果未配置密码，默认允许（或根据策略拒绝）
+                            }
+                            for (const auto& pass : config_.authentication.passwords) {
+                                if (pass == hash) return true;
+                            }
+                            return false;
+                        });
+
                         session_ptr->start();
                     }
                     do_accept();
@@ -183,6 +202,7 @@ namespace ngx::agent
         distributor distributor_; // 业务大脑
         std::shared_ptr<ssl::context> ssl_ctx_;
         tcp::acceptor acceptor_;
+        agent::config config_;
     };
 
 }

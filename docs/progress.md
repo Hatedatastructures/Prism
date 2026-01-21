@@ -2,7 +2,7 @@
 
 ## 1. 项目概况
 - **名称**：ForwardEngine
-- **目标**：基于 C++23 与 Boost.Asio 的通用代理引擎（当前以 TCP/HTTP 为主）
+- **目标**：基于 C++23 与 Boost.Asio 的通用代理引擎（支持 HTTP/SOCKS5/Trojan/Obscura）
 - **开发环境**：Windows 11 + MinGW（第三方库安装在 `c:/bin`）
 - **核心依赖**：Boost.Asio/Beast、OpenSSL、spdlog、glaze、CMake
 
@@ -18,6 +18,8 @@
 - [x] **协议识别/目标解析**：`analysis::detect`、`analysis::resolve`（`analysis.hpp/.cpp`）
 - [x] **会话转发**：`session` 支持
   - HTTP：区分正向/反向代理，建立上游连接并做双向转发（`session.hpp`）
+  - SOCKS5：完整支持 CONNECT 命令，建立 TCP 隧道转发（`protocol/socks5/stream.hpp`）
+  - Trojan：支持 Trojan 协议握手与流量转发（`protocol/trojan/stream.hpp`）
   - Obscura：握手拿到目标串后走正向连接并转发（`session.hpp` + `obscura.hpp`）
   - 隧道取消：双向转发使用 `cancellation_signal/slot` 通知对向优雅退出，避免靠强制 `close()` 打断导致误报（`session.hpp`）
 - [x] **路由/分发**：`distributor` 提供 `route_forward/route_reverse/route_direct`（`distributor.hpp/.cpp`）
@@ -50,15 +52,15 @@
 ### 2.7 构建与测试（CMake）
 - [x] 静态库 + 主程序 + 测试工程结构已搭好（根 `CMakeLists.txt`、`src/`、`test/`）
 - [x] MinGW 下 OpenSSL 依赖可配置与编译
-- [x] 已通过测试：`headers_test`、`glaze_test`、`request_test`、`log_test`、`session_test`、`obscura_test`、`connection_test`、`spdlog_test`、`main_test`、`json_test`
+- [x] 已通过测试：`headers_test`、`glaze_test`、`request_test`、`log_test`、`session_test`、`obscura_test`、`connection_test`、`spdlog_test`、`main_test`、`json_test`、`socks5_test`、`trojan_test`
   - `session_test` 覆盖：正常转发 + 上游先断/客户端先断的双向退出语义
-- [x] curl 端到端验证已跑通：HTTP/HTTPS 正向代理（含 `CONNECT`）
+- [x] curl 端到端验证已跑通：HTTP/HTTPS 正向代理（含 `CONNECT`）与 SOCKS5 代理
 
 ## 3. 近期待办（按当前缺口）
 - [ ] 反向代理配置加载：把 `configuration.json`（或其它源）接入 `reverse_map_`
 - [ ] Transformer 收敛：在 `ngx::transformer::json` 下统一默认 `opts` 与受限解析策略
 - [ ] 连接池增强（可选）：全局 LRU/定时清理/更严格的健康检查策略
-- [ ] SOCKS5 支持（可选）：新增 `protocol_type::socks5` 与 `handle_socks5`（当前未支持，`curl -x socks5://...` 不可用）
+- [ ] UDP Forward 支持（可选）：为 SOCKS5/Trojan 添加 UDP 转发能力
 
 ## 4. 已知问题
 - 构建目录若混用生成器（例如同一 `build` 目录曾同时被 Ninja 与 MinGW Makefiles 使用），可能导致缓存冲突与文件锁问题；建议按生成器分离构建目录（例如 `build_mingw`）

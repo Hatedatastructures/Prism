@@ -1,17 +1,17 @@
-#include <agent.hpp>
+#include <forward-engine/agent.hpp>
 #include <memory>
 #include <thread>
 #include <iostream>
 #include <fstream>
 
-#include <memory.hpp>
-#include <abnormal.hpp>
-#include <trace.hpp>
-#include <transformer.hpp>
-#include <core/configuration.hpp>
+#include <forward-engine/memory.hpp>
+#include <forward-engine/abnormal.hpp>
+#include <forward-engine/trace.hpp>
+#include <forward-engine/transformer.hpp>
+#include <forward-engine/core/configuration.hpp>
 
 namespace agent = ngx::agent;
-namespace http = ngx::http;
+namespace http = ngx::protocol::http;
 namespace net = agent::net;
 
 ngx::memory::string load_file_data(std::string_view path)
@@ -51,7 +51,10 @@ ngx::core::configuration mapping_configuration()
     return {};
 }
 
-
+/**
+ * @brief 主函数
+ * @return int 程序退出状态码
+ */
 // TODO: add more tests
 int main()
 {
@@ -71,7 +74,7 @@ int main()
         {
 
             agent::config agent_config = config.agent;
-            agent::worker worker(agent_config.addressable.port, agent_config.certificate.cert, agent_config.certificate.key);
+            agent::worker worker(agent_config);
             worker.run();
         };
 

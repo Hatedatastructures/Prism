@@ -1,4 +1,4 @@
-#include <agent/distributor.hpp>
+#include <forward-engine/agent/distributor.hpp>
 #include <boost/property_tree/json_parser.hpp>
 #include <boost/property_tree/ptree.hpp>
 #include <stdexcept>
@@ -6,6 +6,8 @@
 
 namespace ngx::agent
 {
+    using tcp = boost::asio::ip::tcp;
+
    distributor::distributor(source &pool, net::io_context &ioc, memory::resource_pointer mr)
        : pool_(pool), resolver_(ioc), mr_(mr ? mr : memory::current_resource()), reverse_map_(mr_)
    {
@@ -66,14 +68,14 @@ namespace ngx::agent
    }
 
    /**
-    * @brief 给 HTTP 正向代理用 (查 DNS)
-    * @param host 目标主机名
-   * @param port 目标端口号
+    * @brief HTTP 正向代理 (DNS)
+    * @param host 目标主机
+   * @param port 目标端口
    * @return 一个指向内部连接对象的智能指针
    */
    net::awaitable<exclusive_connection> distributor::route_forward(const std::string_view host, const std::string_view port)
    {
-      // 1. 查 DNS
+      // 1. DNS
       if (blacklist_.domain(host))
       {
          throw abnormal::network(std::format("Domain blacklisted: {}, port: {}",host,port));
@@ -84,8 +86,8 @@ namespace ngx::agent
    }
 
    /**
-    * @brief 给 HTTP 反向代理用 (查静态表)
-   * @param host 目标主机名
+    * @brief HTTP 反向代理 (查静态表)
+   * @param host 目标主机
    * @return 一个指向内部连接对象的智能指针
    */
    net::awaitable<exclusive_connection> distributor::route_reverse(const std::string_view host)

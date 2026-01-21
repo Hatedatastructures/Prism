@@ -1,4 +1,4 @@
-#include <agent/source.hpp>
+#include <forward-engine/transport/source.hpp>
 #include <boost/asio.hpp>
 #include <iostream>
 #include <cassert>
@@ -15,7 +15,7 @@ net::awaitable<void> echo_server(tcp::acceptor &acceptor)
         try
         {
             auto socket = co_await acceptor.async_accept(net::use_awaitable);
-            // 保持连接打开，不需要读写
+            // 保持连接打开，不需要读取
             // 使用分离的协程保持 socket 存活一段时间或直到对端关闭
             auto task = [s = std::move(socket)]() mutable -> net::awaitable<void>
             {
@@ -50,7 +50,7 @@ net::awaitable<void> run_test(net::io_context &ioc, unsigned short port)
     std::cout << "[Test] Starting..." << std::endl;
     tcp::endpoint endpoint(net::ip::make_address("127.0.0.1"), port);
 
-    ngx::agent::source pool(ioc);
+    ngx::transport::source pool(ioc);
 
     try
     {

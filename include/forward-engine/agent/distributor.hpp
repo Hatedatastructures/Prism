@@ -6,8 +6,8 @@
 #include <string_view>
 #include <memory/container.hpp>
 #include <boost/asio.hpp>
-#include "obscura.hpp"
-#include "source.hpp"
+#include <forward-engine/transport/obscura.hpp>
+#include <forward-engine/transport/source.hpp>
 #include <rule/blacklist.hpp>
 
 #include "rule.hpp"
@@ -15,6 +15,9 @@
 namespace ngx::agent
 {
     namespace net = boost::asio;
+    using tcp = boost::asio::ip::tcp;
+    using source = ngx::transport::source;
+    using exclusive_connection = ngx::transport::exclusive_connection;
 
     /**
      * @brief 分发容器

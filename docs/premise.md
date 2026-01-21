@@ -6,16 +6,22 @@
 
 ForwardEngine 是一个基于 C++23 与 Boost.Asio 的代理引擎原型，目标是把“接入 → 协议识别 → 路由 → 上游连接 → 双向转发”这条链路跑通，并保留清晰的模块边界，便于后续演进。
 
-你可以把它理解为一个会处理两类客户端的代理入口：
+你可以把它理解为一个会处理多类客户端的代理入口：
 
-- 普通浏览器/代理客户端：走 HTTP 正向代理（明文 HTTP + HTTPS `CONNECT` 隧道）。
-- 私有客户端（Obscura）：走 WebSocket(SSL) 的“传输封装”，客户端把目标信息藏在握手阶段（例如 path），服务端解析后建立到上游的连接，再进入加密的双向转发。
+- **普通浏览器/HTTP 客户端**：走 HTTP 正向代理（明文 HTTP + HTTPS `CONNECT` 隧道）。
+- **SOCKS5 客户端**：走标准 SOCKS5 协议（TCP Connect）。
+- **Trojan 客户端**：走 Trojan 协议（TLS + 类 HTTP 伪装）。
+- **私有客户端（Obscura）**：走 WebSocket(SSL) 的“传输封装”，客户端把目标信息藏在握手阶段（例如 path），服务端解析后建立到上游的连接，再进入加密的双向转发。
 
-注意：项目当前未实现 SOCKS5 代理，因此 `curl -x socks5://...` 会被当作“非 HTTP 流量”走 Obscura 分支并导致握手失败。验证 HTTP/HTTPS 代理请使用：
+验证示例：
 
 ```bat
+# HTTP 代理
 curl -v -L -x http://127.0.0.1:8081 http://www.baidu.com
 curl -v -L -x http://127.0.0.1:8081 https://www.baidu.com
+
+# SOCKS5 代理
+curl -v -L -x socks5://127.0.0.1:8081 http://www.baidu.com
 ```
 
 ### 2. 目录与模块对照
@@ -28,13 +34,16 @@ curl -v -L -x http://127.0.0.1:8081 https://www.baidu.com
 关键模块（建议按顺序看）：
 
 - `agent/worker.hpp`：监听端口、accept 客户端连接、创建 `session`。
-- `agent/session.hpp`：会话生命周期与主链路（协议识别、处理 HTTP/Obscura、建立隧道）。
+- `agent/session.hpp`：会话生命周期与主链路（协议识别、处理 HTTP/SOCKS5/Trojan/Obscura、建立隧道）。
 - `agent/analysis.hpp/.cpp`：协议识别（peek）、目标解析（host/port/正反向判断等）。
 - `agent/distributor.hpp/.cpp`：路由与连接获取（正向/反向/直连等策略入口）。
 - `agent/connection.hpp/.cpp`：TCP 连接池与复用（缓存、僵尸检测、空闲超时、上限等）。
+- `protocol/*`：具体协议的流式封装（Stream Adapter）。
+  - `protocol/socks5/stream.hpp`：SOCKS5 服务端握手与状态机。
+  - `protocol/trojan/stream.hpp`：Trojan 服务端握手与状态机。
 - `agent/obscura.hpp`：基于 Beast WebSocket(SSL) 的封装，提供 `handshake/async_read/async_write`。
 - `agent/adaptation.hpp`：统一不同 socket/stream 的 `async_read/async_write` 适配层。
-- `http/*`：HTTP request/response/header 类型与编解码。
+- `protocol/http/*`：HTTP request/response/header 类型与编解码。
 - `trace/spdlog.hpp/.cpp`：基于 `spdlog` 的日志封装（异步文件轮转 + 可选控制台）。
 - `transformer/*`：基于 `glaze` 的数据转换封装（当前以 `JSON` 为主）。
 
@@ -55,7 +64,14 @@ curl -v -L -x http://127.0.0.1:8081 https://www.baidu.com
 - 代理如果同意，会回 `HTTP/1.1 200 Connection Established\r\n\r\n`。
 - 从这之后，双方就把这条 TCP 连接当作“纯字节流隧道”使用；代理不再解析 HTTP，而是做双向搬运。
 
-#### 3.3 “隧道/双向转发”意味着什么
+#### 3.3 SOCKS5 与 Trojan
+
+这两个协议本质上也是“协商目标 → 建立隧道”的过程，只是握手方式不同：
+
+- **SOCKS5**：二进制协议，先协商认证方法（无需认证/账号密码），再协商目标地址（IPv4/IPv6/域名），成功后进入纯流式转发。
+- **Trojan**：基于 TLS，看起来像 HTTPS 流量。握手阶段在 TLS 建立后发送特定格式的请求（包含密码哈希、命令、目标地址），验证通过后进入纯流式转发。
+
+#### 3.4 “隧道/双向转发”意味着什么
 
 隧道阶段本质就是两个方向各跑一个循环：
 
@@ -160,6 +176,8 @@ memory::string make_text(memory::resource_pointer mr = memory::current_resource(
 - `session_test`：启动最小代理 + 上游回显/模拟上游断开，验证：
   - `CONNECT` 隧道是否按“读多少写多少”正确转发
   - 一端关闭后，另一端是否能及时被唤醒并收敛退出（避免卡住导致超时）
+- `socks5_test`：验证 SOCKS5 握手（无认证）与数据回显。
+- `trojan_test`：验证 Trojan 握手（密码哈希）与数据回显。
 - `obscura_test`：验证 Obscura 握手、读写、关闭的基本链路。
 - `connection_test`：验证连接复用是否命中，以及回收/淘汰是否符合预期。
 
@@ -280,4 +298,3 @@ int main()
 
 - `glz::read` / `glz::write` 返回 `glz::error_ctx`，可以用 `if (ec) { ... }` 判断是否出错，避免依赖异常路径。
 - 对外部输入做“上限控制”：可以自定义 `context` 继承并加入 `max_string_length/max_array_size/max_map_size` 等运行时限制，再调用 `glz::read<opts>(..., ctx)` 走受限解析，降低内存/CPU 被恶意 JSON 拖垮的风险。
-

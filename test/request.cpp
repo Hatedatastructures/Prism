@@ -1,20 +1,17 @@
-#include <http/constants.hpp>
-#include <http/request.hpp>
+#include <forward-engine/protocol/http/constants.hpp>
+#include <forward-engine/protocol/http/request.hpp>
 
-#include <http/response.hpp>
+#include <forward-engine/protocol/http/response.hpp>
 
-#include <http/serialization.hpp>
-#include <http/deserialization.hpp>
-#include <memory/container.hpp>
-#include <agent/obscura.hpp>
+#include <forward-engine/protocol/http/serialization.hpp>
+#include <forward-engine/protocol/http/deserialization.hpp>
+#include <forward-engine/memory/container.hpp>
+#include <forward-engine/transport/obscura.hpp>
 #include <iostream>
 #include <string>
 
 
-namespace http = ngx::http;
-namespace agent = ngx::agent;
-
-
+namespace http = ngx::protocol::http;
 
 void serialization()
 {
@@ -88,4 +85,3 @@ int main()
     deserialization();
     return 0;
 }
-

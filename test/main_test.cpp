@@ -1,4 +1,4 @@
-#include <agent.hpp>
+#include <forward-engine/agent.hpp>
 #include <memory>
 #include <thread>
 #include <iostream>
@@ -11,7 +11,7 @@
 #include <core/configuration.hpp>
 
 namespace agent = ngx::agent;
-namespace http = ngx::http;
+namespace http = ngx::protocol::http;
 namespace net = agent::net;
 
 ngx::memory::string load_file_data(std::string_view path)

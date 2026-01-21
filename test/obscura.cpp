@@ -1,4 +1,4 @@
-#include <agent/obscura.hpp>
+#include <forward-engine/transport/obscura.hpp>
 #include <boost/asio.hpp>
 #include <boost/asio/ssl.hpp>
 #include <boost/beast.hpp>
@@ -29,7 +29,7 @@ net::awaitable<void> do_server(tcp::acceptor &acceptor, std::shared_ptr<ssl::con
         auto socket = co_await acceptor.async_accept(net::use_awaitable);
         
         // 创建 obscura 实例并显式指定服务器角色
-        auto agent = std::make_shared<ngx::agent::obscura<tcp>>(std::move(socket), ctx, ngx::agent::role::server);
+        auto agent = std::make_shared<ngx::transport::obscura<tcp>>(std::move(socket), ctx, ngx::transport::role::server);
 
         // 执行握手并获取请求路径
         std::string path = co_await agent->handshake();
@@ -60,7 +60,7 @@ net::awaitable<void> do_server(tcp::acceptor &acceptor, std::shared_ptr<ssl::con
 
 /**
  * @brief 使用 obscura 的测试客户端协程
- * @param endpoint 目标服务器端点
+ * @param endpoint 目标服务器端口
  * @param ctx SSL 上下文
  * @param path 请求的 WebSocket 路径
  * @param expected_msg 发送并预期回显的消息内容
@@ -74,7 +74,7 @@ net::awaitable<void> do_client(tcp::endpoint endpoint, std::shared_ptr<ssl::cont
         tcp::socket socket(co_await net::this_coro::executor);
         co_await socket.async_connect(endpoint, net::use_awaitable);
 
-        auto agent = std::make_shared<ngx::agent::obscura<tcp>>(std::move(socket), ctx, ngx::agent::role::client);
+        auto agent = std::make_shared<ngx::transport::obscura<tcp>>(std::move(socket), ctx, ngx::transport::role::client);
 
         // 执行 WebSocket 握手
         try
@@ -147,8 +147,9 @@ int main()
 
         // 初始化服务器 SSL 上下文
         auto server_ctx = std::make_shared<ssl::context>(ssl::context::tlsv12);
-        server_ctx->use_certificate_chain_file("C:\\Users\\C1373\\Desktop\\code\\ForwardEngine\\cert.pem");
-        server_ctx->use_private_key_file("C:\\Users\\C1373\\Desktop\\code\\ForwardEngine\\key.pem", ssl::context::pem);
+        // 使用相对路径或假设文件存在
+        server_ctx->use_certificate_chain_file("cert.pem");
+        server_ctx->use_private_key_file("key.pem", ssl::context::pem);
 
         // 初始化客户端 SSL 上下文，忽略证书验证（用于自签名证书测试）
         auto client_ctx = std::make_shared<ssl::context>(ssl::context::tlsv12);

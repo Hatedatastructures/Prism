@@ -1,4 +1,4 @@
-#include <http/header.hpp>
+#include <forward-engine/protocol/http/header.hpp>
 #include <iostream>
 #include <string>
 #include <cassert>
@@ -8,10 +8,10 @@
     #include <windows.h>
 #endif
 
-#include "http/request.hpp"
-#include "memory/pool.hpp"
+#include <forward-engine/protocol/http/request.hpp>
+#include <forward-engine/memory/pool.hpp>
 
-namespace http = ngx::http;
+namespace http = ngx::protocol::http;
 
 /**
  * @brief 测试 `headers` 类的基本操作
@@ -45,7 +45,7 @@ void test_basic_operations()
     assert(h.contains("CONTENT-TYPE"));
     assert(!h.contains("X-Forwarded-For"));
 
-    std::cout << "基本操作测试通过！" << std::endl;
+    std::cout << "基本操作测试通过。" << std::endl;
 }
 
 /**
@@ -84,7 +84,7 @@ void test_modification_and_removal()
     assert(h.size() == 1);
     assert(h.retrieve("Set-Cookie") == "name=test");
 
-    std::cout << "修改和删除测试通过！" << std::endl;
+    std::cout << "修改和删除测试通过。" << std::endl;
 }
 
 /**
@@ -113,7 +113,7 @@ void test_iteration()
     }
     assert(count == 3);
 
-    std::cout << "迭代功能测试通过！" << std::endl;
+    std::cout << "迭代功能测试通过。" << std::endl;
 }
 /**
  * @brief 测试 `headers` 类的清空和空间预留
@@ -133,7 +133,7 @@ void test_clear_and_reserve()
     assert(h.size() == 0);
     assert(!h.contains("A"));
 
-    std::cout << "清空和预留测试通过！" << std::endl;
+    std::cout << "清空和预留测试通过。" << std::endl;
 }
 
 int main()
@@ -149,7 +149,7 @@ int main()
         test_iteration();
         test_clear_and_reserve();
 
-        std::cout << "\n所有 HTTP 头字段测试全部通过！" << std::endl;
+        std::cout << "\n所有 HTTP 头字段测试全部通过。" << std::endl;
     }
     catch (const std::exception &e)
     {

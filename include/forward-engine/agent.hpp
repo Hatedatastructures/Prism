@@ -1,12 +1,12 @@
 #pragma once
 
-#include <agent/config.hpp>
-#include <agent/frame.hpp>
-#include <agent/source.hpp>
-#include <agent/distributor.hpp>
-#include <agent/session.hpp>
-#include <agent/obscura.hpp>
-#include <agent/adaptation.hpp>
-#include <agent/positive.hpp>
-#include <agent/reverse.hpp>
-#include <agent/worker.hpp>
+#include <forward-engine/agent/config.hpp>
+#include <forward-engine/agent/frame.hpp>
+#include <forward-engine/transport/source.hpp>
+#include <forward-engine/agent/distributor.hpp>
+#include <forward-engine/agent/session.hpp>
+#include <forward-engine/transport/obscura.hpp>
+#include <forward-engine/transport/adaptation.hpp>
+#include <forward-engine/transport/positive.hpp>
+#include <forward-engine/transport/reverse.hpp>
+#include <forward-engine/agent/worker.hpp>

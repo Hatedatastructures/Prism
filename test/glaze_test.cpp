@@ -3,7 +3,7 @@
 #include <string>
 #include <vector>
 
-// 1. 修改结构体首字母大写，避免与变量名冲突 
+// 1. 修改结构体首字母大写，避免与变量名冲突
 struct Person
 {
     std::string name;

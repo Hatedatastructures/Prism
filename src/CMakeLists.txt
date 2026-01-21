@@ -1,40 +1,40 @@
-# 收集库源文件 (保持不变)
+# 收集库源文件
 set(FORWARD_LIB_SOURCES
-        forward-engine/http/header.cpp
-        ../include/forward-engine/http/header.hpp
-        forward-engine/http/request.cpp
-        ../include/forward-engine/http/request.hpp
+        forward-engine/protocol/http/header.cpp
+        ../include/forward-engine/protocol/http/header.hpp
+        forward-engine/protocol/http/request.cpp
+        ../include/forward-engine/protocol/http/request.hpp
         forward-engine/trace/monitor.cpp
         ../include/forward-engine/trace/monitor.hpp
-        forward-engine/http/response.cpp
-        ../include/forward-engine/http/response.hpp
-        forward-engine/http/serialization.cpp
-        ../include/forward-engine/http/serialization.hpp
-        forward-engine/http/deserialization.cpp
-        ../include/forward-engine/http/deserialization.hpp
-        forward-engine/agent/positive.cpp
-        ../include/forward-engine/agent/positive.hpp
-        forward-engine/agent/reverse.cpp
-        ../include/forward-engine/agent/reverse.hpp
+        forward-engine/protocol/http/response.cpp
+        ../include/forward-engine/protocol/http/response.hpp
+        forward-engine/protocol/http/serialization.cpp
+        ../include/forward-engine/protocol/http/serialization.hpp
+        forward-engine/protocol/http/deserialization.cpp
+        ../include/forward-engine/protocol/http/deserialization.hpp
+        forward-engine/transport/positive.cpp
+        ../include/forward-engine/transport/positive.hpp
+        forward-engine/transport/reverse.cpp
+        ../include/forward-engine/transport/reverse.hpp
         forward-engine/agent/frame.cpp
         ../include/forward-engine/agent/frame.hpp
         forward-engine/agent/distributor.cpp
         ../include/forward-engine/agent/distributor.hpp
-        forward-engine/agent/source.cpp
-        ../include/forward-engine/agent/source.hpp
-        ../include/forward-engine/agent/obscura.hpp
+        forward-engine/transport/source.cpp
+        ../include/forward-engine/transport/source.hpp
+        ../include/forward-engine/transport/obscura.hpp
         ../include/forward-engine/agent/session.hpp
         ../include/forward-engine/rule/blacklist.hpp
-        ../include/forward-engine/http.hpp
-        ../include/forward-engine/http/constants.hpp
+        ../include/forward-engine/protocol/http.hpp
+        ../include/forward-engine/protocol/http/constants.hpp
         ../include/forward-engine/core/broker.hpp
         ../include/forward-engine/agent.hpp
         ../include/forward-engine/agent/worker.hpp
         forward-engine/rule/blacklist.cpp
         ../include/forward-engine/memory/pointer.hpp
-        ../include/forward-engine/agent/adaptation.hpp
-        ../include/forward-engine/agent/analysis.hpp
-        forward-engine/agent/analysis.cpp
+        ../include/forward-engine/transport/adaptation.hpp
+        ../include/forward-engine/protocol/analysis.hpp
+        forward-engine/protocol/analysis.cpp
         ../include/forward-engine/memory/container.hpp
         ../include/forward-engine/abnormal/deviant.hpp
         ../include/forward-engine/abnormal/security.hpp
@@ -53,7 +53,9 @@ set(FORWARD_LIB_SOURCES
         ../include/forward-engine/rule/config.hpp
         ../include/forward-engine/memory/pool.hpp
         ../include/forward-engine/memory.hpp
-        ../include/forward-engine/agent/transfer.hpp
+        ../include/forward-engine/transport/transfer.hpp
+        ../include/forward-engine/protocol/trojan.hpp
+        ../include/forward-engine/protocol/socks5.hpp
 )
 
 # =============================================================

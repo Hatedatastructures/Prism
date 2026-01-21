@@ -5,14 +5,14 @@
 #include <iostream>
 #include <memory>
 #include <string>
-#include <agent/source.hpp>
-#include <agent/distributor.hpp>
-#include <agent/session.hpp>
+#include <forward-engine/transport/source.hpp>
+#include <forward-engine/agent/distributor.hpp>
+#include <forward-engine/agent/session.hpp>
 #include <boost/asio.hpp>
 #include <boost/asio/ssl.hpp>
 #include <trace/spdlog.hpp>
 
-#include "agent/worker.hpp"
+// #include "agent/worker.hpp" // worker.hpp 似乎已被移除或整合
 
 #ifdef WIN32
     #include <windows.h>
@@ -69,7 +69,7 @@ net::awaitable<void> echo_server(tcp::acceptor acceptor)
     auto accept_token = net::redirect_error(net::use_awaitable, accept_ec);
     // 循环接受连接，防止仅处理一个连接后退出（如果测试用例有多次连接需求）
     // 但根据原逻辑只接受一次。如果需要持续运行，保持原样即可。
-    // 原逻辑只 accept 一次。
+    // 原逻辑是 accept 一次。
     tcp::socket socket = co_await acceptor.async_accept(accept_token);
     if (accept_ec)
     {
@@ -102,7 +102,7 @@ net::awaitable<void> echo_server(tcp::acceptor acceptor)
  * @param ssl_ctx ssl 上下文
  * @note 代理服务器会持续监听 acceptor，直到发生错误
  */
-net::awaitable<void> proxy_accept_one(tcp::acceptor acceptor, agent::net::io_context &ioc,
+net::awaitable<void> proxy_accept_one(tcp::acceptor acceptor, net::io_context &ioc,
     agent::distributor &dist, std::shared_ptr<ssl::context> ssl_ctx)
 {
     boost::system::error_code accept_ec;
@@ -413,7 +413,7 @@ net::awaitable<void> proxy_connect_client_then_close(const tcp::endpoint proxy_e
  * @param tag 日志前缀
  * @note 会启动 echo 服务器和代理服务器，然后连接代理服务器，最后关闭连接
  */
-net::awaitable<void> run_case_echo(agent::net::io_context &ioc, agent::distributor &dist, std::shared_ptr<ssl::context> ssl_ctx,
+net::awaitable<void> run_case_echo(net::io_context &ioc, agent::distributor &dist, std::shared_ptr<ssl::context> ssl_ctx,
     const std::string_view tag)
 {
     info(std::format("{} === case: echo ===", tag));
@@ -439,7 +439,7 @@ net::awaitable<void> run_case_echo(agent::net::io_context &ioc, agent::distribut
  * @param tag 日志前缀
  * @note 会启动 echo 服务器和代理服务器，然后连接代理服务器，最后关闭连接
  */
-net::awaitable<void> run_case_upstream_close_should_close_client(agent::net::io_context &ioc, agent::distributor &dist,
+net::awaitable<void> run_case_upstream_close_should_close_client(net::io_context &ioc, agent::distributor &dist,
     std::shared_ptr<ssl::context> ssl_ctx, const std::string_view tag)
 {
     info(std::format("{} === case: upstream_close_should_close_client ===", tag));
@@ -466,7 +466,7 @@ net::awaitable<void> run_case_upstream_close_should_close_client(agent::net::io_
  * @param tag 日志前缀
  * @note 会启动 echo 服务器和代理服务器，然后连接代理服务器，最后关闭连接
  */
-net::awaitable<void> run_case_client_close_should_close_upstream(agent::net::io_context &ioc, agent::distributor &dist,
+net::awaitable<void> run_case_client_close_should_close_upstream(net::io_context &ioc, agent::distributor &dist,
     std::shared_ptr<ssl::context> ssl_ctx, const std::string_view tag)
 {
     info(std::format("{} === case: client_close_should_close_upstream ===", tag));
@@ -490,7 +490,7 @@ net::awaitable<void> run_case_client_close_should_close_upstream(agent::net::io_
     info(std::format("{} === case: client_close_should_close_upstream done ===", tag));
 }
 
-net::awaitable<void> run_all_tests(agent::net::io_context &ioc, agent::distributor &dist, std::shared_ptr<ssl::context> ssl_ctx,
+net::awaitable<void> run_all_tests(net::io_context &ioc, agent::distributor &dist, std::shared_ptr<ssl::context> ssl_ctx,
     const std::string_view tag)
 {
     co_await run_case_echo(ioc, dist, ssl_ctx, tag);
@@ -528,13 +528,13 @@ int main()
 
         // 1. ioc 必须最先声明（最后析构）
         // 确保 socket/pool/dist 析构时 ioc 仍然有效
-        const auto ioc_ptr = std::make_unique<agent::net::io_context>();
+        const auto ioc_ptr = std::make_unique<net::io_context>();
         auto &ioc = *ioc_ptr;
 
         // 2. 依赖资源声明（在 ioc 之后，先析构）
 
         // 初始化
-        const auto pool = std::make_unique<agent::source>(ioc);
+        const auto pool = std::make_unique<ngx::transport::source>(ioc);
         auto dist = std::make_unique<agent::distributor>(*pool, ioc);
 
         auto ssl_ctx = std::make_shared<ssl::context>(ssl::context::tlsv12);

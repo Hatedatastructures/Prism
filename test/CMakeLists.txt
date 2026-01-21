@@ -106,6 +106,12 @@ add_executable(obscura_test_exec
         obscura.cpp
 )
 
+target_compile_options(obscura_test_exec PRIVATE
+          -O2
+          -fno-keep-inline-dllexport
+          -Wa,-mbig-obj
+  )
+
 target_link_libraries(obscura_test_exec
         PRIVATE
         ${PROJECT_NAME}_static_library
@@ -137,8 +143,20 @@ target_link_libraries(spdlog_test
 
 add_test(NAME spdlog_test COMMAND spdlog_test)
 
+# SOCKS5 测试
+add_executable(socks5_test socks5_test.cpp)
+target_compile_options(socks5_test PRIVATE -g1 -Os -fno-keep-inline-dllexport)
+target_link_libraries(socks5_test PRIVATE ${PROJECT_NAME}_static_library)
+add_test(NAME socks5_test COMMAND socks5_test)
+
+# Trojan 测试
+add_executable(trojan_test trojan_test.cpp)
+target_compile_options(trojan_test PRIVATE -g1 -Os -fno-keep-inline-dllexport)
+target_link_libraries(trojan_test PRIVATE ${PROJECT_NAME}_static_library)
+add_test(NAME trojan_test COMMAND trojan_test)
+
 if (MINGW)
-    foreach(target_name IN ITEMS headers_test main_test json_test request_test glaze_test log_test session_test obscura_test_exec connection_test spdlog_test)
+    foreach(target_name IN ITEMS headers_test main_test json_test request_test glaze_test log_test session_test obscura_test_exec connection_test spdlog_test socks5_test trojan_test)
         if (TARGET ${target_name})
             target_compile_options(${target_name} PRIVATE -Wa,-mbig-obj)
         endif()
