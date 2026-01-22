@@ -1,9 +1,9 @@
-#include <forward-engine/agent/frame.hpp>
+#include <forward-engine/protocol/frame.hpp>
 #include <boost/endian/conversion.hpp>
 #include <cstring>
 #include <stdexcept>
 
-namespace ngx::agent
+namespace ngx::protocol
 {
     frame::frame(enum frame::type type, std::uint32_t streamid, std::string_view data)
         : stream_id_(streamid), type_(type), data_(data)

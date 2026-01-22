@@ -14,8 +14,8 @@
             "port": 8081
         },
         "certificate": {
-            "key": "C:\\Users\\C1373\\Desktop\\ForwardEngine\\key.pem",
-            "cert": "C:\\Users\\C1373\\Desktop\\ForwardEngine\\cert.pem"
+            "key": "C:\\Users\\C1373\\Desktop\\code\\ForwardEngine\\key.pem",
+            "cert": "C:\\Users\\C1373\\Desktop\\code\\ForwardEngine\\cert.pem"
         },
         "clash": false
     },

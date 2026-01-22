@@ -1,7 +1,7 @@
 #pragma once
 
 #include <forward-engine/agent/config.hpp>
-#include <forward-engine/agent/frame.hpp>
+#include <forward-engine/protocol/frame.hpp>
 #include <forward-engine/transport/source.hpp>
 #include <forward-engine/agent/distributor.hpp>
 #include <forward-engine/agent/session.hpp>

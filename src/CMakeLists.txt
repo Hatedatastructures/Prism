@@ -17,7 +17,7 @@ set(FORWARD_LIB_SOURCES
         forward-engine/transport/reverse.cpp
         ../include/forward-engine/transport/reverse.hpp
         forward-engine/agent/frame.cpp
-        ../include/forward-engine/agent/frame.hpp
+        ../include/forward-engine/protocol/frame.hpp
         forward-engine/agent/distributor.cpp
         ../include/forward-engine/agent/distributor.hpp
         forward-engine/transport/source.cpp

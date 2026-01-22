@@ -569,12 +569,13 @@ namespace ngx::agent
         try
         {
             auto agent = std::make_shared<protocol::socks5::stream<SocketType>>(std::move(client_socket_));
-            auto target_info = co_await agent->handshake();
+            auto request = co_await agent->handshake();
 
             // 构造 target 对象
             protocol::analysis::target target(frame_arena_.get());
-            target.host.assign(target_info.host.begin(), target_info.host.end());
-            target.port.assign(std::to_string(target_info.port));
+            auto host_str = protocol::socks5::to_string(request.destination_address, frame_arena_.get());
+            target.host = std::move(host_str);
+            target.port.assign(std::to_string(request.destination_port));
             target.forward_proxy = true;
 
             const std::string label = std::format("[SOCKS5] {}:{}", target.host, target.port);
@@ -583,7 +584,7 @@ namespace ngx::agent
             if (co_await connect_upstream("SOCKS5", target, true, true))
             {
                 // 发送成功响应
-                co_await agent->send_success(target_info);
+                co_await agent->send_success(request);
 
                 // 移回 socket
                 client_socket_ = std::move(agent->socket());

@@ -4,7 +4,7 @@
 #include <cstdint>
 #include <string_view>
 
-namespace ngx::agent
+namespace ngx::protocol
 {
     /**
      * @brief `websocket` 帧容器

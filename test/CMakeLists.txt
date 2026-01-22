@@ -118,6 +118,7 @@ target_link_libraries(obscura_test_exec
 )
 
 add_test(NAME obscura_test COMMAND obscura_test_exec)
+set_tests_properties(obscura_test PROPERTIES WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})
 
 # connection 测试可执行程序
 add_executable(connection_test
