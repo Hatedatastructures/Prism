@@ -37,13 +37,14 @@ net::awaitable<void> do_trojan_server(tcp::acceptor &acceptor, std::shared_ptr<s
 
         // 执行握手
         std::cout << "Server starting Trojan handshake..." << std::endl;
-        auto target_info = co_await trojan->handshake();
+        auto req = co_await trojan->handshake();
         std::cout << "Server handshake success" << std::endl;
 
+        auto host_str = ngx::protocol::trojan::to_string(req.destination_address);
         std::cout << "Trojan Server received request: "
-                  << "CMD=" << static_cast<int>(target_info.cmd)
-                  << ", ADDR=" << target_info.host
-                  << ", PORT=" << target_info.port << std::endl;
+                  << "CMD=" << static_cast<int>(req.cmd)
+                  << ", ADDR=" << host_str
+                  << ", PORT=" << req.port << std::endl;
 
         // 测试数据传输 (Echo)
         std::array<char, 1024> buffer;

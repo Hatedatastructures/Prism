@@ -70,9 +70,9 @@ namespace ngx::transport
     };
 
     /**
-     * @brief 协议概念
-     * @tparam ProtocolType 协议类型
-     * @note 协议类型必须满足以下要求：
+     * @brief 传输概念
+     * @tparam TransportType 传输类型
+     * @note 传输类型必须满足以下要求：
      *
      * - 必须有 `endpoint` 类型别名
      *
@@ -80,12 +80,12 @@ namespace ngx::transport
      *
      * - 必须有 `socket` 类型别名，且必须是 `SocketConcept` 类型
      */
-    template <typename ProtocolType>
-    concept ProtocolConcept = requires {
-        typename ProtocolType::endpoint;
-        typename ProtocolType::resolver;
-        typename ProtocolType::socket;
-        requires SocketConcept<typename ProtocolType::socket>;
+    template <typename TransportType>
+    concept TransportConcept = requires {
+        typename TransportType::endpoint;
+        typename TransportType::resolver;
+        typename TransportType::socket;
+        requires SocketConcept<typename TransportType::socket>;
     };
 
     /**
@@ -106,16 +106,16 @@ namespace ngx::transport
 
     /**
      * @brief 暗箱容器
-     * @tparam Protocol 协议类型
+     * @tparam Transport 传输类型
      * @note obscura 暗箱容器用于实现建立伪装流量的暗箱通道，支持 client 和 server 两种模式
      */
-    template <ProtocolConcept Protocol>
-    class obscura : public std::enable_shared_from_this<obscura<Protocol>>
+    template <TransportConcept Transport>
+    class obscura : public std::enable_shared_from_this<obscura<Transport>>
     {
         using ssl_request = beast::http::request<beast::http::empty_body>;
 
     public:
-        using socket_type = typename Protocol::socket;
+        using socket_type = typename Transport::socket;
 
         /**
          * @brief 构造函数
@@ -143,7 +143,7 @@ namespace ngx::transport
 
         // 专门用于已握手 SSL Stream 的 handshake
         // pre_read_data: 之前 peek 到的数据，需要重新通过 websocket 握手消费
-        net::awaitable<std::string> handshake_with_preread(std::string_view pre_read_data);
+        net::awaitable<std::string> handshake_preread(std::string_view pre_read_data);
 
         // 读取数据到外部缓冲区，返回读取字节数
         net::awaitable<std::size_t> async_read(beast::flat_buffer &buffer);
@@ -169,8 +169,8 @@ namespace ngx::transport
         websocket::stream<ssl::stream<socket_type> &> wsocket_;
     }; // class obscura
 
-    template <ProtocolConcept Protocol>
-    obscura<Protocol>::obscura(socket_type socket, std::shared_ptr<net::ssl::context> context, role r)
+    template <TransportConcept Transport>
+    obscura<Transport>::obscura(socket_type socket, std::shared_ptr<net::ssl::context> context, role r)
         : role_(r), ssl_context_(std::move(context)),
           ssl_stream_ptr_(std::make_shared<ssl::stream<socket_type>>(std::move(socket), *ssl_context_)),
           wsocket_(*ssl_stream_ptr_)
@@ -184,8 +184,8 @@ namespace ngx::transport
      * @param path 请求路径（仅 Client 模式需要，Server 模式忽略）
      * @return std::string 对于 Server 模式，返回请求的目标路径；对于 Client 模式，返回空串。
      */
-    template <ProtocolConcept Protocol>
-    net::awaitable<std::string> obscura<Protocol>::handshake(std::string_view host, std::string_view path)
+    template <TransportConcept Transport>
+    net::awaitable<std::string> obscura<Transport>::handshake(std::string_view host, std::string_view path)
     {
         /**
          * @bug 原生 Asio Socket 没有 expires_never() 这个函数。它默认就是永不超时。
@@ -237,8 +237,8 @@ namespace ngx::transport
         co_return "";
     }
 
-    template <ProtocolConcept Protocol>
-    net::awaitable<std::string> obscura<Protocol>::handshake_with_preread(std::string_view pre_read_data)
+    template <TransportConcept Transport>
+    net::awaitable<std::string> obscura<Transport>::handshake_preread(std::string_view pre_read_data)
     {
         if (role_ != role::server)
         {
@@ -277,8 +277,8 @@ namespace ngx::transport
      * @param buffer 外部缓冲区
      * @return std::size_t 读取到的字节数
      */
-    template <ProtocolConcept Protocol>
-    net::awaitable<std::size_t> obscura<Protocol>::async_read(beast::flat_buffer &buffer)
+    template <TransportConcept Transport>
+    net::awaitable<std::size_t> obscura<Transport>::async_read(beast::flat_buffer &buffer)
     {
         // 直接读取到外部 buffer
         // 之前这里的 buffer_ 逻辑已移除，因为 handshake 中的 buffer 是局部的，不会有残留问题
@@ -290,8 +290,8 @@ namespace ngx::transport
      * @brief 写入数据
      * @param data 要写入的数据
      */
-    template <ProtocolConcept Protocol>
-    net::awaitable<void> obscura<Protocol>::async_write(std::string_view data)
+    template <TransportConcept Transport>
+    net::awaitable<void> obscura<Transport>::async_write(std::string_view data)
     {
         co_await wsocket_.async_write(net::buffer(data), net::use_awaitable);
     }

@@ -108,50 +108,58 @@ namespace ngx::protocol::socks5
             // 解析地址
             if (header.atyp == address_type::ipv4)
             {  
-                // IPv4 地址: 4 字节
-                std::array<std::uint8_t, 4> ip_buffer{};
-                co_await net::async_read(socket_, net::buffer(ip_buffer), net::use_awaitable);
-                auto [ec, ip] = wire::decode_ipv4(ip_buffer);
-                if (ec)
-                    throw abnormal::protocol("Invalid IPv4 address");
+                // IPv4 地址(4) + Port(2) = 6 字节
+                std::array<std::uint8_t, 6> buffer{};
+                co_await net::async_read(socket_, net::buffer(buffer), net::use_awaitable);
+                
+                auto [ec, ip] = wire::decode_ipv4(std::span<const std::uint8_t>(buffer.data(), 4));
+                if (ec) throw abnormal::protocol("Invalid IPv4 address");
                 req.destination_address = ip;
+
+                auto [ec_port, port] = wire::decode_port(std::span<const std::uint8_t>(buffer.data() + 4, 2));
+                if (ec_port) throw abnormal::protocol("Invalid port");
+                req.destination_port = port;
             }
             else if (header.atyp == address_type::ipv6)
             {
-                std::array<std::uint8_t, 16> ip_buffer{};
-                co_await net::async_read(socket_, net::buffer(ip_buffer), net::use_awaitable);
-                auto [ec, ip] = wire::decode_ipv6(ip_buffer);
-                if (ec)
-                    throw abnormal::protocol("Invalid IPv6 address");
+                // IPv6 地址(16) + Port(2) = 18 字节
+                std::array<std::uint8_t, 18> buffer{};
+                co_await net::async_read(socket_, net::buffer(buffer), net::use_awaitable);
+
+                auto [ec, ip] = wire::decode_ipv6(std::span<const std::uint8_t>(buffer.data(), 16));
+                if (ec) throw abnormal::protocol("Invalid IPv6 address");
                 req.destination_address = ip;
+
+                auto [ec_port, port] = wire::decode_port(std::span<const std::uint8_t>(buffer.data() + 16, 2));
+                if (ec_port) throw abnormal::protocol("Invalid port");
+                req.destination_port = port;
             }
             else if (header.atyp == address_type::domain)
             {
                 std::uint8_t len = 0;
                 co_await net::async_read(socket_, net::buffer(&len, 1), net::use_awaitable);
 
-                // 域名最大 255 字节，加 1 字节长度
-                std::array<std::uint8_t, 256> domain_buffer{};
-                domain_buffer[0] = len;
-                co_await net::async_read(socket_, net::buffer(domain_buffer.data() + 1, len), net::use_awaitable);
+                // 域名内容(len) + Port(2)
+                // 域名最大 255 字节 + 2 字节端口 = 257
+                std::array<std::uint8_t, 257> buffer{};
+                // buffer[0] 用于存放长度，以便复用 decode_domain
+                buffer[0] = len;
+                
+                // 读取 len + 2 字节到 buffer[1] 开始的位置
+                co_await net::async_read(socket_, net::buffer(buffer.data() + 1, len + 2), net::use_awaitable);
 
-                auto [ec, domain] = wire::decode_domain(std::span<const std::uint8_t>(domain_buffer.data(), len + 1));
-                if (ec)
-                    throw abnormal::protocol("Invalid domain address");
+                auto [ec, domain] = wire::decode_domain(std::span<const std::uint8_t>(buffer.data(), len + 1));
+                if (ec) throw abnormal::protocol("Invalid domain address");
                 req.destination_address = domain;
+
+                auto [ec_port, port] = wire::decode_port(std::span<const std::uint8_t>(buffer.data() + 1 + len, 2));
+                if (ec_port) throw abnormal::protocol("Invalid port");
+                req.destination_port = port;
             }
             else
             {
                 throw abnormal::protocol("Unsupported address type");
             }
-
-            // 解析端口
-            std::array<std::uint8_t, 2> port_buffer{};
-            co_await net::async_read(socket_, net::buffer(port_buffer), net::use_awaitable);
-            auto [ec_port, port] = wire::decode_port(port_buffer);
-            if (ec_port)
-                throw abnormal::protocol("Invalid port");
-            req.destination_port = port;
 
             co_return req;
         }

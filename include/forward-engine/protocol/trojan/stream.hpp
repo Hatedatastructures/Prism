@@ -11,7 +11,8 @@
 #include <openssl/sha.h>
 
 #include <forward-engine/protocol/trojan/constants.hpp>
-#include <forward-engine/protocol/trojan/types.hpp>
+#include <forward-engine/protocol/trojan/message.hpp>
+#include <forward-engine/protocol/trojan/wire.hpp>
 
 namespace ngx::protocol::trojan
 {
@@ -55,24 +56,22 @@ namespace ngx::protocol::trojan
         /**
          * @brief 执行 Trojan 握手 (包括 SSL 握手和协议头解析)
          */
-        net::awaitable<target_information> handshake()
+        net::awaitable<request> handshake()
         {
             // 1. SSL 握手
             co_await stream_ptr_->async_handshake(ssl::stream_base::server, net::use_awaitable);
 
             // 2. 读取 Trojan 请求头
-            std::string handshake_buffer;
-            co_return co_await handshake_internal(handshake_buffer);
+            co_return co_await handshake_internal({});
         }
 
         /**
          * @brief 执行 Trojan 握手 (使用预读数据)
          */
-        net::awaitable<target_information> handshake_with_preread(std::string_view pre_read_data)
+        net::awaitable<request> handshake_preread(std::string_view pre_read_data)
         {
-            // 将预读数据放入缓冲区，并继续握手
-            std::string buffer(pre_read_data);
-            co_return co_await handshake_internal(buffer);
+            // 继续握手，优先消耗预读数据
+            co_return co_await handshake_internal(pre_read_data);
         }
 
         /**
@@ -105,131 +104,157 @@ namespace ngx::protocol::trojan
         stream_type &get_stream() { return *stream_ptr_; }
 
     private:
-        // 辅助函数：从缓冲区或流中读取指定字节
-        net::awaitable<void> read_n(std::string &buffer, void *dest, std::size_t n)
+        /**
+         * @brief 从预读缓冲区或流中读取指定字节
+         * @param buffer 预读缓冲区引用
+         * @param dest 目标内存地址
+         * @param n 要读取的字节数
+         * @note 如果预读缓冲区有足够数据，会先从缓冲区读取；否则从流中读取
+         */
+        net::awaitable<void> read_specified_bytes(std::string_view &buffer, void *dest, std::size_t n)
         {
             std::size_t copied = 0;
             if (!buffer.empty())
             {
                 std::size_t to_copy = std::min(n, buffer.size());
                 std::memcpy(dest, buffer.data(), to_copy);
-                buffer.erase(0, to_copy);
+                buffer.remove_prefix(to_copy);
                 copied = to_copy;
             }
 
             if (copied < n)
             {
                 co_await net::async_read(*stream_ptr_,
-                                         net::buffer(static_cast<char *>(dest) + copied, n - copied),
-                                         net::use_awaitable);
+                    net::buffer(static_cast<char *>(dest) + copied, n - copied),
+                    net::use_awaitable);
             }
         }
 
         /**
          * @brief 内部握手处理函数
+         * @param buffer 预读缓冲区
+         * @return request 解析后的 `Trojan` 协议请求
+         * @note 如果传进来的 `buffer` 为空那么就直接去调用 `async_read` 去读取 `"read_specified_bytes"` 函数
          */
-        net::awaitable<target_information> handshake_internal(std::string &buffer)
+        net::awaitable<request> handshake_internal(std::string_view buffer)
         {
-            // 1. 读取/检查密码哈希 (56 chars) + CRLF (2 chars) = 58 bytes
+            // 1. 读取 Hash(56) + CRLF(2) + Cmd(1) + Atyp(1) = 60 bytes
+            // 一次性读取，减少 IO 次数
+            std::array<std::uint8_t, 60> head_buffer;
+            co_await read_specified_bytes(buffer, head_buffer.data(), 60);
 
-            // 如果缓冲区不足 58 字节，先读够
-            if (buffer.size() < 58)
+            // 解析 Hash
+            auto [ec_hash, hash] = wire::decode_hash(std::span<const std::uint8_t>(head_buffer.data(), 56));
+            if (ec_hash)
             {
-                std::size_t needed = 58 - buffer.size();
-                std::string temp(needed, '\0');
-                co_await net::async_read(*stream_ptr_, net::buffer(temp), net::use_awaitable);
-                buffer += temp;
-            }
-
-            // 此时 buffer 至少有 58 字节，但也可能更多（如果之前 pre_read 读多了）
-            // 我们只取出 58 字节进行校验，剩下的留在 buffer 中给后续步骤。
-            std::string_view received_hash = std::string_view(buffer).substr(0, 56);
-            std::string_view crlf = std::string_view(buffer).substr(56, 2);
-
-            if (crlf != "\r\n")
-            {
-                throw abnormal::protocol("Invalid Trojan request: missing CRLF after password");
+                throw abnormal::protocol("Invalid Trojan request: invalid password hash");
             }
 
             // 验证密码
             if (verifier_)
             {
-                if (!verifier_(received_hash))
+                if (!verifier_(std::string_view(hash.data(), 56)))
                 {
                     throw abnormal::security("Trojan authentication failed");
                 }
             }
 
-            // 消耗掉这 58 字节
-            buffer.erase(0, 58);
+            // 验证 CRLF
+            if (auto ec = wire::decode_crlf(std::span<const std::uint8_t>(head_buffer.data() + 56, 2)); ec)
+            {
+                throw abnormal::protocol("Invalid Trojan request: missing CRLF after password");
+            }
 
-            co_return co_await parse_request_body(buffer);
-        }
+            // 解析 Cmd + Atyp
+            auto [ec_head, head] = wire::decode_cmd_atyp(std::span<const std::uint8_t>(head_buffer.data() + 58, 2));
+            if (ec_head)
+            {
+                throw abnormal::protocol("Invalid Trojan request: invalid command or address type");
+            }
 
-        /**
-         * @brief 解析 Trojan 请求体
-         */
-        net::awaitable<target_information> parse_request_body(std::string &buffer)
-        {
-            target_information info{};
+            request req;
+            req.password_hash = hash;
+            req.cmd = head.cmd;
 
-            // 读取命令 (1 byte)
-            std::uint8_t cmd_byte;
-            co_await read_n(buffer, &cmd_byte, 1);
-            info.cmd = static_cast<command>(cmd_byte);
-
-            if (info.cmd != command::connect && info.cmd != command::udp_associate)
+            if (req.cmd != command::connect && req.cmd != command::udp_associate)
             {
                 throw abnormal::protocol("Unsupported Trojan command");
             }
 
-            // 读取地址类型 (1 byte)
-            uint8_t atyp_byte;
-            co_await read_n(buffer, &atyp_byte, 1);
-            info.atyp = static_cast<address_type>(atyp_byte);
+            // 2. 解析地址 + 端口 + CRLF
+            // 根据 Atyp 读取后续数据
+            if (head.atyp == address_type::ipv4)
+            {
+                // IPv4(4) + Port(2) + CRLF(2) = 8 bytes
+                std::array<std::uint8_t, 8> data_buffer;
+                co_await read_specified_bytes(buffer, data_buffer.data(), 8);
 
-            // 解析地址
-            if (info.atyp == address_type::ipv4)
-            {
-                std::array<uint8_t, 4> ip{};
-                co_await read_n(buffer, ip.data(), 4);
-                info.host = net::ip::make_address_v4(ip).to_string();
-            }
-            else if (info.atyp == address_type::domain)
-            {
-                uint8_t len = 0;
-                co_await read_n(buffer, &len, 1);
+                auto [ec, ip] = wire::decode_ipv4(std::span<const std::uint8_t>(data_buffer.data(), 4));
+                if (ec) throw abnormal::protocol("Invalid IPv4 address");
+                req.destination_address = ip;
 
-                std::string domain(len, '\0');
-                co_await read_n(buffer, domain.data(), len);
-                info.host = std::move(domain);
+                auto [ec_port, port] = wire::decode_port(std::span<const std::uint8_t>(data_buffer.data() + 4, 2));
+                if (ec_port) throw abnormal::protocol("Invalid port");
+                req.port = port;
+
+                if (auto ec_crlf = wire::decode_crlf(std::span<const std::uint8_t>(data_buffer.data() + 6, 2)); ec_crlf)
+                    throw abnormal::protocol("Invalid Trojan request: missing final CRLF");
             }
-            else if (info.atyp == address_type::ipv6)
+            else if (head.atyp == address_type::ipv6)
             {
-                std::array<uint8_t, 16> ip{};
-                co_await read_n(buffer, ip.data(), 16);
-                info.host = net::ip::make_address_v6(ip).to_string();
+                // IPv6(16) + Port(2) + CRLF(2) = 20 bytes
+                std::array<std::uint8_t, 20> data_buffer;
+                co_await read_specified_bytes(buffer, data_buffer.data(), 20);
+
+                auto [ec, ip] = wire::decode_ipv6(std::span<const std::uint8_t>(data_buffer.data(), 16));
+                if (ec) throw abnormal::protocol("Invalid IPv6 address");
+                req.destination_address = ip;
+
+                auto [ec_port, port] = wire::decode_port(std::span<const std::uint8_t>(data_buffer.data() + 16, 2));
+                if (ec_port) throw abnormal::protocol("Invalid port");
+                req.port = port;
+
+                if (auto ec_crlf = wire::decode_crlf(std::span<const std::uint8_t>(data_buffer.data() + 18, 2)); ec_crlf)
+                    throw abnormal::protocol("Invalid Trojan request: missing final CRLF");
+            }
+            else if (head.atyp == address_type::domain)
+            {
+                // Domain: Length(1) -> Read N -> Port(2) -> CRLF(2)
+                std::uint8_t len = 0;
+                co_await read_specified_bytes(buffer, &len, 1);
+                
+                // Read Domain Body(len) + Port(2) + CRLF(2)
+                // Max domain len 255 + 4 = 259
+                std::array<std::uint8_t, 259> data_buffer;
+                co_await read_specified_bytes(buffer, data_buffer.data(), len + 4);
+                
+                // Reconstruct domain buffer for decoder: Length(1) + Value(N)
+                // wire::decode_domain expects [Length, Value...]
+                // We have Length separately, and Value in data_buffer.
+                // To reuse wire::decode_domain easily, we can construct a temp buffer or just manual copy
+                // But wire::decode_domain expects the buffer start with len.
+                
+                std::array<std::uint8_t, 256> dom_decoder_buf;
+                dom_decoder_buf[0] = len;
+                std::memcpy(dom_decoder_buf.data() + 1, data_buffer.data(), len);
+
+                auto [ec, dom] = wire::decode_domain(std::span<const std::uint8_t>(dom_decoder_buf.data(), len + 1));
+                if (ec) throw abnormal::protocol("Invalid domain address");
+                req.destination_address = dom;
+
+                auto [ec_port, port] = wire::decode_port(std::span<const std::uint8_t>(data_buffer.data() + len, 2));
+                if (ec_port) throw abnormal::protocol("Invalid port");
+                req.port = port;
+
+                if (auto ec_crlf = wire::decode_crlf(std::span<const std::uint8_t>(data_buffer.data() + len + 2, 2)); ec_crlf)
+                    throw abnormal::protocol("Invalid Trojan request: missing final CRLF");
             }
             else
             {
                 throw abnormal::protocol("Unsupported address type");
             }
 
-            // 解析端口 (2 bytes)
-            uint16_t port_n = 0;
-            co_await read_n(buffer, &port_n, 2);
-            info.port = ntohs(port_n);
-
-            // 读取最后的 CRLF (2 bytes)
-            std::array<char, 2> final_crlf;
-            co_await read_n(buffer, final_crlf.data(), 2);
-
-            if (final_crlf[0] != '\r' || final_crlf[1] != '\n')
-            {
-                throw abnormal::protocol("Invalid Trojan request: missing final CRLF");
-            }
-
-            co_return info;
+            co_return req;
         }
 
         std::shared_ptr<stream_type> stream_ptr_;

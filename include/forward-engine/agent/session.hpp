@@ -320,7 +320,7 @@ namespace ngx::agent
         try
         {
             detail::event_tracking(level::debug, "[Session] Obscura handshake with preread data started.");
-            target_path = co_await proto->handshake_with_preread(pre_read_data);
+            target_path = co_await proto->handshake_preread(pre_read_data);
         }
         catch (const boost::system::system_error &e)
         {
@@ -393,11 +393,12 @@ namespace ngx::agent
         try
         {
             // 1. 握手 (带预读数据)
-            auto info = co_await agent->handshake_with_preread(pre_read_data);
+            auto info = co_await agent->handshake_preread(pre_read_data);
 
             // 2. 解析目标
             protocol::analysis::target target(frame_arena_.get());
-            target.host.assign(info.host.begin(), info.host.end());
+            auto host_str = protocol::trojan::to_string(info.destination_address, frame_arena_.get());
+            target.host = std::move(host_str);
             target.port.assign(std::to_string(info.port));
             target.forward_proxy = true;
 

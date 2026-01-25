@@ -11,7 +11,7 @@ namespace ngx::agent
      */
     struct endpoint
     {
-        ngx::memory::string host;
+        memory::string host;
         std::uint16_t port = 0;
     };
 
@@ -27,8 +27,8 @@ namespace ngx::agent
      */
     struct certificate
     {
-        ngx::memory::string key;
-        ngx::memory::string cert;
+        memory::string key;
+        memory::string cert;
     };
 
     /**
@@ -37,7 +37,7 @@ namespace ngx::agent
      */
     struct authentication
     {
-        ngx::memory::vector<ngx::memory::string> passwords;
+        memory::vector<memory::string> passwords;
     };
 
     /**
@@ -51,7 +51,7 @@ namespace ngx::agent
         endpoint addressable;
         certificate certificate;
         authentication authentication;
-        ngx::memory::string camouflage;
+        memory::string camouflage;
         bool clash = false;
     };
 }

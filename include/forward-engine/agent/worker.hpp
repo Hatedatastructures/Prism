@@ -173,7 +173,7 @@ namespace ngx::agent
                     if (!ec)
                     {
                         // 创建会话，把“路由器”传给它
-                        auto session_ptr = std::make_shared<session<tcp::socket>>(
+                        const auto session_ptr = std::make_shared<session<tcp::socket>>(
                             ioc_,
                             std::move(socket),
                             distributor_,
