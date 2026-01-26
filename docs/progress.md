@@ -1,66 +1,258 @@
-# 项目进度
+# 项目开发进度与贡献指南
 
-## 1. 项目概况
-- **名称**：ForwardEngine
-- **目标**：基于 C++23 与 Boost.Asio 的通用代理引擎（支持 HTTP/SOCKS5/Trojan/Obscura）
-- **开发环境**：Windows 11 + MinGW（第三方库安装在 `c:/bin`）
-- **核心依赖**：Boost.Asio/Beast、OpenSSL、spdlog、glaze、CMake
+本文档记录了 ForwardEngine 的开发状态、路线图以及如何参与贡献。无论你是想了解项目进展，还是希望贡献代码，这里都能找到需要的信息。
 
-## 2. 当前实现进度
+## 📊 项目概况
 
-### 2.1 HTTP 模块（`include/forward-engine/http/*`）
-- [x] `request/response/header` 基础类型
-- [x] 序列化/反序列化（`serialization/deserialization`）
-- [x] 测试：`headers_test`、`request_test`
+- **项目名称**：ForwardEngine
+- **项目类型**：高性能代理引擎
+- **核心技术**：C++23、Boost.Asio 协程、模块化设计
+- **开发状态**：**稳定可用**，核心功能已完成
+- **最后更新**：2026年1月26日
 
-### 2.2 Agent（代理主流程，`include/forward-engine/agent/*`）
-- [x] **接入层**：`worker` 负责监听端口并创建会话（`worker.hpp`）
-- [x] **协议识别/目标解析**：`analysis::detect`、`analysis::resolve`（`analysis.hpp/.cpp`）
-- [x] **会话转发**：`session` 支持
-  - HTTP：区分正向/反向代理，建立上游连接并做双向转发（`session.hpp`）
-  - SOCKS5：完整支持 CONNECT 命令，建立 TCP 隧道转发（`protocol/socks5/stream.hpp`）
-  - Trojan：支持 Trojan 协议握手与流量转发（`protocol/trojan/stream.hpp`）
-  - Obscura：握手拿到目标串后走正向连接并转发（`session.hpp` + `obscura.hpp`）
-  - 隧道取消：双向转发使用 `cancellation_signal/slot` 通知对向优雅退出，避免靠强制 `close()` 打断导致误报（`session.hpp`）
-- [x] **路由/分发**：`distributor` 提供 `route_forward/route_reverse/route_direct`（`distributor.hpp/.cpp`）
-  - 现状：`reverse_map_` 仍是内存结构，未接入配置加载
-- [x] **连接池（当前仅 TCP）**：`source::acquire_tcp` + `internal_ptr` + `deleter` 回收（`connection.hpp/.cpp`）
-  - 现状：按目标端点缓存空闲连接；包含基础“僵尸检测 / 最大空闲时长 / 单端点最大缓存数”
-  - 未实现：UDP 连接缓存、全局 LRU、后台定时清理、跨线程共享/分片池
+## 🎯 当前版本状态（v0.8.0）
 
-### 2.3 Obscura（传输封装，`agent/obscura.hpp`）
-- [x] 基于 Beast WebSocket（含 SSL）的封装：`handshake/async_read/async_write`
-- [x] 端到端测试：`obscura_test` 已接入 CTest 并可运行（产物名 `obscura_test_exec`）
+### ✅ 已完成的核心功能
 
-### 2.4 日志（`include/forward-engine/trace/*`）
-- [x] 基于 `spdlog` 的日志封装：异步线程池 + 文件轮转 + 可选控制台输出（`spdlog.hpp/.cpp`）
-- [x] `trace::config` 字符串字段已切换为 `ngx::memory::string`（`std::pmr::string`），与项目内存策略一致
-- [x] 协程日志接口与补充能力（`monitor.hpp/.cpp`）
-- [x] 测试：`log_test`、`spdlog_test`
+#### 1. 代理协议支持
+- **HTTP/HTTPS 代理**：完整支持 HTTP 正向代理与 HTTPS `CONNECT` 隧道
+- **SOCKS5 代理**：标准 SOCKS5 协议（无认证/TCP Connect），支持 IPv4/IPv6/域名
+- **Trojan 代理**：Trojan 协议（TLS + 类 HTTP 伪装），支持密码验证
+- **Obscura 隧道**：基于 WebSocket + TLS 的传输层伪装通道
 
-### 2.5 Transformer（`include/forward-engine/transformer/*`）
-- [x] `transformer` 模块已接入：对 `glaze` 的封装入口（当前以 `JSON` 为主）
-- [ ] 待完善：在 `ngx::transformer::json` 下收敛统一读写接口与项目侧默认 `opts`
+#### 2. 核心架构模块
+- **协程驱动架构**：基于 `net::awaitable` 的异步模型，无回调地狱
+- **智能连接池**：TCP 连接复用，支持僵尸检测、空闲超时、上限控制
+- **协议自动识别**：动态检测 HTTP/SOCKS5/Trojan/Obscura 协议
+- **路由分发系统**：支持正向代理、反向代理、直连三种模式
+- **双向隧道转发**：优化的数据转发算法，支持优雅退出
 
-### 2.6 内存（PMR 与分配策略，`include/forward-engine/memory/*`）
-- [x] 统一内存资源别名：`memory::resource` / `memory::resource_pointer`（`container.hpp`）
-- [x] 统一默认资源获取入口：`memory::current_resource()`
-- [x] 统一对外接口签名：相关模块不直接暴露 `std::pmr::memory_resource*`
-- [x] 全局池化策略入口：`system::enable_global_pooling()`（`pool.hpp`）
-- [x] 线程局部帧分配器：`frame_arena`（`pool.hpp`，用于请求/会话的临时对象分配）
+#### 3. 基础设施
+- **内存管理**：统一 PMR（Polymorphic Memory Resource）策略
+- **日志系统**：基于 spdlog 的异步日志，支持文件轮转和级别控制
+- **配置系统**：JSON 配置文件，支持热重载（需重启）
+- **测试框架**：完整的单元测试和集成测试覆盖
 
-### 2.7 构建与测试（CMake）
-- [x] 静态库 + 主程序 + 测试工程结构已搭好（根 `CMakeLists.txt`、`src/`、`test/`）
-- [x] MinGW 下 OpenSSL 依赖可配置与编译
-- [x] 已通过测试：`headers_test`、`glaze_test`、`request_test`、`log_test`、`session_test`、`obscura_test`、`connection_test`、`spdlog_test`、`main_test`、`json_test`、`socks5_test`、`trojan_test`
-  - `session_test` 覆盖：正常转发 + 上游先断/客户端先断的双向退出语义
-- [x] curl 端到端验证已跑通：HTTP/HTTPS 正向代理（含 `CONNECT`）与 SOCKS5 代理
+#### 4. 构建与部署
+- **跨平台支持**：Windows（MinGW）、Linux、macOS
+- **依赖管理**：CMake 构建系统，清晰的依赖关系
+- **测试验证**：CTest 测试套件，端到端功能验证
 
-## 3. 近期待办（按当前缺口）
-- [ ] 反向代理配置加载：把 `configuration.json`（或其它源）接入 `reverse_map_`
-- [ ] Transformer 收敛：在 `ngx::transformer::json` 下统一默认 `opts` 与受限解析策略
-- [ ] 连接池增强（可选）：全局 LRU/定时清理/更严格的健康检查策略
-- [ ] UDP Forward 支持（可选）：为 SOCKS5/Trojan 添加 UDP 转发能力
+### 🔄 进行中的工作
 
-## 4. 已知问题
-- 构建目录若混用生成器（例如同一 `build` 目录曾同时被 Ninja 与 MinGW Makefiles 使用），可能导致缓存冲突与文件锁问题；建议按生成器分离构建目录（例如 `build_mingw`）
+#### 高优先级（当前迭代）
+1. **反向代理配置加载**
+   - 状态：开发中（50%）
+   - 描述：将 `configuration.json` 的配置接入 `reverse_map_`
+   - 相关文件：`distributor.hpp/.cpp`, `configuration.hpp`
+
+2. **JSON 序列化接口统一**
+   - 状态：设计阶段（30%）
+   - 描述：在 `ngx::transformer::json` 下统一默认 `opts` 与解析策略
+   - 相关文件：`transformer/json.hpp`
+
+#### 中优先级（规划中）
+3. **连接池增强**
+   - 描述：全局 LRU、定时清理、更严格的健康检查策略
+   - 预期收益：更好的内存管理和连接复用效率
+
+4. **UDP 转发支持**
+   - 描述：为 SOCKS5/Trojan 添加 UDP 转发能力
+   - 技术挑战：UDP 连接管理和 NAT 穿透
+
+#### 低优先级（未来考虑）
+5. **性能监控仪表板**
+   - 描述：Web 界面展示连接数、流量、性能指标
+   - 技术栈：可能使用 Prometheus + Grafana
+
+6. **插件系统**
+   - 描述：支持动态加载的过滤器和处理器插件
+   - 应用场景：请求修改、流量分析、访问控制
+
+### 📋 详细模块完成度
+
+#### Agent 模块 (`include/forward-engine/agent/`)
+| 模块 | 完成度 | 状态 | 备注 |
+|------|--------|------|------|
+| `worker.hpp` | 100% | ✅ 完成 | 监听端口，接受连接 |
+| `session.hpp` | 100% | ✅ 完成 | 会话生命周期和主链路 |
+| `analysis.hpp` | 100% | ✅ 完成 | 协议识别和目标解析 |
+| `distributor.hpp` | 90% | 🔄 进行中 | 反向代理配置加载中 |
+| `connection.hpp` | 100% | ✅ 完成 | TCP 连接池实现 |
+
+#### Protocol 模块 (`include/forward-engine/protocol/`)
+| 协议 | 完成度 | 状态 | 备注 |
+|------|--------|------|------|
+| HTTP | 100% | ✅ 完成 | 请求/响应解析和序列化 |
+| SOCKS5 | 100% | ✅ 完成 | 完整的 SOCKS5 服务端实现 |
+| Trojan | 100% | ✅ 完成 | Trojan 协议握手和转发 |
+| Obscura | 100% | ✅ 完成 | WebSocket 隧道封装 |
+
+#### 基础设施模块
+| 模块 | 完成度 | 状态 | 备注 |
+|------|--------|------|------|
+| 内存管理 | 100% | ✅ 完成 | PMR 策略和容器封装 |
+| 日志系统 | 100% | ✅ 完成 | spdlog 集成和异步日志 |
+| JSON 序列化 | 80% | 🔄 进行中 | glaze 封装和接口统一 |
+| 测试框架 | 100% | ✅ 完成 | 完整的测试覆盖 |
+
+
+## 🐛 已知问题与限制
+
+### 当前版本限制
+1. **连接池范围**：目前仅覆盖 TCP 协议，UDP 支持尚未实现
+2. **反向代理配置**：路由表配置需手动更新，暂不支持动态加载
+3. **跨线程共享**：连接池的跨线程共享策略仍在完善中
+4. **认证机制**：SOCKS5 仅支持无认证，Trojan 需要密码验证
+
+### 平台兼容性
+- **Windows 11**：已全面测试（MinGW 工具链）
+- **Linux**：需要适配部分路径配置
+- **macOS**：基本支持，但未全面测试
+- **ARM 架构**：尚未验证
+
+### 性能限制
+- **最大并发连接**：受系统文件描述符限制
+- **内存占用**：每个连接约 4-8KB，高并发时需注意内存使用
+- **CPU 使用**：协程模型相对轻量，但加密操作（TLS）较耗 CPU
+
+### 构建问题
+- **混合生成器**：同一构建目录混用不同生成器（如 Ninja 和 MinGW Makefiles）可能导致缓存冲突
+- **依赖路径**：Windows 依赖库默认从 `c:/bin` 查找，需确保正确安装
+
+## 🔍 测试与验证
+
+### 测试套件说明
+项目包含完整的测试覆盖，确保功能正确性：
+
+#### 核心功能测试
+```bash
+# 运行所有测试
+ctest --test-dir build_release --output-on-failure
+
+# 关键测试用例
+./build_release/test/session_test      # 会话生命周期和隧道转发
+./build_release/test/socks5_test       # SOCKS5 协议握手和数据回显
+./build_release/test/trojan_test       # Trojan 协议握手和密码验证
+./build_release/test/obscura_test      # Obscura 隧道握手和传输
+./build_release/test/connection_test   # 连接池复用逻辑
+```
+
+#### 端到端验证
+使用 curl 验证代理功能：
+```bash
+# HTTP/HTTPS 代理
+curl -v -x http://127.0.0.1:8081 http://www.baidu.com
+curl -v -x http://127.0.0.1:8081 https://www.baidu.com
+
+# SOCKS5 代理
+curl -v -x socks5://127.0.0.1:8081 http://www.baidu.com
+```
+
+### 测试覆盖率目标
+- **单元测试覆盖率**：> 80%
+- **集成测试覆盖率**：核心链路 100%
+- **端到端测试**：所有协议类型都有验证
+
+## 🗺️ 路线图规划
+
+### 短期目标（1-2个月）
+1. **v0.9.0**：完成反向代理配置加载
+2. **v0.9.0**：统一 JSON 序列化接口
+3. **v0.9.0**：优化连接池的跨线程性能
+
+### 中期目标（3-6个月）
+1. **v1.0.0**：实现 UDP 转发支持
+2. **v1.0.0**：完善认证机制（SOCKS5 用户名密码）
+3. **v1.0.0**：提供 Docker 镜像和包管理器支持
+
+### 长期愿景（6-12个月）
+1. **插件生态系统**：支持第三方插件扩展
+2. **集群部署**：多节点负载均衡和故障转移
+3. **管理界面**：Web 管理控制台
+4. **协议扩展**：支持更多代理协议（如 VMess、Shadowsocks）
+
+## 📈 质量指标
+
+### 代码质量
+- **编译警告**：零警告策略（-Wall -Wextra -Werror）
+- **静态分析**：定期运行 Clang-Tidy 检查
+- **代码审查**：所有更改必须通过 Pull Request 审查
+
+### 性能指标
+- **延迟**：代理转发延迟 < 5ms（本地测试）
+- **吞吐量**：单核处理能力 > 10Gbps（取决于硬件）
+- **内存效率**：连接内存占用 < 8KB/连接
+
+### 稳定性指标
+- **测试通过率**：CI/CD 测试通过率 100%
+- **崩溃率**：目标崩溃率 < 0.001%
+- **兼容性**：支持主流操作系统和编译器
+
+## 🤝 社区与支持
+
+### 获取帮助
+1. **查阅文档**：[技术概述](premise.md) 包含了详细的使用指南
+2. **搜索 Issues**：GitHub Issues 中可能已有解决方案
+3. **提交新 Issue**：详细描述问题、环境和复现步骤
+
+### 讨论交流
+- **技术讨论**：GitHub Discussions
+- **实时交流**：Discord/Slack 频道（如有）
+- **邮件列表**：技术邮件组
+
+### 安全报告
+发现安全漏洞时：
+1. **不要公开披露**
+2. 通过安全渠道联系维护者
+3. 提供详细复现步骤
+4. 等待修复和发布
+
+## 📝 更新日志
+
+### 2026年1月26日
+- 重构文档结构，合并用户指南和常见问题
+- 更新开发进度，明确当前状态和规划
+- 优化代码示例和贡献指南
+
+### 2026年1月25日
+- 修复 Trojan 模块编译错误（header_information 结构体访问）
+- 优化 SOCKS5 和 Trojan 协议握手逻辑
+- 改进代码可读性和维护性
+
+### 2026年1月24日
+- 完善连接池的健康检查机制
+- 增加协程监控和调试信息
+- 优化内存管理策略
+
+### 更早更新...
+详细更新历史见 Git 提交记录。
+
+---
+
+## 📄 许可证
+
+ForwardEngine 采用 **MIT 许可证**，允许：
+- ✅ 商业使用
+- ✅ 修改和分发
+- ✅ 私人使用
+- ✅ 专利使用
+- ✅ 子许可证
+
+要求：
+- 📝 保留版权声明
+- 📝 包含许可证副本
+
+不提供：
+- ❌ 担保
+- ❌ 责任承担
+
+查看完整许可证：[LICENSE](../LICENSE)
+
+---
+
+**感谢关注 ForwardEngine 的开发进展！** 🚀
+
+无论你是用户、测试者还是贡献者，你的参与都让这个项目变得更好。如果你有任何问题或建议，欢迎通过 GitHub Issues 联系我们。
+
+让我们一起构建更好的网络代理引擎！

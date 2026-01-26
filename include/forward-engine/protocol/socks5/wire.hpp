@@ -54,7 +54,7 @@ namespace ngx::protocol::socks5::wire
      * @param buffer 数据缓冲区 (至少 4 字节)
      * @return `std::pair<std::error_code, ipv4_address>`
      */
-    inline std::pair<std::error_code, ipv4_address> decode_ipv4(std::span<const std::uint8_t> buffer)
+    inline std::pair<std::error_code, ipv4_address> decode_ipv4(const std::span<const std::uint8_t> buffer)
     {
         if (buffer.size() < 4)
         {
@@ -70,7 +70,7 @@ namespace ngx::protocol::socks5::wire
      * @param buffer 数据缓冲区 (至少 16 字节)
      * @return `std::pair<std::error_code, ipv6_address>`
      */
-    inline std::pair<std::error_code, ipv6_address> decode_ipv6(std::span<const std::uint8_t> buffer)
+    inline std::pair<std::error_code, ipv6_address> decode_ipv6(const std::span<const std::uint8_t> buffer)
     {
         if (buffer.size() < 16)
         {
@@ -86,13 +86,13 @@ namespace ngx::protocol::socks5::wire
      * @param buffer 数据缓冲区 (包括长度字节)
      * @return `std::pair<std::error_code, domain_address>`
      */
-    inline std::pair<std::error_code, domain_address> decode_domain(std::span<const std::uint8_t> buffer)
+    inline std::pair<std::error_code, domain_address> decode_domain(const std::span<const std::uint8_t> buffer)
     {
         if (buffer.empty())
         {
             return {std::make_error_code(std::errc::bad_message), {}};
         }
-        std::uint8_t len = buffer[0];
+        const std::uint8_t len = buffer[0];
         if (buffer.size() < static_cast<size_t>(1 + len))
         {
             return {std::make_error_code(std::errc::bad_message), {}};
@@ -108,7 +108,7 @@ namespace ngx::protocol::socks5::wire
      * @param buffer 数据缓冲区 (2 字节)
      * @return `std::pair<std::error_code, uint16_t>` (主机字节序)
      */
-    inline std::pair<std::error_code, uint16_t> decode_port(std::span<const std::uint8_t> buffer)
+    inline std::pair<std::error_code, uint16_t> decode_port(const std::span<const std::uint8_t> buffer)
     {
         if (buffer.size() < 2)
         {

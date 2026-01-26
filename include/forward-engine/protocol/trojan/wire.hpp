@@ -28,7 +28,7 @@ namespace ngx::protocol::trojan::wire
             return {std::make_error_code(std::errc::bad_message), {}};
         }
 
-        std::array<char, 56> hash;
+        std::array<char, 56> hash{};
         for (size_t i = 0; i < 56; ++i)
         {   // 检查每个字符是否为十六进制
             if (!std::isxdigit(buffer[i]))
@@ -83,7 +83,7 @@ namespace ngx::protocol::trojan::wire
         {
             return {std::make_error_code(std::errc::bad_message), {}};
         }
-        ipv4_address addr;
+        ipv4_address addr{};
         std::memcpy(addr.bytes.data(), buffer.data(), 4);
         return {std::error_code{}, addr};
     }
@@ -99,7 +99,7 @@ namespace ngx::protocol::trojan::wire
         {
             return {std::make_error_code(std::errc::bad_message), {}};
         }
-        ipv6_address addr;
+        ipv6_address addr{};
         std::memcpy(addr.bytes.data(), buffer.data(), 16);
         return {std::error_code{}, addr};
     }
@@ -120,7 +120,7 @@ namespace ngx::protocol::trojan::wire
         {
             return {std::make_error_code(std::errc::bad_message), {}};
         }
-        domain_address addr;
+        domain_address addr{};
         addr.length = len;
         std::memcpy(addr.value.data(), buffer.data() + 1, len);
         return {std::error_code{}, addr};

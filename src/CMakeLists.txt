@@ -56,6 +56,7 @@ set(FORWARD_LIB_SOURCES
         ../include/forward-engine/transport/transfer.hpp
         ../include/forward-engine/protocol/trojan.hpp
         ../include/forward-engine/protocol/socks5.hpp
+        ../include/forward-engine/protocol.hpp
 )
 
 # =============================================================

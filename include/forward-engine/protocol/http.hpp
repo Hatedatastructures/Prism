@@ -1,7 +1,5 @@
 #pragma once
 
-
-
 #include <forward-engine/protocol/http/constants.hpp>
 #include <forward-engine/protocol/http/header.hpp>
 #include <forward-engine/protocol/http/request.hpp>
