@@ -16,8 +16,8 @@ namespace ngx::protocol::http
          */
         void append_version_string(memory::string &out, const unsigned int version_value)
         {
-            unsigned int major = version_value / 10;
-            unsigned int minor = version_value % 10;
+            const unsigned int major = version_value / 10;
+            const unsigned int minor = version_value % 10;
 
             char version_buffer[3]{};
             version_buffer[0] = static_cast<char>('0' + static_cast<char>(major));
@@ -75,8 +75,7 @@ namespace ngx::protocol::http
          */
         [[nodiscard]] std::string_view resolve_response_reason_view(const response &http_response) noexcept
         {
-            const std::string_view reason_view = http_response.reason();
-            if (!reason_view.empty())
+            if (const std::string_view reason_view = http_response.reason(); !reason_view.empty())
             {
                 return reason_view;
             }
@@ -149,7 +148,7 @@ namespace ngx::protocol::http
         }
     } // namespace
 
-    memory::string serialize(const request &http_request, memory::resource_pointer mr)
+    memory::string serialize(const request &http_request, const memory::resource_pointer mr)
     {
         const std::string_view method_string = resolve_request_method_string(http_request);
         const auto &target_string = http_request.target();
@@ -158,7 +157,7 @@ namespace ngx::protocol::http
         const std::string_view body_view = http_request.body();
 
         memory::string result(mr);
-        result.reserve(128 + target_string.size() + static_cast<std::size_t>(header_container.size() * 32) + body_view.size());
+        result.reserve(128 + target_string.size() + header_container.size() * 32 + body_view.size());
 
         result.append(method_string.data(), method_string.size());
         result.push_back(' ');
@@ -190,7 +189,7 @@ namespace ngx::protocol::http
         return result;
     }
 
-    memory::string serialize(const response &http_response, memory::resource_pointer mr)
+    memory::string serialize(const response &http_response, const memory::resource_pointer mr)
     {
         const unsigned int status_code_value = http_response.status_code();
         const std::string_view reason_view = resolve_response_reason_view(http_response);

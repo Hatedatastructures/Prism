@@ -4,12 +4,12 @@
 
 namespace ngx::protocol::http
 {
-    downcase_string::downcase_string(memory::resource_pointer mr)
+    downcase_string::downcase_string(const memory::resource_pointer mr)
         : str_(mr)
     {
     }
 
-    downcase_string::downcase_string(std::string_view str, memory::resource_pointer mr)
+    downcase_string::downcase_string(std::string_view str, const memory::resource_pointer mr)
         : str_(mr)
     {
         str_.reserve(str.size());
@@ -39,19 +39,19 @@ namespace ngx::protocol::http
         return str_ == other.str_;
     }
 
-    headers::header::header(memory::resource_pointer mr)
+    headers::header::header(const memory::resource_pointer mr)
         : key(mr), value(mr), original_key(mr)
     {
     }
 
-    headers::header::header(const std::string_view name, const std::string_view value, memory::resource_pointer mr)
+    headers::header::header(const std::string_view name, const std::string_view value, const memory::resource_pointer mr)
         : key(name, mr), value(mr), original_key(mr)
     {
         this->value.assign(value.begin(), value.end());
         this->original_key.assign(name.begin(), name.end());
     }
 
-    headers::headers(memory::resource_pointer mr)
+    headers::headers(const memory::resource_pointer mr)
         : entries_(mr)
     {
     }

@@ -1,4 +1,5 @@
 #pragma once
+
 #include <string>
 #include <format>
 #include <chrono>
@@ -290,8 +291,6 @@ namespace ngx::trace::deprecated
         level file_level_threshold = level::debug;
         level console_level_threshold = level::debug;
         std::size_t max_file_size = 10 * 1024 * 1024; // 10MB
-
-    private:
 
         /**
          * @brief 构建时间戳字符串（使用实例级时间偏移）

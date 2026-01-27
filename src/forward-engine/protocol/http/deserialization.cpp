@@ -1,7 +1,4 @@
 #include <forward-engine/protocol/http/deserialization.hpp>
-#include <forward-engine/protocol/http/header.hpp>
-#include <forward-engine/protocol/http/constants.hpp>
-#include <string>
 
 namespace ngx::protocol::http
 {
@@ -35,7 +32,7 @@ namespace ngx::protocol::http
          * @param right 右侧字符串视图
          * @return bool 相等返回 `true`，否则返回 `false`
          */
-        [[nodiscard]] bool iequals(std::string_view left, std::string_view right) noexcept
+        [[nodiscard]] bool iequals(const std::string_view left, const std::string_view right) noexcept
         {
             if (left.size() != right.size())
             {
@@ -102,7 +99,7 @@ namespace ngx::protocol::http
          * @param status_code_value 输出的整型状态码
          * @return bool 解析成功返回 `true`，否则返回 `false`
          */
-        [[nodiscard]] bool parse_status_code(std::string_view value, unsigned int &status_code_value) noexcept
+        [[nodiscard]] bool parse_status_code(const std::string_view value, unsigned int &status_code_value) noexcept
         {
             if (value.size() != 3)
             {
@@ -116,7 +113,7 @@ namespace ngx::protocol::http
                 {
                     return false;
                 }
-                code = static_cast<unsigned int>(code * 10 + static_cast<unsigned int>(ch - '0'));
+                code = code * 10 + static_cast<unsigned int>(ch - '0');
             }
 
             status_code_value = code;
@@ -124,14 +121,14 @@ namespace ngx::protocol::http
         }
     } // namespace
 
-    bool deserialize(const std::string_view string_value, request &request_instance)
+    gist::code deserialize(const std::string_view string_value, request &http_request)
     {
-        request_instance.clear();
+        http_request.clear();
 
         const std::size_t request_line_end = string_value.find("\r\n");
         if (request_line_end == std::string_view::npos)
         {
-            return false;
+            return gist::code::parse_error;
         }
 
         const std::string_view request_line = string_value.substr(0, request_line_end);
@@ -139,13 +136,13 @@ namespace ngx::protocol::http
         const std::size_t first_space = request_line.find(' ');
         if (first_space == std::string_view::npos)
         {
-            return false;
+            return gist::code::parse_error;
         }
 
         const std::size_t second_space = request_line.find(' ', first_space + 1);
         if (second_space == std::string_view::npos)
         {
-            return false;
+            return gist::code::parse_error;
         }
 
         const std::string_view method_part = request_line.substr(0, first_space);
@@ -155,18 +152,18 @@ namespace ngx::protocol::http
         unsigned int version_value = 0;
         if (!parse_http_version(version_part, version_value))
         {
-            return false;
+            return gist::code::parse_error;
         }
 
-        request_instance.method(method_part);
-        request_instance.target(target_part);
-        request_instance.version(version_value);
+        http_request.method(method_part);
+        http_request.target(target_part);
+        http_request.version(version_value);
 
         const std::size_t headers_start = request_line_end + 2;
         const std::size_t headers_end = string_value.find("\r\n\r\n", headers_start);
         if (headers_end == std::string_view::npos)
         {
-            return false;
+            return gist::code::parse_error;
         }
 
         std::string_view headers_block = string_value.substr(headers_start, headers_end - headers_start);
@@ -183,7 +180,7 @@ namespace ngx::protocol::http
             else
             {
                 line = headers_block.substr(0, line_end);
-                // 移除处理好的行和换行符
+                // 移除处理好地行和换行符
                 headers_block.remove_prefix(line_end + 2);
             }
 
@@ -196,7 +193,7 @@ namespace ngx::protocol::http
             const std::size_t colon_pos = line.find(':');
             if (colon_pos == std::string_view::npos)
             {
-                return false;
+                return gist::code::parse_error;
             }
 
             // 去除头字段名和值的首尾空格
@@ -205,10 +202,10 @@ namespace ngx::protocol::http
 
             if (name.empty())
             {
-                return false;
+                return gist::code::parse_error;
             }
 
-            request_instance.set(name, value);
+            http_request.set(name, value);
         }
 
         const std::size_t body_start = headers_end + 4;
@@ -217,39 +214,39 @@ namespace ngx::protocol::http
             const std::string_view body_view = string_value.substr(body_start);
             if (!body_view.empty())
             {
-                request_instance.body(body_view);
+                http_request.body(body_view);
             }
         }
 
-        const std::string_view connection_value = request_instance.at("Connection");
+        const std::string_view connection_value = http_request.at("Connection");
         if (!connection_value.empty())
         {
             if (iequals(connection_value, "keep-alive"))
             {
-                request_instance.keep_alive(true);
+                http_request.keep_alive(true);
             }
             else if (iequals(connection_value, "close"))
             {
-                request_instance.keep_alive(false);
+                http_request.keep_alive(false);
             }
         }
-        else if (request_instance.version() == 11)
+        else if (http_request.version() == 11)
         {
-            request_instance.keep_alive(true);
+            http_request.keep_alive(true);
         }
 
-        return true;
+        return gist::code::success;
     }
 
-    bool deserialize(const std::string_view string_value, response &response_instance)
+    gist::code deserialize(const std::string_view string_value, response &http_response)
     {
-        response_instance.clear();
+        http_response.clear();
 
         // 1. 分离状态行
         const std::size_t status_line_end = string_value.find("\r\n");
         if (status_line_end == std::string_view::npos)
         {
-            return false;
+            return gist::code::parse_error;
         }
 
         const std::string_view status_line = string_value.substr(0, status_line_end);
@@ -257,13 +254,13 @@ namespace ngx::protocol::http
         const std::size_t first_space = status_line.find(' ');
         if (first_space == std::string_view::npos)
         {
-            return false;
+            return gist::code::parse_error;
         }
 
         const std::size_t second_space = status_line.find(' ', first_space + 1);
         if (second_space == std::string_view::npos)
         {
-            return false;
+            return gist::code::parse_error;
         }
 
         const std::string_view version_part = status_line.substr(0, first_space);
@@ -274,27 +271,27 @@ namespace ngx::protocol::http
         unsigned int version_value = 0;
         if (!parse_http_version(version_part, version_value))
         {
-            return false;
+            return gist::code::parse_error;
         }
 
         // 3. 解析状态码
         unsigned int status_code_value = 0;
         if (!parse_status_code(status_code_part, status_code_value))
         {
-            return false;
+            return gist::code::parse_error;
         }
 
         // 4. 设置对象属性
-        response_instance.version(version_value);
-        response_instance.status(status_code_value);
-        response_instance.reason(reason_part);
+        http_response.version(version_value);
+        http_response.status(status_code_value);
+        http_response.reason(reason_part);
 
         // 5. 解析头字段块
         const std::size_t headers_start = status_line_end + 2;
         const std::size_t headers_end = string_value.find("\r\n\r\n", headers_start);
         if (headers_end == std::string_view::npos)
         {
-            return false;
+            return gist::code::parse_error;
         }
 
         std::string_view headers_block = string_value.substr(headers_start, headers_end - headers_start);
@@ -323,7 +320,7 @@ namespace ngx::protocol::http
             const std::size_t colon_pos = line.find(':');
             if (colon_pos == std::string_view::npos)
             {
-                return false;
+                return gist::code::parse_error;
             }
 
             const std::string_view name = trim(line.substr(0, colon_pos));
@@ -331,10 +328,10 @@ namespace ngx::protocol::http
 
             if (name.empty())
             {
-                return false;
+                return gist::code::parse_error;
             }
 
-            response_instance.set(name, value);
+            http_response.set(name, value);
         }
 
         // 7. 解析实体主体
@@ -344,29 +341,29 @@ namespace ngx::protocol::http
             const std::string_view body_view = string_value.substr(body_start);
             if (!body_view.empty())
             {
-                response_instance.body(body_view);
+                http_response.body(body_view);
             }
         }
 
         // 8. 兜底设置 Connection 头字段
-        const std::string_view connection_value = response_instance.at("Connection");
+        const std::string_view connection_value = http_response.at("Connection");
         if (!connection_value.empty())
         {
             if (iequals(connection_value, "keep-alive"))
             {
-                response_instance.keep_alive(true);
+                http_response.keep_alive(true);
             }
             else if (iequals(connection_value, "close"))
             {
-                response_instance.keep_alive(false);
+                http_response.keep_alive(false);
             }
         }
-        else if (response_instance.version() == 11)
+        else if (http_response.version() == 11)
         {
-            response_instance.keep_alive(true);
+            http_response.keep_alive(true);
         }
 
-        return true;
+        return gist::code::success;
     }
 
 } // namespace ngx::protocol::http

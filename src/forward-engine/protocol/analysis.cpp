@@ -5,7 +5,7 @@ namespace ngx::protocol
 {
     namespace
     {
-        [[nodiscard]] memory::resource_pointer resolve_mr(const http::request &req, memory::resource_pointer mr) noexcept
+        [[nodiscard]] memory::resource_pointer resolve_mr(const http::request &req, const memory::resource_pointer mr) noexcept
         {
             if (mr)
             {
@@ -23,7 +23,7 @@ namespace ngx::protocol
          * @return 如果解析成功，返回 true；否则返回 false
          * @details 支持 HTTP 和 HTTPS 协议。
          */
-        bool parse_absolute_uri(std::string_view uri, memory::string &host, memory::string &port, memory::string &path)
+        bool parse_absolute_uri(const std::string_view uri, memory::string &host, memory::string &port, memory::string &path)
         {
             std::string_view working = uri;
             std::string_view scheme;
@@ -114,9 +114,10 @@ namespace ngx::protocol
     /**
      * @brief 解析请求，判断是正向代理还是反向代理
      * @param req HTTP 请求对象
+     * @param mr 内存资源指针
      * @return target 解析后的目标信息
      */
-    analysis::target analysis::resolve(const http::request &req, memory::resource_pointer mr)
+    analysis::target analysis::resolve(const http::request &req, const memory::resource_pointer mr)
     {
         target t(resolve_mr(req, mr));
 
@@ -146,7 +147,7 @@ namespace ngx::protocol
         return t;
     }
 
-    analysis::target analysis::resolve(const std::string_view host_port, memory::resource_pointer mr)
+    analysis::target analysis::resolve(const std::string_view host_port, const memory::resource_pointer mr)
     {
         target t(mr ? mr : memory::current_resource());
         t.forward_proxy = true;

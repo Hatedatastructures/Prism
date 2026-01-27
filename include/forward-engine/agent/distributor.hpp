@@ -9,6 +9,8 @@
 #include <forward-engine/transport/obscura.hpp>
 #include <forward-engine/transport/source.hpp>
 #include <rule/blacklist.hpp>
+#include <forward-engine/gist.hpp>
+#include <utility>
 
 #include "rule.hpp"
 
@@ -17,7 +19,8 @@ namespace ngx::agent
     namespace net = boost::asio;
     using tcp = boost::asio::ip::tcp;
     using source = ngx::transport::source;
-    using exclusive_connection = ngx::transport::exclusive_connection;
+    using exclusive_connection = transport::exclusive_connection;
+    using route_result = std::pair<gist::code, exclusive_connection>;
 
     /**
      * @brief 分发容器
@@ -70,10 +73,22 @@ namespace ngx::agent
 
     public:
         explicit distributor(source &pool, net::io_context &ioc, memory::resource_pointer mr = memory::current_resource());
-        void load_reverse_map(const std::string &file_path);
-        [[nodiscard]] net::awaitable<exclusive_connection> route_reverse(std::string_view host);
-        [[nodiscard]] net::awaitable<exclusive_connection> route_direct(tcp::endpoint ep) const;
-        [[nodiscard]] net::awaitable<exclusive_connection> route_forward(std::string_view host, std::string_view port);
+        
+        /**
+         * @brief 添加反向代理路由规则
+         * @param host 来源主机名 (Incoming Host)
+         * @param ep 后端服务地址 (Backend Endpoint)
+         */
+        void add_reverse_route(std::string_view host, const tcp::endpoint& ep);
+
+        [[nodiscard]] auto route_reverse(std::string_view host)
+            -> net::awaitable<route_result>;
+
+        [[nodiscard]] auto route_direct(tcp::endpoint ep) const
+            -> net::awaitable<route_result>;
+
+        [[nodiscard]] auto route_forward(std::string_view host, std::string_view port)
+            -> net::awaitable<route_result>;
     private:
 
         source &pool_;

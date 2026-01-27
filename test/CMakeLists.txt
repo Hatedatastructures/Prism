@@ -156,6 +156,8 @@ target_compile_options(trojan_test PRIVATE -g1 -Os -fno-keep-inline-dllexport)
 target_link_libraries(trojan_test PRIVATE ${PROJECT_NAME}_static_library)
 add_test(NAME trojan_test COMMAND trojan_test)
 
+add_subdirectory(benchmark)
+
 if (MINGW)
     foreach(target_name IN ITEMS headers_test main_test json_test request_test glaze_test log_test session_test obscura_test_exec connection_test spdlog_test socks5_test trojan_test)
         if (TARGET ${target_name})

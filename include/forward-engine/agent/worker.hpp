@@ -129,11 +129,21 @@ namespace ngx::agent
 
             acceptor_.bind(endpoint);
             acceptor_.listen();
-        }
 
-        void load_reverse_map(const std::string &file_path)
-        {
-            distributor_.load_reverse_map(file_path);
+            // 加载反向代理路由
+            for (const auto& [host, ep_config] : config_.reverse_map)
+            {
+                boost::system::error_code ec;
+                const auto addr = net::ip::make_address(ep_config.host, ec);
+                if (!ec && ep_config.port != 0)
+                {
+                    distributor_.add_reverse_route(host, tcp::endpoint(addr, ep_config.port));
+                }
+                else
+                {
+                    trace::warn("Invalid reverse route config for host: {}", host);
+                }
+            }
         }
 
         void run()

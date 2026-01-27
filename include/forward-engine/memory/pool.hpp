@@ -1,6 +1,6 @@
 #pragma once
 
-#include "memory/container.hpp"
+#include <forward-engine/memory/container.hpp>
 
 namespace ngx::memory
 {
@@ -58,7 +58,7 @@ namespace ngx::memory
         static unsynchronized_pool *thread_local_pool()
         {
             // thread_local 保证每个线程一份
-            static thread_local auto *pool = []()
+            thread_local auto *pool = []()
             {
                 std::pmr::pool_options opts;
                 opts.largest_required_pool_block = policy::max_pool_size;
@@ -86,7 +86,7 @@ namespace ngx::memory
     class pooled_object
     {
     public:
-        static void *operator new(const std::size_t count)
+        void *operator new(const std::size_t count)
         {
             if (count <= policy::max_pool_size)
             {
@@ -96,7 +96,7 @@ namespace ngx::memory
             return ::operator new(count);
         }
 
-        static void operator delete(void *ptr, const std::size_t count)
+        void operator delete(void *ptr, const std::size_t count)
         {
             if (count <= policy::max_pool_size)
             {
@@ -110,13 +110,14 @@ namespace ngx::memory
         }
 
         // 数组支持
-        static void *operator new[](const std::size_t count)
+        void *operator new[](const std::size_t count)
         {
             if (count <= policy::max_pool_size)
                 return system::global_pool()->allocate(count);
             return ::operator new[](count);
         }
-        static void operator delete[](void *ptr, std::size_t count)
+
+        void operator delete[](void *ptr, std::size_t count)
         {
             if (count <= policy::max_pool_size)
                 system::global_pool()->deallocate(ptr, count);
@@ -131,15 +132,18 @@ namespace ngx::memory
      */
     class frame_arena
     {
-    private:
         // 16KB 栈缓冲，覆盖 99% 的请求头，避免栈溢出
         std::byte buffer_[16 * 1024];
         monotonic_buffer resource_;
 
     public:
         frame_arena()
-            // Upstream 使用 thread_local_pool (无锁)，性能最大化
-            : buffer_{}, resource_(buffer_, sizeof(buffer_), system::thread_local_pool())
+            /**
+             * Upstream 使用 thread_local_pool (无锁)，性能最大化
+             * 在此不用初始化buffer_容器，反正还要覆盖，初始化还浪费性能
+             */
+
+            : resource_(buffer_, sizeof(buffer_), system::thread_local_pool())
         {
         }
 

@@ -101,7 +101,7 @@ namespace ngx::protocol::http
         }
     } // namespace
 
-    request::request(memory::resource_pointer mr)
+    request::request(const memory::resource_pointer mr)
         : method_string_(mr), target_(mr), body_(mr), headers_(mr)
     {
     }
@@ -109,12 +109,12 @@ namespace ngx::protocol::http
     /**
      * @brief 设置请求方法
      * @details 该函数用于设置 HTTP 请求的方法
-     * @param  method_value 请求方法枚举值
+     * @param  method 请求方法枚举值
      */
-    void request::method(const verb method_value)
+    void request::method(const verb method)
     {
-        method_ = method_value;
-        const std::string_view method_name = to_string(method_value);
+        method_ = method;
+        const std::string_view method_name = to_string(method);
         method_string_.assign(method_name.begin(), method_name.end());
     }
 
@@ -131,12 +131,12 @@ namespace ngx::protocol::http
     /**
      * @brief 设置请求方法
      * @details 该函数用于设置 HTTP 请求的方法
-     * @param  method_value 请求方法字符串视图
+     * @param  method 请求方法字符串视图
      */
-    void request::method(const std::string_view method_value)
+    void request::method(const std::string_view method)
     {
-        method_string_.assign(method_value.begin(), method_value.end());
-        method_ = string_to_verb(method_value);
+        method_string_.assign(method.begin(), method.end());
+        method_ = string_to_verb(method);
     }
 
     /**
@@ -152,11 +152,11 @@ namespace ngx::protocol::http
     /**
      * @brief 设置请求目标 URI
      * @details 该函数用于设置 HTTP 请求的目标 URI，包括路径和查询参数。
-     * @param  target_value 请求目标 URI 字符串视图
+     * @param  target 请求目标 URI 字符串视图
      */
-    void request::target(const std::string_view target_value)
+    void request::target(const std::string_view target)
     {
-        target_.assign(target_value.begin(), target_value.end());
+        target_.assign(target.begin(), target.end());
     }
 
     /**
@@ -250,18 +250,18 @@ namespace ngx::protocol::http
     /**
      * @brief 设置请求体
      * @details 该函数用于设置 HTTP 请求的请求体
-     * @param  body_value 请求体字符串视图
+     * @param  body 请求体字符串视图
      */
-    void request::body(const std::string_view body_value)
+    void request::body(const std::string_view body)
     {
-        body_.assign(body_value.begin(), body_value.end());
-        content_length(static_cast<std::uint64_t>(body_.size()));
+        body_.assign(body.begin(), body.end());
+        content_length(body_.size());
     }
 
     void request::body(memory::string &&body_value)
     {
         body_ = std::move(body_value);
-        content_length(static_cast<std::uint64_t>(body_.size()));
+        content_length(body_.size());
     }
 
     /**

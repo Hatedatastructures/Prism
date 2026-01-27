@@ -42,14 +42,19 @@
 
 #### 高优先级（当前迭代）
 1. **反向代理配置加载**
-   - 状态：开发中（50%）
-   - 描述：将 `configuration.json` 的配置接入 `reverse_map_`
-   - 相关文件：`distributor.hpp/.cpp`, `configuration.hpp`
+   - 状态：✅ 已完成
+   - 描述：已将 `configuration.json` 的配置接入 `reverse_map_`，移除了对 `boost::property_tree` 的依赖，实现了配置与逻辑的解耦。
+   - 相关文件：`distributor.hpp/.cpp`, `configuration.hpp`, `worker.hpp`
 
 2. **JSON 序列化接口统一**
    - 状态：设计阶段（30%）
    - 描述：在 `ngx::transformer::json` 下统一默认 `opts` 与解析策略
    - 相关文件：`transformer/json.hpp`
+
+3. **错误码标准化**
+   - 状态：✅ 已完成
+   - 描述：统一了协议解析（deserialize）和路由分发（route_*）的返回值类型，全面采用 `gist::code` 替代布尔值，提升了错误排查效率。
+   - 相关文件：`frame.hpp/.cpp`, `distributor.hpp/.cpp`
 
 #### 中优先级（规划中）
 3. **连接池增强**
@@ -74,10 +79,10 @@
 #### Agent 模块 (`include/forward-engine/agent/`)
 | 模块 | 完成度 | 状态 | 备注 |
 |------|--------|------|------|
-| `worker.hpp` | 100% | ✅ 完成 | 监听端口，接受连接 |
+| `worker.hpp` | 100% | ✅ 完成 | 监听端口，接受连接，加载配置 |
 | `session.hpp` | 100% | ✅ 完成 | 会话生命周期和主链路 |
 | `analysis.hpp` | 100% | ✅ 完成 | 协议识别和目标解析 |
-| `distributor.hpp` | 90% | 🔄 进行中 | 反向代理配置加载中 |
+| `distributor.hpp` | 100% | ✅ 完成 | 路由分发与规则管理 |
 | `connection.hpp` | 100% | ✅ 完成 | TCP 连接池实现 |
 
 #### Protocol 模块 (`include/forward-engine/protocol/`)
@@ -209,6 +214,12 @@ curl -v -x socks5://127.0.0.1:8081 http://www.baidu.com
 4. 等待修复和发布
 
 ## 📝 更新日志
+
+### 2026年1月27日
+- 彻底解耦 `distributor` 模块，移除 JSON 依赖
+- 完善反向代理配置加载逻辑，支持自动解析 `reverse_map`
+- 标准化错误码返回机制，使用 `gist::code` 替代布尔值
+- 重构压测工具，统一输出格式并优化稳定性
 
 ### 2026年1月26日
 - 重构文档结构，合并用户指南和常见问题

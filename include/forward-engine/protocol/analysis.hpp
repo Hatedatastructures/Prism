@@ -1,13 +1,11 @@
 #pragma once
 
 #include <string_view>
-#include <memory/container.hpp>
+#include <forward-engine/memory/container.hpp>
 #include <forward-engine/protocol/http.hpp>
 
 namespace ngx::protocol
 {
-    namespace http = ngx::protocol::http;
-
     /**
      * @brief 协议类型枚举
      * @note 协议类型包括 HTTP 、 Obscura（非 HTTP 流量）

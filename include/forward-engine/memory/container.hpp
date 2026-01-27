@@ -3,6 +3,7 @@
 #include <string>
 #include <vector>
 #include <list>
+#include <map>
 #include <unordered_map>
 #include <unordered_set>
 #include <memory_resource>
@@ -84,6 +85,14 @@ namespace ngx::memory
     template <typename Value>
     using list = std::pmr::list<Value>;
 
+
+    /**
+     * @brief map
+     * @details 使用 std::pmr::map 替代 std::map
+     * @note `monotonic_buffer_resource` 上分配时，红黑树节点紧凑排列，缓存极其友好
+     */
+    template <typename Key, typename Value, typename Compare = std::less<Key>>
+    using map = std::pmr::map<Key, Value, Compare>;
 
     /**
      * @brief unordered_map

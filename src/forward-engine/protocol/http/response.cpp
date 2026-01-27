@@ -167,7 +167,7 @@ namespace ngx::protocol::http
         }
     } // namespace
 
-    response::response(memory::resource_pointer mr)
+    response::response(const memory::resource_pointer mr)
         : reason_(mr), body_(mr), headers_(mr)
     {
     }
@@ -205,8 +205,7 @@ namespace ngx::protocol::http
     void response::status(const unsigned int code)
     {
         status_ = to_status(code);
-        const std::string_view reason_view = to_string(status_);
-        if (!reason_view.empty())
+        if (const std::string_view reason_view = to_string(status_); !reason_view.empty())
         {
             reason_.assign(reason_view.begin(), reason_view.end());
         }
@@ -229,11 +228,11 @@ namespace ngx::protocol::http
     /**
      * @brief 设置响应原因短语
      * @details 该函数用于设置 HTTP 响应的原因短语
-     * @param  reason_value 原因短语字符串视图
+     * @param  reason 原因短语字符串视图
      */
-    void response::reason(const std::string_view reason_value)
+    void response::reason(const std::string_view reason)
     {
-        reason_.assign(reason_value.begin(), reason_value.end());
+        reason_.assign(reason.begin(), reason.end());
     }
 
     /**
@@ -327,18 +326,18 @@ namespace ngx::protocol::http
     /**
      * @brief 设置响应体
      * @details 该函数用于设置 HTTP 响应的体内容
-     * @param  body_value 响应体字符串视图
+     * @param  body 响应体字符串视图
      */
-    void response::body(const std::string_view body_value)
+    void response::body(const std::string_view body)
     {
-        body_.assign(body_value.begin(), body_value.end());
-        content_length(static_cast<std::uint64_t>(body_.size()));
+        body_.assign(body.begin(), body.end());
+        content_length(body_.size());
     }
 
     void response::body(memory::string &&body_value)
     {
         body_ = std::move(body_value);
-        content_length(static_cast<std::uint64_t>(body_.size()));
+        content_length(body_.size());
     }
 
     /**

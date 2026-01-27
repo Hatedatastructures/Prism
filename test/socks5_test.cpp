@@ -27,7 +27,12 @@ net::awaitable<void> do_socks5_server(tcp::acceptor &acceptor)
 
         // 执行握手，获取目标地址信息
         std::cout << "服务器开始 SOCKS5 握手..." << std::endl;
-        auto req = co_await socks5->handshake();
+        auto [ec, req] = co_await socks5->handshake();
+        if (ec != ngx::gist::code::success)
+        {
+            std::cerr << "服务器握手失败: " << std::string_view(ngx::gist::describe(ec)) << std::endl;
+            co_return;
+        }
         std::cout << "服务器握手成功，收到目标信息" << std::endl;
 
         auto host_str = protocol::socks5::to_string(req.destination_address);

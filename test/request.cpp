@@ -49,7 +49,7 @@ void deserialization()
         "\r\n"
         "{\"name\":\"test\",\"age\":18}";
 
-    if (http::request req; http::deserialize(request_str, req))
+    if (http::request req; http::deserialize(request_str, req) == ngx::gist::code::success)
     {
         std::cout << "request" << std::endl;
         std::cout << http::serialize(req) << std::endl << std::endl << std::endl;
@@ -68,7 +68,7 @@ void deserialization()
         "\r\n"
         "{\"name\":\"test\",\"age\":18}";
 
-    if (http::response resp; http::deserialize(response_str, resp))
+    if (http::response resp; http::deserialize(response_str, resp) == ngx::gist::code::success)
     {
         std::cout << "response" << std::endl;
         std::cout << http::serialize(resp) << std::endl;

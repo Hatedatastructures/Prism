@@ -6,10 +6,11 @@
 #include <boost/beast/http.hpp>
 #include <boost/beast/core/flat_buffer.hpp>
 
-#include <memory/container.hpp>
+#include <forward-engine/memory/container.hpp>
+#include <forward-engine/gist.hpp>
 
-#include "request.hpp"
-#include "response.hpp"
+#include <forward-engine/protocol/http/request.hpp>
+#include <forward-engine/protocol/http/response.hpp>
 
 namespace ngx::protocol::http
 {
@@ -23,9 +24,9 @@ namespace ngx::protocol::http
      * @brief 反序列化 HTTP 请求
      * @param string_value 原始 `HTTP` 请求报文数据
      * @param http_request 用于接收解析结果的 request 对象
-     * @return bool 如果解析成功返回 `true`，否则返回 `false`
+     * @return gist::code 解析结果状态码
      */
-    [[nodiscard]] bool deserialize(std::string_view string_value, request &http_request);
+     [[nodiscard]] gist::code deserialize(std::string_view string_value, request &http_request);
 
     /**
      * @brief 异步读取并反序列化 HTTP 请求
@@ -35,11 +36,11 @@ namespace ngx::protocol::http
      * @param http_request http模块的 request 对象 (将被填充)
      * @param buffer 用于存储读取数据的动态缓冲区
      * @param mr 内存资源指针，用于分配解析过程中需要的内存
-     * @return `true` 读取成功, `false` 读取失败 (连接断开或协议错误)
+     * @return gist::code 读取结果状态码
      */
     template <class Transport, class DynamicBuffer>
-    net::awaitable<bool> async_read(Transport &socket, request &http_request,
-                                    DynamicBuffer &buffer, memory::resource_pointer mr)
+    auto async_read(Transport &socket, request &http_request, DynamicBuffer &buffer, memory::resource_pointer mr)
+        -> net::awaitable<gist::code> 
     {
         if (!mr)
         {
@@ -60,7 +61,11 @@ namespace ngx::protocol::http
         co_await beast::http::async_read(socket, buffer, parser, token);
         if (ec)
         {
-            co_return false;
+            if (ec == net::error::eof)
+            {
+                co_return gist::code::eof;
+            }
+            co_return gist::code::generic_error;
         }
 
         auto beast_msg = parser.release();
@@ -80,7 +85,7 @@ namespace ngx::protocol::http
 
         http_request.keep_alive(beast_msg.keep_alive());
 
-        co_return true;
+        co_return gist::code::success;
     }
 
     /**
@@ -89,10 +94,11 @@ namespace ngx::protocol::http
      * @param socket 数据源
      * @param http_request http模块的 request 对象 (将被填充)
      * @param mr 内存资源指针，用于分配解析过程中需要的内存
-     * @return `true` 读取成功, `false` 读取失败 (连接断开或协议错误)
+     * @return gist::code 读取结果状态码
      */
     template <class Transport>
-    net::awaitable<bool> async_read(Transport &socket, request &http_request, memory::resource_pointer mr)
+    auto async_read(Transport &socket, request &http_request, const memory::resource_pointer mr)
+        -> net::awaitable<gist::code> 
     {
         beast::flat_buffer buffer;
         co_return co_await async_read<Transport, beast::flat_buffer>(socket, http_request, buffer, mr);
@@ -102,9 +108,9 @@ namespace ngx::protocol::http
      * @brief 反序列化 HTTP 响应
      * @param string_value 原始 `HTTP` 响应报文数据
      * @param http_response 用于接收解析结果的 response 对象
-     * @return 如果解析成功返回 `true`，否则返回 `false`
+     * @return gist::code 解析结果状态码
      */
-    [[nodiscard]] bool deserialize(std::string_view string_value, response &http_response);
+     [[nodiscard]] gist::code deserialize(std::string_view string_value, response &http_response);
 
     /**
      * @brief 异步读取并反序列化 HTTP 响应
@@ -112,10 +118,11 @@ namespace ngx::protocol::http
      * @param socket 数据源
      * @param http_response http模块的 response 对象 (将被填充)
      * @param mr 内存资源指针，用于分配解析过程中需要的内存
-     * @return `true` 读取成功, `false` 读取失败 (连接断开或协议错误)
+     * @return gist::code 读取结果状态码
      */
     template <class Transport>
-    net::awaitable<bool> async_read(Transport &socket, response &http_response, memory::resource_pointer mr)
+    auto async_read(Transport &socket, response &http_response, memory::resource_pointer mr)
+        -> net::awaitable<gist::code> 
     {
         beast::flat_buffer buffer;
         co_return co_await async_read<Transport, beast::flat_buffer>(socket, http_response, buffer, mr);
@@ -129,10 +136,11 @@ namespace ngx::protocol::http
      * @param http_response http模块的 response 对象 (将被填充)
      * @param buffer 用于存储读取数据的动态缓冲区
      * @param mr 内存资源指针，用于分配解析过程中需要的内存
-     * @return `true` 读取成功, `false` 读取失败 (连接断开或协议错误)
+     * @return gist::code 读取结果状态码
      */
     template <class Transport, class DynamicBuffer>
-    net::awaitable<bool> async_read(Transport &socket, response &http_response, DynamicBuffer &buffer, memory::resource_pointer mr)
+    auto async_read(Transport &socket, response &http_response, DynamicBuffer &buffer, memory::resource_pointer mr)
+        -> net::awaitable<gist::code> 
     {
         if (!mr)
         {
@@ -154,7 +162,11 @@ namespace ngx::protocol::http
         // 读取完成一个完整的响应窃取到自己的 response 对象
         if (ec)
         {
-            co_return false;
+            if (ec == net::error::eof)
+            {
+                co_return gist::code::eof;
+            }
+            co_return gist::code::generic_error;
         }
 
         auto beast_msg = parser.release();
@@ -174,7 +186,7 @@ namespace ngx::protocol::http
 
         http_response.keep_alive(beast_msg.keep_alive());
 
-        co_return true;
+        co_return gist::code::success;
     }
 
 } // namespace ngx::protocol::http

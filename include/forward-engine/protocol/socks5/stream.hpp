@@ -2,7 +2,7 @@
 
 #include <boost/asio.hpp>
 #include <array>
-#include <abnormal.hpp>
+#include <forward-engine/gist.hpp>
 #include <forward-engine/protocol/socks5/constants.hpp>
 #include <forward-engine/protocol/socks5/message.hpp>
 #include <forward-engine/protocol/socks5/wire.hpp>
@@ -29,16 +29,21 @@ namespace ngx::protocol::socks5
          * @details 在握手之后，就能拿到上游的地址和端口了
          * @return `request` 解析出的请求信息
          */
-        net::awaitable<request> handshake()
+        net::awaitable<std::pair<gist::code, request>> handshake()
         {
             // 1. 方法协商
-            if (!co_await negotiate_methods())
+            const auto ec_methods = co_await negotiate_methods();
+            if (ec_methods != gist::code::success)
             {
-                throw abnormal::security("No supported authentication method");
+                co_return std::pair<gist::code, request>{ec_methods, request{}};
             }
 
             // 2. 请求处理
-            auto header = co_await read_request_header();
+            auto [ec_header, header] = co_await read_request_header();
+            if (ec_header != gist::code::success)
+            {
+                co_return std::pair<gist::code, request>{ec_header, request{}};
+            }
 
             request req{};
             req.cmd = header.cmd;
@@ -46,7 +51,7 @@ namespace ngx::protocol::socks5
             if (req.cmd != command::connect)
             {
                 co_await send_error(reply_code::command_not_supported);
-                throw abnormal::protocol("Unsupported SOCKS5 command (only CONNECT is supported)");
+                co_return std::pair{gist::code::unsupported_command, request{}};
             }
 
             // 3. 解析地址 + 端口
@@ -54,30 +59,42 @@ namespace ngx::protocol::socks5
             {
             case address_type::ipv4:
             {
-                auto [addr, port] = co_await read_ip_address_and_port<4>(wire::decode_ipv4, "Invalid IPv4 address");
+                auto [ec, addr, port] = co_await read_ip_address_and_port<4>(wire::decode_ipv4);
+                if (ec != gist::code::success)
+                {
+                    co_return std::pair<gist::code, request>{ec, request{}};
+                }
                 req.destination_address = addr;
                 req.destination_port = port;
                 break;
             }
             case address_type::ipv6:
             {
-                auto [addr, port] = co_await read_ip_address_and_port<16>(wire::decode_ipv6, "Invalid IPv6 address");
+                auto [ec, addr, port] = co_await read_ip_address_and_port<16>(wire::decode_ipv6);
+                if (ec != gist::code::success)
+                {
+                    co_return std::pair<gist::code, request>{ec, request{}};
+                }
                 req.destination_address = addr;
                 req.destination_port = port;
                 break;
             }
             case address_type::domain:
             {
-                auto [addr, port] = co_await read_domain_address_and_port();
+                auto [ec, addr, port] = co_await read_domain_address_and_port();
+                if (ec != gist::code::success)
+                {
+                    co_return std::pair<gist::code, request>{ec, request{}};
+                }
                 req.destination_address = addr;
                 req.destination_port = port;
                 break;
             }
             default:
-                throw abnormal::protocol("Unsupported address type");
+                co_return std::pair{gist::code::unsupported_address, request{}};
             }
 
-            co_return req;
+            co_return std::pair{gist::code::success, req};
         }
 
         /**
@@ -101,14 +118,9 @@ namespace ngx::protocol::socks5
                 0x00, 0x00, 0x00, 0x00,
                 0x00, 0x00
             };
-            try
-            {
-                co_await net::async_write(socket_, net::buffer(response), net::use_awaitable);
-            }
-            catch (...)
-            {
-                // 忽略发送错误时的异常
-            }
+            boost::system::error_code ec;
+            co_await net::async_write(socket_, net::buffer(response), net::redirect_error(net::use_awaitable, ec));
+            co_return;
         }
 
         /**
@@ -142,27 +154,36 @@ namespace ngx::protocol::socks5
     private:
         /**
          * @brief 协商认证方法
-         * @return bool 是否支持无认证 (0x00)
+         * @return gist::code 协商结果
          */
-        net::awaitable<bool> negotiate_methods()
+        net::awaitable<gist::code> negotiate_methods()
         {
             // 客户端发送: VER(1) | NMETHODS(1) | METHODS(1-255)
             // 最大长度: 1 + 1 + 255 = 257
             std::array<std::uint8_t, 257> methods_buffer{};
 
             // 读取版本和方法数量
-            co_await net::async_read(socket_, net::buffer(methods_buffer, 2), net::use_awaitable);
+            boost::system::error_code ec;
+            co_await net::async_read(socket_, net::buffer(methods_buffer, 2), net::redirect_error(net::use_awaitable, ec));
+            if (ec)
+            {
+                co_return gist::code::io_error;
+            }
 
             if (methods_buffer[0] != 0x05)
             { // 只支持 SOCKS5 协议
-                throw abnormal::protocol("Invalid SOCKS version");
+                co_return gist::code::protocol_error;
             }
 
             // 读取方法数量的数量
-            std::uint8_t nmethods = methods_buffer[1];
+            const std::uint8_t nmethods = methods_buffer[1];
 
             // 读取方法列表
-            co_await net::async_read(socket_, net::buffer(methods_buffer.data() + 2, nmethods), net::use_awaitable);
+            co_await net::async_read(socket_, net::buffer(methods_buffer.data() + 2, nmethods), net::redirect_error(net::use_awaitable, ec));
+            if (ec)
+            {
+                co_return gist::code::io_error;
+            }
 
             /**
              * METHODS 字段
@@ -176,8 +197,8 @@ namespace ngx::protocol::socks5
 
             // 检查是否支持无认证 (0x00)
             bool no_auth_supported = false;
-            std::span<const std::uint8_t> methods(methods_buffer.data() + 2, nmethods);
-            for (auto method : methods)
+            const std::span<const std::uint8_t> methods(methods_buffer.data() + 2, nmethods);
+            for (const auto method : methods)
             {
                 if (method == 0x00)
                 {
@@ -190,14 +211,18 @@ namespace ngx::protocol::socks5
             {
                 // 发送无支持的方法响应 (0xFF)
                 constexpr std::uint8_t response[] = {0x05, 0xFF};
-                co_await net::async_write(socket_, net::buffer(response), net::use_awaitable);
-                co_return false;
+                co_await net::async_write(socket_, net::buffer(response), net::redirect_error(net::use_awaitable, ec));
+                co_return gist::code::not_supported;
             }
 
             // 发送选中无认证方法 (0x00)
             constexpr std::uint8_t response[] = {0x05, 0x00};
-            co_await net::async_write(socket_, net::buffer(response), net::use_awaitable);
-            co_return true;
+            co_await net::async_write(socket_, net::buffer(response), net::redirect_error(net::use_awaitable, ec));
+            if (ec)
+            {
+                co_return gist::code::io_error;
+            }
+            co_return gist::code::success;
         }
 
         /**
@@ -205,45 +230,54 @@ namespace ngx::protocol::socks5
          * @return `wire::header_parse` 包含解析后的命令和地址类型
          * @throws abnormal::protocol 如果头部无效
          */
-        net::awaitable<wire::header_parse> read_request_header()
+        net::awaitable<std::pair<gist::code, wire::header_parse>> read_request_header()
         {
             std::array<std::uint8_t, 4> request_header{};
-            co_await net::async_read(socket_, net::buffer(request_header), net::use_awaitable);
+            boost::system::error_code ec;
+            co_await net::async_read(socket_, net::buffer(request_header), net::redirect_error(net::use_awaitable, ec));
+
+            if (ec)
+            {
+                co_return std::pair{gist::code::generic_error, wire::header_parse{}};
+            }
 
             auto [ec_header, header] = wire::decode_header(request_header);
-            if (ec_header)
+            if (ec_header != gist::code::success)
             {
-                throw abnormal::protocol("Invalid request header");
+                co_return std::pair{ec_header, wire::header_parse{}};
             }
-            co_return header;
+            co_return std::pair{gist::code::success, header};
         }
 
         /**
          * @brief 读取 IP 地址和端口
          * @param decoder 地址解码器
-         * @param error_msg 错误消息
-         * @return `std::pair<address, uint16_t>` 包含解析后的地址和端口
-         * @throws abnormal::protocol 如果地址或端口无效
+         * @return `{gist::code, address, uint16_t}` 包含解析后的地址和端口
          */
         template <size_t N, typename Decoder>
-        net::awaitable<std::pair<address, uint16_t>> read_ip_address_and_port(Decoder &&decoder, const char *error_msg)
+        net::awaitable<std::tuple<gist::code, address, uint16_t>> read_ip_address_and_port(Decoder &&decoder)
         {
             std::array<std::uint8_t, N + 2> buffer{}; // IP(N) + Port(2)
-            co_await net::async_read(socket_, net::buffer(buffer), net::use_awaitable);
-
-            auto [ec, ip] = decoder(std::span<const std::uint8_t>(buffer.data(), N));
-            if (ec)
+            boost::system::error_code io_ec;
+            co_await net::async_read(socket_, net::buffer(buffer), net::redirect_error(net::use_awaitable, io_ec));
+            if (io_ec)
             {
-                throw abnormal::protocol(error_msg);
+                co_return std::tuple<gist::code, address, uint16_t>{gist::code::io_error, address{}, 0};
+            }
+
+            auto [decode_ec, ip] = decoder(std::span<const std::uint8_t>(buffer.data(), N));
+            if (decode_ec != gist::code::success)
+            {
+                co_return std::tuple<gist::code, address, uint16_t>{decode_ec, address{}, 0};
             }
 
             auto [ec_port, port] = wire::decode_port(std::span<const std::uint8_t>(buffer.data() + N, 2));
-            if (ec_port)
+            if (ec_port != gist::code::success)
             {
-                throw abnormal::protocol("Invalid port");
+                co_return std::tuple<gist::code, address, uint16_t>{ec_port, address{}, 0};
             }
 
-            co_return std::pair{ip, port};
+            co_return std::tuple{gist::code::success, address{ip}, port};
         }
 
         /**
@@ -254,10 +288,15 @@ namespace ngx::protocol::socks5
          * @return `std::pair<address, uint16_t>` 包含解析后的域名和端口
          * @throws abnormal::protocol 如果域名或端口无效
          */
-        net::awaitable<std::pair<address, uint16_t>> read_domain_address_and_port()
+        net::awaitable<std::tuple<gist::code, address, uint16_t>> read_domain_address_and_port()
         {
             std::uint8_t len = 0;
-            co_await net::async_read(socket_, net::buffer(&len, 1), net::use_awaitable);
+            boost::system::error_code io_ec;
+            co_await net::async_read(socket_, net::buffer(&len, 1), net::redirect_error(net::use_awaitable, io_ec));
+            if (io_ec)
+            {
+                co_return std::tuple<gist::code, address, uint16_t>{gist::code::io_error, address{}, 0};
+            }
 
             // 域名内容(len) + Port(2)
             // 域名最大 255 字节 + 2 字节端口 = 257
@@ -266,21 +305,25 @@ namespace ngx::protocol::socks5
             buffer[0] = len;
 
             // 读取 len + 2 字节到 buffer[1] 开始的位置
-            co_await net::async_read(socket_, net::buffer(buffer.data() + 1, len + 2), net::use_awaitable);
-
-            auto [ec, domain] = wire::decode_domain(std::span<const std::uint8_t>(buffer.data(), len + 1));
-            if (ec)
+            co_await net::async_read(socket_, net::buffer(buffer.data() + 1, len + 2), net::redirect_error(net::use_awaitable, io_ec));
+            if (io_ec)
             {
-                throw abnormal::protocol("Invalid domain address");
+                co_return std::tuple<gist::code, address, uint16_t>{gist::code::io_error, address{}, 0};
+            }
+
+            auto [ec_domain, domain] = wire::decode_domain(std::span<const std::uint8_t>(buffer.data(), len + 1));
+            if (ec_domain != gist::code::success)
+            {
+                co_return std::tuple<gist::code, address, uint16_t>{ec_domain, address{}, 0};
             }
 
             auto [ec_port, port] = wire::decode_port(std::span<const std::uint8_t>(buffer.data() + 1 + len, 2));
-            if (ec_port)
+            if (ec_port != gist::code::success)
             {
-                throw abnormal::protocol("Invalid port");
+                co_return std::tuple<gist::code, address, uint16_t>{ec_port, address{}, 0};
             }
 
-            co_return std::pair{domain, port};
+            co_return std::tuple{gist::code::success, address{domain}, port};
         }
 
         /**

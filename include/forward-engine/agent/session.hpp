@@ -14,6 +14,7 @@
 #include <boost/asio/experimental/awaitable_operators.hpp>
 
 #include <abnormal.hpp>
+#include <forward-engine/gist.hpp>
 #include <memory/pool.hpp>
 #include <forward-engine/agent/distributor.hpp>
 #include <forward-engine/protocol/analysis.hpp>
@@ -50,11 +51,11 @@ namespace ngx::agent
      * @tparam Transport socket 类型
      * @note 作为会话管理类，负责管理与目标服务器（或客户端）的连接，自动处理代理转发和http请求
      */
-    template <transport::SocketConcept SocketType>
-    class session : public std::enable_shared_from_this<session<SocketType>>
+    template <transport::SocketConcept Transport>
+    class session : public std::enable_shared_from_this<session<Transport>>
     {
     public:
-        using socket_type = SocketType;
+        using socket_type = Transport;
 
         explicit session(net::io_context &io_context, socket_type socket, distributor &dist,
                          std::shared_ptr<ssl::context> ssl_ctx);
@@ -91,20 +92,20 @@ namespace ngx::agent
             }
         }
 
-        net::awaitable<void> diversion();
-        net::awaitable<void> tunnel();
-        net::awaitable<void> raw_tunnel();
+        auto diversion() -> net::awaitable<void>;
+        auto tunnel() -> net::awaitable<void>;
+        auto raw_tunnel() -> net::awaitable<void>;
 
-        net::awaitable<bool> connect_upstream(std::string_view label, const protocol::analysis::target &target,
-                                              bool allow_reverse, bool require_open);
+        auto connect_upstream(std::string_view label, const protocol::analysis::target &target, bool allow_reverse, bool require_open) 
+            -> net::awaitable<bool>;
 
-        net::awaitable<void> handle_http();
-        net::awaitable<void> handle_socks5();
+        auto handle_http() -> net::awaitable<void>;
+        auto handle_socks5() -> net::awaitable<void>;
 
-        net::awaitable<void> handle_tls();
+        auto handle_tls() -> net::awaitable<void>;
 
-        net::awaitable<void> handle_obscura_with_stream(std::shared_ptr<ssl::stream<SocketType>> stream, std::string_view pre_read_data);
-        net::awaitable<void> handle_trojan_with_stream(std::shared_ptr<ssl::stream<SocketType>> stream, std::string_view pre_read_data);
+        auto handle_obscura_with_stream(std::shared_ptr<ssl::stream<Transport>> stream, std::string_view pre_read_data) -> net::awaitable<void>;
+        auto handle_trojan_with_stream(std::shared_ptr<ssl::stream<Transport>> stream, std::string_view pre_read_data) -> net::awaitable<void>;
 
         net::io_context &io_context_;
         std::shared_ptr<ssl::context> ssl_ctx_;
@@ -120,9 +121,9 @@ namespace ngx::agent
 
 namespace ngx::agent
 {
-    template <transport::SocketConcept SocketType>
-    session<SocketType>::session(net::io_context &io_context, socket_type socket, distributor &dist,
-                                 std::shared_ptr<ssl::context> ssl_ctx)
+    template <transport::SocketConcept Transport>
+    session<Transport>::session(net::io_context &io_context, socket_type socket, distributor &dist,
+                                std::shared_ptr<ssl::context> ssl_ctx)
         : io_context_(io_context), ssl_ctx_(std::move(ssl_ctx)), distributor_(dist),
           client_socket_(std::move(socket)) {}
 
@@ -138,8 +139,8 @@ namespace ngx::agent
      * @details 该函数用于注册日志函数，以便在会话中记录日志。
      * @warning 该函数必须在会话启动前调用，否则会什么也不记录。
      */
-    template <transport::SocketConcept SocketType>
-    void session<SocketType>::registered_log_function(std::function<void(level, std::string_view)> trace) noexcept
+    template <transport::SocketConcept Transport>
+    void session<Transport>::registered_log_function(std::function<void(level, std::string_view)> trace) noexcept
     {
         detail::tracker = std::move(trace);
     }
@@ -148,8 +149,8 @@ namespace ngx::agent
      * @brief 启动会话
      * @details 该函数会启动会话，开始处理客户端请求。
      */
-    template <transport::SocketConcept SocketType>
-    void session<SocketType>::start()
+    template <transport::SocketConcept Transport>
+    void session<Transport>::start()
     {
         detail::event_tracking(level::info, "[Session] Session started.");
         auto process = [self = this->shared_from_this()]() -> net::awaitable<void>
@@ -187,8 +188,8 @@ namespace ngx::agent
      * @brief 关闭会话
      * @details 该函数会关闭与目标服务器（或客户端）的连接，释放相关资源。
      */
-    template <transport::SocketConcept SocketType>
-    void session<SocketType>::close()
+    template <transport::SocketConcept Transport>
+    void session<Transport>::close()
     {
         detail::event_tracking(level::debug, "[Session] Session closing.");
         detail::shut_close(client_socket_);
@@ -200,8 +201,8 @@ namespace ngx::agent
      * @brief 会话分发器
      * @details 该函数会根据请求协议类型，选择相应的处理函数。
      */
-    template <transport::SocketConcept SocketType>
-    net::awaitable<void> session<SocketType>::diversion()
+    template <transport::SocketConcept Transport>
+    auto session<Transport>::diversion() -> net::awaitable<void>
     {
         boost::system::error_code ec;
 
@@ -216,7 +217,9 @@ namespace ngx::agent
             {
                 co_return;
             }
-            throw abnormal::network("diversion peek failed: {}", ec.message());
+            detail::event_tracking(level::warn, "[Session] Peek failed.");
+            close();
+            co_return;
         }
 
         {
@@ -249,8 +252,8 @@ namespace ngx::agent
         }
     }
 
-    template <transport::SocketConcept SocketType>
-    net::awaitable<void> session<SocketType>::handle_tls()
+    template <transport::SocketConcept Transport>
+    auto session<Transport>::handle_tls() -> net::awaitable<void>
     {
         if (!ssl_ctx_)
         {
@@ -259,26 +262,21 @@ namespace ngx::agent
         }
 
         // 1. 执行 SSL 握手 (统一入口)
-        auto ssl_stream = std::make_shared<ssl::stream<SocketType>>(std::move(client_socket_), *ssl_ctx_);
+        auto ssl_stream = std::make_shared<ssl::stream<Transport>>(std::move(client_socket_), *ssl_ctx_);
 
-        try
+        boost::system::error_code ec;
+        co_await ssl_stream->async_handshake(ssl::stream_base::server, net::redirect_error(net::use_awaitable, ec));
+        if (ec)
         {
-            co_await ssl_stream->async_handshake(ssl::stream_base::server, net::use_awaitable);
-        }
-        catch (const std::exception &e)
-        {
-            detail::event_tracking(level::warn, std::format("[Session] TLS handshake failed: {}", e.what()));
+            detail::event_tracking(level::warn, "[Session] TLS handshake failed.");
             co_return;
         }
 
         // 2. 二次探测 (Peek 解密后的数据)
         std::array<char, 24> peek_buf{};
         std::size_t n = 0;
-        try
-        {
-            n = co_await ssl_stream->async_read_some(net::buffer(peek_buf), net::use_awaitable);
-        }
-        catch (const std::exception &e)
+        n = co_await ssl_stream->async_read_some(net::buffer(peek_buf), net::redirect_error(net::use_awaitable, ec));
+        if (ec)
         {
             co_return;
         }
@@ -310,25 +308,22 @@ namespace ngx::agent
         }
     }
 
-    template <transport::SocketConcept SocketType>
-    net::awaitable<void> session<SocketType>::handle_obscura_with_stream(std::shared_ptr<ssl::stream<SocketType>> stream, std::string_view pre_read_data)
+    template <transport::SocketConcept Transport>
+    auto session<Transport>::handle_obscura_with_stream(std::shared_ptr<ssl::stream<Transport>> stream, std::string_view pre_read_data) -> net::awaitable<void>
     {
         frame_arena_.reset();
         auto mr = frame_arena_.get();
         auto proto = std::make_shared<transport::obscura<tcp>>(stream, transport::role::server);
         std::string target_path;
+        detail::event_tracking(level::debug, "[Session] Obscura handshake with preread data started.");
         try
         {
-            detail::event_tracking(level::debug, "[Session] Obscura handshake with preread data started.");
             target_path = co_await proto->handshake_preread(pre_read_data);
         }
-        catch (const boost::system::system_error &e)
+        catch (...)
         {
-            throw abnormal::protocol("obscura handshake failed: {}", e.code().message());
-        }
-        catch (const std::exception &e)
-        {
-            throw abnormal::protocol("obscura handshake failed: {}", e.what());
+            detail::event_tracking(level::warn, "[Session] Obscura handshake failed.");
+            co_return;
         }
 
         if (target_path.starts_with('/'))
@@ -362,109 +357,112 @@ namespace ngx::agent
 
         frame_arena_.reset();
 
-        std::exception_ptr error;
-        try
-        {
-            co_await detail::tunnel::obscura(std::move(proto), *server_socket_ptr_,
-                                             buffer_.data(), buffer_.size());
-        }
-        catch (...)
-        {
-            error = std::current_exception();
-        }
+        co_await detail::tunnel::obscura(std::move(proto), *server_socket_ptr_,
+                                         buffer_.data(), buffer_.size());
 
         detail::shut_close(*server_socket_ptr_);
         server_socket_ptr_.reset();
-
-        if (error)
-        {
-            std::rethrow_exception(error);
-        }
     }
 
-    template <transport::SocketConcept SocketType>
-    net::awaitable<void> session<SocketType>::handle_trojan_with_stream(std::shared_ptr<ssl::stream<SocketType>> stream, std::string_view pre_read_data)
+    template <transport::SocketConcept Transport>
+    auto session<Transport>::handle_trojan_with_stream(std::shared_ptr<ssl::stream<Transport>> stream, std::string_view pre_read_data) -> net::awaitable<void>
     {
         // 构造 Trojan 代理 (使用已握手的 stream)
         // 如果没有设置验证器，传递 nullptr (trojan 内部默认不验证，或者我们可以提供一个默认允许的验证器)
         // 但根据 TODO，我们希望这里能用上配置
-        auto agent = std::make_shared<protocol::trojan::stream<SocketType>>(stream, password_verifier_);
+        auto agent = std::make_shared<protocol::trojan::stream<Transport>>(stream, password_verifier_);
 
-        try
+        // 1. 握手 (带预读数据)
+        auto [ec, info] = co_await agent->handshake_preread(pre_read_data);
+        if (ec != ngx::gist::code::success)
         {
-            // 1. 握手 (带预读数据)
-            auto info = co_await agent->handshake_preread(pre_read_data);
-
-            // 2. 解析目标
-            protocol::analysis::target target(frame_arena_.get());
-            auto host_str = protocol::trojan::to_string(info.destination_address, frame_arena_.get());
-            target.host = std::move(host_str);
-            target.port.assign(std::to_string(info.port));
-            target.forward_proxy = true;
-
-            const std::string label = std::format("[Trojan] {}:{}", target.host, target.port);
-            detail::event_tracking(level::info, label);
-
-            // 3. 连接上游
-            if (co_await connect_upstream("Trojan", target, true, true))
-            {
-                // 4. 建立隧道 (SSL Stream <-> TCP Socket)
-                auto &client_stream = agent->get_stream();
-                auto &server_socket = *server_socket_ptr_;
-
-                // 定义单向转发 lambda
-                auto forward = [](auto &read_stream, auto &write_stream) -> net::awaitable<void>
-                {
-                    try
-                    {
-                        std::array<char, 8192> buf;
-                        while (true)
-                        {
-                            auto n = co_await read_stream.async_read_some(net::buffer(buf), net::use_awaitable);
-                            co_await net::async_write(write_stream, net::buffer(buf, n), net::use_awaitable);
-                        }
-                    }
-                    catch (...)
-                    {
-                        // 忽略连接断开错误
-                    }
-                };
-
-                // 并行执行双向转发
-                using namespace boost::asio::experimental::awaitable_operators;
-                co_await (
-                    forward(client_stream, server_socket) &&
-                    forward(server_socket, client_stream));
-
-                // 5. 清理
-                detail::shut_close(server_socket);
-                co_await agent->close();
-            }
+            detail::event_tracking(level::warn, std::format("[Trojan] Handshake failed: {}", ngx::gist::describe(ec)));
+            co_return;
         }
-        catch (const std::exception &e)
+
+        // 2. 解析目标
+        protocol::analysis::target target(frame_arena_.get());
+        auto host_str = protocol::trojan::to_string(info.destination_address, frame_arena_.get());
+        target.host = std::move(host_str);
+        target.port.assign(std::to_string(info.port));
+        target.forward_proxy = true;
+
+        const std::string label = std::format("[Trojan] {}:{}", target.host, target.port);
+        detail::event_tracking(level::info, label);
+
+        // 3. 连接上游
+        if (co_await connect_upstream("Trojan", target, true, true))
         {
-            detail::event_tracking(level::error, std::format("[Trojan] Error: {}", e.what()));
+            // 4. 建立隧道 (SSL Stream <-> TCP Socket)
+            auto &client_stream = agent->get_stream();
+            auto &server_socket = *server_socket_ptr_;
+
+            // 定义单向转发 lambda
+            auto forward = [](auto &read_stream, auto &write_stream) -> net::awaitable<void>
+            {
+                std::array<char, 8192> buf{};
+                boost::system::error_code ec;
+                auto token = net::redirect_error(net::use_awaitable, ec);
+                while (true)
+                {
+                    ec.clear();
+                    const auto n = co_await read_stream.async_read_some(net::buffer(buf), token);
+                    if (ec || n == 0)
+                    {
+                        co_return;
+                    }
+
+                    ec.clear();
+                    co_await net::async_write(write_stream, net::buffer(buf, n), token);
+                    if (ec)
+                    {
+                        co_return;
+                    }
+                }
+            };
+
+            // 并行执行双向转发
+            using namespace boost::asio::experimental::awaitable_operators;
+            co_await (
+                forward(client_stream, server_socket) &&
+                forward(server_socket, client_stream));
+
+            // 5. 清理
+            detail::shut_close(server_socket);
+            co_await agent->close();
         }
 
         server_socket_ptr_.reset();
     }
 
-    template <transport::SocketConcept SocketType>
-    net::awaitable<bool> session<SocketType>::connect_upstream(std::string_view label, const protocol::analysis::target &target,
-                                                               const bool allow_reverse, const bool require_open)
+    template <transport::SocketConcept Transport>
+    auto session<Transport>::connect_upstream(std::string_view label, const protocol::analysis::target &target,
+                                              const bool allow_reverse, const bool require_open) -> net::awaitable<bool>
     {
+        gist::code ec = gist::code::success;
         if (allow_reverse && !target.forward_proxy)
         {
-            server_socket_ptr_ = co_await distributor_.route_reverse(target.host);
+            auto result = co_await distributor_.route_reverse(target.host);
+            ec = result.first;
+            server_socket_ptr_ = std::move(result.second);
         }
         else
         {
-            server_socket_ptr_ = co_await distributor_.route_forward(target.host, target.port);
+            auto result = co_await distributor_.route_forward(target.host, target.port);
+            ec = result.first;
+            server_socket_ptr_ = std::move(result.second);
+        }
+
+        if (ec != ngx::gist::code::success)
+        {
+            const auto message = std::format("[Session] {} route failed: {}", label, ngx::gist::describe(ec));
+            detail::event_tracking(level::warn, message);
+            co_return false;
         }
 
         if (!server_socket_ptr_ || (require_open && !server_socket_ptr_->is_open()))
         {
-            const auto message = std::format("[Session] {} route to upstream failed.", label);
+            const auto message = std::format("[Session] {} route to upstream failed (connection invalid).", label);
             detail::event_tracking(level::error, message);
             co_return false;
         }
@@ -478,8 +476,8 @@ namespace ngx::agent
      * @brief 处理HTTP请求
      * @details 该函数会从客户端读取HTTP请求，并根据请求类型进行相应的处理。
      */
-    template <transport::SocketConcept SocketType>
-    net::awaitable<void> session<SocketType>::handle_http()
+    template <transport::SocketConcept Transport>
+    auto session<Transport>::handle_http() -> net::awaitable<void>
     {
         frame_arena_.reset();
         auto mr = frame_arena_.get();
@@ -487,11 +485,11 @@ namespace ngx::agent
         {
             http_proto::request req(mr);
             detail::event_tracking(level::debug, "[Session] Waiting for HTTP request...");
-            const bool success = co_await http_proto::async_read(client_socket_, req, read_buffer, mr);
+            const auto ec = co_await http_proto::async_read(client_socket_, req, read_buffer, mr);
 
-            if (!success)
+            if (ec != ngx::gist::code::success)
             {
-                detail::event_tracking(level::warn, "[Session] HTTP read failed or connection closed.");
+                detail::event_tracking(level::warn, std::format("[Session] HTTP read failed: {}", ngx::gist::describe(ec)));
                 co_return;
             }
             {
@@ -520,7 +518,9 @@ namespace ngx::agent
                 co_await transport::adaptation::async_write(client_socket_, net::buffer(resp), token);
                 if (ec && !detail::normal_close(ec))
                 {
-                    throw abnormal::network("CONNECT response send failed: {}", ec.message());
+                    detail::event_tracking(level::warn, "[Session] CONNECT response send failed.");
+                    close();
+                    co_return;
                 }
                 detail::event_tracking(level::info, "[Session] Sent 200 Connection Established.");
 
@@ -538,7 +538,9 @@ namespace ngx::agent
                 co_await transport::adaptation::async_write(*server_socket_ptr_, net::buffer(data), token);
                 if (ec && !detail::normal_close(ec))
                 {
-                    throw abnormal::network("HTTP request forward failed: {}", ec.message());
+                    detail::event_tracking(level::warn, "[Session] HTTP request forward failed.");
+                    close();
+                    co_return;
                 }
             }
 
@@ -551,7 +553,9 @@ namespace ngx::agent
                 co_await transport::adaptation::async_write(*server_socket_ptr_, read_buffer.data(), token);
                 if (ec && !detail::normal_close(ec))
                 {
-                    throw abnormal::network("Prefetched data forward failed: {}", ec.message());
+                    detail::event_tracking(level::warn, "[Session] Prefetched data forward failed.");
+                    close();
+                    co_return;
                 }
                 read_buffer.consume(read_buffer.size());
             }
@@ -564,51 +568,45 @@ namespace ngx::agent
     /**
      * @brief 处理 SOCKS5 请求
      */
-    template <transport::SocketConcept SocketType>
-    net::awaitable<void> session<SocketType>::handle_socks5()
+    template <transport::SocketConcept Transport>
+    auto session<Transport>::handle_socks5() -> net::awaitable<void>
     {
-        try
+        auto agent = std::make_shared<protocol::socks5::stream<Transport>>(std::move(client_socket_));
+        auto [ec, request] = co_await agent->handshake();
+
+        if (ec != ngx::gist::code::success)
         {
-            auto agent = std::make_shared<protocol::socks5::stream<SocketType>>(std::move(client_socket_));
-            auto request = co_await agent->handshake();
-
-            // 构造 target 对象
-            protocol::analysis::target target(frame_arena_.get());
-            auto host_str = protocol::socks5::to_string(request.destination_address, frame_arena_.get());
-            target.host = std::move(host_str);
-            target.port.assign(std::to_string(request.destination_port));
-            target.forward_proxy = true;
-
-            const std::string label = std::format("[SOCKS5] {}:{}", target.host, target.port);
-            detail::event_tracking(level::info, label);
-
-            if (co_await connect_upstream("SOCKS5", target, true, true))
-            {
-                // 发送成功响应
-                co_await agent->send_success(request);
-
-                // 移回 socket
-                client_socket_ = std::move(agent->socket());
-
-                co_await raw_tunnel();
-            }
-            else
-            {
-                co_await agent->send_error(protocol::socks5::reply_code::host_unreachable);
-            }
+            detail::event_tracking(level::warn, std::format("[SOCKS5] Handshake failed: {}", ngx::gist::describe(ec)));
+            co_return;
         }
-        catch (const std::exception &e)
+
+        // 构造 target 对象
+        protocol::analysis::target target(frame_arena_.get());
+        auto host_str = protocol::socks5::to_string(request.destination_address, frame_arena_.get());
+        target.host = std::move(host_str);
+        target.port.assign(std::to_string(request.destination_port));
+        target.forward_proxy = true;
+
+        const std::string label = std::format("[SOCKS5] {}:{}", target.host, target.port);
+        detail::event_tracking(level::info, label);
+
+        if (co_await connect_upstream("SOCKS5", target, true, true))
         {
-            detail::event_tracking(level::error, std::format("[SOCKS5] Error: {}", e.what()));
-            throw;
+            co_await agent->send_success(request);
+            client_socket_ = std::move(agent->socket());
+            co_await raw_tunnel();
+        }
+        else
+        {
+            co_await agent->send_error(protocol::socks5::reply_code::host_unreachable);
         }
     }
 
     /**
      * @brief 原始 TCP 隧道
      */
-    template <transport::SocketConcept SocketType>
-    net::awaitable<void> session<SocketType>::raw_tunnel()
+    template <transport::SocketConcept Transport>
+    auto session<Transport>::raw_tunnel() -> net::awaitable<void>
     {
         if (!server_socket_ptr_)
         {
@@ -643,8 +641,8 @@ namespace ngx::agent
      * @brief 隧道 TCP 流量 (Obscura)
      * @details 该函数会在客户端套接字和上游服务器套接字之间建立隧道，实现流量的双向传输。
      */
-    template <transport::SocketConcept SocketType>
-    net::awaitable<void> session<SocketType>::tunnel()
+    template <transport::SocketConcept Transport>
+    auto session<Transport>::tunnel() -> net::awaitable<void>
     {
         if (!server_socket_ptr_)
         {

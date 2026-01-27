@@ -1,6 +1,5 @@
 #pragma once
 
-#include "obscura.hpp"
 #include <boost/asio.hpp>
 
 namespace ngx::transport

@@ -7,13 +7,13 @@
 #include <boost/asio.hpp>
 
 
-#include <agent/distributor.hpp>
-#include <transport/source.hpp>
-#include <transport/adaptation.hpp>
-#include <transport/obscura.hpp>
-#include <protocol/http/request.hpp>
-#include <protocol/http/deserialization.hpp>
-#include <protocol/http/serialization.hpp>
+#include <forward-engine/agent/distributor.hpp>
+#include <forward-engine/transport/source.hpp>
+#include <forward-engine/transport/adaptation.hpp>
+#include <forward-engine/transport/obscura.hpp>
+#include <forward-engine/protocol/http/request.hpp>
+#include <forward-engine/protocol/http/deserialization.hpp>
+#include <forward-engine/protocol/http/serialization.hpp>
 
 namespace ngx::transport
 {

@@ -1,12 +1,14 @@
-#include <trace/spdlog.hpp>
-#include <spdlog/async.h>
-#include <spdlog/sinks/rotating_file_sink.h>
-#include <spdlog/sinks/stdout_color_sinks.h>
 #include <algorithm>
 #include <cctype>
 #include <filesystem>
 #include <mutex>
 #include <vector>
+
+#include <forward-engine/trace/spdlog.hpp>
+#include <spdlog/async.h>
+#include <spdlog/sinks/rotating_file_sink.h>
+#include <spdlog/sinks/stdout_color_sinks.h>
+
 
 namespace ngx::trace
 {
@@ -14,9 +16,9 @@ namespace ngx::trace
     {
         std::mutex trace_mutex;
         config last_config{};
-        std::shared_ptr<spdlog::logger> logsys;
+        std::shared_ptr<spdlog::logger> shared_system_logger;
 
-        [[nodiscard]] spdlog::level::level_enum parse_spdlog_level(std::string_view level_str) noexcept
+        [[nodiscard]] spdlog::level::level_enum parse_spdlog_level(const std::string_view level_str) noexcept
         {
             std::string normalized;
             normalized.reserve(level_str.size());
@@ -75,7 +77,7 @@ namespace ngx::trace
     std::shared_ptr<spdlog::logger> recorder() noexcept
     {
         std::scoped_lock lock(trace_mutex);
-        return logsys;
+        return shared_system_logger;
     }
 
     void init(const config &cfg)
@@ -92,7 +94,7 @@ namespace ngx::trace
 
         if (!spdlog::thread_pool())
         {
-            spdlog::init_thread_pool(static_cast<std::size_t>(cfg.queue_size), static_cast<std::size_t>(cfg.thread_count));
+            spdlog::init_thread_pool(cfg.queue_size, cfg.thread_count);
         }
 
         config effective_cfg = cfg;
@@ -140,19 +142,19 @@ namespace ngx::trace
 
         spdlog::set_default_logger(logger);
         spdlog::set_level(log_level);
-        logsys = std::move(logger);
+        shared_system_logger = std::move(logger);
     }
 
     void shutdown()
     {
         std::shared_ptr<spdlog::logger> logger;
-        ngx::memory::string trace_name;
+        memory::string trace_name;
 
         {
             std::scoped_lock lock(trace_mutex);
-            logger = std::move(logsys);
+            logger = std::move(shared_system_logger);
             trace_name = last_config.trace_name;
-            logsys.reset();
+            shared_system_logger.reset();
         }
 
         if (logger)

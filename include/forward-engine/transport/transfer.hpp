@@ -5,10 +5,11 @@
 #include <memory>
 #include <string_view>
 #include <type_traits>
+
 #include <boost/asio.hpp>
 #include <boost/beast.hpp>
 #include <boost/asio/experimental/awaitable_operators.hpp>
-#include <abnormal.hpp>
+
 #include <forward-engine/transport/adaptation.hpp>
 #include <forward-engine/transport/obscura.hpp>
 #include <forward-engine/transport/source.hpp>
@@ -42,7 +43,7 @@ namespace ngx::transport::detail
      * @param level 级别
      * @param msg 消息
      */
-    inline void event_tracking(const log_level level, std::string_view msg) noexcept
+    inline void event_tracking(const log_level level, const std::string_view msg) noexcept
     {
         if (tracker)
         {
@@ -131,7 +132,7 @@ namespace ngx::transport::detail
     };
 
     /**
-     * @brief 创建传输上下文
+     * @brief 创建 tcp 传输上下文
      * @details 创建一个传输上下文，包含源、目的指针和缓冲区
      * @param from 源指针
      * @param to 目的指针
@@ -163,9 +164,20 @@ namespace ngx::transport::detail
         return ctx;
     }
 
+    /**
+     * @brief 单向传输，静态类
+     * @details 单向死循环发送数据，直到源关闭或目的关闭
+     */
     struct transfer
     {
-    public:
+        /**
+         * @brief tcp 流式传输
+         * @tparam Source 源套接字
+         * @tparam Dest 目的套接字
+         * @details 在源和目的之间传输数据，直到源关闭或目的关闭
+         * @param ctx 传输上下文
+         * @note 这个函数是将源的数据传输到目的，直到源关闭或目的任意一方关闭
+         */
         template <typename Source, typename Dest>
         static net::awaitable<void> stream(const transfer_context<Source, Dest> &ctx)
         {
@@ -188,7 +200,10 @@ namespace ngx::transport::detail
                         shut_close(*ctx.to);
                         co_return;
                     }
-                    throw abnormal::network("transfer read failed: {}", ec.message());
+                    event_tracking(log_level::error, "[Transfer] read failed.");
+                    shut_close(*ctx.from);
+                    shut_close(*ctx.to);
+                    co_return;
                 }
                 if (n == 0)
                 {
@@ -204,13 +219,24 @@ namespace ngx::transport::detail
                         shut_close(*ctx.from);
                         co_return;
                     }
-                    throw abnormal::network("transfer write failed: {}", ec.message());
+                    event_tracking(log_level::error, "[Transfer] write failed.");
+                    shut_close(*ctx.from);
+                    shut_close(*ctx.to);
+                    co_return;
                 }
             }
         }
 
-        static net::awaitable<void> obscura_to_upstream(ngx::transport::obscura<net::ip::tcp> &proto, stream_socket &upstream,
-            net::cancellation_slot cancel_slot)
+        /**
+         * @brief Obscura传输到上游服务器
+         * @details 在Obscura协议上传输数据到上游服务器
+         * @param proto Obscura协议实例
+         * @param upstream 上游套接字
+         * @param cancel_slot 取消槽位
+         * @note 这个函数是将Obscura协议上的数据传输到上游服务器，直到Obscura协议关闭或上游服务器关闭
+         */
+        static net::awaitable<void> obscura_to_upstream(obscura<net::ip::tcp> &proto, stream_socket &upstream,
+            const net::cancellation_slot cancel_slot)
         {
             beast::flat_buffer buffer;
             while (true)
@@ -222,15 +248,18 @@ namespace ngx::transport::detail
                 }
                 catch (const boost::system::system_error &e)
                 {
-                    if (normal_close(e.code()) || e.code() == beast::websocket::error::closed)
+                    if (normal_close(e.code()) || e.code() == websocket::error::closed)
                     {
                         co_return;
                     }
-                    throw abnormal::protocol("obscura read failed: {}", e.code().message());
+                    event_tracking(log_level::error, "[Obscura] read failed.");
+                    co_return;
                 }
                 catch (const std::exception &e)
                 {
-                    throw abnormal::protocol("obscura read failed: {}", e.what());
+                    static_cast<void>(e);
+                    event_tracking(log_level::error, "[Obscura] read failed.");
+                    co_return;
                 }
 
                 if (n == 0)
@@ -247,15 +276,25 @@ namespace ngx::transport::detail
                     {
                         co_return;
                     }
-                    throw abnormal::protocol("upstream write failed: {}", ec.message());
+                    event_tracking(log_level::error, "[Obscura] upstream write failed.");
+                    co_return;
                 }
 
                 buffer.consume(n);
             }
         }
 
-        static net::awaitable<void> upstream_to_obscura(ngx::transport::obscura<net::ip::tcp> &proto, stream_socket &upstream,
-            net::cancellation_slot cancel_slot, mutable_buf buffer)
+        /**
+         * @brief tcp 上游传输到Obscura
+         * @details 在Obscura协议上传输上游服务器的数据
+         * @param proto Obscura协议实例
+         * @param upstream 上游套接字
+         * @param cancel_slot 取消槽位
+         * @param buffer 缓冲区
+         * @note 这个函数是将上游服务器的数据传输到Obscura协议上，直到上游服务器关闭或Obscura协议关闭
+         */
+        static net::awaitable<void> upstream_to_obscura(obscura<net::ip::tcp> &proto, stream_socket &upstream,
+            const net::cancellation_slot cancel_slot, const mutable_buf buffer)
         {
             boost::system::error_code ec;
             auto token = net::bind_cancellation_slot(cancel_slot, net::redirect_error(net::use_awaitable, ec));
@@ -270,7 +309,8 @@ namespace ngx::transport::detail
                     {
                         co_return;
                     }
-                    throw abnormal::protocol("upstream read failed: {}", ec.message());
+                    event_tracking(log_level::error, "[Obscura] upstream read failed.");
+                    co_return;
                 }
 
                 if (n == 0)
@@ -285,24 +325,40 @@ namespace ngx::transport::detail
                 }
                 catch (const boost::system::system_error &e)
                 {
-                    if (normal_close(e.code()) || e.code() == beast::websocket::error::closed)
+                    if (normal_close(e.code()) || e.code() == websocket::error::closed)
                     {
                         co_return;
                     }
-                    throw abnormal::protocol("obscura write failed: {}", e.code().message());
+                    event_tracking(log_level::error, "[Obscura] write failed.");
+                    co_return;
                 }
                 catch (const std::exception &e)
                 {
-                    throw abnormal::protocol("obscura write failed: {}", e.what());
+                    static_cast<void>(e);
+                    event_tracking(log_level::error, "[Obscura] write failed.");
+                    co_return;
                 }
             }
         }
     };
 
+
+    /**
+     * @brief 双向隧道传输，静态类
+     * @details 调用 transfer的 函数在两个套接字之间死循环传输数据，直到任意一方关闭
+     */
     class tunnel
     {
     public:
-        net::awaitable<void> stream(const tunnel_context &ctx, std::byte *buffer_data, std::size_t buffer_size)
+        /**
+         * @brief tcp 隧道传输
+         * @details 在两个套接字之间传输数据，直到任意一方关闭
+         * @param ctx 隧道上下文
+         * @param buffer_data 缓冲区数据
+         * @param buffer_size 缓冲区大小
+         * @note 这个函数是将两个套接字之间的数据传输，直到任意一方关闭
+         */
+        static net::awaitable<void> stream(const tunnel_context &ctx, std::byte *buffer_data, const std::size_t buffer_size)
         {
             if (!ctx.valid() || !buffer_data || buffer_size < 2)
             {
@@ -313,29 +369,30 @@ namespace ngx::transport::detail
             using namespace boost::asio::experimental::awaitable_operators;
 
             const std::size_t half = buffer_size / 2;
-            auto left = mutable_buf(buffer_data, half);
-            auto right = mutable_buf(buffer_data + half, buffer_size - half);
+            const auto left = mutable_buf(buffer_data, half);
+            const auto right = mutable_buf(buffer_data + half, buffer_size - half);
 
-            auto client_to_server = make_transfer_context<stream_socket, stream_socket>(
+            const auto client_to_server = make_transfer_context<stream_socket, stream_socket>(
                 ctx.client_socket, ctx.server_socket, left);
-            auto server_to_client = make_transfer_context<stream_socket, stream_socket>(
+            const auto server_to_client = make_transfer_context<stream_socket, stream_socket>(
                 ctx.server_socket, ctx.client_socket, right);
 
 
-            try
-            {
-                event_tracking(log_level::debug, "[Tunnel] stream start.");
-                co_await (transfer::stream(client_to_server) || transfer::stream(server_to_client));
-            }
-            catch (const std::exception &)
-            {
-                event_tracking(log_level::error, "[Tunnel] error.");
-                throw;
-            }
+            event_tracking(log_level::debug, "[Tunnel] stream start.");
+            co_await (transfer::stream(client_to_server) || transfer::stream(server_to_client));
         }
 
-        static net::awaitable<void> obscura(std::shared_ptr<ngx::transport::obscura<net::ip::tcp>> proto,
-            stream_socket &upstream, std::byte *buffer_data, std::size_t buffer_size)
+        /**
+         * @brief Obscura 协议隧道传输
+         * @details 在Obscura协议上传输上游服务器的数据
+         * @param proto Obscura协议实例
+         * @param upstream 上游套接字
+         * @param buffer_data 缓冲区数据
+         * @param buffer_size 缓冲区大小
+         * @note 这个函数是将上游服务器的数据传输到Obscura协议上，直到上游服务器关闭或Obscura协议关闭
+         */
+        static net::awaitable<void> obscura(std::shared_ptr<obscura<net::ip::tcp>> proto,
+            stream_socket &upstream, std::byte *buffer_data, const std::size_t buffer_size)
         {
             if (!proto || !buffer_data || buffer_size < 2)
             {
@@ -356,35 +413,18 @@ namespace ngx::transport::detail
             auto outoken = [proto, slot = cancel_obscura_to_upstream.slot(),
                 &cancel_upstream_to_obscura, &upstream]() -> net::awaitable<void>
             {
-                try
-                {
-                    event_tracking(log_level::debug, "[Obscura] tunnel: obscura -> upstream started.");
-                    co_await transfer::obscura_to_upstream(*proto, upstream, slot);
-                    event_tracking(log_level::debug, "[Obscura] tunnel: obscura -> upstream finished.");
-                }
-                catch (...)
-                {
-                    cancel_upstream_to_obscura.emit(net::cancellation_type::all);
-                    throw;
-                }
+                event_tracking(log_level::debug, "[Obscura] tunnel: obscura -> upstream started.");
+                co_await transfer::obscura_to_upstream(*proto, upstream, slot);
+                event_tracking(log_level::debug, "[Obscura] tunnel: obscura -> upstream finished.");
                 cancel_upstream_to_obscura.emit(net::cancellation_type::all);
             };
 
             auto uotoken = [proto, slot = cancel_upstream_to_obscura.slot(), &cancel_obscura_to_upstream,
                 upstream_to_obscura_buffer, &upstream]() -> net::awaitable<void>
             {
-                std::exception_ptr error;
-                try
-                {
-                    event_tracking(log_level::debug, "[Obscura] tunnel: upstream -> obscura started.");
-                    co_await transfer::upstream_to_obscura(*proto, upstream, slot, upstream_to_obscura_buffer);
-                    event_tracking(log_level::debug, "[Obscura] tunnel: upstream -> obscura finished.");
-                }
-                catch (...)
-                {
-                    cancel_obscura_to_upstream.emit(net::cancellation_type::all);
-                    error = std::current_exception();
-                }
+                event_tracking(log_level::debug, "[Obscura] tunnel: upstream -> obscura started.");
+                co_await transfer::upstream_to_obscura(*proto, upstream, slot, upstream_to_obscura_buffer);
+                event_tracking(log_level::debug, "[Obscura] tunnel: upstream -> obscura finished.");
                 cancel_obscura_to_upstream.emit(net::cancellation_type::all);
                 try
                 {
@@ -392,51 +432,19 @@ namespace ngx::transport::detail
                 }
                 catch (const boost::system::system_error &e)
                 {
-                    if (!normal_close(e.code()) && e.code() != beast::websocket::error::closed)
-                    {
-                        if (!error)
-                        {
-                            error = std::make_exception_ptr(abnormal::protocol("obscura close failed: {}", e.code().message()));
-                        }
-                    }
+                    (void)e;
                 }
                 catch (const std::exception &e)
                 {
-                    if (!error)
-                    {
-                        error = std::make_exception_ptr(abnormal::protocol("obscura close failed: {}", e.what()));
-                    }
-                }
-                if (error)
-                {
-                    std::rethrow_exception(error);
+                    (void)e;
                 }
             };
 
             auto obscura_to_upstream = net::co_spawn(executor, outoken, net::use_awaitable);
             auto upstream_to_obscura = net::co_spawn(executor, uotoken, net::use_awaitable);
 
-            std::exception_ptr first_error;
-            try
-            {
-                co_await std::move(obscura_to_upstream);
-            }
-            catch (...)
-            {
-                first_error = std::current_exception();
-            }
-
-            try
-            {
-                co_await std::move(upstream_to_obscura);
-            }
-            catch (...)
-            {
-                if (!first_error)
-                {
-                    first_error = std::current_exception();
-                }
-            }
+            co_await std::move(obscura_to_upstream);
+            co_await std::move(upstream_to_obscura);
 
             try
             {
@@ -445,26 +453,11 @@ namespace ngx::transport::detail
             }
             catch (const boost::system::system_error &e)
             {
-                if (!normal_close(e.code()) && e.code() != beast::websocket::error::closed)
-                {
-                    if (!first_error)
-                    {
-                        first_error = std::make_exception_ptr(abnormal::protocol("obscura close failed: {}", e.code().message()));
-                    }
-                }
+                (void)e;
             }
             catch (const std::exception &e)
             {
-                if (!first_error)
-                {
-                    first_error = std::make_exception_ptr(abnormal::protocol("obscura close failed: {}", e.what()));
-                }
-            }
-
-            if (first_error)
-            {
-                event_tracking(log_level::error, "[Obscura] tunnel finished with error.");
-                std::rethrow_exception(first_error);
+                (void)e;
             }
 
             event_tracking(log_level::info, "[Obscura] tunnel finished.");

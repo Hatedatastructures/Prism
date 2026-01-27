@@ -37,7 +37,12 @@ net::awaitable<void> do_trojan_server(tcp::acceptor &acceptor, std::shared_ptr<s
 
         // 执行握手
         std::cout << "Server starting Trojan handshake..." << std::endl;
-        auto req = co_await trojan->handshake();
+        auto [ec, req] = co_await trojan->handshake();
+        if (ec != ngx::gist::code::success)
+        {
+            std::cerr << "Server handshake failed: " << std::string_view(ngx::gist::describe(ec)) << std::endl;
+            co_return;
+        }
         std::cout << "Server handshake success" << std::endl;
 
         auto host_str = ngx::protocol::trojan::to_string(req.destination_address);

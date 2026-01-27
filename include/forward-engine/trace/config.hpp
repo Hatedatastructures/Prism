@@ -1,7 +1,7 @@
 #pragma once
 
 #include <cstdint>
-#include <memory/container.hpp>
+#include <forward-engine/memory/container.hpp>
 
 namespace ngx::trace
 {
@@ -22,13 +22,13 @@ namespace ngx::trace
          * @brief 日志文件名
          * @details 默认值为 "forward.log"
          */
-        ngx::memory::string file_name = "forward.log";
+        memory::string file_name = "forward.log";
 
         /**
          * @brief 日志文件存储路径
          * @details 支持相对路径和绝对路径。如果为空，则使用当前目录
          */        
-        ngx::memory::string path_name = "logs";
+        memory::string path_name = "logs";
 
         /**
          * @brief 日志文件最大大小
@@ -70,18 +70,18 @@ namespace ngx::trace
          * @brief 日志级别
          * @details 默认 info 级别。可设置为 trace、debug、info、warn、error、critical
          */
-        ngx::memory::string log_level = "info";
+        memory::string log_level = "info";
 
         /**
          * @brief 日志格式
          * @details 默认值为 "[%Y-%m-%d %H:%M:%S.%e][%l] %v"
          */
-        ngx::memory::string pattern = "[%Y-%m-%d %H:%M:%S.%e][%l] %v";
+        memory::string pattern = "[%Y-%m-%d %H:%M:%S.%e][%l] %v";
 
         /**
          * @brief 日志追踪名称
          * @details 默认值为 "forward_engine"
          */
-        ngx::memory::string trace_name = "forward_engine";
+        memory::string trace_name = "forward_engine";
     };
 }

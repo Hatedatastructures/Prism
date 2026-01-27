@@ -30,7 +30,7 @@ namespace ngx::protocol::socks5
      */
     struct domain_address
     {
-        uint8_t length;
+        std::uint8_t length;
         std::array<char, 255> value;
 
         [[nodiscard]] memory::string to_string(const memory::resource_pointer mr = memory::current_resource()) const

@@ -1,7 +1,4 @@
 #include <forward-engine/agent/distributor.hpp>
-#include <boost/property_tree/json_parser.hpp>
-#include <boost/property_tree/ptree.hpp>
-#include <stdexcept>
 #include <abnormal.hpp>
 
 namespace ngx::agent
@@ -13,101 +10,69 @@ namespace ngx::agent
    {
    }
 
-   void distributor::load_reverse_map(const std::string &file_path)
+   void distributor::add_reverse_route(std::string_view host, const tcp::endpoint& ep)
    {
-      boost::property_tree::ptree pt;
-      boost::property_tree::read_json(file_path, pt);
-
-      reverse_map_.clear();
-
-      const auto addressable_host = pt.get<std::string>("agent.addressable.host", "");
-      const auto addressable_port = pt.get<unsigned short>("agent.addressable.port", 0);
-
-      if (!addressable_host.empty() && addressable_port != 0)
-      {
-         boost::system::error_code ec;
-         const auto address = net::ip::make_address(addressable_host, ec);
-         if (!ec)
-         {
-            std::string incoming_host = pt.get<std::string>("agent.positive.host", "");
-            if (incoming_host.empty())
-            {
-               incoming_host = "localhost";
-            }
-
-            memory::string host_key(mr_);
-            host_key.assign(incoming_host);
-            reverse_map_.emplace(std::move(host_key), tcp::endpoint(address, addressable_port));
-         }
-      }
-
-      if (const auto reverse_map_node = pt.get_child_optional("agent.reverse_map"))
-      {
-         for (const auto &[incoming_host, backend_node] : *reverse_map_node)
-         {
-            const auto backend_host = backend_node.get<std::string>("host", "");
-            const auto backend_port = backend_node.get<unsigned short>("port", 0);
-
-            if (incoming_host.empty() || backend_host.empty() || backend_port == 0)
-            {
-               continue;
-            }
-
-            boost::system::error_code ec;
-            const auto address = net::ip::make_address(backend_host, ec);
-            if (ec)
-            {
-               continue;
-            }
-
-            memory::string host_key(mr_);
-            host_key.assign(incoming_host);
-            reverse_map_.insert_or_assign(std::move(host_key), tcp::endpoint(address, backend_port));
-         }
-      }
+       memory::string host_key(mr_);
+       host_key.assign(host);
+       reverse_map_.insert_or_assign(std::move(host_key), ep);
    }
 
    /**
     * @brief HTTP 正向代理 (DNS)
     * @param host 目标主机
-   * @param port 目标端口
-   * @return 一个指向内部连接对象的智能指针
-   */
-   net::awaitable<exclusive_connection> distributor::route_forward(const std::string_view host, const std::string_view port)
+    * @param port 目标端口
+    * @return 状态码与连接对象的 pair
+    */
+   auto distributor::route_forward(const std::string_view host, const std::string_view port)
+      -> net::awaitable<std::pair<gist::code, exclusive_connection>>
    {
       // 1. DNS
       if (blacklist_.domain(host))
       {
-         throw abnormal::network(std::format("Domain blacklisted: {}, port: {}",host,port));
+         co_return route_result{gist::code::blocked, nullptr};
       }
-      const auto results = co_await resolver_.async_resolve(host, port, net::use_awaitable);
+      boost::system::error_code ec;
+      auto results = co_await resolver_.async_resolve(host, port, net::redirect_error(net::use_awaitable, ec));
+      if (ec)
+      {
+         co_return route_result{gist::code::host_unreachable, nullptr};
+      }
+      if (results.empty())
+      {
+         co_return route_result{gist::code::host_unreachable, nullptr};
+      }
       // 2. 找池子要连接
-      co_return co_await pool_.acquire_tcp(*results.begin());
+      auto conn = co_await pool_.acquire_tcp(*results.begin());
+      co_return route_result{gist::code::success, std::move(conn)};
    }
 
    /**
     * @brief HTTP 反向代理 (查静态表)
-   * @param host 目标主机
-   * @return 一个指向内部连接对象的智能指针
-   */
-   net::awaitable<exclusive_connection> distributor::route_reverse(const std::string_view host)
+    * @param host 目标主机
+    * @return 状态码与连接对象的 pair
+    */
+   auto distributor::route_reverse(const std::string_view host)
+      -> net::awaitable<std::pair<gist::code, exclusive_connection>>
    {
-      // 1. 查配置表 (比如 configuration.json 加载进来的 map)
+      // 1. 查配置表
       if (auto it = reverse_map_.find(host); it != reverse_map_.end())
       {
-         co_return co_await pool_.acquire_tcp(it->second);
+         auto conn = co_await pool_.acquire_tcp(it->second);
+         co_return route_result{gist::code::success, std::move(conn)};
       }
-      throw abnormal::network("Unknown host: {}", std::string_view(host));
+      co_return route_result{gist::code::bad_gateway, nullptr};
    }
 
    /**
     * @brief 直接连接到指定的 IP 地址
     * @param ep 目标 IP 地址和端口
-    * @return 一个指向内部连接对象的智能指针
+    * @return 状态码与连接对象的 pair
     */
-   net::awaitable<exclusive_connection> distributor::route_direct(const tcp::endpoint ep) const
+   auto distributor::route_direct(const tcp::endpoint ep) const
+      -> net::awaitable<std::pair<gist::code, exclusive_connection>>
    {
-      co_return co_await pool_.acquire_tcp(ep);
+      auto conn = co_await pool_.acquire_tcp(ep);
+      co_return route_result{gist::code::success, std::move(conn)};
    }
 
 }

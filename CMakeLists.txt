@@ -53,7 +53,17 @@ endif()
 
 enable_testing()
 
+# benchmarks (may require network when benchmark is not preinstalled)
+option(FORWARD_ENGINE_ENABLE_BENCHMARK "Enable ForwardEngine benchmarks" ON)
+message(STATUS "FORWARD_ENGINE_ENABLE_BENCHMARK=${FORWARD_ENGINE_ENABLE_BENCHMARK}")
+
+# stress tools (long-running / memory heavy), not part of ctest
+option(FORWARD_ENGINE_ENABLE_STRESS "Enable ForwardEngine stress tools" ON)
+message(STATUS "FORWARD_ENGINE_ENABLE_STRESS=${FORWARD_ENGINE_ENABLE_STRESS}")
+
 # 添加子目录
 add_subdirectory(src)
 add_subdirectory(test)
+
+add_subdirectory(test/stress)
 

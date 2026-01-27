@@ -81,8 +81,16 @@ namespace ngx::transport
         source(const source &) = delete;
         source &operator=(const source &) = delete;
 
-        [[nodiscard]] net::awaitable<exclusive_connection> acquire_tcp(tcp::endpoint endpoint);
+        /**
+         * @brief 获取一个 TCP 连接
+         * @details 优先复用缓存中的连接。会自动剔除已断开或超时的僵尸连接。
+         * 如果无可用连接，则立即新建并连接。
+         */
+        [[nodiscard]] auto acquire_tcp(tcp::endpoint endpoint) -> net::awaitable<exclusive_connection>;
 
+        /**
+         * @brief 归还连接（内部接口）
+         */
         void recycle(tcp::socket *s);
         void recycle(tcp::socket *s, const tcp::endpoint &endpoint);
 

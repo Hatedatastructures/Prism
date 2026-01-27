@@ -98,7 +98,8 @@ namespace ngx::transport
      * @details 优先复用缓存中的连接。会自动剔除已断开或超时的僵尸连接。
      * 如果无可用连接，则立即新建并连接。
      */
-    net::awaitable<exclusive_connection> source::acquire_tcp(tcp::endpoint endpoint)
+    auto source::acquire_tcp(tcp::endpoint endpoint)
+        -> net::awaitable<exclusive_connection>
     {
         const auto endpoint_key = make_endpoint_key(endpoint);
 

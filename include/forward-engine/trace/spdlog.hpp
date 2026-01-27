@@ -1,11 +1,13 @@
 #pragma once
-#include <spdlog/fmt/fmt.h>
-#include <spdlog/spdlog.h>
-#include <filesystem>
+
 #include <memory>
 #include <string_view>
 #include <utility>
-#include "config.hpp"
+
+#include <spdlog/fmt/fmt.h>
+#include <spdlog/spdlog.h>
+
+#include <forward-engine/trace/config.hpp>
 
 namespace ngx::trace
 {

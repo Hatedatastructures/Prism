@@ -1,9 +1,9 @@
 #pragma once
 
 #include <string_view>
-#include <memory/container.hpp>
-#include "header.hpp"
-#include "constants.hpp"
+#include <forward-engine/memory/container.hpp>
+#include <forward-engine/protocol/http/header.hpp>
+#include <forward-engine/protocol/http/constants.hpp>
 
 namespace ngx::protocol::http
 {

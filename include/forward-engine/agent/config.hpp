@@ -52,6 +52,7 @@ namespace ngx::agent
         certificate certificate;
         authentication authentication;
         memory::string camouflage;
+        memory::map<memory::string, endpoint> reverse_map;
         bool clash = false;
     };
 }

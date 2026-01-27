@@ -33,9 +33,9 @@ namespace ngx::protocol::trojan
         std::uint8_t length;
         std::array<char, 255> value;
 
-        [[nodiscard]] ngx::memory::string to_string(ngx::memory::resource_pointer mr = ngx::memory::current_resource()) const
+        [[nodiscard]] memory::string to_string(const memory::resource_pointer mr = memory::current_resource()) const
         {
-            return ngx::memory::string(value.data(), length, mr);
+            return memory::string(value.data(), length, mr);
         }
     };
 
@@ -61,25 +61,26 @@ namespace ngx::protocol::trojan
      * @param mr 内存资源指针 (默认为全局资源)
      * @return ngx::memory::string 地址字符串
      */
-    inline ngx::memory::string to_string(const address &addr, ngx::memory::resource_pointer mr = ngx::memory::current_resource())
+    inline memory::string to_string(const address &addr, memory::resource_pointer mr = memory::current_resource())
     {
-        auto translate_address = [mr](const auto& arg)-> memory::string
+        auto translate_address = [mr]<typename Address>(const Address& arg)-> memory::string
         {
-            using Type = std::decay_t<decltype(arg)>;
-            if constexpr (std::is_same_v<Type, ipv4_address>)
+            using type = std::decay_t<Address>;
+            if constexpr (std::is_same_v<type, ipv4_address>)
             {
                 std::string str = boost::asio::ip::make_address_v4(arg.bytes).to_string();
                 return memory::string(str.begin(), str.end(), mr);
             }
-            else if constexpr (std::is_same_v<Type, ipv6_address>)
+            else if constexpr (std::is_same_v<type, ipv6_address>)
             {
                 std::string str = boost::asio::ip::make_address_v6(arg.bytes).to_string();
                 return memory::string(str.begin(), str.end(), mr);
             }
-            else if constexpr (std::is_same_v<Type, domain_address>)
+            else if constexpr (std::is_same_v<type, domain_address>)
             {
                 return arg.to_string(mr);
             }
+            return {};
         };
         return std::visit(translate_address, addr);
     }

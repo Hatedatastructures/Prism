@@ -5,7 +5,7 @@
 #include <array>
 #include <string>
 #include <string_view>
-#include <abnormal.hpp>
+#include <forward-engine/gist.hpp>
 
 #include <forward-engine/protocol/trojan/constants.hpp>
 #include <forward-engine/protocol/trojan/message.hpp>
@@ -53,10 +53,15 @@ namespace ngx::protocol::trojan
         /**
          * @brief 执行 Trojan 握手 (包括 SSL 握手和协议头解析)
          */
-        net::awaitable<request> handshake()
+        net::awaitable<std::pair<gist::code, request>> handshake()
         {
             // 1. SSL 握手
-            co_await stream_ptr_->async_handshake(ssl::stream_base::server, net::use_awaitable);
+            boost::system::error_code ec;
+            co_await stream_ptr_->async_handshake(ssl::stream_base::server, net::redirect_error(net::use_awaitable, ec));
+            if (ec)
+            {
+                co_return std::pair<gist::code, request>{gist::code::tls_handshake_failed, request{}};
+            }
 
             // 2. 读取 Trojan 请求头
             co_return co_await handshake_internal({});
@@ -65,7 +70,7 @@ namespace ngx::protocol::trojan
         /**
          * @brief 执行 Trojan 握手 (使用预读数据)
          */
-        net::awaitable<request> handshake_preread(std::string_view pre_read_data)
+        net::awaitable<std::pair<gist::code, request>> handshake_preread(const std::string_view pre_read_data)
         {
             // 继续握手，优先消耗预读数据
             co_return co_await handshake_internal(pre_read_data);
@@ -101,6 +106,27 @@ namespace ngx::protocol::trojan
         stream_type &get_stream() { return *stream_ptr_; }
 
     private:
+        static gist::code error_convert(const boost::system::error_code &ec) noexcept
+        {
+            if (!ec)
+            {
+                return gist::code::success;
+            }
+            if (ec == net::error::eof)
+            {
+                return gist::code::eof;
+            }
+            if (ec == net::error::operation_aborted)
+            {
+                return gist::code::canceled;
+            }
+            if (ec == net::error::would_block || ec == net::error::try_again)
+            {
+                return gist::code::would_block;
+            }
+            return gist::code::io_error;
+        }
+
         /**
          * @brief 从预读缓冲区或流中读取指定字节
          * @param buffer 预读缓冲区引用
@@ -108,7 +134,7 @@ namespace ngx::protocol::trojan
          * @param n 要读取的字节数
          * @note 如果预读缓冲区有足够数据，会先从缓冲区读取；否则从流中读取
          */
-        net::awaitable<void> read_specified_bytes(std::string_view &buffer, void *dest, const std::size_t n)
+        net::awaitable<gist::code> read_specified_bytes(std::string_view &buffer, void *dest, const std::size_t n)
         {
             std::size_t copied = 0;
             if (!buffer.empty())
@@ -121,10 +147,16 @@ namespace ngx::protocol::trojan
 
             if (copied < n)
             {
-                co_await net::async_read(*stream_ptr_,
-                    net::buffer(static_cast<char *>(dest) + copied, n - copied),
-                    net::use_awaitable);
+                boost::system::error_code ec;
+                auto buffer_container = net::buffer(static_cast<char *>(dest) + copied, n - copied);
+                co_await net::async_read(*stream_ptr_,buffer_container,
+                net::redirect_error(net::use_awaitable, ec));
+                if (ec)
+                {
+                    co_return error_convert(ec);
+                }
             }
+            co_return gist::code::success;
         }
 
         /**
@@ -133,19 +165,20 @@ namespace ngx::protocol::trojan
          * @param data 包含端口和 CRLF 的数据视图
          * @throws abnormal::protocol 如果端口或 CRLF 无效
          */
-        static void parse_port_and_crlf(request &req, const std::span<const std::uint8_t> data)
+        static gist::code parse_port_and_crlf(request &req, const std::span<const std::uint8_t> data)
         {
             auto [ec_port, port] = wire::decode_port(data.subspan(0, 2));
-            if (ec_port)
+            if (ec_port != gist::code::success)
             {
-                throw abnormal::protocol("Invalid port");
+                return ec_port;
             }
             req.port = port;
 
-            if (const auto ec = wire::decode_crlf(data.subspan(2, 2)); ec)
+            if (const auto ec = wire::decode_crlf(data.subspan(2, 2)); ec != gist::code::success)
             {
-                throw abnormal::protocol("Invalid Trojan request: missing final CRLF");
+                return ec;
             }
+            return gist::code::success;
         }
 
         /**
@@ -157,19 +190,22 @@ namespace ngx::protocol::trojan
          * @throws abnormal::protocol 如果 IP 地址或端口无效
          */
         template <size_t N, typename Decoder>
-        net::awaitable<void> read_ip_address(std::string_view &buffer, request &req, Decoder &&decoder, const char *error_msg)
+        net::awaitable<gist::code> read_ip_address(std::string_view &buffer, request &req, Decoder &&decoder)
         {
             std::array<std::uint8_t, N + 4> data; // IP(N) + Port(2) + CRLF(2)
-            co_await read_specified_bytes(buffer, data.data(), N + 4);
-
-            auto [ec, ip] = decoder(std::span<const std::uint8_t>(data.data(), N));
-            if (ec)
+            if (auto ec = co_await read_specified_bytes(buffer, data.data(), N + 4); ec != gist::code::success)
             {
-                throw abnormal::protocol(error_msg);
+                co_return ec;
+            }
+
+            auto [ec_decode, ip] = decoder(std::span<const std::uint8_t>(data.data(), N));
+            if (ec_decode != gist::code::success)
+            {
+                co_return ec_decode;
             }
             req.destination_address = ip;
 
-            parse_port_and_crlf(req, std::span<const std::uint8_t>(data.data() + N, 4));
+            co_return parse_port_and_crlf(req, std::span<const std::uint8_t>(data.data() + N, 4));
         }
 
         /**
@@ -178,13 +214,19 @@ namespace ngx::protocol::trojan
          * @param req 请求对象引用
          * @throws abnormal::protocol 如果域名或端口无效
          */
-        net::awaitable<void> read_domain_address(std::string_view &buffer, request &req)
+        net::awaitable<gist::code> read_domain_address(std::string_view &buffer, request &req)
         {
             std::uint8_t len = 0;
-            co_await read_specified_bytes(buffer, &len, 1);
+            if (auto ec = co_await read_specified_bytes(buffer, &len, 1); ec != gist::code::success)
+            {
+                co_return ec;
+            }
 
             std::array<std::uint8_t, 259> data{}; // Max domain(255) + Port(2) + CRLF(2)
-            co_await read_specified_bytes(buffer, data.data(), len + 4);
+            if (auto ec = co_await read_specified_bytes(buffer, data.data(), len + 4); ec != gist::code::success)
+            {
+                co_return ec;
+            }
 
             // 构造 decode_domain 需要的 [len, body...] 格式
             std::array<std::uint8_t, 256> dom_buf{};
@@ -192,13 +234,13 @@ namespace ngx::protocol::trojan
             std::memcpy(dom_buf.data() + 1, data.data(), len);
 
             auto [ec, dom] = wire::decode_domain(std::span<const std::uint8_t>(dom_buf.data(), len + 1));
-            if (ec)
+            if (ec != gist::code::success)
             {
-                throw abnormal::protocol("Invalid domain address");
+                co_return ec;
             }
             req.destination_address = dom;
 
-            parse_port_and_crlf(req, std::span<const std::uint8_t>(data.data() + len, 4));
+            co_return parse_port_and_crlf(req, std::span<const std::uint8_t>(data.data() + len, 4));
         }
 
         /**
@@ -217,17 +259,20 @@ namespace ngx::protocol::trojan
          * @return `header_information` 包含密码哈希和头部解析结果
          * @throws abnormal::protocol 如果密码哈希、CRLF、命令或地址类型无效
          */
-        net::awaitable<header_information> read_header(std::string_view &buffer)
+        net::awaitable<std::pair<gist::code, header_information>> read_header(std::string_view &buffer)
         {
             // 读取 Hash(56) + CRLF(2) + Cmd(1) + Atyp(1) = 60 bytes
             std::array<std::uint8_t, 60> head_buffer{};
-            co_await read_specified_bytes(buffer, head_buffer.data(), 60);
+            if (auto ec = co_await read_specified_bytes(buffer, head_buffer.data(), 60); ec != gist::code::success)
+            {
+                co_return std::pair<gist::code, header_information>{ec, header_information{}};
+            }
 
             // 解析 Hash
             auto [ec_hash, hash] = wire::decode_hash(std::span<const std::uint8_t>(head_buffer.data(), 56));
-            if (ec_hash)
+            if (ec_hash != gist::code::success)
             {
-                throw abnormal::protocol("Invalid Trojan request: invalid password hash");
+                co_return std::pair<gist::code, header_information>{ec_hash, header_information{}};
             }
 
             // 验证密码
@@ -235,24 +280,24 @@ namespace ngx::protocol::trojan
             {
                 if (!verifier_(std::string_view(hash.data(), 56)))
                 {
-                    throw abnormal::security("Trojan authentication failed");
+                    co_return std::pair<gist::code, header_information>{gist::code::auth_failed, header_information{}};
                 }
             }
 
             // 验证 CRLF
-            if (auto ec = wire::decode_crlf(std::span<const std::uint8_t>(head_buffer.data() + 56, 2)); ec)
+            if (auto ec = wire::decode_crlf(std::span<const std::uint8_t>(head_buffer.data() + 56, 2)); ec != gist::code::success)
             {
-                throw abnormal::protocol("Invalid Trojan request: missing CRLF after password");
+                co_return std::pair<gist::code, header_information>{ec, header_information{}};
             }
 
             // 解析 Cmd + Atyp
             auto [ec_head, head] = wire::decode_cmd_atyp(std::span<const std::uint8_t>(head_buffer.data() + 58, 2));
-            if (ec_head)
+            if (ec_head != gist::code::success)
             {
-                throw abnormal::protocol("Invalid Trojan request: invalid command or address type");
+                co_return std::pair<gist::code, header_information>{ec_head, header_information{}};
             }
 
-            co_return header_information{hash, head};
+            co_return std::pair<gist::code, header_information>{gist::code::success, header_information{hash, head}};
         }
 
         /**
@@ -261,37 +306,47 @@ namespace ngx::protocol::trojan
          * @return `request` 包含解析后的请求信息
          * @throws abnormal::protocol 如果头部、命令、地址类型或地址无效
          */
-        net::awaitable<request> handshake_internal(std::string_view buffer)
+        net::awaitable<std::pair<gist::code, request>> handshake_internal(std::string_view buffer)
         {
             // 1. 读取并验证头部
-            auto head_info = co_await read_header(buffer);
+            auto [ec_header, head_info] = co_await read_header(buffer);
+            if (ec_header != gist::code::success)
+            {
+                co_return std::pair<gist::code, request>{ec_header, request{}};
+            }
 
             request req;
             req.password_hash = head_info.hash;
             req.cmd = head_info.head.cmd;
 
             if (req.cmd != command::connect && req.cmd != command::udp_associate)
-            {   // 校验命令是否支持
-                throw abnormal::protocol("Unsupported Trojan command");
+            { // 校验命令是否支持
+                co_return std::pair<gist::code, request>{gist::code::unsupported_command, request{}};
             }
 
             // 2. 解析地址 + 端口 + CRLF
+            gist::code ec = gist::code::success;
             switch (head_info.head.atyp)
             {
             case address_type::ipv4:
-                co_await read_ip_address<4>(buffer, req, wire::decode_ipv4, "Invalid IPv4 address");
+                ec = co_await read_ip_address<4>(buffer, req, wire::decode_ipv4);
                 break;
             case address_type::ipv6:
-                co_await read_ip_address<16>(buffer, req, wire::decode_ipv6, "Invalid IPv6 address");
+                ec = co_await read_ip_address<16>(buffer, req, wire::decode_ipv6);
                 break;
             case address_type::domain:
-                co_await read_domain_address(buffer, req);
+                ec = co_await read_domain_address(buffer, req);
                 break;
             default:
-                throw abnormal::protocol("Unsupported address type");
+                ec = gist::code::unsupported_address;
             }
 
-            co_return req;
+            if (ec != gist::code::success)
+            {
+                co_return std::pair<gist::code, request>{ec, request{}};
+            }
+
+            co_return std::pair<gist::code, request>{gist::code::success, req};
         }
 
         std::shared_ptr<stream_type> stream_ptr_;
