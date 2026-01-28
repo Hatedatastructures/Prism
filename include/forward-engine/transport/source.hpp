@@ -54,7 +54,12 @@ namespace ngx::transport
         void operator()(tcp::socket *ptr) const;
     }; // class deleter
 
-    using exclusive_connection = std::unique_ptr<tcp::socket, deleter>;
+    /**
+     * @brief 独占式 TCP 连接智能指针
+     * @details 用于管理 TCP 连接的生命周期，确保在不再需要时及时关闭连接。
+     * @note 每个连接只能被一个 `unique_sock` 实例持有，防止并发访问问题。
+     */
+    using unique_sock = std::unique_ptr<tcp::socket, deleter>;
 
     /**
      * @brief 连接缓存容器
@@ -86,7 +91,7 @@ namespace ngx::transport
          * @details 优先复用缓存中的连接。会自动剔除已断开或超时的僵尸连接。
          * 如果无可用连接，则立即新建并连接。
          */
-        [[nodiscard]] auto acquire_tcp(tcp::endpoint endpoint) -> net::awaitable<exclusive_connection>;
+        [[nodiscard]] auto acquire_tcp(tcp::endpoint endpoint) -> net::awaitable<unique_sock>;
 
         /**
          * @brief 归还连接（内部接口）

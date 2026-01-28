@@ -87,7 +87,7 @@ namespace
             }
 
             auto t1 = std::chrono::steady_clock::now();
-            std::uint64_t ns = static_cast<std::uint64_t>(std::chrono::duration_cast<std::chrono::nanoseconds>(t1 - t0).count());
+            std::uint64_t ns = static_cast<std::uint64_t>(std::chrono::duration_cast<std::chrono::nanoseconds>(t1.time_since_epoch() - t0.time_since_epoch()).count());
 
             stats.total_ns += ns;
             stats.min_ns = std::min(stats.min_ns, ns);

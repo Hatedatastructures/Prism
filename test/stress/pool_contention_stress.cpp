@@ -5,13 +5,16 @@
 
 #include <atomic>
 #include <chrono>
-#include <cstdint>
+#include <format>
 #include <iostream>
-#include <iomanip>
 #include <latch>
 #include <string>
 #include <thread>
 #include <vector>
+
+#if defined(_WIN32)
+    #include <windows.h>
+#endif
 
 using namespace ngx;
 
@@ -26,9 +29,9 @@ namespace
     };
 
     // 默认配置
-    const stress_config DEFAULT_CONFIG = {
+    constexpr stress_config DEFAULT_CONFIG = {
         .threads = 4,
-        .duration_sec = 240,
+        .duration_sec = 10,
         .alloc_size = 128,
     };
 
@@ -41,19 +44,19 @@ namespace
     };
 
     // 模拟竞争工作线程
-    void worker_thread(std::size_t thread_id, 
-                       const stress_config& config, 
-                       std::latch& start_latch,
-                       std::atomic<bool>& stop_flag,
-                       thread_stats& stats)
+    void worker_thread(std::size_t thread_id,
+                       const stress_config &config,
+                       std::latch &start_latch,
+                       const std::atomic<bool> &stop_flag,
+                       thread_stats &stats)
     {
         (void)thread_id;
 
         // 使用全局内存池来制造最大的锁竞争压力
-        std::pmr::memory_resource* upstream = memory::system::global_pool();
+        std::pmr::memory_resource *upstream = memory::system::global_pool();
         ngx::stress::counting_resource counter(upstream);
-        std::pmr::memory_resource* mr = &counter;
-        
+        std::pmr::memory_resource *mr = &counter;
+
         // 预分配载荷
         std::string payload_data(config.alloc_size, 'x');
 
@@ -64,12 +67,12 @@ namespace
         {
             // 紧凑循环：分配 -> 写入 -> 释放
             // 这会给分配器的锁机制带来最大压力
-            for (int i = 0; i < 1000; ++i) 
+            for (int i = 0; i < 1000; ++i)
             {
                 memory::string s(mr);
                 s.assign(payload_data); // 触发分配和写入
                 // s 析构触发释放
-                
+
                 stats.ops++;
             }
         }
@@ -79,20 +82,24 @@ namespace
     }
 }
 
-int main(int argc, char** argv)
+int main(int argc, char **argv)
 {
     (void)argc;
     (void)argv;
+#if defined(_WIN32)
+    SetConsoleOutputCP(CP_UTF8);
+#endif
 
-    std::cout << ">>> ForwardEngine Pool Contention Stress Tool (Refactored) <<<" << std::endl;
+    std::cout << ">>> ForwardEngine 内存池竞争压力测试工具 <<<" << std::endl;
 
     stress_config config = DEFAULT_CONFIG;
 
-    std::cout << "Configuration:" << std::endl;
-    std::cout << "  Threads:      " << config.threads << std::endl;
-    std::cout << "  Duration:     " << config.duration_sec << " seconds" << std::endl;
-    std::cout << "  Alloc Size:   " << config.alloc_size << " bytes" << std::endl;
-    std::cout << "  Target:       Global Pool (High Contention)" << std::endl;
+    std::cout << "------------------------------------------------" << std::endl;
+    std::cout << std::format("{:<24}{}\n", "配置:", "值");
+    std::cout << std::format("{:<24}{}\n", "  线程数:", config.threads);
+    std::cout << std::format("{:<24}{} 秒\n", "  持续时间:", config.duration_sec);
+    std::cout << std::format("{:<24}{} 字节\n", "  分配大小:", config.alloc_size);
+    std::cout << std::format("{:<24}{}\n", "  目标:", "全局池（高竞争）");
     std::cout << "------------------------------------------------" << std::endl;
 
     std::vector<std::thread> threads;
@@ -100,38 +107,39 @@ int main(int argc, char** argv)
     std::latch start_latch(config.threads + 1);
     std::atomic<bool> stop_flag{false};
 
-    std::cout << "Initializing " << config.threads << " threads..." << std::endl;
+    std::cout << std::format("正在初始化 {} 线程...\n", config.threads);
 
     for (std::size_t i = 0; i < config.threads; ++i)
     {
-        threads.emplace_back(worker_thread, 
-                             i, 
-                             std::cref(config), 
-                             std::ref(start_latch), 
-                             std::ref(stop_flag), 
+        threads.emplace_back(worker_thread,
+                             i,
+                             std::cref(config),
+                             std::ref(start_latch),
+                             std::ref(stop_flag),
                              std::ref(all_stats[i]));
     }
 
-    std::cout << "Starting contention test..." << std::endl;
+    std::cout << std::format("正在启动竞争测试...\n");
     start_latch.arrive_and_wait();
 
     auto start_time = std::chrono::steady_clock::now();
     for (std::size_t s = 0; s < config.duration_sec; ++s)
     {
         std::this_thread::sleep_for(std::chrono::seconds(1));
-        std::cout << "Running... " << (s + 1) << "/" << config.duration_sec << "s" << std::endl;
+        std::cout << std::format("已运行 {} / {} 秒...\n", (s + 1), config.duration_sec);
     }
 
-    std::cout << "Stopping threads..." << std::endl;
+    std::cout << "正在停止线程..." << std::endl;
     stop_flag.store(true, std::memory_order_release);
 
-    for (auto& t : threads)
+    for (auto &t : threads)
     {
-        if (t.joinable()) t.join();
+        if (t.joinable())
+            t.join();
     }
 
     thread_stats total_stats{};
-    for (const auto& s : all_stats)
+    for (const auto &s : all_stats)
     {
         total_stats.ops += s.ops;
         total_stats.bytes_allocated += s.bytes_allocated;
@@ -142,13 +150,13 @@ int main(int argc, char** argv)
     double actual_duration = std::chrono::duration<double>(end_time - start_time).count();
 
     std::cout << "\n================================================" << std::endl;
-    std::cout << "                FINAL REPORT                    " << std::endl;
+    std::cout << "                最终报告                        " << std::endl;
     std::cout << "================================================" << std::endl;
-    std::cout << "Duration:       " << std::fixed << std::setprecision(2) << actual_duration << " s" << std::endl;
-    std::cout << "Total Ops:      " << total_stats.ops << std::endl;
-    std::cout << "Throughput:     " << static_cast<std::uint64_t>(total_stats.ops / actual_duration) << " ops/sec" << std::endl;
-    std::cout << "Total Alloc:    " << (total_stats.bytes_allocated / 1024 / 1024) << " MB" << std::endl;
-    std::cout << "Peak Memory:    " << (total_stats.peak_memory / 1024) << " KB (Max single thread peak)" << std::endl;
+    std::cout << std::format("{:<12}{:.2f} 秒\n", "持续时间:", actual_duration);
+    std::cout << std::format("{:<12}{}\n", "总操作数:", total_stats.ops);
+    std::cout << std::format("{:<12}{} 次/秒\n", "吞吐量:", static_cast<std::uint64_t>(total_stats.ops / actual_duration));
+    std::cout << std::format("{:<12}{} MB\n", "总分配:", (total_stats.bytes_allocated / 1024 / 1024));
+    std::cout << std::format("{:<12}{} KB (单线程峰值最大值)\n", "峰值内存:", (total_stats.peak_memory / 1024));
     std::cout << "================================================" << std::endl;
 
     return 0;

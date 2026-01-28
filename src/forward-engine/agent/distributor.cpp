@@ -24,7 +24,7 @@ namespace ngx::agent
     * @return 状态码与连接对象的 pair
     */
    auto distributor::route_forward(const std::string_view host, const std::string_view port)
-      -> net::awaitable<std::pair<gist::code, exclusive_connection>>
+      -> net::awaitable<std::pair<gist::code, unique_sock>>
    {
       // 1. DNS
       if (blacklist_.domain(host))
@@ -52,7 +52,7 @@ namespace ngx::agent
     * @return 状态码与连接对象的 pair
     */
    auto distributor::route_reverse(const std::string_view host)
-      -> net::awaitable<std::pair<gist::code, exclusive_connection>>
+      -> net::awaitable<std::pair<gist::code, unique_sock>>
    {
       // 1. 查配置表
       if (auto it = reverse_map_.find(host); it != reverse_map_.end())
@@ -69,7 +69,7 @@ namespace ngx::agent
     * @return 状态码与连接对象的 pair
     */
    auto distributor::route_direct(const tcp::endpoint ep) const
-      -> net::awaitable<std::pair<gist::code, exclusive_connection>>
+      -> net::awaitable<std::pair<gist::code, unique_sock>>
    {
       auto conn = co_await pool_.acquire_tcp(ep);
       co_return route_result{gist::code::success, std::move(conn)};

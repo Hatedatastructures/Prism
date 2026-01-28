@@ -99,7 +99,7 @@ namespace ngx::transport
      * 如果无可用连接，则立即新建并连接。
      */
     auto source::acquire_tcp(tcp::endpoint endpoint)
-        -> net::awaitable<exclusive_connection>
+        -> net::awaitable<unique_sock>
     {
         const auto endpoint_key = make_endpoint_key(endpoint);
 
@@ -126,7 +126,7 @@ namespace ngx::transport
                 // 检查 B: 是否僵尸
                 if (zombie_detection(s))
                 {
-                    co_return exclusive_connection(s, deleter{this, endpoint, true});
+                    co_return unique_sock(s, deleter{this, endpoint, true});
                 }
 
                 delete s;
@@ -140,7 +140,7 @@ namespace ngx::transport
         }
 
         // 2. 缓存没命中（或都是坏的），新建连接
-        auto sock = exclusive_connection(new tcp::socket(ioc_), deleter{this, endpoint, true});
+        auto sock = unique_sock(new tcp::socket(ioc_), deleter{this, endpoint, true});
 
         boost::system::error_code ec;
         // 3. 异步连接

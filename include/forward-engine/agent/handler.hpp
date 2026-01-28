@@ -39,13 +39,14 @@ namespace ngx::agent
     namespace protocol = ngx::protocol;
     namespace transport = ngx::transport;
     // HTTP Protocol alias
-    namespace http_proto = ngx::protocol::http;
+    namespace http_protocol = ngx::protocol::http;
 
     // Transport detail alias
     namespace detail = ngx::transport::detail;
+
     using tcp = boost::asio::ip::tcp;
     using level = detail::log_level;
-    using exclusive_connection = transport::exclusive_connection;
+    using unique_sock = transport::unique_sock;
 
     /**
      * @brief 会话上下文
@@ -56,11 +57,11 @@ namespace ngx::agent
     struct session_context
     {
         using socket_type = Transport;
-        using exclusive_connection = transport::exclusive_connection;
+        using unique_sock = transport::unique_sock;
 
         net::io_context &io_context;
         socket_type &client_socket;
-        exclusive_connection &server_socket;
+        unique_sock &server_socket;
         distributor &distributor_ref;
         std::shared_ptr<ssl::context> ssl_ctx;
         ngx::memory::frame_arena &frame_arena;
@@ -74,7 +75,7 @@ namespace ngx::agent
      */
     template <transport::SocketConcept Transport>
     [[nodiscard]] auto make_session_context( net::io_context &io_context,
-        Transport &client_socket, transport::exclusive_connection &server_socket,
+        Transport &client_socket, transport::unique_sock &server_socket,
         distributor &distributor_ref, std::shared_ptr<ssl::context> ssl_ctx,
         ngx::memory::frame_arena &frame_arena, std::span<std::byte> buffer,
         std::function<bool(std::string_view)> &password_verifier) 
@@ -239,11 +240,11 @@ namespace ngx::agent::handler
     {
         ctx.frame_arena.reset();
         auto mr = ctx.frame_arena.get();
-        beast::basic_flat_buffer<http_proto::network_allocator> read_buffer(http_proto::network_allocator{mr});
+        beast::basic_flat_buffer<http_protocol::network_allocator> read_buffer(http_protocol::network_allocator{mr});
         {
-            http_proto::request req(mr);
+            http_protocol::request req(mr);
             detail::event_tracking(level::debug, "[Handler] Waiting for HTTP request...");
-            const auto ec = co_await http_proto::async_read(ctx.client_socket, req, read_buffer, mr);
+            const auto ec = co_await http_protocol::async_read(ctx.client_socket, req, read_buffer, mr);
 
             if (ec != ngx::gist::code::success)
             {
@@ -268,7 +269,7 @@ namespace ngx::agent::handler
             }
 
             // 转发
-            if (req.method() == http_proto::verb::connect)
+            if (req.method() == http_protocol::verb::connect)
             {
                 boost::system::error_code ec;
                 auto token = net::redirect_error(net::use_awaitable, ec);
@@ -290,7 +291,7 @@ namespace ngx::agent::handler
             else
             {
                 // 序列化发送
-                const auto data = http_proto::serialize(req, mr);
+                const auto data = http_protocol::serialize(req, mr);
                 boost::system::error_code ec;
                 auto token = net::redirect_error(net::use_awaitable, ec);
                 co_await transport::adaptation::async_write(*ctx.server_socket, net::buffer(data), token);

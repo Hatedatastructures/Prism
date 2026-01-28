@@ -19,8 +19,8 @@ namespace ngx::agent
     namespace net = boost::asio;
     using tcp = boost::asio::ip::tcp;
     using source = ngx::transport::source;
-    using exclusive_connection = transport::exclusive_connection;
-    using route_result = std::pair<gist::code, exclusive_connection>;
+    using unique_sock = transport::unique_sock;
+    using route_result = std::pair<gist::code, unique_sock>;
 
     /**
      * @brief 分发容器

@@ -10,10 +10,10 @@ namespace ngx::stress
      * @brief 计数内存资源
      *
      * 用于统计内存分配和释放的次数以及字节数。
-     * 该类继承自 `std::pmr::memory_resource`，作为一个装饰器，
+     * 该类继承自 `memory::resource`，作为一个装饰器，
      * 将实际的分配请求转发给上游资源，并记录统计信息。
      */
-    class counting_resource final : public std::pmr::memory_resource
+    class counting_resource final : public memory::resource
     {
     public:
         /**
@@ -21,7 +21,7 @@ namespace ngx::stress
          *
          * @param upstream 上游内存资源指针。如果为 nullptr，则使用默认内存资源。
          */
-        explicit counting_resource(std::pmr::memory_resource *upstream) noexcept
+        explicit counting_resource(memory::resource_pointer upstream) noexcept
             : upstream_(upstream ? upstream : std::pmr::get_default_resource())
         {
         }
@@ -79,7 +79,7 @@ namespace ngx::stress
          * @brief 获取上游内存资源
          * @return std::pmr::memory_resource* 上游内存资源指针
          */
-        [[nodiscard]] std::pmr::memory_resource *upstream() const noexcept { return upstream_; }
+        [[nodiscard]] memory::resource_pointer upstream() const noexcept { return upstream_; }
 
     private:
         /**
@@ -130,7 +130,7 @@ namespace ngx::stress
             return this == &other;
         }
 
-        std::pmr::memory_resource *upstream_;
+        memory::resource_pointer upstream_;
         std::atomic<std::uint64_t> alloc_calls_{0};
         std::atomic<std::uint64_t> dealloc_calls_{0};
         std::atomic<std::uint64_t> bytes_allocated_{0};
@@ -139,4 +139,3 @@ namespace ngx::stress
         std::atomic<std::uint64_t> peak_bytes_in_use_{0};
     };
 }
-

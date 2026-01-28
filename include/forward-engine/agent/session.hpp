@@ -29,7 +29,7 @@ namespace ngx::agent
     namespace detail = ngx::transport::detail;
     using tcp = boost::asio::ip::tcp;
     using level = detail::log_level;
-    using exclusive_connection = transport::exclusive_connection;
+    using unique_sock = transport::unique_sock;
 
     /**
      * @brief 会话管理类
@@ -42,8 +42,8 @@ namespace ngx::agent
     public:
         using socket_type = Transport;
 
-        explicit session(net::io_context &io_context, socket_type socket, distributor &dist,
-                         std::shared_ptr<ssl::context> ssl_ctx);
+        explicit session(net::io_context &io_context, socket_type socket, 
+            distributor &dist, std::shared_ptr<ssl::context> ssl_ctx);
         virtual ~session();
 
         void start();
@@ -84,7 +84,7 @@ namespace ngx::agent
         std::shared_ptr<ssl::context> ssl_ctx_;
         distributor &distributor_;
         socket_type client_socket_;              // 客户端连接
-        exclusive_connection server_socket_ptr_; // 服务器连接
+        unique_sock server_socket_ptr_; // 服务器连接
 
         std::array<std::byte, 16384> buffer_{};
         memory::frame_arena frame_arena_;
@@ -182,7 +182,7 @@ namespace ngx::agent
             detail::event_tracking(level::debug, message);
         }
 
-        // 构造 Context
+        // 构造 context
         auto ctx = create_context();
 
         // 2. 识别协议 (调用 analysis)
