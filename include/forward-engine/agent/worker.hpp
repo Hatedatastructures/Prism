@@ -1,3 +1,8 @@
+/**
+ * @file worker.hpp
+ * @brief 代理工作线程
+ * @details 负责初始化核心组件（连接池、分发器、接收器等），并启动事件循环处理连接。
+ */
 #pragma once
 
 #include <boost/asio.hpp>
@@ -11,6 +16,12 @@
 #include <forward-engine/agent/config.hpp>
 #include <forward-engine/trace.hpp>
 
+/**
+ * @namespace ngx::agent
+ * @brief 代理业务层 (Control Plane)
+ * @details 包含代理服务的核心业务逻辑，如会话管理 (`session`)、流量分发 (`distributor`) 和协议处理 (`handler`)。
+ * 它是整个系统的"大脑"，决定数据该往哪里走。
+ */
 namespace ngx::agent
 {
 
@@ -22,7 +33,7 @@ namespace ngx::agent
     /**
      * @brief 日志转换函数
      * @details 将 `agent::level` 转换为 `ngx::trace::level` 并记录日志。
-     * @param level `agent::level` 日志级别
+     * @param log_lvl `agent::level` 日志级别
      * @param msg `std::string_view` 日志消息
      * @note 该函数不会主动运行，需要由现有测试用例显式调用。或者根据用户自己写的log模块转换调用
      */
@@ -50,10 +61,21 @@ namespace ngx::agent
         }
     };
 
+    /**
+     * @class worker
+     * @brief 代理工作线程 (Worker Thread)
+     * @details 管理 IO 上下文、连接池、分发器和接收器，是代理服务的运行实体。
+     * 每个 `worker` 实例维护一个独立的 `io_context`，可以单线程运行，也可以作为多线程 Reactor 组的一部分。
+     * @see session
+     */
     class worker
     {
     public:
-        // 构造函数：初始化所有线程局部资源
+        /**
+         * @brief 构造工作线程
+         * @details 初始化所有核心组件，加载证书，绑定端口。
+         * @param cfg 代理配置对象
+         */
         explicit worker(const agent::config& cfg)
             : ioc_(1),                   // 1. 初始化 IO 上下文 (hint=1 表示单线程)
               pool_(ioc_),               // 2. 初始化连接池 (依赖 ioc)
@@ -146,11 +168,24 @@ namespace ngx::agent
             }
         }
 
+        /**
+         * @brief 运行工作线程 (单线程模式)
+         * @details 启动 `io_context` 事件循环，阻塞当前线程直到所有任务完成或被停止。
+         * @note 仅使用当前调用线程作为工作线程。
+         */
         void run()
         {
             run(1);
         }
 
+        /**
+         * @brief 运行工作线程 (多线程模式)
+         * @details 启动 `io_context` 事件循环，并创建指定数量的线程共同处理 IO 事件。
+         * 在多线程模式下，所有线程共享同一个 `io_context`，ASIO 会自动在这些线程之间分发任务。
+         * @param threads_count 线程池大小
+         * @warning 该函数会阻塞调用线程。
+         * @note 如果 `threads_count` 为 0，将自动修正为 1。
+         */
         void run(std::size_t threads_count)
         {
             if (threads_count == 0)
@@ -175,6 +210,11 @@ namespace ngx::agent
         }
 
     private:    
+        /**
+         * @brief 异步接收连接
+         * @details 持续接收新的客户端连接，并为每个连接创建 `session`。
+         * @note 这是一个递归的异步操作：每次处理完一个连接后，会立即发起下一个 `async_accept`。
+         */
         void do_accept()
         {
             acceptor_.async_accept(

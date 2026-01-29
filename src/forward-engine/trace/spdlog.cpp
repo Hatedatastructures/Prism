@@ -18,7 +18,8 @@ namespace ngx::trace
         config last_config{};
         std::shared_ptr<spdlog::logger> shared_system_logger;
 
-        [[nodiscard]] spdlog::level::level_enum parse_spdlog_level(const std::string_view level_str) noexcept
+        [[nodiscard]] auto parse_spdlog_level(const std::string_view level_str) noexcept
+            -> spdlog::level::level_enum
         {
             std::string normalized;
             normalized.reserve(level_str.size());
@@ -59,12 +60,8 @@ namespace ngx::trace
             return spdlog::level::info;
         }
 
-        /**
-         * @brief 构建日志文件路径
-         * @param cfg 配置
-         * @return 日志文件路径
-         */
-        [[nodiscard]] std::filesystem::path build_log_path(const config &cfg)
+        [[nodiscard]] auto build_log_path(const config &cfg)
+            -> std::filesystem::path
         {
             if (cfg.path_name.empty())
             {
@@ -74,7 +71,8 @@ namespace ngx::trace
         }
     }
 
-    std::shared_ptr<spdlog::logger> recorder() noexcept
+    auto recorder() noexcept
+        -> std::shared_ptr<spdlog::logger>
     {
         std::scoped_lock lock(trace_mutex);
         return shared_system_logger;

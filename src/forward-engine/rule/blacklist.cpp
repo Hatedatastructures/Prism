@@ -1,15 +1,9 @@
-#include <rule/blacklist.hpp>
+#include <forward-engine/rule/blacklist.hpp>
 #include <algorithm>
 
 
 namespace ngx::rule
 {
-    /**
-     * @brief  加载黑名单
-     * @details 加载 ip 端点和域名到黑名单中
-     * @param ips 要加载的 ip 端点列表
-     * @param domains 要加载的域名列表
-     */
     void blacklist::load(const std::vector<std::string> &ips,const std::vector<std::string> &domains)
     {
 
@@ -29,12 +23,8 @@ namespace ngx::rule
         }
     }
 
-    /**
-     * @brief  检查 ip 端点在不在黑名单
-     * @param endpoint_value 要检测的ip端点
-     * @return `true` 端点在黑名单 `false` 端点不在黑名单
-     */
-    bool blacklist::endpoint(const std::string_view endpoint_value) const
+    auto blacklist::endpoint(const std::string_view endpoint_value) const
+        -> bool
     {
         if (ips_.empty())
             return false;
@@ -42,7 +32,8 @@ namespace ngx::rule
         return ips_.contains(std::string(endpoint_value));
     }
 
-    bool blacklist::domain(const std::string_view host_value) const
+    auto blacklist::domain(const std::string_view host_value) const
+        -> bool
     {
         if (domains_.empty())
             return false;
@@ -76,6 +67,7 @@ namespace ngx::rule
 
         return false;
     }
+
     void blacklist::insert_endpoint(std::string& endpoint_value)
     {
         ips_.emplace(endpoint_value);
@@ -89,10 +81,6 @@ namespace ngx::rule
         domains_.emplace(std::move(d));
     }
 
-    /**
-     * @brief  清空黑名单
-     * @details 清空黑名单中的所有 ip 端点和域名
-     */
     void blacklist::clear()
     {
         ips_.clear();

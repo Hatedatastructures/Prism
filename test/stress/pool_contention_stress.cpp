@@ -44,7 +44,7 @@ namespace
     };
 
     // 模拟竞争工作线程
-    void worker_thread(std::size_t thread_id,
+    void worker_thread(const std::size_t thread_id,
                        const stress_config &config,
                        std::latch &start_latch,
                        const std::atomic<bool> &stop_flag,
@@ -54,7 +54,7 @@ namespace
 
         // 使用全局内存池来制造最大的锁竞争压力
         std::pmr::memory_resource *upstream = memory::system::global_pool();
-        ngx::stress::counting_resource counter(upstream);
+        stress::counting_resource counter(upstream);
         std::pmr::memory_resource *mr = &counter;
 
         // 预分配载荷
@@ -82,7 +82,7 @@ namespace
     }
 }
 
-int main(int argc, char **argv)
+int main(const int argc, char **argv)
 {
     (void)argc;
     (void)argv;

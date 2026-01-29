@@ -1,4 +1,4 @@
-#include <trace/monitor.hpp>
+#include <forward-engine/trace/monitor.hpp>
 #include <iostream>
 
 namespace ngx::trace::deprecated
@@ -12,10 +12,24 @@ namespace ngx::trace::deprecated
         time_offset = std::chrono::hours(8ULL);
     }
 
-    asio::awaitable<void> coroutine_log::set_output_directory(const std::string& directory_name)
+    auto coroutine_log::set_output_directory(const std::string& directory_name)
+        -> asio::awaitable<void>
     {
         co_await asio::dispatch(serial_exec, asio::use_awaitable);
-        root_directory = directory_name;
+        fs::path candidate(directory_name);
+        candidate = candidate.lexically_normal();
+        if (candidate.empty())
+        {
+            co_return;
+        }
+        for (const auto& part : candidate)
+        {
+            if (part == "..")
+            {
+                co_return;
+            }
+        }
+        root_directory = std::move(candidate);
         if (!fs::exists(root_directory))
         {
             boost::system::error_code ec;
@@ -23,37 +37,43 @@ namespace ngx::trace::deprecated
         }
     }
 
-    asio::awaitable<void> coroutine_log::set_max_file_size(const std::size_t size)
+    auto coroutine_log::set_max_file_size(const std::size_t size)
+        -> asio::awaitable<void>
     {
         co_await asio::dispatch(serial_exec, asio::use_awaitable);
         max_file_size = size;
     }
 
-    asio::awaitable<void> coroutine_log::set_time_offset(const std::chrono::minutes offset)
+    auto coroutine_log::set_time_offset(const std::chrono::minutes offset)
+        -> asio::awaitable<void>
     {
         co_await asio::dispatch(serial_exec, asio::use_awaitable);
         time_offset = offset;
     }
 
-    asio::awaitable<void> coroutine_log::set_file_level_threshold(const level threshold)
+    auto coroutine_log::set_file_level_threshold(const level threshold)
+        -> asio::awaitable<void>
     {
         co_await asio::dispatch(serial_exec, asio::use_awaitable);
         file_level_threshold = threshold;
     }
 
-    asio::awaitable<void> coroutine_log::set_console_level_threshold(const level threshold)
+    auto coroutine_log::set_console_level_threshold(const level threshold)
+        -> asio::awaitable<void>
     {
         co_await asio::dispatch(serial_exec, asio::use_awaitable);
         console_level_threshold = threshold;
     }
 
-    asio::awaitable<void> coroutine_log::set_max_archive_count(const std::size_t count)
+    auto coroutine_log::set_max_archive_count(const std::size_t count)
+        -> asio::awaitable<void>
     {
         co_await asio::dispatch(serial_exec, asio::use_awaitable);
         max_archive_count = count;
     }
 
-    asio::awaitable<void> coroutine_log::close_file(const std::string& path) const
+    auto coroutine_log::close_file(const std::string& path) const
+        -> asio::awaitable<void>
     {
         co_await asio::dispatch(serial_exec, asio::use_awaitable);
         if (const auto it = file_map.find(path); it != file_map.end())
@@ -66,7 +86,8 @@ namespace ngx::trace::deprecated
         }
     }
 
-    asio::awaitable<void> coroutine_log::shutdown() const
+    auto coroutine_log::shutdown() const
+        -> asio::awaitable<void>
     {
         co_await asio::dispatch(serial_exec, asio::use_awaitable);
         for (auto it = file_map.begin(); it != file_map.end();)
@@ -79,9 +100,10 @@ namespace ngx::trace::deprecated
         }
     }
 
-    asio::awaitable<std::size_t> coroutine_log::file_write(
+    auto coroutine_log::file_write(
         const std::string& path,
         const std::vector<std::string>& data) const
+        -> asio::awaitable<std::size_t>
     {
         std::size_t total = 0;
         for (const auto& s : data)
@@ -98,7 +120,8 @@ namespace ngx::trace::deprecated
         co_return co_await file_write(path, joined);
     }
 
-    std::string coroutine_log::to_string(const level& log_level)
+    auto coroutine_log::to_string(const level& log_level)
+        -> std::string
     {
         switch (log_level)
         {
@@ -117,9 +140,10 @@ namespace ngx::trace::deprecated
         }
     }
 
-    asio::awaitable<std::size_t> coroutine_log::console_write(
+    auto coroutine_log::console_write(
         const level& log_level,
         const std::string& data) const
+        -> asio::awaitable<std::size_t>
     {
         co_await asio::dispatch(serial_exec, asio::use_awaitable);
         if (static_cast<int>(log_level) < static_cast<int>(console_level_threshold))
@@ -133,9 +157,10 @@ namespace ngx::trace::deprecated
         co_return n;
     }
 
-    asio::awaitable<std::size_t> coroutine_log::console_write_line(
+    auto coroutine_log::console_write_line(
         const level& log_level,
         const std::string& data) const
+        -> asio::awaitable<std::size_t>
     {
         co_await asio::dispatch(serial_exec, asio::use_awaitable);
         if (static_cast<int>(log_level) < static_cast<int>(console_level_threshold))
@@ -149,15 +174,17 @@ namespace ngx::trace::deprecated
         co_return n;
     }
 
-    asio::awaitable<std::size_t> coroutine_log::file_write_line(
+    auto coroutine_log::file_write_line(
         const std::string& filename,
         const std::string& data) const
+        -> asio::awaitable<std::size_t>
     {
         std::string s = timestamp_string() + data + "\n";
         co_return co_await file_write(filename, s);
     }
 
-    std::string coroutine_log::timestamp_string() const
+    auto coroutine_log::timestamp_string() const
+        -> std::string
     {
         auto now = std::chrono::system_clock::now() + time_offset;
         auto ms = std::chrono::time_point_cast<std::chrono::milliseconds>(now);

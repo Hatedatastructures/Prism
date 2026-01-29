@@ -1,6 +1,15 @@
+/**
+ * @file constants.hpp
+ * @brief Trojan 协议常量
+ * @details 定义了 Trojan 协议的命令字和地址类型。
+ */
 #pragma once
 #include <cstdint>
 
+/**
+ * @brief Trojan 协议命名空间
+ * @note 遵循 Trojan 协议规范: https://trojan-gfw.github.io/trojan/protocol
+ */
 namespace ngx::protocol::trojan
 {
     /**

@@ -8,12 +8,6 @@ namespace ngx::protocol::http
 {
     namespace
     {
-        /**
-         * @brief 将版本号转换为字符串
-         * @param out 输出字符串
-         * @param version_value 版本号
-         * @details 版本号必须为 `10` 的倍数，例如 `10`, `11`, `20` 等。
-         */
         void append_version_string(memory::string &out, const unsigned int version_value)
         {
             const unsigned int major = version_value / 10;
@@ -26,14 +20,8 @@ namespace ngx::protocol::http
             out.append(version_buffer, 3);
         }
 
-        /**
-         * @brief 生成请求首行方法字符串
-         * @details 优先使用 `request` 中缓存的 `method_string`，如果为空，则根据
-         * 内部 `verb` 枚举值生成标准 `HTTP` 方法名字符串。
-         * @param http_request 请求对象实例
-         * @return std::string_view 方法名字符串视图
-         */
-        [[nodiscard]] std::string_view resolve_request_method_string(const request &http_request) noexcept
+        [[nodiscard]] auto resolve_request_method_string(const request &http_request) noexcept
+            -> std::string_view
         {
             const std::string_view cached_method = http_request.method_string();
             if (!cached_method.empty())
@@ -66,14 +54,8 @@ namespace ngx::protocol::http
             }
         }
 
-        /**
-         * @brief 生成响应首行原因字符串
-         * @details 优先使用 `response` 中缓存的 `reason_string`，如果为空，则根据
-         * 内部 `status` 枚举值生成标准 `HTTP` 原因字符串。
-         * @param http_response 响应对象实例
-         * @return std::string_view 原因字符串视图
-         */
-        [[nodiscard]] std::string_view resolve_response_reason_view(const response &http_response) noexcept
+        [[nodiscard]] auto resolve_response_reason_view(const response &http_response) noexcept
+            -> std::string_view
         {
             if (const std::string_view reason_view = http_response.reason(); !reason_view.empty())
             {
@@ -148,7 +130,8 @@ namespace ngx::protocol::http
         }
     } // namespace
 
-    memory::string serialize(const request &http_request, const memory::resource_pointer mr)
+    auto serialize(const request &http_request, const memory::resource_pointer mr)
+        -> memory::string
     {
         const std::string_view method_string = resolve_request_method_string(http_request);
         const auto &target_string = http_request.target();
@@ -189,7 +172,8 @@ namespace ngx::protocol::http
         return result;
     }
 
-    memory::string serialize(const response &http_response, const memory::resource_pointer mr)
+    auto serialize(const response &http_response, const memory::resource_pointer mr)
+        -> memory::string
     {
         const unsigned int status_code_value = http_response.status_code();
         const std::string_view reason_view = resolve_response_reason_view(http_response);

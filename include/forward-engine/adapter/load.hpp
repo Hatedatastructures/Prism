@@ -2,6 +2,12 @@
 #include <string>
 #include <forward-engine/agent/config.hpp>
 
+/**
+ * @namespace ngx::adapter
+ * @brief 配置适配层
+ * @details 负责将外部配置格式 (如 YAML, JSON, Clash 配置) 转换为内部的 `agent::config` 结构。
+ * 充当外部世界与核心配置之间的防腐层。
+ */
 namespace ngx::adapter
 {
     /**

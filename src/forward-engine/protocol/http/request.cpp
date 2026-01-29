@@ -6,7 +6,8 @@ namespace ngx::protocol::http
 {
     namespace
     {
-        [[nodiscard]] std::string_view to_string(const verb value) noexcept
+        [[nodiscard]] auto to_string(const verb value) noexcept
+            -> std::string_view
         {
             switch (value)
             {
@@ -32,7 +33,9 @@ namespace ngx::protocol::http
                 return "UNKNOWN";
             }
         }
-        [[nodiscard]] verb string_to_verb(const std::string_view value) noexcept
+
+        [[nodiscard]] auto string_to_verb(const std::string_view value) noexcept
+            -> verb
         {
             if (value == "DELETE")
             {
@@ -73,7 +76,8 @@ namespace ngx::protocol::http
             return verb::unknown;
         }
 
-        [[nodiscard]] std::string_view to_string(const field value) noexcept
+        [[nodiscard]] auto to_string(const field value) noexcept
+            -> std::string_view
         {
             switch (value)
             {
@@ -106,11 +110,6 @@ namespace ngx::protocol::http
     {
     }
 
-    /**
-     * @brief 设置请求方法
-     * @details 该函数用于设置 HTTP 请求的方法
-     * @param  method 请求方法枚举值
-     */
     void request::method(const verb method)
     {
         method_ = method;
@@ -118,98 +117,55 @@ namespace ngx::protocol::http
         method_string_.assign(method_name.begin(), method_name.end());
     }
 
-    /**
-     * @brief 获取请求方法
-     * @details 该函数用于获取 HTTP 请求的方法
-     * @return 请求方法枚举值
-     */
-    verb request::method() const noexcept
+    auto request::method() const noexcept
+        -> verb
     {
         return method_;
     }
 
-    /**
-     * @brief 设置请求方法
-     * @details 该函数用于设置 HTTP 请求的方法
-     * @param  method 请求方法字符串视图
-     */
     void request::method(const std::string_view method)
     {
         method_string_.assign(method.begin(), method.end());
         method_ = string_to_verb(method);
     }
 
-    /**
-     * @brief 获取请求方法字符串视图
-     * @details 该函数用于获取 HTTP 请求的方法字符串视图
-     * @return 请求方法字符串视图
-     */
-    std::string_view request::method_string() const noexcept
+    auto request::method_string() const noexcept
+        -> std::string_view
     {
         return method_string_;
     }
 
-    /**
-     * @brief 设置请求目标 URI
-     * @details 该函数用于设置 HTTP 请求的目标 URI，包括路径和查询参数。
-     * @param  target 请求目标 URI 字符串视图
-     */
     void request::target(const std::string_view target)
     {
         target_.assign(target.begin(), target.end());
     }
 
-    /**
-     * @brief 获取请求目标 URI
-     * @details 该函数用于获取 HTTP 请求的目标 URI，包括路径和查询参数。
-     * @return 请求目标 URI 字符串引用
-     */
-    const memory::string &request::target() const noexcept
+    auto request::target() const noexcept
+        -> const memory::string &
     {
         return target_;
     }
 
-    /**
-     * @brief 设置 HTTP 版本
-     * @details 该函数用于设置 HTTP 请求的版本
-     * @param  value HTTP 版本号
-     */
     void request::version(const unsigned int value)
     {
         version_ = value;
     }
 
-    /**
-     * @brief 获取 HTTP 版本
-     * @details 该函数用于获取 HTTP 请求的版本
-     * @return HTTP 版本号
-     */
-    unsigned int request::version() const noexcept
+    auto request::version() const noexcept
+        -> unsigned int
     {
         return version_;
     }
 
-    /**
-     * @brief 设置请求头字段
-     * @details 该函数用于设置 HTTP 请求的头字段
-     * @param  name 头字段名称字符串视图
-     * @param  value 头字段值字符串视图
-     * @return 是否设置成功
-     */
-    bool request::set(const std::string_view name, const std::string_view value) noexcept
+    auto request::set(const std::string_view name, const std::string_view value) noexcept
+        -> bool
     {
         headers_.set(name, value);
         return true;
     }
 
-    /**
-     * @brief 设置请求头字段
-     * @details 该函数用于设置 HTTP 请求的头字段
-     * @param  name 头字段名称枚举值
-     * @param  value 头字段值字符串视图
-     * @return 是否设置成功
-     */
-    bool request::set(const field name, const std::string_view value) noexcept
+    auto request::set(const field name, const std::string_view value) noexcept
+        -> bool
     {
         const std::string_view key = to_string(name);
         if (key.empty())
@@ -220,24 +176,14 @@ namespace ngx::protocol::http
         return true;
     }
 
-    /**
-     * @brief 获取请求头字段值
-     * @details 该函数用于获取 HTTP 请求的头字段值
-     * @param  name 头字段名称字符串视图
-     * @return 头字段值字符串视图
-     */
-    std::string_view request::at(const std::string_view name) const noexcept
+    auto request::at(const std::string_view name) const noexcept
+        -> std::string_view
     {
         return headers_.retrieve(name);
     }
 
-    /**
-     * @brief 获取请求头字段值
-     * @details 该函数用于获取 HTTP 请求的头字段值
-     * @param  name 头字段名称枚举值
-     * @return 头字段值字符串视图
-     */
-    std::string_view request::at(const field name) const noexcept
+    auto request::at(const field name) const noexcept
+        -> std::string_view
     {
         const std::string_view key = to_string(name);
         if (key.empty())
@@ -247,11 +193,6 @@ namespace ngx::protocol::http
         return headers_.retrieve(key);
     }
 
-    /**
-     * @brief 设置请求体
-     * @details 该函数用于设置 HTTP 请求的请求体
-     * @param  body 请求体字符串视图
-     */
     void request::body(const std::string_view body)
     {
         body_.assign(body.begin(), body.end());
@@ -264,21 +205,12 @@ namespace ngx::protocol::http
         content_length(body_.size());
     }
 
-    /**
-     * @brief 获取请求体
-     * @details 该函数用于获取 HTTP 请求的请求体
-     * @return 请求体字符串视图
-     */
-    std::string_view request::body() const noexcept
+    auto request::body() const noexcept
+        -> std::string_view
     {
         return body_;
     }
 
-    /**
-     * @brief 设置请求内容长度
-     * @details 该函数用于设置 HTTP 请求的内容长度
-     * @param  length 内容长度值
-     */
     void request::content_length(const std::uint64_t length)
     {
         char buffer[32]{};
@@ -291,21 +223,11 @@ namespace ngx::protocol::http
         headers_.set("Content-Length", value);
     }
 
-    /**
-     * @brief 删除请求头字段
-     * @details 该函数用于删除 HTTP 请求的头字段
-     * @param  name 头字段名称字符串视图
-     */
     void request::erase(const std::string_view name) noexcept
     {
         static_cast<void>(headers_.erase(name));
     }
 
-    /**
-     * @brief 删除请求头字段
-     * @details 该函数用于删除 HTTP 请求的头字段
-     * @param  name 头字段名称枚举值
-     */
     void request::erase(const field name) noexcept
     {
         const std::string_view key = to_string(name);
@@ -316,23 +238,11 @@ namespace ngx::protocol::http
         static_cast<void>(headers_.erase(key));
     }
 
-    /**
-     * @brief 删除请求头字段
-     * @details 该函数用于删除 HTTP 请求的头字段
-     * @param  name 头字段名称字符串视图
-     * @param  value 头字段值字符串视图
-     */
     void request::erase(const std::string_view name, const std::string_view value) noexcept
     {
         static_cast<void>(headers_.erase(name, value));
     }
 
-    /**
-     * @brief 删除请求头字段
-     * @details 该函数用于删除 HTTP 请求的头字段
-     * @param  name 头字段名称枚举值
-     * @param  value 头字段值字符串视图
-     */
     void request::erase(const field name, const std::string_view value) noexcept
     {
         const std::string_view key = to_string(name);
@@ -343,10 +253,6 @@ namespace ngx::protocol::http
         static_cast<void>(headers_.erase(key, value));
     }
 
-    /**
-     * @brief 清除请求头字段
-     * @details 该函数用于清除 HTTP 请求的所有头字段
-     */
     void request::clear()
     {
         method_ = verb::get;
@@ -358,10 +264,6 @@ namespace ngx::protocol::http
         keep_alive_ = false;
     }
 
-    /**
-     * @brief 设置是否保持连接
-     * @details 该函数用于设置 HTTP 请求是否保持连接，用于指定是否在请求完成后保持连接。
-     */
     void request::keep_alive(const bool value) noexcept
     {
         keep_alive_ = value;
@@ -375,32 +277,20 @@ namespace ngx::protocol::http
         }
     }
 
-    /**
-     * @brief 检查请求是否为空
-     * @details 该函数用于检查 HTTP 请求是否为空，包括目标、头字段和请求体是否为空。
-     * @return 如果请求为空则返回 true，否则返回 false
-     */
-    bool request::empty() const noexcept
+    auto request::empty() const noexcept
+        -> bool
     {
         return target_.empty() && headers_.empty() && body_.empty();
     }
 
-    /**
-     * @brief 获取请求头字段
-     * @details 该函数用于获取 HTTP 请求的头字段
-     * @return 请求头字段对象常量引用
-     */
-    const headers &request::header() const noexcept
+    auto request::header() const noexcept
+        -> const headers &
     {
         return headers_;
     }
 
-    /**
-     * @brief 获取请求头字段
-     * @details 该函数用于获取 HTTP 请求的头字段
-     * @return 请求头字段对象引用
-     */
-    headers &request::header() noexcept
+    auto request::header() noexcept
+        -> headers &
     {
         return headers_;
     }

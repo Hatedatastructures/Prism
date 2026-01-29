@@ -1,6 +1,5 @@
 #include <forward-engine/protocol/http/header.hpp>
 #include <iostream>
-#include <string>
 #include <cassert>
 #include <vector>
 

@@ -1,3 +1,8 @@
+/**
+ * @file stream.hpp
+ * @brief Trojan 协议流封装
+ * @details 封装了 Trojan 握手（SSL + 协议头）、预读数据处理和流读写操作。
+ */
 #pragma once
 
 #include <boost/asio.hpp>
@@ -19,7 +24,8 @@ namespace ngx::protocol::trojan
 
     /**
      * @brief Trojan 协议流封装
-     * @tparam Transport 底层传输 Socket 类型
+     * @tparam Transport 底层传输 `socket` 类型
+     * @details 管理 SSL 流和 Trojan 协议的握手过程。
      */
     template <typename Transport>
     class stream
@@ -29,7 +35,7 @@ namespace ngx::protocol::trojan
 
         /**
          * @brief 构造函数
-         * @param socket 底层 Socket (将被移动到 ssl stream 中)
+         * @param socket 底层 `socket` (将被移动到 SSL stream 中)
          * @param ctx SSL 上下文
          * @param password_verifier 密码验证回调 (可选，用于服务器端验证)
          */
@@ -51,9 +57,12 @@ namespace ngx::protocol::trojan
         }
 
         /**
-         * @brief 执行 Trojan 握手 (包括 SSL 握手和协议头解析)
+         * @brief 执行 Trojan 握手
+         * @details 包括 SSL 握手和 Trojan 协议头读取与验证。
+         * @return `std::pair<gist::code, request>` 握手结果和请求信息
          */
-        net::awaitable<std::pair<gist::code, request>> handshake()
+        auto handshake()
+            -> net::awaitable<std::pair<gist::code, request>>
         {
             // 1. SSL 握手
             boost::system::error_code ec;
@@ -69,25 +78,35 @@ namespace ngx::protocol::trojan
 
         /**
          * @brief 执行 Trojan 握手 (使用预读数据)
+         * @details 如果在外部已经预读了部分 SSL 数据（如为了探测协议），则通过此函数继续握手。
+         * @param pre_read_data 预读的数据
+         * @return `std::pair<gist::code, request>` 握手结果和请求信息
          */
-        net::awaitable<std::pair<gist::code, request>> handshake_preread(const std::string_view pre_read_data)
+        auto handshake_preread(const std::string_view pre_read_data)
+            -> net::awaitable<std::pair<gist::code, request>>
         {
             // 继续握手，优先消耗预读数据
             co_return co_await handshake_internal(pre_read_data);
         }
 
         /**
-         * @brief 读取数据
+         * @brief 异步读取数据
+         * @param buffer 接收缓冲区
+         * @return `std::size_t` 读取的字节数
          */
-        net::awaitable<std::size_t> async_read(net::mutable_buffer buffer)
+        auto async_read(net::mutable_buffer buffer)
+            -> net::awaitable<std::size_t>
         {
             co_return co_await stream_ptr_->async_read_some(buffer, net::use_awaitable);
         }
 
         /**
-         * @brief 写入数据
+         * @brief 异步写入数据
+         * @param buffer 发送缓冲区
+         * @return `std::size_t` 写入的字节数
          */
-        net::awaitable<std::size_t> async_write(net::const_buffer buffer)
+        auto async_write(net::const_buffer buffer)
+            -> net::awaitable<std::size_t>
         {
             co_return co_await net::async_write(*stream_ptr_, buffer, net::use_awaitable);
         }
@@ -95,7 +114,8 @@ namespace ngx::protocol::trojan
         /**
          * @brief 关闭连接
          */
-        net::awaitable<void> close()
+        auto close()
+            -> net::awaitable<void>
         {
             // 优雅关闭 SSL
             boost::system::error_code ec;
@@ -103,16 +123,21 @@ namespace ngx::protocol::trojan
             stream_ptr_->next_layer().close(ec);
         }
 
+        /**
+         * @brief 获取底层的 SSL Stream
+         * @return stream_type& SSL Stream 引用
+         */
         stream_type &get_stream() { return *stream_ptr_; }
 
     private:
-        static gist::code error_convert(const boost::system::error_code &ec) noexcept
+        static auto error_convert(const boost::system::error_code &ec) noexcept
+            -> gist::code
         {
             if (!ec)
             {
                 return gist::code::success;
             }
-            if (ec == net::error::eof)
+            if (ec == net::error::eof || ec == ssl::error::stream_truncated)
             {
                 return gist::code::eof;
             }
@@ -132,9 +157,11 @@ namespace ngx::protocol::trojan
          * @param buffer 预读缓冲区引用
          * @param dest 目标内存地址
          * @param n 要读取的字节数
-         * @note 如果预读缓冲区有足够数据，会先从缓冲区读取；否则从流中读取
+         * @note 如果预读缓冲区有足够数据，会先从缓冲区读取；否则从流中读取。
+         * @return `gist::code` 操作结果
          */
-        net::awaitable<gist::code> read_specified_bytes(std::string_view &buffer, void *dest, const std::size_t n)
+        auto read_specified_bytes(std::string_view &buffer, void *dest, const std::size_t n)
+            -> net::awaitable<gist::code>
         {
             std::size_t copied = 0;
             if (!buffer.empty())
@@ -163,9 +190,10 @@ namespace ngx::protocol::trojan
          * @brief 解析端口和 CRLF
          * @param req 请求对象引用
          * @param data 包含端口和 CRLF 的数据视图
-         * @throws abnormal::protocol 如果端口或 CRLF 无效
+         * @return `gist::code` 解析结果
          */
-        static gist::code parse_port_and_crlf(request &req, const std::span<const std::uint8_t> data)
+        static auto parse_port_and_crlf(request &req, const std::span<const std::uint8_t> data) noexcept
+            -> gist::code
         {
             auto [ec_port, port] = wire::decode_port(data.subspan(0, 2));
             if (ec_port != gist::code::success)
@@ -183,14 +211,16 @@ namespace ngx::protocol::trojan
 
         /**
          * @brief 读取 IP 地址类型的请求
+         * @tparam N IP 地址字节数
+         * @tparam Decoder 解码器类型
          * @param buffer 预读缓冲区引用
          * @param req 请求对象引用
          * @param decoder IP 地址解码器函数对象
-         * @param error_msg 错误消息字符串
-         * @throws abnormal::protocol 如果 IP 地址或端口无效
+         * @return `gist::code` 操作结果
          */
         template <size_t N, typename Decoder>
-        net::awaitable<gist::code> read_ip_address(std::string_view &buffer, request &req, Decoder &&decoder)
+        auto read_ip_address(std::string_view &buffer, request &req, Decoder &&decoder)
+            -> net::awaitable<gist::code>
         {
             std::array<std::uint8_t, N + 4> data; // IP(N) + Port(2) + CRLF(2)
             if (auto ec = co_await read_specified_bytes(buffer, data.data(), N + 4); ec != gist::code::success)
@@ -212,9 +242,10 @@ namespace ngx::protocol::trojan
          * @brief 读取域名类型的请求
          * @param buffer 预读缓冲区引用
          * @param req 请求对象引用
-         * @throws abnormal::protocol 如果域名或端口无效
+         * @return `gist::code` 操作结果 (co_await 结果)
          */
-        net::awaitable<gist::code> read_domain_address(std::string_view &buffer, request &req)
+        auto read_domain_address(std::string_view &buffer, request &req)
+            -> net::awaitable<gist::code>
         {
             std::uint8_t len = 0;
             if (auto ec = co_await read_specified_bytes(buffer, &len, 1); ec != gist::code::success)
@@ -250,16 +281,16 @@ namespace ngx::protocol::trojan
         struct header_information
         {
             std::array<char, 56> hash; // 密码哈希
-            wire::header_parse head;
+            wire::header_parse head; // 头部解析结果
         };
 
         /**
          * @brief 读取并验证头部
          * @param buffer 预读缓冲区引用
-         * @return `header_information` 包含密码哈希和头部解析结果
-         * @throws abnormal::protocol 如果密码哈希、CRLF、命令或地址类型无效
+         * @return `std::pair<gist::code, header_information>` 操作结果和头部信息
          */
-        net::awaitable<std::pair<gist::code, header_information>> read_header(std::string_view &buffer)
+        auto read_header(std::string_view &buffer)
+            -> net::awaitable<std::pair<gist::code, header_information>>
         {
             // 读取 Hash(56) + CRLF(2) + Cmd(1) + Atyp(1) = 60 bytes
             std::array<std::uint8_t, 60> head_buffer{};
@@ -303,10 +334,10 @@ namespace ngx::protocol::trojan
         /**
          * @brief 内部握手处理函数
          * @param buffer 预读缓冲区视图
-         * @return `request` 包含解析后的请求信息
-         * @throws abnormal::protocol 如果头部、命令、地址类型或地址无效
+         * @return `std::pair<gist::code, request>` 握手结果和请求信息
          */
-        net::awaitable<std::pair<gist::code, request>> handshake_internal(std::string_view buffer)
+        auto handshake_internal(std::string_view buffer)
+            -> net::awaitable<std::pair<gist::code, request>>
         {
             // 1. 读取并验证头部
             auto [ec_header, head_info] = co_await read_header(buffer);

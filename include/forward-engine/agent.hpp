@@ -1,3 +1,8 @@
+/**
+ * @file agent.hpp
+ * @brief Agent 模块聚合头文件
+ * @details 包含 Agent 模块的所有核心组件（Worker, Session, Distributor 等）。
+ */
 #pragma once
 
 #include <forward-engine/agent/config.hpp>

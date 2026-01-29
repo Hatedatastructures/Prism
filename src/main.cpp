@@ -14,7 +14,8 @@ namespace agent = ngx::agent;
 namespace http = ngx::protocol::http;
 namespace net = agent::net;
 
-ngx::memory::string load_file_data(std::string_view path)
+auto load_file_data(std::string_view path)
+    -> ngx::memory::string
 {
     std::ifstream file(path.data(), std::ios::binary);
     if (!file.is_open())
@@ -29,11 +30,8 @@ ngx::memory::string load_file_data(std::string_view path)
     return content;
 }
 
-/**
- * @brief 从文件中映射配置
- * @return ngx::core::configuration 配置对象
- */
-ngx::core::configuration mapping_configuration()
+auto mapping_configuration()
+    -> ngx::core::configuration
 {
     ngx::core::configuration config;
     try
@@ -54,6 +52,12 @@ ngx::core::configuration mapping_configuration()
 /**
  * @brief 主函数
  * @return int 程序退出状态码
+ * @details
+ * 1. 启用全局内存池。
+ * 2. 获取硬件并发线程数。
+ * 3. 加载配置。
+ * 4. 初始化日志系统。
+ * 5. 创建并启动工作线程。
  */
 // TODO: add more tests
 int main()

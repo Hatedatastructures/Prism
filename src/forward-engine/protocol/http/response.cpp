@@ -1,13 +1,14 @@
-#include <protocol/http/response.hpp>
-#include <protocol/http/header.hpp>
-#include <protocol/http/constants.hpp>
+#include <forward-engine/protocol/http/response.hpp>
+#include <forward-engine/protocol/http/header.hpp>
+#include <forward-engine/protocol/http/constants.hpp>
 #include <charconv>
 
 namespace ngx::protocol::http
 {
     namespace
     {
-        [[nodiscard]] std::string_view to_string(const enum  status code) noexcept
+        [[nodiscard]] auto to_string(const enum status code) noexcept
+            -> std::string_view
         {
             switch (code)
             {
@@ -76,7 +77,8 @@ namespace ngx::protocol::http
             }
         }
 
-        [[nodiscard]] enum status to_status(const unsigned int code) noexcept
+        [[nodiscard]] auto to_status(const unsigned int code) noexcept
+            -> enum status
         {
             switch (code)
             {
@@ -145,7 +147,8 @@ namespace ngx::protocol::http
             }
         }
 
-        [[nodiscard]] std::string_view to_string(const field name) noexcept
+        [[nodiscard]] auto to_string(const field name) noexcept
+            -> std::string_view
         {
             switch (name)
             {
@@ -172,11 +175,6 @@ namespace ngx::protocol::http
     {
     }
 
-    /**
-     * @brief 设置响应状态码
-     * @details 该函数用于设置 HTTP 响应的状态码
-     * @param  code 状态码枚举值
-     */
     void response::status(const enum status code) noexcept
     {
         status_ = code;
@@ -187,21 +185,12 @@ namespace ngx::protocol::http
         }
     }
 
-    /**
-     * @brief 获取响应状态码
-     * @details 该函数用于获取 HTTP 响应的状态码
-     * @return 状态码枚举值
-     */
-    enum status response::status() const noexcept
+    auto response::status() const noexcept
+        -> enum status
     {
         return status_;
     }
 
-    /**
-     * @brief 设置响应状态码
-     * @details 该函数用于设置 HTTP 响应的状态码
-     * @param  code 状态码枚举值
-     */
     void response::status(const unsigned int code)
     {
         status_ = to_status(code);
@@ -215,77 +204,43 @@ namespace ngx::protocol::http
         }
     }
 
-    /**
-     * @brief 获取响应状态码
-     * @details 该函数用于获取 HTTP 响应的状态码
-     * @return 状态码枚举值
-     */
-    unsigned int response::status_code() const noexcept
+    auto response::status_code() const noexcept
+        -> unsigned int
     {
         return static_cast<unsigned int>(status_);
     }
 
-    /**
-     * @brief 设置响应原因短语
-     * @details 该函数用于设置 HTTP 响应的原因短语
-     * @param  reason 原因短语字符串视图
-     */
     void response::reason(const std::string_view reason)
     {
         reason_.assign(reason.begin(), reason.end());
     }
 
-    /**
-     * @brief 获取响应原因短语
-     * @details 该函数用于获取 HTTP 响应的原因短语
-     * @return 原因短语字符串视图
-     */
-    std::string_view response::reason() const noexcept
+    auto response::reason() const noexcept
+        -> std::string_view
     {
         return reason_;
     }
 
-    /**
-     * @brief 设置响应 HTTP 版本
-     * @details 该函数用于设置 HTTP 响应的版本
-     * @param  value HTTP 版本号
-     */
     void response::version(const unsigned int value)
     {
         version_ = value;
     }
 
-    /**
-     * @brief 获取响应 HTTP 版本
-     * @details 该函数用于获取 HTTP 响应的版本
-     * @return HTTP 版本号
-     */
-    unsigned int response::version() const noexcept
+    auto response::version() const noexcept
+        -> unsigned int
     {
         return version_;
     }
 
-    /**
-     * @brief 设置响应头字段
-     * @details 该函数用于设置 HTTP 响应的头字段
-     * @param  name 头字段名称字符串视图
-     * @param  value 头字段值字符串视图
-     * @return 是否设置成功
-     */
-    bool response::set(const std::string_view name, const std::string_view value) noexcept
+    auto response::set(const std::string_view name, const std::string_view value) noexcept
+        -> bool
     {
         headers_.set(name, value);
         return true;
     }
 
-    /**
-     * @brief 设置响应头字段
-     * @details 该函数用于设置 HTTP 响应的头字段
-     * @param  name 头字段名称枚举值
-     * @param  value 头字段值字符串视图
-     * @return 是否设置成功
-     */
-    bool response::set(const field name, const std::string_view value) noexcept
+    auto response::set(const field name, const std::string_view value) noexcept
+        -> bool
     {
         const std::string_view key = to_string(name);
         if (key.empty())
@@ -296,24 +251,14 @@ namespace ngx::protocol::http
         return true;
     }
 
-    /**
-     * @brief 获取响应头字段值
-     * @details 该函数用于获取 HTTP 响应的头字段值
-     * @param  name 头字段名称字符串视图
-     * @return 头字段值字符串视图
-     */
-    std::string_view response::at(const std::string_view name) const noexcept
+    auto response::at(const std::string_view name) const noexcept
+        -> std::string_view
     {
         return headers_.retrieve(name);
     }
 
-    /**
-     * @brief 获取响应头字段值
-     * @details 该函数用于获取 HTTP 响应的头字段值
-     * @param  name 头字段名称枚举值
-     * @return 头字段值字符串视图
-     */
-    std::string_view response::at(const field name) const noexcept
+    auto response::at(const field name) const noexcept
+        -> std::string_view
     {
         const std::string_view key = to_string(name);
         if (key.empty())
@@ -323,11 +268,6 @@ namespace ngx::protocol::http
         return headers_.retrieve(key);
     }
 
-    /**
-     * @brief 设置响应体
-     * @details 该函数用于设置 HTTP 响应的体内容
-     * @param  body 响应体字符串视图
-     */
     void response::body(const std::string_view body)
     {
         body_.assign(body.begin(), body.end());
@@ -340,21 +280,12 @@ namespace ngx::protocol::http
         content_length(body_.size());
     }
 
-    /**
-     * @brief 获取响应体
-     * @details 该函数用于获取 HTTP 响应的体内容
-     * @return 响应体字符串视图
-     */
-    std::string_view response::body() const noexcept
+    auto response::body() const noexcept
+        -> std::string_view
     {
         return body_;
     }
 
-    /**
-     * @brief 设置响应内容长度
-     * @details 该函数用于设置 HTTP 响应的内容长度
-     * @param  length 内容长度值
-     */
     void response::content_length(const std::uint64_t length)
     {
         char buffer[32]{};
@@ -367,21 +298,11 @@ namespace ngx::protocol::http
         headers_.set("Content-Length", value);
     }
 
-    /**
-     * @brief 删除响应头字段
-     * @details 该函数用于删除 HTTP 响应的头字段
-     * @param  name 头字段名称字符串视图
-     */
     void response::erase(const std::string_view name) noexcept
     {
         static_cast<void>(headers_.erase(name));
     }
 
-    /**
-     * @brief 删除响应头字段
-     * @details 该函数用于删除 HTTP 响应的头字段
-     * @param  name 头字段名称枚举值
-     */
     void response::erase(const field name) noexcept
     {
         const std::string_view key = to_string(name);
@@ -392,23 +313,11 @@ namespace ngx::protocol::http
         static_cast<void>(headers_.erase(key));
     }
 
-    /**
-     * @brief 删除响应头字段
-     * @details 该函数用于删除 HTTP 响应的头字段
-     * @param  name 头字段名称字符串视图
-     * @param  value 头字段值字符串视图
-     */
     void response::erase(const std::string_view name, const std::string_view value) noexcept
     {
         static_cast<void>(headers_.erase(name, value));
     }
 
-    /**
-     * @brief 删除响应头字段
-     * @details 该函数用于删除 HTTP 响应的头字段
-     * @param  name 头字段名称枚举值
-     * @param  value 头字段值字符串视图
-     */
     void response::erase(const field name, const std::string_view value) noexcept
     {
         const std::string_view key = to_string(name);
@@ -419,10 +328,6 @@ namespace ngx::protocol::http
         static_cast<void>(headers_.erase(key, value));
     }
 
-    /**
-     * @brief 清除响应头字段
-     * @details 该函数用于清除 HTTP 响应的所有头字段，将其重置为空状态。
-     */
     void response::clear()
     {
         status_ = status::ok;
@@ -433,11 +338,6 @@ namespace ngx::protocol::http
         keep_alive_ = false;
     }
 
-    /**
-     * @brief 设置响应保持连接状态
-     * @details 该函数用于设置 HTTP 响应的保持连接状态
-     * @param  value 是否保持连接状态
-     */
     void response::keep_alive(const bool value) noexcept
     {
         keep_alive_ = value;
@@ -451,34 +351,22 @@ namespace ngx::protocol::http
         }
     }
 
-    /**
-     * @brief 检查响应是否为空
-     * @details 该函数用于检查 HTTP 响应是否为空
-     * @return 如果响应为空则返回 true，否则返回 false
-     */
-    bool response::empty() const noexcept
+    auto response::empty() const noexcept
+        -> bool
     {
         return body_.empty() && headers_.empty() && reason_.empty();
     }
 
-    /**
-     * @brief 获取响应头字段容器
-     * @details 该函数用于获取 HTTP 响应的头字段容器，用于直接访问和操作头字段。
-     * @return 响应头字段容器引用
-     */
-    const headers &response::header() const noexcept
+    auto response::header() const noexcept
+        -> const headers &
     {
         return headers_;
     }
 
-    /**
-     * @brief 获取响应头字段容器
-     * @details 该函数用于获取 HTTP 响应的头字段容器，用于直接访问和操作头字段。
-     */
-    headers &response::header() noexcept
+    auto response::header() noexcept
+        -> headers &
     {
         return headers_;
     }
-
 
 } // namespace ngx::protocol::http

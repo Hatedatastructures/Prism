@@ -1,3 +1,8 @@
+/**
+ * @file transfer.hpp
+ * @brief 传输与隧道工具
+ * @details 提供单向数据传输 (`transfer`) 和双向隧道 (`tunnel`) 的实现，支持 TCP 和 Obscura 协议。
+ */
 #pragma once
 #include <cstddef>
 #include <exception>
@@ -15,12 +20,21 @@
 #include <forward-engine/transport/source.hpp>
 
 
+/**
+ * @namespace ngx::transport::detail
+ * @brief 传输层实现细节
+ * @details 包含底层的 socket 操作、上下文定义以及具体的数据搬运逻辑。
+ * 该命名空间下的组件通常由上层 agent 模块直接调用，一般不直接暴露给最终用户。
+ */
 namespace ngx::transport::detail
 {
     namespace net = boost::asio;
     namespace beast = boost::beast;
     using tcp = net::ip::tcp;
     
+    /**
+     * @brief 日志级别枚举
+     */
     enum class log_level : std::uint8_t
     {
         debug,
@@ -39,9 +53,9 @@ namespace ngx::transport::detail
 
     /**
      * @brief 事件跟踪
-     * @details 记录传输事件，如连接、断开、数据传输等
-     * @param level 级别
-     * @param msg 消息
+     * @details 记录传输事件，如连接、断开、数据传输等。
+     * @param level 日志级别
+     * @param msg 日志消息
      */
     inline void event_tracking(const log_level level, const std::string_view msg) noexcept
     {
@@ -53,8 +67,9 @@ namespace ngx::transport::detail
 
     /**
      * @brief 关闭套接字
-     * @details 关闭套接字，先尝试优雅关闭，再强制关闭
-     * @param socket 套接字
+     * @details 关闭套接字，先尝试优雅关闭 (`shutdown`)，再强制关闭 (`close`)。
+     * @tparam Socket 套接字类型
+     * @param socket 套接字引用
      */
     template <typename Socket>
     void shut_close(Socket &socket) noexcept
@@ -78,6 +93,8 @@ namespace ngx::transport::detail
      * @brief 判断 `boost::system::error_code` 是否属于“正常收尾”
      * @details “正常收尾”包括：对端正常关闭、被取消、连接被重置等。
      * 这些场景不应当转为业务异常抛出，否则会把正常断开误判为错误。
+     * @param ec 错误码
+     * @return bool 是否为正常收尾
      */
     [[nodiscard]] inline bool normal_close(const boost::system::error_code &ec) noexcept
     {
@@ -88,10 +105,12 @@ namespace ngx::transport::detail
 
     /**
      * @brief 传输上下文
-     * @details 用于存储传输相关的上下文信息
+     * @details 包含传输过程中的配置、统计信息和状态。
+     * @tparam Source 源类型
+     * @tparam Dest 目标类型
      */
     template <typename Source, typename Dest>
-    class transfer_context
+    struct transfer_context
     {
         using dest_pointer = std::add_pointer_t<Dest>;
         using source_pointer = std::add_pointer_t<Source>;
@@ -132,8 +151,8 @@ namespace ngx::transport::detail
     };
 
     /**
-     * @brief 创建 tcp 传输上下文
-     * @details 创建一个传输上下文，包含源、目的指针和缓冲区
+     * @brief 创建 TCP 传输上下文
+     * @details 创建一个传输上下文，包含源、目的指针和缓冲区。
      * @param from 源指针
      * @param to 目的指针
      * @param buffer 缓冲区
@@ -151,12 +170,13 @@ namespace ngx::transport::detail
 
     /**
      * @brief 创建隧道上下文
-     * @details 创建一个隧道上下文，包含服务器套接字和客户端套接字
+     * @details 创建一个隧道上下文，包含服务器套接字和客户端套接字。
      * @param server_socket 服务器套接字
      * @param client_socket 客户端套接字
      * @return tunnel_context 隧道上下文
      */
-    inline tunnel_context make_tunnel_context(stream_socket *server_socket,stream_socket *client_socket)
+    inline auto make_tunnel_context(stream_socket *server_socket, stream_socket *client_socket)
+        -> tunnel_context
     {
         tunnel_context ctx{};
         ctx.server_socket = server_socket;
@@ -165,18 +185,22 @@ namespace ngx::transport::detail
     }
 
     /**
-     * @brief 单向传输，静态类
-     * @details 单向死循环发送数据，直到源关闭或目的关闭
+     * @struct transfer
+     * @brief 单向传输工具类 (Stateless Utility)
+     * @details 负责在两个端点之间进行单向数据传输。这是一个无状态的工具类，
+     * 所有状态都保存在 `transfer_context` 中。
+     * @see tunnel
      */
     struct transfer
     {
         /**
-         * @brief tcp 流式传输
-         * @tparam Source 源套接字
-         * @tparam Dest 目的套接字
-         * @details 在源和目的之间传输数据，直到源关闭或目的关闭
-         * @param ctx 传输上下文
-         * @note 这个函数是将源的数据传输到目的，直到源关闭或目的任意一方关闭
+         * @brief TCP 流式传输 (单向)
+         * @tparam Source 源套接字类型
+         * @tparam Dest 目的套接字类型
+         * @details 启动一个异步循环，不断从 `Source` 读取数据并写入到 `Dest`，
+         * 直到源关闭、目的关闭或发生错误。
+         * @param ctx 传输上下文，必须包含有效的源和目的指针以及缓冲区。
+         * @warning 如果 `ctx` 无效，将直接返回。
          */
         template <typename Source, typename Dest>
         static net::awaitable<void> stream(const transfer_context<Source, Dest> &ctx)
@@ -228,12 +252,12 @@ namespace ngx::transport::detail
         }
 
         /**
-         * @brief Obscura传输到上游服务器
-         * @details 在Obscura协议上传输数据到上游服务器
-         * @param proto Obscura协议实例
+         * @brief Obscura 传输到上游服务器 (单向)
+         * @details 这是一个专门适配 Obscura 协议的传输函数。它负责将解密后的 Obscura 流量
+         * 转发到普通的 TCP 上游服务器。
+         * @param proto Obscura 协议实例
          * @param upstream 上游套接字
-         * @param cancel_slot 取消槽位
-         * @note 这个函数是将Obscura协议上的数据传输到上游服务器，直到Obscura协议关闭或上游服务器关闭
+         * @param cancel_slot 取消槽位，用于在外部强制终止传输
          */
         static net::awaitable<void> obscura_to_upstream(obscura<net::ip::tcp> &proto, stream_socket &upstream,
             const net::cancellation_slot cancel_slot)
@@ -285,13 +309,12 @@ namespace ngx::transport::detail
         }
 
         /**
-         * @brief tcp 上游传输到Obscura
-         * @details 在Obscura协议上传输上游服务器的数据
-         * @param proto Obscura协议实例
+         * @brief 上游传输到 Obscura (单向)
+         * @details 将从上游服务器读取的明文数据，通过 Obscura 协议加密后发送给客户端。
+         * @param proto Obscura 协议实例
          * @param upstream 上游套接字
          * @param cancel_slot 取消槽位
-         * @param buffer 缓冲区
-         * @note 这个函数是将上游服务器的数据传输到Obscura协议上，直到上游服务器关闭或Obscura协议关闭
+         * @param buffer 数据缓冲区
          */
         static net::awaitable<void> upstream_to_obscura(obscura<net::ip::tcp> &proto, stream_socket &upstream,
             const net::cancellation_slot cancel_slot, const mutable_buf buffer)
@@ -344,19 +367,24 @@ namespace ngx::transport::detail
 
 
     /**
-     * @brief 双向隧道传输，静态类
-     * @details 调用 transfer的 函数在两个套接字之间死循环传输数据，直到任意一方关闭
+     * @class tunnel
+     * @brief 双向隧道传输工具类
+     * @details 通过组合两个单向的 `transfer`，在两个端点之间建立全双工 (`Full-Duplex`) 的数据传输通道。
+     * 当任意一个方向的传输结束（连接关闭或出错）时，整个隧道也将关闭。
+     * @see transfer
      */
     class tunnel
     {
     public:
         /**
-         * @brief tcp 隧道传输
-         * @details 在两个套接字之间传输数据，直到任意一方关闭
-         * @param ctx 隧道上下文
-         * @param buffer_data 缓冲区数据
-         * @param buffer_size 缓冲区大小
-         * @note 这个函数是将两个套接字之间的数据传输，直到任意一方关闭
+         * @brief TCP 隧道传输
+         * @details 在两个套接字之间并发执行双向数据传输。
+         * 内部使用 `boost::asio::experimental::awaitable_operators` (`||` 运算符) 
+         * 来实现"任意一方完成即终止"的逻辑。
+         * @param ctx 隧道上下文，包含客户端和服务端 socket
+         * @param buffer_data 共享缓冲区指针
+         * @param buffer_size 缓冲区总大小 (将被平分为两部分使用)
+         * @note 缓冲区大小必须至少为 2 字节。
          */
         static net::awaitable<void> stream(const tunnel_context &ctx, std::byte *buffer_data, const std::size_t buffer_size)
         {
@@ -384,12 +412,12 @@ namespace ngx::transport::detail
 
         /**
          * @brief Obscura 协议隧道传输
-         * @details 在Obscura协议上传输上游服务器的数据
-         * @param proto Obscura协议实例
-         * @param upstream 上游套接字
-         * @param buffer_data 缓冲区数据
+         * @details 在 Obscura 协议和 TCP 上游服务器之间建立双向隧道。
+         * 由于 Obscura 协议的特殊性，需要使用 `cancellation_signal` 来协调两个方向的生命周期。
+         * @param proto Obscura 协议实例 (shared_ptr)
+         * @param upstream 上游 TCP 套接字
+         * @param buffer_data 缓冲区指针 (仅用于上游到 Obscura 的方向)
          * @param buffer_size 缓冲区大小
-         * @note 这个函数是将上游服务器的数据传输到Obscura协议上，直到上游服务器关闭或Obscura协议关闭
          */
         static net::awaitable<void> obscura(std::shared_ptr<obscura<net::ip::tcp>> proto,
             stream_socket &upstream, std::byte *buffer_data, const std::size_t buffer_size)

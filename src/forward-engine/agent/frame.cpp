@@ -5,12 +5,8 @@
 
 namespace ngx::protocol
 {
-    /**
-     * @brief 序列化 `websocket` 帧
-     * @param frame_instance 待序列化的帧
-     * @return 序列化后的字符串
-     */
-    std::string serialize(const frame &frame_instance)
+    auto serialize(const frame &frame_instance)
+        -> std::string
     {
         std::string result;
         // 4 字节 ID + 1 字节 type + payload
@@ -25,13 +21,8 @@ namespace ngx::protocol
         return result;
     }
 
-    /**
-     * @brief 反序列化 `websocket` 帧
-     * @param string_value 待反序列化的字符串
-     * @param frame_instance 反序列化后的帧
-     * @return 是否成功反序列化
-     */
-    ngx::gist::code deserialize(std::string_view string_value, frame &frame_instance)
+    auto deserialize(std::string_view string_value, frame &frame_instance)
+        -> ngx::gist::code
     {
         // 检查最小长度 4 字节 ID + 1 字节 type = 5 字节
         if (string_value.size() < 5)

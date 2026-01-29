@@ -24,13 +24,8 @@ namespace ngx::transport
         }
     }
 
-    /**
-     * @brief 创建端点键
-     * @details 从 `tcp::endpoint` 对象中提取 IP 地址和端口号，构造 `endpoint_key`。
-     * @param endpoint 要转换的 TCP 端点
-     * @return 对应的 `endpoint_key` 对象
-     */
-    inline endpoint_key make_endpoint_key(const tcp::endpoint &endpoint) noexcept
+    inline auto make_endpoint_key(const tcp::endpoint &endpoint) noexcept
+        -> endpoint_key
     {
         endpoint_key key;
         key.port = endpoint.port();
@@ -54,7 +49,8 @@ namespace ngx::transport
         return key;
     }
 
-    std::size_t endpoint_hash::operator()(const endpoint_key &key) const noexcept
+    auto endpoint_hash::operator()(const endpoint_key &key) const noexcept
+        -> std::size_t
     {
         std::size_t seed = 0;
         seed ^= std::hash<std::uint16_t>{}(key.port) + 0x9e3779b9U + (seed << 6) + (seed >> 2);
@@ -68,14 +64,8 @@ namespace ngx::transport
         return seed;
     }
 
-    /**
-     * @brief 僵尸检测
-     * @details 检测 TCP 连接是否已断开 (对端关闭了连接)。
-     * @param s 要检查的 socket 指针
-     * @return true 如果连接已断开 (对端关闭了连接)
-     * @return false 如果连接正常 (对端还在发送数据)
-     */
-    bool source::zombie_detection(tcp::socket *s)
+    auto source::zombie_detection(tcp::socket *s)
+        -> bool
     {
         if (!s || !s->is_open())
         {
@@ -93,11 +83,6 @@ namespace ngx::transport
         return s->is_open();
     }
 
-    /**
-     * @brief 获取一个 TCP 连接
-     * @details 优先复用缓存中的连接。会自动剔除已断开或超时的僵尸连接。
-     * 如果无可用连接，则立即新建并连接。
-     */
     auto source::acquire_tcp(tcp::endpoint endpoint)
         -> net::awaitable<unique_sock>
     {
@@ -158,12 +143,12 @@ namespace ngx::transport
         co_return sock;
     }
 
-    /**
-     * @brief 归还连接（内部接口）
-     * @details 由 deleter 析构器自动调用，不要手动调用。
-     */
     void source::recycle(tcp::socket *s)
     {
+        if (!s)
+        {
+            return;
+        }
         // 1. 基础健康检查
         if (!s->is_open())
         {
@@ -184,14 +169,12 @@ namespace ngx::transport
         }
     }
 
-    /**
-     * @brief 归还连接（外部接口）
-     * @details 将连接放回缓存，等待下一次复用。
-     * @param s 要归还的 socket 指针
-     * @param endpoint 连接的远程端点 (用于归类缓存)
-     */
     void source::recycle(tcp::socket *s, const tcp::endpoint &endpoint)
     {
+        if (!s)
+        {
+            return;
+        }
         if (!s->is_open())
         {
             delete s;
@@ -212,10 +195,6 @@ namespace ngx::transport
         stack.push_back({s, std::chrono::steady_clock::now()});
     }
 
-    /**
-     * @brief 清空所有缓存的连接
-     * @details 会关闭所有连接并删除对应的 socket 对象。
-     */
     void source::clear()
     {
         for (auto &stack : cache_ | std::views::values)

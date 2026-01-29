@@ -1,3 +1,8 @@
+/**
+ * @file protocol.hpp
+ * @brief Protocol 模块聚合头文件
+ * @details 包含所有支持协议的实现（HTTP, SOCKS5, Trojan 等）。
+ */
 #pragma once
 
 #include <forward-engine/protocol/frame.hpp>

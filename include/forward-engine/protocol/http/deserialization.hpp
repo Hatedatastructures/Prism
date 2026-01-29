@@ -1,3 +1,8 @@
+/**
+ * @file deserialization.hpp
+ * @brief HTTP 协议反序列化
+ * @details 提供同步和异步的 HTTP 请求/响应解析功能，基于 Boost.Beast 实现。
+ */
 #pragma once
 
 #include <string_view>
@@ -12,6 +17,11 @@
 #include <forward-engine/protocol/http/request.hpp>
 #include <forward-engine/protocol/http/response.hpp>
 
+/**
+ * @namespace ngx::protocol::http
+ * @brief HTTP 协议实现
+ * @details 包含 HTTP/1.1 协议的完整实现，支持请求/响应的序列化与反序列化。
+ */
 namespace ngx::protocol::http
 {
     namespace net = boost::asio;
@@ -23,20 +33,22 @@ namespace ngx::protocol::http
     /**
      * @brief 反序列化 HTTP 请求
      * @param string_value 原始 `HTTP` 请求报文数据
-     * @param http_request 用于接收解析结果的 request 对象
-     * @return gist::code 解析结果状态码
+     * @param http_request 用于接收解析结果的 `request` 对象
+     * @param mr 内存资源指针
+     * @return `gist::code` 解析结果状态码
      */
-     [[nodiscard]] gist::code deserialize(std::string_view string_value, request &http_request);
+    [[nodiscard]] auto deserialize(std::string_view string_value, request &http_request, memory::resource_pointer mr = nullptr)
+        -> gist::code;
 
     /**
      * @brief 异步读取并反序列化 HTTP 请求
-     * @tparam Transport 支持异步反序列化的 Transport 类型 (tcp::socket 或 ssl::stream)
-     * @tparam DynamicBuffer 动态缓冲区类型，必须满足 boost::beast::flat_buffer 概念
-     * @param socket 数据源
-     * @param http_request http模块的 request 对象 (将被填充)
+     * @tparam Transport 支持异步读取的 Transport 类型 (如 `tcp::socket` 或 `ssl::stream`)
+     * @tparam DynamicBuffer 动态缓冲区类型，需满足 `boost::beast::flat_buffer` 概念
+     * @param socket 数据源 `socket`
+     * @param http_request 用于接收解析结果的 `request` 对象 (将被清空并填充)
      * @param buffer 用于存储读取数据的动态缓冲区
      * @param mr 内存资源指针，用于分配解析过程中需要的内存
-     * @return gist::code 读取结果状态码
+     * @return `gist::code` 读取结果状态码
      */
     template <class Transport, class DynamicBuffer>
     auto async_read(Transport &socket, request &http_request, DynamicBuffer &buffer, memory::resource_pointer mr)
@@ -89,12 +101,12 @@ namespace ngx::protocol::http
     }
 
     /**
-     * @brief 异步读取并反序列化 HTTP 请求
-     * @tparam Transport 支持异步反序列化的 Transport 类型 (tcp::socket 或 ssl::stream)
-     * @param socket 数据源
-     * @param http_request http模块的 request 对象 (将被填充)
-     * @param mr 内存资源指针，用于分配解析过程中需要的内存
-     * @return gist::code 读取结果状态码
+     * @brief 异步读取并反序列化 HTTP 请求 (使用默认缓冲区)
+     * @tparam Transport 支持异步读取的 Transport 类型
+     * @param socket 数据源 `socket`
+     * @param http_request 用于接收解析结果的 `request` 对象
+     * @param mr 内存资源指针
+     * @return `gist::code` 读取结果状态码
      */
     template <class Transport>
     auto async_read(Transport &socket, request &http_request, const memory::resource_pointer mr)
@@ -107,18 +119,19 @@ namespace ngx::protocol::http
     /**
      * @brief 反序列化 HTTP 响应
      * @param string_value 原始 `HTTP` 响应报文数据
-     * @param http_response 用于接收解析结果的 response 对象
+     * @param http_response 用于接收解析结果的 `response` 对象
      * @return gist::code 解析结果状态码
      */
-     [[nodiscard]] gist::code deserialize(std::string_view string_value, response &http_response);
+     [[nodiscard]] auto deserialize(std::string_view string_value, response &http_response)
+        -> gist::code;
 
     /**
-     * @brief 异步读取并反序列化 HTTP 响应
-     * @tparam Transport 支持异步反序列化的 Transport 类型 (tcp::socket 或 ssl::stream)
-     * @param socket 数据源
-     * @param http_response http模块的 response 对象 (将被填充)
-     * @param mr 内存资源指针，用于分配解析过程中需要的内存
-     * @return gist::code 读取结果状态码
+     * @brief 异步读取并反序列化 HTTP 响应 (使用默认缓冲区)
+     * @tparam Transport 支持异步读取的 Transport 类型
+     * @param socket 数据源 `socket`
+     * @param http_response 用于接收解析结果的 `response` 对象
+     * @param mr 内存资源指针
+     * @return `gist::code` 读取结果状态码
      */
     template <class Transport>
     auto async_read(Transport &socket, response &http_response, memory::resource_pointer mr)
@@ -130,13 +143,13 @@ namespace ngx::protocol::http
 
     /**
      * @brief 异步读取并反序列化 HTTP 响应
-     * @tparam Transport 支持异步反序列化的 Transport 类型 (tcp::socket 或 ssl::stream)
-     * @tparam DynamicBuffer 动态缓冲区类型，必须满足 beast::flat_buffer 概念
-     * @param socket 数据源
-     * @param http_response http模块的 response 对象 (将被填充)
+     * @tparam Transport 支持异步读取的 Transport 类型
+     * @tparam DynamicBuffer 动态缓冲区类型
+     * @param socket 数据源 `socket`
+     * @param http_response 用于接收解析结果的 `response` 对象
      * @param buffer 用于存储读取数据的动态缓冲区
-     * @param mr 内存资源指针，用于分配解析过程中需要的内存
-     * @return gist::code 读取结果状态码
+     * @param mr 内存资源指针
+     * @return `gist::code` 读取结果状态码
      */
     template <class Transport, class DynamicBuffer>
     auto async_read(Transport &socket, response &http_response, DynamicBuffer &buffer, memory::resource_pointer mr)

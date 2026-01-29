@@ -1,3 +1,8 @@
+/**
+ * @file monitor.hpp
+ * @brief 已弃用的协程日志系统
+ * @details 包含一个基于 Boost.Asio 的协程日志实现，但由于性能问题已弃用。
+ */
 #pragma once
 
 #include <string>
@@ -14,9 +19,9 @@
 #include <boost/asio/stream_file.hpp>
 
 /**
- * @namespace deprecated 
+ * @namespace ngx::trace::deprecated 
  * @brief 已弃用的日志监控命名空间
- * @note 该命名空间达不到性能需求且开销较大资源重，现在已弃用。
+ * @details 该命名空间包含一个基于协程的日志实现，但由于达不到性能需求且资源开销较大，现已弃用，建议使用 spdlog。
  */
 namespace ngx::trace::deprecated
 {
@@ -25,19 +30,25 @@ namespace ngx::trace::deprecated
 
     /**
      * @brief 日志级别
-     * @note 日志级别从低到高分别为 debug, info, warn, error, fatal
+     * @details 日志级别从低到高分别为 debug, info, warn, error, fatal。
      */
     enum class level
     {
-        debug,
-        info,
-        warn,
-        error,
-        fatal,
+        debug,   // 调试
+        info,    // 信息
+        warn,    // 警告
+        error,   // 错误
+        fatal,   // 致命
     };
 
     namespace asio = boost::asio;
     namespace fs = std::filesystem;
+
+    /**
+     * @brief 协程日志类
+     * @details 基于 Boost.Asio 协程的日志实现，支持文件输出和控制台输出。
+     * @deprecated 请使用 `ngx::trace::spdlog` 替代。
+     */
     class coroutine_log
     {
         struct context
@@ -56,13 +67,15 @@ namespace ngx::trace::deprecated
         asio::awaitable<void> set_output_directory(const std::string& directory_name);
 
         /**
-         * @brief 设置日志文件的最大大小，超过该大小则创建新的日志文件
+         * @brief 设置日志文件的最大大小
+         * @details 超过该大小则创建新的日志文件。
          * @param size 日志文件的最大大小，单位为字节
          */
         asio::awaitable<void> set_max_file_size(std::size_t size);
 
         /**
-         * @brief 设置时间偏移，用于日志中的时间戳
+         * @brief 设置时间偏移
+         * @details 用于日志中的时间戳计算。
          * @param offset 时间偏移量，默认 +8 小时
          */
         asio::awaitable<void> set_time_offset(std::chrono::minutes offset);
@@ -80,7 +93,8 @@ namespace ngx::trace::deprecated
         asio::awaitable<void> set_console_level_threshold(level threshold);
 
         /**
-         * @brief 设置日志文件最大归档数量，超过该数量则删除最旧的日志文件
+         * @brief 设置日志文件最大归档数量
+         * @details 超过该数量则删除最旧的日志文件。
          * @param count 最大归档数量
          */
         asio::awaitable<void> set_max_archive_count(std::size_t count);
@@ -96,13 +110,14 @@ namespace ngx::trace::deprecated
          * @brief 将日志消息输出到文件
          * @param filename 日志文件名
          * @param data 日志消息
-         * @return 写入的字节数
-         * @note 如果文件不存在，会尝试创建目录并打开文件
+         * @return std::size_t 写入的字节数
+         * @note 如果文件不存在，会尝试创建目录并打开文件。
          */
         template <compatible container>
         auto file_write(const std::string& filename, const container& data) const
         -> asio::awaitable<std::size_t>
         {
+            // Implementation...
             co_await asio::dispatch(serial_exec, asio::use_awaitable);
 
             // 1. 获取文件路径
@@ -202,8 +217,8 @@ namespace ngx::trace::deprecated
          * @brief 针对 vector<string> 的特化：先合并再调用通用 file_write (避免递归循环)
          * @param path 日志文件名
          * @param data 日志消息向量，每个元素为一条日志消息
-         * @return 写入的总字节数
-         * @note 会将所有消息合并为一个字符串后写入文件
+         * @return std::size_t 写入的总字节数
+         * @note 会将所有消息合并为一个字符串后写入文件。
          */
         auto file_write(const std::string& path, const std::vector<std::string>& data) const
         -> asio::awaitable<std::size_t>;
@@ -214,8 +229,8 @@ namespace ngx::trace::deprecated
          * @brief 将日志消息输出到控制台
          * @param log_level 日志级别
          * @param data 日志消息
-         * @return 写入的字节数
-         * @note 如果日志级别低于 console_level_threshold，则不输出
+         * @return std::size_t 写入的字节数
+         * @note 如果日志级别低于 console_level_threshold，则不输出。
          */
         auto console_write(const level& log_level, const std::string& data) const
         -> asio::awaitable<std::size_t>;
@@ -224,8 +239,8 @@ namespace ngx::trace::deprecated
          * @brief 将日志消息输出到控制台，并在末尾添加换行符
          * @param log_level 日志级别
          * @param data 日志消息
-         * @return 写入的字节数
-         * @note 如果日志级别低于 console_level_threshold，则不输出
+         * @return std::size_t 写入的字节数
+         * @note 如果日志级别低于 console_level_threshold，则不输出。
          */
         auto console_write_line(const level& log_level, const std::string& data) const
         -> asio::awaitable<std::size_t>;
@@ -235,9 +250,9 @@ namespace ngx::trace::deprecated
          * @param filename 日志文件名
          * @param log_level 日志级别
          * @param format 日志消息格式化字符串
-         * @param args 日志消息
-         * @return 写入的字节数
-         * @note 如果日志级别低于 file_level_threshold，则不输出
+         * @param args 日志消息参数
+         * @return std::size_t 写入的字节数
+         * @note 如果日志级别低于 file_level_threshold，则不输出。
          */
         template<typename... Args>
         auto file_write_fmt(const std::string& filename, level log_level, const std::string& format, Args&&... args) const
@@ -257,8 +272,8 @@ namespace ngx::trace::deprecated
          * @brief 写入日志消息到文件，并在末尾添加换行符
          * @param filename 日志文件名
          * @param data 日志消息
-         * @return 写入的字节数
-         * @note 会在日志消息前添加时间戳
+         * @return std::size_t 写入的字节数
+         * @note 会在日志消息前添加时间戳。
          */
         asio::awaitable<std::size_t> file_write_line(const std::string& filename, const std::string& data) const;
 
@@ -267,9 +282,9 @@ namespace ngx::trace::deprecated
          * @brief 将日志消息输出到控制台
          * @param log_level 日志级别
          * @param format 日志消息格式化字符串
-         * @param args 日志消息
-         * @return 写入的字节数
-         * @note 如果日志级别低于 console_level_threshold，则不输出
+         * @param args 日志消息参数
+         * @return std::size_t 写入的字节数
+         * @note 如果日志级别低于 console_level_threshold，则不输出。
          */
         template<typename... Args>
         auto console_write_fmt(const level log_level, const std::string& format, Args&&... args) const
@@ -294,13 +309,13 @@ namespace ngx::trace::deprecated
 
         /**
          * @brief 构建时间戳字符串（使用实例级时间偏移）
-         *
          * @return std::string 时间戳字符串，格式为 "[YYYY-MM-DD HH:MM]"
          */
         std::string timestamp_string() const;
 
         /**
          * @brief 清理旧归档文件
+         * @param target_path 目标文件路径
          */
         void cleanup_old_archives(const fs::path& target_path) const;
     };

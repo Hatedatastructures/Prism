@@ -16,25 +16,20 @@ namespace ngx::protocol::http
         std::ranges::transform(str, std::back_inserter(str_), ::tolower);
     }
 
-    /**
-     * @brief 获取 downcase_string 的原始字符串值
-     * @return const memory::string& 原始字符串值
-     */
-    const memory::string &downcase_string::value() const
+    auto downcase_string::value() const
+        -> const memory::string &
     {
         return str_;
     }
 
-    /**
-     * @brief 获取 downcase_string 的原始字符串视图
-     * @return std::string_view 原始字符串视图
-     */
-    std::string_view downcase_string::view() const
+    auto downcase_string::view() const
+        -> std::string_view
     {
         return str_;
     }
 
-    bool downcase_string::operator==(const downcase_string &other) const
+    auto downcase_string::operator==(const downcase_string &other) const
+        -> bool
     {
         return str_ == other.str_;
     }
@@ -56,81 +51,50 @@ namespace ngx::protocol::http
     {
     }
 
-    memory::resource_pointer headers::resource() const noexcept
+    auto headers::resource() const noexcept
+        -> memory::resource_pointer
     {
         return entries_.get_allocator().resource();
     }
 
-    /**
-     * @brief 清空 headers 容器
-     */
     void headers::clear() noexcept
     {
         entries_.clear();
     }
 
-    /**
-     * @brief 预留 headers 容器空间
-     * @param count 需要预留的空间大小
-     */
     void headers::reserve(const size_type count)
     {
         entries_.reserve(count);
     }
 
-    /**
-     * @brief 获取 headers 容器大小
-     * @return size_type headers 容器大小
-     */
-    headers::size_type headers::size() const noexcept
+    auto headers::size() const noexcept
+        -> headers::size_type
     {
         return entries_.size();
     }
 
-    /**
-     * @brief 判断 headers 容器是否为空
-     * @return true headers 容器为空
-     * @return false headers 容器不为空
-     */
-    bool headers::empty() const noexcept
+    auto headers::empty() const noexcept
+        -> bool
     {
         return entries_.empty();
     }
 
-    /**
-     * @brief 生成 downcase_string 键
-     * @param name 原始字符串键
-     * @return downcase_string 转换后的 downcase_string 键
-     */
-    downcase_string headers::make_key(const std::string_view name) const
+    auto headers::make_key(const std::string_view name) const
+        -> downcase_string
     {
         return downcase_string{name, resource()};
     }
 
-    /**
-     * @brief 构造 headers 容器元素
-     * @param name 原始字符串键
-     * @param value 原始字符串值
-     */
     void headers::construct(std::string_view name, std::string_view value)
     {
         entries_.emplace_back(name, value, resource());
     }
 
-    /**
-     * @brief 构造 headers 容器元素
-     * @param entry 要构造的 header 元素
-     */
     void headers::construct(const header &entry)
     {
         construct(std::string_view{entry.original_key}, std::string_view{entry.value});
     }
 
-    /**
-     * @brief 设置 headers 容器元素
-     * @param name 原始字符串键
-     * @param value 原始字符串值
-     */
     void headers::set(const std::string_view name, const std::string_view value)
     {
         downcase_string key = make_key(name);
@@ -160,7 +124,8 @@ namespace ngx::protocol::http
         }
     }
 
-    bool headers::erase(const std::string_view name)
+    auto headers::erase(const std::string_view name)
+        -> bool
     {
         if (entries_.empty())
         {
@@ -175,7 +140,8 @@ namespace ngx::protocol::http
         return entries_.size() != old_size;
     }
 
-    bool headers::erase(const std::string_view name, const std::string_view value)
+    auto headers::erase(const std::string_view name, const std::string_view value)
+        -> bool
     {
         if (entries_.empty())
         {
@@ -193,13 +159,8 @@ namespace ngx::protocol::http
         return entries_.size() != old_size;
     }
 
-    /**
-     * @brief 判断 headers 容器是否包含指定键
-     * @param name 原始字符串键
-     * @return true 包含指定键
-     * @return false 不包含指定键
-     */
-    bool headers::contains(const std::string_view name) const noexcept
+    auto headers::contains(const std::string_view name) const noexcept
+        -> bool
     {
         if (entries_.empty())
         {
@@ -219,12 +180,8 @@ namespace ngx::protocol::http
         return false;
     }
 
-    /**
-     * @brief 获取 headers 容器元素值
-     * @param name 原始字符串键
-     * @return std::string_view 元素值
-     */
-    std::string_view headers::retrieve(const std::string_view name) const noexcept
+    auto headers::retrieve(const std::string_view name) const noexcept
+        -> std::string_view
     {
         if (entries_.empty())
         {
@@ -244,21 +201,15 @@ namespace ngx::protocol::http
         return {};
     }
 
-    /**
-     * @brief 获取 headers 容器元素迭代器
-     * @return headers::iterator 元素迭代器
-     */
-    headers::iterator headers::begin() const
+    auto headers::begin() const
+        -> headers::iterator
     {
         return entries_.begin();
     }
 
 
-    /**
-     * @brief 获取 headers 容器元素迭代器
-     * @return headers::iterator 元素迭代器
-     */
-    headers::iterator headers::end() const
+    auto headers::end() const
+        -> headers::iterator
     {
         return entries_.end();
     }

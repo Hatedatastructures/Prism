@@ -15,6 +15,11 @@
 #include <forward-engine/protocol/http/deserialization.hpp>
 #include <forward-engine/protocol/http/serialization.hpp>
 
+/**
+ * @namespace ngx::transport
+ * @brief 传输层 (Data Plane)
+ * @details 负责底层的数据搬运、连接管理和协议封装。
+ */
 namespace ngx::transport
 {
     

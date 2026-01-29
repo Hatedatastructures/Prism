@@ -4,14 +4,8 @@ namespace ngx::protocol::http
 {
     namespace
     {
-        /**
-         * @brief 去除首尾空白字符
-         * @details 该函数会去除字符串首尾的 `SP` 和 `HTAB`，用于解析头字段名。
-         * 清理多余的空格。
-         * @param value 输入字符串视图
-         * @return std::string_view 去除首尾空白后的字符串视图
-         */
-        [[nodiscard]] std::string_view trim(std::string_view value) noexcept
+        [[nodiscard]] auto trim(std::string_view value) noexcept
+            -> std::string_view
         {
             while (!value.empty() && (value.front() == ' ' || value.front() == '\t'))
             {
@@ -26,13 +20,8 @@ namespace ngx::protocol::http
             return value;
         }
 
-        /**
-         * @brief 忽略大小写比较字符串是否相等
-         * @param left 左侧字符串视图
-         * @param right 右侧字符串视图
-         * @return bool 相等返回 `true`，否则返回 `false`
-         */
-        [[nodiscard]] bool iequals(const std::string_view left, const std::string_view right) noexcept
+        [[nodiscard]] auto iequals(const std::string_view left, const std::string_view right) noexcept
+            -> bool
         {
             if (left.size() != right.size())
             {
@@ -53,14 +42,8 @@ namespace ngx::protocol::http
             return true;
         }
 
-        /**
-         * @brief 解析 `HTTP/1.x` 版本字符串
-         * @details 输入形如 `HTTP/1.1` 的字符串视图，输出内部保存的版本值 `11`。
-         * @param version_part 版本字符串视图
-         * @param version_value 用于输出解析后的版本数值
-         * @return bool 解析成功返回 `true`，否则返回 `false`
-         */
-        [[nodiscard]] bool parse_http_version(std::string_view version_part, unsigned int &version_value) noexcept
+        [[nodiscard]] auto parse_http_version(std::string_view version_part, unsigned int &version_value) noexcept
+            -> bool
         {
             if (!version_part.starts_with("HTTP/"))
             {
@@ -92,14 +75,8 @@ namespace ngx::protocol::http
             return true;
         }
 
-        /**
-         * @brief 解析整型状态码
-         * @details 要求状态码为三位十进制数字。
-         * @param value 状态码字符串视图
-         * @param status_code_value 输出的整型状态码
-         * @return bool 解析成功返回 `true`，否则返回 `false`
-         */
-        [[nodiscard]] bool parse_status_code(const std::string_view value, unsigned int &status_code_value) noexcept
+        [[nodiscard]] auto parse_status_code(const std::string_view value, unsigned int &status_code_value) noexcept
+            -> bool
         {
             if (value.size() != 3)
             {
@@ -121,9 +98,10 @@ namespace ngx::protocol::http
         }
     } // namespace
 
-    gist::code deserialize(const std::string_view string_value, request &http_request)
+    auto deserialize(const std::string_view string_value, request &http_request, memory::resource_pointer mr)
+        -> gist::code
     {
-        http_request.clear();
+        request parsed_request(mr ? mr : memory::current_resource());
 
         const std::size_t request_line_end = string_value.find("\r\n");
         if (request_line_end == std::string_view::npos)
@@ -155,9 +133,9 @@ namespace ngx::protocol::http
             return gist::code::parse_error;
         }
 
-        http_request.method(method_part);
-        http_request.target(target_part);
-        http_request.version(version_value);
+        parsed_request.method(method_part);
+        parsed_request.target(target_part);
+        parsed_request.version(version_value);
 
         const std::size_t headers_start = request_line_end + 2;
         const std::size_t headers_end = string_value.find("\r\n\r\n", headers_start);
@@ -205,7 +183,7 @@ namespace ngx::protocol::http
                 return gist::code::parse_error;
             }
 
-            http_request.set(name, value);
+            parsed_request.set(name, value);
         }
 
         const std::size_t body_start = headers_end + 4;
@@ -214,31 +192,33 @@ namespace ngx::protocol::http
             const std::string_view body_view = string_value.substr(body_start);
             if (!body_view.empty())
             {
-                http_request.body(body_view);
+                parsed_request.body(body_view);
             }
         }
 
-        const std::string_view connection_value = http_request.at("Connection");
+        const std::string_view connection_value = parsed_request.at("Connection");
         if (!connection_value.empty())
         {
             if (iequals(connection_value, "keep-alive"))
             {
-                http_request.keep_alive(true);
+                parsed_request.keep_alive(true);
             }
             else if (iequals(connection_value, "close"))
             {
-                http_request.keep_alive(false);
+                parsed_request.keep_alive(false);
             }
         }
-        else if (http_request.version() == 11)
+        else if (parsed_request.version() == 11)
         {
-            http_request.keep_alive(true);
+            parsed_request.keep_alive(true);
         }
 
+        http_request = std::move(parsed_request);
         return gist::code::success;
     }
 
-    gist::code deserialize(const std::string_view string_value, response &http_response)
+    auto deserialize(const std::string_view string_value, response &http_response)
+        -> gist::code
     {
         http_response.clear();
 

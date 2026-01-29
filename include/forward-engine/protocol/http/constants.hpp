@@ -1,5 +1,16 @@
+/**
+ * @file constants.hpp
+ * @brief HTTP 协议常量定义
+ * @details 定义了 HTTP 状态码 (Status Codes)、请求方法 (Verbs) 和头部字段 (Headers) 的枚举。
+ */
 #pragma once
 
+/**
+ * @namespace ngx::protocol::http
+ * @brief HTTP 协议实现
+ * @details 包含 HTTP/1.1 协议的完整实现，支持请求/响应的序列化与反序列化。
+ * 该模块设计为无状态，仅负责数据报文的处理，不管理连接生命周期。
+ */
 namespace ngx::protocol::http
 {
     /**

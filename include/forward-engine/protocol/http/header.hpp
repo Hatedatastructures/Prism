@@ -1,3 +1,8 @@
+/**
+ * @file header.hpp
+ * @brief HTTP 头部字段容器
+ * @details 定义了大小写不敏感的字符串类 `downcase_string` 和头部字段容器 `headers`。
+ */
 #pragma once
 #include <cstddef>
 #include <functional>
@@ -5,12 +10,18 @@
 #include <ranges>
 #include <algorithm>
 #include <forward-engine/memory/container.hpp>
+
+/**
+ * @namespace ngx::protocol::http
+ * @brief HTTP 协议实现
+ * @details 包含 HTTP/1.1 协议的完整实现，支持请求/响应的序列化与反序列化。
+ */
 namespace ngx::protocol::http
 {
     /**
      * @brief 小写字符串类
      * @details 该类用于存储和操作小写字符串。
-     * 它将输入的字符串自动转换为小写，并提供了比较和哈希函数。
+     * 它将输入的字符串自动转换为小写，并提供了比较和哈希函数，用于实现大小写不敏感的查找。
      */
     class downcase_string
     {
@@ -24,8 +35,8 @@ namespace ngx::protocol::http
         ~downcase_string() = default;
         bool operator==(const downcase_string &other) const;
 
-        [[nodiscard]] const memory::string &value() const;
-        [[nodiscard]] std::string_view view() const;
+        [[nodiscard]] auto value() const -> const memory::string &;
+        [[nodiscard]] auto view() const -> std::string_view;
 
         struct hash
         {
@@ -43,17 +54,20 @@ namespace ngx::protocol::http
     /**
      * @brief 头字段容器类
      * @details 该类用于存储 HTTP 请求或响应的头信息。
-     * 每个头信息都由一个键值对组成，键为 downcase_string 类型，值为 std::string 类型。
+     * 每个头信息都由一个键值对组成，键为 `downcase_string` 类型，值为 `std::string` 类型。
      * 头信息的键在存储时会被转换为小写，以方便比较和查找。
      */
     class headers
     {
     public:
+        /**
+         * @brief 头部字段项
+         */
         struct header
         {
-            downcase_string key;
-            memory::string value;
-            memory::string original_key;
+            downcase_string key; // 小写键
+            memory::string value; // 值
+            memory::string original_key; // 原始键 (保留大小写)
 
             explicit header(memory::resource_pointer mr = memory::current_resource());
             header(std::string_view name, std::string_view value, memory::resource_pointer mr = memory::current_resource());
@@ -81,15 +95,15 @@ namespace ngx::protocol::http
         bool erase(std::string_view name);
         bool erase(std::string_view name, std::string_view value);
 
-        [[nodiscard]] bool contains(std::string_view name) const noexcept;
-        [[nodiscard]] std::string_view retrieve(std::string_view name) const noexcept;
+        [[nodiscard]] auto contains(std::string_view name) const noexcept -> bool;
+        [[nodiscard]] auto retrieve(std::string_view name) const noexcept -> std::string_view;
 
-        [[nodiscard]] iterator begin() const;
-        [[nodiscard]] iterator end() const;
+        [[nodiscard]] auto begin() const -> iterator;
+        [[nodiscard]] auto end() const -> iterator;
 
     private:
         [[nodiscard]] memory::resource_pointer resource() const noexcept;
-        [[nodiscard]] downcase_string make_key(std::string_view name) const;
+        [[nodiscard]] auto make_key(std::string_view name) const -> downcase_string;
 
         container_type entries_;
     }; // class headers

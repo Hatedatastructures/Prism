@@ -8,6 +8,11 @@
 
 // 伪装器
 
+/**
+ * @namespace ngx::transport
+ * @brief 传输层 (Data Plane)
+ * @details 负责底层的数据搬运、连接管理和协议封装。
+ */
 namespace ngx::transport
 {
     namespace net = boost::asio;
@@ -17,6 +22,10 @@ namespace ngx::transport
 
     using openssl_context = SSL *;
 
+    /**
+     * @brief TLS 指纹 (JA3/JA4)
+     * @details 用于模拟 Chrome 浏览器的 TLS 指纹，以绕过流量识别。
+     */
     static inline constinit std::string_view fingerprint = {
         "TLS_AES_128_GCM_SHA256:TLS_AES_256_GCM_SHA384:TLS_CHACHA20_POLY1305_SHA256:"
         "ECDHE-ECDSA-AES128-GCM-SHA256:ECDHE-RSA-AES128-GCM-SHA256:"
@@ -110,14 +119,22 @@ namespace ngx::transport
     };
 
     /**
-     * @brief 暗箱容器
+     * @brief 暗箱容器 (Obscura)
      * @tparam Transport 传输类型
-     * @note obscura 暗箱容器用于实现建立伪装流量的暗箱通道，支持 client 和 server 两种模式
+     * @details `obscura` 是一个高级传输封装，用于将普通的 TCP 流量伪装成 WebSocket + TLS 流量。
+     * 
+     * **工作原理**：
+     * 1. **TLS 握手**：首先建立 TLS 安全连接，并注入 Chrome 指纹。
+     * 2. **WebSocket 握手**：在 TLS 之上建立 WebSocket 连接，伪装成普通的 Web 浏览行为。
+     * 3. **数据传输**：将实际数据作为 WebSocket 二进制帧传输。
+     * 
+     * @note 支持 Client 和 Server 两种模式。
      */
     template <TransportConcept Transport>
     class obscura : public std::enable_shared_from_this<obscura<Transport>>
     {
         using ssl_request = beast::http::request<beast::http::empty_body>;
+        using ssl_stream_type = ssl::stream<typename Transport::socket>;
 
     public:
         using socket_type = typename Transport::socket;
@@ -135,7 +152,7 @@ namespace ngx::transport
          * @param stream 已握手的 SSL Stream
          * @param r 角色
          */
-        explicit obscura(std::shared_ptr<ssl::stream<socket_type>> stream, const role r = role::server)
+        explicit obscura(std::shared_ptr<ssl_stream_type> stream, const role r = role::server)
             : role_(r), ssl_stream_ptr_(stream), wsocket_(*ssl_stream_ptr_)
         {
             wsocket_.binary(true);
@@ -144,20 +161,43 @@ namespace ngx::transport
         obscura(const obscura &) = delete;
         obscura &operator=(const obscura &) = delete;
 
+        /**
+         * @brief 执行握手
+         * @param host 目标主机 (Client 模式)
+         * @param path 请求路径 (Client 模式)
+         * @return `std::string` 对于 Server，返回请求路径；对于 Client，返回空串。
+         */
         auto handshake(std::string_view host = "", std::string_view path = "/")
             -> net::awaitable<std::string>;
 
-        // 专门用于已握手 SSL Stream 的 handshake
-        // pre_read_data: 之前 peek 到的数据，需要重新通过 websocket 握手消费
+        /**
+         * @brief 执行握手 (预读模式)
+         * @details 专门用于处理已读取了部分数据的 SSL Stream (例如经过协议探测后)。
+         * @param pre_read_data 之前 peek 到的数据
+         * @return `std::string` 请求路径
+         */
         auto handshake_preread(std::string_view pre_read_data)
             -> net::awaitable<std::string>;
 
-        // 读取数据到外部缓冲区，返回读取字节数
+        /**
+         * @brief 异步读取数据
+         * @param buffer 外部缓冲区
+         * @return `std::size_t` 读取的字节数
+         */
         auto async_read(beast::flat_buffer &buffer)
             -> net::awaitable<std::size_t>;
+        
+        /**
+         * @brief 写入数据
+         * @param data 要写入的数据
+         */
         auto async_write(std::string_view data)
             -> net::awaitable<void>;
 
+        /**
+         * @brief 关闭连接
+         * @details 发送 WebSocket 关闭帧并断开连接。
+         */
         auto close()
             -> net::awaitable<void>
         {
@@ -174,19 +214,20 @@ namespace ngx::transport
 
         // 方案：统一使用 shared_ptr<ssl::stream>
         // 如果是构造 1，则 make_shared 创建
-        std::shared_ptr<ssl::stream<socket_type>> ssl_stream_ptr_;
+        std::shared_ptr<ssl_stream_type> ssl_stream_ptr_;
 
-        websocket::stream<ssl::stream<socket_type> &> wsocket_;
+        websocket::stream<ssl_stream_type &> wsocket_;
     }; // class obscura
 
     template <TransportConcept Transport>
     obscura<Transport>::obscura(socket_type socket, std::shared_ptr<ssl::context> context, role r)
         : role_(r), ssl_context_(std::move(context)),
-          ssl_stream_ptr_(std::make_shared<ssl::stream<socket_type>>(std::move(socket), *ssl_context_)),
+          ssl_stream_ptr_(std::make_shared<ssl_stream_type>(std::move(socket), *ssl_context_)),
           wsocket_(*ssl_stream_ptr_)
     {
         wsocket_.binary(true);
     }
+
 
     /**
      * @brief 握手
@@ -263,6 +304,8 @@ namespace ngx::transport
             co_return "";
         }
 
+        wsocket_.set_option(websocket::stream_base::timeout::suggested(static_cast<beast::role_type>(role_)));
+
         std::string target_path;
         // 1. 预解析获取 target (因为 Beast async_accept(buffer) 重载不暴露 req 对象)
         {
@@ -308,7 +351,7 @@ namespace ngx::transport
      * @param data 要写入的数据
      */
     template <TransportConcept Transport>
-    auto obscura<Transport>::async_write(const std::string_view data)
+    auto obscura<Transport>::async_write(std::string_view data)
         -> net::awaitable<void>
     {
         co_await wsocket_.async_write(net::buffer(data), net::use_awaitable);

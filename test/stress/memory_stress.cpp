@@ -59,7 +59,7 @@ namespace
         if (GlobalMemoryStatusEx(&status))
         {
             // 限制为物理内存的 85%，防止系统卡死
-            std::size_t safe_limit = static_cast<std::size_t>(status.ullAvailPhys * 0.85);
+            const std::size_t safe_limit = static_cast<std::size_t>(status.ullAvailPhys * 0.85);
             if (safe_limit > 0 && safe_limit < requested_bytes)
             {
                 return safe_limit;
@@ -86,7 +86,7 @@ namespace
      * @param stop_flag 停止标志，用于控制线程退出
      * @param stats 线程统计结果引用
      */
-    void worker_thread(std::size_t thread_id, const stress_context &context,
+    void worker_thread(const std::size_t thread_id, const stress_context &context,
                        std::latch &start_latch, const std::atomic<bool> &stop_flag, thread_stats &stats)
     {
         // 1. 初始化内存资源
@@ -120,7 +120,7 @@ namespace
                 // 执行一批分配
                 for (std::size_t i = 0; i < 100; ++i)
                 {
-                    std::size_t size = size_dist(rng);
+                    const std::size_t size = size_dist(rng);
                     memory::string s(&counter);
                     // 写入数据确保内存被实际 commit
                     s.resize(size, static_cast<char>(rng()));
@@ -242,7 +242,7 @@ namespace
     }
 }
 
-int main(int argc, char **argv)
+int main(const int argc, char **argv)
 {
     (void)argc;
     (void)argv;

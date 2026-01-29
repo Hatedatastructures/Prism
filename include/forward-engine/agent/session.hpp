@@ -1,4 +1,10 @@
+/**
+ * @file session.hpp
+ * @brief 会话管理
+ * @details 定义了会话类，负责管理单个客户端连接的生命周期、协议识别和流量转发。
+ */
 #pragma once
+
 #include <cstddef>
 #include <cctype>
 
@@ -32,9 +38,18 @@ namespace ngx::agent
     using unique_sock = transport::unique_sock;
 
     /**
+     * @class session
      * @brief 会话管理类
-     * @tparam Transport socket 类型
-     * @note 作为会话管理类，负责管理与目标服务器（或客户端）的连接，自动处理代理转发和http请求
+     * @tparam Transport 客户端 `socket` 类型 (满足 SocketConcept 约束)
+     * @details 代表一个活跃的客户端连接。它是一个**自持有** (`shared_from_this`) 的对象，
+     * 这意味着只要异步操作未完成，它就不会析构。
+     * 
+     * **核心职责**：
+     * 1. **预读 (Peek)**: 读取少量数据以识别协议特征。
+     * 2. **协议识别**: 区分 HTTP, SOCKS5, TLS (Trojan/Obscura)。
+     * 3. **任务分派**: 将识别后的连接移交给对应的 `handler` 处理。
+     * 
+     * @see handler
      */
     template <transport::SocketConcept Transport>
     class session : public std::enable_shared_from_this<session<Transport>>
@@ -42,18 +57,40 @@ namespace ngx::agent
     public:
         using socket_type = Transport;
 
+        /**
+         * @brief 构造会话
+         * @param io_context IO 上下文
+         * @param socket 客户端 `socket` (所有权转移)
+         * @param dist 分发器引用 (用于路由查询)
+         * @param ssl_ctx SSL 上下文 (用于处理 TLS 握手)
+         */
         explicit session(net::io_context &io_context, socket_type socket, 
             distributor &dist, std::shared_ptr<ssl::context> ssl_ctx);
         virtual ~session();
 
+        /**
+         * @brief 启动会话
+         * @details 开始异步处理流程。
+         * **流程**：`start` -> `diversion` (预读&识别) -> `handler::xxx` (具体协议处理)。
+         */
         void start();
+
+        /**
+         * @brief 关闭会话
+         * @details 强制关闭所有关联的 socket (客户端和服务端) 并释放资源。
+         * @note 该函数是幂等的，多次调用无副作用。
+         */
         void close();
 
+        /**
+         * @brief 注册日志回调函数
+         * @param trace 日志回调函数
+         */
         static void registered_log_function(std::function<void(level, std::string_view)> trace) noexcept;
 
         /**
          * @brief 设置密码验证回调
-         * @param verifier 验证函数
+         * @param verifier 验证函数，输入密码哈希，返回验证结果
          */
         void set_password_verifier(std::function<bool(std::string_view)> verifier)
         {
@@ -65,7 +102,8 @@ namespace ngx::agent
         using cancellation_slot = net::cancellation_slot;
         using cancellation_signal = net::cancellation_signal;
 
-        [[nodiscard]] auto create_context() -> session_context<Transport>
+        [[nodiscard]] auto create_context() 
+            -> session_context<Transport>
         {
             return make_session_context<Transport>(
                 io_context_,
@@ -78,6 +116,11 @@ namespace ngx::agent
                 password_verifier_);
         }
 
+        /**
+         * @brief 协议分流
+         * @details 预读部分数据，根据协议特征进行分流处理。
+         * 这是一个异步操作，会挂起当前协程。
+         */
         auto diversion() -> net::awaitable<void>;
 
         net::io_context &io_context_;

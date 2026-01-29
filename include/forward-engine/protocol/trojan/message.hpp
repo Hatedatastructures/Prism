@@ -1,3 +1,8 @@
+/**
+ * @file message.hpp
+ * @brief Trojan 消息结构
+ * @details 定义了 Trojan 协议中使用的地址结构（IPv4, IPv6, Domain）和请求消息结构。
+ */
 #pragma once
 #include <array>
 #include <variant>
@@ -6,34 +11,62 @@
 #include <forward-engine/protocol/trojan/constants.hpp>
 #include <forward-engine/memory/container.hpp>
 
+/**
+ * @namespace ngx::protocol::trojan
+ * @brief Trojan 协议实现
+ * @details 实现了 Trojan 协议 (Trojan-GFW) 的数据结构和处理逻辑。
+ * 包含地址解析、密码哈希验证和流量转发封装。
+ */
 namespace ngx::protocol::trojan
 {
     /**
      * @brief IPv4 地址结构
+     * @details 包含 4 字节的 IPv4 地址数据。
      */
     struct ipv4_address
     {
+        /**
+         * @brief 地址字节数组
+         */
         std::array<uint8_t, 4> bytes;
     };
 
     /**
      * @brief IPv6 地址结构
+     * @details 包含 16 字节的 IPv6 地址数据。
      */
     struct ipv6_address
     {
+        /**
+         * @brief 地址字节数组
+         */
         std::array<uint8_t, 16> bytes;
     };
 
     /**
      * @brief 域名地址结构
-     * @note Trojan 域名最大长度为 255 (1 字节长度)
+     * @details 包含域名长度和内容。
+     * @note Trojan 域名最大长度为 255 (1 字节长度)。
      */
     struct domain_address
     {
+        /**
+         * @brief 域名长度
+         */
         std::uint8_t length;
+
+        /**
+         * @brief 域名内容缓冲区
+         */
         std::array<char, 255> value;
 
-        [[nodiscard]] memory::string to_string(const memory::resource_pointer mr = memory::current_resource()) const
+        /**
+         * @brief 转换为字符串
+         * @param mr 内存资源指针
+         * @return memory::string 域名字符串
+         */
+        [[nodiscard]] auto to_string(const memory::resource_pointer mr = memory::current_resource()) const
+            -> memory::string
         {
             return memory::string(value.data(), length, mr);
         }
@@ -41,17 +74,36 @@ namespace ngx::protocol::trojan
 
     /**
      * @brief Trojan 地址变体
+     * @details 可以是 IPv4、IPv6 或域名地址。
      */
     using address = std::variant<ipv4_address, ipv6_address, domain_address>;
 
     /**
      * @brief Trojan 请求结构
+     * @details 包含命令类型、端口、目标地址和密码哈希。
      */
     struct request
     {
+        /**
+         * @brief 命令类型
+         * @details CONNECT 或 UDP_ASSOCIATE。
+         */
         command cmd;
+
+        /**
+         * @brief 目标端口
+         */
         uint16_t port;
+
+        /**
+         * @brief 目标地址
+         */
         address destination_address;
+
+        /**
+         * @brief 密码哈希
+         * @details SHA224 编码的密码哈希值 (56 字符)。
+         */
         std::array<char, 56> password_hash;
     };
 
@@ -61,7 +113,8 @@ namespace ngx::protocol::trojan
      * @param mr 内存资源指针 (默认为全局资源)
      * @return ngx::memory::string 地址字符串
      */
-    inline memory::string to_string(const address &addr, memory::resource_pointer mr = memory::current_resource())
+    inline auto to_string(const address &addr, memory::resource_pointer mr = memory::current_resource())
+        -> memory::string
     {
         auto translate_address = [mr]<typename Address>(const Address& arg)-> memory::string
         {

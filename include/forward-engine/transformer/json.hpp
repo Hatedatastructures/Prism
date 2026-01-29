@@ -8,6 +8,12 @@
 
 #include <memory/container.hpp>
 
+/**
+ * @namespace ngx::transformer
+ * @brief 数据转换层
+ * @details 负责不同数据格式之间的序列化与反序列化（如 JSON, YAML 等）。
+ * 封装了底层解析库 (glaze)，提供统一且内存安全的接口。
+ */
 namespace ngx::transformer::json
 {
     /**

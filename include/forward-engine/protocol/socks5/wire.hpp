@@ -1,13 +1,24 @@
+/**
+ * @file wire.hpp
+ * @brief SOCKS5 协议线级解析
+ * @details 提供 SOCKS5 协议报文的底层解析函数，包括头部、IPv4、IPv6、域名和端口的解码。
+ */
 #pragma once
+
+#include <cstdint>
+#include <utility>
 #include <span>
+#include <tuple>
+
 #include <forward-engine/gist.hpp>
-#include <cstring>
+#include <forward-engine/protocol/socks5/constants.hpp>
 #include <forward-engine/protocol/socks5/message.hpp>
 
 namespace ngx::protocol::socks5::wire
 {
     /**
-     * @brief 解析头部部分
+     * @brief 头部解析结果
+     * @details 包含命令类型和地址类型。
      */
     struct header_parse
     {
@@ -34,7 +45,8 @@ namespace ngx::protocol::socks5::wire
      * @param buffer 数据缓冲区 (至少 4 字节)
      * @return `std::pair<gist::code, header_parse>`
      */
-    inline std::pair<gist::code, header_parse> decode_header(std::span<const std::uint8_t> buffer)
+    inline auto decode_header(std::span<const std::uint8_t> buffer)
+        -> std::pair<gist::code, header_parse>
     {
         if (buffer.size() < 4)
         {
@@ -54,7 +66,8 @@ namespace ngx::protocol::socks5::wire
      * @param buffer 数据缓冲区 (至少 4 字节)
      * @return `std::pair<gist::code, ipv4_address>`
      */
-    inline std::pair<gist::code, ipv4_address> decode_ipv4(const std::span<const std::uint8_t> buffer)
+    inline auto decode_ipv4(const std::span<const std::uint8_t> buffer)
+        -> std::pair<gist::code, ipv4_address>
     {
         if (buffer.size() < 4)
         {
@@ -70,7 +83,8 @@ namespace ngx::protocol::socks5::wire
      * @param buffer 数据缓冲区 (至少 16 字节)
      * @return `std::pair<gist::code, ipv6_address>`
      */
-    inline std::pair<gist::code, ipv6_address> decode_ipv6(const std::span<const std::uint8_t> buffer)
+    inline auto decode_ipv6(const std::span<const std::uint8_t> buffer)
+        -> std::pair<gist::code, ipv6_address>
     {
         if (buffer.size() < 16)
         {
@@ -86,7 +100,8 @@ namespace ngx::protocol::socks5::wire
      * @param buffer 数据缓冲区 (包括长度字节)
      * @return `std::pair<gist::code, domain_address>`
      */
-    inline std::pair<gist::code, domain_address> decode_domain(const std::span<const std::uint8_t> buffer)
+    inline auto decode_domain(const std::span<const std::uint8_t> buffer)
+        -> std::pair<gist::code, domain_address>
     {
         if (buffer.empty())
         {
@@ -108,7 +123,8 @@ namespace ngx::protocol::socks5::wire
      * @param buffer 数据缓冲区 (2 字节)
      * @return `std::pair<gist::code, uint16_t>` (主机字节序)
      */
-    inline std::pair<gist::code, uint16_t> decode_port(const std::span<const std::uint8_t> buffer)
+    inline auto decode_port(const std::span<const std::uint8_t> buffer)
+        -> std::pair<gist::code, uint16_t>
     {
         if (buffer.size() < 2)
         {

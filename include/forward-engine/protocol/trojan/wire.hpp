@@ -1,3 +1,8 @@
+/**
+ * @file wire.hpp
+ * @brief Trojan 协议线级解析
+ * @details 提供 Trojan 协议报文的底层解析函数，包括密码哈希、头部、地址和端口的解码。
+ */
 #pragma once
 #include <span>
 #include <forward-engine/gist.hpp>
@@ -5,23 +10,31 @@
 #include <cctype>
 #include <forward-engine/protocol/trojan/message.hpp>
 
+/**
+ * @namespace ngx::protocol::trojan::wire
+ * @brief Trojan 协议线级解析
+ * @details 提供底层的报文解析函数，负责处理 TCP 流中的二进制数据。
+ * 包括密码哈希提取、CRLF 验证、命令字和地址类型的解析。
+ */
 namespace ngx::protocol::trojan::wire
 {
     /**
-     * @brief 解析头部 (Cmd + Atyp)
+     * @brief 头部解析结果
+     * @details 包含命令类型和地址类型。
      */
     struct header_parse
     {
-        command cmd;
-        address_type atyp;
+        command cmd; // 命令类型
+        address_type atyp; // 地址类型
     };
 
     /**
      * @brief 解析并验证密码哈希
      * @param buffer 数据缓冲区 (至少 56 字节)
-     * @return `std::pair<gist::code, std::array<char, 56>>` 密码哈希数组
+     * @return `std::pair<gist::code, std::array<char, 56>>` 结果代码和密码哈希
      */
-    inline std::pair<gist::code, std::array<char, 56>> decode_hash(std::span<const std::uint8_t> buffer)
+    inline auto decode_hash(std::span<const std::uint8_t> buffer)
+        -> std::pair<gist::code, std::array<char, 56>>
     {
         if (buffer.size() < 56)
         {
@@ -43,9 +56,10 @@ namespace ngx::protocol::trojan::wire
     /**
      * @brief 验证 CRLF
      * @param buffer 数据缓冲区 (至少 2 字节)
-     * @return `gist::code`
+     * @return `gist::code` 验证结果
      */
-    inline gist::code decode_crlf(std::span<const std::uint8_t> buffer)
+    inline auto decode_crlf(std::span<const std::uint8_t> buffer)
+        -> gist::code
     {
         if (buffer.size() < 2)
         {
@@ -61,9 +75,10 @@ namespace ngx::protocol::trojan::wire
     /**
      * @brief 解析 Command 和 Address Type
      * @param buffer 数据缓冲区 (至少 2 字节)
-     * @return `std::pair<gist::code, header_parse>`
+     * @return `std::pair<gist::code, header_parse>` 解析结果
      */
-    inline std::pair<gist::code, header_parse> decode_cmd_atyp(std::span<const std::uint8_t> buffer)
+    inline auto decode_cmd_atyp(std::span<const std::uint8_t> buffer)
+        -> std::pair<gist::code, header_parse>
     {
         if (buffer.size() < 2)
         {
@@ -75,9 +90,10 @@ namespace ngx::protocol::trojan::wire
     /**
      * @brief 解析 IPv4 地址
      * @param buffer 数据缓冲区 (至少 4 字节)
-     * @return `std::pair<gist::code, ipv4_address>`
+     * @return `std::pair<gist::code, ipv4_address>` 解析结果
      */
-    inline std::pair<gist::code, ipv4_address> decode_ipv4(std::span<const std::uint8_t> buffer)
+    inline auto decode_ipv4(std::span<const std::uint8_t> buffer)
+        -> std::pair<gist::code, ipv4_address>
     {
         if (buffer.size() < 4)
         {
@@ -91,9 +107,10 @@ namespace ngx::protocol::trojan::wire
     /**
      * @brief 解析 IPv6 地址
      * @param buffer 数据缓冲区 (至少 16 字节)
-     * @return `std::pair<gist::code, ipv6_address>`
+     * @return `std::pair<gist::code, ipv6_address>` 解析结果
      */
-    inline std::pair<gist::code, ipv6_address> decode_ipv6(std::span<const std::uint8_t> buffer)
+    inline auto decode_ipv6(std::span<const std::uint8_t> buffer)
+        -> std::pair<gist::code, ipv6_address>      
     {
         if (buffer.size() < 16)
         {
@@ -107,9 +124,10 @@ namespace ngx::protocol::trojan::wire
     /**
      * @brief 解析域名
      * @param buffer 数据缓冲区 (包括长度字节)
-     * @return `std::pair<gist::code, domain_address>`
+     * @return `std::pair<gist::code, domain_address>` 解析结果
      */
-    inline std::pair<gist::code, domain_address> decode_domain(std::span<const std::uint8_t> buffer)
+    inline auto decode_domain(std::span<const std::uint8_t> buffer)
+        -> std::pair<gist::code, domain_address>
     {
         if (buffer.empty())
         {
@@ -128,10 +146,11 @@ namespace ngx::protocol::trojan::wire
 
     /**
      * @brief 解析端口
-     * @param buffer 数据缓冲区 (2 字节)
-     * @return `std::pair<gist::code, uint16_t>` (主机字节序)
+     * @param buffer 数据缓冲区 (2 字节，大端序)
+     * @return `std::pair<gist::code, uint16_t>` 解析结果 (主机字节序)
      */
-    inline std::pair<gist::code, uint16_t> decode_port(std::span<const std::uint8_t> buffer)
+    inline auto decode_port(std::span<const std::uint8_t> buffer)
+        -> std::pair<gist::code, uint16_t>
     {
         if (buffer.size() < 2)
         {

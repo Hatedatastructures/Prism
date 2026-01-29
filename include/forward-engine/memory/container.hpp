@@ -1,3 +1,8 @@
+/**
+ * @file container.hpp
+ * @brief 内存容器别名
+ * @details 定义了使用 `std::pmr` 多态内存资源的容器别名，以支持统一的内存管理。
+ */
 #pragma once
 
 #include <string>
@@ -9,18 +14,31 @@
 #include <memory_resource>
 #include <type_traits>
 
+/**
+ * @namespace ngx
+ * @brief 项目根命名空间
+ * @details 包含所有项目组件，包括协议、内存管理、传输等。
+ */
+namespace ngx {}
+
+/**
+ * @namespace ngx::memory
+ * @brief 内存管理子系统
+ * @details 提供基于 PMR (Polymorphic Memory Resource) 的内存管理基础设施。
+ * 包含自定义分配器、内存池策略和容器别名，旨在减少堆分配开销并优化缓存局部性。
+ */
 namespace ngx::memory
 {
     /**
-     * @brief 内存资源
-     * @details 使用 std::pmr::memory_resource 替代 std::memory_resource
-     * @note `monotonic_buffer_resource` 上分配时，内存资源紧凑排列，缓存极其友好
+     * @brief 内存资源类型
+     * @details 使用 `std::pmr::memory_resource` 替代 `std::memory_resource`。
+     * @note 当配合 `monotonic_buffer_resource` 使用时，内存分配连续紧凑，缓存友好。
      */
     using resource = std::pmr::memory_resource;
 
     /**
      * @brief 内存资源指针
-     * @details 指向 `resource` 对象的指针，用于内存资源管理
+     * @details 指向 `resource` 对象的指针，用于内存资源传递。
      */
     using resource_pointer = std::add_pointer_t<resource>;
 
@@ -34,78 +52,79 @@ namespace ngx::memory
     }
 
     /**
-     * @brief 内存分配器
-     * @details 使用 std::pmr::polymorphic_allocator 替代 std::polymorphic_allocator
-     * @note `monotonic_buffer_resource` 上分配时，内存资源紧凑排列，缓存极其友好
+     * @brief 多态内存分配器
+     * @details 使用 `std::pmr::polymorphic_allocator`。
+     * @tparam Type 分配的对象类型
      */
     template <typename Type>
     using allocator = std::pmr::polymorphic_allocator<Type>;
 
     /**
-     * @brief 同步池资源
-     * @details 使用 std::pmr::synchronized_pool_resource 替代 std::synchronized_pool_resource
-     * @warning 只适合作为全局默认内存资源，不适合线程局部或特定算法内部
+     * @brief 线程安全的池资源
+     * @details 使用 `std::pmr::synchronized_pool_resource`。
+     * @warning 适合作为全局默认资源，内部有锁。
      */
     using synchronized_pool = std::pmr::synchronized_pool_resource;
 
     /**
      * @brief 非线程安全的池资源
-     * @details 使用 std::pmr::unsynchronized_pool_resource 替代 std::unsynchronized_pool_resource
-     * @note `monotonic_buffer_resource` 上分配时，内存资源紧凑排列，缓存极其友好
+     * @details 使用 `std::pmr::unsynchronized_pool_resource`。
+     * @note 无锁，性能高，但仅限单线程或线程局部使用。
      */
     using unsynchronized_pool = std::pmr::unsynchronized_pool_resource;
 
     /**
-     * @brief 单调增长资源
-     * @details 使用 std::pmr::monotonic_buffer_resource 替代 std::monotonic_buffer_resource
-     * @warning 只适合作为全局默认内存资源，不适合线程局部或特定算法内部
+     * @brief 单调增长缓冲区资源
+     * @details 使用 `std::pmr::monotonic_buffer_resource`。
+     * @note 仅分配不释放（直到资源销毁），适用于生命周期短且确定的场景（如请求处理）。
      */
     using monotonic_buffer = std::pmr::monotonic_buffer_resource;
 
     /**
-     * @brief string 类型别名
-     * @details 使用 std::pmr::string 替代 std::string
-     * @note `monotonic_buffer_resource` 上分配时，字符串内容紧凑排列，缓存极其友好
+     * @brief PMR 字符串
+     * @details 使用 `std::pmr::string`。
      */
     using string = std::pmr::string;
 
     /**
-     * @brief vector
-     * @details 使用 std::pmr::vector 替代 std::vector
-     * @note `monotonic_buffer_resource` 上分配时，数组元素紧凑排列，缓存极其友好
+     * @brief PMR 动态数组
+     * @tparam Value 元素类型
      */
     template <typename Value>
     using vector = std::pmr::vector<Value>;
 
     /**
-     * @brief list
-     * @details 使用 std::pmr::list 替代 std::list
-     * @note `monotonic_buffer_resource` 上分配时，链表节点紧凑排列，缓存极其友好
+     * @brief PMR 双向链表
+     * @tparam Value 元素类型
      */
     template <typename Value>
     using list = std::pmr::list<Value>;
 
 
     /**
-     * @brief map
-     * @details 使用 std::pmr::map 替代 std::map
-     * @note `monotonic_buffer_resource` 上分配时，红黑树节点紧凑排列，缓存极其友好
+     * @brief PMR 红黑树映射
+     * @tparam Key 键类型
+     * @tparam Value 值类型
+     * @tparam Compare 比较器类型
      */
     template <typename Key, typename Value, typename Compare = std::less<Key>>
     using map = std::pmr::map<Key, Value, Compare>;
 
     /**
-     * @brief unordered_map
-     * @details 使用 std::pmr::unordered_map 替代 std::unordered_map
-     * @note `monotonic_buffer_resource` 上分配时，哈希表元素紧凑排列，缓存极其友好
+     * @brief PMR 哈希映射
+     * @tparam Key 键类型
+     * @tparam Value 值类型
+     * @tparam Hash 哈希函数类型
+     * @tparam KeyEqual 键比较器类型
      */
     template <typename Key, typename Value, typename Hash = std::hash<Key>, typename KeyEqual = std::equal_to<Key>>
     using unordered_map = std::pmr::unordered_map<Key, Value, Hash, KeyEqual>;
 
     /**
-     * @brief unordered_set
-     * @details 使用 std::pmr::unordered_set 替代 std::unordered_set
-     * @note `monotonic_buffer_resource` 上分配时，哈希集合元素紧凑排列，缓存极其友好
+     * @brief PMR 哈希集合
+     * @tparam Key 键类型
+     * @tparam Hash 哈希函数类型
+     * @tparam KeyEqual 键比较器类型
      */
     template <typename Key, typename Hash = std::hash<Key>, typename KeyEqual = std::equal_to<Key>>
     using unordered_set = std::pmr::unordered_set<Key, Hash, KeyEqual>;

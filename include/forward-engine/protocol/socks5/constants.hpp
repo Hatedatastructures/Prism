@@ -1,9 +1,17 @@
+/**
+ * @file constants.hpp
+ * @brief SOCKS5 协议常量
+ * @details 定义了 SOCKS5 协议的命令字、地址类型和响应码。
+ */
 #pragma once
 #include <cstdint>
 
 /**
- * @brief SOCKS5 协议
- * @note 参考 https://blog.csdn.net/qq_40873884/article/details/123636767
+ * @namespace ngx::protocol::socks5
+ * @brief SOCKS5 协议实现
+ * @details 实现了 SOCKS5 协议 (RFC 1928) 的服务端逻辑。
+ * 支持无认证 (NO AUTHENTICATION REQUIRED) 模式，处理 CONNECT、BIND 和 UDP ASSOCIATE 命令。
+ * @note  参考文档 https://blog.csdn.net/qq_40873884/article/details/123636767
  */
 namespace ngx::protocol::socks5
 {
@@ -47,6 +55,32 @@ namespace ngx::protocol::socks5
          * @brief IPv6 地址
          */
         ipv6 = 0x04
+    };
+
+    /**
+     * @brief 认证方法
+     */
+    enum class auth_method : std::uint8_t
+    {
+        /**
+         * @brief 无需认证
+         */
+        no_auth = 0x00,
+
+        /**
+         * @brief GSSAPI
+         */
+        gssapi = 0x01,
+
+        /**
+         * @brief 用户名/密码
+         */
+        password = 0x02,
+
+        /**
+         * @brief 无可接受的方法
+         */
+        no_acceptable_methods = 0xFF
     };
 
     /**
