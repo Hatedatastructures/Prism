@@ -5,7 +5,6 @@
  */
 #pragma once
 
-#include <cstdint>
 #include <memory/container.hpp>
 
 namespace ngx::agent

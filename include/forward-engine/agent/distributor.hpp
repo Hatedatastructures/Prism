@@ -17,8 +17,6 @@
 #include <forward-engine/gist.hpp>
 #include <utility>
 
-#include "rule.hpp"
-
 namespace ngx::agent
 {
     namespace net = boost::asio;
