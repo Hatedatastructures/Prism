@@ -80,7 +80,7 @@ namespace ngx::protocol::trojan
 
     /**
      * @brief Trojan 请求结构
-     * @details 包含命令类型、端口、目标地址和密码哈希。
+     * @details 包含命令类型、端口、目标地址和用户凭据。
      */
     struct request
     {
@@ -101,10 +101,10 @@ namespace ngx::protocol::trojan
         address destination_address;
 
         /**
-         * @brief 密码哈希
-         * @details SHA224 编码的密码哈希值 (56 字符)。
+         * @brief 用户凭据
+         * @details SHA224 编码的用户凭据 (56 字符)。
          */
-        std::array<char, 56> password_hash;
+        std::array<char, 56> credential;
     };
 
     /**

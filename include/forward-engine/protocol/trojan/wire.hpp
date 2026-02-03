@@ -29,11 +29,11 @@ namespace ngx::protocol::trojan::wire
     };
 
     /**
-     * @brief 解析并验证密码哈希
+     * @brief 解析并验证用户凭据
      * @param buffer 数据缓冲区 (至少 56 字节)
-     * @return `std::pair<gist::code, std::array<char, 56>>` 结果代码和密码哈希
+     * @return `std::pair<gist::code, std::array<char, 56>>` 结果代码和用户凭据
      */
-    inline auto decode_hash(std::span<const std::uint8_t> buffer)
+    inline auto decode_credential(std::span<const std::uint8_t> buffer)
         -> std::pair<gist::code, std::array<char, 56>>
     {
         if (buffer.size() < 56)
@@ -41,16 +41,16 @@ namespace ngx::protocol::trojan::wire
             return {gist::code::bad_message, {}};
         }
 
-        std::array<char, 56> hash{};
+        std::array<char, 56> credential{};
         for (size_t i = 0; i < 56; ++i)
         { // 检查每个字符是否为十六进制
             if (!std::isxdigit(buffer[i]))
             {
                 return {gist::code::protocol_error, {}};
             }
-            hash[i] = static_cast<char>(buffer[i]);
+            credential[i] = static_cast<char>(buffer[i]);
         }
-        return {gist::code::success, hash};
+        return {gist::code::success, credential};
     }
 
     /**

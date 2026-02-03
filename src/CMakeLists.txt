@@ -24,6 +24,7 @@ set(FORWARD_LIB_SOURCES
         ../include/forward-engine/transport/source.hpp
         ../include/forward-engine/transport/obscura.hpp
         ../include/forward-engine/agent/session.hpp
+        ../include/forward-engine/agent/validator.hpp
         ../include/forward-engine/rule/blacklist.hpp
         ../include/forward-engine/protocol/http.hpp
         ../include/forward-engine/protocol/http/constants.hpp

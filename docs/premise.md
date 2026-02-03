@@ -183,7 +183,7 @@ sudo sysctl -p
 ### 常见问题速查
 
 #### Q1：程序启动失败
-- **检查运行库**：安装 Visual C++ Redistributable
+- **检查运行环境**：确认 `c:/msys64/ucrt64/bin` 已加入 `PATH`（MinGW ucrt64 运行时）
 - **查看日志**：检查 `logs/` 目录下的错误信息
 - **端口占用**：修改配置中的端口号
 
@@ -254,14 +254,17 @@ sudo sysctl -p
 ## 📚 深入学习
 
 ### 核心代码模块
-建议按以下顺序阅读源码：
+建议按以下顺序阅读源码（路径相对 `include/forward-engine/`）：
 
-1. **`agent/worker.hpp`**：监听端口，接受连接
-2. **`agent/session.hpp`**：会话生命周期和主链路
-3. **`agent/analysis.hpp`**：协议识别和目标解析
-4. **`agent/distributor.hpp`**：路由分发策略
-5. **`agent/connection.hpp`**：连接池实现
-6. **`protocol/` 目录**：各协议的具体实现
+1. **`agent/worker.hpp`**：入口组件，初始化 `source/distributor/session` 并启动 accept 循环
+2. **`agent/session.hpp`**：单连接会话对象，负责协议识别与调度到具体 handler
+3. **`agent/handler.hpp`**：协议处理协程集合（HTTP/SOCKS5/Trojan/Obscura），负责握手、路由与启动转发
+4. **`agent/validator.hpp`**：认证与会话限流（如 Trojan 密码校验、连接数限制）
+5. **`protocol/analysis.hpp`**：协议识别与目标解析（从 HTTP/字符串等提取 `host:port`）
+6. **`agent/distributor.hpp`**：路由分发（正向/反向/直连）
+7. **`transport/source.hpp`**：TCP 连接池（上游连接复用与健康检查）
+8. **`transport/transfer.hpp`**：双向转发/隧道搬运的通用实现
+9. **`protocol/` 目录**：HTTP/SOCKS5/Trojan 等协议细节实现
 
 ### 关键概念深入
 
@@ -285,16 +288,19 @@ sudo sysctl -p
 
 ### 测试验证
 运行测试确保理解正确：
-```bash
-# 运行所有测试
+```bat
+:: 运行所有测试（推荐）
 ctest --test-dir build_release --output-on-failure
 
-# 关键测试用例
-session_test    # 验证隧道转发和退出语义
-socks5_test     # 验证 SOCKS5 握手和数据回显
-trojan_test     # 验证 Trojan 握手和密码验证
-connection_test # 验证连接池复用逻辑
+:: 你也可以只跑单个用例（名称以 ctest -N 输出为准）
+ctest --test-dir build_release -R session_test --output-on-failure
 ```
+
+关键测试用例（用于定位模块）：
+- `session_test`：验证隧道转发与退出语义
+- `socks5_test`：验证 SOCKS5 握手与数据回显
+- `trojan_test`：验证 Trojan 握手与密码验证
+- `connection_test`：验证连接池复用逻辑
 
 ## ❓ 常见问题（精选）
 

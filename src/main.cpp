@@ -1,10 +1,12 @@
 #include <forward-engine/agent.hpp>
+#include <forward-engine/agent/validator.hpp>
 #include <memory>
 #include <thread>
 #include <iostream>
 #include <fstream>
 
 #include <forward-engine/memory.hpp>
+#include <forward-engine/memory/pool.hpp>
 #include <forward-engine/abnormal.hpp>
 #include <forward-engine/trace.hpp>
 #include <forward-engine/transformer.hpp>
@@ -74,15 +76,27 @@ int main()
         ngx::core::configuration overall_situation_config = mapping_configuration();
         ngx::trace::init(overall_situation_config.trace);
 
-        auto work = [](const ngx::core::configuration& config)
+        auto shared_validator = std::make_shared<agent::validator>(ngx::memory::system::global_pool());
+        const auto& auth = overall_situation_config.agent.authentication;
+        shared_validator->reserve(auth.credentials.size() + auth.users.size());
+        for (const auto &cred : auth.credentials)
+        {
+            shared_validator->upsert_user(std::string_view(cred.data(), cred.size()));
+        }
+        for (const auto &user : auth.users)
+        {
+            shared_validator->upsert_user(std::string_view(user.credential.data(), user.credential.size()), user.max_connections);
+        }
+
+        auto work = [shared_validator](const ngx::core::configuration& config)
         {
 
             agent::config agent_config = config.agent;
-            agent::worker worker(agent_config);
+            agent::worker worker(agent_config, shared_validator);
             worker.run();
         };
 
-        std::vector<std::jthread> threads;
+        ngx::memory::vector<std::jthread> threads;
         threads.reserve(threads_count);
 
         for (auto i = 0U; i < threads_count; ++i)

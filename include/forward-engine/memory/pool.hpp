@@ -145,8 +145,9 @@ namespace ngx::memory
      */
     class frame_arena
     {
-        // 16KB 栈缓冲，覆盖 99% 的请求头，避免栈溢出
-        std::byte buffer_[16 * 1024];
+        // 降低内部缓冲大小，避免 session 对象过大
+        // 大部分内存请求应直接透传给 thread_local_pool (无锁且高效)
+        std::byte buffer_[128];
         monotonic_buffer resource_;
 
     public:

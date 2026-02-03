@@ -37,22 +37,22 @@ namespace ngx::protocol::trojan
          * @brief 构造函数
          * @param socket 底层 `socket` (将被移动到 SSL stream 中)
          * @param ctx SSL 上下文
-         * @param password_verifier 密码验证回调 (可选，用于服务器端验证)
+         * @param credential_verifier 用户凭据验证回调 (可选，用于服务器端验证)
          */
         stream(Transport socket, std::shared_ptr<ssl::context> ctx,
-               std::function<bool(std::string_view)> password_verifier = nullptr)
-            : stream_ptr_(std::make_shared<stream_type>(std::move(socket), *ctx)), verifier_(std::move(password_verifier))
+               std::function<bool(std::string_view)> credential_verifier = nullptr)
+            : stream_ptr_(std::make_shared<stream_type>(std::move(socket), *ctx)), verifier_(std::move(credential_verifier))
         {
         }
 
         /**
          * @brief 构造函数 (使用已握手的 SSL Stream)
          * @param stream 已握手的 SSL Stream
-         * @param password_verifier 密码验证回调
+         * @param credential_verifier 用户凭据验证回调
          */
         stream(std::shared_ptr<stream_type> stream,
-               std::function<bool(std::string_view)> password_verifier = nullptr)
-            : stream_ptr_(stream), verifier_(std::move(password_verifier))
+               std::function<bool(std::string_view)> credential_verifier = nullptr)
+            : stream_ptr_(stream), verifier_(std::move(credential_verifier))
         {
         }
 
@@ -276,11 +276,11 @@ namespace ngx::protocol::trojan
 
         /**
          * @brief 头部信息结构体
-         * @details 包含密码哈希和头部解析结果
+         * @details 包含用户凭据和头部解析结果
          */
         struct header_information
         {
-            std::array<char, 56> hash; // 密码哈希
+            std::array<char, 56> credential; // 用户凭据
             wire::header_parse head; // 头部解析结果
         };
 
@@ -292,24 +292,24 @@ namespace ngx::protocol::trojan
         auto read_header(std::string_view &buffer)
             -> net::awaitable<std::pair<gist::code, header_information>>
         {
-            // 读取 Hash(56) + CRLF(2) + Cmd(1) + Atyp(1) = 60 bytes
+            // 读取 Credential(56) + CRLF(2) + Cmd(1) + Atyp(1) = 60 bytes
             std::array<std::uint8_t, 60> head_buffer{};
             if (auto ec = co_await read_specified_bytes(buffer, head_buffer.data(), 60); ec != gist::code::success)
             {
                 co_return std::pair<gist::code, header_information>{ec, header_information{}};
             }
 
-            // 解析 Hash
-            auto [ec_hash, hash] = wire::decode_hash(std::span<const std::uint8_t>(head_buffer.data(), 56));
-            if (ec_hash != gist::code::success)
+            // 解析 Credential
+            auto [ec_cred, credential] = wire::decode_credential(std::span<const std::uint8_t>(head_buffer.data(), 56));
+            if (ec_cred != gist::code::success)
             {
-                co_return std::pair<gist::code, header_information>{ec_hash, header_information{}};
+                co_return std::pair<gist::code, header_information>{ec_cred, header_information{}};
             }
 
-            // 验证密码
+            // 验证用户凭据
             if (verifier_)
             {
-                if (!verifier_(std::string_view(hash.data(), 56)))
+                if (!verifier_(std::string_view(credential.data(), 56)))
                 {
                     co_return std::pair<gist::code, header_information>{gist::code::auth_failed, header_information{}};
                 }
@@ -328,7 +328,7 @@ namespace ngx::protocol::trojan
                 co_return std::pair<gist::code, header_information>{ec_head, header_information{}};
             }
 
-            co_return std::pair<gist::code, header_information>{gist::code::success, header_information{hash, head}};
+            co_return std::pair<gist::code, header_information>{gist::code::success, header_information{credential, head}};
         }
 
         /**
@@ -347,7 +347,7 @@ namespace ngx::protocol::trojan
             }
 
             request req;
-            req.password_hash = head_info.hash;
+            req.credential = head_info.credential;
             req.cmd = head_info.head.cmd;
 
             if (req.cmd != command::connect && req.cmd != command::udp_associate)

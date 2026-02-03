@@ -6,6 +6,7 @@
 #pragma once
 
 #include <memory/container.hpp>
+#include <cstdint>
 
 namespace ngx::agent
 {
@@ -19,7 +20,7 @@ namespace ngx::agent
          * @brief 主机名
          * @details 可以是域名或 IP 地址。
          */
-        memory::string host;
+        memory::string host;    
 
         /**
          * @brief 端口号
@@ -73,10 +74,35 @@ namespace ngx::agent
     struct authentication
     {
         /**
-         * @brief 密码哈希列表
-         * @details 存储允许通过验证的密码哈希值 (通常为 SHA224)。
+         * @brief 用户配置
+         * @details 以 `credential` 为用户唯一标识，携带可选的连接数限制。
          */
-        memory::vector<memory::string> passwords;
+        struct user
+        {
+            /**
+             * @brief 用户凭据
+             * @details 用于身份校验的凭据（如密码哈希、令牌等）。
+             */
+            memory::string credential;
+
+            /**
+             * @brief 最大并发连接数
+             * @details 0 表示不限制。
+             */
+            std::uint32_t max_connections = 0;
+        };
+
+        /**
+         * @brief 凭据列表
+         * @details 存储允许通过验证的凭据（通常为 SHA224 密码哈希）。
+         */
+        memory::vector<memory::string> credentials;
+
+        /**
+         * @brief 用户列表
+         * @details 与 `credentials` 等价但更可扩展，支持为单个用户配置独立限制。
+         */
+        memory::vector<user> users;
     };
 
     /**

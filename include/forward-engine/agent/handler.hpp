@@ -1,11 +1,19 @@
 /**
  * @file handler.hpp
  * @brief 会话处理逻辑
- * @details 定义了各种协议（HTTP, SOCKS5, Trojan, TLS, Obscura）的具体处理函数。
+ * @details 定义了各种协议（`HTTP`、`SOCKS5`、`Trojan`、`TLS`、`Obscura`）的具体处理函数。
+ *
+ * 该文件以 `Boost.Asio` 协程 (`net::awaitable`) 作为基础抽象，每个处理函数通常具备如下职责：
+ * - 从客户端连接读取并解析握手/请求；
+ * - 调用 `distributor` 执行路由（`route_forward`/`route_reverse`），获取到上游连接；
+ * - 按协议要求回复客户端，并启动数据转发（原始 `TCP` 或 `Obscura` 隧道）。
+ *
+ * @note 该文件主要由模板与 `inline` 协程组成，变更会影响所有包含它的编译单元。
  */
 #pragma once
 #include <cstddef>
 #include <cctype>
+#include <cstdint>
 
 #include <array>
 #include <memory>
@@ -21,6 +29,7 @@
 
 #include <forward-engine/gist.hpp>
 #include <forward-engine/memory/pool.hpp>
+#include <forward-engine/agent/validator.hpp>
 #include <forward-engine/agent/distributor.hpp>
 #include <forward-engine/protocol/analysis.hpp>
 #include <forward-engine/transport/obscura.hpp>
@@ -64,7 +73,8 @@ namespace ngx::agent
         std::shared_ptr<ssl::context> ssl_ctx; // SSL 上下文 (可选)
         memory::frame_arena &frame_arena; // 帧内存池
         std::span<std::byte> buffer; // 共享缓冲区
-        std::function<bool(std::string_view)> &password_verifier; // 密码验证回调
+        std::function<bool(std::string_view)> &credential_verifier; // 凭据验证回调
+        validator *account_validator_ptr{nullptr};
     }; // struct session_context
 
     /**
@@ -77,7 +87,8 @@ namespace ngx::agent
      * @param ssl_ctx SSL 上下文
      * @param frame_arena 内存池
      * @param buffer 缓冲区
-     * @param password_verifier 密码验证器
+     * @param credential_verifier 用户凭据验证器
+     * @param account_validator_ptr 账户验证器
      * @return session_context<Transport> 构造完成的会话上下文
      */
     template <transport::SocketConcept Transport>
@@ -85,14 +96,15 @@ namespace ngx::agent
         Transport &client_socket, transport::unique_sock &server_socket,
         distributor &distributor_ref, std::shared_ptr<ssl::context> ssl_ctx,
         memory::frame_arena &frame_arena, std::span<std::byte> buffer,
-        std::function<bool(std::string_view)> &password_verifier) 
+        std::function<bool(std::string_view)> &credential_verifier,
+        validator *account_validator_ptr) 
             -> session_context<Transport>
     {
         return session_context<Transport>
         {
             io_context, client_socket, server_socket,
             distributor_ref, ssl_ctx, frame_arena,
-            buffer, password_verifier
+            buffer, credential_verifier, account_validator_ptr
         };
     }
 } // namespace ngx::agent
@@ -163,7 +175,7 @@ namespace ngx::agent::handler
      */
     template <typename Context>
     auto connect_upstream(Context &ctx, std::string_view label, const protocol::analysis::target &target,
-                          const bool allow_reverse, const bool require_open) 
+        const bool allow_reverse, const bool require_open) 
         -> net::awaitable<bool>
     {
         auto ec = gist::code::success;
@@ -482,7 +494,7 @@ namespace ngx::agent::handler
     {
         // 构造 Trojan 代理 (使用已握手的 stream)
         using Transport = typename Context::socket_type;
-        auto agent = std::make_shared<protocol::trojan::stream<Transport>>(stream, ctx.password_verifier);
+        auto agent = std::make_shared<protocol::trojan::stream<Transport>>(stream, ctx.credential_verifier);
 
         // 1. 握手 (带预读数据)
         auto [ec, info] = co_await agent->handshake_preread(pre_read_data);
@@ -490,6 +502,19 @@ namespace ngx::agent::handler
         {
             detail::event_tracking(level::warn, std::format("[Trojan] Handshake failed: {}", ngx::gist::describe(ec)));
             co_return;
+        }
+
+        validator::traffic_metrics *user_state_ptr = nullptr;
+        if (ctx.account_validator_ptr)
+        {
+            const std::string_view credential_view(info.credential.data(), info.credential.size());
+            validator::protector user_session = ctx.account_validator_ptr->try_acquire(credential_view);
+            if (!user_session)
+            {
+                detail::event_tracking(level::warn, "[Trojan] Connection rejected by account validator.");
+                co_return;
+            }
+            user_state_ptr = user_session.state();
         }
 
         // 2. 解析目标
@@ -508,9 +533,10 @@ namespace ngx::agent::handler
             // 4. 建立隧道 (SSL Stream <-> TCP Socket)
             auto &client_stream = agent->get_stream();
             auto &server_socket = *ctx.server_socket;
+            auto *validator_ptr = ctx.account_validator_ptr;
 
             // 定义单向转发 lambda
-            auto forward = [](auto &read_stream, auto &write_stream) -> net::awaitable<void>
+            auto forward = [validator_ptr, user_state_ptr](auto &read_stream, auto &write_stream, const bool uplink) -> net::awaitable<void>
             {
                 std::array<char, 8192> buf{};
                 boost::system::error_code ec;
@@ -524,6 +550,18 @@ namespace ngx::agent::handler
                         co_return;
                     }
 
+                    if (validator_ptr && user_state_ptr)
+                    {
+                        if (uplink)
+                        {
+                            validator_ptr->accumulate_uplink(user_state_ptr, n);
+                        }
+                        else
+                        {
+                            validator_ptr->accumulate_downlink(user_state_ptr, n);
+                        }
+                    }
+
                     ec.clear();
                     co_await net::async_write(write_stream, net::buffer(buf, n), token);
                     if (ec)
@@ -535,9 +573,7 @@ namespace ngx::agent::handler
 
             // 并行执行双向转发
             using namespace boost::asio::experimental::awaitable_operators;
-            co_await (
-                forward(client_stream, server_socket) &&
-                forward(server_socket, client_stream));
+            co_await (forward(client_stream, server_socket, true) || forward(server_socket, client_stream, false));
 
             // 5. 清理
             shut_close(ctx.server_socket);

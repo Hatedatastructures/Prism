@@ -13,6 +13,11 @@
             "host": "localhost",
             "port": 8081
         },
+        "authentication": {
+            "credentials": [
+                "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+            ]
+        },
         "certificate": {
             "key": "C:\\Users\\C1373\\Desktop\\code\\ForwardEngine\\key.pem",
             "cert": "C:\\Users\\C1373\\Desktop\\code\\ForwardEngine\\cert.pem"
@@ -22,7 +27,7 @@
     "trace": {
         "enable_console": true,
         "enable_file": false,
-        "log_level": "info",
+        "log_level": "debug",
         "pattern": "[%Y-%m-%d %H:%M:%S.%e][%l] %v",
         "trace_name": "forward_engine"
     }

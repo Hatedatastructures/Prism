@@ -8,6 +8,7 @@
 #include <forward-engine/transport/source.hpp>
 #include <forward-engine/agent/distributor.hpp>
 #include <forward-engine/agent/session.hpp>
+#include <forward-engine/memory.hpp>
 #include <boost/asio.hpp>
 #include <boost/asio/ssl.hpp>
 #include <trace/spdlog.hpp>
@@ -15,9 +16,8 @@
 // #include "agent/worker.hpp" // worker.hpp 似乎已被移除或整合
 
 #ifdef WIN32
-    #include <windows.h>
+#include <windows.h>
 #endif
-
 
 namespace net = boost::asio;
 namespace ssl = boost::asio::ssl;
@@ -56,7 +56,6 @@ namespace
         ngx::trace::info("{}", msg);
     }
 }
-
 
 /**
  * @brief 回显服务器
@@ -103,7 +102,7 @@ net::awaitable<void> echo_server(tcp::acceptor acceptor)
  * @note 代理服务器会持续监听 acceptor，直到发生错误
  */
 net::awaitable<void> proxy_accept_one(tcp::acceptor acceptor, net::io_context &ioc,
-    agent::distributor &dist, std::shared_ptr<ssl::context> ssl_ctx)
+                                      agent::distributor &dist, std::shared_ptr<ssl::context> ssl_ctx)
 {
     boost::system::error_code accept_ec;
     auto accept_token = net::redirect_error(net::use_awaitable, accept_ec);
@@ -111,8 +110,9 @@ net::awaitable<void> proxy_accept_one(tcp::acceptor acceptor, net::io_context &i
     if (accept_ec)
     {
         co_return;
-    } 
-    auto session_ptr = std::make_shared<agent::session<tcp::socket>>(ioc, std::move(socket), dist, std::move(ssl_ctx));
+    }
+    auto session_ptr = std::make_shared<agent::session<tcp::socket>>(ioc, 
+        std::move(socket), dist, std::move(ssl_ctx), ngx::memory::current_resource());
     session_ptr->registered_log_function(log_transformation);
     session_ptr->start();
 }
@@ -163,7 +163,7 @@ net::awaitable<std::string> read_proxy_connect_response(tcp::socket &socket)
  * @note 超时时间内未发送取消信号，会自动发送取消信号
  */
 net::awaitable<void> emit_cancel_after(std::shared_ptr<net::cancellation_signal> signal, const std::chrono::milliseconds timeout)
-{   // 获取当前协程的 executor
+{ // 获取当前协程的 executor
     net::steady_timer timer(co_await net::this_coro::executor);
     timer.expires_after(timeout);
 
@@ -214,14 +214,14 @@ net::awaitable<void> wait_until_true(std::shared_ptr<std::atomic_bool> flag, con
  * @note 会发送 CONNECT 请求，然后等待响应，最后发送 payload 并等待 echo
  */
 net::awaitable<void> proxy_connect_client_echo(const tcp::endpoint proxy_ep, const tcp::endpoint echo_ep,
-    const std::string_view tag)
+                                               const std::string_view tag)
 {
     tcp::socket socket(co_await net::this_coro::executor);
     co_await socket.async_connect(proxy_ep, net::use_awaitable);
     info(std::format("{} client: 已连接代理", tag));
 
     const std::string connect_request = std::format("CONNECT {}:{} HTTP/1.1\r\nHost: {}:{}\r\n\r\n",
-        echo_ep.address().to_string(), echo_ep.port(), echo_ep.address().to_string(), echo_ep.port());
+                                                    echo_ep.address().to_string(), echo_ep.port(), echo_ep.address().to_string(), echo_ep.port());
 
     co_await net::async_write(socket, net::buffer(connect_request), net::use_awaitable);
     info(std::format("{} client: 已发送 CONNECT", tag));
@@ -290,7 +290,7 @@ net::awaitable<void> upstream_close_after_accept(tcp::acceptor acceptor, const s
  * @note 超时时间内未关闭连接，会自动设置标志位为 true
  */
 net::awaitable<void> upstream_wait_peer_close(tcp::acceptor acceptor, std::shared_ptr<std::atomic_bool> closed_flag,
-    const std::chrono::milliseconds timeout)
+                                              const std::chrono::milliseconds timeout)
 {
     boost::system::error_code accept_ec;
     auto accept_token = net::redirect_error(net::use_awaitable, accept_ec);
@@ -331,14 +331,14 @@ net::awaitable<void> upstream_wait_peer_close(tcp::acceptor acceptor, std::share
  * @note 会发送 CONNECT 请求，然后等待响应，最后等待 peer 关闭连接
  */
 net::awaitable<void> proxy_connect_client_expect_close(const tcp::endpoint proxy_ep, const tcp::endpoint upstream_ep,
-    const std::string_view tag)
+                                                       const std::string_view tag)
 {
     tcp::socket socket(co_await net::this_coro::executor);
     co_await socket.async_connect(proxy_ep, net::use_awaitable);
     info(std::format("{} client: 已连接代理，准备等待代理主动关闭", tag));
 
     const std::string connect_request = std::format("CONNECT {}:{} HTTP/1.1\r\nHost: {}:{}\r\n\r\n",
-        upstream_ep.address().to_string(), upstream_ep.port(), upstream_ep.address().to_string(), upstream_ep.port());
+                                                    upstream_ep.address().to_string(), upstream_ep.port(), upstream_ep.address().to_string(), upstream_ep.port());
 
     co_await net::async_write(socket, net::buffer(connect_request), net::use_awaitable);
 
@@ -349,8 +349,8 @@ net::awaitable<void> proxy_connect_client_expect_close(const tcp::endpoint proxy
 
     auto timeout_signal = std::make_shared<net::cancellation_signal>();
     net::co_spawn(co_await net::this_coro::executor,
-        emit_cancel_after(timeout_signal, std::chrono::milliseconds(1500)),
-        net::detached);
+                  emit_cancel_after(timeout_signal, std::chrono::milliseconds(1500)),
+                  net::detached);
 
     std::array<char, 1> one{};
     boost::system::error_code ec;
@@ -382,14 +382,14 @@ net::awaitable<void> proxy_connect_client_expect_close(const tcp::endpoint proxy
  * @note 会发送 CONNECT 请求，然后等待响应，最后等待 peer 关闭连接后，关闭 socket
  */
 net::awaitable<void> proxy_connect_client_then_close(const tcp::endpoint proxy_ep, const tcp::endpoint upstream_ep,
-    const std::string_view tag)
+                                                     const std::string_view tag)
 {
     tcp::socket socket(co_await net::this_coro::executor);
     co_await socket.async_connect(proxy_ep, net::use_awaitable);
     info(std::format("{} client: 已连接代理，将主动关闭以触发对向退出", tag));
 
     const std::string connect_request = std::format("CONNECT {}:{} HTTP/1.1\r\nHost: {}:{}\r\n\r\n",
-        upstream_ep.address().to_string(), upstream_ep.port(), upstream_ep.address().to_string(), upstream_ep.port());
+                                                    upstream_ep.address().to_string(), upstream_ep.port(), upstream_ep.address().to_string(), upstream_ep.port());
 
     co_await net::async_write(socket, net::buffer(connect_request), net::use_awaitable);
 
@@ -414,7 +414,7 @@ net::awaitable<void> proxy_connect_client_then_close(const tcp::endpoint proxy_e
  * @note 会启动 echo 服务器和代理服务器，然后连接代理服务器，最后关闭连接
  */
 net::awaitable<void> run_case_echo(net::io_context &ioc, agent::distributor &dist, std::shared_ptr<ssl::context> ssl_ctx,
-    const std::string_view tag)
+                                   const std::string_view tag)
 {
     info(std::format("{} === case: echo ===", tag));
 
@@ -440,7 +440,7 @@ net::awaitable<void> run_case_echo(net::io_context &ioc, agent::distributor &dis
  * @note 会启动 echo 服务器和代理服务器，然后连接代理服务器，最后关闭连接
  */
 net::awaitable<void> run_case_upstream_close_should_close_client(net::io_context &ioc, agent::distributor &dist,
-    std::shared_ptr<ssl::context> ssl_ctx, const std::string_view tag)
+                                                                 std::shared_ptr<ssl::context> ssl_ctx, const std::string_view tag)
 {
     info(std::format("{} === case: upstream_close_should_close_client ===", tag));
 
@@ -467,7 +467,7 @@ net::awaitable<void> run_case_upstream_close_should_close_client(net::io_context
  * @note 会启动 echo 服务器和代理服务器，然后连接代理服务器，最后关闭连接
  */
 net::awaitable<void> run_case_client_close_should_close_upstream(net::io_context &ioc, agent::distributor &dist,
-    std::shared_ptr<ssl::context> ssl_ctx, const std::string_view tag)
+                                                                 std::shared_ptr<ssl::context> ssl_ctx, const std::string_view tag)
 {
     info(std::format("{} === case: client_close_should_close_upstream ===", tag));
 
@@ -481,7 +481,7 @@ net::awaitable<void> run_case_client_close_should_close_upstream(net::io_context
     auto upstream_closed = std::make_shared<std::atomic_bool>(false);
 
     net::co_spawn(ioc, upstream_wait_peer_close(std::move(upstream_acceptor), upstream_closed, EXPECTED_SHUTDOWN_TIMEOUT),
-        net::detached);
+                  net::detached);
     net::co_spawn(ioc, proxy_accept_one(std::move(proxy_acceptor), ioc, dist, std::move(ssl_ctx)), net::detached);
 
     co_await proxy_connect_client_then_close(proxy_ep, upstream_ep, tag);
@@ -491,7 +491,7 @@ net::awaitable<void> run_case_client_close_should_close_upstream(net::io_context
 }
 
 net::awaitable<void> run_all_tests(net::io_context &ioc, agent::distributor &dist, std::shared_ptr<ssl::context> ssl_ctx,
-    const std::string_view tag)
+                                   const std::string_view tag)
 {
     co_await run_case_echo(ioc, dist, ssl_ctx, tag);
     co_await run_case_upstream_close_should_close_client(ioc, dist, ssl_ctx, tag);
@@ -540,7 +540,7 @@ int main()
         auto ssl_ctx = std::make_shared<ssl::context>(ssl::context::tlsv12);
         ssl_ctx->set_verify_mode(ssl::verify_none);
 
-            std::exception_ptr test_error;
+        std::exception_ptr test_error;
 
         {
             auto function = [&ioc, &dist, &ssl_ctx]() -> net::awaitable<void>

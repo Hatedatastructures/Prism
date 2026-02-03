@@ -99,6 +99,8 @@ target_link_libraries(session_test
 
 )
 
+add_test(NAME trojan_web_test COMMAND trojan_web_test)
+
 add_test(NAME session_test COMMAND session_test)
 
 # obscura 测试可执行程序
@@ -155,6 +157,11 @@ add_executable(trojan_test trojan_test.cpp)
 target_compile_options(trojan_test PRIVATE -g1 -Os -fno-keep-inline-dllexport)
 target_link_libraries(trojan_test PRIVATE ${PROJECT_NAME}_static_library)
 add_test(NAME trojan_test COMMAND trojan_test)
+
+# Trojan Client 真实访问测试
+add_executable(trojan_client_test trojan_client_test.cpp)
+target_compile_options(trojan_client_test PRIVATE -g1 -Os -fno-keep-inline-dllexport)
+target_link_libraries(trojan_client_test PRIVATE ${PROJECT_NAME}_static_library)
 
 add_subdirectory(benchmark)
 

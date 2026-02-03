@@ -16,7 +16,7 @@ using tcp = net::ip::tcp;
 /**
  * @brief Trojan 测试服务器协程
  */
-net::awaitable<void> do_trojan_server(tcp::acceptor &acceptor, std::shared_ptr<ssl::context> ssl_ctx, const std::string &expected_password)
+net::awaitable<void> do_trojan_server(tcp::acceptor &acceptor, std::shared_ptr<ssl::context> ssl_ctx, const std::string &expected_credential)
 {
     try
     {
@@ -24,16 +24,16 @@ net::awaitable<void> do_trojan_server(tcp::acceptor &acceptor, std::shared_ptr<s
         auto socket = co_await acceptor.async_accept(net::use_awaitable);
 
         // 验证回调
-        auto password_verifier = [expected_password](std::string_view hash) -> bool
+        auto user_credential_verifier = [expected_credential](std::string_view user_credential) -> bool
         {
-            // 简单验证：比较 hash 是否匹配预期的 SHA224
-            // 这里为了简化测试，假设 expected_password 已经是 hash 过的或者直接比较
-            std::cout << "Verifying password hash: " << hash << std::endl;
+            // 简单验证：比较 user_credential 是否匹配预期的 SHA224
+            // 这里为了简化测试，假设 expected_credential 已经是 hash 过的或者直接比较
+            std::cout << "Verifying user credential: " << user_credential << std::endl;
             return true; // 总是通过
         };
 
         // 创建 Trojan 实例
-        auto trojan = std::make_shared<ngx::protocol::trojan::stream<tcp::socket>>(std::move(socket), ssl_ctx, password_verifier);
+        auto trojan = std::make_shared<ngx::protocol::trojan::stream<tcp::socket>>(std::move(socket), ssl_ctx, user_credential_verifier);
 
         // 执行握手
         std::cout << "Server starting Trojan handshake..." << std::endl;
@@ -86,7 +86,7 @@ net::awaitable<void> do_trojan_server(tcp::acceptor &acceptor, std::shared_ptr<s
  * @brief Trojan 测试客户端协程
  */
 net::awaitable<void> do_trojan_client(tcp::endpoint endpoint, std::shared_ptr<ssl::context> ssl_ctx,
-                                      const std::string &password, const std::string &host,
+                                      const std::string &credential, const std::string &host,
                                       uint16_t port, const std::string &test_msg)
 {
     try
@@ -110,7 +110,7 @@ net::awaitable<void> do_trojan_client(tcp::endpoint endpoint, std::shared_ptr<ss
         // 构造 Trojan 请求
         // 56 hex chars + CRLF + CMD(1) + ATYP(1) + ADDR + PORT + CRLF
         std::string req;
-        // 伪造一个 hash (56 'a')
+        // 伪造一个用户凭据 (56 'a')
         req.append(56, 'a');
         req.append("\r\n");
         req.push_back(0x01); // CONNECT
@@ -188,13 +188,13 @@ int main()
 
         std::cout << "Test server listening on: " << bound_endpoint << std::endl;
 
-        const std::string test_password = "password";
+        const std::string test_user_credential = "user_credential";
         const std::string test_host = "example.com";
         const uint16_t test_port = 80;
         const std::string test_message = "Hello Trojan";
 
-        net::co_spawn(ioc, do_trojan_server(acceptor, server_ctx, test_password), net::detached);
-        net::co_spawn(ioc, do_trojan_client(bound_endpoint, client_ctx, test_password, test_host, test_port, test_message), net::detached);
+        net::co_spawn(ioc, do_trojan_server(acceptor, server_ctx, test_user_credential), net::detached);
+        net::co_spawn(ioc, do_trojan_client(bound_endpoint, client_ctx, test_user_credential, test_host, test_port, test_message), net::detached);
 
         ioc.run();
 

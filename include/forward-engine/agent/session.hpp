@@ -9,6 +9,7 @@
 #include <cctype>
 
 #include <array>
+#include <vector>
 #include <memory>
 #include <string>
 #include <format>
@@ -48,6 +49,7 @@ namespace ngx::agent
      * 1. **预读 (Peek)**: 读取少量数据以识别协议特征。
      * 2. **协议识别**: 区分 HTTP, SOCKS5, TLS (Trojan/Obscura)。
      * 3. **任务分派**: 将识别后的连接移交给对应的 `handler` 处理。
+     * 4. **内存优化**: 采用 `lazy allocation` 策略，仅在需要时分配缓冲区，并使用线程独占内存池。
      * 
      * @see handler
      */
@@ -56,17 +58,21 @@ namespace ngx::agent
     {
     public:
         using socket_type = Transport;
+        using unique_sock = transport::unique_sock;
 
         /**
          * @brief 构造会话
          * @param io_context IO 上下文
-         * @param socket 客户端 `socket` (所有权转移)
-         * @param dist 分发器引用 (用于路由查询)
-         * @param ssl_ctx SSL 上下文 (用于处理 TLS 握手)
+         * @param socket 客户端连接
+         * @param dist 业务分发器
+         * @param ssl_ctx SSL 上下文 (可选)
+         * @param resource 内存资源 (通常为线程局部池)
          */
-        explicit session(net::io_context &io_context, socket_type socket, 
-            distributor &dist, std::shared_ptr<ssl::context> ssl_ctx);
-        virtual ~session();
+        explicit session(net::io_context &io_context, socket_type socket, distributor &dist,
+                         std::shared_ptr<ssl::context> ssl_ctx,
+                         memory::resource_pointer resource);
+
+        ~session();
 
         /**
          * @brief 启动会话
@@ -89,12 +95,17 @@ namespace ngx::agent
         static void registered_log_function(std::function<void(level, std::string_view)> trace) noexcept;
 
         /**
-         * @brief 设置密码验证回调
-         * @param verifier 验证函数，输入密码哈希，返回验证结果
+         * @brief 设置用户凭据验证回调
+         * @param verifier 验证函数，输入用户凭据，返回验证结果
          */
-        void set_password_verifier(std::function<bool(std::string_view)> verifier)
+        void set_credential_verifier(std::function<bool(std::string_view)> verifier)
         {
-            this->password_verifier_ = std::move(verifier);
+            this->credential_verifier_ = std::move(verifier);
+        }
+
+        void set_account_validator(validator *validator) noexcept
+        {
+            this->account_validator_ptr_ = validator;
         }
 
     private:
@@ -113,7 +124,8 @@ namespace ngx::agent
                 ssl_ctx_,
                 frame_arena_,
                 std::span<std::byte>(buffer_),
-                password_verifier_);
+                credential_verifier_,
+                account_validator_ptr_);
         }
 
         /**
@@ -129,16 +141,17 @@ namespace ngx::agent
         socket_type client_socket_;              // 客户端连接
         unique_sock server_socket_ptr_; // 服务器连接
 
-        std::array<std::byte, 16384> buffer_{};
+        memory::vector<std::byte> buffer_;
         memory::frame_arena frame_arena_;
-        std::function<bool(std::string_view)> password_verifier_;
+        std::function<bool(std::string_view)> credential_verifier_;
+        validator *account_validator_ptr_{nullptr};
     }; // class session
 
     template <transport::SocketConcept Transport>
     session<Transport>::session(net::io_context &io_context, socket_type socket, distributor &dist,
-                                std::shared_ptr<ssl::context> ssl_ctx)
+                                std::shared_ptr<ssl::context> ssl_ctx,memory::resource_pointer resource)
         : io_context_(io_context), ssl_ctx_(std::move(ssl_ctx)), distributor_(dist),
-          client_socket_(std::move(socket)) {}
+          client_socket_(std::move(socket)), buffer_(resource) {}
 
     template <transport::SocketConcept Transport>
     session<Transport>::~session()
@@ -224,6 +237,9 @@ namespace ngx::agent
             const auto message = std::format("[Session] Peeked `{}` bytes.", n);
             detail::event_tracking(level::debug, message);
         }
+
+        // 按需分配 IO 缓冲区 (16KB)
+        buffer_.resize(16384);
 
         // 构造 context
         auto ctx = create_context();

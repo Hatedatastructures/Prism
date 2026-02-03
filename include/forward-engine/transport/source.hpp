@@ -96,7 +96,14 @@ namespace ngx::transport
         }; // struct idle_item
 
     public:
-        explicit source(net::io_context &ioc) : ioc_(ioc) {}
+        /**
+         * @brief 构造连接池
+         * @param ioc IO 上下文
+         * @param resource 内存资源指针 (通常为线程局部池)
+         * @note 推荐传入 `thread_local_pool` 以获得最佳性能。
+         */
+        explicit source(net::io_context &ioc, memory::resource_pointer resource = memory::current_resource())
+            : ioc_(ioc), cache_(resource) {}
 
         ~source()
         {

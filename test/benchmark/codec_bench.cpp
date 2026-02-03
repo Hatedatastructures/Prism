@@ -287,7 +287,7 @@ static void BM_Socks5DecodePort(benchmark::State &state)
 }
 
 // Trojan Benchmark（纯解析）
-static void BM_TrojanDecodeHash(benchmark::State &state)
+static void BM_TrojanDecodeCredential(benchmark::State &state)
 {
     static constexpr std::array<std::uint8_t, 56> buffer =
         {
@@ -298,12 +298,12 @@ static void BM_TrojanDecodeHash(benchmark::State &state)
 
     for (auto _ : state)
     {
-        auto [ec, hash] = protocol::trojan::wire::decode_hash(buffer);
+        auto [ec, credential] = protocol::trojan::wire::decode_credential(buffer);
         if (ec != gist::code::success)
         {
-            state.SkipWithError("Trojan hash parsing failed");
+            state.SkipWithError("Trojan user credential parsing failed");
         }
-        benchmark::DoNotOptimize(hash);
+        benchmark::DoNotOptimize(credential);
     }
     state.SetBytesProcessed(static_cast<std::int64_t>(state.iterations()) * static_cast<std::int64_t>(buffer.size()));
 }
@@ -410,16 +410,16 @@ static void BM_TrojanDecodePort(benchmark::State &state)
     state.SetBytesProcessed(static_cast<std::int64_t>(state.iterations()) * static_cast<std::int64_t>(buffer.size()));
 }
 
-static void BM_TrojanDecodeHash_Invalid(benchmark::State &state)
+static void BM_TrojanDecodeCredential_Invalid(benchmark::State &state)
 {
     std::array<std::uint8_t, 56> buffer{};
     buffer.fill('a');
     buffer[7] = 'g';
     for (auto _ : state)
     {
-        auto [ec, hash] = protocol::trojan::wire::decode_hash(buffer);
+        auto [ec, credential] = protocol::trojan::wire::decode_credential(buffer);
         benchmark::DoNotOptimize(ec);
-        benchmark::DoNotOptimize(hash);
+        benchmark::DoNotOptimize(credential);
     }
     state.SetBytesProcessed(static_cast<std::int64_t>(state.iterations()) * static_cast<std::int64_t>(buffer.size()));
 }
@@ -435,8 +435,8 @@ BENCHMARK(BM_Socks5DecodeDomain);
 BENCHMARK(BM_Socks5DecodeIPv6);
 BENCHMARK(BM_Socks5DecodeDomain_VarLen)->Arg(4)->Arg(16)->Arg(64)->Arg(255);
 BENCHMARK(BM_Socks5DecodePort);
-BENCHMARK(BM_TrojanDecodeHash);
-BENCHMARK(BM_TrojanDecodeHash_Invalid);
+BENCHMARK(BM_TrojanDecodeCredential);
+BENCHMARK(BM_TrojanDecodeCredential_Invalid);
 BENCHMARK(BM_TrojanDecodeCrlf);
 BENCHMARK(BM_TrojanDecodeCmdAtyp);
 BENCHMARK(BM_TrojanDecodeIPv4);
