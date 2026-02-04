@@ -1,40 +1,111 @@
 #include <forward-engine/protocol/trojan.hpp>
+#include <forward-engine/transformer.hpp>
+#include <forward-engine/memory.hpp>
+#include <forward-engine/abnormal.hpp>
 #include <boost/asio.hpp>
 #include <boost/asio/ssl.hpp>
+#include <boost/asio/experimental/awaitable_operators.hpp>
 #include <iostream>
-#include <thread>
 #include <string>
-#include <memory>
-#include <cstring>
 #include <array>
+#include <format>
+#include <fstream>
+#include <string_view>
+#include <vector>
+#include <chrono>
 
 namespace net = boost::asio;
 namespace ssl = boost::asio::ssl;
 using tcp = net::ip::tcp;
+namespace json = ngx::transformer::json;
 
-/**
- * @brief Trojan 真实网站访问测试客户端
- */
-net::awaitable<void> do_trojan_request(std::string host, uint16_t port, std::string credential)
+const std::string credential(56, 'a');
+
+struct http_endpoint
+{
+    std::string host;
+    std::uint16_t port{};
+};
+
+struct trojan_endpoint
+{
+    std::string host = "127.0.0.1";
+    std::uint16_t port = 8081;
+};
+
+template <>
+struct glz::meta<http_endpoint>
+{
+    using T = http_endpoint;
+    static constexpr auto value = glz::object(
+        "host", &T::host,
+        "port", &T::port);
+};
+
+auto load_file_data(std::string_view path)
+    -> ngx::memory::string
+{
+    std::ifstream file(path.data(), std::ios::binary);
+    if (!file.is_open())
+    {
+        throw ngx::abnormal::security("system error : {}", "file open failed");
+    }
+    file.seekg(0, std::ios::end);
+    auto size = file.tellg();
+    file.seekg(0, std::ios::beg);
+    ngx::memory::string content(size, '\0');
+    file.read(content.data(), size);
+    return content;
+}
+
+template <typename Stream>
+auto read_some_with_timeout(Stream &stream, const net::mutable_buffer buffer, const std::chrono::milliseconds timeout,
+                            boost::system::error_code &out_ec)
+    -> net::awaitable<std::size_t>
+{
+    using namespace boost::asio::experimental::awaitable_operators;
+    net::steady_timer timer(co_await net::this_coro::executor);
+    timer.expires_after(timeout);
+
+    boost::system::error_code read_ec;
+    boost::system::error_code wait_ec;
+    auto read_op = stream.async_read_some(buffer, net::redirect_error(net::use_awaitable, read_ec));
+    auto timer_op = timer.async_wait(net::redirect_error(net::use_awaitable, wait_ec));
+
+    const auto result = co_await (std::move(read_op) || std::move(timer_op));
+    if (result.index() == 1)
+    {
+        out_ec = net::error::timed_out;
+        co_return 0;
+    }
+
+    out_ec = read_ec;
+    co_return std::get<0>(result);
+}
+
+auto trojan_https_request(const http_endpoint &http, const std::string &http_request, const trojan_endpoint &trojan = {})
+    -> net::awaitable<void>
 {
     try
     {
+        if (http.host.empty() || http.port == 0)
+        {
+            std::cerr << "Invalid http endpoint" << std::endl;
+            co_return;
+        }
         auto executor = co_await net::this_coro::executor;
         tcp::socket socket(executor);
 
-        // 连接到本地 Trojan 服务器 (Forward.exe 监听 8081)
-        tcp::endpoint server_endpoint(net::ip::make_address("127.0.0.1"), 8081);
+        tcp::endpoint server_endpoint(net::ip::make_address(trojan.host), trojan.port);
 
-        std::cout << "Connecting to local Trojan server at 127.0.0.1:8081..." << std::endl;
+        std::cout << "Connecting to local Trojan server at " << trojan.host << ":" << trojan.port << "..." << std::endl;
         co_await socket.async_connect(server_endpoint, net::use_awaitable);
 
-        // SSL 上下文
         ssl::context ssl_ctx(ssl::context::tlsv12_client);
-        ssl_ctx.set_verify_mode(ssl::verify_none); // 测试用的自签名证书，跳过验证
+        ssl_ctx.set_verify_mode(ssl::verify_none);
 
         ssl::stream<tcp::socket> stream(std::move(socket), ssl_ctx);
 
-        // 设置 SNI (必须，Trojan 协议要求)
         if (!SSL_set_tlsext_host_name(stream.native_handle(), "localhost"))
         {
             throw boost::system::system_error(
@@ -47,44 +118,90 @@ net::awaitable<void> do_trojan_request(std::string host, uint16_t port, std::str
         co_await stream.async_handshake(ssl::stream_base::client, net::use_awaitable);
         std::cout << "SSL handshake success." << std::endl;
 
-        // 构造 Trojan 请求头
         std::string req_header;
-        req_header.append(credential); // 56 bytes hash
+        req_header.append(credential);
         req_header.append("\r\n");
-        req_header.push_back(0x01); // CMD: CONNECT
-        req_header.push_back(0x03); // ATYP: DOMAIN
-        req_header.push_back(static_cast<char>(host.length()));
-        req_header.append(host);
+        req_header.push_back(0x01);
+        req_header.push_back(0x03);
+        req_header.push_back(static_cast<char>(http.host.length()));
+        req_header.append(http.host);
 
-        uint16_t net_port = htons(port);
+        uint16_t net_port = htons(http.port);
         req_header.append(reinterpret_cast<const char *>(&net_port), 2);
         req_header.append("\r\n");
 
-        std::cout << "Sending Trojan header for target: " << host << ":" << port << std::endl;
+        std::cout << "Sending Trojan header for target: " << http.host << ":" << http.port << std::endl;
         co_await net::async_write(stream, net::buffer(req_header), net::use_awaitable);
 
-        // 构造 HTTP 请求
-        std::string http_req = "GET / HTTP/1.1\r\nHost: " + host + "\r\nUser-Agent: xray-test-client\r\nConnection: close\r\n\r\n";
-        std::cout << "Sending HTTP GET request..." << std::endl;
-        co_await net::async_write(stream, net::buffer(http_req), net::use_awaitable);
+        auto transfer = [&](auto &active_stream, const std::string_view label) -> net::awaitable<void>
+        {
+            std::cout << "Sending " << label << " request..." << std::endl;
+            co_await net::async_write(active_stream, net::buffer(http_request), net::use_awaitable);
 
-        // 读取响应
-        std::cout << "Waiting for response..." << std::endl;
-        std::array<char, 8192> buffer;
-        std::size_t n = co_await stream.async_read_some(net::buffer(buffer), net::use_awaitable);
+            std::cout << "Waiting for response..." << std::endl;
+            std::array<char, 8192> buffer{};
+            std::size_t total_bytes = 0;
+            bool printed_snippet = false;
+            constexpr auto READ_TIMEOUT = std::chrono::seconds(10);
 
-        std::string response(buffer.data(), n);
-        std::cout << "Received " << n << " bytes. Content snippet:\n"
-                  << std::endl;
-        std::cout << response.substr(0, 500) << "..." << std::endl;
+            while (true)
+            {
+                boost::system::error_code read_ec;
+                const std::size_t n = co_await read_some_with_timeout(active_stream, net::buffer(buffer), READ_TIMEOUT, read_ec);
+                if (read_ec == net::error::timed_out)
+                {
+                    std::cout << "Read timeout, closing." << std::endl;
+                    break;
+                }
+                if (read_ec && read_ec != net::error::eof)
+                {
+                    throw boost::system::system_error(read_ec);
+                }
+                if (n == 0)
+                {
+                    break;
+                }
 
-        // 继续读取剩余数据 (可选)
-        /*
-        while (true) {
-            n = co_await stream.async_read_some(net::buffer(buffer), net::use_awaitable);
-            std::cout << std::string(buffer.data(), n);
+                total_bytes += n;
+                if (!printed_snippet)
+                {
+                    std::string response(buffer.data(), n);
+                    std::cout << std::format("Received {} bytes. Content snippet:\n", n) << std::endl;
+                    std::cout << response.substr(0, 500) << "..." << std::endl;
+                    printed_snippet = true;
+                }
+                else
+                {
+                    std::cout << std::string(buffer.data(), n);
+                }
+            }
+            std::cout << std::format("Total received bytes: {}", total_bytes) << std::endl;
+            co_return;
+        };
+
+        if (http.port == 443)
+        {
+            ssl::context inner_ssl_ctx(ssl::context::tlsv12_client);
+            inner_ssl_ctx.set_verify_mode(ssl::verify_none);
+            ssl::stream<ssl::stream<tcp::socket>> inner_stream(std::move(stream), inner_ssl_ctx);
+
+            if (!SSL_set_tlsext_host_name(inner_stream.native_handle(), http.host.c_str()))
+            {
+                throw boost::system::system_error(
+                    boost::system::error_code(
+                        static_cast<int>(::ERR_get_error()),
+                        boost::asio::error::get_ssl_category()));
+            }
+
+            std::cout << "Performing inner TLS handshake to target..." << std::endl;
+            co_await inner_stream.async_handshake(ssl::stream_base::client, net::use_awaitable);
+            std::cout << "Inner TLS handshake success." << std::endl;
+            co_await transfer(inner_stream, "HTTPS");
         }
-        */
+        else
+        {
+            co_await transfer(stream, "HTTP");
+        }
     }
     catch (const std::exception &e)
     {
@@ -93,7 +210,7 @@ net::awaitable<void> do_trojan_request(std::string host, uint16_t port, std::str
     co_return;
 }
 
-int main()
+int main(const int argc, char **argv)
 {
 #ifdef WIN32
     SetConsoleOutputCP(CP_UTF8);
@@ -103,15 +220,24 @@ int main()
     try
     {
         net::io_context ioc;
+        const std::string batch_file_path = (argc > 1)
+                                                ? std::string(argv[1])
+                                                : std::string(R"(C:\Users\C1373\Desktop\code\ForwardEngine\test\trojan_data.json)");
 
-        // 目标网站
-        std::string target_host = "apple.com";
-        uint16_t target_port = 443;
+        const auto batch_json = load_file_data(batch_file_path);
+        std::vector<http_endpoint> targets;
+        if (!json::deserialize(std::string_view(batch_json.data(), batch_json.size()), targets))
+        {
+            std::cerr << "Deserialize batch json failed" << std::endl;
+            return 1;
+        }
 
-        // 凭据 (必须与 Server 配置一致)
-        std::string credential(56, 'a');
-
-        net::co_spawn(ioc, do_trojan_request(target_host, target_port, credential), net::detached);
+        const trojan_endpoint trojan{};
+        for (const auto &one_target : targets)
+        {
+            const std::string http_req = "GET / HTTP/1.1\r\nHost: " + one_target.host + "\r\nUser-Agent: xray-test-client\r\nConnection: close\r\n\r\n";
+            net::co_spawn(ioc, trojan_https_request(one_target, http_req, trojan), net::detached);
+        }
 
         ioc.run();
     }

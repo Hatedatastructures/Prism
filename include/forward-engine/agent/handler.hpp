@@ -13,7 +13,6 @@
 #pragma once
 #include <cstddef>
 #include <cctype>
-#include <cstdint>
 
 #include <array>
 #include <memory>
@@ -303,7 +302,7 @@ namespace ngx::agent::handler
 
             if (ec != gist::code::success)
             {
-                detail::event_tracking(level::warn, std::format("[Handler] HTTP read failed: {}", ngx::gist::describe(ec)));
+                detail::event_tracking(level::warn, std::format("[Handler] HTTP read failed: {}", gist::describe(ec)));
                 co_return;
             }
             {
@@ -328,7 +327,7 @@ namespace ngx::agent::handler
             {
                 boost::system::error_code error;
                 auto token = net::redirect_error(net::use_awaitable, error);
-                const std::string resp = "HTTP/1.1 200 Connection Established\r\n\r\n";
+                constexpr  std::string_view resp = {"HTTP/1.1 200 Connection Established\r\n\r\n"};
                 co_await transport::adaptation::async_write(ctx.client_socket, net::buffer(resp), token);
                 if (error && !detail::normal_close(error))
                 {
@@ -360,8 +359,8 @@ namespace ngx::agent::handler
                 const auto message = std::format("[Handler] Forwarding {} bytes of prefetched data.", read_buffer.size());
                 detail::event_tracking(level::debug, message);
                 boost::system::error_code code;
-                auto token = net::redirect_error(net::use_awaitable, code);
-                co_await transport::adaptation::async_write(*ctx.server_socket, read_buffer.data(), token);
+                auto redirect_error = net::redirect_error(net::use_awaitable, code);
+                co_await transport::adaptation::async_write(*ctx.server_socket, read_buffer.data(), redirect_error);
                 if (code && !detail::normal_close(code))
                 {
                     detail::event_tracking(level::warn, "[Handler] Prefetched data forward failed.");

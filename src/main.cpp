@@ -16,7 +16,7 @@ namespace agent = ngx::agent;
 namespace http = ngx::protocol::http;
 namespace net = agent::net;
 
-auto load_file_data(std::string_view path)
+auto load_file_data(const std::string_view path)
     -> ngx::memory::string
 {
     std::ifstream file(path.data(), std::ios::binary);
@@ -25,7 +25,7 @@ auto load_file_data(std::string_view path)
         throw ngx::abnormal::security("system error : {}","file open failed");
     }
     file.seekg(0, std::ios::end);
-    auto size = file.tellg();
+    const auto size = file.tellg();
     file.seekg(0, std::ios::beg);
     ngx::memory::string content(size, '\0');
     file.read(content.data(), size);
@@ -77,21 +77,21 @@ int main()
         ngx::trace::init(overall_situation_config.trace);
 
         auto shared_validator = std::make_shared<agent::validator>(ngx::memory::system::global_pool());
-        const auto& auth = overall_situation_config.agent.authentication;
-        shared_validator->reserve(auth.credentials.size() + auth.users.size());
-        for (const auto &cred : auth.credentials)
+        const auto&[credentials, users] = overall_situation_config.agent.authentication;
+        shared_validator->reserve(credentials.size() + users.size());
+        for (const auto &cred : credentials)
         {
             shared_validator->upsert_user(std::string_view(cred.data(), cred.size()));
         }
-        for (const auto &user : auth.users)
+        for (const auto &[credential, max_connections] : users)
         {
-            shared_validator->upsert_user(std::string_view(user.credential.data(), user.credential.size()), user.max_connections);
+            shared_validator->upsert_user(std::string_view(credential.data(), credential.size()), max_connections);
         }
 
         auto work = [shared_validator](const ngx::core::configuration& config)
         {
 
-            agent::config agent_config = config.agent;
+            const agent::config agent_config = config.agent;
             agent::worker worker(agent_config, shared_validator);
             worker.run();
         };

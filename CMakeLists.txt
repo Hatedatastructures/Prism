@@ -17,7 +17,6 @@ if(NOT DEFINED OPENSSL_ROOT_DIR)
 endif()
 set(OPENSSL_USE_STATIC_LIBS TRUE)
 
-find_package(async_simple CONFIG REQUIRED)
 find_package(spdlog CONFIG REQUIRED)
 find_package(glaze CONFIG REQUIRED)
 find_package(OpenSSL REQUIRED)

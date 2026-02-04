@@ -30,8 +30,7 @@ namespace ngx::transport
         endpoint_key key;
         key.port = endpoint.port();
 
-        const auto address = endpoint.address();
-        if (address.is_v4())
+        if (const auto address = endpoint.address(); address.is_v4())
         {
             key.family = 4;
             const auto bytes = address.to_v4().to_bytes();

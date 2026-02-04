@@ -121,7 +121,6 @@ find_package(spdlog CONFIG REQUIRED)
 
 target_link_libraries(${PROJECT_NAME}_static_library
         PUBLIC
-        async_simple::async_simple
         spdlog::spdlog
         glaze::glaze
         Boost::system

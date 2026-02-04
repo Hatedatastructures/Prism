@@ -10,7 +10,6 @@
 #include <memory>
 #include <chrono>
 #include <cstddef>
-#include <functional>
 #include <boost/asio.hpp>
 #include <forward-engine/memory/container.hpp>
 

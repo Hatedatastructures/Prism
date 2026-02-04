@@ -26,6 +26,7 @@ coro_trace.log
 *.log
 .idea/
 .vscode/
+logs/
 test.h
 bazel-*
 !.bazelignore

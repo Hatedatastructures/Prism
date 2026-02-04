@@ -41,16 +41,17 @@ namespace
         std::uint64_t count = 0;
     };
 
-    void run_test(const stress_config& config)
+    void run_test(const stress_config &config)
     {
         memory::frame_arena arena;
-        std::pmr::memory_resource* mr = arena.get();
+        std::pmr::memory_resource *mr = arena.get();
         std::string payload(config.object_size, 'x');
 
         latency_stats stats;
-        
+
         // 预热
-        for(int i=0; i<100; ++i) {
+        for (int i = 0; i < 100; ++i)
+        {
             arena.reset();
             memory::string s(mr);
             s.assign(payload);
@@ -67,7 +68,8 @@ namespace
 
         for (std::size_t i = 0; i < config.iterations; ++i)
         {
-            if (i > 0 && i % progress_step == 0) {
+            if (i > 0 && i % progress_step == 0)
+            {
                 std::cout << "Progress: " << (i * 100 / config.iterations) << "%" << std::endl;
             }
 
@@ -111,7 +113,7 @@ namespace
     }
 }
 
-int main(int argc, char** argv)
+int main(int argc, char **argv)
 {
     (void)argc;
     (void)argv;
