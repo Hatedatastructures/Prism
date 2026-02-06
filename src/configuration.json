@@ -25,7 +25,7 @@
         "clash": false
     },
     "trace": {
-        "enable_console": true,
+        "enable_console": false,
         "enable_file": true,
         "log_level": "debug",
         "pattern": "[%Y-%m-%d %H:%M:%S.%e][%l] %v",

@@ -42,7 +42,7 @@ namespace ngx::agent
     }
 
     auto distributor::route_positive(const std::string_view host, const std::string_view port)
-        -> net::awaitable<route_result>
+        -> net::awaitable<std::pair<gist::code, unique_sock>>
     {
         /**
          * @details 通过上游 HTTP 代理建立 `CONNECT` 隧道：
@@ -56,7 +56,7 @@ namespace ngx::agent
          */
         if (!positive_host_ || positive_port_ == 0)
         {
-            co_return route_result{gist::code::host_unreachable, nullptr};
+            co_return std::pair<gist::code, unique_sock>{gist::code::host_unreachable, nullptr};
         }
 
         boost::system::error_code ec;
@@ -66,7 +66,7 @@ namespace ngx::agent
             net::redirect_error(net::use_awaitable, ec));
         if (ec || endpoints.empty())
         {
-            co_return route_result{gist::code::host_unreachable, nullptr};
+            co_return std::pair<gist::code, unique_sock>{gist::code::host_unreachable, nullptr};
         }
 
         auto socket_ptr = unique_sock(new tcp::socket(resolver_.get_executor()), transport::deleter{});
@@ -74,9 +74,10 @@ namespace ngx::agent
         co_await net::async_connect(*socket_ptr, endpoints, token);
         if (ec)
         {
-            co_return route_result{gist::code::host_unreachable, nullptr};
+            co_return std::pair<gist::code, unique_sock>{gist::code::host_unreachable, nullptr};
         }
 
+        // 发送 CONNECT 请求
         std::string connect_request;
         connect_request.reserve(256);
         connect_request.append("CONNECT ");
@@ -93,7 +94,7 @@ namespace ngx::agent
         co_await net::async_write(*socket_ptr, net::buffer(connect_request), token);
         if (ec)
         {
-            co_return route_result{gist::code::bad_gateway, nullptr};
+            co_return std::pair<gist::code, unique_sock>{gist::code::bad_gateway, nullptr};
         }
 
         std::string header;
@@ -106,14 +107,14 @@ namespace ngx::agent
             const auto n = co_await socket_ptr->async_read_some(net::buffer(read_buf), token);
             if (ec || n == 0)
             {
-                co_return route_result{gist::code::bad_gateway, nullptr};
+                co_return std::pair<gist::code, unique_sock>{gist::code::bad_gateway, nullptr};
             }
             header.append(read_buf.data(), read_buf.data() + n);
         }
 
         if (header.find("\r\n\r\n") == std::string::npos)
         {
-            co_return route_result{gist::code::bad_gateway, nullptr};
+            co_return std::pair<gist::code, unique_sock>{gist::code::bad_gateway, nullptr};
         }
 
         const auto line_end = header.find("\r\n");
@@ -121,7 +122,7 @@ namespace ngx::agent
         const auto first_space = status_line.find(' ');
         if (first_space == std::string::npos)
         {
-            co_return route_result{gist::code::bad_gateway, nullptr};
+            co_return std::pair<gist::code, unique_sock>{gist::code::bad_gateway, nullptr};
         }
 
         const auto second_space = status_line.find(' ', first_space + 1);
@@ -133,15 +134,16 @@ namespace ngx::agent
         }
         catch (...)
         {
-            co_return route_result{gist::code::bad_gateway, nullptr};
+            co_return std::pair<gist::code, unique_sock>{gist::code::bad_gateway, nullptr};
         }
 
+        // 检查响应回来的 http CONNECT 报文状态码是否为200
         if (status_code != 200)
         {
-            co_return route_result{gist::code::bad_gateway, nullptr};
+            co_return std::pair<gist::code, unique_sock>{gist::code::bad_gateway, nullptr};
         }
         
-        co_return route_result{gist::code::success, std::move(socket_ptr)};
+        co_return std::pair<gist::code, unique_sock>{gist::code::success, std::move(socket_ptr)};
     }
 
     auto distributor::route_forward(const std::string_view host, const std::string_view port)
@@ -160,7 +162,7 @@ namespace ngx::agent
         // 1. DNS
         if (blacklist_.domain(host))
         {
-            co_return route_result{gist::code::blocked, nullptr};
+            co_return std::pair<gist::code, unique_sock>{gist::code::blocked, nullptr};
         }
         boost::system::error_code ec;
         const auto results = co_await resolver_.async_resolve(host, port, net::redirect_error(net::use_awaitable, ec));
@@ -177,7 +179,7 @@ namespace ngx::agent
         try
         {
             auto conn = co_await pool_.acquire_tcp(*results.begin());
-            co_return route_result{gist::code::success, std::move(conn)};
+            co_return std::pair<gist::code, unique_sock>{gist::code::success, std::move(conn)};
         }
         catch (const boost::system::system_error &)
         {
@@ -193,7 +195,7 @@ namespace ngx::agent
             co_return co_await route_positive(host, port);
         }
 
-        co_return route_result{gist::code::bad_gateway, nullptr};
+        co_return std::pair<gist::code, unique_sock>{gist::code::bad_gateway, nullptr};
     }
 
     auto distributor::route_reverse(const std::string_view host)
@@ -205,18 +207,18 @@ namespace ngx::agent
             try
             {
                 auto conn = co_await pool_.acquire_tcp(it->second);
-                co_return route_result{gist::code::success, std::move(conn)};
+                co_return std::pair<gist::code, unique_sock>{gist::code::success, std::move(conn)};
             }
             catch (const boost::system::system_error &)
             {
-                co_return route_result{gist::code::bad_gateway, nullptr};
+                co_return std::pair<gist::code, unique_sock>{gist::code::bad_gateway, nullptr};
             }
             catch (...)
             {
-                co_return route_result{gist::code::bad_gateway, nullptr};
+                co_return std::pair<gist::code, unique_sock>{gist::code::bad_gateway, nullptr};
             }
         }
-        co_return route_result{gist::code::bad_gateway, nullptr};
+        co_return std::pair<gist::code, unique_sock>{gist::code::bad_gateway, nullptr};
     }
 
     auto distributor::route_direct(const tcp::endpoint ep) const
@@ -225,15 +227,15 @@ namespace ngx::agent
         try
         {
             auto conn = co_await pool_.acquire_tcp(ep);
-            co_return route_result{gist::code::success, std::move(conn)};
+            co_return std::pair<gist::code, unique_sock>{gist::code::success, std::move(conn)};
         }
         catch (const boost::system::system_error &)
         {
-            co_return route_result{gist::code::bad_gateway, nullptr};
+            co_return std::pair<gist::code, unique_sock>{gist::code::bad_gateway, nullptr};
         }
         catch (...)
         {
-            co_return route_result{gist::code::bad_gateway, nullptr};
+            co_return std::pair<gist::code, unique_sock>{gist::code::bad_gateway, nullptr};
         }
     }
 

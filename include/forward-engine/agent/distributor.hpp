@@ -25,7 +25,6 @@ namespace ngx::agent
     using tcp = boost::asio::ip::tcp;
     using source = ngx::transport::source;
     using unique_sock = transport::unique_sock;
-    using route_result = std::pair<gist::code, unique_sock>;
 
     /**
      * @brief 分发器
@@ -143,22 +142,22 @@ namespace ngx::agent
          * @brief 执行反向代理路由
          * @details 根据主机名 (Host Header) 查找预配置的静态路由表，获取对应的后端服务连接。
          * @param host 目标主机名
-         * @return `route_result` 包含结果代码和连接对象的 pair
+         * @return `std::pair<gist::code, unique_sock>` 包含结果代码和连接对象
          * @retval `gist::code::success` 路由成功，连接可用
          * @retval `gist::code::bad_gateway` 路由失败，未找到对应的后端服务
          */
         [[nodiscard]] auto route_reverse(std::string_view host)
-            -> net::awaitable<route_result>;
+            -> net::awaitable<std::pair<gist::code, unique_sock>>;
 
         /**
          * @brief 执行直接路由
          * @details 直接连接到指定的 `IP` 和端口，不经过 `DNS` 解析或黑名单检查。
          * 通常用于已解析出 IP 的场景。
          * @param ep 目标端点 (`IP` + `Port`)
-         * @return net::awaitable<route_result> 包含结果代码和连接对象的 pair
+         * @return net::awaitable<std::pair<gist::code, unique_sock>> 包含结果代码和连接对象的 pair
          */
         [[nodiscard]] auto route_direct(tcp::endpoint ep) const
-            -> net::awaitable<route_result>;
+            -> net::awaitable<std::pair<gist::code, unique_sock>>;
 
         /**
          * @brief 执行正向路由（优先直连，失败回退上游正向代理）
@@ -170,14 +169,14 @@ namespace ngx::agent
          * @note 该函数自身不实现 `HTTP` `CONNECT`，回退分支由 `route_positive` 完成。
          * @param host 目标主机名
          * @param port 目标端口字符串
-         * @return `route_result` 包含结果代码和连接对象的 pair
+         * @return `std::pair<gist::code, unique_sock>` 包含结果代码和连接对象
          * @retval `gist::code::blocked` 域名被黑名单拦截
          * @retval `gist::code::host_unreachable` 直连 `DNS` 解析失败且回退不可用
          * @retval `gist::code::bad_gateway` 直连建连失败且回退失败
          * @retval `gist::code::success` 连接建立成功（直连或回退）
          */
         [[nodiscard]] auto route_forward(std::string_view host, std::string_view port)
-            -> net::awaitable<route_result>;
+            -> net::awaitable<std::pair<gist::code, unique_sock>>;
     private:
         /**
          * @brief 通过上游正向代理建立到目标的 TCP 隧道
@@ -187,13 +186,13 @@ namespace ngx::agent
          * 3. 读取代理响应头并解析状态码，只有 `200` 认为隧道建立成功
          * @param host 目标 `host`
          * @param port 目标 `port`（字符串形式）
-         * @return `route_result` 成功时返回 `success` 与可读写的已建隧道 socket
+         * @return `std::pair<gist::code, unique_sock>` 成功时返回 `success` 与可读写的已建隧道 socket
          * @note 该实现为最小可用版本：
          * - 仅解析状态行，不解析其他响应头
          * - 响应头读取上限为 8192 字节，防止异常响应导致内存膨胀
          */
         [[nodiscard]] auto route_positive(std::string_view host, std::string_view port)
-            -> net::awaitable<route_result>;
+            -> net::awaitable<std::pair<gist::code, unique_sock>>;
 
         source &pool_;
         tcp::resolver resolver_;

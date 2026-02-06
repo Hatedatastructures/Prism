@@ -235,8 +235,7 @@ namespace ngx::agent::handler
 
         try
         {
-            detail::tunnel t;
-            co_await t.stream(tunnel_ctx, ctx.buffer.data(), ctx.buffer.size());
+            co_await detail::tunnel::stream(tunnel_ctx, ctx.buffer.data(), ctx.buffer.size());
         }
         catch (const std::exception &e)
         {
@@ -285,7 +284,13 @@ namespace ngx::agent::handler
 
     /**
      * @brief 处理 HTTP 请求
-     * @details 解析 HTTP 请求，支持 CONNECT 方法建立隧道，或者转发普通 HTTP 请求。
+     * @details 解析 `HTTP` 请求，支持 `CONNECT` 方法建立隧道，或者转发普通 `HTTP` 请求。
+     * 处理流程概览：
+     * 1. `protocol::http::async_read` 读取并解析请求报文。
+     * 2. `protocol::analysis::resolve` 解析目标并判定正反向。
+     * 3. `connect_upstream` 选择 `route_forward` 或 `route_reverse` 建连。
+     * 4. 若为 `CONNECT`，返回 `200 Connection Established`，进入纯 `TCP` 透传。
+     * 5. 否则 `serialize` 请求并转发，补发预读缓冲区，再进入持续隧道转发。
      * @tparam Context 会话上下文类型
      * @param ctx 会话上下文
      */
