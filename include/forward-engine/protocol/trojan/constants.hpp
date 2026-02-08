@@ -4,7 +4,6 @@
  * @details 定义了 Trojan 协议的命令字和地址类型。
  */
 #pragma once
-#include <cstdint>
 
 /**
  * @brief Trojan 协议命名空间

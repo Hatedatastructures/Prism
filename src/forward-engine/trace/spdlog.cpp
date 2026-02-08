@@ -2,6 +2,7 @@
 #include <cctype>
 #include <filesystem>
 #include <mutex>
+#include <shared_mutex>
 #include <vector>
 
 #include <forward-engine/trace/spdlog.hpp>
@@ -14,7 +15,7 @@ namespace ngx::trace
 {
     namespace
     {
-        std::mutex trace_mutex;
+        std::shared_mutex trace_mutex;
         config last_config{};
         std::shared_ptr<spdlog::logger> shared_system_logger;
 
@@ -74,13 +75,13 @@ namespace ngx::trace
     auto recorder() noexcept
         -> std::shared_ptr<spdlog::logger>
     {
-        std::scoped_lock lock(trace_mutex);
+        std::shared_lock lock(trace_mutex);
         return shared_system_logger;
     }
 
     void init(const config &cfg)
     {
-        std::scoped_lock lock(trace_mutex);
+        std::unique_lock lock(trace_mutex);
 
         last_config = cfg;
 
@@ -149,7 +150,7 @@ namespace ngx::trace
         memory::string trace_name;
 
         {
-            std::scoped_lock lock(trace_mutex);
+            std::unique_lock lock(trace_mutex);
             logger = std::move(shared_system_logger);
             trace_name = last_config.trace_name;
             shared_system_logger.reset();

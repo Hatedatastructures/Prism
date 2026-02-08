@@ -1,4 +1,6 @@
 #include <trace/spdlog.hpp>
+#include <forward-engine/abnormal/network.hpp>
+#include <forward-engine/gist/code.hpp>
 #include <boost/asio.hpp>
 #include <exception>
 #include <filesystem>
@@ -65,7 +67,7 @@ net::awaitable<void> run_spdlog_test(const net::any_io_executor executor)
     const auto size = file_size_or_zero(log_path);
     if (size == 0)
     {
-        throw std::runtime_error("spdlog_test: 日志文件未生成或为空: " + log_path.string());
+        throw ngx::abnormal::network("spdlog_test: 日志文件未生成或为空: " + log_path.string());
     }
 
     (void)executor;

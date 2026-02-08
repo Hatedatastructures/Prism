@@ -59,6 +59,8 @@ set(FORWARD_LIB_SOURCES
         ../include/forward-engine/protocol/socks5.hpp
         ../include/forward-engine/protocol.hpp
         ../include/forward-engine/agent/handler.hpp
+        ../include/forward-engine/gist/compatible.hpp
+        ../include/forward-engine/gist/handling.hpp
 )
 
 # =============================================================

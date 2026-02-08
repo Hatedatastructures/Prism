@@ -50,14 +50,14 @@ namespace ngx::protocol::socks5
         {
             // 1. 方法协商
             const auto ec_methods = co_await negotiate_method();
-            if (ec_methods.first != gist::code::success)
+            if (gist::failed(ec_methods.first))
             {
                 co_return std::pair<gist::code, request>{ec_methods.first, request{}};
             }
 
             // 2. 请求处理
             auto [ec_header, header] = co_await read_request_header();
-            if (ec_header != gist::code::success)
+            if (gist::failed(ec_header))
             {
                 co_return std::pair<gist::code, request>{ec_header, request{}};
             }
@@ -77,7 +77,7 @@ namespace ngx::protocol::socks5
             case address_type::ipv4:
             {
                 auto [ec, addr, port] = co_await read_ip_address_and_port<4>(wire::decode_ipv4);
-                if (ec != gist::code::success)
+                if (gist::failed(ec))
                 {
                     co_return std::pair<gist::code, request>{ec, request{}};
                 }
@@ -88,7 +88,7 @@ namespace ngx::protocol::socks5
             case address_type::ipv6:
             {
                 auto [ec, addr, port] = co_await read_ip_address_and_port<16>(wire::decode_ipv6);
-                if (ec != gist::code::success)
+                if (gist::failed(ec))
                 {
                     co_return std::pair<gist::code, request>{ec, request{}};
                 }
@@ -99,7 +99,7 @@ namespace ngx::protocol::socks5
             case address_type::domain:
             {
                 auto [ec, addr, port] = co_await read_domain_address_and_port();
-                if (ec != gist::code::success)
+                if (gist::failed(ec))
                 {
                     co_return std::pair<gist::code, request>{ec, request{}};
                 }
@@ -274,7 +274,7 @@ namespace ngx::protocol::socks5
             }
 
             auto [ec_header, header] = wire::decode_header(request_header);
-            if (ec_header != gist::code::success)
+            if (gist::failed(ec_header))
             {
                 co_return std::pair{ec_header, wire::header_parse{}};
             }
@@ -301,13 +301,13 @@ namespace ngx::protocol::socks5
             }
 
             auto [decode_ec, ip] = decoder(std::span<const std::uint8_t>(buffer.data(), N));
-            if (decode_ec != gist::code::success)
+            if (gist::failed(decode_ec))
             {
                 co_return std::tuple<gist::code, address, uint16_t>{decode_ec, address{}, 0};
             }
 
             auto [ec_port, port] = wire::decode_port(std::span<const std::uint8_t>(buffer.data() + N, 2));
-            if (ec_port != gist::code::success)
+            if (gist::failed(ec_port))
             {
                 co_return std::tuple<gist::code, address, uint16_t>{ec_port, address{}, 0};
             }
@@ -344,13 +344,13 @@ namespace ngx::protocol::socks5
             }
 
             auto [ec_domain, domain] = wire::decode_domain(std::span<const std::uint8_t>(buffer.data(), len + 1));
-            if (ec_domain != gist::code::success)
+            if (gist::failed(ec_domain))
             {
                 co_return std::tuple<gist::code, address, uint16_t>{ec_domain, address{}, 0};
             }
 
             auto [ec_port, port] = wire::decode_port(std::span<const std::uint8_t>(buffer.data() + 1 + len, 2));
-            if (ec_port != gist::code::success)
+            if (gist::failed(ec_port))
             {
                 co_return std::tuple<gist::code, address, uint16_t>{ec_port, address{}, 0};
             }

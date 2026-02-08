@@ -4,7 +4,6 @@
  * @details 定义了 SOCKS5 协议的命令字、地址类型和响应码。
  */
 #pragma once
-#include <cstdint>
 
 /**
  * @namespace ngx::protocol::socks5

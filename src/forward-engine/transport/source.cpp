@@ -1,6 +1,7 @@
 #include <ranges>
 #include <cstdint>
 #include <forward-engine/transport/source.hpp>
+#include <forward-engine/abnormal/network.hpp>
 
 namespace ngx::transport
 {
@@ -21,6 +22,16 @@ namespace ngx::transport
         else
         {
             delete ptr;
+        }
+    }
+
+    inline void delete_socket(tcp::socket *s) noexcept
+    {
+        if (s)
+        {
+            boost::system::error_code ignore;
+            s->close(ignore);
+            delete s;
         }
     }
 
@@ -63,7 +74,7 @@ namespace ngx::transport
         return seed;
     }
 
-    auto source::zombie_detection(tcp::socket *s)
+    auto source::zombie_detection(const tcp::socket *s)
         -> bool
     {
         if (!s || !s->is_open())
@@ -103,7 +114,7 @@ namespace ngx::transport
                 // 检查 A: 是否超时
                 if (auto now = std::chrono::steady_clock::now(); now - last_used > max_idle_time_)
                 {
-                    delete s; // 太老了，扔掉
+                    delete_socket(s); // 太老了，扔掉
                     continue;
                 }
 
@@ -113,7 +124,7 @@ namespace ngx::transport
                     co_return unique_sock(s, deleter{this, endpoint, true});
                 }
 
-                delete s;
+                delete_socket(s);
             }
 
             // 如果栈空了，删除 key
@@ -132,7 +143,9 @@ namespace ngx::transport
 
         if (ec)
         {
-            throw boost::system::system_error(ec);
+            // 热路径中不抛异常，返回空的 unique_sock 表示连接失败
+            // 注意：sock 析构时会自动清理 socket
+            co_return unique_sock{};
         }
 
         // 4. 设置 socket 选项
@@ -151,7 +164,7 @@ namespace ngx::transport
         // 1. 基础健康检查
         if (!s->is_open())
         {
-            delete s;
+            delete_socket(s);
             return;
         }
 
@@ -164,7 +177,7 @@ namespace ngx::transport
         }
         catch (...)
         {
-            delete s;
+            delete_socket(s);
         }
     }
 
@@ -176,7 +189,7 @@ namespace ngx::transport
         }
         if (!s->is_open())
         {
-            delete s;
+            delete_socket(s);
             return;
         }
 
@@ -187,7 +200,7 @@ namespace ngx::transport
         {
             boost::system::error_code ignore;
             s->close(ignore);
-            delete s;
+            delete_socket(s);
             return;
         }
 
@@ -204,7 +217,7 @@ namespace ngx::transport
                 {
                     boost::system::error_code ignore;
                     socket->close(ignore);
-                    delete socket;
+                    delete_socket(socket);
                 }
             }
         }

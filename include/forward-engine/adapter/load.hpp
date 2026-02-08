@@ -1,6 +1,8 @@
 #pragma once
 #include <string>
-#include <forward-engine/agent/config.hpp>
+#include <forward-engine/core/configuration.hpp>
+#include <forward-engine/abnormal.hpp>
+#include <forward-engine/transformer.hpp>
 
 /**
  * @namespace ngx::adapter
@@ -12,14 +14,36 @@ namespace ngx::adapter
 {
     /**
      * @brief 加载外部配置
-     * @details 解析外部配置文件（如 YAML/JSON），并转换为内部的 config 结构。
+     * @details 解析外部配置文件，并转换为内部的 config 结构。
      * @param path 配置文件路径
-     * @return agent::config 转换后的配置对象
+     * @return core::configuration 转换后的配置对象
      */
-    inline agent::config load(const std::string& path)
+    inline auto load(const std::string_view path)
+        -> core::configuration
     {
-        // TODO: 实现具体的解析逻辑 (例如适配 Clash 配置文件)
-        agent::config cfg;
-        return cfg;
+        std::ifstream file(path.data(), std::ios::binary);
+        if (!file.is_open())
+        {
+            throw ngx::abnormal::security("system error : {}", "file open failed");
+        }
+        file.seekg(0, std::ios::end);
+        const auto size = file.tellg();
+        file.seekg(0, std::ios::beg);
+        memory::string content(size, '\0');
+        file.read(content.data(), size);
+
+
+        core::configuration config;
+        try
+        {
+            if (transformer::json::deserialize({content.data(), content.size()}, config))
+            {
+                return config;
+            }
+        }
+        catch (...)
+        {
+        }
+        return {};
     }
 }

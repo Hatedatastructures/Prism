@@ -6,10 +6,10 @@
 #pragma once
 #include <cstddef>
 #include <exception>
-#include <functional>
 #include <memory>
 #include <string_view>
 #include <type_traits>
+#include <system_error>
 
 #include <boost/asio.hpp>
 #include <boost/beast.hpp>
@@ -17,8 +17,8 @@
 
 #include <forward-engine/transport/adaptation.hpp>
 #include <forward-engine/transport/obscura.hpp>
-#include <forward-engine/transport/source.hpp>
-
+#include <forward-engine/gist/code.hpp>
+#include <forward-engine/trace/spdlog.hpp>
 
 /**
  * @namespace ngx::transport::detail
@@ -31,39 +31,11 @@ namespace ngx::transport::detail
     namespace net = boost::asio;
     namespace beast = boost::beast;
     using tcp = net::ip::tcp;
-    
-    /**
-     * @brief 日志级别枚举
-     */
-    enum class log_level : std::uint8_t
-    {
-        debug,
-        info,
-        warn,
-        error,
-        fatal
-    };
 
     using mutable_buf = net::mutable_buffer;
 
     using stream_socket = net::ip::tcp::socket;
     using datagram_socket = net::ip::udp::socket;
-
-    inline std::function<void(log_level, std::string_view)> tracker{};
-
-    /**
-     * @brief 事件跟踪
-     * @details 记录传输事件，如连接、断开、数据传输等。
-     * @param level 日志级别
-     * @param msg 日志消息
-     */
-    inline void event_tracking(const log_level level, const std::string_view msg) noexcept
-    {
-        if (tracker)
-        {
-            tracker(level, msg);
-        }
-    }
 
     /**
      * @brief 关闭套接字
@@ -88,7 +60,6 @@ namespace ngx::transport::detail
         }
     }
 
-
     /**
      * @brief 判断 `boost::system::error_code` 是否属于“正常收尾”
      * @details “正常收尾”包括：对端正常关闭、被取消、连接被重置等。
@@ -98,9 +69,34 @@ namespace ngx::transport::detail
      */
     [[nodiscard]] inline bool normal_close(const boost::system::error_code &ec) noexcept
     {
-        using namespace boost::asio;
-        return ec == error::eof  || ec == error::operation_aborted || ec == error::connection_reset
-            || ec == error::connection_aborted || ec == error::broken_pipe || ec == error::not_connected;
+        return ec == boost::asio::error::eof || ec == boost::asio::error::operation_aborted 
+        || ec == boost::asio::error::connection_reset || ec == boost::asio::error::connection_aborted 
+        || ec == boost::asio::error::broken_pipe || ec == boost::asio::error::not_connected;
+    }
+
+    /**
+     * @brief 判断 `std::error_code` 是否属于“正常收尾”
+     * @details 兼容标准库错误码，内部转换为 `boost::system::error_code` 进行判断。
+     * @param ec 错误码
+     * @return bool 是否为正常收尾
+     */
+    [[nodiscard]] inline bool normal_close(const std::error_code &ec) noexcept
+    {
+        // 转换为 boost::system::error_code 以复用现有逻辑
+        const boost::system::error_code boost_ec(ec);
+        return normal_close(boost_ec);
+    }
+
+    /**
+     * @brief 判断 `ngx::gist::code` 是否属于“正常收尾”
+     * @details 检查项目自定义错误码中表示正常关闭的枚举值。
+     * @param c 错误码
+     * @return bool 是否为正常收尾
+     */
+    [[nodiscard]] inline bool normal_close(const gist::code c) noexcept
+    {
+        using enum gist::code;
+        return c == eof || c == canceled || c == connection_reset || c == connection_aborted;
     }
 
     /**
@@ -114,7 +110,7 @@ namespace ngx::transport::detail
     {
         using dest_pointer = std::add_pointer_t<Dest>;
         using source_pointer = std::add_pointer_t<Source>;
-    public:
+
         transfer_context() noexcept = default;
 
         /**
@@ -135,6 +131,7 @@ namespace ngx::transport::detail
     class tunnel_context
     {
         using socket_pointer = std::add_pointer_t<stream_socket>;
+
     public:
         /**
          * @brief 检查上下文是否有效
@@ -207,7 +204,7 @@ namespace ngx::transport::detail
         {
             if (!ctx.valid())
             {
-                event_tracking(log_level::warn, "[Transfer] invalid context.");
+                trace::warn("[Transfer] invalid context.");
                 co_return;
             }
 
@@ -224,7 +221,7 @@ namespace ngx::transport::detail
                         shut_close(*ctx.to);
                         co_return;
                     }
-                    event_tracking(log_level::error, "[Transfer] read failed.");
+                    trace::error("[Transfer] read failed.");
                     shut_close(*ctx.from);
                     shut_close(*ctx.to);
                     co_return;
@@ -243,7 +240,7 @@ namespace ngx::transport::detail
                         shut_close(*ctx.from);
                         co_return;
                     }
-                    event_tracking(log_level::error, "[Transfer] write failed.");
+                    trace::error("[Transfer] write failed.");
                     shut_close(*ctx.from);
                     shut_close(*ctx.to);
                     co_return;
@@ -260,7 +257,7 @@ namespace ngx::transport::detail
          * @param cancel_slot 取消槽位，用于在外部强制终止传输
          */
         static net::awaitable<void> obscura_to_upstream(obscura<net::ip::tcp> &proto, stream_socket &upstream,
-            const net::cancellation_slot cancel_slot)
+                                                        const net::cancellation_slot cancel_slot)
         {
             beast::flat_buffer buffer;
             while (true)
@@ -276,13 +273,13 @@ namespace ngx::transport::detail
                     {
                         co_return;
                     }
-                    event_tracking(log_level::error, "[Obscura] read failed.");
+                    trace::error("[Obscura] read failed.");
                     co_return;
                 }
                 catch (const std::exception &e)
                 {
                     static_cast<void>(e);
-                    event_tracking(log_level::error, "[Obscura] read failed.");
+                    trace::error("[Obscura] read failed.");
                     co_return;
                 }
 
@@ -300,7 +297,7 @@ namespace ngx::transport::detail
                     {
                         co_return;
                     }
-                    event_tracking(log_level::error, "[Obscura] upstream write failed.");
+                    trace::error("[Obscura] upstream write failed.");
                     co_return;
                 }
 
@@ -317,7 +314,7 @@ namespace ngx::transport::detail
          * @param buffer 数据缓冲区
          */
         static net::awaitable<void> upstream_to_obscura(obscura<net::ip::tcp> &proto, stream_socket &upstream,
-            const net::cancellation_slot cancel_slot, const mutable_buf buffer)
+                                                        const net::cancellation_slot cancel_slot, const mutable_buf buffer)
         {
             boost::system::error_code ec;
             auto token = net::bind_cancellation_slot(cancel_slot, net::redirect_error(net::use_awaitable, ec));
@@ -332,7 +329,7 @@ namespace ngx::transport::detail
                     {
                         co_return;
                     }
-                    event_tracking(log_level::error, "[Obscura] upstream read failed.");
+                    trace::error("[Obscura] upstream read failed.");
                     co_return;
                 }
 
@@ -352,19 +349,18 @@ namespace ngx::transport::detail
                     {
                         co_return;
                     }
-                    event_tracking(log_level::error, "[Obscura] write failed.");
+                    trace::error("[Obscura] write failed.");
                     co_return;
                 }
                 catch (const std::exception &e)
                 {
                     static_cast<void>(e);
-                    event_tracking(log_level::error, "[Obscura] write failed.");
+                    trace::error("[Obscura] write failed.");
                     co_return;
                 }
             }
         }
     };
-
 
     /**
      * @class tunnel
@@ -379,7 +375,7 @@ namespace ngx::transport::detail
         /**
          * @brief TCP 隧道传输
          * @details 在两个套接字之间并发执行双向数据传输。
-         * 内部使用 `boost::asio::experimental::awaitable_operators` (`||` 运算符) 
+         * 内部使用 `boost::asio::experimental::awaitable_operators` (`||` 运算符)
          * 来实现"任意一方完成即终止"的逻辑。
          * @param ctx 隧道上下文，包含客户端和服务端 socket
          * @param buffer_data 共享缓冲区指针
@@ -390,7 +386,7 @@ namespace ngx::transport::detail
         {
             if (!ctx.valid() || !buffer_data || buffer_size < 2)
             {
-                event_tracking(log_level::warn, "[Tunnel] invalid context.");
+                trace::warn("[Tunnel] invalid context.");
                 co_return;
             }
 
@@ -405,8 +401,7 @@ namespace ngx::transport::detail
             const auto server_to_client = make_transfer_context<stream_socket, stream_socket>(
                 ctx.server_socket, ctx.client_socket, right);
 
-
-            event_tracking(log_level::debug, "[Tunnel] stream start.");
+            trace::debug("[Tunnel] stream start.");
             co_await (transfer::stream(client_to_server) || transfer::stream(server_to_client));
         }
 
@@ -420,15 +415,15 @@ namespace ngx::transport::detail
          * @param buffer_size 缓冲区大小
          */
         static net::awaitable<void> obscura(std::shared_ptr<obscura<net::ip::tcp>> proto,
-            stream_socket &upstream, std::byte *buffer_data, const std::size_t buffer_size)
+                                            stream_socket &upstream, std::byte *buffer_data, const std::size_t buffer_size)
         {
             if (!proto || !buffer_data || buffer_size < 2)
             {
-                event_tracking(log_level::warn, "[Obscura] invalid context.");
+                trace::warn("[Obscura] invalid context.");
                 co_return;
             }
 
-            event_tracking(log_level::info, "[Obscura] tunnel started.");
+            trace::info("[Obscura] tunnel started.");
 
             auto executor = co_await net::this_coro::executor;
 
@@ -439,20 +434,20 @@ namespace ngx::transport::detail
             auto upstream_to_obscura_buffer = mutable_buf(buffer_data, half);
 
             auto outoken = [proto, slot = cancel_obscura_to_upstream.slot(),
-                &cancel_upstream_to_obscura, &upstream]() -> net::awaitable<void>
+                            &cancel_upstream_to_obscura, &upstream]() -> net::awaitable<void>
             {
-                event_tracking(log_level::debug, "[Obscura] tunnel: obscura -> upstream started.");
+                trace::debug("[Obscura] tunnel: obscura -> upstream started.");
                 co_await transfer::obscura_to_upstream(*proto, upstream, slot);
-                event_tracking(log_level::debug, "[Obscura] tunnel: obscura -> upstream finished.");
+                trace::debug("[Obscura] tunnel: obscura -> upstream finished.");
                 cancel_upstream_to_obscura.emit(net::cancellation_type::all);
             };
 
             auto uotoken = [proto, slot = cancel_upstream_to_obscura.slot(), &cancel_obscura_to_upstream,
-                upstream_to_obscura_buffer, &upstream]() -> net::awaitable<void>
+                            upstream_to_obscura_buffer, &upstream]() -> net::awaitable<void>
             {
-                event_tracking(log_level::debug, "[Obscura] tunnel: upstream -> obscura started.");
+                trace::debug("[Obscura] tunnel: upstream -> obscura started.");
                 co_await transfer::upstream_to_obscura(*proto, upstream, slot, upstream_to_obscura_buffer);
-                event_tracking(log_level::debug, "[Obscura] tunnel: upstream -> obscura finished.");
+                trace::debug("[Obscura] tunnel: upstream -> obscura finished.");
                 cancel_obscura_to_upstream.emit(net::cancellation_type::all);
                 try
                 {
@@ -476,7 +471,7 @@ namespace ngx::transport::detail
 
             try
             {
-                event_tracking(log_level::debug, "[Obscura] tunnel closing obscura protocol.");
+                trace::debug("[Obscura] tunnel closing obscura protocol.");
                 co_await proto->close();
             }
             catch (const boost::system::system_error &e)
@@ -488,7 +483,7 @@ namespace ngx::transport::detail
                 (void)e;
             }
 
-            event_tracking(log_level::info, "[Obscura] tunnel finished.");
+            trace::info("[Obscura] tunnel finished.");
         }
     };
 }

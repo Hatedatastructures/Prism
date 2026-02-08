@@ -1,4 +1,6 @@
 #include <forward-engine/protocol/socks5.hpp>
+#include <forward-engine/abnormal/network.hpp>
+#include <forward-engine/gist/code.hpp>
 #include <boost/asio.hpp>
 #include <iostream>
 #include <thread>
@@ -28,7 +30,7 @@ net::awaitable<void> do_socks5_server(tcp::acceptor &acceptor)
         // 执行握手，获取目标地址信息
         std::cout << "服务器开始 SOCKS5 握手..." << std::endl;
         auto [ec, req] = co_await socks5->handshake();
-        if (ec != ngx::gist::code::success)
+        if (ngx::gist::failed(ec))
         {
             std::cerr << "服务器握手失败: " << std::string_view(ngx::gist::describe(ec)) << std::endl;
             co_return;
@@ -96,7 +98,7 @@ net::awaitable<void> raw_socks5_handshake(tcp::socket &socket, const std::string
 
         if (method_response[0] != 0x05 || method_response[1] != 0x00)
         {
-            throw std::runtime_error("SOCKS5 方法协商失败");
+            throw ngx::abnormal::network("SOCKS5 方法协商失败");
         }
 
         // 发送 CONNECT 请求
@@ -108,7 +110,7 @@ net::awaitable<void> raw_socks5_handshake(tcp::socket &socket, const std::string
         // 地址类型和地址
         if (host.find(':') != std::string::npos)
         {
-            throw std::runtime_error("IPv6 地址测试暂不支持");
+            throw ngx::abnormal::network("IPv6 地址测试暂不支持");
         }
         else if (host.find('.') != std::string::npos)
         {
@@ -152,7 +154,7 @@ net::awaitable<void> raw_socks5_handshake(tcp::socket &socket, const std::string
             else
             {
                 if (total_read > 0 && response[1] != 0x00)
-                    throw std::runtime_error("SOCKS5 连接请求被拒绝");
+                    throw ngx::abnormal::network("SOCKS5 连接请求被拒绝");
             }
         }
         catch (const boost::system::system_error &e)
@@ -160,7 +162,8 @@ net::awaitable<void> raw_socks5_handshake(tcp::socket &socket, const std::string
             if (e.code() == boost::asio::error::eof && total_read >= 4)
             {
                 if (response[0] == 0x05 && response[1] == 0x00)
-                {;
+                {
+                    ;
                     std::cout << "原始 SOCKS5 握手成功 (EOF)" << std::endl;
                     co_return;
                 }
@@ -216,7 +219,7 @@ int main()
                 
                 if (received_msg != test_msg)
                 {
-                    throw std::runtime_error("Message echo verification failed");
+                    throw ngx::abnormal::network("Message echo verification failed");
                 }
                 
                 std::cout << "Client test success: " << test_msg << std::endl;

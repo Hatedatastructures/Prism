@@ -8,7 +8,6 @@
 #include <boost/asio.hpp>
 #include <boost/asio/ssl.hpp>
 #include <array>
-#include <string>
 #include <string_view>
 #include <forward-engine/gist.hpp>
 
@@ -69,7 +68,7 @@ namespace ngx::protocol::trojan
             co_await stream_ptr_->async_handshake(ssl::stream_base::server, net::redirect_error(net::use_awaitable, ec));
             if (ec)
             {
-                co_return std::pair<gist::code, request>{gist::code::tls_handshake_failed, request{}};
+                co_return std::pair{gist::code::tls_handshake_failed, request{}};
             }
 
             // 2. 读取 Trojan 请求头
@@ -196,13 +195,13 @@ namespace ngx::protocol::trojan
             -> gist::code
         {
             auto [ec_port, port] = wire::decode_port(data.subspan(0, 2));
-            if (ec_port != gist::code::success)
+            if (gist::failed(ec_port))
             {
                 return ec_port;
             }
             req.port = port;
 
-            if (const auto ec = wire::decode_crlf(data.subspan(2, 2)); ec != gist::code::success)
+            if (const auto ec = wire::decode_crlf(data.subspan(2, 2)); gist::failed(ec))
             {
                 return ec;
             }
@@ -223,13 +222,13 @@ namespace ngx::protocol::trojan
             -> net::awaitable<gist::code>
         {
             std::array<std::uint8_t, N + 4> data; // IP(N) + Port(2) + CRLF(2)
-            if (auto ec = co_await read_specified_bytes(buffer, data.data(), N + 4); ec != gist::code::success)
+            if (auto ec = co_await read_specified_bytes(buffer, data.data(), N + 4); gist::failed(ec))
             {
                 co_return ec;
             }
 
             auto [ec_decode, ip] = decoder(std::span<const std::uint8_t>(data.data(), N));
-            if (ec_decode != gist::code::success)
+            if (gist::failed(ec_decode))
             {
                 co_return ec_decode;
             }
@@ -248,13 +247,13 @@ namespace ngx::protocol::trojan
             -> net::awaitable<gist::code>
         {
             std::uint8_t len = 0;
-            if (auto ec = co_await read_specified_bytes(buffer, &len, 1); ec != gist::code::success)
+            if (auto ec = co_await read_specified_bytes(buffer, &len, 1); gist::failed(ec))
             {
                 co_return ec;
             }
 
             std::array<std::uint8_t, 259> data{}; // Max domain(255) + Port(2) + CRLF(2)
-            if (auto ec = co_await read_specified_bytes(buffer, data.data(), len + 4); ec != gist::code::success)
+            if (auto ec = co_await read_specified_bytes(buffer, data.data(), len + 4); gist::failed(ec))
             {
                 co_return ec;
             }
@@ -265,7 +264,7 @@ namespace ngx::protocol::trojan
             std::memcpy(dom_buf.data() + 1, data.data(), len);
 
             auto [ec, dom] = wire::decode_domain(std::span<const std::uint8_t>(dom_buf.data(), len + 1));
-            if (ec != gist::code::success)
+            if (gist::failed(ec))
             {
                 co_return ec;
             }
@@ -294,14 +293,14 @@ namespace ngx::protocol::trojan
         {
             // 读取 Credential(56) + CRLF(2) + Cmd(1) + Atyp(1) = 60 bytes
             std::array<std::uint8_t, 60> head_buffer{};
-            if (auto ec = co_await read_specified_bytes(buffer, head_buffer.data(), 60); ec != gist::code::success)
+            if (auto ec = co_await read_specified_bytes(buffer, head_buffer.data(), 60); gist::failed(ec))
             {
                 co_return std::pair<gist::code, header_information>{ec, header_information{}};
             }
 
             // 解析 Credential
             auto [ec_cred, credential] = wire::decode_credential(std::span<const std::uint8_t>(head_buffer.data(), 56));
-            if (ec_cred != gist::code::success)
+            if (gist::failed(ec_cred))
             {
                 co_return std::pair<gist::code, header_information>{ec_cred, header_information{}};
             }
@@ -316,14 +315,14 @@ namespace ngx::protocol::trojan
             }
 
             // 验证 CRLF
-            if (auto ec = wire::decode_crlf(std::span<const std::uint8_t>(head_buffer.data() + 56, 2)); ec != gist::code::success)
+            if (auto ec = wire::decode_crlf(std::span<const std::uint8_t>(head_buffer.data() + 56, 2)); gist::failed(ec))
             {
                 co_return std::pair<gist::code, header_information>{ec, header_information{}};
             }
 
             // 解析 Cmd + Atyp
             auto [ec_head, head] = wire::decode_cmd_atyp(std::span<const std::uint8_t>(head_buffer.data() + 58, 2));
-            if (ec_head != gist::code::success)
+            if (gist::failed(ec_head))
             {
                 co_return std::pair<gist::code, header_information>{ec_head, header_information{}};
             }
@@ -341,7 +340,7 @@ namespace ngx::protocol::trojan
         {
             // 1. 读取并验证头部
             auto [ec_header, head_info] = co_await read_header(buffer);
-            if (ec_header != gist::code::success)
+            if (gist::failed(ec_header))
             {
                 co_return std::pair<gist::code, request>{ec_header, request{}};
             }
@@ -352,7 +351,7 @@ namespace ngx::protocol::trojan
 
             if (req.cmd != command::connect && req.cmd != command::udp_associate)
             { // 校验命令是否支持
-                co_return std::pair<gist::code, request>{gist::code::unsupported_command, request{}};
+                co_return std::pair{gist::code::unsupported_command, request{}};
             }
 
             // 2. 解析地址 + 端口 + CRLF
@@ -372,12 +371,12 @@ namespace ngx::protocol::trojan
                 ec = gist::code::unsupported_address;
             }
 
-            if (ec != gist::code::success)
+            if (gist::failed(ec))
             {
-                co_return std::pair<gist::code, request>{ec, request{}};
+                co_return std::pair{ec, request{}};
             }
 
-            co_return std::pair<gist::code, request>{gist::code::success, req};
+            co_return std::pair{gist::code::success, req};
         }
 
         std::shared_ptr<stream_type> stream_ptr_;

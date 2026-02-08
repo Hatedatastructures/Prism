@@ -8,6 +8,8 @@
 #include <forward-engine/transport/source.hpp>
 #include <forward-engine/agent/distributor.hpp>
 #include <forward-engine/agent/session.hpp>
+#include <forward-engine/abnormal/network.hpp>
+#include <forward-engine/gist/code.hpp>
 #include <forward-engine/memory.hpp>
 #include <boost/asio.hpp>
 #include <boost/asio/ssl.hpp>
@@ -27,30 +29,6 @@ namespace agent = ngx::agent;
 
 namespace
 {
-    auto log_transformation = [](agent::level level, const std::string_view msg)
-    {
-        switch (level)
-        {
-        case agent::level::debug:
-            ngx::trace::debug("{}", msg);
-            break;
-        case agent::level::info:
-            ngx::trace::info("{}", msg);
-            break;
-        case agent::level::warn:
-            ngx::trace::warn("{}", msg);
-            break;
-        case agent::level::error:
-            ngx::trace::error("{}", msg);
-            break;
-        case agent::level::fatal:
-            ngx::trace::fatal("{}", msg);
-            break;
-        default:
-            break;
-        }
-    };
-
     void info(const std::string_view msg)
     {
         ngx::trace::info("{}", msg);
@@ -111,9 +89,8 @@ net::awaitable<void> proxy_accept_one(tcp::acceptor acceptor, net::io_context &i
     {
         co_return;
     }
-    auto session_ptr = std::make_shared<agent::session<tcp::socket>>(ioc, 
-        std::move(socket), dist, std::move(ssl_ctx), ngx::memory::current_resource());
-    session_ptr->registered_log_function(log_transformation);
+    auto session_ptr = std::make_shared<agent::session<tcp::socket>>(ioc,
+                                                                     std::move(socket), dist, std::move(ssl_ctx), ngx::memory::current_resource());
     session_ptr->start();
 }
 
@@ -150,7 +127,7 @@ net::awaitable<std::string> read_proxy_connect_response(tcp::socket &socket)
 
     if (!response.starts_with("HTTP/1.1 200"))
     {
-        throw std::runtime_error("proxy connect failed: " + response);
+        throw ngx::abnormal::network("proxy connect failed: " + response);
     }
 
     co_return response;
@@ -192,7 +169,7 @@ net::awaitable<void> wait_until_true(std::shared_ptr<std::atomic_bool> flag, con
     {
         if (std::chrono::steady_clock::now() >= deadline)
         {
-            throw std::runtime_error("timeout waiting for expected shutdown");
+            throw ngx::abnormal::network("timeout waiting for expected shutdown");
         }
 
         timer.expires_after(std::chrono::milliseconds(10));
@@ -246,7 +223,7 @@ net::awaitable<void> proxy_connect_client_echo(const tcp::endpoint proxy_ep, con
 
     if (echo != payload)
     {
-        throw std::runtime_error("echo mismatch");
+        throw ngx::abnormal::network("echo mismatch");
     }
 
     info(std::format("{} client: 回显校验通过，关闭连接", tag));

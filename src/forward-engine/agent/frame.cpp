@@ -1,7 +1,6 @@
 #include <forward-engine/protocol/frame.hpp>
 #include <boost/endian/conversion.hpp>
 #include <cstring>
-#include <stdexcept>
 
 namespace ngx::protocol
 {
@@ -21,7 +20,7 @@ namespace ngx::protocol
         return result;
     }
 
-    auto deserialize(std::string_view string_value, frame &frame_instance)
+    auto deserialize(const std::string_view string_value, frame &frame_instance)
         -> ngx::gist::code
     {
         // 检查最小长度 4 字节 ID + 1 字节 type = 5 字节

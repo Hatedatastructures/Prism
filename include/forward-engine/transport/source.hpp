@@ -101,7 +101,7 @@ namespace ngx::transport
          * @param resource 内存资源指针 (通常为线程局部池)
          * @note 推荐传入 `thread_local_pool` 以获得最佳性能。
          */
-        explicit source(net::io_context &ioc, memory::resource_pointer resource = memory::current_resource())
+        explicit source(net::io_context &ioc, const memory::resource_pointer resource = memory::current_resource())
             : ioc_(ioc), cache_(resource) {}
 
         ~source()
@@ -145,7 +145,7 @@ namespace ngx::transport
         void recycle(tcp::socket *s, const tcp::endpoint &endpoint);
 
     private:
-        [[nodiscard]] static bool zombie_detection(tcp::socket *s);
+        [[nodiscard]] static bool zombie_detection(const tcp::socket *s);
 
         void clear();
 

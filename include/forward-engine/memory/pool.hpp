@@ -29,6 +29,12 @@ namespace ngx::memory
          * 大于此值的对象将直接走系统堆 (malloc)，避免长驻内存池。
          */
         static constexpr std::size_t max_pool_size = 16384;
+
+        /**
+         * @brief 小型缓冲区大小 (8KB)
+         * @details 适用于临时缓冲区、栈上数组等场景。
+         */
+        static constexpr std::size_t small_buffer_size = 8192;
     };
 
     /**

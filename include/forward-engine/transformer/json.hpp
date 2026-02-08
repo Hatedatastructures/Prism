@@ -6,7 +6,7 @@
 
 #include <glaze/glaze.hpp>
 
-#include <memory/container.hpp>
+#include <forward-engine/memory/container.hpp>
 
 /**
  * @namespace ngx::transformer
@@ -21,7 +21,7 @@ namespace ngx::transformer::json
      * @tparam StructureObject 待序列化的对象类型
      * @param value 待序列化的对象实例
      * @param out 用于存储序列化结果的字符串引用
-     * @return true 序列化成功，false 序列化失败
+     * @return `true` 序列化成功，`false` 序列化失败
      */
     template <typename StructureObject>
     [[nodiscard]] bool serialize(const StructureObject &value, memory::string &out)
@@ -51,7 +51,7 @@ namespace ngx::transformer::json
      * @param value 待序列化的对象实例
      * @param out 用于存储序列化结果的字符串引用
      * @param out_ec 用于存储序列化错误上下文的引用
-     * @return true 序列化成功，false 序列化失败
+     * @return `true` 序列化成功，`false` 序列化失败
      */
     template <typename StructureObject>
     [[nodiscard]] bool serialize(const StructureObject &value, memory::string &out, glz::error_ctx &out_ec)
@@ -82,10 +82,10 @@ namespace ngx::transformer::json
      * @tparam StructureObject 待序列化的对象类型
      * @param value 待序列化的对象实例
      * @param mr 内存资源指针，默认使用当前线程的内存资源
-     * @return memory::string 序列化后的 JSON 字符串
+     * @return `memory::string` 序列化后的 JSON 字符串
      */
     template <typename StructureObject>
-    [[nodiscard]] memory::string serialize(const StructureObject &value, memory::resource_pointer mr = memory::current_resource())
+    [[nodiscard]] memory::string serialize(const StructureObject &value, const memory::resource_pointer mr = memory::current_resource())
     {
         memory::string out(mr);
         if (!serialize(value, out))
@@ -100,7 +100,7 @@ namespace ngx::transformer::json
      * @tparam StructureObject 目标对象类型
      * @param json_data JSON 原始数据
      * @param value 接收数据的对象引用
-     * @return true 反序列化成功，false 反序列化失败
+     * @return `true` 反序列化成功，`false` 反序列化失败
      */
     template <typename StructureObject>
     [[nodiscard]] bool deserialize(const std::string_view json_data, StructureObject &value)
@@ -148,7 +148,7 @@ namespace ngx::transformer::json
      * @param json_data JSON 原始数据
      * @param value 接收数据的对象引用
      * @param out_ec 用于存储反序列化错误上下文的引用
-     * @return true 反序列化成功，false 反序列化失败
+     * @return `true` 反序列化成功，`false` 反序列化失败
      */
     template <typename StructureObject>
     [[nodiscard]] bool deserialize(const std::string_view json_data, StructureObject &value, glz::error_ctx &out_ec)
@@ -200,6 +200,7 @@ namespace ngx::transformer::json
      * @param value 接收数据的对象引用
      * @param mr 缓冲区使用的内存资源
      * @param out_ec 用于存储反序列化错误上下文的引用
+     * @return `true` 反序列化成功，`false` 反序列化失败
      */
     template <typename StructureObject>
     [[nodiscard]] bool deserialize(const std::string_view json_data, StructureObject &value, memory::resource_pointer mr, glz::error_ctx &out_ec)

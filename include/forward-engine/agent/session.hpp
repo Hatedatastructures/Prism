@@ -12,7 +12,6 @@
 #include <vector>
 #include <memory>
 #include <string>
-#include <format>
 #include <utility>
 #include <functional>
 #include <string_view>
@@ -21,21 +20,21 @@
 #include <boost/asio.hpp>
 #include <boost/asio/experimental/awaitable_operators.hpp>
 
-#include <abnormal.hpp>
-#include <memory/pool.hpp>
+#include <forward-engine/abnormal.hpp>
+#include <forward-engine/memory/pool.hpp>
 #include <forward-engine/agent/distributor.hpp>
 #include <forward-engine/protocol/analysis.hpp>
 #include <forward-engine/agent/handler.hpp>
+#include <forward-engine/trace/spdlog.hpp>
 
 namespace ngx::agent
 {
     namespace net = boost::asio;
     namespace ssl = boost::asio::ssl;
-    
+
     // Transport detail alias
-    namespace detail = ngx::transport::detail;
+    namespace detail = transport::detail;
     using tcp = boost::asio::ip::tcp;
-    using level = detail::log_level;
     using unique_sock = transport::unique_sock;
 
     /**
@@ -44,13 +43,13 @@ namespace ngx::agent
      * @tparam Transport 客户端 `socket` 类型 (满足 SocketConcept 约束)
      * @details 代表一个活跃的客户端连接。它是一个**自持有** (`shared_from_this`) 的对象，
      * 这意味着只要异步操作未完成，它就不会析构。
-     * 
+     *
      * **核心职责**：
      * 1. **预读 (Peek)**: 读取少量数据以识别协议特征。
      * 2. **协议识别**: 区分 HTTP, SOCKS5, TLS (Trojan/Obscura)。
      * 3. **任务分派**: 将识别后的连接移交给对应的 `handler` 处理。
      * 4. **内存优化**: 采用 `lazy allocation` 策略，仅在需要时分配缓冲区，并使用线程独占内存池。
-     * 
+     *
      * @see handler
      */
     template <transport::SocketConcept Transport>
@@ -69,8 +68,7 @@ namespace ngx::agent
          * @param resource 内存资源 (通常为线程局部池)
          */
         explicit session(net::io_context &io_context, socket_type socket, distributor &dist,
-                         std::shared_ptr<ssl::context> ssl_ctx,
-                         memory::resource_pointer resource);
+                         std::shared_ptr<ssl::context> ssl_ctx,memory::resource_pointer resource);
 
         ~session();
 
@@ -88,11 +86,7 @@ namespace ngx::agent
          */
         void close();
 
-        /**
-         * @brief 注册日志回调函数
-         * @param trace 日志回调函数
-         */
-        static void registered_log_function(std::function<void(level, std::string_view)> trace) noexcept;
+
 
         /**
          * @brief 设置用户凭据验证回调
@@ -103,6 +97,10 @@ namespace ngx::agent
             this->credential_verifier_ = std::move(verifier);
         }
 
+        /**
+         * @brief 设置账户验证回调
+         * @param validator 验证函数，输入用户名，返回验证结果
+         */
         void set_account_validator(validator *validator) noexcept
         {
             this->account_validator_ptr_ = validator;
@@ -113,7 +111,7 @@ namespace ngx::agent
         using cancellation_slot = net::cancellation_slot;
         using cancellation_signal = net::cancellation_signal;
 
-        [[nodiscard]] auto create_context() 
+        [[nodiscard]] auto create_context()
             -> session_context<Transport>
         {
             return make_session_context<Transport>(
@@ -138,7 +136,7 @@ namespace ngx::agent
         net::io_context &io_context_;
         std::shared_ptr<ssl::context> ssl_ctx_;
         distributor &distributor_;
-        socket_type client_socket_;              // 客户端连接
+        socket_type client_socket_;     // 客户端连接
         unique_sock server_socket_ptr_; // 服务器连接
 
         memory::vector<std::byte> buffer_;
@@ -149,7 +147,7 @@ namespace ngx::agent
 
     template <transport::SocketConcept Transport>
     session<Transport>::session(net::io_context &io_context, socket_type socket, distributor &dist,
-                                std::shared_ptr<ssl::context> ssl_ctx,memory::resource_pointer resource)
+                                std::shared_ptr<ssl::context> ssl_ctx, memory::resource_pointer resource)
         : io_context_(io_context), ssl_ctx_(std::move(ssl_ctx)), distributor_(dist),
           client_socket_(std::move(socket)), buffer_(resource) {}
 
@@ -159,16 +157,12 @@ namespace ngx::agent
         close();
     }
 
-    template <transport::SocketConcept Transport>
-    void session<Transport>::registered_log_function(std::function<void(level, std::string_view)> trace) noexcept
-    {
-        detail::tracker = std::move(trace);
-    }
+
 
     template <transport::SocketConcept Transport>
     void session<Transport>::start()
     {
-        detail::event_tracking(level::info, "[Session] Session started.");
+        trace::info("[Session] Session started.");
         auto process = [self = this->shared_from_this()]() -> net::awaitable<void>
         {
             co_await self->diversion();
@@ -186,12 +180,11 @@ namespace ngx::agent
             }
             catch (const abnormal::exception &e)
             {
-                const auto message = e.dump();
-                detail::event_tracking(level::error, message);
+                trace::error(e.dump());
             }
             catch (const std::exception &e)
             {
-                detail::event_tracking(level::error, e.what());
+                trace::error(e.what());
             }
 
             self->close();
@@ -203,7 +196,7 @@ namespace ngx::agent
     template <transport::SocketConcept Transport>
     void session<Transport>::close()
     {
-        detail::event_tracking(level::debug, "[Session] Session closing.");
+        trace::debug("[Session] Session closing.");
         detail::shut_close(client_socket_);
         if (server_socket_ptr_)
         {
@@ -228,18 +221,17 @@ namespace ngx::agent
             {
                 co_return;
             }
-            detail::event_tracking(level::warn, "[Session] Peek failed.");
+            trace::warn("[Session] Peek failed.");
             close();
             co_return;
         }
 
         {
-            const auto message = std::format("[Session] Peeked `{}` bytes.", n);
-            detail::event_tracking(level::debug, message);
+            trace::debug("[Session] Peeked `{}` bytes.", n);
         }
 
         // 按需分配 IO 缓冲区 (16KB)
-        buffer_.resize(16384);
+        buffer_.resize(ngx::memory::policy::max_pool_size);
 
         // 构造 context
         auto ctx = create_context();
@@ -250,22 +242,22 @@ namespace ngx::agent
         // 3. 分流
         if (type == protocol::protocol_type::http)
         {
-            detail::event_tracking(level::debug, "[Session] Detected protocol: http.");
+            trace::debug("[Session] Detected protocol: http.");
             co_await handler::http(ctx);
         }
         else if (type == protocol::protocol_type::socks5)
         {
-            detail::event_tracking(level::debug, "[Session] Detected protocol: socks5.");
+            trace::debug("[Session] Detected protocol: socks5.");
             co_await handler::socks5(ctx);
         }
         else if (type == protocol::protocol_type::tls)
         {
-            detail::event_tracking(level::debug, "[Session] Detected protocol: tls (Trojan/Obscura).");
+            trace::debug("[Session] Detected protocol: tls (Trojan/Obscura).");
             co_await handler::tls(ctx);
         }
         else
         {
-            detail::event_tracking(level::warn, "[Session] Unknown protocol detected.");
+            trace::warn("[Session] Unknown protocol detected.");
         }
     }
 

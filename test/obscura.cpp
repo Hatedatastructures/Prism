@@ -1,4 +1,6 @@
 #include <forward-engine/transport/obscura.hpp>
+#include <forward-engine/abnormal/network.hpp>
+#include <forward-engine/gist/code.hpp>
 #include <boost/asio.hpp>
 #include <boost/asio/ssl.hpp>
 #include <boost/beast.hpp>
@@ -100,7 +102,7 @@ net::awaitable<void> do_client(tcp::endpoint endpoint, std::shared_ptr<ssl::cont
                 co_await agent->async_write(expected_msg);
                 beast::flat_buffer buffer;
                 co_await agent->async_read(buffer);
-                throw std::runtime_error("预期服务器拒绝连接，但读写仍然成功");
+                throw ngx::abnormal::network("预期服务器拒绝连接，但读写仍然成功");
             }
             catch (const std::exception &)
             {
@@ -118,7 +120,7 @@ net::awaitable<void> do_client(tcp::endpoint endpoint, std::shared_ptr<ssl::cont
         std::string reply = beast::buffers_to_string(buffer.data());
         if (reply != expected_msg)
         {
-            throw std::runtime_error("消息回显校验失败: 收到 " + reply + "，预期 " + expected_msg);
+            throw ngx::abnormal::network("消息回显校验失败: 收到 " + reply + "，预期 " + expected_msg);
         }
 
         // 优雅地关闭连接

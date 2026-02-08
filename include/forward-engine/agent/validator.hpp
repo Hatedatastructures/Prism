@@ -2,7 +2,6 @@
 
 #include <atomic>
 #include <cstddef>
-#include <cstdint>
 #include <functional>
 #include <memory>
 #include <string>
@@ -55,8 +54,8 @@ namespace ngx::agent
          * @note 默认使用 `memory::system::global_pool()` 以确保跨线程访问安全（内部使用 atomic 和 shared_ptr）。
          * 请勿传入非线程安全的内存池（如 `unsynchronized_pool`），除非你确定只在单线程环境使用。
          */
-        explicit validator(memory::resource_pointer resource = memory::system::global_pool())
-            : allocator_(resource)
+        explicit validator(const memory::resource_pointer resource = memory::system::global_pool())
+            : allocator_(resource), users_ptr_()
         {
             users_ptr_.store(std::allocate_shared<hash_map>(allocator_, 0));
         }

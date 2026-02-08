@@ -27,38 +27,7 @@ namespace ngx::agent
     namespace net = boost::asio;
     using tcp = boost::asio::ip::tcp;
     using source = ngx::transport::source;
-    using level = ngx::transport::detail::log_level;
 
-    /**
-     * @brief 日志转换函数
-     * @details 将 `agent::level` 转换为 `ngx::trace::level` 并记录日志。
-     * @param log_lvl `agent::level` 日志级别
-     * @param msg `std::string_view` 日志消息
-     * @note 该函数不会主动运行，需要由现有测试用例显式调用。或者根据用户自己写的log模块转换调用
-     */
-    inline auto log_transformation = [](level log_lvl, std::string_view msg)
-    {
-        switch (log_lvl)
-        {
-        case level::debug:
-            ngx::trace::debug("{}", msg);
-            break;
-        case level::info:
-            ngx::trace::info("{}", msg);
-            break;
-        case level::warn:
-            ngx::trace::warn("{}", msg);
-            break;
-        case level::error:
-            ngx::trace::error("{}", msg);
-            break;
-        case level::fatal:
-            ngx::trace::fatal("{}", msg);
-            break;
-        default:
-            break;
-        }
-    };
 
     /**
      * @class worker
@@ -83,7 +52,7 @@ namespace ngx::agent
             : ioc_(1),                                                        // 1. 初始化 IO 上下文 (hint=1 表示单线程)
               pool_(ioc_, memory::system::thread_local_pool()),               // 2. 初始化连接池 (使用线程独占内存池)
               distributor_(pool_, ioc_, memory::system::thread_local_pool()), // 3. 初始化路由器 (使用线程独占内存池)
-              ssl_ctx_(std::make_shared<net::ssl::context>(net::ssl::context::tls)),
+              ssl_ctx_(std::make_shared<ssl::context>(ssl::context::tls)),
               acceptor_(ioc_), // 4. 初始化接收器
               config_(cfg),
               account_validator_(std::move(validator_ptr)) // 5. 注入共享验证器
@@ -105,7 +74,7 @@ namespace ngx::agent
                         trace::error("ssl cert load failed: " + ec.message());
                         throw abnormal::protocol("ssl cert load failed:", ec.message());
                     }
-                    ssl_ctx_->use_private_key_file({key.data(), key.size()}, net::ssl::context::pem);
+                    ssl_ctx_->use_private_key_file({key.data(), key.size()}, ssl::context::pem);
                     if (ec)
                     {
                         trace::error("ssl key load failed: " + ec.message());
@@ -206,26 +175,26 @@ namespace ngx::agent
                 if (!ec)
                 {
                     // 创建会话，把“路由器”传给它
-                    const auto session_ptr = std::make_shared<session<tcp::socket>>(
-                        ioc_,
-                        std::move(socket),
-                        distributor_,
-                        ssl_ctx_,
+                    const auto session_pointer = std::make_shared<session<tcp::socket>>(
+                        ioc_, std::move(socket), distributor_, ssl_ctx_,
                         memory::system::thread_local_pool());
-                    session_ptr->registered_log_function(log_transformation);
-                    const bool auth_enabled = !config_.authentication.credentials.empty() || !config_.authentication.users.empty();
-                    session_ptr->set_account_validator(auth_enabled ? account_validator_.get() : nullptr);
 
-                    // 设置凭据验证器
-                    session_ptr->set_credential_verifier([this](std::string_view credential) -> bool
-                                                         {
+                    const bool auth_enabled = !config_.authentication.credentials.empty() || !config_.authentication.users.empty();
+                    session_pointer->set_account_validator(auth_enabled ? account_validator_.get() : nullptr);
+
+                    // 凭据验证器
+                    auto verifier_func = [this](const std::string_view credential) -> bool
+                    {
                         if (config_.authentication.credentials.empty() && config_.authentication.users.empty())
                         {
                             return true;
                         }
-                        return account_validator_->verify(credential); });
+                        return account_validator_->verify(credential);
+                    };
+                    // 设置凭据验证器
+                    session_pointer->set_credential_verifier(verifier_func);
 
-                    session_ptr->start();
+                    session_pointer->start();
                 }
                 do_accept();
             };

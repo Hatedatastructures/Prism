@@ -6,7 +6,6 @@
 #pragma once
 #include <span>
 #include <forward-engine/gist.hpp>
-#include <cstring>
 #include <cctype>
 #include <forward-engine/protocol/trojan/message.hpp>
 
@@ -33,7 +32,7 @@ namespace ngx::protocol::trojan::wire
      * @param buffer 数据缓冲区 (至少 56 字节)
      * @return `std::pair<gist::code, std::array<char, 56>>` 结果代码和用户凭据
      */
-    inline auto decode_credential(std::span<const std::uint8_t> buffer)
+    inline auto decode_credential(const std::span<const std::uint8_t> buffer)
         -> std::pair<gist::code, std::array<char, 56>>
     {
         if (buffer.size() < 56)
@@ -58,7 +57,7 @@ namespace ngx::protocol::trojan::wire
      * @param buffer 数据缓冲区 (至少 2 字节)
      * @return `gist::code` 验证结果
      */
-    inline auto decode_crlf(std::span<const std::uint8_t> buffer)
+    inline auto decode_crlf(const std::span<const std::uint8_t> buffer)
         -> gist::code
     {
         if (buffer.size() < 2)
@@ -92,7 +91,7 @@ namespace ngx::protocol::trojan::wire
      * @param buffer 数据缓冲区 (至少 4 字节)
      * @return `std::pair<gist::code, ipv4_address>` 解析结果
      */
-    inline auto decode_ipv4(std::span<const std::uint8_t> buffer)
+    inline auto decode_ipv4(const std::span<const std::uint8_t> buffer)
         -> std::pair<gist::code, ipv4_address>
     {
         if (buffer.size() < 4)
@@ -109,7 +108,7 @@ namespace ngx::protocol::trojan::wire
      * @param buffer 数据缓冲区 (至少 16 字节)
      * @return `std::pair<gist::code, ipv6_address>` 解析结果
      */
-    inline auto decode_ipv6(std::span<const std::uint8_t> buffer)
+    inline auto decode_ipv6(const std::span<const std::uint8_t> buffer)
         -> std::pair<gist::code, ipv6_address>      
     {
         if (buffer.size() < 16)
@@ -126,7 +125,7 @@ namespace ngx::protocol::trojan::wire
      * @param buffer 数据缓冲区 (包括长度字节)
      * @return `std::pair<gist::code, domain_address>` 解析结果
      */
-    inline auto decode_domain(std::span<const std::uint8_t> buffer)
+    inline auto decode_domain(const std::span<const std::uint8_t> buffer)
         -> std::pair<gist::code, domain_address>
     {
         if (buffer.empty())
@@ -149,7 +148,7 @@ namespace ngx::protocol::trojan::wire
      * @param buffer 数据缓冲区 (2 字节，大端序)
      * @return `std::pair<gist::code, uint16_t>` 解析结果 (主机字节序)
      */
-    inline auto decode_port(std::span<const std::uint8_t> buffer)
+    inline auto decode_port(const std::span<const std::uint8_t> buffer)
         -> std::pair<gist::code, uint16_t>
     {
         if (buffer.size() < 2)

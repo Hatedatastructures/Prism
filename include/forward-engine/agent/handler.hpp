@@ -17,7 +17,6 @@
 #include <array>
 #include <memory>
 #include <string>
-#include <format>
 #include <utility>
 #include <functional>
 #include <string_view>
@@ -26,7 +25,6 @@
 #include <boost/asio.hpp>
 #include <boost/asio/experimental/awaitable_operators.hpp>
 
-#include <forward-engine/gist.hpp>
 #include <forward-engine/memory/pool.hpp>
 #include <forward-engine/agent/validator.hpp>
 #include <forward-engine/agent/distributor.hpp>
@@ -39,6 +37,7 @@
 #include <forward-engine/protocol/http/deserialization.hpp>
 #include <forward-engine/protocol/http/serialization.hpp>
 #include <forward-engine/transport/transfer.hpp>
+#include <forward-engine/trace/spdlog.hpp>
 
 namespace ngx::agent
 {
@@ -51,7 +50,6 @@ namespace ngx::agent
     namespace protocol_http = protocol::http;
 
     using tcp = boost::asio::ip::tcp;
-    using level = detail::log_level;
     using unique_sock = transport::unique_sock;
 
     /**
@@ -118,7 +116,6 @@ namespace ngx::agent
  */
 namespace ngx::agent::handler
 {
-    using namespace ngx::agent;
 
     /**
      * @brief 关闭连接辅助函数 (unique_ptr 版本)
@@ -156,7 +153,7 @@ namespace ngx::agent::handler
     template <typename Context>
     void close_session(Context &ctx) noexcept
     {
-        detail::event_tracking(level::debug, "[Handler] Session closing.");
+        trace::debug("[Handler] Session closing.");
         shut_close(ctx.client_socket);
         shut_close(ctx.server_socket);
     }
@@ -191,22 +188,19 @@ namespace ngx::agent::handler
             ctx.server_socket = std::move(result.second);
         }
 
-        if (ec != ngx::gist::code::success)
+        if (gist::failed(ec))
         {
-            const auto message = std::format("[Handler] {} route failed: {}", label, ngx::gist::describe(ec));
-            detail::event_tracking(level::warn, message);
+            trace::warn("[Handler] {} route failed: {}", label, ngx::gist::describe(ec));
             co_return false;
         }
 
         if (!ctx.server_socket || (require_open && !ctx.server_socket->is_open()))
         {
-            const auto message = std::format("[Handler] {} route to upstream failed (connection invalid).", label);
-            detail::event_tracking(level::error, message);
+            trace::error("[Handler] {} route to upstream failed (connection invalid).", label);
             co_return false;
         }
 
-        const auto message = std::format("[Handler] {} upstream connected.", label);
-        detail::event_tracking(level::info, message);
+        trace::info("[Handler] {} upstream connected.", label);
         co_return true;
     }
 
@@ -221,7 +215,7 @@ namespace ngx::agent::handler
     {
         if (!ctx.server_socket)
         {
-            detail::event_tracking(level::warn, "[Handler] raw tunnel: no upstream connection.");
+            trace::warn("[Handler] raw tunnel: no upstream connection.");
             co_return;
         }
 
@@ -229,7 +223,7 @@ namespace ngx::agent::handler
 
         if (ctx.buffer.size() < 2)
         {
-            detail::event_tracking(level::error, "[Handler] raw tunnel: buffer too small.");
+            trace::error("[Handler] raw tunnel: buffer too small.");
             co_return;
         }
 
@@ -239,7 +233,7 @@ namespace ngx::agent::handler
         }
         catch (const std::exception &e)
         {
-            detail::event_tracking(level::warn, std::format("[Handler] raw tunnel error: {}", e.what()));
+            trace::warn("[Handler] raw tunnel error: {}", e.what());
         }
 
         shut_close(ctx.server_socket);
@@ -256,7 +250,7 @@ namespace ngx::agent::handler
     {
         if (!ctx.server_socket)
         {
-            detail::event_tracking(level::warn, "[Tunnel] aborted: upstream socket is missing.");
+            trace::warn("[Tunnel] aborted: upstream socket is missing.");
             co_return;
         }
 
@@ -270,12 +264,11 @@ namespace ngx::agent::handler
         }
         catch ([[maybe_unused]] const std::exception &e)
         {
-            const auto message = std::format("[Tunnel] error: {}", e.what());
-            detail::event_tracking(level::error, message);
+            trace::error("[Tunnel] error: {}", e.what());
         }
         catch (...)
         {
-            detail::event_tracking(level::error, "[Tunnel] unknown error.");
+            trace::error("[Tunnel] unknown error.");
         }
 
         shut_close(ctx.client_socket);
@@ -302,24 +295,22 @@ namespace ngx::agent::handler
         beast::basic_flat_buffer read_buffer(protocol_http::network_allocator{mr});
         {
             protocol_http::request req(mr);
-            detail::event_tracking(level::debug, "[Handler] Waiting for HTTP request...");
+            trace::debug("[Handler] Waiting for HTTP request...");
             const auto ec = co_await protocol_http::async_read(ctx.client_socket, req, read_buffer, mr);
 
-            if (ec != gist::code::success)
+            if (gist::failed(ec))
             {
-                detail::event_tracking(level::warn, std::format("[Handler] HTTP read failed: {}", gist::describe(ec)));
+                trace::warn("[Handler] HTTP read failed: {}", gist::describe(ec));
                 co_return;
             }
             {
-                const auto message = std::format("[Handler] HTTP request received: {} {}", req.method_string(), req.target());
-                detail::event_tracking(level::info, message);
+                trace::info("[Handler] HTTP request received: {} {}", req.method_string(), req.target());
             }
             //  连接上游
             const auto target = protocol::analysis::resolve(req);
             {
-                const auto message = std::format("[Handler] HTTP upstream resolving: forward_proxy=`{}` host=`{}` port=`{}`",
-                                                 target.forward_proxy ? "true" : "false", target.host, target.port);
-                detail::event_tracking(level::debug, message);
+                trace::debug("[Handler] HTTP upstream resolving: forward_proxy=`{}` host=`{}` port=`{}`",
+                              target.forward_proxy ? "true" : "false", target.host, target.port);
             }
             const bool connected = co_await connect_upstream(ctx, "HTTP", target, true, false);
             if (!connected)
@@ -336,14 +327,14 @@ namespace ngx::agent::handler
                 co_await transport::adaptation::async_write(ctx.client_socket, net::buffer(resp), token);
                 if (error && !detail::normal_close(error))
                 {
-                    detail::event_tracking(level::warn, "[Handler] CONNECT response send failed.");
+                    trace::warn("[Handler] CONNECT response send failed.");
                     close_session(ctx);
                     co_return;
                 }
-                detail::event_tracking(level::info, "[Handler] Sent 200 Connection Established.");
+                trace::info("[Handler] Sent 200 Connection Established.");
 
                 // HTTP CONNECT 隧道应该是纯 TCP 透传
-                detail::event_tracking(level::info, "[Handler] Starting raw tunnel (HTTP CONNECT)...");
+                trace::info("[Handler] Starting raw tunnel (HTTP CONNECT)...");
                 co_await original_tunnel(ctx);
                 co_return;
             }
@@ -354,21 +345,20 @@ namespace ngx::agent::handler
             co_await transport::adaptation::async_write(*ctx.server_socket, net::buffer(data), token);
             if (error && !detail::normal_close(error))
             {
-                detail::event_tracking(level::warn, "[Handler] HTTP request forward failed.");
+                trace::warn("[Handler] HTTP request forward failed.");
                 close_session(ctx);
                 co_return;
             }
 
             if (read_buffer.size() != 0)
             {
-                const auto message = std::format("[Handler] Forwarding {} bytes of prefetched data.", read_buffer.size());
-                detail::event_tracking(level::debug, message);
+                trace::debug("[Handler] Forwarding {} bytes of prefetched data.", read_buffer.size());
                 boost::system::error_code code;
                 auto redirect_error = net::redirect_error(net::use_awaitable, code);
                 co_await transport::adaptation::async_write(*ctx.server_socket, read_buffer.data(), redirect_error);
                 if (code && !detail::normal_close(code))
                 {
-                    detail::event_tracking(level::warn, "[Handler] Prefetched data forward failed.");
+                    trace::warn("[Handler] Prefetched data forward failed.");
                     close_session(ctx);
                     co_return;
                 }
@@ -376,7 +366,7 @@ namespace ngx::agent::handler
             }
         } // 限制request 生命周期防止在下面request指向无效的tcp字节流
 
-        detail::event_tracking(level::info, "[Handler] Starting tunnel (Obscura upgrade)...");
+        trace::info("[Handler] Starting tunnel (Obscura upgrade)...");
         co_await tunnel(ctx);
     }
 
@@ -392,9 +382,9 @@ namespace ngx::agent::handler
         auto agent = std::make_shared<protocol::socks5::stream<typename Context::socket_type>>(std::move(ctx.client_socket));
         auto [ec, request] = co_await agent->handshake();
 
-        if (ec != gist::code::success)
+        if (gist::failed(ec))
         {
-            detail::event_tracking(level::warn, std::format("[SOCKS5] Handshake failed: {}", ngx::gist::describe(ec)));
+            trace::warn("[SOCKS5] Handshake failed: {}", ngx::gist::describe(ec));
             co_return;
         }
 
@@ -405,8 +395,7 @@ namespace ngx::agent::handler
         target.port.assign(std::to_string(request.destination_port));
         target.forward_proxy = true;
 
-        const std::string label = std::format("[SOCKS5] {}:{}", target.host, target.port);
-        detail::event_tracking(level::info, label);
+        trace::info("[SOCKS5] {}:{}", target.host, target.port);
 
         if (co_await connect_upstream(ctx, "SOCKS5", target, true, true))
         {
@@ -436,14 +425,14 @@ namespace ngx::agent::handler
         auto mr = ctx.frame_arena.get();
         auto proto = std::make_shared<transport::obscura<tcp>>(stream, transport::role::server);
         std::string target_path;
-        detail::event_tracking(level::debug, "[Handler] Obscura handshake with preread data started.");
+        trace::debug("[Handler] Obscura handshake with preread data started.");
         try
         {
             target_path = co_await proto->handshake_preread(pre_read_data);
         }
         catch (...)
         {
-            detail::event_tracking(level::warn, "[Handler] Obscura handshake failed.");
+            trace::warn("[Handler] Obscura handshake failed.");
             co_return;
         }
 
@@ -454,20 +443,18 @@ namespace ngx::agent::handler
 
         if (!target_path.empty())
         {
-            const auto message = std::format("[Handler] Obscura target path: `{}`", target_path);
-            detail::event_tracking(level::debug, message);
+            trace::debug("[Handler] Obscura target path: `{}`", target_path);
         }
 
         const auto target = protocol::analysis::resolve(std::string_view(target_path), mr);
         if (target.host.empty())
         {
-            detail::event_tracking(level::warn, "[Handler] Obscura resolve failed: empty host.");
+            trace::warn("[Handler] Obscura resolve failed: empty host.");
             co_return;
         }
 
         {
-            const auto message = std::format("[Handler] Obscura upstream resolving: {}:{}", target.host, target.port);
-            detail::event_tracking(level::info, message);
+            trace::info("[Handler] Obscura upstream resolving: {}:{}", target.host, target.port);
         }
 
         const bool connected = co_await connect_upstream(ctx, "Obscura", target, false, true);
@@ -502,9 +489,9 @@ namespace ngx::agent::handler
 
         // 1. 握手 (带预读数据)
         auto [ec, info] = co_await agent->handshake_preread(pre_read_data);
-        if (ec != gist::code::success)
+        if (gist::failed(ec))
         {
-            detail::event_tracking(level::warn, std::format("[Trojan] Handshake failed: {}", ngx::gist::describe(ec)));
+            trace::warn("[Trojan] Handshake failed: {}", ngx::gist::describe(ec));
             co_return;
         }
 
@@ -515,7 +502,7 @@ namespace ngx::agent::handler
             validator::protector user_session = ctx.account_validator_ptr->try_acquire(credential_view);
             if (!user_session)
             {
-                detail::event_tracking(level::warn, "[Trojan] Connection rejected by account validator.");
+                trace::warn("[Trojan] Connection rejected by account validator.");
                 co_return;
             }
             user_state_ptr = user_session.state();
@@ -528,8 +515,7 @@ namespace ngx::agent::handler
         target.port.assign(std::to_string(info.port));
         target.forward_proxy = true;
 
-        const std::string label = std::format("[Trojan] {}:{}", target.host, target.port);
-        detail::event_tracking(level::info, label);
+        trace::info("[Trojan] {}:{}", target.host, target.port);
 
         // 3. 连接上游
         if (co_await connect_upstream(ctx, "Trojan", target, true, true))
@@ -542,7 +528,7 @@ namespace ngx::agent::handler
             // 定义单向转发 lambda
             auto forward = [validator_ptr, user_state_ptr](auto &read_stream, auto &write_stream, const bool uplink) -> net::awaitable<void>
             {
-                std::array<char, 8192> buf{};
+                std::array<char, ngx::memory::policy::small_buffer_size> buf{};
                 boost::system::error_code ec;
                 auto token = net::redirect_error(net::use_awaitable, ec);
                 while (true)
@@ -598,7 +584,7 @@ namespace ngx::agent::handler
     {
         if (!ctx.ssl_ctx)
         {
-            detail::event_tracking(level::warn, "[Handler] TLS disabled: ssl context is missing.");
+            trace::warn("[Handler] TLS disabled: ssl context is missing.");
             co_return;
         }
 
@@ -610,7 +596,7 @@ namespace ngx::agent::handler
         co_await ssl_stream->async_handshake(ssl::stream_base::server, net::redirect_error(net::use_awaitable, ec));
         if (ec)
         {
-            detail::event_tracking(level::warn, "[Handler] TLS handshake failed.");
+            trace::warn("[Handler] TLS handshake failed.");
             co_return;
         }
 
@@ -640,12 +626,12 @@ namespace ngx::agent::handler
 
         if (is_http)
         {
-            detail::event_tracking(level::debug, "[Handler] TLS payload detected as HTTP/WebSocket (Obscura).");
+            trace::debug("[Handler] TLS payload detected as HTTP/WebSocket (Obscura).");
             co_await obscura(ctx, ssl_stream, peek_view);
         }
         else
         {
-            detail::event_tracking(level::debug, "[Handler] TLS payload detected as Trojan.");
+            trace::debug("[Handler] TLS payload detected as Trojan.");
             co_await trojan(ctx, ssl_stream, peek_view);
         }
     }

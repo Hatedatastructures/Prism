@@ -123,8 +123,8 @@ curl -v http://www.baidu.com
       ]
     },
     "certificate": {
-      "key": "C:\\Users\\C1373\\Desktop\\code\\ForwardEngine\\key.pem",
-      "cert": "C:\\Users\\C1373\\Desktop\\code\\ForwardEngine\\cert.pem"
+      "key": "./key.pem",
+      "cert": "./cert.pem"
     },
     "clash": false
   }
@@ -140,7 +140,7 @@ curl -v http://www.baidu.com
     "log_level": "debug",
     "pattern": "[%Y-%m-%d %H:%M:%S.%e][%l] %v",
     "trace_name": "forward_engine",
-    "path_name": "C:\\Users\\C1373\\Desktop\\code\\ForwardEngine\\logs"
+    "path_name": "./logs"
   }
 }
 ```
@@ -160,40 +160,35 @@ curl -v http://www.baidu.com
 
 ```
 ForwardEngine/
-├── include/forward-engine/          # 公共头文件
-│   ├── adapter/                     # 运行期加载与适配
-│   ├── abnormal/                    # 异常定义
-│   ├── agent/                       # 代理核心逻辑
-│   │   ├── session.hpp              # 会话生命周期
-│   │   ├── worker.hpp               # 监听与连接接受
-│   │   ├── analysis.hpp             # 协议识别与目标解析
-│   │   ├── distributor.hpp          # 路由分发
-│   │   └── connection.hpp           # 连接池管理
-│   ├── core/                        # 核心配置与管理
-│   ├── gist/                        # 错误码与工具定义
-│   ├── protocol/                    # 协议实现
-│   │   ├── http/                    # HTTP 协议
-│   │   ├── socks5/                  # SOCKS5 协议
-│   │   └── trojan/                  # Trojan 协议
-│   ├── transport/                   # 传输层封装
-│   │   ├── obscura.hpp              # Obscura 隧道
-│   │   └── adaptation.hpp           # 统一适配层
-│   ├── memory/                      # 内存管理
-│   │   ├── container.hpp            # 容器别名
-│   │   ├── pool.hpp                 # 内存池
-│   │   └── pointer.hpp              # 智能指针封装
-│   ├── trace/                       # 日志系统
-│   │   ├── spdlog.hpp               # spdlog 封装
-│   │   └── monitor.hpp              # 协程监控
-│   ├── rule/                        # 黑名单规则
-│   └── transformer/                 # 数据转换
-│       └── json.hpp                 # JSON 序列化
+├── docs/                            # 文档
+│   └── Process/                     # 协议处理流程文档
+├── include/                         # 公共头文件
+│   └── forward-engine/              # 核心库头文件
+│       ├── abnormal/                # 异常定义
+│       ├── adapter/                 # 运行期加载与适配
+│       ├── agent/                   # 代理核心逻辑
+│       ├── core/                    # 核心配置与管理
+│       ├── gist/                    # 错误码与工具定义
+│       ├── memory/                  # 内存管理
+│       ├── protocol/                # 协议实现
+│       │   ├── http/                # HTTP 协议
+│       │   ├── socks5/              # SOCKS5 协议
+│       │   └── trojan/              # Trojan 协议
+│       ├── rule/                    # 黑名单规则
+│       ├── trace/                   # 日志系统
+│       ├── transformer/             # 数据转换
+│       └── transport/               # 传输层封装
 ├── src/                             # 实现与入口
-│   └── forward-engine/              # 实现文件
-├── test/                            # 测试与基准
-│   ├── benchmark/                   # 基准测试
-│   └── stress/                      # 压测工具
-└── docs/                            # 文档
+│   └── forward-engine/              # 核心库实现
+│       ├── agent/                   # 代理逻辑实现
+│       ├── protocol/                # 协议实现
+│       │   └── http/                # HTTP 协议实现
+│       ├── rule/                    # 规则实现
+│       ├── trace/                   # 日志系统实现
+│       └── transport/               # 传输层实现
+└── test/                            # 测试与基准
+    ├── benchmark/                   # 基准测试
+    └── stress/                      # 压测工具
 ```
 
 ## ⚡ 性能特征
@@ -229,16 +224,6 @@ ForwardEngine/
 ## 📄 许可证
 
 本项目采用 MIT 许可证 - 查看 [LICENSE](LICENSE) 文件了解详情。
-
-## 🙏 致谢
-
-感谢以下开源项目提供的强大支持：
-- [Boost.Asio/Beast](https://www.boost.org/) - 异步 I/O 和 HTTP/WebSocket 实现
-- [OpenSSL](https://www.openssl.org/) - 加密和 TLS 支持
-- [spdlog](https://github.com/gabime/spdlog) - 高性能日志库
-- [glaze](https://github.com/stephenberry/glaze) - 快速的 JSON 序列化
-
----
 
 <div align="center">
   

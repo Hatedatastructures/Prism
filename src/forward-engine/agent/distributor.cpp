@@ -181,7 +181,7 @@ namespace ngx::agent
             auto conn = co_await pool_.acquire_tcp(*results.begin());
             co_return std::pair<gist::code, unique_sock>{gist::code::success, std::move(conn)};
         }
-        catch (const boost::system::system_error &)
+        catch (const std::exception &)
         {
             should_fallback = true;
         }
@@ -209,7 +209,7 @@ namespace ngx::agent
                 auto conn = co_await pool_.acquire_tcp(it->second);
                 co_return std::pair<gist::code, unique_sock>{gist::code::success, std::move(conn)};
             }
-            catch (const boost::system::system_error &)
+            catch (const std::exception &)
             {
                 co_return std::pair<gist::code, unique_sock>{gist::code::bad_gateway, nullptr};
             }
@@ -229,7 +229,7 @@ namespace ngx::agent
             auto conn = co_await pool_.acquire_tcp(ep);
             co_return std::pair<gist::code, unique_sock>{gist::code::success, std::move(conn)};
         }
-        catch (const boost::system::system_error &)
+        catch (const std::exception &)
         {
             co_return std::pair<gist::code, unique_sock>{gist::code::bad_gateway, nullptr};
         }

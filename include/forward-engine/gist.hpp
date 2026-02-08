@@ -6,3 +6,5 @@
 #pragma once
 
 #include <forward-engine/gist/code.hpp>
+#include <forward-engine/gist/compatible.hpp>
+#include <forward-engine/gist/handling.hpp>

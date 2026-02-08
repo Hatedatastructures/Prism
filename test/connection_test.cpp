@@ -179,7 +179,7 @@ net::awaitable<void> run_test(net::io_context &ioc, unsigned short echo_port, un
          * - `route_positive` 连接到 `positive_proxy_server`，通过 `CONNECT` 建立到 echo 的隧道
          */
         auto [route_ec, socket_ptr] = co_await dist.route_forward("example.invalid", "80");
-        assert(route_ec == ngx::gist::code::success);
+        assert(ngx::gist::succeeded(route_ec));
         assert(socket_ptr && socket_ptr->is_open());
 
         static constexpr std::string_view msg = "ping";

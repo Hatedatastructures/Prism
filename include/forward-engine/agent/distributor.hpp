@@ -11,13 +11,13 @@
 #include <string_view>
 #include <cstdint>
 #include <optional>
-#include <memory/container.hpp>
 #include <boost/asio.hpp>
+#include <utility>
+#include <forward-engine/gist.hpp>
 #include <forward-engine/transport/obscura.hpp>
 #include <forward-engine/transport/source.hpp>
-#include <rule/blacklist.hpp>
-#include <forward-engine/gist.hpp>
-#include <utility>
+#include <forward-engine/rule/blacklist.hpp>
+#include <forward-engine/memory/container.hpp>
 
 namespace ngx::agent
 {

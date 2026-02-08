@@ -1,4 +1,6 @@
 #include <forward-engine/protocol/trojan.hpp>
+#include <forward-engine/abnormal/network.hpp>
+#include <forward-engine/gist/code.hpp>
 #include <boost/asio.hpp>
 #include <boost/asio/ssl.hpp>
 #include <iostream>
@@ -38,7 +40,7 @@ net::awaitable<void> do_trojan_server(tcp::acceptor &acceptor, std::shared_ptr<s
         // 执行握手
         std::cout << "Server starting Trojan handshake..." << std::endl;
         auto [ec, req] = co_await trojan->handshake();
-        if (ec != ngx::gist::code::success)
+        if (ngx::gist::failed(ec))
         {
             std::cerr << "Server handshake failed: " << std::string_view(ngx::gist::describe(ec)) << std::endl;
             co_return;
@@ -133,7 +135,7 @@ net::awaitable<void> do_trojan_client(tcp::endpoint endpoint, std::shared_ptr<ss
 
         if (received_msg != test_msg)
         {
-            throw std::runtime_error("Message echo verification failed");
+            throw ngx::abnormal::network(ngx::gist::code::generic_error);
         }
 
         std::cout << "Client test success: " << test_msg << std::endl;

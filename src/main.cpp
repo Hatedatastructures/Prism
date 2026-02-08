@@ -1,55 +1,21 @@
-#include <forward-engine/agent.hpp>
-#include <forward-engine/agent/validator.hpp>
 #include <memory>
 #include <thread>
 #include <iostream>
 #include <fstream>
 
+#include <forward-engine/agent.hpp>
+#include <forward-engine/agent/validator.hpp>
 #include <forward-engine/memory.hpp>
 #include <forward-engine/memory/pool.hpp>
 #include <forward-engine/abnormal.hpp>
-#include <forward-engine/trace.hpp>
-#include <forward-engine/transformer.hpp>
 #include <forward-engine/core/configuration.hpp>
+#include <forward-engine/adapter/load.hpp>
 
 namespace agent = ngx::agent;
 namespace http = ngx::protocol::http;
 namespace net = agent::net;
 
-auto load_file_data(const std::string_view path)
-    -> ngx::memory::string
-{
-    std::ifstream file(path.data(), std::ios::binary);
-    if (!file.is_open())
-    {
-        throw ngx::abnormal::security("system error : {}","file open failed");
-    }
-    file.seekg(0, std::ios::end);
-    const auto size = file.tellg();
-    file.seekg(0, std::ios::beg);
-    ngx::memory::string content(size, '\0');
-    file.read(content.data(), size);
-    return content;
-}
-
-auto mapping_configuration()
-    -> ngx::core::configuration
-{
-    ngx::core::configuration config;
-    try
-    {
-        ngx::memory::string config_string{load_file_data(R"(C:\Users\C1373\Desktop\code\ForwardEngine\src\configuration.json)")};
-        if (ngx::transformer::json::deserialize({config_string.data(), config_string.size()}, config))
-        {
-            return config;
-        }
-    }
-    catch (...)
-    {
-    }
-
-    return {};
-}
+constexpr std::string_view configuration_path = "src/configuration.json";
 
 /**
  * @brief 主函数
@@ -73,10 +39,10 @@ int main()
         {
             throw ngx::abnormal::security("system error : {}","core acquisition failed");
         }
-        ngx::core::configuration overall_situation_config = mapping_configuration();
+        ngx::core::configuration overall_situation_config = ngx::adapter::load(configuration_path);
         ngx::trace::init(overall_situation_config.trace);
 
-        auto shared_validator = std::make_shared<agent::validator>(ngx::memory::system::global_pool());
+        const auto shared_validator = std::make_shared<agent::validator>(ngx::memory::system::global_pool());
         const auto&[credentials, users] = overall_situation_config.agent.authentication;
         shared_validator->reserve(credentials.size() + users.size());
         for (const auto &cred : credentials)
@@ -88,18 +54,28 @@ int main()
             shared_validator->upsert_user(std::string_view(credential.data(), credential.size()), max_connections);
         }
 
-        auto work = [shared_validator](const ngx::core::configuration& config)
+        auto work = [=](const ngx::core::configuration& config)
         {
-
-            const agent::config agent_config = config.agent;
-            agent::worker worker(agent_config, shared_validator);
-            worker.run();
+            try
+            {
+                const agent::config agent_config = config.agent;
+                agent::worker worker(agent_config, shared_validator);
+                worker.run();
+            }
+            catch (const std::exception& e)
+            {
+                ngx::trace::error("工作线程异常: {}", e.what());
+            }
+            catch (...)
+            {
+                ngx::trace::error("工作线程未知异常");
+            }
         };
 
         ngx::memory::vector<std::jthread> threads;
         threads.reserve(threads_count);
 
-        for (auto i = 0U; i < threads_count; ++i)
+        for (unsigned int i = 0; i < threads_count; ++i)
         {
             threads.emplace_back(work, overall_situation_config);
         }

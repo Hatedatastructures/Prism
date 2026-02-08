@@ -1,15 +1,12 @@
 /**
  * @file code.hpp
- * @brief 全局错误码定义
- * @details 定义了系统通用的错误码枚举及相关辅助函数，兼容 std::error_code 和 boost::system::error_code。
+ * @brief 全局错误码枚举定义
+ * @details 定义了 ForwardEngine 系统通用的错误码枚举及相关基础辅助函数。
+ * 标准库兼容性支持（std::error_code 和 boost::system::error_code）请参见 compatible.hpp 文件。
  */
 #pragma once
 
-#include <cstdint>
 #include <string_view>
-#include <system_error>
-#include <type_traits>
-#include <boost/system/error_code.hpp>
 
 /**
  * @namespace ngx::gist
@@ -113,6 +110,7 @@ namespace ngx::gist
          * @details 网络不可达或路由失败。
          */
         upstream_unreachable = 17,
+
         /**
          * @brief 上游拒绝连接
          */
@@ -140,7 +138,73 @@ namespace ngx::gist
          * @brief 主机不可达
          * @details DNS解析失败或无法路由到主机。
          */
-        host_unreachable = 23
+        host_unreachable = 23,
+
+        /**
+         * @brief 连接被重置
+         * @details TCP连接被对端重置。
+         */
+        connection_reset = 24,
+        /**
+         * @brief 网络不可达
+         * @details 网络层不可达（如路由失败）。
+         */
+        network_unreachable = 25,
+        /**
+         * @brief SSL证书加载失败
+         * @details 加载SSL证书文件失败。
+         */
+        ssl_cert_load_failed = 26,
+        /**
+         * @brief SSL密钥加载失败
+         * @details 加载SSL私钥文件失败。
+         */
+        ssl_key_load_failed = 27,
+        /**
+         * @brief SOCKS5认证协商失败
+         * @details SOCKS5协议认证方法协商失败。
+         */
+        socks5_auth_negotiation_failed = 28,
+        /**
+         * @brief 文件打开失败
+         * @details 打开文件失败（权限不足、文件不存在等）。
+         */
+        file_open_failed = 29,
+        /**
+         * @brief 配置解析错误
+         * @details 配置文件格式错误或内容不合法。
+         */
+        config_parse_error = 30,
+        /**
+         * @brief 端口已被占用
+         * @details 绑定的端口已被其他进程占用。
+         */
+        port_already_in_use = 31,
+        /**
+         * @brief 证书验证失败
+         * @details SSL/TLS证书验证失败。
+         */
+        certificate_verification_failed = 32,
+        /**
+         * @brief 连接被中止
+         * @details 连接在建立过程中被中止。
+         */
+        connection_aborted = 33,
+        /**
+         * @brief 资源暂时不可用
+         * @details 系统资源暂时不可用（如文件描述符耗尽）。
+         */
+        resource_unavailable = 34,
+        /**
+         * @brief TTL过期
+         * @details 数据包TTL过期（路由循环检测）。
+         */
+        ttl_expired = 35,
+        /**
+         * @brief 内部使用
+         * @details 用于表示错误码数量，不用于实际错误处理。
+         */
+        _count = 36
     };
 
     /**
@@ -201,121 +265,52 @@ namespace ngx::gist
             return "bad_gateway";
         case code::host_unreachable:
             return "host_unreachable";
+        case code::connection_reset:
+            return "connection_reset";
+        case code::network_unreachable:
+            return "network_unreachable";
+        case code::ssl_cert_load_failed:
+            return "ssl_cert_load_failed";
+        case code::ssl_key_load_failed:
+            return "ssl_key_load_failed";
+        case code::socks5_auth_negotiation_failed:
+            return "socks5_auth_negotiation_failed";
+        case code::file_open_failed:
+            return "file_open_failed";
+        case code::config_parse_error:
+            return "config_parse_error";
+        case code::port_already_in_use:
+            return "port_already_in_use";
+        case code::certificate_verification_failed:
+            return "certificate_verification_failed";
+        case code::connection_aborted:
+            return "connection_aborted";
+        case code::resource_unavailable:
+            return "resource_unavailable";
+        case code::ttl_expired:
+            return "ttl_expired";
         default:
             return "unknown";
         }
     }
 
     /**
-     * @brief `std::error_code` 分类
-     * @details 用于与 `std::error_code` 体系对接。
+     * @brief 检查错误码是否表示成功
+     * @param c 错误码
+     * @return 如果错误码为 `success` 则返回 `true`，否则返回 `false`
      */
-    class status_category : public std::error_category
+    [[nodiscard]] constexpr bool succeeded(const code c) noexcept
     {
-    public:
-        /**
-         * @brief 获取分类名称
-         * @return 分类名称字符串 "ngx::gist"
-         */
-        [[nodiscard]] const char* name() const noexcept override
-        {
-            return "ngx::gist";
-        }
-
-        /**
-         * @brief 获取错误码对应的消息
-         * @param c 错误码整数值
-         * @return 错误消息字符串
-         */
-        [[nodiscard]] std::string message(int c) const override
-        {
-            return std::string(describe(static_cast<code>(c)));
-        }
-    };
-
-    /**
-     * @brief 获取状态分类单例
-     * @return status_category 单例引用
-     */
-    inline const std::error_category& category() noexcept
-    {
-        static status_category instance;
-        return instance;
+        return c == code::success;
     }
 
     /**
-     * @brief 创建错误码
-     * @param c 自定义错误码枚举
-     * @return 对应的 std::error_code
+     * @brief 检查错误码是否表示失败
+     * @param c 错误码
+     * @return 如果错误码不为 `success` 则返回 `true`，否则返回 `false`
      */
-    inline std::error_code make_error_code(code c) noexcept
+    [[nodiscard]] constexpr bool failed(const code c) noexcept
     {
-        return {static_cast<int>(c), category()};
-    }
-}
-
-namespace std
-{
-    /**
-     * @brief 特化 is_error_code_enum
-     * @details 标记 ngx::gist::code 为错误码枚举。
-     */
-    template <>
-    struct is_error_code_enum<ngx::gist::code> : true_type {};
-}
-
-namespace boost::system
-{
-    /**
-     * @brief 特化 is_error_code_enum
-     * @details 标记 ngx::gist::code 为 Boost 错误码枚举。
-     */
-    template <>
-    struct is_error_code_enum<ngx::gist::code> : std::true_type {};
-
-    /**
-     * @brief Boost 错误码分类
-     */
-    class gist_category final : public boost::system::error_category
-    {
-    public:
-        /**
-         * @brief 获取分类名称
-         * @return 分类名称字符串 "ngx::gist"
-         */
-        [[nodiscard]] const char* name() const noexcept override
-        {
-            return "ngx::gist";
-        }
-
-        /**
-         * @brief 获取错误码对应的消息
-         * @param c 错误码整数值
-         * @return 错误消息字符串
-         */
-        [[nodiscard]] std::string message(int c) const override
-        {
-            return std::string(ngx::gist::describe(static_cast<ngx::gist::code>(c)));
-        }
-    };
-
-    /**
-     * @brief 获取 Boost 状态分类单例
-     * @return gist_category 单例引用
-     */
-    inline const boost::system::error_category& category() noexcept
-    {
-        static gist_category instance;
-        return instance;
-    }
-
-    /**
-     * @brief 创建 Boost 错误码
-     * @param c 自定义错误码枚举
-     * @return 对应的 boost::system::error_code
-     */
-    inline boost::system::error_code make_error_code(const ngx::gist::code c) noexcept
-    {
-        return {static_cast<int>(c), category()};
+        return !succeeded(c);
     }
 }

@@ -15,7 +15,7 @@
 using namespace ngx;
 
 // HTTP Benchmark（纯解析）
-static const std::string http_get_request =
+static const std::string http_get_request = 
     "GET /index.html HTTP/1.1\r\n"
     "Host: www.example.com\r\n"
     "User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/58.0.3029.110 Safari/537.3\r\n"
@@ -70,7 +70,7 @@ static void BM_HttpDeserialize(benchmark::State &state)
     {
         req.clear();
         gist::code ec = protocol::http::deserialize(http_get_request, req);
-        if (ec != gist::code::success)
+        if (gist::failed(ec))
         {
             state.SkipWithError("HTTP Parsing failed");
         }
@@ -90,7 +90,7 @@ static void BM_HttpDeserialize_PostBody(benchmark::State &state)
     {
         req.clear();
         gist::code ec = protocol::http::deserialize(payload, req);
-        if (ec != gist::code::success)
+        if (gist::failed(ec))
         {
             state.SkipWithError("HTTP Parsing failed");
         }
@@ -110,7 +110,7 @@ static void BM_HttpDeserialize_Response(benchmark::State &state)
     {
         resp.clear();
         gist::code ec = protocol::http::deserialize(payload, resp);
-        if (ec != gist::code::success)
+        if (gist::failed(ec))
         {
             state.SkipWithError("HTTP Parsing failed");
         }
@@ -169,7 +169,7 @@ static void BM_HttpSerialize_Response(benchmark::State &state)
     state.SetBytesProcessed(static_cast<std::int64_t>(state.iterations()) * bytes_per_iter);
 }
 
-// SOCKS5 Benchmark（纯解析）
+// SOCKS5 Benchmark（纯解析)
 static void BM_Socks5DecodeHeader(benchmark::State &state)
 {
     // VER(1) | CMD(1) | RSV(1) | ATYP(1)
@@ -177,7 +177,7 @@ static void BM_Socks5DecodeHeader(benchmark::State &state)
     for (auto _ : state)
     {
         auto [ec, header] = protocol::socks5::wire::decode_header(buffer);
-        if (ec != gist::code::success)
+        if (gist::failed(ec))
         {
             state.SkipWithError("SOCKS5 header parsing failed");
         }
@@ -192,7 +192,7 @@ static void BM_Socks5DecodeIPv4(benchmark::State &state)
     for (auto _ : state)
     {
         auto [ec, addr] = protocol::socks5::wire::decode_ipv4(buffer);
-        if (ec != gist::code::success)
+        if (gist::failed(ec))
         {
             state.SkipWithError("SOCKS5 ipv4 parsing failed");
         }
@@ -220,7 +220,7 @@ static void BM_Socks5DecodeDomain(benchmark::State &state)
     for (auto _ : state)
     {
         auto [ec, addr] = protocol::socks5::wire::decode_domain(buffer);
-        if (ec != gist::code::success)
+        if (gist::failed(ec))
         {
             state.SkipWithError("SOCKS5 domain parsing failed");
         }
@@ -239,7 +239,7 @@ static void BM_Socks5DecodeIPv6(benchmark::State &state)
     for (auto _ : state)
     {
         auto [ec, addr] = protocol::socks5::wire::decode_ipv6(buffer);
-        if (ec != gist::code::success)
+        if (gist::failed(ec))
         {
             state.SkipWithError("SOCKS5 ipv6 parsing failed");
         }
@@ -262,7 +262,7 @@ static void BM_Socks5DecodeDomain_VarLen(benchmark::State &state)
     for (auto _ : state)
     {
         auto [ec, addr] = protocol::socks5::wire::decode_domain(view);
-        if (ec != gist::code::success)
+        if (gist::failed(ec))
         {
             state.SkipWithError("SOCKS5 domain parsing failed");
         }
@@ -277,7 +277,7 @@ static void BM_Socks5DecodePort(benchmark::State &state)
     for (auto _ : state)
     {
         auto [ec, port] = protocol::socks5::wire::decode_port(buffer);
-        if (ec != gist::code::success)
+        if (gist::failed(ec))
         {
             state.SkipWithError("SOCKS5 port parsing failed");
         }
@@ -299,7 +299,7 @@ static void BM_TrojanDecodeCredential(benchmark::State &state)
     for (auto _ : state)
     {
         auto [ec, credential] = protocol::trojan::wire::decode_credential(buffer);
-        if (ec != gist::code::success)
+        if (gist::failed(ec))
         {
             state.SkipWithError("Trojan user credential parsing failed");
         }
@@ -314,7 +314,7 @@ static void BM_TrojanDecodeCrlf(benchmark::State &state)
     for (auto _ : state)
     {
         auto ec = protocol::trojan::wire::decode_crlf(buffer);
-        if (ec != gist::code::success)
+        if (gist::failed(ec))
         {
             state.SkipWithError("Trojan CRLF parsing failed");
         }
@@ -329,7 +329,7 @@ static void BM_TrojanDecodeCmdAtyp(benchmark::State &state)
     for (auto _ : state)
     {
         auto [ec, header] = protocol::trojan::wire::decode_cmd_atyp(buffer);
-        if (ec != gist::code::success)
+        if (gist::failed(ec))
         {
             state.SkipWithError("Trojan cmd/atyp parsing failed");
         }
@@ -344,7 +344,7 @@ static void BM_TrojanDecodeIPv4(benchmark::State &state)
     for (auto _ : state)
     {
         auto [ec, addr] = protocol::trojan::wire::decode_ipv4(buffer);
-        if (ec != gist::code::success)
+        if (gist::failed(ec))
         {
             state.SkipWithError("Trojan ipv4 parsing failed");
         }
@@ -363,7 +363,7 @@ static void BM_TrojanDecodeIPv6(benchmark::State &state)
     for (auto _ : state)
     {
         auto [ec, addr] = protocol::trojan::wire::decode_ipv6(buffer);
-        if (ec != gist::code::success)
+        if (gist::failed(ec))
         {
             state.SkipWithError("Trojan ipv6 parsing failed");
         }
@@ -386,7 +386,7 @@ static void BM_TrojanDecodeDomain_VarLen(benchmark::State &state)
     for (auto _ : state)
     {
         auto [ec, addr] = protocol::trojan::wire::decode_domain(view);
-        if (ec != gist::code::success)
+        if (gist::failed(ec))
         {
             state.SkipWithError("Trojan domain parsing failed");
         }
@@ -401,7 +401,7 @@ static void BM_TrojanDecodePort(benchmark::State &state)
     for (auto _ : state)
     {
         auto [ec, port] = protocol::trojan::wire::decode_port(buffer);
-        if (ec != gist::code::success)
+        if (gist::failed(ec))
         {
             state.SkipWithError("Trojan port parsing failed");
         }
@@ -445,3 +445,4 @@ BENCHMARK(BM_TrojanDecodeDomain_VarLen)->Arg(4)->Arg(16)->Arg(64)->Arg(255);
 BENCHMARK(BM_TrojanDecodePort);
 
 BENCHMARK_MAIN();
+

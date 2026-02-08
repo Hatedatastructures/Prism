@@ -5,10 +5,8 @@
  */
 #pragma once
 
-#include <cstdint>
 #include <utility>
 #include <span>
-#include <tuple>
 
 #include <forward-engine/gist.hpp>
 #include <forward-engine/protocol/socks5/constants.hpp>
