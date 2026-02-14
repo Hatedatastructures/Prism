@@ -1,3 +1,40 @@
+/**
+ * @file validator.hpp
+ * @brief 账户验证与连接数配额控制器
+ * @details 提供基于凭据的用户认证和并发连接数限制功能，支持流量统计。
+ * 该模块是代理服务的安全组件，用于防止资源滥用和实现用户级配额控制。
+ *
+ * 核心功能：
+ * - 凭据验证：快速校验用户凭据是否存在；
+ * - 连接配额：基于用户维度的并发连接数上限控制；
+ * - 流量统计：用户维度的上下行流量字节数统计；
+ * - 线程安全：无锁读取路径，适合高并发场景。
+ *
+ * 设计特性：
+ * - Copy-on-Write：用户表更新采用写时复制，避免读路径阻塞；
+ * - 原子计数：流量统计使用原子操作，无需锁同步；
+ * - RAII 守卫：连接配额通过 `protector` 自动管理生命周期。
+ *
+ * ```
+ * // 典型用法：启动阶段注入用户凭据，并在握手后申请配额
+ * ngx::agent::validator validator;
+ * validator.upsert_user("CREDENTIAL_1", 32);
+ *
+ * // 握手解析出凭据后：
+ * auto guard = validator.try_acquire(credential);
+ * if (!guard)
+ * {
+ *     // 超过并发上限或用户不存在
+ *     co_return;
+ * }
+ *
+ * // 在转发路径上做流量统计
+ * ngx::agent::validator::accumulate_uplink(guard.state(), bytes);
+ * ```
+ *
+ * @note `try_acquire` 返回 `protector`，其析构会自动释放一次连接配额。
+ * @warning `upsert_user` 会按需分配内存，请在启动阶段完成用户表构建。
+ */
 #pragma once
 
 #include <atomic>

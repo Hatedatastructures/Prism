@@ -20,28 +20,6 @@
  * - 协议异常通常发生在连接建立初期，频率较低，性能影响有限；
  * - 构造函数使用 `std::source_location::current()` 静态捕获，无运行时开销；
  * - 错误码转换通过 `::ngx::gist::make_error_code()` 内联函数完成，避免间接调用。
- *
- * 示例：
- * ```
- * try
- * {
- *     // 协议检测发现非法格式
- *     if (!validate_protocol_header(buffer))
- *     {
- *         throw protocol(::ngx::gist::code::protocol_header_invalid);
- *     }
- *
- *     // 握手失败
- *     if (!perform_handshake(stream))
- *     {
- *         throw protocol(::ngx::gist::code::handshake_failed, "TLS handshake failed");
- *     }
- * } catch (const protocol &ex)
- * {
- *     spdlog::error("协议异常: {}", ex.what());
- *     // 处理协议错误...
- * }
- * ```
  */
 #pragma once
 

@@ -19,19 +19,6 @@
  *
  * @note 运行时网络 `I/O` 错误（如读/写失败）应使用错误码而非异常。
  * @warning 不要在热路径（如 `async_read` 回调）中抛出此异常。
- *
- * ```
- * // 使用示例：启动阶段网络错误
- * if (!socket.bind(endpoint))
- * {
- *     throw abnormal::network(gist::code::connection_refused,"Failed to bind to port 8080");
- * }
- * // 使用示例：SSL 初始化失败
- * if (!ssl_context.init())
- * {
- *     throw abnormal::network(gist::code::tls_handshake_failed,"SSL context initialization failed");
- * }
- * ```
  */
 #pragma once
 
@@ -73,7 +60,7 @@ namespace ngx::abnormal
          * @param err 网络错误码
          * @param loc 源码位置（默认自动获取）
          */
-        explicit network(ngx::gist::code err,
+        explicit network(const gist::code err,
                          const std::source_location &loc = std::source_location::current())
             : exception(ngx::gist::make_error_code(err), {}, loc)
         {
@@ -85,7 +72,7 @@ namespace ngx::abnormal
          * @param desc 额外描述信息
          * @param loc 源码位置（默认自动获取）
          */
-        explicit network(ngx::gist::code err, std::string_view desc,
+        explicit network(const gist::code err, std::string_view desc,
                          const std::source_location &loc = std::source_location::current())
             : exception(ngx::gist::make_error_code(err), desc, loc)
         {

@@ -12,21 +12,41 @@
  * - 代理配置：`forward-engine/agent/config.hpp` - `Agent` 服务的工作线程数、连接池大小、超时设置等；
  * - 追踪配置：`forward-engine/trace/config.hpp` - 日志级别、输出格式、采样率、监控指标等。
  *
- * 使用场景：
- * - 系统启动时从配置文件或命令行参数加载全局配置；
- * - 各个子系统通过引用全局配置获取自己的配置参数；
- * - 配置热重载时更新全局配置并通知相关子系统。
+ * ```
+ * // 构造默认配置
+ * ngx::core::configuration config;
  *
- * 性能考虑：
- * - 配置结构通常仅在初始化时加载，对运行时性能无影响；
- * - 配置值应使用值语义传递，避免动态分配和间接访问；
- * - 配置热重载应避免锁竞争，使用原子操作或无锁结构。
+ * // 修改配置参数
+ * config.agent.worker_count = 8;
+ * config.agent.connection_timeout = std::chrono::seconds(60);
+ * config.trace.log_level = spdlog::level::debug;
+ *
+ * // 序列化为 JSON
+ * std::string json = ngx::transformer::json::serialize(config);
+ *
+ * // 从 JSON 反序列化
+ * auto parsed = ngx::transformer::json::deserialize<ngx::core::configuration>(json);
+ * ```
+ *
+ * @note 配置结构通常仅在初始化时加载，对运行时性能无影响。
+ * @warning 配置热重载时应注意线程安全性，避免数据竞争。
  */
 #pragma once
 
 #include <forward-engine/agent/config.hpp>
 #include <forward-engine/trace/config.hpp>
 
+/**
+ * @namespace ngx::core
+ * @brief 核心配置模块
+ * @details 定义了系统的全局配置结构，聚合各子系统的配置。
+ *
+ * 包含组件：
+ * - 全局配置 (`configuration`)：聚合代理服务和日志追踪配置。
+ *
+ * @note 配置结构应保持 POD 特性，便于序列化和反射。
+ * @warning 配置热重载时应注意线程安全性。
+ */
 namespace ngx::core
 {
     /**

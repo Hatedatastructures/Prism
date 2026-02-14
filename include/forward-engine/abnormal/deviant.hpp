@@ -53,22 +53,6 @@
  *     ├── ngx::abnormal::security (安全错误)
  *     └── ngx::abnormal::protocol (协议错误)
  * ```
- *
- * ```
- * // 使用示例：处理分类异常
- * try
- * {
- *     connect_to_server();
- * } catch (const abnormal::network& e)
- * {
- *     // 处理网络错误
- *     trace::error("Network error: {}", e.dump());
- * } catch (const abnormal::exception& e)
- * {
- *     // 处理其他异常
- *     trace::error("General error: {}", e.dump());
- * }
- * ```
  */
 namespace ngx::abnormal
 {

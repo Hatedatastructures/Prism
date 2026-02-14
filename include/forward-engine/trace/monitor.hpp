@@ -32,7 +32,7 @@
 @see ngx::trace::config 日志配置
  *
  *
- * @deprecated 已弃用，请使用 `ngx::trace::spdlog` 替代。
+ * @deprecated 已弃用。
  */
 #pragma once
 
@@ -75,7 +75,7 @@
  * 该命名空间是项目演进过程中产生的技术债务，保留供参考和学习。
  * 新代码严禁使用该命名空间中的任何组件。
  *
- * @deprecated 已弃用，请使用 `ngx::trace::spdlog` 替代。
+ * @deprecated 已弃用。
  * @warning 严禁在新代码中使用此命名空间！
  * ngx::trace::spdlog
  * ngx::trace::config

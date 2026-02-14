@@ -103,7 +103,6 @@ namespace ngx::protocol
      * @return `std::string_view` 协议类型的字符串表示，指向编译时常量
      * @note 返回的字符串视图指向静态存储期的字符串字面量，生命周期与程序相同。
      * @warning 不要修改返回的字符串视图内容，它是只读的。
-     * @see protocol_type, analysis::detect()
      */
     inline auto to_string_view(const protocol_type type) -> std::string_view
     {
@@ -145,7 +144,6 @@ namespace ngx::protocol
      *
      * @note 包含针对 HTTP 和 Obscura 的特定解析逻辑。
      * @warning 协议探测基于有限的数据，可能因数据不足而返回 `unknown`。
-     * @see protocol_type, agent::handler, agent::distributor
      */
     struct analysis
     {
@@ -172,7 +170,6 @@ namespace ngx::protocol
          *
          * @note 端口默认值为 "80"（HTTP 默认端口）。
          * @warning `host` 和 `port` 字符串可能为空，调用者应检查有效性。
-         * @see analysis::resolve(), agent::distributor
          */
         struct target
         {
@@ -220,7 +217,6 @@ namespace ngx::protocol
          * @return `target` 解析出的目标信息，包含主机、端口和正向代理标志
          * @note 如果解析失败，返回的目标对象可能包含空字符串。
          * @warning 请求对象必须包含有效的 HTTP 请求数据。
-         * @see http::request, target, resolve(std::string_view)
          */
         static auto resolve(const http::request &req, memory::resource_pointer mr = nullptr)
             -> target;
@@ -252,7 +248,6 @@ namespace ngx::protocol
          * @return `target` 解析出的目标信息，包含主机、端口和正向代理标志（通常为 false）
          * @note 对于非 HTTP 协议，`positive` 标志通常为 `false`。
          * @warning IPv6 地址必须用方括号括起，否则解析可能失败。
-         * @see target, resolve(const http::request&), parse()
          */
         static auto resolve(std::string_view host_port, memory::resource_pointer mr = nullptr)
             -> target;
@@ -287,7 +282,6 @@ namespace ngx::protocol
          * @return `protocol_type` 检测到的协议类型，可能是 `unknown`、`http`、`socks5` 或 `tls`
          * @note 采用"白名单检测法"：只要符合 HTTP 特征则认为是 HTTP，符合 SOCKS5 特征则认为是 SOCKS5，否则根据上下文判断。
          * @warning 探测结果基于有限数据，后续数据可能推翻当前判断。
-         * @see protocol_type, to_string_view(), agent::handler::detect_from_transmission()
          */
         static auto detect(std::string_view peek_data)
             -> protocol_type;
@@ -314,7 +308,6 @@ namespace ngx::protocol
          * @param port 输出参数，存储解析出的端口号
          * @note 该方法是 `static` 和 `private` 的，仅供内部使用。
          * @warning 主机和端口字符串必须使用相同的内存资源分配器。
-         * @see resolve(std::string_view)
          */
         static auto parse(std::string_view src, memory::string &host, memory::string &port)
             -> void;

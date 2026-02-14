@@ -12,18 +12,35 @@
  * - 5. 连接池 (`pool_config`)：连接缓存和空闲超时；
  * - 6. 全局配置 (`config`)：聚合所有子配置，作为服务入口点。
  *
- * @note 所有配置结构使用 `memory::string` 和 `memory::vector` 等 `PMR` 容器，支持自定义内存分配。
- * @warning 配置对象应在服务启动前完成初始化，运行时修改可能不会立即生效。
- *
  * ```
  * // 初始化 worker
  * ngx::agent::worker wkr(cfg);
  * ```
+ *
+ * @note 所有配置结构使用 `memory::string` 和 `memory::vector` 等 `PMR` 容器，支持自定义内存分配。
+ * @warning 配置对象应在服务启动前完成初始化，运行时修改可能不会立即生效。
  */
 #pragma once
 
 #include <forward-engine/memory/container.hpp>
 
+/**
+ * @namespace ngx::agent
+ * @brief 代理业务层 (Control Plane)
+ * @details 包含代理服务的核心业务逻辑，如会话管理 (`session`)、流量分发 (`distributor`) 和协议处理 (`handler`)。
+ * 它是整个系统的"大脑"，决定数据该往哪里走。
+ *
+ * 包含组件：
+ * - 配置管理 (`config`)：代理服务的配置结构定义；
+ * - 流量分发 (`distributor`)：路由决策和连接管理；
+ * - 会话管理 (`session`)：客户端连接的生命周期管理；
+ * - 工作线程 (`worker`)：代理服务的运行时容器；
+ * - 协议处理 (`handler`)：协议处理器接口和工厂；
+ * - 验证器 (`validator`)：账户验证和连接数配额控制。
+ *
+ * @note 所有组件使用 PMR 内存管理，支持自定义内存分配器。
+ * @warning 组件应在正确的生命周期内使用，避免悬垂引用。
+ */
 namespace ngx::agent
 {
     /**

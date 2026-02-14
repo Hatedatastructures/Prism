@@ -65,16 +65,15 @@
  * @namespace ngx::protocol::http
  * @brief HTTP 协议实现命名空间
  * @details 包含 HTTP/1.1 和 HTTP/2 协议的完整实现，提供：
- * - 请求/响应的序列化与反序列化
- * - 协议状态机管理
- * - 流控与优先级处理（HTTP/2）
- * - 头部压缩（HPACK）
+ * @details - 请求/响应的序列化与反序列化
+ * @details - 协议状态机管理
+ * @details - 流控与优先级处理（HTTP/2）
+ * @details - 头部压缩（HPACK）
  *
  * @note 该模块设计为无状态，仅负责数据报文的处理，不管理连接生命周期
  * @warning 内存管理：协议处理器使用 `PMR` 内存池，确保零堆分配热路径
- */ @see ngx::protocol::http::constants HTTP 常量定义
-        * /
-    namespace ngx::protocol::http
+ */
+namespace ngx::protocol::http
 {
     /**
      * @class response
@@ -145,10 +144,6 @@
      * resp.clear();
      *
      *
-     * @see ngx::protocol::http::request HTTP 请求类（对称设计）
-     * @see ngx::protocol::http::status 状态码枚举
-     * @see ngx::protocol::http::field 头部字段枚举
-     * @see ngx::memory::string PMR 字符串实现
      */
     class response
     {

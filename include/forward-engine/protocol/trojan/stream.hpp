@@ -32,14 +32,6 @@
  * @warning 加密依赖：协议本身不提供加密，依赖底层传输层（如 TLS）提供机密性
  * @warning 性能影响：协议头部增加固定开销，小包性能可能受影响
  *
-@see ngx::protocol::trojan::constants Trojan 常量
- *
-@see ngx::protocol::trojan::message Trojan 消息
- *
-@see ngx::protocol::trojan::wire 协议编解码
- *
-@see Trojan 协议规范
- *
  */
 
 #pragma once

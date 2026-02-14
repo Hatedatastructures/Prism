@@ -21,18 +21,6 @@
  * @note 运行时认证/授权失败（如密码错误）应使用错误码而非异常。
  * @warning 不要在热路径（如每个请求的认证检查）中抛出此异常。
  *
- * ```
- * // 使用示例：启动阶段安全错误
- * if (!ssl_certificate.is_valid())
- * {
- *     throw abnormal::security(ngx::gist::code::certificate_invalid,"SSL certificate validation failed");
- * }
- * // 使用示例：配置验证失败
- * if (auth_config.is_malformed())
- * {
- *     throw abnormal::security(ngx::gist::code::authentication_failed,"Authentication configuration is invalid");
- * }
- * ```
  */
 #pragma once
 

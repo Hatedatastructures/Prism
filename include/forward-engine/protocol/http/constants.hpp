@@ -53,22 +53,26 @@
 /**
  * @namespace ngx::protocol::http
  * @brief HTTP 协议实现命名空间
+ * @note 该模块设计为无状态，仅负责数据报文的处理，不管理连接生命周期
+ * @warning 内存管理：协议处理器使用 `PMR` 内存池，确保零堆分配热路径
  * @details 包含 HTTP/1.1 和 HTTP/2 协议的完整实现，提供：
  * - 请求/响应的序列化与反序列化
  * - 协议状态机管理
  * - 流控与优先级处理（HTTP/2）
  * - 头部压缩（HPACK）
- *
- * @note 该模块设计为无状态，仅负责数据报文的处理，不管理连接生命周期
- * @warning 内存管理：协议处理器使用 `PMR` 内存池，确保零堆分配热路径
- * @see ngx::protocol::http::request HTTP 请求类
- * @see ngx::protocol::http::response HTTP 响应类
  */
 namespace ngx::protocol::http
 {
     /**
      * @enum status
      * @brief HTTP 状态码枚举
+     * @note **设计考虑**：
+     * - 使用 `unsigned` 底层类型确保与标准 HTTP 状态码范围（0-999）兼容
+     * - 为 `unknown` (0) 预留值处理未识别或自定义状态码
+     * - 支持通过 `static_cast<unsigned>` 直接转换为整型用于网络传输
+     * - 所有标准状态码均包含官方 RFC 描述
+     * @warning **性能提示**：在热路径中使用 `switch` 语句进行状态码匹配，避免线性查找
+     * @warning **兼容性注意**：部分扩展状态码（如 103 Early Hints）需要客户端支持
      * @details 完整的 HTTP 状态码定义，覆盖 RFC 7231、RFC 6585、RFC 4918、RFC 5842、RFC 2774、RFC 7540 等标准。
      * 状态码分类遵循 IETF 标准：
      * - **1xx**：信息响应 - 请求已接收，继续处理
@@ -77,16 +81,7 @@ namespace ngx::protocol::http
      * - **4xx**：客户端错误 - 请求包含语法错误或无法完成
      * - **5xx**：服务器错误 - 服务器在处理请求时发生错误
      *
-     * @note **设计考虑**：
-     * - 使用 `unsigned` 底层类型确保与标准 HTTP 状态码范围（0-999）兼容
-     * - 为 `unknown` (0) 预留值处理未识别或自定义状态码
-     * - 支持通过 `static_cast<unsigned>` 直接转换为整型用于网络传输
-     * - 所有标准状态码均包含官方 RFC 描述
-     *
-     * @warning **性能提示**：在热路径中使用 `switch` 语句进行状态码匹配，避免线性查找
-     * @warning **兼容性注意**：部分扩展状态码（如 103 Early Hints）需要客户端支持
-     *
-     * @code{.cpp}
+     * ```
      * // 状态码分类判断示例
      * using namespace ngx::protocol::http;
      *
@@ -109,7 +104,7 @@ namespace ngx::protocol::http
      *         default: return "Unknown Status";
      *     }
      * }
-     * @endcode
+     * ```
      */
     enum class status : unsigned
     {
@@ -494,6 +489,13 @@ namespace ngx::protocol::http
     /**
      * @enum verb
      * @brief HTTP 请求方法（动词）枚举
+     * @note **设计考虑**：
+     * - 枚举值顺序遵循标准定义频率，优化 `switch` 语句性能
+     * - 为 `unknown` (0) 预留值处理自定义或非标准方法
+     * - 支持方法字符串到枚举值的双向转换（`to_string()` / `from_string()`）
+     * - 包含 WebDAV (`PROPFIND`、`PROPPATCH` 等) 和扩展方法
+     * @warning **安全性注意**：正确处理 `TRACE` 和 `TRACK` 方法防止跨站跟踪攻击
+     * @warning **幂等性**：正确实现幂等方法对重试机制和错误恢复至关重要
      * @details 完整的 HTTP 请求方法定义，覆盖 RFC 7231、RFC 5789、RFC 4918、RFC 5842 等标准。
      * 包含所有标准方法及常见扩展方法，用于标识请求对资源执行的操作类型。
      *
@@ -502,16 +504,7 @@ namespace ngx::protocol::http
      * - **幂等方法**（`idempotent`）：`GET`、`HEAD`、`PUT`、`DELETE`、`OPTIONS`、`TRACE` - 重复执行效果相同
      * - **缓存方法**：`GET`、`HEAD`、`POST` - 可被缓存代理处理
      *
-     * @note **设计考虑**：
-     * - 枚举值顺序遵循标准定义频率，优化 `switch` 语句性能
-     * - 为 `unknown` (0) 预留值处理自定义或非标准方法
-     * - 支持方法字符串到枚举值的双向转换（`to_string()` / `from_string()`）
-     * - 包含 WebDAV (`PROPFIND`、`PROPPATCH` 等) 和扩展方法
-     *
-     * @warning **安全性注意**：正确处理 `TRACE` 和 `TRACK` 方法防止跨站跟踪攻击
-     * @warning **幂等性**：正确实现幂等方法对重试机制和错误恢复至关重要
-     *
-     * @code{.cpp}
+     * ```
      * // 方法分类判断示例
      * using namespace ngx::protocol::http;
      *
@@ -549,7 +542,7 @@ namespace ngx::protocol::http
      * std::string method_str = "GET";
      * verb method = verb_from_string(method_str); // 返回 verb::get
      * std::string result = to_string(verb::post); // 返回 "POST"
-     * @endcode
+     * ```
      */
     enum class verb
     {
@@ -745,6 +738,15 @@ namespace ngx::protocol::http
     /**
      * @enum field
      * @brief HTTP 头部字段枚举
+     * @note **设计考虑**：
+     * - 使用 `unsigned short` 底层类型优化内存布局，支持高效数组索引
+     * - 字段顺序遵循字母排序，便于二分查找和前缀匹配优化
+     * - 为 `unknown` (0) 预留值处理未注册或自定义头部字段
+     * - 支持头部字段名到枚举值的双向转换（`to_string()` / `from_string()`）
+     * - 包含完整的 RFC 引用，便于标准合规性验证
+     * @warning **性能关键**：头部字段查找应使用预构建的 `std::unordered_map` 或完美哈希，避免线性扫描
+     * @warning **安全性注意**：正确处理 `Host`、`Origin`、`Referer` 等安全敏感头部
+     * @warning **大小写敏感**：HTTP 头部字段名大小写不敏感，但枚举映射使用规范大小写格式
      * @details 完整的 HTTP 头部字段定义，包含超过 500 个标准及扩展头部字段。
      * 基于 IANA 注册表、RFC 标准及实际部署中的常见扩展，覆盖：
      * - **标准请求/响应头部**：`Content-Type`、`Authorization`、`Cache-Control` 等
@@ -759,18 +761,7 @@ namespace ngx::protocol::http
      * - **请求限定头部**：仅出现在请求中，如 `Host`、`User-Agent`
      * - **响应限定头部**：仅出现在响应中，如 `Server`、`Age`
      *
-     * @note **设计考虑**：
-     * - 使用 `unsigned short` 底层类型优化内存布局，支持高效数组索引
-     * - 字段顺序遵循字母排序，便于二分查找和前缀匹配优化
-     * - 为 `unknown` (0) 预留值处理未注册或自定义头部字段
-     * - 支持头部字段名到枚举值的双向转换（`to_string()` / `from_string()`）
-     * - 包含完整的 RFC 引用，便于标准合规性验证
-     *
-     * @warning **性能关键**：头部字段查找应使用预构建的 `std::unordered_map` 或完美哈希，避免线性扫描
-     * @warning **安全性注意**：正确处理 `Host`、`Origin`、`Referer` 等安全敏感头部
-     * @warning **大小写敏感**：HTTP 头部字段名大小写不敏感，但枚举映射使用规范大小写格式
-     *
-     * @code{.cpp}
+     * ```
      * // 头部字段分类判断示例
      * using namespace ngx::protocol::http;
      *
@@ -812,11 +803,8 @@ namespace ngx::protocol::http
      * // 批量头部处理优化示例
      * std::vector<field> headers = parse_header_fields(buffer);
      * std::sort(headers.begin(), headers.end()); // 枚举值排序优化后续处理
-     * @endcode
+     * ```
      *
-     * @see https://www.iana.org/assignments/message-headers/message-headers.xhtml IANA 头部字段注册表
-     * @see RFC 7230-7235 HTTP/1.1 标准
-     * @see RFC 7540 HTTP/2 标准
      */
     enum class field : unsigned short
     {

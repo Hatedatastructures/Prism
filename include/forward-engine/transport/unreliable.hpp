@@ -1,8 +1,27 @@
 /**
  * @file unreliable.hpp
  * @brief 不可靠的数据报传输实现（UDP）
- * @details 封装 `boost::asio::ip::udp::socket`，提供基于 UDP 的数据报传输。
- * 该类继承自 `transmission`，模拟流式语义，内部记录远程端点以实现连接式操作。
+ * @details 封装 `boost::asio::ip::udp::socket`，提供基于 UDP 的数据报传输。该类继承自 `transmission`，模拟流式语义，内部记录远程端点以实现连接式操作。
+ *
+ * 架构说明：
+ * @details - 传输抽象：继承 `transmission` 接口，实现 UDP 传输层的具体功能；
+ * @details - 连接模拟：内部维护远程端点，模拟连接式 UDP 操作；
+ * @details - 来源验证：接收数据时验证来源是否匹配远程端点；
+ * @details - 协程设计：所有异步操作返回 `net::awaitable`，简化异步操作调用。
+ *
+ * 设计特性：
+ * @details - 数据报语义：UDP 不保证数据送达、顺序或去重；
+ * @details - 连接模拟：通过记录远程端点实现类似 TCP 的连接式操作；
+ * @details - 来源过滤：接收时自动过滤非远程端点的数据报；
+ * @details - 工厂函数：提供 `make_unreliable` 工厂函数简化创建。
+ *
+ * 使用场景：
+ * @details - DNS 代理：作为 DNS 代理的传输层；
+ * @details - UDP 转发：转发 UDP 数据报到上游服务器；
+ * @details - SOCKS5 UDP：实现 SOCKS5 的 UDP ASSOCIATE 命令。
+ *
+ * @note UDP 是不可靠传输，不保证数据送达、顺序或去重。
+ * @warning 如果未设置远程端点，写入操作将返回错误。
  */
 
 #pragma once

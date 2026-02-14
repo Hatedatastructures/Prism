@@ -1,8 +1,27 @@
 /**
  * @file reliable.hpp
  * @brief 可靠的流式传输实现（TCP）
- * @details 封装 `boost::asio::ip::tcp::socket`，提供基于 TCP 的可靠流式传输。
- * 该类继承自 `transmission`，是分层流式架构中的具体传输层实现。
+ * @details 封装 `boost::asio::ip::tcp::socket`，提供基于 TCP 的可靠流式传输。该类继承自 `transmission`，是分层流式架构中的具体传输层实现，支持异步读写、关闭、取消等操作。
+ *
+ * 架构说明：
+ * @details - 传输抽象：继承 `transmission` 接口，实现 TCP 传输层的具体功能；
+ * @details - 协程设计：所有异步操作返回 `net::awaitable`，简化异步操作调用；
+ * @details - 错误码映射：自动映射 Boost.System 错误码到项目错误码；
+ * @details - 智能指针：支持 `std::enable_shared_from_this`，便于生命周期管理。
+ *
+ * 设计特性：
+ * @details - 可靠传输：TCP 保证数据有序送达，不丢失、不重复；
+ * @details - 流式语义：提供流式读写接口，支持部分读写；
+ * @details - 原生访问：提供 `native_socket()` 方法直接访问底层 socket；
+ * @details - 工厂函数：提供 `make_reliable` 工厂函数简化创建。
+ *
+ * 使用场景：
+ * @details - HTTP 代理：作为 HTTP 代理的传输层；
+ * @details - SOCKS5 代理：作为 SOCKS5 代理的传输层；
+ * @details - Trojan 代理：作为 Trojan 协议的底层传输。
+ *
+ * @note 该类是传输层的核心实现，所有基于 TCP 的协议都应使用此类。
+ * @warning 关闭后传输层对象不再可用，不应再调用其任何方法。
  */
 
 #pragma once

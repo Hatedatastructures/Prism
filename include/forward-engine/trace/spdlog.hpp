@@ -1,7 +1,28 @@
 /**
  * @file spdlog.hpp
  * @brief 日志接口封装
- * @details 封装 spdlog 库，提供统一的日志记录接口，支持多级别日志输出。
+ * @details 封装 spdlog 库，提供统一的日志记录接口，支持多级别日志输出。该模块是 ForwardEngine 可观测性系统的核心日志接口，提供高性能的异步日志记录能力。
+ *
+ * 设计原理：
+ * @details - 异步日志：使用 spdlog 异步日志器，后台线程刷盘避免阻塞业务线程；
+ * @details - 异常安全：所有日志接口捕获异常，确保日志失败不影响业务逻辑；
+ * @details - 格式化支持：使用 fmt 库提供高性能的格式化能力；
+ * @details - 全局访问：提供全局日志器，无需手动传递日志器实例。
+ *
+ * 日志级别：
+ * @details - debug：调试信息，用于开发调试；
+ * @details - info：一般信息，记录正常运行状态；
+ * @details - warn：警告信息，记录潜在问题；
+ * @details - error：错误信息，记录运行错误但不影响程序继续运行；
+ * @details - fatal：致命错误，通常用于不可恢复的错误。
+ *
+ * 使用流程：
+ * @details 1. 调用 init() 初始化日志系统；
+ * @details 2. 使用 debug/info/warn/error/fatal 记录日志；
+ * @details 3. 程序退出时调用 shutdown() 关闭日志系统。
+ *
+ * @note 允许重复调用 init()，后一次会覆盖前一次的配置。
+ * @warning 必须在程序退出前调用 shutdown() 释放线程池资源。
  */
 #pragma once
 

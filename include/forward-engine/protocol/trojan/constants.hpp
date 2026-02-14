@@ -8,7 +8,8 @@
 #include <cstdint>
 
 /**
- * @brief Trojan 协议命名空间
+ * @namespace ngx::protocol::trojan
+ * @brief Trojan 协议实现
  * @note 遵循 Trojan 协议规范: https://trojan-gfw.github.io/trojan/protocol
  */
 namespace ngx::protocol::trojan
