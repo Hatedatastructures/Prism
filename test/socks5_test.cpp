@@ -45,27 +45,34 @@ net::awaitable<void> do_socks5_server(tcp::acceptor &acceptor)
 
         // 发送成功响应
         std::cout << "服务器发送成功响应..." << std::endl;
-        co_await socks5->send_success(req);
+        if (ngx::gist::failed(co_await socks5->send_success(req)))
+        {
+            std::cerr << "服务器成功响应发送失败" << std::endl;
+            co_return;
+        }
         std::cout << "服务器成功响应已发送" << std::endl;
 
         // 测试数据传输 (Echo)
         std::array<char, 1024> buffer;
         auto buf = net::buffer(buffer);
 
-        try
+        // 读取客户端数据
+        auto [read_ec, n] = co_await socks5->async_read(buf);
+        if (ngx::gist::failed(read_ec) || n == 0)
         {
-            // 读取客户端数据
-            std::size_t n = co_await socks5->async_read(buf);
-            std::string received_msg(buffer.data(), n);
-
-            std::cout << "服务器收到消息: " << received_msg << std::endl;
-
-            // 回显给客户端
-            co_await socks5->async_write(net::buffer(received_msg));
+            std::cerr << "数据读取失败: " << std::string_view(ngx::gist::describe(read_ec)) << std::endl;
+            co_return;
         }
-        catch (const std::exception &e)
+        std::string received_msg(buffer.data(), n);
+
+        std::cout << "服务器收到消息: " << received_msg << std::endl;
+
+        // 回显给客户端
+        auto [write_ec, _] = co_await socks5->async_write(net::buffer(received_msg));
+        if (ngx::gist::failed(write_ec))
         {
-            std::cerr << "数据传输异常: " << e.what() << std::endl;
+            std::cerr << "数据回写失败: " << std::string_view(ngx::gist::describe(write_ec)) << std::endl;
+            co_return;
         }
 
         // 关闭连接

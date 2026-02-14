@@ -5,6 +5,8 @@
  */
 #pragma once
 
+#include <cstdint>
+
 /**
  * @namespace ngx::protocol::socks5
  * @brief SOCKS5 协议实现

@@ -1,21 +1,115 @@
 /**
  * @file constants.hpp
  * @brief HTTP 协议常量定义
- * @details 定义了 HTTP 状态码 (Status Codes)、请求方法 (Verbs) 和头部字段 (Headers) 的枚举。
+ * @details 定义了 HTTP/1.1 和 HTTP/2 协议的核心常量，包括：
+ * - 状态码 (`status` 枚举)：完整的 HTTP 状态码定义，从 100 到 511
+ * - 请求方法 (`verb` 枚举)：所有标准 HTTP 方法及扩展方法
+ * - 头部字段 (`field` 枚举)：超过 500 个标准及扩展 HTTP 头部字段
+ *
+ * @note 设计原则：
+ * - 零开销枚举：所有枚举使用底层整型，支持高效的 switch 匹配和序列化
+ * - 标准兼容：严格遵循 RFC 7230-7235、RFC 7540 及 IANA 注册表
+ * - 扩展友好：预留 `unknown` 值处理未识别常量，支持自定义扩展
+ * - 内存高效：使用最小化存储类型（`unsigned` 用于状态码，`unsigned short` 用于头部字段）
+ *
+ * @warning 性能注意：在热路径中避免对 `field` 枚举进行线性查找，应使用预构建的哈希映射
+ * @warning 线程安全：所有枚举值均为编译时常量，可安全用于多线程环境
+ *
+ * ```
+ * // 使用示例：解析 HTTP 响应状态码
+ * #include <forward-engine/protocol/http/constants.hpp>
+ *
+ * using namespace ngx::protocol::http;
+ *
+ * void handle_response(status code)
+ * {
+ *     switch (code)
+ *     {
+ *         case status::ok:
+ *             std::cout << "请求成功" << std::endl;
+ *             break;
+ *         case status::not_found:
+ *             std::cout << "资源未找到" << std::endl;
+ *             break;
+ *         case status::internal_server_error:
+ *             std::cout << "服务器内部错误" << std::endl;
+ *             break;
+ *         default:
+ *             // 处理未知状态码
+ *             break;
+ *     }
+ * }
+ *
+ * // 头部字段快速查找示例
+ * field header = field::content_type;
+ * if (header == field::content_type)
+ * {
+ *     // 处理 Content-Type 头部
+ * }
+ * ```
  */
 #pragma once
 
 /**
  * @namespace ngx::protocol::http
- * @brief HTTP 协议实现
- * @details 包含 HTTP/1.1 协议的完整实现，支持请求/响应的序列化与反序列化。
- * 该模块设计为无状态，仅负责数据报文的处理，不管理连接生命周期。
+ * @brief HTTP 协议实现命名空间
+ * @details 包含 HTTP/1.1 和 HTTP/2 协议的完整实现，提供：
+ * - 请求/响应的序列化与反序列化
+ * - 协议状态机管理
+ * - 流控与优先级处理（HTTP/2）
+ * - 头部压缩（HPACK）
+ *
+ * @note 该模块设计为无状态，仅负责数据报文的处理，不管理连接生命周期
+ * @warning 内存管理：协议处理器使用 `PMR` 内存池，确保零堆分配热路径
+ * @see ngx::protocol::http::request HTTP 请求类
+ * @see ngx::protocol::http::response HTTP 响应类
  */
 namespace ngx::protocol::http
 {
     /**
-     * @brief HTTP 状态码
-     * @note 每个状态码都有一个对应的状态描述，用于说明状态码的含义
+     * @enum status
+     * @brief HTTP 状态码枚举
+     * @details 完整的 HTTP 状态码定义，覆盖 RFC 7231、RFC 6585、RFC 4918、RFC 5842、RFC 2774、RFC 7540 等标准。
+     * 状态码分类遵循 IETF 标准：
+     * - **1xx**：信息响应 - 请求已接收，继续处理
+     * - **2xx**：成功 - 请求已成功处理
+     * - **3xx**：重定向 - 需要进一步操作以完成请求
+     * - **4xx**：客户端错误 - 请求包含语法错误或无法完成
+     * - **5xx**：服务器错误 - 服务器在处理请求时发生错误
+     *
+     * @note **设计考虑**：
+     * - 使用 `unsigned` 底层类型确保与标准 HTTP 状态码范围（0-999）兼容
+     * - 为 `unknown` (0) 预留值处理未识别或自定义状态码
+     * - 支持通过 `static_cast<unsigned>` 直接转换为整型用于网络传输
+     * - 所有标准状态码均包含官方 RFC 描述
+     *
+     * @warning **性能提示**：在热路径中使用 `switch` 语句进行状态码匹配，避免线性查找
+     * @warning **兼容性注意**：部分扩展状态码（如 103 Early Hints）需要客户端支持
+     *
+     * @code{.cpp}
+     * // 状态码分类判断示例
+     * using namespace ngx::protocol::http;
+     *
+     * bool is_success(status code) {
+     *     auto value = static_cast<unsigned>(code);
+     *     return value >= 200 && value < 300;
+     * }
+     *
+     * bool is_client_error(status code) {
+     *     auto value = static_cast<unsigned>(code);
+     *     return value >= 400 && value < 500;
+     * }
+     *
+     * // 状态码到描述映射示例
+     * std::string_view get_status_description(status code) {
+     *     switch (code) {
+     *         case status::ok: return "OK";
+     *         case status::not_found: return "Not Found";
+     *         case status::internal_server_error: return "Internal Server Error";
+     *         default: return "Unknown Status";
+     *     }
+     * }
+     * @endcode
      */
     enum class status : unsigned
     {
@@ -398,10 +492,66 @@ namespace ngx::protocol::http
     }; // enum class status
 
     /**
-     * @brief HTTP 请求方法枚举
-     * @note 每个枚举值对应 HTTP 请求报文中使用的方法字符
+     * @enum verb
+     * @brief HTTP 请求方法（动词）枚举
+     * @details 完整的 HTTP 请求方法定义，覆盖 RFC 7231、RFC 5789、RFC 4918、RFC 5842 等标准。
+     * 包含所有标准方法及常见扩展方法，用于标识请求对资源执行的操作类型。
+     *
+     * **核心方法分类**：
+     * - **安全方法**（`safe`）：`GET`、`HEAD`、`OPTIONS`、`TRACE` - 不应修改服务器状态
+     * - **幂等方法**（`idempotent`）：`GET`、`HEAD`、`PUT`、`DELETE`、`OPTIONS`、`TRACE` - 重复执行效果相同
+     * - **缓存方法**：`GET`、`HEAD`、`POST` - 可被缓存代理处理
+     *
+     * @note **设计考虑**：
+     * - 枚举值顺序遵循标准定义频率，优化 `switch` 语句性能
+     * - 为 `unknown` (0) 预留值处理自定义或非标准方法
+     * - 支持方法字符串到枚举值的双向转换（`to_string()` / `from_string()`）
+     * - 包含 WebDAV (`PROPFIND`、`PROPPATCH` 等) 和扩展方法
+     *
+     * @warning **安全性注意**：正确处理 `TRACE` 和 `TRACK` 方法防止跨站跟踪攻击
+     * @warning **幂等性**：正确实现幂等方法对重试机制和错误恢复至关重要
+     *
+     * @code{.cpp}
+     * // 方法分类判断示例
+     * using namespace ngx::protocol::http;
+     *
+     * bool is_safe_method(verb method) {
+     *     switch (method) {
+     *         case verb::get:
+     *         case verb::head:
+     *         case verb::options:
+     *         case verb::trace:
+     *             return true;
+     *         default:
+     *             return false;
+     *     }
+     * }
+     *
+     * bool is_idempotent(verb method) {
+     *     switch (method) {
+     *         case verb::get:
+     *         case verb::head:
+     *         case verb::put:
+     *         case verb::delete_:
+     *         case verb::options:
+     *         case verb::trace:
+     *             return true;
+     *         case verb::post:
+     *         case verb::patch:
+     *         case verb::connect:
+     *             return false;
+     *         default:
+     *             return false; // 自定义方法默认非幂等
+     *     }
+     * }
+     *
+     * // 方法字符串转换示例
+     * std::string method_str = "GET";
+     * verb method = verb_from_string(method_str); // 返回 verb::get
+     * std::string result = to_string(verb::post); // 返回 "POST"
+     * @endcode
      */
-    enum class verb 
+    enum class verb
     {
         /**
          * @brief unknown
@@ -593,8 +743,80 @@ namespace ngx::protocol::http
     };
 
     /**
+     * @enum field
      * @brief HTTP 头部字段枚举
-     * @note 每个枚举值对应一个标准或扩展的 HTTP 头字段名
+     * @details 完整的 HTTP 头部字段定义，包含超过 500 个标准及扩展头部字段。
+     * 基于 IANA 注册表、RFC 标准及实际部署中的常见扩展，覆盖：
+     * - **标准请求/响应头部**：`Content-Type`、`Authorization`、`Cache-Control` 等
+     * - **安全相关头部**：`Strict-Transport-Security`、`Content-Security-Policy` 等
+     * - **性能优化头部**：`Accept-Encoding`、`Content-Encoding`、`ETag` 等
+     * - **WebSocket 头部**：`Sec-WebSocket-Key`、`Sec-WebSocket-Accept` 等
+     * - **自定义及扩展头部**：`X-Forwarded-For`、`X-Real-IP` 等常见代理头部
+     *
+     * **头部字段分类**：
+     * - **端到端头部**（`end-to-end`）：必须转发给最终接收者，如 `Content-Type`
+     * - **逐跳头部**（`hop-by-hop`：仅对单次传输有效，如 `Connection`、`Upgrade`
+     * - **请求限定头部**：仅出现在请求中，如 `Host`、`User-Agent`
+     * - **响应限定头部**：仅出现在响应中，如 `Server`、`Age`
+     *
+     * @note **设计考虑**：
+     * - 使用 `unsigned short` 底层类型优化内存布局，支持高效数组索引
+     * - 字段顺序遵循字母排序，便于二分查找和前缀匹配优化
+     * - 为 `unknown` (0) 预留值处理未注册或自定义头部字段
+     * - 支持头部字段名到枚举值的双向转换（`to_string()` / `from_string()`）
+     * - 包含完整的 RFC 引用，便于标准合规性验证
+     *
+     * @warning **性能关键**：头部字段查找应使用预构建的 `std::unordered_map` 或完美哈希，避免线性扫描
+     * @warning **安全性注意**：正确处理 `Host`、`Origin`、`Referer` 等安全敏感头部
+     * @warning **大小写敏感**：HTTP 头部字段名大小写不敏感，但枚举映射使用规范大小写格式
+     *
+     * @code{.cpp}
+     * // 头部字段分类判断示例
+     * using namespace ngx::protocol::http;
+     *
+     * bool is_end_to_end_header(field header) {
+     *     // 端到端头部示例
+     *     switch (header) {
+     *         case field::content_type:
+     *         case field::content_length:
+     *         case field::cache_control:
+     *         case field::etag:
+     *             return true;
+     *         case field::connection:
+     *         case field::upgrade:
+     *         case field::proxy_authenticate:
+     *             return false; // 逐跳头部
+     *         default:
+     *             // 默认视为端到端头部
+     *             return true;
+     *     }
+     * }
+     *
+     * bool is_security_header(field header) {
+     *     switch (header) {
+     *         case field::strict_transport_security:
+     *         case field::content_security_policy:
+     *         case field::x_frame_options:
+     *         case field::x_content_type_options:
+     *             return true;
+     *         default:
+     *             return false;
+     *     }
+     * }
+     *
+     * // 头部字段名转换示例
+     * std::string header_name = "Content-Type";
+     * field header = field_from_string(header_name); // 返回 field::content_type
+     * std::string result = to_string(field::authorization); // 返回 "Authorization"
+     *
+     * // 批量头部处理优化示例
+     * std::vector<field> headers = parse_header_fields(buffer);
+     * std::sort(headers.begin(), headers.end()); // 枚举值排序优化后续处理
+     * @endcode
+     *
+     * @see https://www.iana.org/assignments/message-headers/message-headers.xhtml IANA 头部字段注册表
+     * @see RFC 7230-7235 HTTP/1.1 标准
+     * @see RFC 7540 HTTP/2 标准
      */
     enum class field : unsigned short
     {

@@ -1,6 +1,7 @@
 #include <forward-engine/agent/distributor.hpp>
 #include <abnormal.hpp>
 #include <array>
+#include <charconv>
 #include <string>
 
 namespace ngx::agent
@@ -8,7 +9,7 @@ namespace ngx::agent
     using tcp = boost::asio::ip::tcp;
 
     distributor::distributor(source &pool, net::io_context &ioc, const memory::resource_pointer mr)
-        : pool_(pool), resolver_(ioc), mr_(mr ? mr : memory::current_resource()), reverse_map_(mr_)
+        : pool_(pool), resolver_(ioc), mr_(mr ? mr : memory::current_resource()), reverse_map_(mr_), dns_cache_(mr_)
     {
     }
 
@@ -56,7 +57,7 @@ namespace ngx::agent
          */
         if (!positive_host_ || positive_port_ == 0)
         {
-            co_return std::pair<gist::code, unique_sock>{gist::code::host_unreachable, nullptr};
+            co_return std::make_pair(gist::code::host_unreachable, nullptr);
         }
 
         boost::system::error_code ec;
@@ -66,7 +67,7 @@ namespace ngx::agent
             net::redirect_error(net::use_awaitable, ec));
         if (ec || endpoints.empty())
         {
-            co_return std::pair<gist::code, unique_sock>{gist::code::host_unreachable, nullptr};
+            co_return std::make_pair(gist::code::host_unreachable, nullptr);
         }
 
         auto socket_ptr = unique_sock(new tcp::socket(resolver_.get_executor()), transport::deleter{});
@@ -74,11 +75,13 @@ namespace ngx::agent
         co_await net::async_connect(*socket_ptr, endpoints, token);
         if (ec)
         {
-            co_return std::pair<gist::code, unique_sock>{gist::code::host_unreachable, nullptr};
+            co_return std::make_pair(gist::code::host_unreachable, nullptr);
         }
+        // 设置 TCP_NODELAY 以减少延迟
+        socket_ptr->set_option(net::ip::tcp::no_delay(true));
 
         // 发送 CONNECT 请求
-        std::string connect_request;
+        memory::string connect_request(mr_);
         connect_request.reserve(256);
         connect_request.append("CONNECT ");
         connect_request.append(host.begin(), host.end());
@@ -94,10 +97,10 @@ namespace ngx::agent
         co_await net::async_write(*socket_ptr, net::buffer(connect_request), token);
         if (ec)
         {
-            co_return std::pair<gist::code, unique_sock>{gist::code::bad_gateway, nullptr};
+            co_return std::make_pair(gist::code::bad_gateway, nullptr);
         }
 
-        std::string header;
+        memory::string header(mr_);
         header.reserve(1024);
 
         std::array<char, 1024> read_buf{};
@@ -107,43 +110,42 @@ namespace ngx::agent
             const auto n = co_await socket_ptr->async_read_some(net::buffer(read_buf), token);
             if (ec || n == 0)
             {
-                co_return std::pair<gist::code, unique_sock>{gist::code::bad_gateway, nullptr};
+                co_return std::make_pair(gist::code::bad_gateway, nullptr);
             }
-            header.append(read_buf.data(), read_buf.data() + n);
+            header.append(read_buf.data(), n);
         }
 
         if (header.find("\r\n\r\n") == std::string::npos)
         {
-            co_return std::pair<gist::code, unique_sock>{gist::code::bad_gateway, nullptr};
+            co_return std::make_pair(gist::code::bad_gateway, nullptr);
         }
 
-        const auto line_end = header.find("\r\n");
-        const auto status_line = header.substr(0, line_end == std::string::npos ? header.size() : line_end);
+        const auto header_view = std::string_view(header);
+        const auto line_end = header_view.find("\r\n");
+        const auto status_line = header_view.substr(0, line_end == std::string_view::npos ? header_view.size() : line_end);
         const auto first_space = status_line.find(' ');
         if (first_space == std::string::npos)
         {
-            co_return std::pair<gist::code, unique_sock>{gist::code::bad_gateway, nullptr};
+            co_return std::make_pair(gist::code::bad_gateway, nullptr);
         }
 
         const auto second_space = status_line.find(' ', first_space + 1);
-        const auto code_str = status_line.substr(first_space + 1, second_space == std::string::npos ? std::string::npos : second_space - first_space - 1);
+        const auto code_str = status_line.substr(first_space + 1, second_space == std::string_view::npos ? std::string_view::npos : second_space - first_space - 1);
         int status_code = 0;
-        try
+        const auto [ptr, parse_ec] = std::from_chars(code_str.data(), code_str.data() + code_str.size(), status_code);
+        static_cast<void>(ptr);
+        if (parse_ec != std::errc())
         {
-            status_code = std::stoi(code_str);
-        }
-        catch (...)
-        {
-            co_return std::pair<gist::code, unique_sock>{gist::code::bad_gateway, nullptr};
+            co_return std::make_pair(gist::code::bad_gateway, nullptr);
         }
 
         // 检查响应回来的 http CONNECT 报文状态码是否为200
         if (status_code != 200)
         {
-            co_return std::pair<gist::code, unique_sock>{gist::code::bad_gateway, nullptr};
+            co_return std::make_pair(gist::code::bad_gateway, nullptr);
         }
         
-        co_return std::pair<gist::code, unique_sock>{gist::code::success, std::move(socket_ptr)};
+        co_return std::make_pair(gist::code::success, std::move(socket_ptr));
     }
 
     auto distributor::route_forward(const std::string_view host, const std::string_view port)
@@ -162,8 +164,39 @@ namespace ngx::agent
         // 1. DNS
         if (blacklist_.domain(host))
         {
-            co_return std::pair<gist::code, unique_sock>{gist::code::blocked, nullptr};
+            co_return std::make_pair(gist::code::blocked, nullptr);
         }
+        // DNS 缓存查询
+        memory::string cache_key(mr_);
+        cache_key.reserve(host.size() + 1 + port.size());
+        cache_key.append(host);
+        cache_key.push_back(':');
+        cache_key.append(port);
+        const auto now = std::chrono::steady_clock::now();
+        std::optional<tcp::endpoint> cached_endpoint;
+
+        // 1. 尝试查找缓存（避免跨协程挂起持有迭代器）
+        if (auto it = dns_cache_.find(cache_key); it != dns_cache_.end() && it->second.expire_at > now)
+        {
+            const auto &cached = it->second.endpoints;
+            if (!cached.empty())
+            {
+                cached_endpoint = cached.front();
+            }
+        }
+
+        // 2. 如果缓存命中，尝试建立连接
+        if (cached_endpoint)
+        {
+            auto conn = co_await pool_.acquire_tcp(*cached_endpoint);
+            if (conn && conn->is_open())
+            {
+                co_return std::make_pair(gist::code::success, std::move(conn));
+            }
+            // 连接失败，清除缓存项（重新查找以避免迭代器失效）
+            dns_cache_.erase(cache_key);
+        }
+        // 缓存未命中或过期，执行解析
         boost::system::error_code ec;
         const auto results = co_await resolver_.async_resolve(host, port, net::redirect_error(net::use_awaitable, ec));
         if (ec)
@@ -174,28 +207,23 @@ namespace ngx::agent
         {
             co_return co_await route_positive(host, port);
         }
-        // 2. 找池子要连接（这里可能抛异常，统一回退到正向代理）
-        bool should_fallback = false;
-        try
+        // 存入缓存，TTL 30 秒
+        std::vector<tcp::endpoint> endpoints;
+        endpoints.reserve(std::distance(results.begin(), results.end()));
+        for (const auto &ep : results)
         {
-            auto conn = co_await pool_.acquire_tcp(*results.begin());
-            co_return std::pair<gist::code, unique_sock>{gist::code::success, std::move(conn)};
+            endpoints.push_back(ep.endpoint());
         }
-        catch (const std::exception &)
-        {
-            should_fallback = true;
-        }
-        catch (...)
-        {
-            should_fallback = true;
-        }
-
-        if (should_fallback)
+        dns_cache_[std::move(cache_key)] = dns_cache_entry{std::move(endpoints), now + std::chrono::seconds(30)};
+        // 2. 找池子要连接：失败则回退到正向代理
+        auto conn = co_await pool_.acquire_tcp(*results.begin());
+        if (!conn || !conn->is_open())
         {
             co_return co_await route_positive(host, port);
         }
+        co_return std::make_pair(gist::code::success, std::move(conn));
 
-        co_return std::pair<gist::code, unique_sock>{gist::code::bad_gateway, nullptr};
+        co_return std::make_pair(gist::code::bad_gateway, nullptr);
     }
 
     auto distributor::route_reverse(const std::string_view host)
@@ -204,39 +232,25 @@ namespace ngx::agent
         // 1. 查配置表
         if (const auto it = reverse_map_.find(host); it != reverse_map_.end())
         {
-            try
+            auto conn = co_await pool_.acquire_tcp(it->second);
+            if (!conn || !conn->is_open())
             {
-                auto conn = co_await pool_.acquire_tcp(it->second);
-                co_return std::pair<gist::code, unique_sock>{gist::code::success, std::move(conn)};
+                co_return std::make_pair(gist::code::bad_gateway, nullptr);
             }
-            catch (const std::exception &)
-            {
-                co_return std::pair<gist::code, unique_sock>{gist::code::bad_gateway, nullptr};
-            }
-            catch (...)
-            {
-                co_return std::pair<gist::code, unique_sock>{gist::code::bad_gateway, nullptr};
-            }
+            co_return std::make_pair(gist::code::success, std::move(conn));
         }
-        co_return std::pair<gist::code, unique_sock>{gist::code::bad_gateway, nullptr};
+        co_return std::make_pair(gist::code::bad_gateway, nullptr);
     }
 
     auto distributor::route_direct(const tcp::endpoint ep) const
         -> net::awaitable<std::pair<gist::code, unique_sock>>
     {
-        try
+        auto conn = co_await pool_.acquire_tcp(ep);
+        if (!conn || !conn->is_open())
         {
-            auto conn = co_await pool_.acquire_tcp(ep);
-            co_return std::pair<gist::code, unique_sock>{gist::code::success, std::move(conn)};
+            co_return std::make_pair(gist::code::bad_gateway, nullptr);
         }
-        catch (const std::exception &)
-        {
-            co_return std::pair<gist::code, unique_sock>{gist::code::bad_gateway, nullptr};
-        }
-        catch (...)
-        {
-            co_return std::pair<gist::code, unique_sock>{gist::code::bad_gateway, nullptr};
-        }
+        co_return std::make_pair(gist::code::success, std::move(conn));
     }
 
 }

@@ -11,11 +11,13 @@
 #include <forward-engine/core/configuration.hpp>
 #include <forward-engine/adapter/load.hpp>
 
+#include "agent/detection.hpp"
+
 namespace agent = ngx::agent;
 namespace http = ngx::protocol::http;
 namespace net = agent::net;
 
-constexpr std::string_view configuration_path = "src/configuration.json";
+constexpr std::string_view configuration_path = {"C:\\Users\\C1373\\Desktop\\code\\ForwardEngine\\src\\configuration.json"};
 
 /**
  * @brief 主函数

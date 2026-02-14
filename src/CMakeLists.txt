@@ -12,8 +12,6 @@ set(FORWARD_LIB_SOURCES
         ../include/forward-engine/protocol/http/serialization.hpp
         forward-engine/protocol/http/deserialization.cpp
         ../include/forward-engine/protocol/http/deserialization.hpp
-        forward-engine/transport/positive.cpp
-        ../include/forward-engine/transport/positive.hpp
         forward-engine/transport/reverse.cpp
         ../include/forward-engine/transport/reverse.hpp
         forward-engine/agent/frame.cpp
@@ -22,7 +20,6 @@ set(FORWARD_LIB_SOURCES
         ../include/forward-engine/agent/distributor.hpp
         forward-engine/transport/source.cpp
         ../include/forward-engine/transport/source.hpp
-        ../include/forward-engine/transport/obscura.hpp
         ../include/forward-engine/agent/session.hpp
         ../include/forward-engine/agent/validator.hpp
         ../include/forward-engine/rule/blacklist.hpp
@@ -54,13 +51,14 @@ set(FORWARD_LIB_SOURCES
         ../include/forward-engine/rule/config.hpp
         ../include/forward-engine/memory/pool.hpp
         ../include/forward-engine/memory.hpp
-        ../include/forward-engine/transport/transfer.hpp
         ../include/forward-engine/protocol/trojan.hpp
         ../include/forward-engine/protocol/socks5.hpp
         ../include/forward-engine/protocol.hpp
         ../include/forward-engine/agent/handler.hpp
+        forward-engine/agent/handler.cpp
         ../include/forward-engine/gist/compatible.hpp
         ../include/forward-engine/gist/handling.hpp
+        ../include/forward-engine/agent/dispatcher.hpp
 )
 
 # =============================================================

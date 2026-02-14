@@ -103,25 +103,6 @@ add_test(NAME trojan_web_test COMMAND trojan_web_test)
 
 add_test(NAME session_test COMMAND session_test)
 
-# obscura 测试可执行程序
-add_executable(obscura_test_exec
-        obscura.cpp
-)
-
-target_compile_options(obscura_test_exec PRIVATE
-          -O2
-          -fno-keep-inline-dllexport
-          -Wa,-mbig-obj
-  )
-
-target_link_libraries(obscura_test_exec
-        PRIVATE
-        ${PROJECT_NAME}_static_library
-)
-
-add_test(NAME obscura_test COMMAND obscura_test_exec)
-set_tests_properties(obscura_test PROPERTIES WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})
-
 # connection 测试可执行程序
 add_executable(connection_test
         connection_test.cpp
@@ -146,6 +127,7 @@ target_link_libraries(spdlog_test
 
 add_test(NAME spdlog_test COMMAND spdlog_test)
 
+
 # SOCKS5 测试
 add_executable(socks5_test socks5_test.cpp)
 target_compile_options(socks5_test PRIVATE -g1 -Os -fno-keep-inline-dllexport)
@@ -163,10 +145,20 @@ add_executable(trojan_client_test trojan_client_test.cpp)
 target_compile_options(trojan_client_test PRIVATE -g1 -Os -fno-keep-inline-dllexport)
 target_link_libraries(trojan_client_test PRIVATE ${PROJECT_NAME}_static_library)
 
+# Transmission 层测试
+add_executable(transmission_test transmission_test.cpp)
+target_compile_options(transmission_test PRIVATE -g1 -Os -fno-keep-inline-dllexport)
+target_link_libraries(transmission_test PRIVATE ${PROJECT_NAME}_static_library)
+
+# 集成测试：全双工转发
+add_executable(integration_test integration_test.cpp)
+target_compile_options(integration_test PRIVATE -g1 -Os -fno-keep-inline-dllexport)
+target_link_libraries(integration_test PRIVATE ${PROJECT_NAME}_static_library)
+
 add_subdirectory(benchmark)
 
 if (MINGW)
-    foreach(target_name IN ITEMS headers_test main_test json_test request_test glaze_test log_test session_test obscura_test_exec connection_test spdlog_test socks5_test trojan_test)
+    foreach(target_name IN ITEMS headers_test main_test json_test request_test glaze_test log_test session_test connection_test spdlog_test gist_compatible_test socks5_test trojan_test transmission_test integration_test)
         if (TARGET ${target_name})
             target_compile_options(${target_name} PRIVATE -Wa,-mbig-obj)
         endif()

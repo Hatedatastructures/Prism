@@ -29,7 +29,7 @@ namespace ngx::rule
         if (ips_.empty())
             return false;
         // string_view 转 string 可能会有分配，但在 set find 中 C++20 支持异构查找
-        return ips_.contains(std::string(endpoint_value));
+        return ips_.find(endpoint_value) != ips_.end();
     }
 
     auto blacklist::domain(const std::string_view host_value) const
@@ -38,30 +38,24 @@ namespace ngx::rule
         if (domains_.empty())
             return false;
 
-        std::string domain(host_value);
-        std::ranges::transform(domain, domain.begin(), ::tolower);
+        // 将输入转换为小写，避免每次查找时重复分配
+        std::string lower(host_value);
+        std::ranges::transform(lower, lower.begin(), ::tolower);
 
-        // 策略：从后往前剥离域名进行匹配
-        // map.baidu.com -> 查 "map.baidu.com"
-        //               -> 查 "baidu.com" (命中!)
-        //               -> 查 "com"
-
-        std::string_view view = domain;
+        std::string_view view = lower;
         while (true)
         {
-            // C++20 contains
-            if (domains_.contains(std::string(view)))
+            // 透明查找，避免构造临时 std::string
+            if (domains_.find(view) != domains_.end())
             {
                 return true;
             }
 
-            // 找下一个点号
             const auto pos = view.find('.');
             if (pos == std::string_view::npos)
             {
                 break;
             }
-            // 移动 view 到下一个子段，例如 "map.baidu.com" -> "baidu.com"
             view.remove_prefix(pos + 1);
         }
 

@@ -2,10 +2,16 @@
  * @file adaptation.hpp
  * @brief Socket 异步 IO 适配器
  * @details 统一 TCP 和 UDP 的异步读写接口，屏蔽底层 API 差异。
+ * 同时也提供将 transmission 接口适配为 Boost.Asio 概念的适配器。
  */
 #pragma once
 
 #include <boost/asio.hpp>
+#include <span>
+#include <utility>
+#include <forward-engine/transport/transmission.hpp>
+#include <forward-engine/transport/reliable.hpp>
+#include <forward-engine/memory/container.hpp>
 
 /**
  * @namespace ngx::transport
@@ -18,60 +24,143 @@ namespace ngx::transport
     namespace net = boost::asio;
 
     /**
-     * @brief Socket 异步 IO 适配器
-     * @details 自动适配 TCP (`async_read_some`/`async_write_some`) 和 UDP (`async_receive`/`async_send`)。
-     * 提供统一的泛型接口，屏蔽底层 API 差异。
+     * @brief Transmission 适配器
+     * @details 将 `transmission` 接口适配为 `Boost.Asio` 的 `AsyncReadStream/AsyncWriteStream` 概念，
+     * 以便与 `Boost.Beast`、`Boost.Asio.SSL` 等库协同工作。
+     * @tparam TransmissionPtr 传输层指针类型 (通常是 `std::unique_ptr<transmission>`)
      */
-    struct adaptation
+    template <typename TransmissionPtr>
+    class connector
     {
-        /**
-         * @brief 异步读取
-         * @tparam ExternalSocket Socket 类型
-         * @tparam ExternalBuffer 缓冲区类型
-         * @tparam CompletionToken 完成处理标记类型
-         * @param socket Socket 对象引用
-         * @param buffer 接收缓冲区
-         * @param token 完成处理标记
-         * @return 根据 Token 推导的返回值 (通常是 `net::awaitable<std::size_t>`)
-         */
-        template <typename ExternalSocket, typename ExternalBuffer, typename CompletionToken>
-        static auto async_read(ExternalSocket &socket, const ExternalBuffer &buffer, CompletionToken &&token)
+    public:
+        using executor_type = net::any_io_executor;
+        using transmission_type = typename TransmissionPtr::element_type;
+
+        explicit connector(TransmissionPtr trans, std::span<const std::byte> preread = {})
+            : trans_(std::move(trans))
         {
-            if constexpr (requires { socket.async_read_some(buffer, token); })
+            if (!preread.empty())
             {
-                // TCP: 使用 async_read_some
-                return socket.async_read_some(buffer, std::forward<CompletionToken>(token));
-            }
-            else
-            {
-                // UDP: 使用 async_receive
-                return socket.async_receive(buffer, std::forward<CompletionToken>(token));
+                preread_buffer_.assign(preread.begin(), preread.end());
             }
         }
 
-        /**
-         * @brief 异步写入
-         * @tparam ExternalSocket Socket 类型
-         * @tparam ExternalBuffer 缓冲区类型
-         * @tparam CompletionToken 完成处理标记类型
-         * @param socket Socket 对象引用
-         * @param buffer 发送缓冲区
-         * @param token 完成处理标记
-         * @return 根据 Token 推导的返回值 (通常是 `net::awaitable<std::size_t>`)
-         */
-        template <typename ExternalSocket, typename ExternalBuffer, typename CompletionToken>
-        static auto async_write(ExternalSocket &socket, const ExternalBuffer &buffer, CompletionToken &&token)
+        // 支持移动构造
+        connector(connector &&other) noexcept
+            : trans_(std::move(other.trans_)),
+              preread_buffer_(std::move(other.preread_buffer_)),
+              preread_offset_(other.preread_offset_)
         {
-            if constexpr (requires { socket.async_write_some(buffer, token); })
-            {
-                // TCP: 使用 net::async_write 保证完整写入 (流式)
-                return net::async_write(socket, buffer, std::forward<CompletionToken>(token));
-            }
-            else
-            {
-                // UDP: 使用 async_send (数据报)
-                return socket.async_send(buffer, std::forward<CompletionToken>(token));
-            }
+            other.preread_offset_ = 0;
         }
+
+        connector &operator=(connector &&other) noexcept
+        {
+            if (this != &other)
+            {
+                trans_ = std::move(other.trans_);
+                preread_buffer_ = std::move(other.preread_buffer_);
+                preread_offset_ = other.preread_offset_;
+                other.preread_offset_ = 0;
+            }
+            return *this;
+        }
+
+        executor_type get_executor()
+        {
+            return trans_->executor();
+        }
+
+        executor_type executor()
+        {
+            return get_executor();
+        }
+
+        /**
+         * @brief 适配 async_read_some
+         */
+        template <typename MutableBufferSequence, typename CompletionToken>
+        auto async_read_some(const MutableBufferSequence &buffers, CompletionToken &&token)
+        {
+            // 如果有预读数据，先从中读取
+            if (preread_offset_ < preread_buffer_.size())
+            {
+                // 复制数据到缓冲区
+                std::size_t bytes_available = preread_buffer_.size() - preread_offset_;
+                std::size_t bytes_to_copy = 0;
+                auto buf_it = net::buffer_sequence_begin(buffers);
+                auto buf_end = net::buffer_sequence_end(buffers);
+                for (; buf_it != buf_end && bytes_to_copy < bytes_available; ++buf_it)
+                {
+                    auto buf = *buf_it;
+                    std::size_t buf_size = buf.size();
+                    std::size_t copy_size = std::min(buf_size, bytes_available - bytes_to_copy);
+                    std::memcpy(buf.data(), preread_buffer_.data() + preread_offset_ + bytes_to_copy, copy_size);
+                    bytes_to_copy += copy_size;
+                }
+                preread_offset_ += bytes_to_copy;
+                // 立即完成，返回复制的字节数
+                return net::async_initiate<CompletionToken, void(boost::system::error_code, std::size_t)>(
+                    [bytes_to_copy](auto &&handler)
+                    {
+                        boost::system::error_code ec;
+                        std::forward<decltype(handler)>(handler)(ec, bytes_to_copy);
+                    },
+                    token);
+            }
+            // 否则委托给底层传输
+            if (trans_->is_reliable())
+            {
+                auto *tcp = static_cast<reliable *>(trans_.get());
+                return tcp->native_socket().async_read_some(buffers, std::forward<CompletionToken>(token));
+            }
+            return ngx::transport::async_read_some(*trans_, buffers, std::forward<CompletionToken>(token));
+        }
+
+        /**
+         * @brief 适配 async_write_some
+         */
+        template <typename ConstBufferSequence, typename CompletionToken>
+        auto async_write_some(const ConstBufferSequence &buffers, CompletionToken &&token)
+        {
+            if (trans_->is_reliable())
+            {
+                auto *tcp = static_cast<reliable *>(trans_.get());
+                return tcp->native_socket().async_write_some(buffers, std::forward<CompletionToken>(token));
+            }
+            return ngx::transport::async_write_some(*trans_, buffers, std::forward<CompletionToken>(token));
+        }
+
+        // SSL Stream 需要的接口
+        using lowest_layer_type = connector;
+        
+        lowest_layer_type &lowest_layer()
+        {
+            return *this;
+        }
+
+        const lowest_layer_type &lowest_layer() const
+        {
+            return *this;
+        }
+
+        // 获取底层 transmission
+        auto &transmission()
+        {
+            return *trans_;
+        }
+
+        /**
+         * @brief 释放所有权
+         */
+        TransmissionPtr release()
+        {
+            return std::move(trans_);
+        }
+
+    private:
+        TransmissionPtr trans_;
+        memory::vector<std::byte> preread_buffer_;
+        std::size_t preread_offset_ = 0;
     };
 }

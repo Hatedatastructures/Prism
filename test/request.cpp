@@ -6,7 +6,6 @@
 #include <forward-engine/protocol/http/serialization.hpp>
 #include <forward-engine/protocol/http/deserialization.hpp>
 #include <forward-engine/memory/container.hpp>
-#include <forward-engine/transport/obscura.hpp>
 #include <iostream>
 #include <string>
 

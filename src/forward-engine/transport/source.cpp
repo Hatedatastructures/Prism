@@ -82,15 +82,19 @@ namespace ngx::transport
             return false;
         }
 
+        // 尝试轻量级活性检测：检查 socket 是否可读
         boost::system::error_code ec;
-
-        static_cast<void>(s->remote_endpoint(ec));
+        // 检查 socket 是否可读 (非阻塞读取 0 字节)
+        // 使用 available() 检查是否有待处理数据（如果连接关闭，可能返回错误）
+        const auto available = s->available(ec);
         if (ec)
         {
+            // 连接可能已断开
             return false;
         }
-
-        return s->is_open();
+        // 如果 available 成功，连接至少处于可读状态。
+        // 注意：此方法可能产生 false positive，但连接池会在后续读写时发现错误并销毁连接。
+        return true;
     }
 
     auto source::acquire_tcp(tcp::endpoint endpoint)
@@ -169,16 +173,14 @@ namespace ngx::transport
         }
 
         // 2. 尝试获取 endpoint 以归还
-        try
-        {
-            // 注意：如果 socket 处于半关闭状态，remote_endpoint 可能会抛出异常
-            recycle(s, s->remote_endpoint());
-            return;
-        }
-        catch (...)
+        boost::system::error_code ec;
+        const auto ep = s->remote_endpoint(ec);
+        if (ec)
         {
             delete_socket(s);
+            return;
         }
+        recycle(s, ep);
     }
 
     void source::recycle(tcp::socket *s, const tcp::endpoint &endpoint)
@@ -198,8 +200,6 @@ namespace ngx::transport
         // 资源限制保护：单目标过多则丢弃，防止 FD/内存爆炸
         if (stack.size() >= max_cache_endpoint_)
         {
-            boost::system::error_code ignore;
-            s->close(ignore);
             delete_socket(s);
             return;
         }

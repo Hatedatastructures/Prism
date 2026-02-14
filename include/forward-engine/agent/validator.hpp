@@ -15,20 +15,19 @@ namespace ngx::agent
     /**
      * @class validator
      * @brief 账户验证与连接数配额控制器
-     * @details 该类用于在多种协议（如 `Trojan`, `HTTP`, `SOCKS5` 等）中实现：
-     * - 基于 `credential` 的快速存在性校验（是否允许接入）；
-     * - 基于用户维度的并发连接数上限控制（可选，`max_connections == 0` 表示不限制）；
-     * - 统计用户维度的上下行流量字节数（通过原子计数器累加）。
-     *
-     * 线程安全性设计：
-     * - 用户表采用 `std::atomic` + `std::shared_ptr` 进行只读无锁快照访问；
-     * - 写入通过拷贝更新（`copy-on-write`），避免读路径阻塞；
-     * - `traffic_metrics` 内部使用原子计数，避免转发路径上频繁加锁。
-     *
      * @note `try_acquire` 返回 `protector`，其析构会自动释放一次连接配额，必须让其生命周期覆盖“连接存活期”。
      * @warning `upsert_user` 会按需分配内存并可能触发 `std::bad_alloc`；请在启动阶段完成用户表构建，避免在热路径频繁更新。
+     * @details 该类用于在多种协议（如 `Trojan`, `HTTP`, `SOCKS5` 等）中实现：
+     * @details - 基于 `credential` 的快速存在性校验（是否允许接入）；
+     * @details - 基于用户维度的并发连接数上限控制（可选，`max_connections == 0` 表示不限制）；
+     * @details - 统计用户维度的上下行流量字节数（通过原子计数器累加）。
      *
-     * @code{.cpp}
+     * 线程安全性设计：
+     * @details - 用户表采用 `std::atomic` + `std::shared_ptr` 进行只读无锁快照访问；
+     * @details - 写入通过拷贝更新（`copy-on-write`），避免读路径阻塞；
+     * @details - `traffic_metrics` 内部使用原子计数，避免转发路径上频繁加锁。
+     *
+     * ```
      * // 典型用法：启动阶段注入用户凭据，并在握手后申请配额
      * ngx::agent::validator validator;
      * validator.upsert_user("CREDENTIAL_1", 32);
@@ -43,7 +42,7 @@ namespace ngx::agent
      *
      * // 在转发路径上做流量统计
      * ngx::agent::validator::accumulate_uplink(guard.state(), bytes);
-     * @endcode
+     * ```
      */
     class validator
     {
@@ -113,10 +112,10 @@ namespace ngx::agent
         /**
          * @brief 用户状态统计结构
          * @details 该结构由 `validator` 持有并共享给多个会话：
-         * - `uplink_bytes`：上行字节数累加
-         * - `downlink_bytes`：下行字节数累加
-         * - `active_connections`：当前活跃连接数
-         * - `max_connections`：最大并发连接数（0 表示不限制）
+         * @details - `uplink_bytes`：上行字节数累加
+         * @details - `downlink_bytes`：下行字节数累加
+         * @details - `active_connections`：当前活跃连接数
+         * @details - `max_connections`：最大并发连接数（0 表示不限制）
          *
          * @note 所有计数采用原子类型，适配 `io_context` 多线程运行模式。
          */
@@ -132,19 +131,19 @@ namespace ngx::agent
          * @class protector
          * @brief 配额守卫（`RAII`）
          * @details `protector` 用于确保连接配额格在会话结束时被正确归还：
-         * - 构造时接管一个 `traffic_metrics` 的共享引用；
-         * - 析构时对 `active_connections` 做减一；
-         * - 该类型为可移动、不可拷贝，避免重复释放。
+         * @details - 构造时接管一个 `traffic_metrics` 的共享引用；
+         * @details - 析构时对 `active_connections` 做减一；
+         * @details - 该类型为可移动、不可拷贝，避免重复释放。
          *
          * @note 该守卫只负责“连接数配额”，不会关闭任何 `socket`。
          *
-         * @code{.cpp}
+         * ```
          * auto guard = validator.try_acquire(credential);
          * if (!guard) { co_return; }
          *
          * // guard 生命周期覆盖整个会话
          * co_await handler::original_tunnel(ctx);
-         * @endcode
+         * ```
          */
         class protector
         {
@@ -230,7 +229,7 @@ namespace ngx::agent
         {
             users_ptr_.store(std::allocate_shared<hash_map>(allocator_, 0), std::memory_order_release);
         }
-        
+
         /**
          * @brief 插入或更新用户
          * @details 若用户不存在则创建新的 `traffic_metrics`，并设置 `max_connections`。
@@ -268,9 +267,9 @@ namespace ngx::agent
         /**
          * @brief 尝试申请一次连接配额
          * @details 申请流程：
-         * - 若用户不存在则返回空守卫；
-         * - 若 `max_connections == 0`，则直接递增活跃连接数；
-         * - 否则使用 `compare_exchange_weak` 在并发场景下安全递增。
+         * @details - 若用户不存在则返回空守卫；
+         * @details - 若 `max_connections == 0`，则直接递增活跃连接数；
+         * @details - 否则使用 `compare_exchange_weak` 在并发场景下安全递增。
          * @param credential 用户凭据
          * @return 成功返回有效的 `protector`；失败返回空守卫
          * @note 返回的 `protector` 析构时会自动归还配额。

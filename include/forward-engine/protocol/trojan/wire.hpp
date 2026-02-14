@@ -4,6 +4,9 @@
  * @details 提供 Trojan 协议报文的底层解析函数，包括密码哈希、头部、地址和端口的解码。
  */
 #pragma once
+#include <array>
+#include <cstdint>
+#include <cstring>
 #include <span>
 #include <forward-engine/gist.hpp>
 #include <cctype>
@@ -23,7 +26,7 @@ namespace ngx::protocol::trojan::wire
      */
     struct header_parse
     {
-        command cmd; // 命令类型
+        command cmd;       // 命令类型
         address_type atyp; // 地址类型
     };
 
@@ -109,7 +112,7 @@ namespace ngx::protocol::trojan::wire
      * @return `std::pair<gist::code, ipv6_address>` 解析结果
      */
     inline auto decode_ipv6(const std::span<const std::uint8_t> buffer)
-        -> std::pair<gist::code, ipv6_address>      
+        -> std::pair<gist::code, ipv6_address>
     {
         if (buffer.size() < 16)
         {

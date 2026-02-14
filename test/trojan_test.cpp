@@ -1,6 +1,7 @@
 #include <forward-engine/protocol/trojan.hpp>
 #include <forward-engine/abnormal/network.hpp>
 #include <forward-engine/gist/code.hpp>
+#include <forward-engine/transport/reliable.hpp>
 #include <boost/asio.hpp>
 #include <boost/asio/ssl.hpp>
 #include <iostream>
@@ -18,7 +19,7 @@ using tcp = net::ip::tcp;
 /**
  * @brief Trojan 测试服务器协程
  */
-net::awaitable<void> do_trojan_server(tcp::acceptor &acceptor, std::shared_ptr<ssl::context> ssl_ctx, const std::string &expected_credential)
+net::awaitable<void> do_trojan_server(tcp::acceptor &acceptor, const std::string &expected_credential)
 {
     try
     {
@@ -35,7 +36,10 @@ net::awaitable<void> do_trojan_server(tcp::acceptor &acceptor, std::shared_ptr<s
         };
 
         // 创建 Trojan 实例
-        auto trojan = std::make_shared<ngx::protocol::trojan::stream<tcp::socket>>(std::move(socket), ssl_ctx, user_credential_verifier);
+        // 将 TCP socket 包装为可靠传输层
+        auto transport = ngx::transport::make_reliable(std::move(socket));
+        // 创建 Trojan 装饰器
+        auto trojan = ngx::protocol::trojan::make_trojan_stream(std::move(transport), user_credential_verifier);
 
         // 执行握手
         std::cout << "Server starting Trojan handshake..." << std::endl;
@@ -60,13 +64,13 @@ net::awaitable<void> do_trojan_server(tcp::acceptor &acceptor, std::shared_ptr<s
         try
         {
             // 读取客户端数据
-            std::size_t n = co_await trojan->async_read(buf);
+            std::size_t n = co_await ngx::transport::async_read_some(*trojan, buf, net::use_awaitable);
             std::string received_msg(buffer.data(), n);
 
             std::cout << "Server received message: " << received_msg << std::endl;
 
             // 回显给客户端
-            co_await trojan->async_write(net::buffer(received_msg));
+            co_await ngx::transport::async_write_some(*trojan, net::buffer(received_msg), net::use_awaitable);
         }
         catch (const std::exception &e)
         {
@@ -74,8 +78,8 @@ net::awaitable<void> do_trojan_server(tcp::acceptor &acceptor, std::shared_ptr<s
         }
 
         // 关闭连接
-        std::cout << "Server test complete, closing connection" << std::endl;
-        co_await trojan->close();
+        std::cout << "Server test complete, closing connection" << std::endl;// 释放资源
+        trojan->close();
     }
     catch (const std::exception &e)
     {
@@ -87,7 +91,7 @@ net::awaitable<void> do_trojan_server(tcp::acceptor &acceptor, std::shared_ptr<s
 /**
  * @brief Trojan 测试客户端协程
  */
-net::awaitable<void> do_trojan_client(tcp::endpoint endpoint, std::shared_ptr<ssl::context> ssl_ctx,
+net::awaitable<void> do_trojan_client(tcp::endpoint endpoint,
                                       const std::string &credential, const std::string &host,
                                       uint16_t port, const std::string &test_msg)
 {
@@ -96,18 +100,7 @@ net::awaitable<void> do_trojan_client(tcp::endpoint endpoint, std::shared_ptr<ss
         tcp::socket socket(co_await net::this_coro::executor);
         co_await socket.async_connect(endpoint, net::use_awaitable);
 
-        ssl::stream<tcp::socket> stream(std::move(socket), *ssl_ctx);
-        // 设置 SNI
-        if (!SSL_set_tlsext_host_name(stream.native_handle(), "example.com"))
-        {
-             throw boost::system::system_error(
-                boost::system::error_code(
-                    static_cast<int>(::ERR_get_error()),
-                    boost::asio::error::get_ssl_category()));
-        }
-
-        co_await stream.async_handshake(ssl::stream_base::client, net::use_awaitable);
-        std::cout << "Client SSL handshake success" << std::endl;
+        // 直接使用 TCP socket（无 TLS）
 
         // 构造 Trojan 请求
         // 56 hex chars + CRLF + CMD(1) + ATYP(1) + ADDR + PORT + CRLF
@@ -123,14 +116,14 @@ net::awaitable<void> do_trojan_client(tcp::endpoint endpoint, std::shared_ptr<ss
         req.append(reinterpret_cast<const char *>(&net_port), 2);
         req.append("\r\n");
 
-        co_await net::async_write(stream, net::buffer(req), net::use_awaitable);
+        co_await net::async_write(socket, net::buffer(req), net::use_awaitable);
 
         // 发送测试消息
-        co_await net::async_write(stream, net::buffer(test_msg), net::use_awaitable);
+        co_await net::async_write(socket, net::buffer(test_msg), net::use_awaitable);
 
         // 读取回显
         std::array<char, 1024> buffer;
-        std::size_t n = co_await stream.async_read_some(net::buffer(buffer), net::use_awaitable);
+        std::size_t n = co_await socket.async_read_some(net::buffer(buffer), net::use_awaitable);
         std::string received_msg(buffer.data(), n);
 
         if (received_msg != test_msg)
@@ -142,7 +135,8 @@ net::awaitable<void> do_trojan_client(tcp::endpoint endpoint, std::shared_ptr<ss
 
         // 关闭
         boost::system::error_code ec;
-        co_await stream.async_shutdown(net::redirect_error(net::use_awaitable, ec));
+        socket.shutdown(tcp::socket::shutdown_both, ec);
+        socket.close(ec);
     }
     catch (const std::exception &e)
     {
@@ -195,8 +189,8 @@ int main()
         const uint16_t test_port = 80;
         const std::string test_message = "Hello Trojan";
 
-        net::co_spawn(ioc, do_trojan_server(acceptor, server_ctx, test_user_credential), net::detached);
-        net::co_spawn(ioc, do_trojan_client(bound_endpoint, client_ctx, test_user_credential, test_host, test_port, test_message), net::detached);
+        net::co_spawn(ioc, do_trojan_server(acceptor, test_user_credential), net::detached);
+        net::co_spawn(ioc, do_trojan_client(bound_endpoint, test_user_credential, test_host, test_port, test_message), net::detached);
 
         ioc.run();
 

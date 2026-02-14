@@ -99,10 +99,18 @@ namespace ngx::transport
          * @brief 构造连接池
          * @param ioc IO 上下文
          * @param resource 内存资源指针 (通常为线程局部池)
+         * @param max_cache_per_endpoint 单个目标端点最大缓存连接数
+         * @param max_idle_seconds 空闲连接最大存活时间（秒）
          * @note 推荐传入 `thread_local_pool` 以获得最佳性能。
          */
-        explicit source(net::io_context &ioc, const memory::resource_pointer resource = memory::current_resource())
-            : ioc_(ioc), cache_(resource) {}
+        explicit source(net::io_context &ioc,
+                        const memory::resource_pointer resource = memory::current_resource(),
+                        const std::uint32_t max_cache_per_endpoint = 32U,
+                        const std::uint64_t max_idle_seconds = 60ULL)
+            : ioc_(ioc),
+              cache_(resource),
+              max_cache_endpoint_(max_cache_per_endpoint),
+              max_idle_time_(std::chrono::seconds(max_idle_seconds)) {}
 
         ~source()
         {
@@ -124,7 +132,7 @@ namespace ngx::transport
          * @param endpoint 目标端点
          * @return `unique_sock` 获取到的连接 (包装在 unique_ptr 中)
          * @note 该函数是异步的，会挂起当前协程直到连接建立或从缓存获取成功。
-         * @warning 如果连接建立失败，将抛出 `boost::system::system_error` 异常。
+         * @warning 如果连接建立失败，将返回空的 `unique_sock`。
          */
         [[nodiscard]] auto acquire_tcp(tcp::endpoint endpoint) -> net::awaitable<unique_sock>;
 

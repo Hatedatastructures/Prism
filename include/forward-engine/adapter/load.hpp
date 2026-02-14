@@ -24,7 +24,7 @@ namespace ngx::adapter
         std::ifstream file(path.data(), std::ios::binary);
         if (!file.is_open())
         {
-            throw ngx::abnormal::security("system error : {}", "file open failed");
+            throw abnormal::security("system error : {}", "file open failed");
         }
         file.seekg(0, std::ios::end);
         const auto size = file.tellg();

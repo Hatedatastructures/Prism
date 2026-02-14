@@ -8,6 +8,7 @@
 #include <forward-engine/transport/source.hpp>
 #include <forward-engine/agent/distributor.hpp>
 #include <forward-engine/agent/session.hpp>
+#include <forward-engine/transport/reliable.hpp>
 #include <forward-engine/abnormal/network.hpp>
 #include <forward-engine/gist/code.hpp>
 #include <forward-engine/memory.hpp>
@@ -24,6 +25,8 @@
 namespace net = boost::asio;
 namespace ssl = boost::asio::ssl;
 using tcp = net::ip::tcp;
+
+#include <forward-engine/agent/detection.hpp>
 
 namespace agent = ngx::agent;
 
@@ -89,8 +92,9 @@ net::awaitable<void> proxy_accept_one(tcp::acceptor acceptor, net::io_context &i
     {
         co_return;
     }
-    auto session_ptr = std::make_shared<agent::session<tcp::socket>>(ioc,
-                                                                     std::move(socket), dist, std::move(ssl_ctx), ngx::memory::current_resource());
+    auto inbound = ngx::transport::make_reliable(std::move(socket));
+    auto session_ptr = std::make_shared<agent::session>(ioc,
+                                                        std::move(inbound), dist, std::move(ssl_ctx), ngx::memory::current_resource());
     session_ptr->start();
 }
 
@@ -516,6 +520,17 @@ int main()
 
         auto ssl_ctx = std::make_shared<ssl::context>(ssl::context::tlsv12);
         ssl_ctx->set_verify_mode(ssl::verify_none);
+
+        // 注册协议处理器
+        // 注意：这里的 arena 仅用于 handler 构造，实际处理时会使用 session 的 arena
+        // 但由于 handler 工厂设计问题，我们需要提供一个临时的 arena
+        // 必须保证 arena 在测试期间存活
+        auto mr = ngx::memory::system::thread_local_pool();
+        ngx::memory::frame_arena dummy_arena;
+        // frame_arena 默认构造使用 thread_local_pool，不需要 mr 参数
+        // 之前的 mr 变量其实没用，frame_arena 内部自己获取
+
+        agent::register_handlers();
 
         std::exception_ptr test_error;
 

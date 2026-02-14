@@ -123,7 +123,7 @@ namespace ngx::protocol
         // A. `CONNECT` 只会出现在正向代理请求中，请求行已明确给出目标 `host:port`
         if (req.method() == http::verb::connect)
         {
-            t.forward_proxy = true;
+            t.positive = true;
             parse(req.target(), t.host, t.port);
             if (t.port == "80")
                 t.port.assign("443");
@@ -131,14 +131,14 @@ namespace ngx::protocol
         // B. 绝对 `URI`（`http://`/`https://`）只在正向代理里出现，请求行已包含完整目标
         else if (req.target().starts_with("http://") || req.target().starts_with("https://"))
         {
-            t.forward_proxy = true;
+            t.positive = true;
             memory::string path(t.host.get_allocator().resource());
             parse_absolute_uri(req.target(), t.host, t.port, path);
         }
         // C. 相对路径请求通常是反向代理场景，真实目标由 `Host` 头和路由表决定
         else
         {
-            t.forward_proxy = false;
+            t.positive = false;
             auto host_val = req.at(http::field::host);
             parse(host_val, t.host, t.port);
         }
@@ -150,7 +150,7 @@ namespace ngx::protocol
         -> analysis::target
     {
         target t(mr ? mr : memory::current_resource());
-        t.forward_proxy = true;
+        t.positive = true;
         parse(host_port, t.host, t.port);
         return t;
     }

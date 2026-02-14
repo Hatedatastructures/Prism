@@ -5,6 +5,8 @@
  */
 #pragma once
 
+#include <cstdint>
+
 /**
  * @brief Trojan 协议命名空间
  * @note 遵循 Trojan 协议规范: https://trojan-gfw.github.io/trojan/protocol
@@ -14,7 +16,7 @@ namespace ngx::protocol::trojan
     /**
      * @brief Trojan 命令
      */
-    enum class command : uint8_t
+    enum class command : std::uint8_t
     {
         /**
          * @brief 连接
@@ -30,7 +32,7 @@ namespace ngx::protocol::trojan
     /**
      * @brief Trojan 地址类型
      */
-    enum class address_type : uint8_t
+    enum class address_type : std::uint8_t
     {
         /**
          * @brief IPv4 地址

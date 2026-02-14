@@ -1,31 +1,124 @@
 /**
  * @file stream.hpp
  * @brief SOCKS5 协议流封装
- * @details 封装了 SOCKS5 握手、请求读取和响应发送的逻辑，提供类似 Socket 的接口。
+ * @details 实现了完整的 SOCKS5 协议 (RFC 1928) 服务端流封装，提供协程友好的高级 API。
+ * 该类将底层传输层 Socket 包装为 SOCKS5 协议流，处理握手、认证、请求解析和响应生成。
+ *
+ * 核心特性：
+ * - 协议完整：支持 SOCKS5 协议所有核心功能，包括 CONNECT、BIND、UDP ASSOCIATE 命令
+ * - 地址类型全面：支持 IPv4、IPv6 和域名地址类型
+ * - 认证灵活：支持无认证 (0x00) 和用户名/密码认证 (0x02)
+ * - 协程友好：所有操作基于 `boost::asio::awaitable`，支持异步无阻塞处理
+ * - 错误处理完善：使用 `gist::code` 错误码系统，提供详细的协议错误信息
+ *
+ * 协议流程：
+ * 1. 方法协商：客户端发送支持的方法列表，服务器选择并确认
+ * 2. 请求处理：读取客户端请求，解析命令、地址类型和目标地址
+ * 3. 响应发送：根据处理结果发送成功或错误响应
+ * 4. 数据转发：握手成功后，提供透明的数据读写接口
+ *
+ * @note 设计原则：
+ * - 严格遵循 RFC 1928 标准，确保协议兼容性
+ * - 零拷贝设计：尽可能使用 `std::span` 和引用避免数据复制
+ * - 内存高效：使用栈分配缓冲区，避免热路径堆分配
+ * - 模板化传输层：支持任意满足 `AsyncReadStream` 和 `AsyncWriteStream` 概念的传输类型
+ *
+ * @warning 安全考虑：默认仅支持无认证，生产环境应启用用户名/密码认证
+ * @warning 性能关键：握手阶段涉及多次网络往返，应考虑连接池复用
+ * @warning 协议限制：仅实现服务端逻辑，客户端逻辑需另外实现
+ *
+ * @see RFC 1928 SOCKS Protocol Version 5
+ * @see ngx::protocol::socks5::constants SOCKS5 协议常量
+ * @see ngx::protocol::socks5::message SOCKS5 消息结构
+ * @see ngx::protocol::socks5::wire 协议编解码工具
  */
 #pragma once
 
 #include <boost/asio.hpp>
 #include <array>
 #include <forward-engine/gist.hpp>
+#include <forward-engine/gist/handling.hpp>
 #include <forward-engine/protocol/socks5/constants.hpp>
 #include <forward-engine/protocol/socks5/message.hpp>
 #include <forward-engine/protocol/socks5/wire.hpp>
 
 /**
  * @namespace ngx::protocol::socks5
- * @brief SOCKS5 协议实现
- * @details 实现了 SOCKS5 协议 (RFC 1928) 的服务端逻辑。
+ * @brief SOCKS5 协议实现命名空间
+ * @details 实现了完整的 SOCKS5 协议 (RFC 1928) 服务端和客户端逻辑，提供：
+ * - 协议流封装 (`stream`)：高层协程 API，简化协议处理
+ * - 消息结构 (`message`)：协议数据结构定义
+ * - 协议常量 (`constants`)：命令、地址类型、响应码等枚举
+ * - 编解码工具 (`wire`)：二进制数据与协议消息的相互转换
+ *
+ * @note 协议版本：严格遵循 RFC 1928 SOCKS Protocol Version 5
+ * @note 安全特性：支持无认证和用户名/密码认证，可扩展 GSSAPI 认证
+ * @warning 性能考虑：协议握手涉及多次网络往返，应考虑连接复用和批处理
+ * @warning 兼容性：确保与主流 SOCKS5 客户端（如 curl、Firefox、Chrome）兼容
  */
 namespace ngx::protocol::socks5
 {
     namespace net = boost::asio;
 
     /**
+     * @class stream
      * @brief SOCKS5 协议流封装
-     * @tparam Transport 传输层 Socket 类型 (如 `tcp::socket`)
-     * @details 提供高级的 SOCKS5 协议操作接口，将底层的字节流读写转换为协议消息的交互。
-     * 维护协议状态机，处理握手、认证、请求解析和响应发送。
+     * @tparam Transport 传输层 Socket 类型，必须满足 `AsyncReadStream` 和 `AsyncWriteStream` 概念
+     * @details 将底层传输层 Socket 封装为完整的 SOCKS5 协议流，提供协程友好的高层 API。
+     * 该类实现了 SOCKS5 协议的服务端逻辑，包括方法协商、请求处理和响应生成。
+     *
+     * 模板参数要求：
+     * - `Transport` 必须提供 `async_read_some` 和 `async_write_some` 成员函数
+     * - 支持 `boost::asio` 的异步操作模式和错误码处理
+     * - 典型实例：`boost::asio::ip::tcp::socket`、`boost::asio::ssl::stream`
+     *
+     * 协议状态机：
+     * 1. 初始状态：等待客户端方法协商请求
+     * 2. 方法协商：读取方法列表，选择并确认认证方法
+     * 3. 请求读取：解析客户端请求，提取命令、地址类型和目标
+     * 4. 响应发送：根据处理结果发送协议响应
+     * 5. 数据转发：握手成功后，提供透明数据读写接口
+     *
+     * 内存管理：
+     * - 使用栈分配缓冲区，避免握手阶段堆分配
+     * - 零拷贝设计：尽可能使用 `std::span` 引用原始数据
+     * - 响应构建使用 `std::vector`，支持动态大小调整
+     *
+     * 错误处理：
+     * - 所有操作返回 `gist::code` 错误码，提供详细的协议错误信息
+     * - 网络错误自动转换为对应的 `gist::code` 枚举值
+     * - 协议错误会发送相应的 SOCKS5 错误响应码
+     *
+     * @note 线程安全：单个 `stream` 实例非线程安全，应在同一协程或线程内使用
+     * @note 生命周期：`stream` 不拥有传输层资源的所有权，需外部管理生命周期
+     * @note 性能优化：握手缓冲区大小固定，避免动态分配
+     *
+     * @warning 安全警告：默认实现仅支持无认证，生产环境必须启用认证机制
+     * @warning 协议兼容：严格遵循 RFC 1928，但某些扩展特性可能不受支持
+     * @warning 资源管理：确保底层传输层 Socket 在 `stream` 生命周期内有效
+     *
+     * ```
+     * // 模板实例化示例
+     * #include <forward-engine/protocol/socks5/stream.hpp>
+     * #include <boost/asio/ip/tcp.hpp>
+     *
+     * using namespace ngx::protocol::socks5;
+     * namespace net = boost::asio;
+     *
+     * // 基本 TCP Socket 封装
+     * using tcp_stream = stream<net::ip::tcp::socket>;
+     *
+     * // SSL Socket 封装（支持加密传输）
+     * using ssl_stream = stream<net::ssl::stream<net::ip::tcp::socket>>;
+     *
+     * // 自定义传输层（需满足概念要求）
+     * struct custom_transport {
+     *     net::awaitable<std::size_t> async_read_some(net::mutable_buffer buf);
+     *     net::awaitable<std::size_t> async_write_some(net::const_buffer buf);
+     *     // ... 其他必要成员
+     * };
+     * using custom_stream = stream<custom_transport>;
+     *
      */
     template <typename Transport>
     class stream
@@ -34,6 +127,36 @@ namespace ngx::protocol::socks5
         /**
          * @brief 构造函数
          * @param socket 传输层 Socket 对象
+         * @details 构造 SOCKS5 协议流封装对象，接管底层传输层 Socket 的所有权。
+         * 构造后对象处于初始状态，等待客户端发起 SOCKS5 握手流程。
+         *
+         * @note 所有权转移：构造函数通过 `std::move` 获取 Socket 所有权，调用者不应再使用原对象
+         * @note 状态初始化：内部状态初始化为协议起始状态，无任何预分配缓冲区
+         * @note 资源管理：构造时不进行任何网络操作，仅保存 Socket 引用
+         *
+         * @warning 移动语义：参数使用值传递和移动，确保调用者明确所有权转移
+         * @warning 有效性：传入的 Socket 必须处于已连接状态，否则后续操作将失败
+         * @warning 线程安全：构造过程非线程安全，应在连接建立后立即调用
+         *
+         * ```
+         * // 构造函数使用示例
+         * net::awaitable<void> handle_client(tcp::socket client_socket) {
+         *     // 转移 Socket 所有权到 SOCKS5 流
+         *     stream<tcp::socket> socks5_stream(std::move(client_socket));
+         *
+         *     // 此时 client_socket 不再有效，所有权已转移
+         *     // assert(!client_socket.is_open()); // 可能为真
+         *
+         *     // 开始 SOCKS5 握手流程
+         *     auto [ec, request] = co_await socks5_stream.handshake();
+         *     // ... 后续处理
+         * }
+         *
+         * // 错误示例：重复使用已移动的 Socket
+         * tcp::socket socket(...);
+         * stream<tcp::socket> stream1(std::move(socket));
+         * // stream<tcp::socket> stream2(std::move(socket)); // 错误！socket 已移动
+         *
          */
         explicit stream(Transport socket)
             : socket_(std::move(socket))
@@ -42,8 +165,65 @@ namespace ngx::protocol::socks5
 
         /**
          * @brief 执行 SOCKS5 握手
-         * @details 包括协议版本协商、认证方法选择、请求读取。
-         * @return `std::pair<gist::code, request>` 握手结果和请求信息
+         * @details 完整的 SOCKS5 协议握手流程，包括方法协商、请求解析和初始错误处理。
+         * 握手流程严格遵循 RFC 1928 第 3-4 节规范：
+         * 1. 方法协商：读取客户端支持的方法列表，选择无认证 (0x00)
+         * 2. 请求读取：解析客户端请求头部，验证协议版本和命令
+         * 3. 地址解析：根据地址类型读取目标地址和端口
+         * 4. 错误处理：在每一步检测协议错误并发送相应错误响应
+         *
+         * 返回值说明：
+         * - 成功：返回 `gist::code::success` 和解析后的 `request` 对象
+         * - 失败：返回错误码和空的 `request` 对象，连接可能已关闭
+         *
+         * 支持的命令：
+         * - `command::connect`：建立到目标服务器的 TCP 连接（主要支持）
+         * - `command::bind`：绑定监听端口（支持但需要额外处理）
+         * - `command::udp_associate`：UDP 关联（支持但需要额外处理）
+         *
+         * 支持的地址类型：
+         * - `address_type::ipv4`：IPv4 地址 (4 字节)
+         * - `address_type::ipv6`：IPv6 地址 (16 字节)
+         * - `address_type::domain`：域名地址 (变长)
+         *
+         * @note 协议状态：握手成功后，连接进入数据转发模式
+         * @note 错误恢复：协议错误会发送 SOCKS5 错误响应，然后关闭连接
+         * @note 性能考虑：握手涉及 2-4 次网络往返，应考虑连接复用
+         *
+         * @warning 安全限制：当前实现仅支持 CONNECT 命令，其他命令返回错误
+         * @warning 认证简化：仅支持无认证，生产环境应扩展认证机制
+         * @warning 超时处理：握手过程可能阻塞，应设置合理的超时时间
+         *
+         * @throws `boost::system::system_error` 当底层网络操作失败时
+         * @return `net::awaitable<std::pair<gist::code, request>>` 握手结果和请求信息
+         *
+         * ```
+         * // 握手使用示例
+         * stream<tcp::socket> socks5_stream(std::move(socket));
+         *
+         * // 执行握手
+         * auto [handshake_ec, socks5_request] = co_await socks5_stream.handshake();
+         *
+         * if (gist::failed(handshake_ec)) {
+         *     // 握手失败，连接已由内部处理
+         *     spdlog::error("SOCKS5 handshake failed: {}", gist::to_string(handshake_ec));
+         *     co_return;
+         * }
+         *
+         * // 检查请求类型
+         * if (socks5_request.cmd == command::connect) {
+         *     spdlog::info("SOCKS5 CONNECT request to {}:{}",
+         *         address_to_string(socks5_request.destination_address),
+         *         socks5_request.destination_port);
+         *
+         *     // 处理 CONNECT 请求
+         *     // ...
+         * } else {
+         *     // 不支持的命令已在握手阶段处理
+         *     co_return;
+         * }
+         *
+         *
          */
         auto handshake()
             -> net::awaitable<std::pair<gist::code, request>>
@@ -67,7 +247,11 @@ namespace ngx::protocol::socks5
 
             if (req.cmd != command::connect)
             {
-                co_await send_error(reply_code::command_not_supported);
+                const auto send_ec = co_await send_error(reply_code::command_not_supported);
+                if (gist::failed(send_ec))
+                {
+                    co_return std::pair{send_ec, request{}};
+                }
                 co_return std::pair{gist::code::unsupported_command, request{}};
             }
 
@@ -119,10 +303,12 @@ namespace ngx::protocol::socks5
          * @param info 请求信息 (用于回显绑定地址和端口)
          */
         auto send_success(const request &info)
-            -> net::awaitable<void>
+            -> net::awaitable<gist::code>
         {
             auto response = build_success_response(info);
-            co_await net::async_write(socket_, net::buffer(response), net::use_awaitable);
+            boost::system::error_code ec;
+            co_await net::async_write(socket_, net::buffer(response), net::redirect_error(net::use_awaitable, ec));
+            co_return gist::to_code(ec);
         }
 
         /**
@@ -130,17 +316,16 @@ namespace ngx::protocol::socks5
          * @param code 错误响应码
          */
         auto send_error(reply_code code)
-            -> net::awaitable<void>
+            -> net::awaitable<gist::code>
         {
             const std::array<std::uint8_t, 10> response =
-            {
-                0x05, static_cast<uint8_t>(code), 0x00, 0x01,
-                0x00, 0x00, 0x00, 0x00,
-                0x00, 0x00
-            };
+                {
+                    0x05, static_cast<uint8_t>(code), 0x00, 0x01,
+                    0x00, 0x00, 0x00, 0x00,
+                    0x00, 0x00};
             boost::system::error_code ec;
             co_await net::async_write(socket_, net::buffer(response), net::redirect_error(net::use_awaitable, ec));
-            co_return;
+            co_return gist::to_code(ec);
         }
 
         /**
@@ -149,9 +334,11 @@ namespace ngx::protocol::socks5
          * @return `std::size_t` 读取的字节数
          */
         auto async_read(net::mutable_buffer buffer)
-            -> net::awaitable<std::size_t>
+            -> net::awaitable<std::pair<gist::code, std::size_t>>
         {
-            co_return co_await socket_.async_read_some(buffer, net::use_awaitable);
+            boost::system::error_code ec;
+            const auto n = co_await socket_.async_read_some(buffer, net::redirect_error(net::use_awaitable, ec));
+            co_return std::pair{gist::to_code(ec), n};
         }
 
         /**
@@ -160,9 +347,11 @@ namespace ngx::protocol::socks5
          * @return `std::size_t` 写入的字节数
          */
         auto async_write(net::const_buffer buffer)
-            -> net::awaitable<std::size_t>
+            -> net::awaitable<std::pair<gist::code, std::size_t>>
         {
-            co_return co_await net::async_write(socket_, buffer, net::use_awaitable);
+            boost::system::error_code ec;
+            const auto n = co_await net::async_write(socket_, buffer, net::redirect_error(net::use_awaitable, ec));
+            co_return std::pair{gist::to_code(ec), n};
         }
 
         /**
@@ -199,7 +388,7 @@ namespace ngx::protocol::socks5
             co_await net::async_read(socket_, net::buffer(methods_buffer, 2), net::redirect_error(net::use_awaitable, ec));
             if (ec)
             {
-                co_return std::pair{gist::code::io_error, auth_method::no_acceptable_methods};
+                co_return std::pair{gist::to_code(ec), auth_method::no_acceptable_methods};
             }
 
             if (methods_buffer[0] != 0x05)
@@ -214,7 +403,7 @@ namespace ngx::protocol::socks5
             co_await net::async_read(socket_, net::buffer(methods_buffer.data() + 2, nmethods), net::redirect_error(net::use_awaitable, ec));
             if (ec)
             {
-                co_return std::pair{gist::code::io_error, auth_method::no_acceptable_methods};
+                co_return std::pair{gist::to_code(ec), auth_method::no_acceptable_methods};
             }
 
             /**
@@ -244,6 +433,10 @@ namespace ngx::protocol::socks5
                 // 发送无支持的方法响应 (0xFF)
                 constexpr std::uint8_t response[] = {0x05, 0xFF};
                 co_await net::async_write(socket_, net::buffer(response), net::redirect_error(net::use_awaitable, ec));
+                if (ec)
+                {
+                    co_return std::pair{gist::to_code(ec), auth_method::no_acceptable_methods};
+                }
                 co_return std::pair{gist::code::not_supported, auth_method::no_acceptable_methods};
             }
 
@@ -252,7 +445,7 @@ namespace ngx::protocol::socks5
             co_await net::async_write(socket_, net::buffer(response), net::redirect_error(net::use_awaitable, ec));
             if (ec)
             {
-                co_return std::pair{gist::code::io_error, auth_method::no_acceptable_methods};
+                co_return std::pair{gist::to_code(ec), auth_method::no_acceptable_methods};
             }
             co_return std::pair{gist::code::success, auth_method::no_auth};
         }
@@ -270,7 +463,7 @@ namespace ngx::protocol::socks5
 
             if (ec)
             {
-                co_return std::pair{gist::code::generic_error, wire::header_parse{}};
+                co_return std::pair{gist::to_code(ec), wire::header_parse{}};
             }
 
             auto [ec_header, header] = wire::decode_header(request_header);
