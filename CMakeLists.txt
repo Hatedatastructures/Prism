@@ -12,7 +12,7 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 # 依赖管理
 list(APPEND CMAKE_PREFIX_PATH "c:/bin")
 
-if(NOT DEFINED OPENSSL_ROOT_DIR)
+if(NOT DEFINED OPENSSL_ROOT_DIR)                                                
     set(OPENSSL_ROOT_DIR "c:/bin")
 endif()
 set(OPENSSL_USE_STATIC_LIBS TRUE)
@@ -62,7 +62,6 @@ message(STATUS "FORWARD_ENGINE_ENABLE_STRESS=${FORWARD_ENGINE_ENABLE_STRESS}")
 
 # 添加子目录
 add_subdirectory(src)
-add_subdirectory(test)
-
+add_subdirectory(test/concurrency)
 add_subdirectory(test/stress)
-
+add_subdirectory(test)

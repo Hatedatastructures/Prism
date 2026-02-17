@@ -1,0 +1,113 @@
+cmake_minimum_required(VERSION 3.15)
+
+# 双端口HTTP服务器项目
+project(dual_port_http_server LANGUAGES CXX)
+
+# C++23标准
+set(CMAKE_CXX_STANDARD 23)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+
+# 依赖管理
+list(APPEND CMAKE_PREFIX_PATH "c:/bin")
+
+if(NOT DEFINED OPENSSL_ROOT_DIR)
+    set(OPENSSL_ROOT_DIR "c:/bin")
+endif()
+set(OPENSSL_USE_STATIC_LIBS TRUE)
+
+find_package(spdlog CONFIG REQUIRED)
+find_package(glaze CONFIG REQUIRED)
+find_package(OpenSSL REQUIRED)
+
+find_package(Boost QUIET COMPONENTS system)
+if(NOT TARGET Boost::system)
+    set(Boost_NO_BOOST_CMAKE ON)
+    find_package(Boost QUIET COMPONENTS system)
+endif()
+
+if(NOT TARGET Boost::system)
+    find_path(boost_include_dir
+            NAMES boost/system/error_code.hpp
+            HINTS
+            "c:/bin/include"
+            "c:/bin"
+            PATH_SUFFIXES include
+    )
+
+    if(NOT boost_include_dir)
+        message(FATAL_ERROR "找不到 `boost` 头文件目录，无法继续构建")
+    endif()
+
+    message(STATUS "Boost Include Dir: ${boost_include_dir}")
+
+    add_library(boost_system_header_only INTERFACE)
+    target_include_directories(boost_system_header_only INTERFACE ${boost_include_dir})
+    target_compile_definitions(boost_system_header_only INTERFACE BOOST_ERROR_CODE_HEADER_ONLY BOOST_SYSTEM_NO_LIB)
+    add_library(Boost::system ALIAS boost_system_header_only)
+else()
+    get_target_property(boost_include_dir Boost::system INTERFACE_INCLUDE_DIRECTORIES)
+endif()
+
+# 获取ForwardEngine源码目录
+set(FORWARD_ENGINE_SOURCE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../../..")
+
+# 创建可执行文件
+add_executable(${PROJECT_NAME}
+    server.cpp
+)
+
+# 设置可执行文件输出目录
+set_target_properties(${PROJECT_NAME} PROPERTIES
+    RUNTIME_OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/bin"
+)
+
+# 包含目录（使用绝对路径）
+target_include_directories(${PROJECT_NAME} PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}
+    ${CMAKE_CURRENT_SOURCE_DIR}/../../include
+    ${boost_include_dir}
+    "c:/bin/include"
+)
+
+# 链接库
+target_link_libraries(${PROJECT_NAME} PRIVATE
+    Forward_static_library
+    Boost::system
+    glaze::glaze
+    spdlog::spdlog
+    ws2_32
+    crypt32
+    mswsock
+)
+
+# 编译选项
+if(MSVC)
+    target_compile_options(${PROJECT_NAME} PRIVATE
+        /W4
+        /O2
+        /DNDEBUG
+    )
+else()
+    target_compile_options(${PROJECT_NAME} PRIVATE
+        -Wall
+        -Wextra
+        -O2
+        -DNDEBUG
+    )
+    
+    # MinGW特殊处理
+    if(MINGW)
+        target_compile_options(${PROJECT_NAME} PRIVATE
+            -Wa,-mbig-obj
+        )
+    endif()
+endif()
+
+# Windows平台特定设置
+if(WIN32)
+    # 设置UTF-8控制台输出
+    target_compile_definitions(${PROJECT_NAME} PRIVATE
+        UNICODE
+        _UNICODE
+    )
+endif()

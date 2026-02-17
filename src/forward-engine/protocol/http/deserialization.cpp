@@ -63,7 +63,7 @@ namespace ngx::protocol::http
             const char minor_char = version_part[2];
 
             if (major_char < '0' || major_char > '9' || minor_char < '0' || minor_char > '9')
-            {   // 过滤非法数字
+            { // 过滤非法数字
                 return false;
             }
 

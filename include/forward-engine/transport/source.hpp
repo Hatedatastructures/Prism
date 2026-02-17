@@ -83,9 +83,9 @@ namespace ngx::transport
      */
     struct endpoint_key
     {
-        std::uint16_t port = 0;                          // 端口号
-        std::uint8_t family = 0;                           // 协议族 (4 for IPv4, 6 for IPv6)
-        std::array<unsigned char, 16> address{};            // 地址数据 (IPv6 使用全部 16 字节，IPv4 使用前 4 字节)
+        std::uint16_t port = 0;                  // 端口号
+        std::uint8_t family = 0;                 // 协议族 (4 for IPv4, 6 for IPv6)
+        std::array<unsigned char, 16> address{}; // 地址数据 (IPv6 使用全部 16 字节，IPv4 使用前 4 字节)
 
         friend bool operator==(const endpoint_key &l, const endpoint_key &r) = default;
     };
@@ -160,8 +160,8 @@ namespace ngx::transport
      */
     struct deleter
     {
-        source *pool = nullptr;   // 连接池指针
-        tcp::endpoint endpoint{};   // 对应的端点
+        source *pool = nullptr;    // 连接池指针
+        tcp::endpoint endpoint{};  // 对应的端点
         bool has_endpoint = false; // 是否有关联端点
 
         /**
@@ -348,7 +348,7 @@ namespace ngx::transport
         memory::unordered_map<endpoint_key, memory::vector<idle_item>, endpoint_hash> cache_;
 
         // 单个目标最大缓存数 (防止内存爆炸)
-        const std::uint32_t max_cache_endpoint_ = 32;
+        const std::uint32_t max_cache_endpoint_ = 128;
 
         // 空闲连接最大存活时间(超过则直接销毁，不检查)
         const std::chrono::seconds max_idle_time_{60};

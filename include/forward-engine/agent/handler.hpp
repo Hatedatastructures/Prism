@@ -152,8 +152,8 @@ namespace ngx::agent
          * @param distributor 路由分发器，用于创建到目标服务的连接
          * @param ctx 协议处理器上下文，包含 `SSL`、内存池等运行时资源
          * @param data 预读的数据（可能为空），包含协议检测时读取的初始数据
-         * @throws `std::bad_alloc` 如果内存分配失败
-         * @throws `std::system_error` 如果底层系统调用失败
+         * @throws std::bad_alloc 如果内存分配失败
+         * @throws std::system_error 如果底层系统调用失败
          * @note 该方法会转移 `inbound` 的所有权，调用后调用者不应再使用该传输层
          * @warning 如果协议处理失败，应确保正确关闭所有传输层资源，避免资源泄漏
          * @warning 该方法在协程中执行，错误通过协程传播而非异常抛出
@@ -172,7 +172,7 @@ namespace ngx::agent
          * @note 每个处理器应只支持一种协议类型，确保职责单一。
          * @warning 派生类必须实现此方法，返回固定的协议类型值。
          */
-        virtual auto type() const -> protocol::protocol_type = 0;
+        [[nodiscard]] virtual auto type() const -> protocol::protocol_type = 0;
 
         /**
          * @brief 获取协议名称
@@ -184,7 +184,7 @@ namespace ngx::agent
          * @note 名称应为简短、可读的字符串，如 `"http"`、`"socks5"`、`"tls"`。
          * @warning 派生类必须实现此方法，返回固定的协议名称。
          */
-        virtual auto name() const -> std::string_view = 0;
+        [[nodiscard]] virtual auto name() const -> std::string_view = 0;
     };
 
     using handler_pointer = std::shared_ptr<handler>;
@@ -337,7 +337,7 @@ namespace ngx::agent
         {
             std::vector<protocol::protocol_type> types;
             types.reserve(registry_.size());
-            for (const auto &[type, _] : registry_)
+            for (const auto &type: registry_ | std::views::keys)
             {
                 types.push_back(type);
             }

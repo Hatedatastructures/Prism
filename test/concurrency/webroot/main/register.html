@@ -1,0 +1,78 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>注册 - 优品商城</title>
+    <link rel="stylesheet" href="/css/main.css">
+    <link rel="stylesheet" href="/css/user.css">
+</head>
+
+<body>
+    <div class="auth-container">
+        <div class="auth-card">
+            <div class="auth-header">
+                <a href="/" class="logo-link">
+                    <span class="logo-text">优品商城</span>
+                </a>
+                <h1>用户注册</h1>
+            </div>
+
+            <form class="auth-form" id="registerForm" onsubmit="handleRegister(event)">
+                <div class="form-group">
+                    <label for="username">用户名</label>
+                    <input type="text" id="username" name="username" placeholder="请输入用户名" required minlength="3"
+                        maxlength="20">
+                    <span class="form-hint">3-20个字符，支持字母、数字、下划线</span>
+                </div>
+
+                <div class="form-group">
+                    <label for="phone">手机号</label>
+                    <input type="tel" id="phone" name="phone" placeholder="请输入手机号" required pattern="^1[3-9]\d{9}$">
+                </div>
+
+                <div class="form-group">
+                    <label for="email">邮箱</label>
+                    <input type="email" id="email" name="email" placeholder="请输入邮箱" required>
+                </div>
+
+                <div class="form-group">
+                    <label for="password">密码</label>
+                    <input type="password" id="password" name="password" placeholder="请输入密码（6-20位）" required
+                        minlength="6" maxlength="20">
+                    <span class="form-hint">6-20个字符，建议使用字母、数字和符号组合</span>
+                </div>
+
+                <div class="form-group">
+                    <label for="confirmPassword">确认密码</label>
+                    <input type="password" id="confirmPassword" name="confirmPassword" placeholder="请再次输入密码" required>
+                </div>
+
+                <div class="form-group">
+                    <label for="captcha">验证码</label>
+                    <div class="captcha-group">
+                        <input type="text" id="captcha" name="captcha" placeholder="请输入验证码" required>
+                        <button type="button" class="btn-captcha" onclick="sendCaptcha()">获取验证码</button>
+                    </div>
+                </div>
+
+                <label class="checkbox agreement">
+                    <input type="checkbox" id="agreement" name="agreement" required>
+                    <span>我已阅读并同意 <a href="/terms">用户协议</a> 和 <a href="/privacy">隐私政策</a></span>
+                </label>
+
+                <button type="submit" class="btn-auth">注册</button>
+            </form>
+
+            <div class="auth-footer">
+                <span>已有账号？</span>
+                <a href="/login.html">立即登录</a>
+            </div>
+        </div>
+    </div>
+
+    <script src="/js/user.js"></script>
+</body>
+
+</html>

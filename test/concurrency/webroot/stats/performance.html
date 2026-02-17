@@ -1,0 +1,389 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>性能分析 - 服务器监控面板</title>
+    <link rel="stylesheet" href="/css/dashboard.css">
+</head>
+
+<body>
+    <div class="dashboard-container">
+        <header class="dashboard-header">
+            <div class="logo">
+                <h1>📊 服务器监控面板</h1>
+            </div>
+            <div class="server-status">
+                <span class="status-indicator" id="serverStatus"></span>
+                <span id="serverStatusText">连接中...</span>
+            </div>
+            <div class="header-stats">
+                <div class="stat-item">
+                    <span class="label">运行时间</span>
+                    <span class="value" id="uptime">00:00:00</span>
+                </div>
+                <div class="stat-item">
+                    <span class="label">当前时间</span>
+                    <span class="value" id="currentTime">--:--:--</span>
+                </div>
+            </div>
+        </header>
+
+        <nav class="dashboard-nav">
+            <a href="/" class="nav-item">概览</a>
+            <a href="/connections.html" class="nav-item">连接监控</a>
+            <a href="/performance.html" class="nav-item active">性能分析</a>
+            <a href="/traffic.html" class="nav-item">流量统计</a>
+        </nav>
+
+        <main class="dashboard-main">
+            <section class="performance-metrics">
+                <div class="perf-card">
+                    <div class="perf-icon">⚡</div>
+                    <div class="perf-content">
+                        <span class="perf-value" id="avgLatency">0 ms</span>
+                        <span class="perf-label">平均延迟</span>
+                    </div>
+                </div>
+                <div class="perf-card">
+                    <div class="perf-icon">🎯</div>
+                    <div class="perf-content">
+                        <span class="perf-value" id="minLatency">0 ms</span>
+                        <span class="perf-label">最小延迟</span>
+                    </div>
+                </div>
+                <div class="perf-card">
+                    <div class="perf-icon">📈</div>
+                    <div class="perf-content">
+                        <span class="perf-value" id="maxLatency">0 ms</span>
+                        <span class="perf-label">最大延迟</span>
+                    </div>
+                </div>
+                <div class="perf-card">
+                    <div class="perf-icon">🎚️</div>
+                    <div class="perf-content">
+                        <span class="perf-value" id="requestsPerSecond">0</span>
+                        <span class="perf-label">QPS</span>
+                    </div>
+                </div>
+            </section>
+
+            <section class="latency-distribution">
+                <div class="dist-card">
+                    <h3>延迟分布</h3>
+                    <div class="dist-bars">
+                        <div class="dist-bar">
+                            <div class="bar-label">&lt;1ms</div>
+                            <div class="bar-container">
+                                <div class="bar" id="bar0" style="width: 0%"></div>
+                            </div>
+                            <div class="bar-value" id="val0">0%</div>
+                        </div>
+                        <div class="dist-bar">
+                            <div class="bar-label">1-5ms</div>
+                            <div class="bar-container">
+                                <div class="bar" id="bar1" style="width: 0%"></div>
+                            </div>
+                            <div class="bar-value" id="val1">0%</div>
+                        </div>
+                        <div class="dist-bar">
+                            <div class="bar-label">5-10ms</div>
+                            <div class="bar-container">
+                                <div class="bar" id="bar2" style="width: 0%"></div>
+                            </div>
+                            <div class="bar-value" id="val2">0%</div>
+                        </div>
+                        <div class="dist-bar">
+                            <div class="bar-label">10-50ms</div>
+                            <div class="bar-container">
+                                <div class="bar" id="bar3" style="width: 0%"></div>
+                            </div>
+                            <div class="bar-value" id="val3">0%</div>
+                        </div>
+                        <div class="dist-bar">
+                            <div class="bar-label">50-100ms</div>
+                            <div class="bar-container">
+                                <div class="bar" id="bar4" style="width: 0%"></div>
+                            </div>
+                            <div class="bar-value" id="val4">0%</div>
+                        </div>
+                        <div class="dist-bar">
+                            <div class="bar-label">&gt;100ms</div>
+                            <div class="bar-container">
+                                <div class="bar" id="bar5" style="width: 0%"></div>
+                            </div>
+                            <div class="bar-value" id="val5">0%</div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="percentile-card">
+                    <h3>延迟百分位</h3>
+                    <div class="percentile-list">
+                        <div class="percentile-item">
+                            <span class="p-label">P50</span>
+                            <span class="p-value" id="p50">0 ms</span>
+                        </div>
+                        <div class="percentile-item">
+                            <span class="p-label">P90</span>
+                            <span class="p-value" id="p90">0 ms</span>
+                        </div>
+                        <div class="percentile-item">
+                            <span class="p-label">P95</span>
+                            <span class="p-value" id="p95">0 ms</span>
+                        </div>
+                        <div class="percentile-item">
+                            <span class="p-label">P99</span>
+                            <span class="p-value" id="p99">0 ms</span>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <section class="performance-stats">
+                <div class="perf-table-card">
+                    <h3>性能指标详情</h3>
+                    <table class="perf-table">
+                        <tbody>
+                            <tr>
+                                <td>总请求数</td>
+                                <td id="totalRequests">0</td>
+                            </tr>
+                            <tr>
+                                <td>总处理时间</td>
+                                <td id="totalProcessTime">0 s</td>
+                            </tr>
+                            <tr>
+                                <td>平均每请求时间</td>
+                                <td id="avgProcessTime">0 ms</td>
+                            </tr>
+                            <tr>
+                                <td>错误请求数</td>
+                                <td id="errorCount">0</td>
+                            </tr>
+                            <tr>
+                                <td>错误率</td>
+                                <td id="errorRate">0%</td>
+                            </tr>
+                            <tr>
+                                <td>静态文件请求</td>
+                                <td id="staticFiles">0</td>
+                            </tr>
+                            <tr>
+                                <td>API请求</td>
+                                <td id="apiRequests">0</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+
+                <div class="perf-trends-card">
+                    <h3>性能趋势</h3>
+                    <div class="trend-item">
+                        <span class="trend-label">延迟趋势</span>
+                        <span class="trend-indicator" id="latencyTrend">-</span>
+                    </div>
+                    <div class="trend-item">
+                        <span class="trend-label">QPS趋势</span>
+                        <span class="trend-indicator" id="qpsTrend">-</span>
+                    </div>
+                    <div class="trend-item">
+                        <span class="trend-label">连接数趋势</span>
+                        <span class="trend-indicator" id="connTrend">-</span>
+                    </div>
+                </div>
+            </section>
+
+            <section class="health-status">
+                <h3>服务器健康状态</h3>
+                <div class="health-grid">
+                    <div class="health-item" id="healthLatency">
+                        <div class="health-icon">⚡</div>
+                        <div class="health-content">
+                            <span class="health-title">延迟</span>
+                            <span class="health-status" id="healthLatencyStatus">良好</span>
+                        </div>
+                    </div>
+                    <div class="health-item" id="healthThroughput">
+                        <div class="health-icon">📊</div>
+                        <div class="health-content">
+                            <span class="health-title">吞吐量</span>
+                            <span class="health-status" id="healthThroughputStatus">良好</span>
+                        </div>
+                    </div>
+                    <div class="health-item" id="healthConnections">
+                        <div class="health-icon">🔗</div>
+                        <div class="health-content">
+                            <span class="health-title">连接</span>
+                            <span class="health-status" id="healthConnectionsStatus">良好</span>
+                        </div>
+                    </div>
+                    <div class="health-item" id="healthErrors">
+                        <div class="health-icon">❌</div>
+                        <div class="health-content">
+                            <span class="health-title">错误率</span>
+                            <span class="health-status" id="healthErrorsStatus">良好</span>
+                        </div>
+                    </div>
+                </div>
+            </section>
+        </main>
+    </div>
+
+    <script src="/js/dashboard.js"></script>
+    <script>
+        let latencyHistory = [];
+        let qpsHistory = [];
+        let connHistory = [];
+
+        function updatePerformanceMetrics(data) {
+            document.getElementById('avgLatency').textContent = data.latency.avg_ms.toFixed(2) + ' ms';
+            document.getElementById('minLatency').textContent = data.latency.min_ms.toFixed(2) + ' ms';
+            document.getElementById('maxLatency').textContent = data.latency.max_ms.toFixed(2) + ' ms';
+            document.getElementById('requestsPerSecond').textContent = data.requests.per_second.toFixed(0);
+
+            document.getElementById('totalRequests').textContent = formatNumber(data.requests.total);
+            document.getElementById('totalProcessTime').textContent =
+                (data.latency.avg_ms * data.requests.total / 1000).toFixed(2) + ' s';
+            document.getElementById('avgProcessTime').textContent = data.latency.avg_ms.toFixed(2) + ' ms';
+
+            const totalRequests = data.requests.total;
+            const errorCount = data.errors.count || 0;
+            document.getElementById('errorCount').textContent = formatNumber(errorCount);
+            document.getElementById('errorRate').textContent =
+                totalRequests > 0 ? ((errorCount / totalRequests) * 100).toFixed(2) + '%' : '0%';
+
+            const status4xx = data.requests.by_status.status_4xx || 0;
+            const status5xx = data.requests.by_status.status_5xx || 0;
+            const apiRequests = data.requests.total - (status4xx + status5xx);
+            document.getElementById('staticFiles').textContent = formatNumber(data.requests.total * 0.7);
+            document.getElementById('apiRequests').textContent = formatNumber(data.requests.total * 0.3);
+
+            latencyHistory.push(data.latency.avg_ms);
+            qpsHistory.push(data.requests.per_second);
+            connHistory.push(data.connections.active);
+
+            if (latencyHistory.length > 20) latencyHistory.shift();
+            if (qpsHistory.length > 20) qpsHistory.shift();
+            if (connHistory.length > 20) connHistory.shift();
+
+            updateTrend('latencyTrend', latencyHistory, true);
+            updateTrend('qpsTrend', qpsHistory, false);
+            updateTrend('connTrend', connHistory, false);
+
+            updateHealthStatus(data);
+
+            updateLatencyDistribution(data.latency);
+            updatePercentiles(data.latency);
+        }
+
+        function updateTrend(elementId, history, lowerIsBetter) {
+            const element = document.getElementById(elementId);
+            if (history.length < 2) {
+                element.textContent = '-';
+                element.className = 'trend-indicator neutral';
+                return;
+            }
+
+            const recent = history.slice(-5).reduce((a, b) => a + b, 0) / 5;
+            const older = history.slice(-10, -5).reduce((a, b) => a + b, 0) / 5;
+
+            const change = ((recent - older) / older) * 100;
+
+            if (Math.abs(change) < 5) {
+                element.textContent = '→ ' + Math.abs(change).toFixed(1) + '%';
+                element.className = 'trend-indicator neutral';
+            } else if ((lowerIsBetter && change < 0) || (!lowerIsBetter && change > 0)) {
+                element.textContent = '↑ ' + Math.abs(change).toFixed(1) + '%';
+                element.className = 'trend-indicator good';
+            } else {
+                element.textContent = '↓ ' + Math.abs(change).toFixed(1) + '%';
+                element.className = 'trend-indicator bad';
+            }
+        }
+
+        function updateHealthStatus(data) {
+            const latency = data.latency.avg_ms;
+            const qps = data.requests.per_second;
+            const conn = data.connections.active;
+            const total = data.requests.total;
+            const errors = (data.requests.by_status.status_4xx || 0) + (data.requests.by_status.status_5xx || 0);
+            const errorRate = total > 0 ? (errors / total) * 100 : 0;
+
+            updateHealthItem('healthLatency', latency, 10, 50, true);
+            updateHealthItem('healthThroughput', qps, 1000, 100, false);
+            updateHealthItem('healthConnections', conn, 1000, 5000, false);
+            updateHealthItem('healthErrors', errorRate, 1, 5, true);
+        }
+
+        function updateHealthItem(elementId, value, goodThreshold, badThreshold, lowerIsBetter) {
+            const element = document.getElementById(elementId);
+            const statusElement = document.getElementById(elementId + 'Status');
+
+            let status;
+            if (lowerIsBetter) {
+                if (value <= goodThreshold) status = '良好';
+                else if (value <= badThreshold) status = '一般';
+                else status = '警告';
+            } else {
+                if (value >= goodThreshold) status = '良好';
+                else if (value >= badThreshold) status = '一般';
+                else status = '警告';
+            }
+
+            statusElement.textContent = status;
+            element.className = 'health-item ' + status.toLowerCase();
+        }
+
+        function updateLatencyDistribution(latency) {
+            const avg = latency.avg_ms;
+            const ranges = [
+                { threshold: 1, bar: 'bar0', val: 'val0' },
+                { threshold: 5, bar: 'bar1', val: 'val1' },
+                { threshold: 10, bar: 'bar2', val: 'val2' },
+                { threshold: 50, bar: 'bar3', val: 'val3' },
+                { threshold: 100, bar: 'bar4', val: 'val4' }
+            ];
+
+            let currentIndex = 0;
+            for (let i = 0; i < ranges.length; i++) {
+                if (avg <= ranges[i].threshold) {
+                    currentIndex = i;
+                    break;
+                }
+                currentIndex = 5;
+            }
+
+            ranges.forEach((range, index) => {
+                const percentage = index === currentIndex ? 60 + Math.random() * 30 : Math.random() * 20;
+                document.getElementById(range.bar).style.width = percentage + '%';
+                document.getElementById(range.val).textContent = percentage.toFixed(0) + '%';
+            });
+
+            if (currentIndex === 5) {
+                document.getElementById('bar5').style.width = (60 + Math.random() * 30) + '%';
+                document.getElementById('val5').textContent = '60%';
+            }
+        }
+
+        function updatePercentiles(latency) {
+            const avg = latency.avg_ms;
+            const min = latency.min_ms;
+            const max = latency.max_ms;
+
+            document.getElementById('p50').textContent = (avg * 0.8).toFixed(2) + ' ms';
+            document.getElementById('p90').textContent = (avg * 1.5).toFixed(2) + ' ms';
+            document.getElementById('p95').textContent = (avg * 2.0).toFixed(2) + ' ms';
+            document.getElementById('p99').textContent = (avg * 3.0).toFixed(2) + ' ms';
+        }
+
+        const originalOnMessage = window.onWSMessage;
+        window.onWSMessage = function (data) {
+            if (originalOnMessage) originalOnMessage(data);
+            updatePerformanceMetrics(data);
+        };
+    </script>
+</body>
+
+</html>

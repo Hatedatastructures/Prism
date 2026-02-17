@@ -66,38 +66,42 @@ namespace ngx::protocol::http
     /**
      * @enum status
      * @brief HTTP 状态码枚举
-     * @note **设计考虑**：
-     * - 使用 `unsigned` 底层类型确保与标准 HTTP 状态码范围（0-999）兼容
-     * - 为 `unknown` (0) 预留值处理未识别或自定义状态码
-     * - 支持通过 `static_cast<unsigned>` 直接转换为整型用于网络传输
-     * - 所有标准状态码均包含官方 RFC 描述
-     * @warning **性能提示**：在热路径中使用 `switch` 语句进行状态码匹配，避免线性查找
-     * @warning **兼容性注意**：部分扩展状态码（如 103 Early Hints）需要客户端支持
+     * @note 设计考虑：
+     * @note - 使用 `unsigned` 底层类型确保与标准 HTTP 状态码范围（0-999）兼容
+     * @note - 为 `unknown` (0) 预留值处理未识别或自定义状态码
+     * @note - 支持通过 `static_cast<unsigned>` 直接转换为整型用于网络传输
+     * @note - 所有标准状态码均包含官方 RFC 描述
+     * @warning 性能提示：在热路径中使用 `switch` 语句进行状态码匹配，避免线性查找
+     * @warning 兼容性注意：部分扩展状态码（如 103 Early Hints）需要客户端支持
      * @details 完整的 HTTP 状态码定义，覆盖 RFC 7231、RFC 6585、RFC 4918、RFC 5842、RFC 2774、RFC 7540 等标准。
      * 状态码分类遵循 IETF 标准：
-     * - **1xx**：信息响应 - 请求已接收，继续处理
-     * - **2xx**：成功 - 请求已成功处理
-     * - **3xx**：重定向 - 需要进一步操作以完成请求
-     * - **4xx**：客户端错误 - 请求包含语法错误或无法完成
-     * - **5xx**：服务器错误 - 服务器在处理请求时发生错误
+     * @details - **1xx**：信息响应 - 请求已接收，继续处理
+     * @details - **2xx**：成功 - 请求已成功处理
+     * @details - **3xx**：重定向 - 需要进一步操作以完成请求
+     * @details - **4xx**：客户端错误 - 请求包含语法错误或无法完成
+     * @details - **5xx**：服务器错误 - 服务器在处理请求时发生错误
      *
      * ```
      * // 状态码分类判断示例
      * using namespace ngx::protocol::http;
      *
-     * bool is_success(status code) {
+     * bool is_success(status code)
+     * {
      *     auto value = static_cast<unsigned>(code);
      *     return value >= 200 && value < 300;
      * }
      *
-     * bool is_client_error(status code) {
+     * bool is_client_error(status code)
+     * {
      *     auto value = static_cast<unsigned>(code);
      *     return value >= 400 && value < 500;
      * }
      *
      * // 状态码到描述映射示例
-     * std::string_view get_status_description(status code) {
-     *     switch (code) {
+     * std::string_view get_status_description(status code)
+     * {
+     *     switch (code)
+     *     {
      *         case status::ok: return "OK";
      *         case status::not_found: return "Not Found";
      *         case status::internal_server_error: return "Internal Server Error";
@@ -489,27 +493,29 @@ namespace ngx::protocol::http
     /**
      * @enum verb
      * @brief HTTP 请求方法（动词）枚举
-     * @note **设计考虑**：
-     * - 枚举值顺序遵循标准定义频率，优化 `switch` 语句性能
-     * - 为 `unknown` (0) 预留值处理自定义或非标准方法
-     * - 支持方法字符串到枚举值的双向转换（`to_string()` / `from_string()`）
-     * - 包含 WebDAV (`PROPFIND`、`PROPPATCH` 等) 和扩展方法
-     * @warning **安全性注意**：正确处理 `TRACE` 和 `TRACK` 方法防止跨站跟踪攻击
-     * @warning **幂等性**：正确实现幂等方法对重试机制和错误恢复至关重要
+     * @note 设计考虑：
+     * @note - 枚举值顺序遵循标准定义频率，优化 `switch` 语句性能
+     * @note - 为 `unknown` (0) 预留值处理自定义或非标准方法
+     * @note - 支持方法字符串到枚举值的双向转换（`to_string()` / `from_string()`）
+     * @note - 包含 WebDAV (`PROPFIND`、`PROPPATCH` 等) 和扩展方法
+     * @warning 安全性注意：正确处理 `TRACE` 和 `TRACK` 方法防止跨站跟踪攻击
+     * @warning 幂等性注意：正确实现幂等方法对重试机制和错误恢复至关重要
      * @details 完整的 HTTP 请求方法定义，覆盖 RFC 7231、RFC 5789、RFC 4918、RFC 5842 等标准。
      * 包含所有标准方法及常见扩展方法，用于标识请求对资源执行的操作类型。
      *
-     * **核心方法分类**：
-     * - **安全方法**（`safe`）：`GET`、`HEAD`、`OPTIONS`、`TRACE` - 不应修改服务器状态
-     * - **幂等方法**（`idempotent`）：`GET`、`HEAD`、`PUT`、`DELETE`、`OPTIONS`、`TRACE` - 重复执行效果相同
-     * - **缓存方法**：`GET`、`HEAD`、`POST` - 可被缓存代理处理
+     * 核心方法分类：
+     * @details - 安全方法（`safe`）：`GET`、`HEAD`、`OPTIONS`、`TRACE` - 不应修改服务器状态
+     * @details - 幂等方法（`idempotent`）：`GET`、`HEAD`、`PUT`、`DELETE`、`OPTIONS`、`TRACE` - 重复执行效果相同
+     * @details - 缓存方法（`cacheable`）：`GET`、`HEAD`、`POST` - 可被缓存代理处理
      *
      * ```
      * // 方法分类判断示例
      * using namespace ngx::protocol::http;
      *
-     * bool is_safe_method(verb method) {
-     *     switch (method) {
+     * bool is_safe_method(verb method)
+     * {
+     *     switch (method)
+     *     {
      *         case verb::get:
      *         case verb::head:
      *         case verb::options:
@@ -520,8 +526,10 @@ namespace ngx::protocol::http
      *     }
      * }
      *
-     * bool is_idempotent(verb method) {
-     *     switch (method) {
+     * bool is_idempotent(verb method)
+     * {
+     *     switch (method)
+     *     {
      *         case verb::get:
      *         case verb::head:
      *         case verb::put:
@@ -738,36 +746,39 @@ namespace ngx::protocol::http
     /**
      * @enum field
      * @brief HTTP 头部字段枚举
-     * @note **设计考虑**：
-     * - 使用 `unsigned short` 底层类型优化内存布局，支持高效数组索引
-     * - 字段顺序遵循字母排序，便于二分查找和前缀匹配优化
-     * - 为 `unknown` (0) 预留值处理未注册或自定义头部字段
-     * - 支持头部字段名到枚举值的双向转换（`to_string()` / `from_string()`）
-     * - 包含完整的 RFC 引用，便于标准合规性验证
-     * @warning **性能关键**：头部字段查找应使用预构建的 `std::unordered_map` 或完美哈希，避免线性扫描
-     * @warning **安全性注意**：正确处理 `Host`、`Origin`、`Referer` 等安全敏感头部
-     * @warning **大小写敏感**：HTTP 头部字段名大小写不敏感，但枚举映射使用规范大小写格式
+     * @note 设计考虑：
+     * @note - 使用 `unsigned short` 底层类型优化内存布局，支持高效数组索引
+     * @note - 字段顺序遵循字母排序，便于二分查找和前缀匹配优化
+     * @note - 为 `unknown` (0) 预留值处理未注册或自定义头部字段
+     * @note - 支持头部字段名到枚举值的双向转换（`to_string()` / `from_string()`）
+     * @note - 包含完整的 RFC 引用，便于标准合规性验证
+     * @warning 性能关键：头部字段查找应使用预构建的 `std::unordered_map` 或完美哈希，避免线性扫描
+     * @warning 安全性注意：正确处理 `Host`、`Origin`、`Referer` 等安全敏感头部，防止信息泄露和跨站请求伪造（CSRF）
+     * @warning 大小写敏感：HTTP 头部字段名大小写不敏感，但枚举映射使用规范大小写格式
      * @details 完整的 HTTP 头部字段定义，包含超过 500 个标准及扩展头部字段。
-     * 基于 IANA 注册表、RFC 标准及实际部署中的常见扩展，覆盖：
-     * - **标准请求/响应头部**：`Content-Type`、`Authorization`、`Cache-Control` 等
-     * - **安全相关头部**：`Strict-Transport-Security`、`Content-Security-Policy` 等
-     * - **性能优化头部**：`Accept-Encoding`、`Content-Encoding`、`ETag` 等
-     * - **WebSocket 头部**：`Sec-WebSocket-Key`、`Sec-WebSocket-Accept` 等
-     * - **自定义及扩展头部**：`X-Forwarded-For`、`X-Real-IP` 等常见代理头部
      *
-     * **头部字段分类**：
-     * - **端到端头部**（`end-to-end`）：必须转发给最终接收者，如 `Content-Type`
-     * - **逐跳头部**（`hop-by-hop`：仅对单次传输有效，如 `Connection`、`Upgrade`
-     * - **请求限定头部**：仅出现在请求中，如 `Host`、`User-Agent`
-     * - **响应限定头部**：仅出现在响应中，如 `Server`、`Age`
+     * 基于 IANA 注册表、RFC 标准及实际部署中的常见扩展，覆盖：
+     * @details - 标准请求/响应头部：`Content-Type`、`Authorization`、`Cache-Control` 等
+     * @details - 安全相关头部：`Strict-Transport-Security`、`Content-Security-Policy` 等
+     * @details - 性能优化头部：`Accept-Encoding`、`Content-Encoding`、`ETag` 等
+     * @details - WebSocket 头部：`Sec-WebSocket-Key`、`Sec-WebSocket-Accept` 等
+     * @details - 自定义及扩展头部：`X-Forwarded-For`、`X-Real-IP` 等常见代理头部
+     *
+     * 头部字段分类：
+     * @details - 端到端头部（`end-to-end`）：必须转发给最终接收者，如 `Content-Type`
+     * @details - 逐跳头部（`hop-by-hop`）：仅对单次传输有效，如 `Connection`、`Upgrade`
+     * @details - 请求限定头部（`request`）：仅出现在请求中，如 `Host`、`User-Agent`
+     * @details - 响应限定头部（`response`）：仅出现在响应中，如 `Server`、`Age`
      *
      * ```
      * // 头部字段分类判断示例
      * using namespace ngx::protocol::http;
      *
-     * bool is_end_to_end_header(field header) {
+     * bool is_end_to_end_header(field header)
+     * {
      *     // 端到端头部示例
-     *     switch (header) {
+     *     switch (header)
+     *     {
      *         case field::content_type:
      *         case field::content_length:
      *         case field::cache_control:
@@ -783,8 +794,10 @@ namespace ngx::protocol::http
      *     }
      * }
      *
-     * bool is_security_header(field header) {
-     *     switch (header) {
+     * bool is_security_header(field header)
+     * {
+     *     switch (header)
+     *     {
      *         case field::strict_transport_security:
      *         case field::content_security_policy:
      *         case field::x_frame_options:
