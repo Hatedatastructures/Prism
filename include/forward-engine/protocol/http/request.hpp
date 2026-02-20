@@ -289,7 +289,7 @@ namespace ngx::protocol::http
 
         /**
          * @brief 获取请求体
-         * @return std::string_view 请求体内容
+         * @return `std::string_view` 请求体内容
          */
         [[nodiscard]] std::string_view body() const noexcept;
 

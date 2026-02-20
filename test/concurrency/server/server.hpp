@@ -13,24 +13,21 @@
  * @code
  * #include "server/server.hpp"
  *
- * int main(int argc, char* argv[]) {
- *     return srv::server::entrance(argc, argv);
+ * int main(int argc, char* argv[])
+ * {
+ *     return srv::core::handler(argc, argv);
  * }
  * @endcode
  *
+ * @see dualport.hpp
  */
 #pragma once
 
-#include "server/stats.hpp"
-#include "server/router/route.hpp"
-#include "server/router/main_router.hpp"
-#include "server/router/stats_router.hpp"
-#include "server/stream/tcp_wrapper.hpp"
-#include "server/stream/ssl_wrapper.hpp"
-#include "server/mime/types.hpp"
-#include "server/handler/static_file.hpp"
-#include "server/handler/main_api.hpp"
-#include "server/handler/stats_api.hpp"
-#include "server/websocket/handler.hpp"
-#include "server/core/dual_port.hpp"
-#include "server/session.hpp"
+#include "server/statistics.hpp"
+#include "server/routing.hpp"
+#include "server/socket.hpp"
+#include "server/processor.hpp"
+#include "server/websocket.hpp"
+#include "server/mime.hpp"
+#include "server/dualport.hpp"
+#include "server/httpsession.hpp"

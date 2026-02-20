@@ -133,7 +133,7 @@ namespace ngx::memory
          * @brief 获取线程局部内存池 (Thread-Local Unsynchronized Pool)
          * @return `unsynchronized_pool*` 线程局部池指针，永不返回 `nullptr`
          * @note 使用 `thread_local` 存储，确保每个线程独立实例。
-         * @warning **绝对不可**跨线程归还内存，否则导致未定义行为。
+         * @warning 绝对不可跨线程归还内存，否则导致未定义行为。
          * @throws `std::bad_alloc` 如果内存不足，无法创建池实例
          * @details 返回线程局部的无锁内存池单例，适用于临时计算和单线程处理逻辑。
          *

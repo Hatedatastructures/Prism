@@ -136,7 +136,8 @@ namespace ngx::protocol::http
      * resp.body(R"({"id": 123, "status": "created"})");
      *
      * // 检查头部
-     * if (resp.at(field::content_type) == "application/json") {
+     * if (resp.at(field::content_type) == "application/json") 
+     * {
      *     // 处理 JSON 响应
      * }
      *

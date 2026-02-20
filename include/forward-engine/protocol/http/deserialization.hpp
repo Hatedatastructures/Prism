@@ -52,7 +52,7 @@ namespace ngx::protocol::http
      */
     template <class Transport, class DynamicBuffer>
     auto async_read(Transport &socket, request &http_request, DynamicBuffer &buffer, memory::resource_pointer mr)
-        -> net::awaitable<gist::code> 
+        -> net::awaitable<gist::code>
     {
         if (!mr)
         {
@@ -110,7 +110,7 @@ namespace ngx::protocol::http
      */
     template <class Transport>
     auto async_read(Transport &socket, request &http_request, const memory::resource_pointer mr)
-        -> net::awaitable<gist::code> 
+        -> net::awaitable<gist::code>
     {
         beast::flat_buffer buffer;
         co_return co_await async_read<Transport, beast::flat_buffer>(socket, http_request, buffer, mr);
@@ -135,7 +135,7 @@ namespace ngx::protocol::http
      */
     template <class Transport>
     auto async_read(Transport &socket, response &http_response, memory::resource_pointer mr)
-        -> net::awaitable<gist::code> 
+        -> net::awaitable<gist::code>
     {
         beast::flat_buffer buffer;
         co_return co_await async_read<Transport, beast::flat_buffer>(socket, http_response, buffer, mr);
@@ -153,7 +153,7 @@ namespace ngx::protocol::http
      */
     template <class Transport, class DynamicBuffer>
     auto async_read(Transport &socket, response &http_response, DynamicBuffer &buffer, memory::resource_pointer mr)
-        -> net::awaitable<gist::code> 
+        -> net::awaitable<gist::code>
     {
         if (!mr)
         {
