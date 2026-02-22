@@ -1,31 +1,63 @@
 /**
  * @file routing.hpp
  * @brief 路由模块
- * @details 提供请求路由功能，将请求路径映射到相应的处理器。
+ * @details 高性能路由匹配，使用编译期哈希和 string_view 实现零拷贝。
  *
  * 核心特性：
- * - 路由类型：区分静态文件、API、WebSocket 等不同类型的路由
- * - 动态路由：支持 /api/product/:id、/api/cart/:id 等动态参数
- * - 零开销抽象：使用 string_view 避免字符串拷贝
- * - 高效匹配：使用 starts_with 和 == 等高效操作
+ * - 编译期哈希：使用 consteval FNV-1a 哈希实现 O(1) 路由查找
+ * - 零拷贝：使用 string_view 避免字符串拷贝
+ * - switch 优化：利用编译器 switch-case 优化
+ *
+ * C++23 特性：
+ * - consteval：编译期强制计算
+ * - if consteval：编译期条件分支
+ * - std::unreachable()：标记不可达代码
  *
  * @note 设计原则：
- * - 简单数据载体：仅存储路由信息，不包含业务逻辑
- * - 零开销抽象：使用枚举和结构体，无虚函数开销
- *
- * @see httpsession.hpp
+ * - 简单数据载体：仅存储路由信息
+ * - 零开销抽象：无虚函数开销
  */
+
 #pragma once
 
 #include <cstdint>
 #include <string_view>
+#include <utility>
+#include <bit>
 
 namespace srv::routing
 {
     /**
+     * @brief FNV-1a 哈希算法（编译期强制计算）
+     */
+    consteval std::uint64_t fnv1a_hash(std::string_view str) noexcept
+    {
+        std::uint64_t hash = 14695981039346656037ULL;
+        for (char c : str)
+        {
+            hash ^= static_cast<std::uint64_t>(static_cast<unsigned char>(c));
+            hash *= 1099511628211ULL;
+        }
+        return hash;
+    }
+
+    /**
+     * @brief 运行时 FNV-1a 哈希（用于动态路由）
+     */
+    [[nodiscard]] inline std::uint64_t fnv1a_hash_runtime(std::string_view str) noexcept
+    {
+        std::uint64_t hash = 14695981039346656037ULL;
+        for (char c : str)
+        {
+            hash ^= static_cast<std::uint64_t>(static_cast<unsigned char>(c));
+            hash *= 1099511628211ULL;
+        }
+        return hash;
+    }
+
+    /**
      * @enum route_type
      * @brief 路由类型枚举
-     * @details 定义了不同类型的路由
      */
     enum class route_type : std::uint8_t
     {
@@ -38,180 +70,144 @@ namespace srv::routing
     /**
      * @struct route_result
      * @brief 路由结果结构体
-     * @details 存储路由匹配的结果信息，包括路由类型、路径和动态参数
      */
     struct route_result final
     {
-        /// @brief 路由类型（静态文件、API 端点、WebSocket 端点或未找到）
         route_type type{route_type::not_found};
-        /// @brief 匹配的路由路径（对于动态路由为模板路径）
         std::string_view path{};
-        /// @brief 从动态路由中提取的参数值（如 /api/product/:id 中的 id 值）
         std::string_view param{};
     };
 
+    // 编译期计算的路由哈希值
+    inline constexpr std::uint64_t hash_api_products = fnv1a_hash("/api/products");
+    inline constexpr std::uint64_t hash_api_login = fnv1a_hash("/api/login");
+    inline constexpr std::uint64_t hash_api_register = fnv1a_hash("/api/register");
+    inline constexpr std::uint64_t hash_api_cart = fnv1a_hash("/api/cart");
+    inline constexpr std::uint64_t hash_api_user = fnv1a_hash("/api/user");
+    inline constexpr std::uint64_t hash_api_search = fnv1a_hash("/api/search");
+    inline constexpr std::uint64_t hash_api_orders = fnv1a_hash("/api/orders");
+    inline constexpr std::uint64_t hash_api_cart_item = fnv1a_hash("/api/cart/item");
+    inline constexpr std::uint64_t hash_api_cart_items = fnv1a_hash("/api/cart/items");
+    inline constexpr std::uint64_t hash_api_cart_checkout = fnv1a_hash("/api/cart/checkout");
+    inline constexpr std::uint64_t hash_api_captcha_send = fnv1a_hash("/api/captcha/send");
+
+    // 统计端口路由哈希
+    inline constexpr std::uint64_t hash_ws_stats = fnv1a_hash("/ws/stats");
+    inline constexpr std::uint64_t hash_api_stats = fnv1a_hash("/api/stats");
+    inline constexpr std::uint64_t hash_api_stats_realtime = fnv1a_hash("/api/stats/realtime");
+    inline constexpr std::uint64_t hash_api_connections = fnv1a_hash("/api/connections");
+    inline constexpr std::uint64_t hash_api_connections_active = fnv1a_hash("/api/connections/active");
+    inline constexpr std::uint64_t hash_api_performance = fnv1a_hash("/api/performance");
+
     /**
      * @class main_router
-     * @brief 主端口路由器类
-     * @details 负责将请求路径路由到相应的处理器，支持动态路由
-     *
-     * 支持的路由：
-     * - /api/products - 商品列表
-     * - /api/product/:id - 商品详情
-     * - /api/cart - 购物车
-     * - /api/search - 商品搜索
-     * - /api/user - 用户信息
-     * - /api/cart/item - 购物车商品操作
-     * - /api/cart/items - 购物车批量操作
-     * - /api/cart/checkout - 购物车结算
-     * - /api/orders - 订单操作
-     * - /api/login - 用户登录
-     * - /api/register - 用户注册
-     * - /api/captcha/send - 发送验证码
+     * @brief 主端口路由器
+     * @details 高性能路由匹配，使用编译期哈希 + switch 实现快速查找
      */
     class main_router final
     {
     public:
-        /**
-         * @brief 匹配请求路径
-         * @param target 请求目标路径
-         * @return 路由结果
-         */
         [[nodiscard]] route_result match(std::string_view target) const noexcept
         {
-            if (target == "/api/login")
+            // 快速路径：静态文件（大多数请求）
+            if (target.empty() || target[0] != '/')
             {
-                return route_result{route_type::api_endpoint, target, ""};
+                return {route_type::static_file, target, {}};
             }
 
-            if (target == "/api/register")
+            // 检查是否是 API 路由
+            if (!target.starts_with("/api/"))
             {
-                return route_result{route_type::api_endpoint, target, ""};
+                return {route_type::static_file, target, {}};
             }
 
-            if (target == "/api/captcha/send")
-            {
-                return route_result{route_type::api_endpoint, target, ""};
-            }
-
-            if (target == "/api/products")
-            {
-                return route_result{route_type::api_endpoint, target, ""};
-            }
-
+            // 动态路由检查（带参数的路由）
             if (target.starts_with("/api/product/"))
             {
-                return route_result{route_type::api_endpoint, "/api/product", target.substr(13)};
+                return {route_type::api_endpoint, "/api/product", target.substr(13)};
             }
-
-            if (target == "/api/cart")
+            if (target.starts_with("/api/cart/") && target.size() > 10)
             {
-                return route_result{route_type::api_endpoint, target, ""};
+                // 排除精确子路径，只匹配 /api/cart/<id> 格式
+                // /api/cart/item, /api/cart/items, /api/cart/checkout 应该由精确匹配处理
+                if (target != "/api/cart/item" &&
+                    target != "/api/cart/items" &&
+                    target != "/api/cart/checkout")
+                {
+                    return {route_type::api_endpoint, "/api/cart", target.substr(10)};
+                }
             }
-
-            if (target == "/api/cart/item")
-            {
-                return route_result{route_type::api_endpoint, target, ""};
-            }
-
-            if (target == "/api/cart/items")
-            {
-                return route_result{route_type::api_endpoint, target, ""};
-            }
-
-            if (target == "/api/cart/checkout")
-            {
-                return route_result{route_type::api_endpoint, target, ""};
-            }
-
-            if (target.starts_with("/api/cart/"))
-            {
-                return route_result{route_type::api_endpoint, "/api/cart", target.substr(10)};
-            }
-
-            if (target == "/api/search")
-            {
-                return route_result{route_type::api_endpoint, target, ""};
-            }
-
-            if (target == "/api/user")
-            {
-                return route_result{route_type::api_endpoint, target, ""};
-            }
-
-            if (target == "/api/orders")
-            {
-                return route_result{route_type::api_endpoint, target, ""};
-            }
-
             if (target.starts_with("/api/orders/"))
             {
-                return route_result{route_type::api_endpoint, "/api/orders", target.substr(12)};
+                return {route_type::api_endpoint, "/api/orders", target.substr(12)};
             }
 
-            return route_result{route_type::static_file, target, ""};
+            // 精确匹配：使用编译期哈希 + switch 优化
+            const auto hash = fnv1a_hash_runtime(target);
+            switch (hash)
+            {
+            case hash_api_products:
+                return {route_type::api_endpoint, target, {}};
+            case hash_api_login:
+                return {route_type::api_endpoint, target, {}};
+            case hash_api_register:
+                return {route_type::api_endpoint, target, {}};
+            case hash_api_cart:
+                return {route_type::api_endpoint, target, {}};
+            case hash_api_user:
+                return {route_type::api_endpoint, target, {}};
+            case hash_api_search:
+                return {route_type::api_endpoint, target, {}};
+            case hash_api_orders:
+                return {route_type::api_endpoint, target, {}};
+            case hash_api_cart_item:
+                return {route_type::api_endpoint, target, {}};
+            case hash_api_cart_items:
+                return {route_type::api_endpoint, target, {}};
+            case hash_api_cart_checkout:
+                return {route_type::api_endpoint, target, {}};
+            case hash_api_captcha_send:
+                return {route_type::api_endpoint, target, {}};
+            default:
+                return {route_type::static_file, target, {}};
+            }
         }
     };
 
     /**
      * @class stats_router
-     * @brief 统计端口路由器类
-     * @details 负责将统计相关请求路径路由到相应的处理器
-     *
-     * 支持的路由：
-     * - /ws/stats - WebSocket 实时统计
-     * - /api/stats - 统计信息
-     * - /api/stats/realtime - 实时统计
-     * - /api/stats/history/:minutes - 历史统计
-     * - /api/connections - 连接列表
-     * - /api/performance - 性能指标
+     * @brief 统计端口路由器
      */
     class stats_router final
     {
     public:
-        /**
-         * @brief 匹配请求路径
-         * @param target 请求目标路径
-         * @return 路由结果
-         */
         [[nodiscard]] route_result match(std::string_view target) const noexcept
         {
-            if (target == "/ws/stats")
-            {
-                return route_result{route_type::websocket_endpoint, target, ""};
-            }
-
-            if (target == "/api/stats")
-            {
-                return route_result{route_type::api_endpoint, target, ""};
-            }
-
-            if (target == "/api/stats/realtime")
-            {
-                return route_result{route_type::api_endpoint, target, ""};
-            }
-
+            // 动态路由检查
             if (target.starts_with("/api/stats/history/"))
             {
-                return route_result{route_type::api_endpoint, "/api/stats/history", target.substr(19)};
+                return {route_type::api_endpoint, "/api/stats/history", target.substr(19)};
             }
 
-            if (target == "/api/connections")
+            // 精确匹配：使用编译期哈希 + switch 优化
+            const auto hash = fnv1a_hash_runtime(target);
+            switch (hash)
             {
-                return route_result{route_type::api_endpoint, target, ""};
+            case hash_ws_stats:
+                return {route_type::websocket_endpoint, target, {}};
+            case hash_api_stats:
+                return {route_type::api_endpoint, target, {}};
+            case hash_api_stats_realtime:
+                return {route_type::api_endpoint, target, {}};
+            case hash_api_connections:
+                return {route_type::api_endpoint, target, {}};
+            case hash_api_connections_active:
+                return {route_type::api_endpoint, target, {}};
+            case hash_api_performance:
+                return {route_type::api_endpoint, target, {}};
+            default:
+                return {route_type::static_file, target, {}};
             }
-
-            if (target == "/api/connections/active")
-            {
-                return route_result{route_type::api_endpoint, target, ""};
-            }
-
-            if (target == "/api/performance")
-            {
-                return route_result{route_type::api_endpoint, target, ""};
-            }
-
-            return route_result{route_type::static_file, target, ""};
         }
     };
 }

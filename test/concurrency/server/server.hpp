@@ -6,7 +6,7 @@
  * 核心特性：
  * - 双端口服务器：主端口提供业务 API，统计端口提供统计信息
  * - 多线程 IO：支持多线程 IO 处理
- * - SSL/TLS 支持：可选的 SSL/TLS 加密
+ * - 传输抽象：使用 transport::transmission + connector 架构
  * - WebSocket 支持：支持 WebSocket 实时统计推送
  *
  * @note 使用方式：
@@ -18,16 +18,15 @@
  *     return srv::core::handler(argc, argv);
  * }
  * @endcode
- *
- * @see dualport.hpp
  */
+
 #pragma once
 
-#include "server/statistics.hpp"
-#include "server/routing.hpp"
-#include "server/socket.hpp"
-#include "server/processor.hpp"
-#include "server/websocket.hpp"
-#include "server/mime.hpp"
-#include "server/dualport.hpp"
-#include "server/httpsession.hpp"
+#include "statistics.hpp"
+#include "routing.hpp"
+#include "socket.hpp"
+#include "processor.hpp"
+#include "websocket.hpp"
+#include "mime.hpp"
+#include "connection.hpp"
+#include "dualport.hpp"

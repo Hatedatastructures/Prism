@@ -9,6 +9,7 @@
 
 #include <boost/asio.hpp>
 #include <boost/beast/http.hpp>
+#include <boost/beast/http/error.hpp>
 #include <boost/beast/core/flat_buffer.hpp>
 
 #include <forward-engine/memory/container.hpp>
@@ -73,7 +74,7 @@ namespace ngx::protocol::http
         co_await beast::http::async_read(socket, buffer, parser, token);
         if (ec)
         {
-            if (ec == net::error::eof)
+            if (ec == net::error::eof || ec == beast::http::error::end_of_stream)
             {
                 co_return gist::code::eof;
             }
@@ -175,7 +176,7 @@ namespace ngx::protocol::http
         // 读取完成一个完整的响应窃取到自己的 response 对象
         if (ec)
         {
-            if (ec == net::error::eof)
+            if (ec == net::error::eof || ec == beast::http::error::end_of_stream)
             {
                 co_return gist::code::eof;
             }

@@ -141,7 +141,7 @@ namespace ngx::agent::pipeline
     }
 
     /**
-     * @brief 拨号上游服务器
+     * @brief 拨号连接上游服务器，从连接池内获取或新建连接
      * @details 根据目标地址和路由策略（正向/反向）连接上游服务器。该函数是协议处理的核心组件，
      * 负责创建到目标服务的连接，支持正向代理和反向代理两种路由模式。
      *
@@ -201,10 +201,10 @@ namespace ngx::agent::pipeline
             co_return std::make_pair(gist::code::connection_refused, nullptr);
         }
 
-        trace::info("[Pipeline] {} upstream connected.", label);
+        trace::debug("[Pipeline] {} upstream connected.", label);
         // 包装为 reliable transmission
         co_return std::make_pair(ec, transport::make_reliable(std::move(*socket)));
-    }
+    } // function dial
 
     /**
      * @brief 原始双向隧道
@@ -295,7 +295,7 @@ namespace ngx::agent::pipeline
         // 对于 SSL Stream 等对象，可能需要 shutdown，这里简化处理
         if constexpr (requires { shut_close(outbound); })
             shut_close(outbound);
-    }
+    } // function original_tunnel
 
     /**
      * @brief HTTP 协议处理
@@ -394,7 +394,7 @@ namespace ngx::agent::pipeline
         }
 
         co_await original_tunnel(stream.release(), std::move(outbound), mr);
-    }
+    } // function http
 
     /**
      * @brief SOCKS5 协议处理
@@ -469,7 +469,7 @@ namespace ngx::agent::pipeline
         // 需确保 socks5::stream 提供了访问底层 socket 的方法
         auto trans_ptr = agent->socket().release();
         co_await original_tunnel(std::move(trans_ptr), std::move(outbound), ctx.frame_arena.get());
-    }
+    } // function socks5
 
     /**
      * @brief TLS 协议处理
@@ -587,6 +587,6 @@ namespace ngx::agent::pipeline
 
         // 隧道转发
         co_await original_tunnel(ssl_stream, std::move(outbound), mr);
-    }
+    } // function tls 
 
 } // namespace ngx::agent::pipeline

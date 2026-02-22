@@ -10,6 +10,10 @@
  * - 时间追踪：记录请求处理时间（最小、最大、平均）
  * - JSON 序列化：使用 glaze 库支持 JSON 序列化
  *
+ * C++23 特性：
+ * - std::to_underlying()：枚举转底层类型
+ * - std::unreachable()：标记不可达代码
+ *
  * @note 设计原则：
  * - 高性能：所有操作均为原子操作，无锁设计
  * - 低开销：使用 relaxed 内存序，适合统计场景
@@ -25,6 +29,7 @@
 #include <string>
 #include <string_view>
 #include <chrono>
+#include <utility>
 #include <glaze/glaze.hpp>
 
 namespace srv::statistics

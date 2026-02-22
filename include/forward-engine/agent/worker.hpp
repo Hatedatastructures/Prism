@@ -290,11 +290,10 @@ namespace ngx::agent
             {
                 if (!ec)
                 {
-                    // 创建会话，把“路由器”传给它
+                    // 创建会话，把"路由器"传给它
                     auto inbound = ngx::transport::make_reliable(std::move(socket));
-                    const auto session_pointer = std::make_shared<session>(
-                        ioc_, std::move(inbound), distributor_, ssl_ctx_,
-                        memory::system::thread_local_pool());
+                    const auto session_pointer = ngx::agent::make_session(ioc_, 
+                        std::move(inbound), distributor_, ssl_ctx_,memory::system::thread_local_pool());
 
                     const bool auth_enabled = !config_.authentication.credentials.empty() || !config_.authentication.users.empty();
                     session_pointer->set_account_validator(auth_enabled ? account_validator_.get() : nullptr);

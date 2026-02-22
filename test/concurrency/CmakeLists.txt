@@ -44,6 +44,12 @@ endif()
 
 # 获取ForwardEngine源码目录
 set(FORWARD_ENGINE_SOURCE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../../..")
+set(FORWARD_ENGINE_BUILD_DIR "${FORWARD_ENGINE_SOURCE_DIR}/build")
+
+# 添加库搜索路径
+link_directories(
+    "${FORWARD_ENGINE_BUILD_DIR}/src"
+)
 
 # 创建可执行文件
 add_executable(${PROJECT_NAME}

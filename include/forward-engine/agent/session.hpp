@@ -264,7 +264,9 @@ namespace ngx::agent
 
     inline void session::start()
     {
-        trace::info("[Session] Session started.");
+        trace::debug("[Session] Session started.");
+
+        // 定义处理协程，捕获 `shared_from_this()` 确保对象在协程期间保持存活
         auto process = [self = this->shared_from_this()]() -> net::awaitable<void>
         {
             // 构造 handler_context
@@ -280,6 +282,7 @@ namespace ngx::agent
 
             co_await self->diversion(dist_ptr, ctx);
         };
+        // 定义完成回调，处理协程中的异常
         auto completion = [self = this->shared_from_this()](const std::exception_ptr &ep) noexcept
         {
             if (!ep)
@@ -377,8 +380,8 @@ namespace ngx::agent
         const auto right = mutable_buf(buffer_.data() + half, buffer_.size() - half);
 
         // 定义单向转发 lambda
-        auto forward = [](transport::transmission &from, transport::transmission &to,
-                          mutable_buf buf) -> net::awaitable<void>
+        auto forward = [](transport::transmission &from, transport::transmission &to, mutable_buf buf) 
+            -> net::awaitable<void>
         {
             std::error_code ec;
             while (true)
@@ -399,9 +402,29 @@ namespace ngx::agent
         };
 
         using namespace boost::asio::experimental::awaitable_operators;
-        trace::debug("[Session] Starting full‑duplex splice.");
+        trace::debug("[Session] Starting full-duplex splice.");
         co_await (forward(*inbound_, *outbound_, left) || forward(*outbound_, *inbound_, right));
         trace::debug("[Session] Splice finished.");
+    }
+
+    /**
+     * @brief 创建会话对象的工厂函数
+     * @details 该函数封装了 `session` 对象的创建逻辑
+     * @param io_context `IO` 上下文，会话将在该上下文中运行所有异步操作
+     * @param inbound 入站传输层（客户端连接），所有权将被转移到会话对象
+     * @param dist 业务分发器，用于路由转发到后端
+     * @param ssl_ctx `SSL` 上下文 (可选)，用于 `TLS` 协议处理
+     * @param resource 内存资源 (通常为线程局部池)，用于会话
+     * @return `std::shared_ptr<session>` 创建的会话对象
+     * @throws `std::bad_alloc` 如果内存分配失败
+     * @note 该函数是 `noexcept` 的，不抛出任何异常。
+     * @warning 调用者必须确保传入的 `io_context` 在会话生命周期内保持运行。
+     */
+    std::shared_ptr<session> make_session(net::io_context &io_context, transport::transmission_pointer inbound, 
+        distributor &dist, std::shared_ptr<ssl::context> ssl_ctx,  memory::resource_pointer resource) noexcept
+    {
+        return std::make_shared<session>(io_context, std::move(inbound), 
+                                         dist, std::move(ssl_ctx), resource);
     }
 
 } // namespace ngx::agent
