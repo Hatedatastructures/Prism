@@ -78,6 +78,24 @@ namespace srv::routing
         std::string_view param{};
     };
 
+    /**
+     * @class router_interface
+     * @brief 路由器抽象接口
+     * @details 提供统一的路由匹配接口，便于分发器传递路由策略。
+     */
+    class router_interface
+    {
+    public:
+        virtual ~router_interface() = default;
+
+        /**
+         * @brief 匹配路由
+         * @param target 请求目标路径
+         * @return route_result 路由结果
+         */
+        [[nodiscard]] virtual route_result match(std::string_view target) const noexcept = 0;
+    };
+
     // 编译期计算的路由哈希值
     inline constexpr std::uint64_t hash_api_products = fnv1a_hash("/api/products");
     inline constexpr std::uint64_t hash_api_login = fnv1a_hash("/api/login");
@@ -104,10 +122,10 @@ namespace srv::routing
      * @brief 主端口路由器
      * @details 高性能路由匹配，使用编译期哈希 + switch 实现快速查找
      */
-    class main_router final
+    class main_router final : public router_interface
     {
     public:
-        [[nodiscard]] route_result match(std::string_view target) const noexcept
+        [[nodiscard]] route_result match(std::string_view target) const noexcept override
         {
             // 快速路径：静态文件（大多数请求）
             if (target.empty() || target[0] != '/')
@@ -178,10 +196,10 @@ namespace srv::routing
      * @class stats_router
      * @brief 统计端口路由器
      */
-    class stats_router final
+    class stats_router final : public router_interface
     {
     public:
-        [[nodiscard]] route_result match(std::string_view target) const noexcept
+        [[nodiscard]] route_result match(std::string_view target) const noexcept override
         {
             // 动态路由检查
             if (target.starts_with("/api/stats/history/"))

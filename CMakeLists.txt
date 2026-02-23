@@ -63,5 +63,6 @@ message(STATUS "FORWARD_ENGINE_ENABLE_STRESS=${FORWARD_ENGINE_ENABLE_STRESS}")
 # 添加子目录
 add_subdirectory(src)
 add_subdirectory(test/concurrency)
+add_subdirectory(test/concurrency/server/v1)
 add_subdirectory(test/stress)
 add_subdirectory(test)

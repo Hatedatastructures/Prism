@@ -1,0 +1,114 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>商品列表 - 优品商城</title>
+    <link rel="stylesheet" href="/css/main.css">
+    <link rel="stylesheet" href="/css/products.css">
+</head>
+
+<body>
+    <!-- 顶部导航栏 -->
+    <header class="header">
+        <div class="container">
+            <div class="logo">
+                <a href="/">
+                    <span class="logo-text">优品商城</span>
+                </a>
+            </div>
+            <nav class="nav">
+                <a href="/" class="nav-item">首页</a>
+                <a href="/products" class="nav-item active">全部商品</a>
+                <a href="/products?category=electronics" class="nav-item">数码电子</a>
+                <a href="/products?category=clothing" class="nav-item">服装鞋包</a>
+                <a href="/products?category=home" class="nav-item">家居生活</a>
+            </nav>
+            <div class="header-right">
+                <div class="search-box">
+                    <input type="text" placeholder="搜索商品..." id="searchInput">
+                    <button onclick="handleSearch()">搜索</button>
+                </div>
+                <div class="user-actions">
+                    <a href="/cart" class="cart-link">
+                        <span class="cart-icon">🛒</span>
+                        <span class="cart-count" id="cartCount">0</span>
+                    </a>
+                    <a href="/user-center.html" class="user-link">👤</a>
+                </div>
+            </div>
+        </div>
+    </header>
+
+    <main class="products-page">
+        <div class="container">
+            <!-- 筛选侧边栏 -->
+            <aside class="filter-sidebar">
+                <div class="filter-section">
+                    <h3>商品分类</h3>
+                    <ul class="filter-list">
+                        <li><a href="/products?category=all" class="active">全部商品</a></li>
+                        <li><a href="/products?category=electronics">数码电子</a></li>
+                        <li><a href="/products?category=clothing">服装鞋包</a></li>
+                        <li><a href="/products?category=home">家居生活</a></li>
+                        <li><a href="/products?category=beauty">美妆护肤</a></li>
+                        <li><a href="/products?category=food">食品生鲜</a></li>
+                        <li><a href="/products?category=sports">运动户外</a></li>
+                    </ul>
+                </div>
+
+                <div class="filter-section">
+                    <h3>价格区间</h3>
+                    <div class="price-range">
+                        <input type="number" placeholder="最低价" id="minPrice">
+                        <span>-</span>
+                        <input type="number" placeholder="最高价" id="maxPrice">
+                        <button onclick="applyPriceFilter()">确定</button>
+                    </div>
+                </div>
+            </aside>
+
+            <!-- 商品列表 -->
+            <div class="products-main">
+                <!-- 排序栏 -->
+                <div class="sort-bar">
+                    <span class="result-count">共 <span id="totalCount">0</span> 件商品</span>
+                    <div class="sort-options">
+                        <button class="sort-btn active" data-sort="default" onclick="changeSort('default')">综合</button>
+                        <button class="sort-btn" data-sort="sales" onclick="changeSort('sales')">销量</button>
+                        <button class="sort-btn" data-sort="price-asc" onclick="changeSort('price-asc')">价格↑</button>
+                        <button class="sort-btn" data-sort="price-desc" onclick="changeSort('price-desc')">价格↓</button>
+                        <button class="sort-btn" data-sort="newest" onclick="changeSort('newest')">最新</button>
+                    </div>
+                </div>
+
+                <!-- 商品网格 -->
+                <div class="product-grid" id="productGrid">
+                    <div class="loading">加载中...</div>
+                </div>
+
+                <!-- 分页 -->
+                <div class="pagination" id="pagination"></div>
+            </div>
+        </div>
+    </main>
+
+    <!-- 底部 -->
+    <footer class="footer">
+        <div class="container">
+            <div class="footer-links">
+                <a href="/login.html">登录</a>
+                <a href="/register.html">注册</a>
+                <a href="/about">关于我们</a>
+                <a href="/contact">联系我们</a>
+            </div>
+            <p class="copyright">© 2024 优品商城 版权所有</p>
+        </div>
+    </footer>
+
+    <script src="/js/main.js"></script>
+    <script src="/js/products.js"></script>
+</body>
+
+</html>

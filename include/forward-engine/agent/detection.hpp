@@ -285,7 +285,7 @@ namespace ngx::agent::pipeline
 
         // 启动双向转发
         // 注意：这里需要确保 inbound/outbound 在协程生命周期内有效
-        // 传入的是移动后的对象，所以我们可以直接使用它们
+        // 传入的是移动后的对象，所以我们可以直接使用它们，两个转发任意一个完成就结束
 
         co_await (forward(inbound, outbound, left) || forward(outbound, inbound, right));
 
@@ -587,6 +587,6 @@ namespace ngx::agent::pipeline
 
         // 隧道转发
         co_await original_tunnel(ssl_stream, std::move(outbound), mr);
-    } // function tls 
+    } // function tls
 
 } // namespace ngx::agent::pipeline

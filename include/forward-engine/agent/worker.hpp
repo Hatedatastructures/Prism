@@ -238,7 +238,7 @@ namespace ngx::agent
          * @brief 运行工作线程
          * @details 启动 `io_context` 事件循环，阻塞当前线程直到所有任务完成或被停止。
          * 执行流程：
-         * @details - 1. 调用 `do_accept()` 开始异步接受连接；
+         * @details - 1. 调用 `accept_connection()` 开始异步接受连接；
          * @details - 2. 调用 `ioc_.run()` 启动事件循环；
          * @details - 3. 事件循环会处理所有异步操作（连接接受、数据传输、协议处理等）；
          * @details - 4. 当所有异步操作完成或 `io_context` 被停止时返回。
@@ -256,7 +256,7 @@ namespace ngx::agent
          */
         void run()
         {
-            do_accept();
+            accept_connection();
             ioc_.run();
         }
 
@@ -284,7 +284,7 @@ namespace ngx::agent
          * @warning 如果创建会话或启动会话失败，连接会被丢弃但循环继续，确保服务不中断。
          * @warning 该方法不直接抛出异常，错误通过 `async_accept` 的回调处理。
          */
-        void do_accept()
+        void accept_connection()
         {
             auto func = [this](const boost::system::error_code &ec, tcp::socket socket)
             {
@@ -312,7 +312,7 @@ namespace ngx::agent
 
                     session_pointer->start();
                 }
-                do_accept();
+                accept_connection();
             };
             acceptor_.async_accept(func);
         }

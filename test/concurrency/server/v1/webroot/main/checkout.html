@@ -1,0 +1,160 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>结算 - 优品商城</title>
+    <link rel="stylesheet" href="/css/main.css">
+    <link rel="stylesheet" href="/css/cart.css">
+</head>
+
+<body>
+    <!-- 顶部导航栏 -->
+    <header class="header">
+        <div class="container">
+            <div class="logo">
+                <a href="/">
+                    <span class="logo-text">优品商城</span>
+                </a>
+            </div>
+            <nav class="nav">
+                <a href="/" class="nav-item">首页</a>
+                <a href="/products" class="nav-item">全部商品</a>
+                <a href="/products?category=electronics" class="nav-item">数码电子</a>
+                <a href="/products?category=clothing" class="nav-item">服装鞋包</a>
+                <a href="/products?category=home" class="nav-item">家居生活</a>
+            </nav>
+            <div class="header-right">
+                <div class="search-box">
+                    <input type="text" placeholder="搜索商品..." id="searchInput">
+                    <button onclick="handleSearch()">搜索</button>
+                </div>
+                <div class="user-actions">
+                    <a href="/cart" class="cart-link">
+                        <span class="cart-icon">🛒</span>
+                        <span class="cart-count" id="cartCount">0</span>
+                    </a>
+                    <a href="/user-center.html" class="user-link">👤</a>
+                </div>
+            </div>
+        </div>
+    </header>
+
+    <main class="checkout-page">
+        <div class="container">
+            <h1>结算页</h1>
+
+            <div class="checkout-content">
+                <!-- 收货地址 -->
+                <div class="checkout-section">
+                    <h2>收货地址</h2>
+                    <div class="address-list">
+                        <div class="address-item active">
+                            <label>
+                                <input type="radio" name="address" checked>
+                                <div class="address-info">
+                                    <span class="name">张三</span>
+                                    <span class="phone">138****8888</span>
+                                    <span class="address">北京市朝阳区建国路88号</span>
+                                </div>
+                                <span class="default-tag">默认</span>
+                            </label>
+                        </div>
+                        <div class="address-item">
+                            <label>
+                                <input type="radio" name="address">
+                                <div class="address-info">
+                                    <span class="name">李四</span>
+                                    <span class="phone">139****6666</span>
+                                    <span class="address">上海市浦东新区陆家嘴环路1000号</span>
+                                </div>
+                            </label>
+                        </div>
+                    </div>
+                    <button class="btn-add-address">+ 添加新地址</button>
+                </div>
+
+                <!-- 商品清单 -->
+                <div class="checkout-section">
+                    <h2>商品清单</h2>
+                    <div id="checkoutItems">
+                        <div class="loading">加载中...</div>
+                    </div>
+                </div>
+
+                <!-- 支付方式 -->
+                <div class="checkout-section">
+                    <h2>支付方式</h2>
+                    <div class="payment-methods">
+                        <label class="payment-method active">
+                            <input type="radio" name="payment" value="alipay" checked>
+                            <span class="payment-icon">💰</span>
+                            <span>支付宝</span>
+                        </label>
+                        <label class="payment-method">
+                            <input type="radio" name="payment" value="wechat">
+                            <span class="payment-icon">💚</span>
+                            <span>微信支付</span>
+                        </label>
+                        <label class="payment-method">
+                            <input type="radio" name="payment" value="card">
+                            <span class="payment-icon">💳</span>
+                            <span>银行卡</span>
+                        </label>
+                    </div>
+                </div>
+
+                <!-- 订单备注 -->
+                <div class="checkout-section">
+                    <h2>订单备注</h2>
+                    <textarea id="orderRemark" placeholder="请输入订单备注（选填）" rows="3"></textarea>
+                </div>
+
+                <!-- 结算信息 -->
+                <div class="checkout-summary">
+                    <div class="summary-item">
+                        <span>商品总额:</span>
+                        <span>¥<span id="subtotal">0.00</span></span>
+                    </div>
+                    <div class="summary-item">
+                        <span>运费:</span>
+                        <span>¥<span id="shippingFee">0.00</span></span>
+                    </div>
+                    <div class="summary-item discount">
+                        <span>优惠:</span>
+                        <span>-¥<span id="discount">0.00</span></span>
+                    </div>
+                    <div class="summary-item total">
+                        <span>应付金额:</span>
+                        <span class="total-price">¥<span id="finalTotal">0.00</span></span>
+                    </div>
+                    <button class="btn-submit-order" onclick="submitOrder()">提交订单</button>
+                </div>
+            </div>
+        </div>
+    </main>
+
+    <!-- 底部 -->
+    <footer class="footer">
+        <div class="container">
+            <div class="footer-links">
+                <a href="/login.html">登录</a>
+                <a href="/register.html">注册</a>
+                <a href="/about">关于我们</a>
+                <a href="/contact">联系我们</a>
+            </div>
+            <p class="copyright">© 2024 优品商城 版权所有</p>
+        </div>
+    </footer>
+
+    <script src="/js/main.js"></script>
+    <script src="/js/cart.js"></script>
+    <script>
+        document.addEventListener('DOMContentLoaded', function () {
+            loadCheckoutData();
+        });
+    </script>
+</body>
+
+</html>
