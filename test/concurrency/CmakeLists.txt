@@ -6,20 +6,20 @@ set(CMAKE_CXX_STANDARD 23)
 set(CMAKE_CXX_STANDARD_REQUIRED YES)
 set(CMAKE_CXX_EXTENSIONS NO)
 
-add_executable(High_performance_backend_server
+add_executable(concurrency_server
     server.cpp
     server.hpp
     conversation.hpp
     handler.hpp
 )
 
-target_include_directories(High_performance_backend_server PRIVATE
+target_include_directories(concurrency_server PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}
     ${CMAKE_SOURCE_DIR}/include
     "c:/bin/include"
 )
 
-target_link_libraries(High_performance_backend_server PRIVATE
+target_link_libraries(concurrency_server PRIVATE
     Forward_static_library
     Boost::system
     glaze::glaze
@@ -30,22 +30,22 @@ target_link_libraries(High_performance_backend_server PRIVATE
 )
 
 if(MSVC)
-    target_compile_options(High_performance_backend_server PRIVATE /W4 /O2 /DNDEBUG)
+    target_compile_options(concurrency_server PRIVATE /W4 /O2 /DNDEBUG)
 else()
-    target_compile_options(High_performance_backend_server PRIVATE -Wall -Wextra -O2 -DNDEBUG)
+    target_compile_options(concurrency_server PRIVATE -Wall -Wextra -O2 -DNDEBUG)
 endif()
 
-add_executable(client
+add_executable(concurrency_client
     client.cpp
 )
 
-target_include_directories(client PRIVATE
+target_include_directories(concurrency_client PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}
     ${CMAKE_SOURCE_DIR}/include
     "c:/bin/include"
 )
 
-target_link_libraries(client PRIVATE
+target_link_libraries(concurrency_client PRIVATE
     Forward_static_library
     Boost::system
     glaze::glaze
@@ -56,7 +56,7 @@ target_link_libraries(client PRIVATE
 )
 
 if(MSVC)
-    target_compile_options(client PRIVATE /W4 /O2 /DNDEBUG)
+    target_compile_options(concurrency_client PRIVATE /W4 /O2 /DNDEBUG)
 else()
-    target_compile_options(client PRIVATE -Wall -Wextra -O2 -DNDEBUG)
+    target_compile_options(concurrency_client PRIVATE -Wall -Wextra -O2 -DNDEBUG)
 endif()

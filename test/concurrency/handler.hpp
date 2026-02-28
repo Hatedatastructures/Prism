@@ -8,7 +8,6 @@
 #include <boost/asio.hpp>
 #include <forward-engine/protocol.hpp>
 #include <forward-engine/trace.hpp>
-#include <forward-engine/memory.hpp>
 
 namespace srv
 {
@@ -124,8 +123,7 @@ namespace srv
             if (!ec)
             {
                 ec.clear();
-                auto n = socket.read_some(net::buffer(recv_buf), ec);
-                if (n > 0)
+                if (auto n = socket.read_some(net::buffer(recv_buf), ec); n > 0)
                 {
                     has_data = true;
                     ngx::trace::debug("stress mode: received {} bytes from client", n);

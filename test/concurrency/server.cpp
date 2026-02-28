@@ -19,7 +19,7 @@ auto main() -> int
     try
     {
         srv::config config;
-        config.port = 6789;
+        config.port = 8000;
         config.response_delay = std::chrono::milliseconds{0};
 
         srv::server server(config);

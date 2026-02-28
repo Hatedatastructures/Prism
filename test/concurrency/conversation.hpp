@@ -62,7 +62,7 @@ namespace srv
         boost::asio::awaitable<void> handle_concurrent()
         {
             const auto &preset = preset_ok;
-            auto res = handler::make_response(preset, ngx::memory::current_resource());
+            const auto res = handler::make_response(preset, ngx::memory::current_resource());
 
             const auto response_data = http::serialize(res, ngx::memory::current_resource());
             co_await net::async_write(socket_, net::buffer(response_data), net::use_awaitable);

@@ -2,7 +2,6 @@
 
 #include <string_view>
 #include <thread>
-#include <atomic>
 
 #include <boost/asio.hpp>
 #include <forward-engine/trace.hpp>
@@ -13,7 +12,7 @@ namespace srv
 {
     struct config final
     {
-        std::uint16_t port = 6789;
+        std::uint16_t port = 8000;
         std::uint32_t threads = std::thread::hardware_concurrency();
         std::chrono::milliseconds response_delay{0};
     };
@@ -51,7 +50,7 @@ namespace srv
         boost::asio::awaitable<void> accept_loop()
         {
             while (true)
-            {
+            {   // 死循环获取 socket
                 boost::system::error_code ec;
                 auto socket = co_await acceptor_.async_accept(
                     boost::asio::redirect_error(boost::asio::use_awaitable, ec));
@@ -65,8 +64,7 @@ namespace srv
                 ngx::trace::debug("[server] 新连接: {}:{}", socket.remote_endpoint().address().to_string(),
                                   socket.remote_endpoint().port());
 
-                auto session = std::make_shared<srv::conversation>(
-                    std::move(socket), response_delay_);
+                const auto session = std::make_shared<conversation>(std::move(socket), response_delay_);
                 session->start();
             }
         }
