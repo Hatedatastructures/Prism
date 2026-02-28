@@ -1,78 +1,25 @@
 cmake_minimum_required(VERSION 3.15)
 
-# 双端口HTTP服务器项目
-project(dual_port_http_server LANGUAGES CXX)
+project(forward_engine_concurrency_test LANGUAGES CXX)
 
-# C++23标准
 set(CMAKE_CXX_STANDARD 23)
-set(CMAKE_CXX_STANDARD_REQUIRED ON)
+set(CMAKE_CXX_STANDARD_REQUIRED YES)
+set(CMAKE_CXX_EXTENSIONS NO)
 
-# 依赖管理
-list(APPEND CMAKE_PREFIX_PATH "c:/bin")
-
-find_package(spdlog CONFIG REQUIRED)
-find_package(glaze CONFIG REQUIRED)
-
-find_package(Boost QUIET COMPONENTS system)
-if(NOT TARGET Boost::system)
-    set(Boost_NO_BOOST_CMAKE ON)
-    find_package(Boost QUIET COMPONENTS system)
-endif()
-
-if(NOT TARGET Boost::system)
-    find_path(boost_include_dir
-            NAMES boost/system/error_code.hpp
-            HINTS
-            "c:/bin/include"
-            "c:/bin"
-            PATH_SUFFIXES include
-    )
-
-    if(NOT boost_include_dir)
-        message(FATAL_ERROR "找不到 `boost` 头文件目录，无法继续构建")
-    endif()
-
-    message(STATUS "Boost Include Dir: ${boost_include_dir}")
-
-    add_library(boost_system_header_only INTERFACE)
-    target_include_directories(boost_system_header_only INTERFACE ${boost_include_dir})
-    target_compile_definitions(boost_system_header_only INTERFACE BOOST_ERROR_CODE_HEADER_ONLY BOOST_SYSTEM_NO_LIB)
-    add_library(Boost::system ALIAS boost_system_header_only)
-else()
-    get_target_property(boost_include_dir Boost::system INTERFACE_INCLUDE_DIRECTORIES)
-endif()
-
-# 获取ForwardEngine源码目录
-set(FORWARD_ENGINE_SOURCE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../../..")
-set(FORWARD_ENGINE_BUILD_DIR "${FORWARD_ENGINE_SOURCE_DIR}/build")
-
-# 添加库搜索路径
-link_directories(
-    "${FORWARD_ENGINE_BUILD_DIR}/src"
-)
-
-# 创建可执行文件
-add_executable(${PROJECT_NAME}
+add_executable(High_performance_backend_server
     server.cpp
+    server.hpp
+    conversation.hpp
+    handler.hpp
 )
 
-# 设置可执行文件输出目录
-set_target_properties(${PROJECT_NAME} PROPERTIES
-    RUNTIME_OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/bin"
-)
-
-# 包含目录（使用绝对路径）
-target_include_directories(${PROJECT_NAME} PRIVATE
+target_include_directories(High_performance_backend_server PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}
-    ${CMAKE_CURRENT_SOURCE_DIR}/../../include
-    ${boost_include_dir}
+    ${CMAKE_SOURCE_DIR}/include
     "c:/bin/include"
 )
 
-# 链接库
-# 注意：Forward_static_library 已经通过 PUBLIC 链接了 BoringSSL 和编译定义
-# 所以这里不需要再链接 SSL 库或重复定义 BOOST_ASIO_* 宏
-target_link_libraries(${PROJECT_NAME} PRIVATE
+target_link_libraries(High_performance_backend_server PRIVATE
     Forward_static_library
     Boost::system
     glaze::glaze
@@ -82,34 +29,34 @@ target_link_libraries(${PROJECT_NAME} PRIVATE
     mswsock
 )
 
-# 编译选项
 if(MSVC)
-    target_compile_options(${PROJECT_NAME} PRIVATE
-        /W4
-        /O2
-        /DNDEBUG
-    )
+    target_compile_options(High_performance_backend_server PRIVATE /W4 /O2 /DNDEBUG)
 else()
-    target_compile_options(${PROJECT_NAME} PRIVATE
-        -Wall
-        -Wextra
-        -O2
-        -DNDEBUG
-    )
-
-    # MinGW特殊处理
-    if(MINGW)
-        target_compile_options(${PROJECT_NAME} PRIVATE
-            -Wa,-mbig-obj
-        )
-    endif()
+    target_compile_options(High_performance_backend_server PRIVATE -Wall -Wextra -O2 -DNDEBUG)
 endif()
 
-# Windows平台特定设置
-if(WIN32)
-    # 设置UTF-8控制台输出
-    target_compile_definitions(${PROJECT_NAME} PRIVATE
-        UNICODE
-        _UNICODE
-    )
+add_executable(client
+    client.cpp
+)
+
+target_include_directories(client PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}
+    ${CMAKE_SOURCE_DIR}/include
+    "c:/bin/include"
+)
+
+target_link_libraries(client PRIVATE
+    Forward_static_library
+    Boost::system
+    glaze::glaze
+    spdlog::spdlog
+    ws2_32
+    crypt32
+    mswsock
+)
+
+if(MSVC)
+    target_compile_options(client PRIVATE /W4 /O2 /DNDEBUG)
+else()
+    target_compile_options(client PRIVATE -Wall -Wextra -O2 -DNDEBUG)
 endif()

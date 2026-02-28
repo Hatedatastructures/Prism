@@ -1,8 +1,0 @@
-{
-    "main_port": 6789,
-    "stats_port": 9876,
-    "threads": 8,
-    "enable_ssl": false,
-    "cert_file": "",
-    "key_file": ""
-}

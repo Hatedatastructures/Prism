@@ -17,7 +17,7 @@ namespace agent = ngx::agent;
 namespace http = ngx::protocol::http;
 namespace net = agent::net;
 
-constexpr std::string_view configuration_path = {"C:\\Users\\C1373\\Desktop\\code\\ForwardEngine\\src\\configuration.json"};
+constexpr std::string_view configuration_path = {R"(C:\Users\C1373\Desktop\code\ForwardEngine\src\configuration.json)"};
 
 /**
  * @brief 主函数
