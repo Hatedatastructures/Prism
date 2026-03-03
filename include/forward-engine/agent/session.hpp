@@ -183,6 +183,16 @@ namespace ngx::agent
             ctx_.account_validator_ptr = account_validator;
         }
 
+        /**
+         * @brief 设置会话关闭回调
+         * @details 回调在 `close()` 幂等执行成功后触发一次。
+         * @param callback 关闭回调函数
+         */
+        void set_on_closed(std::function<void()> callback) noexcept
+        {
+            on_closed_ = std::move(callback);
+        }
+
     private:
         using mutable_buf = std::span<std::byte>;
         using cancellation_slot = net::cancellation_slot;
@@ -237,7 +247,9 @@ namespace ngx::agent
 
         memory::vector<std::byte> buffer_;        ///< 共享传输缓冲区
         memory::frame_arena frame_arena_;         ///< 帧内存池
-        
+        bool closed_{false};                      ///< 会话是否已关闭
+        std::function<void()> on_closed_;         ///< 关闭回调
+
         session_context ctx_;                     ///< 会话上下文，持有所有状态
     }; // class session
 
@@ -291,6 +303,11 @@ namespace ngx::agent
 
     inline void session::close()
     {
+        if (closed_)
+        {
+            return;
+        }
+        closed_ = true;
         trace::debug("[Session] Session closing.");
         if (ctx_.inbound)
         {
@@ -301,6 +318,12 @@ namespace ngx::agent
         {
             ctx_.outbound->close();
             ctx_.outbound.reset();
+        }
+        if (on_closed_)
+        {
+            auto callback = std::move(on_closed_);
+            on_closed_ = nullptr;
+            callback();
         }
     }
 

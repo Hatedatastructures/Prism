@@ -18,6 +18,10 @@ set(FORWARD_LIB_SOURCES
         ../include/forward-engine/protocol/frame.hpp
         forward-engine/agent/distributor.cpp
         ../include/forward-engine/agent/distributor.hpp
+        forward-engine/agent/distribute.cpp
+        ../include/forward-engine/agent/distribute.hpp
+        forward-engine/agent/listener.cpp
+        ../include/forward-engine/agent/listener.hpp
         forward-engine/transport/source.cpp
         ../include/forward-engine/transport/source.hpp
         ../include/forward-engine/agent/session.hpp

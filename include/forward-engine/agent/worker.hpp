@@ -42,6 +42,9 @@
 #include <forward-engine/agent/validator.hpp>
 #include <forward-engine/transport/reliable.hpp>
 #include <forward-engine/memory/pool.hpp>
+#include <forward-engine/agent/distribute.hpp>
+#include <atomic>
+#include <chrono>
 #include <memory>
 
 #include <forward-engine/agent/context.hpp>
@@ -132,11 +135,10 @@ namespace ngx::agent
         explicit worker(const agent::config &cfg, std::shared_ptr<validator> validator_ptr)
             : ioc_(1), pool_(ioc_, memory::system::thread_local_pool(), cfg.pool.max_cache_per_endpoint, cfg.pool.max_idle_seconds),
               distributor_(pool_, ioc_, memory::system::thread_local_pool()),
-              ssl_ctx_(std::make_shared<ssl::context>(ssl::context::tls)), acceptor_(ioc_),
+              ssl_ctx_(std::make_shared<ssl::context>(ssl::context::tls)),
               server_ctx_{cfg, ssl_ctx_, std::move(validator_ptr)},                // 1. 初始化全局上下文
               worker_ctx_{ioc_, distributor_, memory::system::thread_local_pool()} // 2. 初始化工作线程上下文
         {
-            const auto port = cfg.addressable.port;
             const auto &cert = cfg.certificate.cert;
             const auto &key = cfg.certificate.key;
             // SSL 配置部分
@@ -187,28 +189,6 @@ namespace ngx::agent
                 throw; // 或者 ssl_ctx_.reset(); 但后面要判空
             }
 
-            // 网络监听部分
-            auto endpoint = tcp::endpoint(tcp::v4(), port);
-            acceptor_.open(endpoint.protocol());
-
-            /**
-             * @details 设置接收器选项：
-             * reuse_address(true)：允许地址复用，避免 `TIME_WAIT` 状态问题
-             * receive_buffer_size(262144)：设置接收缓冲区大小为 256KB
-             * send_buffer_size(262144)：设置发送缓冲区大小为 256KB
-             */
-            acceptor_.set_option(net::socket_base::reuse_address(true));
-            acceptor_.set_option(net::socket_base::receive_buffer_size(262144));
-            acceptor_.set_option(net::socket_base::send_buffer_size(262144));
-
-            int one = 1;
-#ifdef SO_REUSEPORT
-            setsockopt(acceptor_.native_handle(), SOL_SOCKET, SO_REUSEPORT, &one, sizeof(one));
-#endif
-
-            acceptor_.bind(endpoint);
-            acceptor_.listen();
-
             // 加载反向代理路由
             for (const auto &[host, ep_config] : server_ctx_.cfg.reverse_map)
             {
@@ -257,80 +237,73 @@ namespace ngx::agent
          */
         void run()
         {
-            net::co_spawn(ioc_, accept_connection(), net::detached);
+            net::co_spawn(ioc_, observe_loop_lag(), net::detached);
             ioc_.run();
+        }
+
+        /**
+         * @brief 接收监听层投递的 socket
+         * @details 将连接投递到本 `worker` 线程执行，保证会话在本地线程封闭处理。
+         * @param socket 已建立的客户端连接
+         */
+        void dispatch_socket(tcp::socket socket)
+        {
+            pending_handoffs_.fetch_add(1U, std::memory_order_relaxed);
+            auto dispatch = [this, socket = std::move(socket)]() mutable
+            {
+                pending_handoffs_.fetch_sub(1U, std::memory_order_relaxed);
+                if (!socket.is_open())
+                {
+                    return;
+                }
+                boost::system::error_code ec;
+                socket.set_option(tcp::no_delay(true), ec);
+                socket.set_option(net::socket_base::receive_buffer_size(server_ctx_.cfg.buffer.size), ec);
+                socket.set_option(net::socket_base::send_buffer_size(server_ctx_.cfg.buffer.size), ec);
+                start_session(std::move(socket));
+            };
+            net::post(ioc_, dispatch);
+        }
+
+        /**
+         * @brief 读取当前 `worker` 负载快照
+         * @return `worker_load_snapshot` 会话数、投递队列和事件循环延迟
+         */
+        [[nodiscard]] auto load_snapshot() const noexcept
+            -> worker_load_snapshot
+        {
+            return {active_sessions_.load(std::memory_order_relaxed), pending_handoffs_.load(std::memory_order_relaxed),
+                    event_loop_lag_us_.load(std::memory_order_relaxed)};
         }
 
     private:
         /**
-         * @brief 异步接收连接
-         * @details 持续接收新的客户端连接，并为每个连接创建 `session`。这是工作线程的核心循环：
-         * @details - 1. 异步接受：调用 `async_accept` 等待新连接；
-         * @details - 2. 连接处理：收到连接后创建可靠传输层 (`make_reliable`)；
-         * @details - 3. 会话创建：创建 `session` 对象并配置验证器；
-         * @details - 4. 会话启动：调用 `session::start()` 开始协议处理；
-         * @details - 5. 递归调用：处理完成后立即发起下一个 `async_accept`。
-         *
-         * 错误处理：
-         * @details - 如果 `async_accept` 失败，记录错误并继续循环；
-         * @details - 如果创建会话失败，丢弃连接但继续循环；
-         * @details - 如果内存分配失败，终止接受循环。
-         *
-         * 递归实现：
-         * @details - 该函数使用 `for(;;)` 循环和 `co_await` 实现持续接收，替代了传统的回调递归。
-         * @details - 协程会在 `async_accept` 处挂起，直到新连接到达，从而实现非阻塞的高并发处理。
-         *
-         * @note 这是一个递归的异步操作：每次处理完一个连接后，会立即发起下一个 `async_accept`。
-         * @throws `std::bad_alloc` 如果内存分配失败
-         * @warning 如果创建会话或启动会话失败，连接会被丢弃但循环继续，确保服务不中断。
-         * @warning 该方法不直接抛出异常，错误通过 `async_accept` 的回调处理。
+         * @brief 在当前线程创建并启动会话
+         * @param socket 已建立连接
          */
-        /**
-         * @brief 异步接收连接（协程版）
-         * @details 持续接收新的客户端连接，并为每个连接创建 `session`。
-         * @return `net::awaitable<void>` 协程任务
-         */
-        net::awaitable<void> accept_connection()
+        void start_session(tcp::socket socket)
         {
-            for (;;)
             {
-                boost::system::error_code ec;
-                tcp::socket socket = co_await acceptor_.async_accept(net::redirect_error(net::use_awaitable, ec));
+                const std::string client_ip = socket.remote_endpoint().address().to_string();
+                std::ostringstream oss;
+                oss << std::this_thread::get_id();
+                const std::string thread_id = oss.str();
+                trace::info("[Worker] thread ID:{}, client address {} connected", thread_id, client_ip);
+            }
+            auto close_function = [this]() noexcept
+            {
+                active_sessions_.fetch_sub(1U, std::memory_order_relaxed);
+            };
 
-                {
-                    std::ostringstream oss;
-                    oss << std::this_thread::get_id();
-                    std::string_view client_ip = socket.remote_endpoint().address().to_string();
-                    trace::info("current thread :{}, accept connection from {}", oss.str(), client_ip);
-                }
-                if (ec)
-                {
-                    trace::error("accept failed: {}", ec.message());
-                    // 发生错误时，可能需要稍作等待，避免死循环刷日志
-                    co_await net::steady_timer(ioc_, std::chrono::milliseconds(10)).async_wait(net::use_awaitable);
-                    continue;
-                }
-
-                socket.set_option(tcp::no_delay(true));
-                socket.set_option(net::socket_base::receive_buffer_size(server_ctx_.cfg.buffer.size));
-                socket.set_option(net::socket_base::send_buffer_size(server_ctx_.cfg.buffer.size));
-
-                // 创建会话
-
+            {
                 auto inbound = ngx::transport::make_reliable(std::move(socket));
-
-                /**
-                 * @details 创建参数列表，用于初始化会话
-                 */
                 session_params params{server_ctx_, worker_ctx_, std::move(inbound)};
-
                 const auto shared_session = ngx::agent::make_session(std::move(params));
+                active_sessions_.fetch_add(1U, std::memory_order_relaxed);
+                shared_session->set_on_closed(close_function);
 
-                // 验证器
                 const bool auth_enabled = !server_ctx_.cfg.authentication.credentials.empty() || !server_ctx_.cfg.authentication.users.empty();
                 shared_session->set_account_validator(auth_enabled ? server_ctx_.acc_validator.get() : nullptr);
-
-                // 凭据验证器
                 auto verifier_function = [this](const std::string_view credential) -> bool
                 {
                     if (server_ctx_.cfg.authentication.credentials.empty() && server_ctx_.cfg.authentication.users.empty())
@@ -339,18 +312,69 @@ namespace ngx::agent
                     }
                     return server_ctx_.acc_validator->verify(credential);
                 };
-                // 设置凭据验证器
                 shared_session->set_credential_verifier(verifier_function);
-
                 shared_session->start();
             }
         }
 
-        net::io_context ioc_;                   ///< IO 上下文，所有异步操作的执行环境
-        source pool_;                           ///< 连接池（资源仓库），管理到后端服务的连接复用
-        distributor distributor_;               ///< 路由分发器（业务大脑），决定数据转发目标
-        std::shared_ptr<ssl::context> ssl_ctx_; ///< SSL 上下文，用于 TLS 协议处理（可为空）
-        tcp::acceptor acceptor_;                ///< TCP 接收器，监听客户端连接
+        /**
+         * @brief 周期采样事件循环延迟
+         */
+        auto observe_loop_lag()
+            -> net::awaitable<void>
+        { // 该函数主要是在检测当前调度，压力如果大于0说明忙
+            net::steady_timer timer(ioc_);
+            auto expected_time = std::chrono::steady_clock::now();
+            std::uint64_t jitter_baseline_us = 0;
+            std::uint64_t smoothed_lag_us = 0;
+            std::uint32_t warmup_samples = 0;
+            for (;;)
+            {
+                expected_time += std::chrono::milliseconds(250);
+                timer.expires_at(expected_time);
+                boost::system::error_code ec;
+                co_await timer.async_wait(net::redirect_error(net::use_awaitable, ec));
+                if (ec)
+                {
+                    co_return;
+                }
+                const auto current_time = std::chrono::steady_clock::now();
+                auto difference_time = std::chrono::duration_cast<std::chrono::microseconds>(current_time - expected_time).count();
+                const auto lag_time = current_time > expected_time ? difference_time : 0;
+                // 原始延迟：仅保留“晚醒”部分（早醒或准时视为 0）
+                const std::uint64_t raw_lag_us = lag_time > 0 ? static_cast<std::uint64_t>(lag_time) : 0ULL;
+                // 上限裁剪：单次尖峰不允许超过 20ms，避免异常值污染后续平滑
+                const std::uint64_t capped_lag_us = raw_lag_us > 20000ULL ? 20000ULL : raw_lag_us;
+
+                // 预热阶段：用前 16 次样本估计调度抖动基线，不向外输出延迟
+                if (warmup_samples < 16U)
+                {
+                    jitter_baseline_us = (jitter_baseline_us * warmup_samples + capped_lag_us) / (warmup_samples + 1U);
+                    ++warmup_samples;
+                    event_loop_lag_us_.store(0ULL, std::memory_order_relaxed);
+                    continue;
+                }
+
+                // 有效延迟：扣除基线后的“真实拥塞”部分
+                std::uint64_t effective_lag_us = capped_lag_us > jitter_baseline_us ? capped_lag_us - jitter_baseline_us : 0ULL;
+                // 死区：1ms 以内视为正常调度抖动
+                if (effective_lag_us <= 1000ULL)
+                {
+                    effective_lag_us = 0ULL;
+                }
+                // EMA 平滑：抑制单点抖动，增强分流决策稳定性
+                smoothed_lag_us = (smoothed_lag_us * 7ULL + effective_lag_us) / 8ULL;
+                event_loop_lag_us_.store(smoothed_lag_us, std::memory_order_relaxed);
+            }
+        }
+
+        net::io_context ioc_;                             ///< IO 上下文，所有异步操作的执行环境
+        source pool_;                                     ///< 连接池（资源仓库），管理到后端服务的连接复用
+        distributor distributor_;                         ///< 路由分发器（业务大脑），决定数据转发目标
+        std::shared_ptr<ssl::context> ssl_ctx_;           ///< SSL 上下文，用于 TLS 协议处理（可为空）
+        std::atomic<std::uint32_t> active_sessions_{0};   ///< 活跃会话计数
+        std::atomic<std::uint32_t> pending_handoffs_{0};  ///< 待处理投递计数
+        std::atomic<std::uint64_t> event_loop_lag_us_{0}; ///< 事件循环延迟（微秒）
 
         server_context server_ctx_; ///< 全局上下文
         worker_context worker_ctx_; ///< 工作线程上下文
