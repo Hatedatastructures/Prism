@@ -47,9 +47,9 @@
 #include <boost/asio.hpp>
 #include <boost/asio/experimental/awaitable_operators.hpp>
 
+#include <forward-engine/agent/context.hpp>
 #include <forward-engine/abnormal.hpp>
 #include <forward-engine/memory/pool.hpp>
-#include <forward-engine/agent/distributor.hpp>
 #include <forward-engine/protocol/analysis.hpp>
 #include <forward-engine/agent/handler.hpp>
 #include <forward-engine/trace/spdlog.hpp>
@@ -64,12 +64,19 @@ namespace ngx::agent
     using tcp = boost::asio::ip::tcp;
     using unique_sock = transport::unique_sock;
 
+    struct session_params
+    {
+        server_context &server;
+        worker_context &worker;
+        transport::transmission_pointer inbound;
+    };
+
     /**
      * @class session
      * @brief 会话管理类
      * @note `session` 对象通过 `shared_from_this()` 管理生命周期，确保异步操作期间对象保持存活。
      * 应在 `worker::accept` 中创建并立即调用 `start()` 启动处理流程。
-     * @warning `diversion` 方法会转移 `inbound_` 传输层的所有权，调用后 `inbound_` 变为空。
+     * @warning `diversion` 方法会转移 `ctx_.inbound` 传输层的所有权，调用后 `ctx_.inbound` 变为空。
      * @details 代表一个活跃的客户端连接。它是一个自持有 (`shared_from_this`) 的对象，
      * 这意味着只要异步操作未完成，它就不会析构。
      *
@@ -99,18 +106,13 @@ namespace ngx::agent
         /**
          * @brief 构造会话
          * @details 初始化会话的所有核心组件，包括传输层、内存池和验证器引用。
-         * @param io_context `IO` 上下文，会话将在该上下文中运行所有异步操作
-         * @param inbound 入站传输层（客户端连接），所有权将被转移到会话对象
-         * @param dist 业务分发器，用于路由转发到后端服务
-         * @param ssl_ctx `SSL` 上下文 (可选)，用于 `TLS` 协议处理
-         * @param resource 内存资源 (通常为线程局部池)，用于会话内部缓冲区分配
+         * @param params 会话参数表，包含 `GlobalContext`、`WorkerContext` 和入站传输层
          * @throws `std::bad_alloc` 如果内存分配失败
          * @note 构造后应立即调用 `start()` 启动会话处理流程，避免资源泄漏。
-         * @warning `inbound` 参数的所有权将被转移，调用者不应再使用该传输层对象。
-         * @warning 确保 `io_context` 在会话生命周期内保持运行。
+         * @warning `params.inbound` 的所有权将被转移到会话上下文中。
+         * @warning 确保 `WorkerContext` 在会话生命周期内保持运行。
          */
-        explicit session(net::io_context &io_context, transport::transmission_pointer inbound,
-                         distributor &dist, std::shared_ptr<ssl::context> ssl_ctx, memory::resource_pointer resource);
+        explicit session(session_params params);
 
         /**
          * @brief 析构会话
@@ -164,7 +166,7 @@ namespace ngx::agent
          */
         void set_credential_verifier(std::function<bool(std::string_view)> verifier)
         {
-            this->credential_verifier_ = std::move(verifier);
+            ctx_.credential_verifier = std::move(verifier);
         }
 
         /**
@@ -178,7 +180,7 @@ namespace ngx::agent
          */
         void set_account_validator(validator *account_validator) noexcept
         {
-            this->account_validator_ptr_ = account_validator;
+            ctx_.account_validator_ptr = account_validator;
         }
 
     private:
@@ -199,17 +201,13 @@ namespace ngx::agent
          * @details - 如果协议类型已注册但创建处理器失败，关闭连接；
          * @details - 如果处理器处理过程中抛出异常，记录日志并关闭连接。
          *
-         * @param distributor 路由分发器，用于创建到目标服务的连接
-         * @param ctx 协议处理器上下文，包含 `SSL`、内存池等运行时资源
          * @throws `std::bad_alloc` 如果内存分配失败
          * @throws `std::system_error` 如果底层系统调用失败
-         * @note 该方法会转移 `inbound_` 传输层的所有权给协议处理器，调用后 `inbound_` 变为空。
+         * @note 该方法会转移 `ctx_.inbound` 的所有权给协议处理器，调用后 `ctx_.inbound` 变为空。
          * @warning 如果协议检测失败或找不到处理器，连接可能会被关闭。
          * @warning 该方法是私有方法，仅供 `start()` 方法内部调用。
          */
-        auto diversion(
-            std::shared_ptr<distributor> distributor,
-            const handler_context &ctx) -> net::awaitable<void>;
+        auto diversion() -> net::awaitable<void>;
 
         /**
          * @brief 全双工数据转发
@@ -237,24 +235,17 @@ namespace ngx::agent
          */
         auto do_splice() -> net::awaitable<void>;
 
-        net::io_context &io_context_;              ///< `IO` 上下文，所有异步操作的执行环境
-        std::shared_ptr<ssl::context> ssl_ctx_;    ///< `SSL` 上下文，用于 `TLS` 协议处理（可选）
-        distributor &distributor_;                 ///< 路由分发器，用于创建到目标服务的连接
-        transport::transmission_pointer inbound_;  ///< 入站传输层（客户端连接），所有权在 `diversion()` 后转移
-        transport::transmission_pointer outbound_; ///< 出站传输层（服务器连接），由 `distributor` 创建
-
-        memory::vector<std::byte> buffer_;                          ///< 共享传输缓冲区，大小为 8192 字节
-        memory::frame_arena frame_arena_;                           ///< 帧内存池，用于协议处理期间的临时内存分配
-        std::function<bool(std::string_view)> credential_verifier_; ///< 用户凭据验证回调函数
-        validator *account_validator_ptr_{nullptr};                 ///< 账户验证器指针，用于连接数配额控制（可选）
+        memory::vector<std::byte> buffer_;        ///< 共享传输缓冲区
+        memory::frame_arena frame_arena_;         ///< 帧内存池
+        
+        session_context ctx_;                     ///< 会话上下文，持有所有状态
     }; // class session
 
-    inline session::session(net::io_context &io_context, transport::transmission_pointer inbound,
-                            distributor &dist, std::shared_ptr<ssl::context> ssl_ctx, memory::resource_pointer resource)
-        : io_context_(io_context), ssl_ctx_(std::move(ssl_ctx)), distributor_(dist),
-          inbound_(std::move(inbound)), buffer_(resource)
+    inline session::session(session_params params)
+        : buffer_(params.worker.memory_pool),
+          ctx_{params.server, params.worker, frame_arena_, nullptr, nullptr, params.server.cfg.buffer.size, std::move(params.inbound)}
     {
-        buffer_.reserve(8192);
+        buffer_.reserve(ctx_.buffer_size);
     }
 
     inline session::~session()
@@ -269,18 +260,7 @@ namespace ngx::agent
         // 定义处理协程，捕获 `shared_from_this()` 确保对象在协程期间保持存活
         auto process = [self = this->shared_from_this()]() -> net::awaitable<void>
         {
-            // 构造 handler_context
-            handler_context ctx{
-                self->io_context_,
-                self->ssl_ctx_,
-                self->frame_arena_,
-                self->credential_verifier_,
-                self->account_validator_ptr_};
-
-            // 创建不带删除器的 shared_ptr 指向 distributor 引用
-            std::shared_ptr<distributor> dist_ptr(&self->distributor_, [](distributor *) {});
-
-            co_await self->diversion(dist_ptr, ctx);
+            co_await self->diversion();
         };
         // 定义完成回调，处理协程中的异常
         auto completion = [self = this->shared_from_this()](const std::exception_ptr &ep) noexcept
@@ -306,35 +286,34 @@ namespace ngx::agent
             self->close();
         };
 
-        net::co_spawn(io_context_, std::move(process), std::move(completion));
+        net::co_spawn(ctx_.worker.io_context, std::move(process), std::move(completion));
     }
 
     inline void session::close()
     {
         trace::debug("[Session] Session closing.");
-        if (inbound_)
+        if (ctx_.inbound)
         {
-            inbound_->close();
-            inbound_.reset();
+            ctx_.inbound->close();
+            ctx_.inbound.reset();
         }
-        if (outbound_)
+        if (ctx_.outbound)
         {
-            outbound_->close();
-            outbound_.reset();
+            ctx_.outbound->close();
+            ctx_.outbound.reset();
         }
     }
 
-    inline auto session::diversion(std::shared_ptr<distributor> distributor, const handler_context &ctx)
-        -> net::awaitable<void>
+    inline auto session::diversion() -> net::awaitable<void>
     {
-        if (!inbound_ || !distributor)
+        if (!ctx_.inbound)
         {
-            trace::warn("[Session] diversion aborted: missing inbound transmission or distributor.");
+            trace::warn("[Session] diversion aborted: missing inbound transmission.");
             co_return;
         }
 
         // 1. 协议检测
-        auto detect_result = co_await ngx::agent::detection::detect_from_transmission(*inbound_, 24);
+        auto detect_result = co_await ngx::agent::detection::detect_from_transmission(*ctx_.inbound, 24);
 
         if (gist::failed(detect_result.ec))
         {
@@ -358,21 +337,20 @@ namespace ngx::agent
         }
 
         // 3. 执行协议处理
-        co_await handler->process(std::move(inbound_), distributor, ctx,
-                                  std::span<const std::byte>(detect_result.pre_read_data.data(), detect_result.pre_read_size));
+        auto span = std::span<const std::byte>(detect_result.pre_read_data.data(), detect_result.pre_read_size);
+        co_await handler->process(ctx_, span);
     }
 
     inline auto session::do_splice() -> net::awaitable<void>
     {
-        if (!inbound_ || !outbound_)
+        if (!ctx_.inbound || !ctx_.outbound)
         {
             trace::warn("[Session] splice aborted: inbound or outbound transmission missing.");
             co_return;
         }
 
-        // 分配缓冲区（8KB）
-        buffer_.resize(8192);
-        const auto buffer = net::buffer(buffer_.data(), buffer_.size());
+        // 分配缓冲区
+        buffer_.resize(buffer_.capacity());
 
         // 将缓冲区平分为两部分
         const std::size_t half = buffer_.size() / 2;
@@ -380,7 +358,7 @@ namespace ngx::agent
         const auto right = mutable_buf(buffer_.data() + half, buffer_.size() - half);
 
         // 定义单向转发 lambda
-        auto forward = [](transport::transmission &from, transport::transmission &to, mutable_buf buf) 
+        auto forward = [](transport::transmission &from, transport::transmission &to, mutable_buf buf)
             -> net::awaitable<void>
         {
             std::error_code ec;
@@ -403,28 +381,22 @@ namespace ngx::agent
 
         using namespace boost::asio::experimental::awaitable_operators;
         trace::debug("[Session] Starting full-duplex splice.");
-        co_await (forward(*inbound_, *outbound_, left) || forward(*outbound_, *inbound_, right));
+        co_await (forward(*ctx_.inbound, *ctx_.outbound, left) || forward(*ctx_.outbound, *ctx_.inbound, right));
         trace::debug("[Session] Splice finished.");
     }
 
     /**
      * @brief 创建会话对象的工厂函数
      * @details 该函数封装了 `session` 对象的创建逻辑
-     * @param io_context `IO` 上下文，会话将在该上下文中运行所有异步操作
-     * @param inbound 入站传输层（客户端连接），所有权将被转移到会话对象
-     * @param dist 业务分发器，用于路由转发到后端
-     * @param ssl_ctx `SSL` 上下文 (可选)，用于 `TLS` 协议处理
-     * @param resource 内存资源 (通常为线程局部池)，用于会话
+     * @param params 会话参数表，包含 `GlobalContext`、`WorkerContext` 和入站传输层
      * @return `std::shared_ptr<session>` 创建的会话对象
      * @throws `std::bad_alloc` 如果内存分配失败
      * @note 该函数是 `noexcept` 的，不抛出任何异常。
      * @warning 调用者必须确保传入的 `io_context` 在会话生命周期内保持运行。
      */
-    std::shared_ptr<session> make_session(net::io_context &io_context, transport::transmission_pointer inbound, 
-        distributor &dist, std::shared_ptr<ssl::context> ssl_ctx,  memory::resource_pointer resource) noexcept
+    inline std::shared_ptr<session> make_session(session_params &&params) noexcept
     {
-        return std::make_shared<session>(io_context, std::move(inbound), 
-                                         dist, std::move(ssl_ctx), resource);
+        return std::make_shared<session>(std::move(params));
     }
 
 } // namespace ngx::agent

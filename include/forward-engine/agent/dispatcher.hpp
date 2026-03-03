@@ -95,21 +95,18 @@ namespace ngx::agent
         /**
          * @brief 处理协议数据流
          * @details 将 `HTTP` 协议数据流转发到 `pipeline::http` 处理流水线。该协程负责：
-         * - 将入站传输对象、分发器、上下文和数据传递给流水线；
+         * - 将会话上下文和数据传递给流水线；
          * - 等待流水线处理完成；
          * - 返回处理结果。
-         * @param inbound 入站传输对象指针，所有权转移给流水线
-         * @param distributor 分发器共享指针，用于路由和连接管理
-         * @param ctx 处理器上下文，包含 `SSL` 上下文等配置
+         * @param ctx 会话上下文，包含所有必要的资源和状态
          * @param data 协议数据切片，包含已读取的协议头部数据
          * @throws `std::bad_alloc` 如果内存分配失败
          * @throws `std::runtime_error` 如果流水线处理失败
          */
-        auto process(transport::transmission_pointer inbound, std::shared_ptr<distributor> distributor,
-                     const handler_context &ctx, std::span<const std::byte> data)
+        auto process(session_context &ctx, std::span<const std::byte> data)
             -> net::awaitable<void> override
         {
-            co_await pipeline::http(std::move(inbound), distributor, ctx, data);
+            co_await pipeline::http(ctx, data);
         }
     };
 
@@ -173,21 +170,18 @@ namespace ngx::agent
         /**
          * @brief 处理协议数据流
          * @details 将 `SOCKS5` 协议数据流转发到 `pipeline::socks5` 处理流水线。该协程负责：
-         * - 将入站传输对象、分发器、上下文和数据传递给流水线；
+         * - 将会话上下文和数据传递给流水线；
          * - 等待流水线处理完成；
          * - 返回处理结果。
-         * @param inbound 入站传输对象指针，所有权转移给流水线
-         * @param distributor 分发器共享指针，用于路由和连接管理
-         * @param ctx 处理器上下文，包含 `SSL` 上下文等配置
+         * @param ctx 会话上下文，包含所有必要的资源和状态
          * @param data 协议数据切片，包含已读取的协议头部数据
          * @throws `std::bad_alloc` 如果内存分配失败
          * @throws `std::runtime_error` 如果流水线处理失败
          */
-        auto process(transport::transmission_pointer inbound, std::shared_ptr<distributor> distributor,
-                     const handler_context &ctx, std::span<const std::byte> data)
+        auto process(session_context &ctx, std::span<const std::byte> data)
             -> net::awaitable<void> override
         {
-            co_await pipeline::socks5(std::move(inbound), distributor, ctx, data);
+            co_await pipeline::socks5(ctx, data);
         }
     };
 
@@ -251,21 +245,18 @@ namespace ngx::agent
         /**
          * @brief 处理协议数据流
          * @details 将 `TLS` 协议数据流转发到 `pipeline::tls` 处理流水线。该协程负责：
-         * - 将入站传输对象、分发器、`SSL` 上下文、处理器上下文和数据传递给流水线；
+         * - 将会话上下文和数据传递给流水线；
          * - 等待流水线处理完成；
          * - 返回处理结果。
-         * @param inbound 入站传输对象指针，所有权转移给流水线
-         * @param distributor 分发器共享指针，用于路由和连接管理
-         * @param ctx 处理器上下文，包含 `SSL` 上下文等配置
+         * @param ctx 会话上下文，包含所有必要的资源和状态
          * @param data 协议数据切片，包含已读取的协议头部数据
          * @throws `std::bad_alloc` 如果内存分配失败
          * @throws `std::runtime_error` 如果流水线处理失败
          */
-        auto process(transport::transmission_pointer inbound, std::shared_ptr<distributor> distributor,
-                     const handler_context &ctx, std::span<const std::byte> data)
+        auto process(session_context &ctx, std::span<const std::byte> data)
             -> net::awaitable<void> override
         {
-            co_await pipeline::tls(std::move(inbound), distributor, ctx.ssl_ctx, ctx, data);
+            co_await pipeline::tls(ctx, data);
         }
     };
 
@@ -286,8 +277,8 @@ namespace ngx::agent
      *
      * @note 该函数是幂等的：多次调用不会重复注册相同处理器。
      * @warning 必须在所有工作线程启动前调用，避免线程竞争。
-     * @throws `std::bad_alloc` 如果内存分配失败
-     * @throws `std::runtime_error` 如果工厂注册失败
+     * @throws std::bad_alloc 如果内存分配失败
+     * @throws std::runtime_error 如果工厂注册失败
      *
      * ```
      * // 使用示例：在程序初始化时注册处理器

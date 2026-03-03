@@ -32,7 +32,6 @@
 #include <memory>
 #include <string>
 #include <utility>
-#include <functional>
 #include <string_view>
 #include <span>
 
@@ -42,7 +41,6 @@
 #include <boost/beast.hpp>
 
 #include <forward-engine/memory/pool.hpp>
-#include <forward-engine/agent/validator.hpp>
 #include <forward-engine/agent/distributor.hpp>
 #include <forward-engine/protocol/analysis.hpp>
 #include <forward-engine/protocol/socks5.hpp>
@@ -51,11 +49,9 @@
 #include <forward-engine/protocol/http/deserialization.hpp>
 #include <forward-engine/protocol/http/serialization.hpp>
 #include <forward-engine/trace/spdlog.hpp>
-#include <forward-engine/agent/handler.hpp>
 #include <forward-engine/transport/reliable.hpp>
 #include <forward-engine/transport/transmission.hpp>
 #include <forward-engine/gist/code.hpp>
-#include <forward-engine/gist/handling.hpp>
 
 /**
  * @namespace ngx::agent::pipeline
@@ -173,20 +169,20 @@ namespace ngx::agent::pipeline
                      const protocol::analysis::target &target, const bool allow_reverse, const bool require_open)
         -> net::awaitable<std::pair<gist::code, transport::transmission_pointer>>
     {
-        gist::code ec = gist::code::success;
+        auto ec = gist::code::success;
         transport::unique_sock socket;
 
         if (allow_reverse && !target.positive)
         {
-            auto result = co_await distributor->route_reverse(target.host);
-            ec = result.first;
-            socket = std::move(result.second);
+            auto [fst, snd] = co_await distributor->route_reverse(target.host);
+            ec = fst;
+            socket = std::move(snd);
         }
         else
         {
-            auto result = co_await distributor->route_forward(target.host, target.port);
-            ec = result.first;
-            socket = std::move(result.second);
+            auto [fst, snd] = co_await distributor->route_forward(target.host, target.port);
+            ec = fst;
+            socket = std::move(snd);
         }
 
         if (gist::failed(ec))
@@ -223,20 +219,20 @@ namespace ngx::agent::pipeline
      * @details - 数据写入：读取到的数据立即写入对方方向，避免延迟；
      * @details - 异常处理：任意方向出错或 EOF，终止整个转发过程。
      *
-     * @tparam StreamInbound 入站流类型，通常是 `transport::transmission_pointer` 或 SSL Stream
+     * @tparam StreamInbound 入站流类型，通常是 `transport::transmission_pointer` 或 ssl stream
      * @tparam StreamOutbound 出站流类型，通常是 `transport::transmission_pointer`
      * @param inbound 入站连接，通常是客户端连接，所有权将被转移
      * @param outbound 出站连接，通常是服务端连接，所有权将被转移
      * @param mr 内存资源指针，用于缓冲区分配（可选，默认为当前资源）
-     * @return `net::awaitable<void>` 异步操作，转发完成后返回
+     * @param buffer_size 缓冲区大小，默认为 256KB
      * @note 该函数会阻塞直到任意一个方向的转发完成（EOF 或错误）。
      * @warning 转发过程中会持有传输层对象的所有权，避免在转发完成前析构这些对象。
      * @throws `std::bad_alloc` 如果内存分配失败
      * @throws `std::runtime_error` 如果转发过程中发生 IO 错误
      */
     template <typename StreamInbound, typename StreamOutbound>
-    inline auto original_tunnel(StreamInbound inbound, StreamOutbound outbound,
-                                memory::resource_pointer mr = memory::current_resource())
+    auto original_tunnel(StreamInbound inbound, StreamOutbound outbound, const memory::resource_pointer mr = memory::current_resource(),
+                         const std::uint32_t buffer_size = 262144U)
         -> net::awaitable<void>
     {
         // 检查有效性
@@ -244,13 +240,13 @@ namespace ngx::agent::pipeline
         // 这里简化处理，假设如果是指针则判空
 
         // 缓冲区：使用内存池分配，避免每次堆分配
-        memory::vector<std::byte> buffer(8192, mr);
+        memory::vector<std::byte> buffer(buffer_size, mr);
         std::span<std::byte> buf_span(buffer);
-        auto left = buf_span.subspan(0, 4096);
-        auto right = buf_span.subspan(4096);
+        auto left = buf_span.subspan(0, buffer_size / 2);
+        auto right = buf_span.subspan(buffer_size / 2);
 
         // 转发逻辑 Lambda
-        // T1, T2 可能是 transmission_pointer (需解引用) 或 Stream (直接使用)
+        // T1, T2 可能是 transmission_pointer (需解引用) 或 stream (直接使用)
         auto forward = [](auto &from, auto &to, std::span<std::byte> buf) -> net::awaitable<void>
         {
             boost::system::error_code ec;
@@ -292,7 +288,7 @@ namespace ngx::agent::pipeline
         // 关闭资源
         if constexpr (requires { shut_close(inbound); })
             shut_close(inbound);
-        // 对于 SSL Stream 等对象，可能需要 shutdown，这里简化处理
+        // 对于 ssl stream 等对象，可能需要 shutdown，这里简化处理
         if constexpr (requires { shut_close(outbound); })
             shut_close(outbound);
     } // function original_tunnel
@@ -321,9 +317,7 @@ namespace ngx::agent::pipeline
      * @details - 预读转发：将预读的缓冲区数据也转发到上游；
      * @details - 响应隧道：建立双向数据隧道转发响应。
      *
-     * @param inbound 入站连接，客户端 HTTP 连接，所有权将被转移
-     * @param distributor 分发器，用于路由决策和连接建立
-     * @param ctx 上下文，包含 SSL、内存池等运行时资源
+     * @param ctx 会话上下文
      * @param data 预读数据，协议检测时读取的初始数据
      * @return `net::awaitable<void>` 异步操作，处理完成后返回
      * @note 支持 HTTP/1.1，自动处理 chunked 编码和连接复用。
@@ -331,11 +325,10 @@ namespace ngx::agent::pipeline
      * @throws `std::bad_alloc` 如果内存分配失败
      * @throws `std::runtime_error` 如果协议解析或隧道转发失败
      */
-    inline auto http(transport::transmission_pointer inbound, std::shared_ptr<distributor> distributor,
-                     const handler_context &ctx, std::span<const std::byte> data)
+    inline auto http(session_context &ctx, std::span<const std::byte> data)
         -> net::awaitable<void>
     {
-        transport::connector<transport::transmission_pointer> stream(std::move(inbound));
+        transport::connector stream(std::move(ctx.inbound));
         transport::transmission_pointer outbound;
 
         ctx.frame_arena.reset();
@@ -357,11 +350,13 @@ namespace ngx::agent::pipeline
                 co_return;
 
             const auto target = protocol::analysis::resolve(req);
-            ngx::trace::debug("Http analysis target = [host: {}, port: {}, positive: {}]", target.host, target.port, target.positive);
-            auto res = co_await dial(distributor, "HTTP", target, true, false);
-            if (gist::failed(res.first) || !res.second)
+            trace::info("[Pipeline] Http analysis target = [host: {}, port: {}, positive: {}]", target.host, target.port, target.positive);
+            // 使用 std::shared_ptr 的别名构造函数，创建一个不拥有所有权的 shared_ptr
+            std::shared_ptr<distributor> dist_ptr(&ctx.worker.distributor, [](distributor*) {});
+            auto [fst, snd] = co_await dial(dist_ptr, "HTTP", target, true, false);
+            if (gist::failed(fst) || !snd)
                 co_return;
-            outbound = std::move(res.second);
+            outbound = std::move(snd);
         }
 
         if (req.method() == protocol::http::verb::connect)
@@ -372,7 +367,7 @@ namespace ngx::agent::pipeline
             if (!ec)
             {
                 // 释放 connector 所有权，转回 transmission，建立原始隧道
-                co_await original_tunnel(stream.release(), std::move(outbound), mr);
+                co_await original_tunnel(stream.release(), std::move(outbound), mr, ctx.buffer_size);
             }
             co_return;
         }
@@ -387,13 +382,13 @@ namespace ngx::agent::pipeline
         if (read_buffer.size() > 0)
         {
             auto buf = read_buffer.data();
-            std::span<const std::byte> span(reinterpret_cast<const std::byte *>(buf.data()), buf.size());
+            std::span<const std::byte> span(static_cast<const std::byte *>(buf.data()), buf.size());
             co_await outbound->async_write_some(span, ec);
             if (ec)
                 co_return;
         }
 
-        co_await original_tunnel(stream.release(), std::move(outbound), mr);
+        co_await original_tunnel(stream.release(), std::move(outbound), mr, ctx.buffer_size);
     } // function http
 
     /**
@@ -422,23 +417,19 @@ namespace ngx::agent::pipeline
      * @details - 连接失败：发送错误响应，包含错误码；
      * @details - 原始隧道：建立客户端到目标的双向数据隧道。
      *
-     * @param inbound 入站连接，客户端 SOCKS5 连接，所有权将被转移
-     * @param distributor 分发器，用于路由决策和连接建立
-     * @param ctx 上下文，包含 SSL、内存池等运行时资源
+     * @param ctx 上下文
      * @param data 预读数据，协议检测时读取的初始数据
-     * @return `net::awaitable<void>` 异步操作，处理完成后返回
      * @note 支持 CONNECT、BIND 和 UDP ASSOCIATE 命令（实际只实现了 CONNECT）。
      * @warning SOCKS5 协议要求预读数据为空，否则握手可能失败。
      * @throws `std::bad_alloc` 如果内存分配失败
      * @throws `std::runtime_error` 如果协议握手或隧道转发失败
      */
-    inline auto socks5(transport::transmission_pointer inbound, std::shared_ptr<distributor> distributor,
-                       const handler_context &ctx, std::span<const std::byte> data)
+    inline auto socks5(session_context &ctx, const std::span<const std::byte> data)
         -> net::awaitable<void>
     {
-        using Connector = transport::connector<transport::transmission_pointer>;
+        using connector = transport::connector<transport::transmission_pointer>;
         // 构造 SOCKS5 流，传入适配器
-        auto agent = std::make_shared<protocol::socks5::stream<Connector>>(Connector(std::move(inbound), data));
+        const auto agent = std::make_shared<protocol::socks5::stream<connector>>(connector(std::move(ctx.inbound), data));
 
         // 注意：如果 data 不为空，需要注入到 stream 中，目前 socks5::stream 实现可能不支持预读数据注入
         // 假设 socks5 握手前没有预读数据，或者 caller 保证 data 为空
@@ -452,8 +443,10 @@ namespace ngx::agent::pipeline
         target.port = std::to_string(request.destination_port);
         target.positive = true;
 
-        ngx::trace::debug("Socks5 analysis target = [host: {}, port: {}, positive: {}]", target.host, target.port, target.positive);
-        auto [conn_ec, outbound] = co_await dial(distributor, "SOCKS5", target, true, true);
+        trace::info("[Pipeline] Socks5 analysis target = [host: {}, port: {}, positive: {}]", target.host, target.port, target.positive);
+        // 使用 std::shared_ptr 的别名构造函数，创建一个不拥有所有权的 shared_ptr
+        std::shared_ptr<distributor> dist_ptr(&ctx.worker.distributor, [](distributor*) {});
+        auto [conn_ec, outbound] = co_await dial(dist_ptr, "SOCKS5", target, true, true);
         if (gist::failed(conn_ec) || !outbound)
         {
             static_cast<void>(co_await agent->send_error(protocol::socks5::reply_code::host_unreachable));
@@ -468,7 +461,7 @@ namespace ngx::agent::pipeline
         // 从 agent 中取回底层 connector，再释放 transmission
         // 需确保 socks5::stream 提供了访问底层 socket 的方法
         auto trans_ptr = agent->socket().release();
-        co_await original_tunnel(std::move(trans_ptr), std::move(outbound), ctx.frame_arena.get());
+        co_await original_tunnel(std::move(trans_ptr), std::move(outbound), ctx.frame_arena.get(), ctx.buffer_size);
     } // function socks5
 
     /**
@@ -496,23 +489,18 @@ namespace ngx::agent::pipeline
      * @details - CONNECT 处理：支持 HTTPS CONNECT，建立原始隧道；
      * @details - 普通请求：支持 HTTPS GET、POST 等普通请求。
      *
-     * @param inbound 入站连接，客户端 TLS 连接，所有权将被转移
-     * @param distributor 分发器，用于路由决策和连接建立
-     * @param ssl_ctx SSL 上下文，用于 TLS 握手和加密
-     * @param ctx 处理上下文，包含内存池等运行时资源
+     * @param ctx 会话上下文
      * @param data 预读数据，协议检测时读取的初始数据（TLS 协议应为空）
-     * @return `net::awaitable<void>` 异步操作，处理完成后返回
      * @note 假设 TLS 内部是 HTTP/HTTPS 协议，不支持其他应用层协议。
      * @warning TLS 协议要求预读数据为空，否则握手会失败。
      * @throws `std::bad_alloc` 如果内存分配失败
      * @throws `std::runtime_error` 如果 TLS 握手或协议处理失败
      */
-    inline auto tls(transport::transmission_pointer inbound, std::shared_ptr<distributor> distributor,
-                    std::shared_ptr<ssl::context> ssl_ctx, const handler_context &ctx, std::span<const std::byte> data)
+    inline auto tls(session_context &ctx, std::span<const std::byte> data)
         -> net::awaitable<void>
     {
-        using Connector = transport::connector<transport::transmission_pointer>;
-        Connector stream(std::move(inbound), data);
+        using connector = transport::connector<transport::transmission_pointer>;
+        connector stream(std::move(ctx.inbound), data);
 
         // 构造 SSL 流
         // 注意：data 预读数据如果存在，会导致 SSL 握手失败（因为 SSL 帧头丢失）。
@@ -523,10 +511,10 @@ namespace ngx::agent::pipeline
             trace::warn("[Pipeline] TLS handler received preread data (len={}), handshake may fail.", data.size());
         }
 
-        auto ssl_stream = std::make_shared<net::ssl::stream<Connector>>(std::move(stream), *ssl_ctx);
+        auto ssl_stream = std::make_shared<ssl::stream<connector>>(std::move(stream), *ctx.server.ssl_ctx);
 
         boost::system::error_code ec;
-        co_await ssl_stream->async_handshake(net::ssl::stream_base::server, net::redirect_error(net::use_awaitable, ec));
+        co_await ssl_stream->async_handshake(ssl::stream_base::server, net::redirect_error(net::use_awaitable, ec));
         if (ec)
         {
             trace::warn("[Pipeline] TLS handshake failed: {}", ec.message());
@@ -551,8 +539,10 @@ namespace ngx::agent::pipeline
         }
 
         const auto target = protocol::analysis::resolve(req);
-        ngx::trace::debug("Tls analysis target = [host: {}, port: {}, positive: {}]", target.host, target.port, target.positive);
-        auto res = co_await dial(distributor, "HTTPS", target, true, false);
+        trace::info("[Pipeline] Tls analysis target = [host: {}, port: {}, positive: {}]", target.host, target.port, target.positive);
+        // 使用 std::shared_ptr 的别名构造函数，创建一个不拥有所有权的 shared_ptr
+        std::shared_ptr<distributor> dist_ptr(&ctx.worker.distributor, [](distributor*) {});
+        auto res = co_await dial(dist_ptr, "HTTPS", target, true, false);
         if (gist::failed(res.first) || !res.second)
             co_return;
         outbound = std::move(res.second);
@@ -561,11 +551,12 @@ namespace ngx::agent::pipeline
         if (req.method() == protocol::http::verb::connect)
         {
             constexpr std::string_view resp = {"HTTP/1.1 200 Connection Established\r\n\r\n"};
-            co_await net::async_write(*ssl_stream, net::buffer(resp), net::redirect_error(net::use_awaitable, ec));
+            auto token = net::redirect_error(net::use_awaitable, ec);
+            co_await net::async_write(*ssl_stream, net::buffer(resp), token);
             if (!ec)
             {
-                // 隧道转发：SSL Stream (解密后) <-> Outbound (Transmission)
-                co_await original_tunnel(ssl_stream, std::move(outbound), mr);
+                // 隧道转发：ssl stream (解密后) <-> Outbound (Transmission)
+                co_await original_tunnel(ssl_stream, std::move(outbound), mr, ctx.buffer_size);
             }
             co_return;
         }
@@ -579,14 +570,14 @@ namespace ngx::agent::pipeline
         if (read_buffer.size() > 0)
         {
             auto buf = read_buffer.data();
-            std::span<const std::byte> span(reinterpret_cast<const std::byte *>(buf.data()), buf.size());
+            std::span<const std::byte> span(static_cast<const std::byte *>(buf.data()), buf.size());
             co_await outbound->async_write_some(span, ec);
             if (ec)
                 co_return;
         }
 
         // 隧道转发
-        co_await original_tunnel(ssl_stream, std::move(outbound), mr);
+        co_await original_tunnel(ssl_stream, std::move(outbound), mr, ctx.buffer_size);
     } // function tls
 
 } // namespace ngx::agent::pipeline

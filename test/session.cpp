@@ -16,7 +16,7 @@
 #include <boost/asio/ssl.hpp>
 #include <trace/spdlog.hpp>
 
-// #include "agent/worker.hpp" // worker.hpp 似乎已被移除或整合
+#include "agent/worker.hpp"
 
 #ifdef WIN32
 #include <windows.h>
@@ -27,6 +27,10 @@ namespace ssl = boost::asio::ssl;
 using tcp = net::ip::tcp;
 
 #include <forward-engine/agent/detection.hpp>
+
+#include <forward-engine/agent/config.hpp>
+#include <forward-engine/agent/context.hpp>
+#include <forward-engine/agent/validator.hpp>
 
 namespace agent = ngx::agent;
 
@@ -77,13 +81,12 @@ net::awaitable<void> echo_server(tcp::acceptor acceptor)
 /**
  * @brief 代理服务器接受连接
  * @param acceptor 监听 acceptor (按值传递以接管所有权)
- * @param ioc io_context
- * @param dist 分发器
- * @param ssl_ctx ssl 上下文
+ * @param server_ctx 服务器上下文
+ * @param worker_ctx 工作线程上下文
  * @note 代理服务器会持续监听 acceptor，直到发生错误
  */
-net::awaitable<void> proxy_accept_one(tcp::acceptor acceptor, net::io_context &ioc,
-                                      agent::distributor &dist, std::shared_ptr<ssl::context> ssl_ctx)
+net::awaitable<void> proxy_accept_one(tcp::acceptor acceptor, agent::server_context &server_ctx,
+                                      agent::worker_context &worker_ctx)
 {
     boost::system::error_code accept_ec;
     auto accept_token = net::redirect_error(net::use_awaitable, accept_ec);
@@ -93,8 +96,9 @@ net::awaitable<void> proxy_accept_one(tcp::acceptor acceptor, net::io_context &i
         co_return;
     }
     auto inbound = ngx::transport::make_reliable(std::move(socket));
-    auto session_ptr = std::make_shared<agent::session>(ioc,
-                                                        std::move(inbound), dist, std::move(ssl_ctx), ngx::memory::current_resource());
+
+    agent::session_params params{server_ctx, worker_ctx, std::move(inbound)};
+    auto session_ptr = agent::make_session(std::move(params));
     session_ptr->start();
 }
 
@@ -388,17 +392,17 @@ net::awaitable<void> proxy_connect_client_then_close(const tcp::endpoint proxy_e
 
 /**
  * @brief 测试 echo 服务器
- * @param ioc io_context
- * @param dist distributor
- * @param ssl_ctx ssl context
+ * @param server_ctx server_context
+ * @param worker_ctx worker_context
  * @param tag 日志前缀
  * @note 会启动 echo 服务器和代理服务器，然后连接代理服务器，最后关闭连接
  */
-net::awaitable<void> run_case_echo(net::io_context &ioc, agent::distributor &dist, std::shared_ptr<ssl::context> ssl_ctx,
+net::awaitable<void> run_case_echo(agent::server_context &server_ctx, agent::worker_context &worker_ctx,
                                    const std::string_view tag)
 {
     info(std::format("{} === case: echo ===", tag));
 
+    auto &ioc = worker_ctx.io_context;
     tcp::acceptor echo_acceptor(ioc, tcp::endpoint(net::ip::make_address("127.0.0.1"), 0));
     tcp::acceptor proxy_acceptor(ioc, tcp::endpoint(net::ip::make_address("127.0.0.1"), 0));
 
@@ -406,7 +410,7 @@ net::awaitable<void> run_case_echo(net::io_context &ioc, agent::distributor &dis
     const auto proxy_ep = proxy_acceptor.local_endpoint();
 
     net::co_spawn(ioc, echo_server(std::move(echo_acceptor)), net::detached);
-    net::co_spawn(ioc, proxy_accept_one(std::move(proxy_acceptor), ioc, dist, std::move(ssl_ctx)), net::detached);
+    net::co_spawn(ioc, proxy_accept_one(std::move(proxy_acceptor), server_ctx, worker_ctx), net::detached);
     co_await proxy_connect_client_echo(proxy_ep, echo_ep, tag);
 
     info(std::format("{} === case: echo done ===", tag));
@@ -414,17 +418,17 @@ net::awaitable<void> run_case_echo(net::io_context &ioc, agent::distributor &dis
 
 /**
  * @brief 测试 echo 服务器，当上游关闭连接后，代理服务器应该关闭客户端连接
- * @param ioc io_context
- * @param dist distributor
- * @param ssl_ctx ssl context
+ * @param server_ctx server_context
+ * @param worker_ctx worker_context
  * @param tag 日志前缀
  * @note 会启动 echo 服务器和代理服务器，然后连接代理服务器，最后关闭连接
  */
-net::awaitable<void> run_case_upstream_close_should_close_client(net::io_context &ioc, agent::distributor &dist,
-                                                                 std::shared_ptr<ssl::context> ssl_ctx, const std::string_view tag)
+net::awaitable<void> run_case_upstream_close_should_close_client(agent::server_context &server_ctx,
+                                                                 agent::worker_context &worker_ctx, const std::string_view tag)
 {
     info(std::format("{} === case: upstream_close_should_close_client ===", tag));
 
+    auto &ioc = worker_ctx.io_context;
     tcp::acceptor upstream_acceptor(ioc, tcp::endpoint(net::ip::make_address("127.0.0.1"), 0));
     tcp::acceptor proxy_acceptor(ioc, tcp::endpoint(net::ip::make_address("127.0.0.1"), 0));
 
@@ -432,7 +436,7 @@ net::awaitable<void> run_case_upstream_close_should_close_client(net::io_context
     const auto proxy_ep = proxy_acceptor.local_endpoint();
 
     net::co_spawn(ioc, upstream_close_after_accept(std::move(upstream_acceptor), std::chrono::milliseconds(50)), net::detached);
-    net::co_spawn(ioc, proxy_accept_one(std::move(proxy_acceptor), ioc, dist, std::move(ssl_ctx)), net::detached);
+    net::co_spawn(ioc, proxy_accept_one(std::move(proxy_acceptor), server_ctx, worker_ctx), net::detached);
 
     co_await proxy_connect_client_expect_close(proxy_ep, upstream_ep, tag);
 
@@ -441,17 +445,17 @@ net::awaitable<void> run_case_upstream_close_should_close_client(net::io_context
 
 /**
  * @brief 测试 echo 服务器，当客户端关闭连接后，代理服务器应该关闭上游连接
- * @param ioc io_context
- * @param dist distributor
- * @param ssl_ctx ssl context
+ * @param server_ctx server_context
+ * @param worker_ctx worker_context
  * @param tag 日志前缀
  * @note 会启动 echo 服务器和代理服务器，然后连接代理服务器，最后关闭连接
  */
-net::awaitable<void> run_case_client_close_should_close_upstream(net::io_context &ioc, agent::distributor &dist,
-                                                                 std::shared_ptr<ssl::context> ssl_ctx, const std::string_view tag)
+net::awaitable<void> run_case_client_close_should_close_upstream(agent::server_context &server_ctx,
+                                                                 agent::worker_context &worker_ctx, const std::string_view tag)
 {
     info(std::format("{} === case: client_close_should_close_upstream ===", tag));
 
+    auto &ioc = worker_ctx.io_context;
     tcp::acceptor upstream_acceptor(ioc, tcp::endpoint(net::ip::make_address("127.0.0.1"), 0));
     tcp::acceptor proxy_acceptor(ioc, tcp::endpoint(net::ip::make_address("127.0.0.1"), 0));
 
@@ -463,7 +467,7 @@ net::awaitable<void> run_case_client_close_should_close_upstream(net::io_context
 
     net::co_spawn(ioc, upstream_wait_peer_close(std::move(upstream_acceptor), upstream_closed, EXPECTED_SHUTDOWN_TIMEOUT),
                   net::detached);
-    net::co_spawn(ioc, proxy_accept_one(std::move(proxy_acceptor), ioc, dist, std::move(ssl_ctx)), net::detached);
+    net::co_spawn(ioc, proxy_accept_one(std::move(proxy_acceptor), server_ctx, worker_ctx), net::detached);
 
     co_await proxy_connect_client_then_close(proxy_ep, upstream_ep, tag);
     co_await wait_until_true(upstream_closed, EXPECTED_SHUTDOWN_TIMEOUT);
@@ -471,12 +475,12 @@ net::awaitable<void> run_case_client_close_should_close_upstream(net::io_context
     info(std::format("{} === case: client_close_should_close_upstream done ===", tag));
 }
 
-net::awaitable<void> run_all_tests(net::io_context &ioc, agent::distributor &dist, std::shared_ptr<ssl::context> ssl_ctx,
+net::awaitable<void> run_all_tests(agent::server_context &server_ctx, agent::worker_context &worker_ctx,
                                    const std::string_view tag)
 {
-    co_await run_case_echo(ioc, dist, ssl_ctx, tag);
-    co_await run_case_upstream_close_should_close_client(ioc, dist, ssl_ctx, tag);
-    co_await run_case_client_close_should_close_upstream(ioc, dist, ssl_ctx, tag);
+    co_await run_case_echo(server_ctx, worker_ctx, tag);
+    co_await run_case_upstream_close_should_close_client(server_ctx, worker_ctx, tag);
+    co_await run_case_client_close_should_close_upstream(server_ctx, worker_ctx, tag);
 
     // 给分离的 session 协程一点时间进行清理和自我销毁，防止 ioc.stop() 导致的析构竞态崩溃
     net::steady_timer timer(co_await net::this_coro::executor);
@@ -521,11 +525,17 @@ int main()
         auto ssl_ctx = std::make_shared<ssl::context>(ssl::context::tlsv12);
         ssl_ctx->set_verify_mode(ssl::verify_none);
 
+        agent::config cfg;
+        auto acc_validator = std::make_shared<agent::validator>(ngx::memory::system::global_pool());
+        agent::server_context server_ctx{cfg, ssl_ctx, acc_validator};
+
+        auto mr = ngx::memory::system::thread_local_pool();
+        agent::worker_context worker_ctx{ioc, *dist, mr};
+
         // 注册协议处理器
         // 注意：这里的 arena 仅用于 handler 构造，实际处理时会使用 session 的 arena
         // 但由于 handler 工厂设计问题，我们需要提供一个临时的 arena
         // 必须保证 arena 在测试期间存活
-        auto mr = ngx::memory::system::thread_local_pool();
         ngx::memory::frame_arena dummy_arena;
         // frame_arena 默认构造使用 thread_local_pool，不需要 mr 参数
         // 之前的 mr 变量其实没用，frame_arena 内部自己获取
@@ -535,10 +545,10 @@ int main()
         std::exception_ptr test_error;
 
         {
-            auto function = [&ioc, &dist, &ssl_ctx]() -> net::awaitable<void>
+            auto function = [&server_ctx, &worker_ctx]() -> net::awaitable<void>
             {
                 info("session_test: start");
-                co_await run_all_tests(ioc, *dist, ssl_ctx, "session_test");
+                co_await run_all_tests(server_ctx, worker_ctx, "session_test");
                 info("session_test: done");
             };
 

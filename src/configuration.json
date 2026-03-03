@@ -27,7 +27,7 @@
     "trace": {
         "enable_console": true,
         "enable_file": true,
-        "log_level": "debug",
+        "log_level": "info",
         "pattern": "[%Y-%m-%d %H:%M:%S.%e][%l] %v",
         "trace_name": "forward_engine",
         "path_name": "C:\\Users\\C1373\\Desktop\\code\\forward-engine\\logs"

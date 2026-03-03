@@ -155,6 +155,8 @@ namespace ngx::transport
         // 4. 设置 socket 选项
         // TCP_NODELAY 对于代理至关重要，减少延迟
         sock->set_option(tcp::no_delay(true));
+        sock->set_option(net::socket_base::receive_buffer_size(266144));
+        sock->set_option(net::socket_base::send_buffer_size(266144));
 
         co_return sock;
     }

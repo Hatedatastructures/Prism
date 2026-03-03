@@ -44,7 +44,7 @@
 #include <forward-engine/memory/pool.hpp>
 #include <memory>
 
-#include <forward-engine/agent/config.hpp>
+#include <forward-engine/agent/context.hpp>
 #include <forward-engine/trace.hpp>
 
 /**
@@ -130,20 +130,16 @@ namespace ngx::agent
          * @warning `SSL` 证书和私钥文件必须在构造时可用，否则会抛出 `abnormal::protocol` 异常。
          */
         explicit worker(const agent::config &cfg, std::shared_ptr<validator> validator_ptr)
-            : ioc_(1),                                                                                                      // 1. 初始化 IO 上下文 (hint=1 表示单线程)
-              pool_(ioc_, memory::system::thread_local_pool(), cfg.pool.max_cache_per_endpoint, cfg.pool.max_idle_seconds), // 2. 初始化连接池 (使用线程独占内存池)
-              distributor_(pool_, ioc_, memory::system::thread_local_pool()),                                               // 3. 初始化路由器 (使用线程独占内存池)
-              ssl_ctx_(std::make_shared<ssl::context>(ssl::context::tls)),
-              acceptor_(ioc_), // 4. 初始化接收器
-              config_(cfg),
-              account_validator_(std::move(validator_ptr)) // 5. 注入共享验证器
+            : ioc_(1), pool_(ioc_, memory::system::thread_local_pool(), cfg.pool.max_cache_per_endpoint, cfg.pool.max_idle_seconds),
+              distributor_(pool_, ioc_, memory::system::thread_local_pool()),
+              ssl_ctx_(std::make_shared<ssl::context>(ssl::context::tls)), acceptor_(ioc_),
+              server_ctx_{cfg, ssl_ctx_, std::move(validator_ptr)},                // 1. 初始化全局上下文
+              worker_ctx_{ioc_, distributor_, memory::system::thread_local_pool()} // 2. 初始化工作线程上下文
         {
             const auto port = cfg.addressable.port;
             const auto &cert = cfg.certificate.cert;
             const auto &key = cfg.certificate.key;
-            // -------------------------------------------------------------
             // SSL 配置部分
-            // -------------------------------------------------------------
             try
             {
                 if (!cert.empty() && !key.empty())
@@ -191,14 +187,19 @@ namespace ngx::agent
                 throw; // 或者 ssl_ctx_.reset(); 但后面要判空
             }
 
-            agent::register_handlers();
-
-            // -------------------------------------------------------------
             // 网络监听部分
-            // -------------------------------------------------------------
             auto endpoint = tcp::endpoint(tcp::v4(), port);
             acceptor_.open(endpoint.protocol());
+
+            /**
+             * @details 设置接收器选项：
+             * reuse_address(true)：允许地址复用，避免 `TIME_WAIT` 状态问题
+             * receive_buffer_size(262144)：设置接收缓冲区大小为 256KB
+             * send_buffer_size(262144)：设置发送缓冲区大小为 256KB
+             */
             acceptor_.set_option(net::socket_base::reuse_address(true));
+            acceptor_.set_option(net::socket_base::receive_buffer_size(262144));
+            acceptor_.set_option(net::socket_base::send_buffer_size(262144));
 
             int one = 1;
 #ifdef SO_REUSEPORT
@@ -209,7 +210,7 @@ namespace ngx::agent
             acceptor_.listen();
 
             // 加载反向代理路由
-            for (const auto &[host, ep_config] : config_.reverse_map)
+            for (const auto &[host, ep_config] : server_ctx_.cfg.reverse_map)
             {
                 boost::system::error_code ec;
                 const auto addr = net::ip::make_address(ep_config.host, ec);
@@ -228,9 +229,9 @@ namespace ngx::agent
              * - 用于 `distributor::route_forward` 在直连失败时的回退（HTTP `CONNECT`）
              * - 不影响直连成功场景，默认仍优先直连
              */
-            if (!config_.positive.host.empty() && config_.positive.port != 0)
+            if (!server_ctx_.cfg.positive.host.empty() && server_ctx_.cfg.positive.port != 0)
             {
-                distributor_.set_positive_endpoint(std::string_view(config_.positive.host), config_.positive.port);
+                distributor_.set_positive_endpoint(std::string_view(server_ctx_.cfg.positive.host), server_ctx_.cfg.positive.port);
             }
         }
 
@@ -256,7 +257,7 @@ namespace ngx::agent
          */
         void run()
         {
-            accept_connection();
+            net::co_spawn(ioc_, accept_connection(), net::detached);
             ioc_.run();
         }
 
@@ -276,54 +277,83 @@ namespace ngx::agent
          * @details - 如果内存分配失败，终止接受循环。
          *
          * 递归实现：
-         * @details - 该函数通过 `async_accept` 的回调函数递归调用自身，形成无限循环。
-         * @details - 每次连接处理完成后，立即发起下一个接受操作，实现高并发处理。
+         * @details - 该函数使用 `for(;;)` 循环和 `co_await` 实现持续接收，替代了传统的回调递归。
+         * @details - 协程会在 `async_accept` 处挂起，直到新连接到达，从而实现非阻塞的高并发处理。
          *
          * @note 这是一个递归的异步操作：每次处理完一个连接后，会立即发起下一个 `async_accept`。
          * @throws `std::bad_alloc` 如果内存分配失败
          * @warning 如果创建会话或启动会话失败，连接会被丢弃但循环继续，确保服务不中断。
          * @warning 该方法不直接抛出异常，错误通过 `async_accept` 的回调处理。
          */
-        void accept_connection()
+        /**
+         * @brief 异步接收连接（协程版）
+         * @details 持续接收新的客户端连接，并为每个连接创建 `session`。
+         * @return `net::awaitable<void>` 协程任务
+         */
+        net::awaitable<void> accept_connection()
         {
-            auto func = [this](const boost::system::error_code &ec, tcp::socket socket)
+            for (;;)
             {
-                if (!ec)
+                boost::system::error_code ec;
+                tcp::socket socket = co_await acceptor_.async_accept(net::redirect_error(net::use_awaitable, ec));
+
                 {
-                    // 创建会话，把"路由器"传给它
-                    auto inbound = ngx::transport::make_reliable(std::move(socket));
-                    const auto session_pointer = ngx::agent::make_session(ioc_, 
-                        std::move(inbound), distributor_, ssl_ctx_,memory::system::thread_local_pool());
-
-                    const bool auth_enabled = !config_.authentication.credentials.empty() || !config_.authentication.users.empty();
-                    session_pointer->set_account_validator(auth_enabled ? account_validator_.get() : nullptr);
-
-                    // 凭据验证器
-                    auto verifier_func = [this](const std::string_view credential) -> bool
-                    {
-                        if (config_.authentication.credentials.empty() && config_.authentication.users.empty())
-                        {
-                            return true;
-                        }
-                        return account_validator_->verify(credential);
-                    };
-                    // 设置凭据验证器
-                    session_pointer->set_credential_verifier(verifier_func);
-
-                    session_pointer->start();
+                    std::ostringstream oss;
+                    oss << std::this_thread::get_id();
+                    std::string_view client_ip = socket.remote_endpoint().address().to_string();
+                    trace::info("current thread :{}, accept connection from {}", oss.str(), client_ip);
                 }
-                accept_connection();
-            };
-            acceptor_.async_accept(func);
+                if (ec)
+                {
+                    trace::error("accept failed: {}", ec.message());
+                    // 发生错误时，可能需要稍作等待，避免死循环刷日志
+                    co_await net::steady_timer(ioc_, std::chrono::milliseconds(10)).async_wait(net::use_awaitable);
+                    continue;
+                }
+
+                socket.set_option(tcp::no_delay(true));
+                socket.set_option(net::socket_base::receive_buffer_size(server_ctx_.cfg.buffer.size));
+                socket.set_option(net::socket_base::send_buffer_size(server_ctx_.cfg.buffer.size));
+
+                // 创建会话
+
+                auto inbound = ngx::transport::make_reliable(std::move(socket));
+
+                /**
+                 * @details 创建参数列表，用于初始化会话
+                 */
+                session_params params{server_ctx_, worker_ctx_, std::move(inbound)};
+
+                const auto shared_session = ngx::agent::make_session(std::move(params));
+
+                // 验证器
+                const bool auth_enabled = !server_ctx_.cfg.authentication.credentials.empty() || !server_ctx_.cfg.authentication.users.empty();
+                shared_session->set_account_validator(auth_enabled ? server_ctx_.acc_validator.get() : nullptr);
+
+                // 凭据验证器
+                auto verifier_function = [this](const std::string_view credential) -> bool
+                {
+                    if (server_ctx_.cfg.authentication.credentials.empty() && server_ctx_.cfg.authentication.users.empty())
+                    {
+                        return true;
+                    }
+                    return server_ctx_.acc_validator->verify(credential);
+                };
+                // 设置凭据验证器
+                shared_session->set_credential_verifier(verifier_function);
+
+                shared_session->start();
+            }
         }
 
-        net::io_context ioc_;                          ///< IO 上下文，所有异步操作的执行环境
-        source pool_;                                  ///< 连接池（资源仓库），管理到后端服务的连接复用
-        distributor distributor_;                      ///< 路由分发器（业务大脑），决定数据转发目标
-        std::shared_ptr<ssl::context> ssl_ctx_;        ///< SSL 上下文，用于 TLS 协议处理（可为空）
-        tcp::acceptor acceptor_;                       ///< TCP 接收器，监听客户端连接
-        config config_;                                ///< 代理配置，包含监听端口、证书路径、路由规则等
-        std::shared_ptr<validator> account_validator_; ///< 账户验证器，用于用户认证和连接数配额控制
+        net::io_context ioc_;                   ///< IO 上下文，所有异步操作的执行环境
+        source pool_;                           ///< 连接池（资源仓库），管理到后端服务的连接复用
+        distributor distributor_;               ///< 路由分发器（业务大脑），决定数据转发目标
+        std::shared_ptr<ssl::context> ssl_ctx_; ///< SSL 上下文，用于 TLS 协议处理（可为空）
+        tcp::acceptor acceptor_;                ///< TCP 接收器，监听客户端连接
+
+        server_context server_ctx_; ///< 全局上下文
+        worker_context worker_ctx_; ///< 工作线程上下文
     };
 
 }

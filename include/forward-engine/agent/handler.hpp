@@ -3,11 +3,9 @@
  * @brief 协议处理器接口和工厂
  * @details 定义了基于 `transmission` 的协议处理器接口，支持运行时注册和动态分发，
  * 取代了传统的 `switch-case` 分发模式，提供了更灵活、可扩展的协议处理架构。
- *
- * 核心组件：
- * 1. `handler_context`：协议处理器运行时上下文，包含所有必要资源引用；
- * 2. `handler`：协议处理器抽象基类，定义统一的协议处理接口；
- * 3. `registry`：协议注册表（工厂模式），支持动态注册和处理器创建；
+     * 核心组件：
+     * 1. `session_context`：协议处理器运行时上下文，包含所有必要资源引用；
+     * 2. `handler`：协议处理器抽象基类，定义统一的协议处理接口；* 3. `registry`：协议注册表（工厂模式），支持动态注册和处理器创建；
  * 4. `detection_result`：协议检测结果，包含协议类型和预读数据；
  * 5. `detection::detect_from_transmission()`：从传输层检测协议类型的核心函数。
  *
@@ -15,14 +13,14 @@
  * 1. `agent::session` 接收客户端连接，包装为 `transmission` 对象；
  * 2. 调用 `detection::detect_from_transmission()` 检测协议类型；
  * 3. 通过 `registry::global().create()` 创建对应的协议处理器；
- * 4. 调用处理器的 `process()` 方法处理连接，传递 `handler_context`；
- * 5. 处理器内部调用具体的协议管线（`pipeline::http`、`pipeline::socks5` 等）。
- *
- * 设计优势：
- * - 可扩展性：新增协议只需实现 `handler` 接口并注册到 `registry`；
- * - 可维护性：统一的接口设计，避免分散的 `switch-case` 逻辑；
- * - 性能优化：预读数据重用，避免重复读取协议头部；
- * - 资源管理：通过 `handler_context` 统一管理运行时资源。
+ * 4. 调用处理器的 `process()` 方法处理连接，传递 `session_context`；
+     * 5. 处理器内部调用具体的协议管线（`pipeline::http`、`pipeline::socks5` 等）。
+     *
+     * 设计优势：
+     * - 可扩展性：新增协议只需实现 `handler` 接口并注册到 `registry`；
+     * - 可维护性：统一的接口设计，避免分散的 `switch-case` 逻辑；
+     * - 性能优化：预读数据重用，避免重复读取协议头部；
+     * - 资源管理：通过 `session_context` 统一管理运行时资源。
  *
  * @note 所有协议处理器应为无状态或线程安全的单例，通过 `registry` 工厂创建。
  * @warning 协议处理器不应在 `process()` 方法之外持有传输层或资源的长期引用。
@@ -30,6 +28,7 @@
 
 #pragma once
 
+#include <forward-engine/agent/context.hpp>
 #include <forward-engine/transport/transmission.hpp>
 #include <forward-engine/agent/distributor.hpp>
 #include <forward-engine/protocol/analysis.hpp>
@@ -51,56 +50,6 @@ namespace ngx::agent
     namespace net = boost::asio;
     namespace ssl = net::ssl;
     class validator;
-
-    /**
-     * @struct handler_context
-     * @brief 协议处理器上下文
-     * @details 包含协议处理器运行所需的所有资源引用。该结构体在 `agent::session::diversion` 中构造，
-     * 并传递给协议处理器进行后续处理，为协议处理提供统一的资源配置接口。
-     *
-     * 成员说明：
-     * @details - `io_context`：全局 `IO` 上下文，所有异步操作的执行环境；
-     * @details - `ssl_ctx`：`SSL` 上下文（可选），用于 `TLS` 协议处理；
-     * @details - `frame_arena`：帧内存池，用于协议处理期间的临时内存分配；
-     * @details - `credential_verifier`：凭据验证回调函数，用于用户身份验证；
-     * @details - `account_validator_ptr`：账户验证器指针（可选），用于连接数配额控制。
-     *
-     * 使用流程：
-     * @details - 1. `agent::session` 在 `diversion()` 方法中创建 `handler_context`；
-     * @details - 2. 填充必要的运行时资源（`SSL` 上下文、内存池等）；
-     * @details - 3. 传递给协议处理器的 `process()` 方法；
-     * @details - 4. 处理器使用上下文中的资源进行协议处理。
-     *
-     * @note 该结构体在栈上分配，生命周期由调用者管理。
-     * @warning 协议处理器不应存储对上下文中资源的长期引用，避免悬垂引用。
-     *
-     */
-    struct handler_context
-    {
-        net::io_context &io_context;                                ///< 全局 IO 上下文，所有异步操作的执行环境
-        std::shared_ptr<ssl::context> ssl_ctx;                      ///< SSL 上下文 (可选)，用于 TLS 协议处理
-        memory::frame_arena &frame_arena;                           ///< 帧内存池，用于协议处理期间的临时内存分配
-        std::function<bool(std::string_view)> &credential_verifier; ///< 凭据验证回调函数，用于用户身份验证
-        validator *account_validator_ptr{nullptr};                  ///< 账户验证器指针，用于连接数配额控制（可选）
-
-        /**
-         * @brief 构造协议处理器上下文
-         * @details 初始化所有上下文成员，通过引用绑定到外部资源。
-         * @param io_ctx IO 上下文引用
-         * @param ssl_ctx SSL 上下文共享指针（可空）
-         * @param arena 帧内存池引用
-         * @param cred_verifier 凭据验证回调函数引用
-         * @param acc_validator 账户验证器指针（可空）
-         * @note 所有参数都是引用或指针，构造后不应修改这些资源的所有权。
-         * @warning 上下文对象的生命周期必须短于所有引用的资源，避免悬垂引用。
-         */
-        handler_context(net::io_context &io_ctx, std::shared_ptr<ssl::context> ssl_ctx, memory::frame_arena &arena,
-                        std::function<bool(std::string_view)> &cred_verifier, validator *acc_validator = nullptr)
-            : io_context(io_ctx), ssl_ctx(std::move(ssl_ctx)), frame_arena(arena), credential_verifier(cred_verifier),
-              account_validator_ptr(acc_validator)
-        {
-        }
-    };
 
     /**
      * @class handler
@@ -126,7 +75,7 @@ namespace ngx::agent
      *     auto name() const -> std::string_view override { return "http"; }
      *
      *     auto process(transport::transmission_pointer inbound, std::shared_ptr<distributor> distributor,
-     *                  const handler_context &ctx, std::span<const std::byte> data) -> net::awaitable<void> override
+     *                  const session_context &ctx, std::span<const std::byte> data) -> net::awaitable<void> override
      *     {
      *         co_await pipeline::http(std::move(inbound), distributor, ctx, data);
      *     }
@@ -148,18 +97,15 @@ namespace ngx::agent
          * @details - 4. 数据转发：在客户端和服务端之间转发数据；
          * @details - 5. 协议转换：执行必要的协议转换和适配。
          *
-         * @param inbound 入站传输层（客户端连接），所有权将被转移到处理器
-         * @param distributor 路由分发器，用于创建到目标服务的连接
-         * @param ctx 协议处理器上下文，包含 `SSL`、内存池等运行时资源
+         * @param ctx 会话上下文，包含所有必要的资源和状态（如传输层、分发器等）
          * @param data 预读的数据（可能为空），包含协议检测时读取的初始数据
          * @throws std::bad_alloc 如果内存分配失败
          * @throws std::system_error 如果底层系统调用失败
-         * @note 该方法会转移 `inbound` 的所有权，调用后调用者不应再使用该传输层
+         * @note 该方法会操作 `ctx.inbound`，调用后调用者不应再假设该传输层对象的所有权。
          * @warning 如果协议处理失败，应确保正确关闭所有传输层资源，避免资源泄漏
          * @warning 该方法在协程中执行，错误通过协程传播而非异常抛出
          */
-        virtual auto process(transport::transmission_pointer inbound, std::shared_ptr<distributor> distributor,
-                             const handler_context &ctx, std::span<const std::byte> data)
+        virtual auto process(session_context &ctx, std::span<const std::byte> data)
             -> net::awaitable<void> = 0;
 
         /**
@@ -337,7 +283,7 @@ namespace ngx::agent
         {
             std::vector<protocol::protocol_type> types;
             types.reserve(registry_.size());
-            for (const auto &type: registry_ | std::views::keys)
+            for (const auto &type : registry_ | std::views::keys)
             {
                 types.push_back(type);
             }

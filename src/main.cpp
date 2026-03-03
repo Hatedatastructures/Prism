@@ -44,6 +44,8 @@ int main()
         ngx::core::configuration overall_situation_config = ngx::adapter::load(configuration_path);
         ngx::trace::init(overall_situation_config.trace);
 
+        agent::register_handlers();
+
         const auto shared_validator = std::make_shared<agent::validator>(ngx::memory::system::global_pool());
         const auto&[credentials, users] = overall_situation_config.agent.authentication;
         shared_validator->reserve(credentials.size() + users.size());

@@ -210,6 +210,25 @@ namespace ngx::agent
     };
 
     /**
+     * @struct buffer
+     * @brief 缓冲区配置
+     * @details 控制数据传输时的缓冲区大小。合理的缓冲区大小可以平衡内存占用和吞吐量。
+     *
+     * 字段说明：
+     * @details - `size`：单次传输缓冲区大小（字节），默认 1MB。
+     *
+     * @note 对于高延迟高带宽环境（如 Wi-Fi），建议增大此值；对于内存受限环境，可减小此值。
+     */
+    struct buffer
+    {
+        /**
+         * @brief 传输缓冲区大小 (字节)
+         * @details 默认 256KB (262144 字节)，用于抵消高延迟网络的影响。
+         */
+        std::uint32_t size = 262144U;
+    };
+
+    /**
      * @struct config
      * @brief 代理服务全局配置
      * @details 聚合所有子模块配置，作为代理服务的完整配置入口。该结构用于初始化 `worker`、`validator` 和 `distributor`。
@@ -275,6 +294,12 @@ namespace ngx::agent
          * @details 控制连接池的行为参数。
          */
         struct pool_config pool;
+
+        /**
+         * @brief 缓冲区配置
+         * @details 控制数据转发缓冲区的大小。
+         */
+        struct buffer buffer;
 
         /**
          * @brief Clash 兼容模式
