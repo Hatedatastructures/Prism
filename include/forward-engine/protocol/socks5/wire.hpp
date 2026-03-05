@@ -113,6 +113,10 @@ namespace ngx::protocol::socks5::wire
             return {gist::code::bad_message, {}};
         }
         domain_address addr;
+        if (len > addr.value.size())
+        {
+            return {gist::code::bad_message, {}};
+        }
         addr.length = len;
         std::memcpy(addr.value.data(), buffer.data() + 1, len);
         return {gist::code::success, addr};

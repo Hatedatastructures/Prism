@@ -38,7 +38,6 @@
 #include <forward-engine/transport/source.hpp>
 #include <forward-engine/agent/distributor.hpp>
 #include <forward-engine/agent/session.hpp>
-#include <forward-engine/agent/detection.hpp>
 #include <forward-engine/agent/validator.hpp>
 #include <forward-engine/transport/reliable.hpp>
 #include <forward-engine/memory/pool.hpp>
@@ -136,6 +135,7 @@ namespace ngx::agent
             : ioc_(1), pool_(ioc_, memory::system::thread_local_pool(), cfg.pool.max_cache_per_endpoint, cfg.pool.max_idle_seconds),
               distributor_(pool_, ioc_, memory::system::thread_local_pool()),
               ssl_ctx_(std::make_shared<ssl::context>(ssl::context::tls)),
+              active_sessions_(std::make_shared<std::atomic<std::uint32_t>>(0U)),
               server_ctx_{cfg, ssl_ctx_, std::move(validator_ptr)},                // 1. 初始化全局上下文
               worker_ctx_{ioc_, distributor_, memory::system::thread_local_pool()} // 2. 初始化工作线程上下文
         {
@@ -249,20 +249,20 @@ namespace ngx::agent
         void dispatch_socket(tcp::socket socket)
         {
             pending_handoffs_.fetch_add(1U, std::memory_order_relaxed);
-            auto dispatch = [this, socket = std::move(socket)]() mutable
+            auto dispatch = [this, sock = std::move(socket)]() mutable
             {
                 pending_handoffs_.fetch_sub(1U, std::memory_order_relaxed);
-                if (!socket.is_open())
+                if (!sock.is_open())
                 {
                     return;
                 }
                 boost::system::error_code ec;
-                socket.set_option(tcp::no_delay(true), ec);
-                socket.set_option(net::socket_base::receive_buffer_size(server_ctx_.cfg.buffer.size), ec);
-                socket.set_option(net::socket_base::send_buffer_size(server_ctx_.cfg.buffer.size), ec);
-                start_session(std::move(socket));
+                sock.set_option(tcp::no_delay(true), ec);
+                sock.set_option(net::socket_base::receive_buffer_size(server_ctx_.cfg.buffer.size), ec);
+                sock.set_option(net::socket_base::send_buffer_size(server_ctx_.cfg.buffer.size), ec);
+                start_session(std::move(sock));
             };
-            net::post(ioc_, dispatch);
+            net::post(ioc_, std::move(dispatch));
         }
 
         /**
@@ -272,7 +272,7 @@ namespace ngx::agent
         [[nodiscard]] auto load_snapshot() const noexcept
             -> worker_load_snapshot
         {
-            return {active_sessions_.load(std::memory_order_relaxed), pending_handoffs_.load(std::memory_order_relaxed),
+            return {active_sessions_->load(std::memory_order_relaxed), pending_handoffs_.load(std::memory_order_relaxed),
                     event_loop_lag_us_.load(std::memory_order_relaxed)};
         }
 
@@ -283,38 +283,36 @@ namespace ngx::agent
          */
         void start_session(tcp::socket socket)
         {
+
+            auto active_sessions = active_sessions_;
+            auto close_function = [active_sessions]() noexcept
             {
-                const std::string client_ip = socket.remote_endpoint().address().to_string();
-                std::ostringstream oss;
-                oss << std::this_thread::get_id();
-                const std::string thread_id = oss.str();
-                trace::info("[Worker] thread ID:{}, client address {} connected", thread_id, client_ip);
-            }
-            auto close_function = [this]() noexcept
-            {
-                active_sessions_.fetch_sub(1U, std::memory_order_relaxed);
+                active_sessions->fetch_sub(1U, std::memory_order_relaxed);
             };
+            // 创建和设置 session
+            auto inbound = ngx::transport::make_reliable(std::move(socket));
+            session_params params{server_ctx_, worker_ctx_, std::move(inbound)};
+            const auto shared_session = ngx::agent::make_session(std::move(params));
+            active_sessions_->fetch_add(1U, std::memory_order_relaxed);
+            shared_session->set_on_closed(close_function);
 
+            const bool auth_enabled = !server_ctx_.cfg.authentication.credentials.empty() || !server_ctx_.cfg.authentication.users.empty();
+            auto acc_validator = server_ctx_.acc_validator;
+            shared_session->set_account_validator(auth_enabled ? acc_validator.get() : nullptr);
+            auto verifier_function = [auth_enabled, acc_validator](const std::string_view credential) -> bool
             {
-                auto inbound = ngx::transport::make_reliable(std::move(socket));
-                session_params params{server_ctx_, worker_ctx_, std::move(inbound)};
-                const auto shared_session = ngx::agent::make_session(std::move(params));
-                active_sessions_.fetch_add(1U, std::memory_order_relaxed);
-                shared_session->set_on_closed(close_function);
-
-                const bool auth_enabled = !server_ctx_.cfg.authentication.credentials.empty() || !server_ctx_.cfg.authentication.users.empty();
-                shared_session->set_account_validator(auth_enabled ? server_ctx_.acc_validator.get() : nullptr);
-                auto verifier_function = [this](const std::string_view credential) -> bool
+                if (!auth_enabled)
                 {
-                    if (server_ctx_.cfg.authentication.credentials.empty() && server_ctx_.cfg.authentication.users.empty())
-                    {
-                        return true;
-                    }
-                    return server_ctx_.acc_validator->verify(credential);
-                };
-                shared_session->set_credential_verifier(verifier_function);
-                shared_session->start();
-            }
+                    return true;
+                }
+                if (!acc_validator)
+                {
+                    return false;
+                }
+                return acc_validator->verify(credential);
+            };
+            shared_session->set_credential_verifier(verifier_function);
+            shared_session->start();
         }
 
         /**
@@ -368,13 +366,13 @@ namespace ngx::agent
             }
         }
 
-        net::io_context ioc_;                             ///< IO 上下文，所有异步操作的执行环境
-        source pool_;                                     ///< 连接池（资源仓库），管理到后端服务的连接复用
-        distributor distributor_;                         ///< 路由分发器（业务大脑），决定数据转发目标
-        std::shared_ptr<ssl::context> ssl_ctx_;           ///< SSL 上下文，用于 TLS 协议处理（可为空）
-        std::atomic<std::uint32_t> active_sessions_{0};   ///< 活跃会话计数
-        std::atomic<std::uint32_t> pending_handoffs_{0};  ///< 待处理投递计数
-        std::atomic<std::uint64_t> event_loop_lag_us_{0}; ///< 事件循环延迟（微秒）
+        net::io_context ioc_;                                         ///< IO 上下文，所有异步操作的执行环境
+        source pool_;                                                 ///< 连接池（资源仓库），管理到后端服务的连接复用
+        distributor distributor_;                                     ///< 路由分发器（业务大脑），决定数据转发目标
+        std::shared_ptr<ssl::context> ssl_ctx_;                       ///< SSL 上下文，用于 TLS 协议处理（可为空）
+        std::shared_ptr<std::atomic<std::uint32_t>> active_sessions_; ///< 活跃会话计数
+        std::atomic<std::uint32_t> pending_handoffs_{0};              ///< 待处理投递计数
+        std::atomic<std::uint64_t> event_loop_lag_us_{0};             ///< 事件循环延迟（微秒）
 
         server_context server_ctx_; ///< 全局上下文
         worker_context worker_ctx_; ///< 工作线程上下文

@@ -523,9 +523,9 @@ namespace ngx::protocol::socks5
                 co_return std::tuple<gist::code, address, uint16_t>{gist::code::io_error, address{}, 0};
             }
 
-            // 域名内容(len) + Port(2)
-            // 域名最大 255 字节 + 2 字节端口 = 257
-            std::array<std::uint8_t, 257> buffer{};
+            // 域名长度(1) + 域名内容(len) + Port(2)
+            // 域名最大 255 字节 -> 1 + 255 + 2 = 258
+            std::array<std::uint8_t, 258> buffer{};
             // buffer[0] 用于存放长度，以便复用 decode_domain
             buffer[0] = len;
 

@@ -22,7 +22,6 @@
 #include <functional>
 #include <string>
 #include <string_view>
-#include <cstdint>
 #include <optional>
 #include <boost/asio.hpp>
 #include <utility>
@@ -224,6 +223,12 @@ namespace ngx::agent
             -> net::awaitable<std::pair<gist::code, unique_sock>>;
 
     private:
+        [[nodiscard]] auto try_connect_endpoints(const memory::vector<tcp::endpoint> &endpoints)
+            -> net::awaitable<unique_sock>;
+
+        [[nodiscard]] auto try_connect_cache(const memory::string &cache_key, std::chrono::steady_clock::time_point now)
+            -> net::awaitable<unique_sock>;
+
         /**
          * @brief 通过上游正向代理建立到目标的 TCP 隧道
          * @details 该函数会：
@@ -244,22 +249,26 @@ namespace ngx::agent
         tcp::resolver resolver_;      ///< DNS 解析器，用于异步域名解析
         rule::blacklist blacklist_;   ///< 黑名单检查器，拦截禁止访问的域名
         memory::resource_pointer mr_; ///< 内存资源指针，通常指向线程局部内存池
+
         /**
          * @brief DNS 缓存条目
          * @details 存储域名解析结果和过期时间，用于减少重复的 DNS 查询开销。
          * 缓存策略基于 TTL（Time-To-Live），默认过期时间为 60 秒。
          */
-        struct dns_cache_entry
+        struct addresses
         {
-            std::vector<tcp::endpoint> endpoints;            ///< 解析得到的 IP 地址列表
-            std::chrono::steady_clock::time_point expire_at; ///< 缓存过期时间点
+            memory::vector<tcp::endpoint> endpoints;               ///< 解析得到的 IP 地址列表
+            std::chrono::steady_clock::time_point expiration_time; ///< 缓存过期时间点
         };
 
         /// 反向代理路由表：主机名 -> 后端服务端点
         hash_map<memory::string, tcp::endpoint> reverse_map_;
 
         /// DNS 缓存：域名 -> 解析结果和过期时间
-        hash_map<memory::string, dns_cache_entry> dns_cache_;
+        hash_map<memory::string, addresses> dns_cache_;
+
+        /// DNS 进行中请求表：域名 -> 广播唤醒定时器
+        hash_map<memory::string, std::shared_ptr<net::steady_timer>> flight_map_;
 
         /// 上游正向代理主机名，为空表示禁用上游代理
         std::optional<memory::string> positive_host_;

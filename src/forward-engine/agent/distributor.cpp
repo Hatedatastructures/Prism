@@ -9,7 +9,8 @@ namespace ngx::agent
     using tcp = boost::asio::ip::tcp;
 
     distributor::distributor(source &pool, net::io_context &ioc, const memory::resource_pointer mr)
-        : pool_(pool), resolver_(ioc), mr_(mr ? mr : memory::current_resource()), reverse_map_(mr_), dns_cache_(mr_)
+        : pool_(pool), resolver_(ioc), mr_(mr ? mr : memory::current_resource()),
+          reverse_map_(mr_), dns_cache_(mr_), flight_map_(mr_)
     {
     }
 
@@ -35,11 +36,63 @@ namespace ngx::agent
         positive_port_ = port;
     }
 
-    void distributor::add_reverse_route(const std::string_view host, const tcp::endpoint& ep)
+    void distributor::add_reverse_route(const std::string_view host, const tcp::endpoint &ep)
     {
         memory::string host_key(mr_);
         host_key.assign(host);
         reverse_map_.insert_or_assign(std::move(host_key), ep);
+    }
+
+    auto distributor::try_connect_endpoints(const memory::vector<tcp::endpoint> &endpoints)
+        -> net::awaitable<unique_sock>
+    {
+        for (const auto &endpoint : endpoints)
+        {
+            auto conn = co_await pool_.acquire_tcp(endpoint);
+            if (conn && conn->is_open())
+            {
+                co_return conn;
+            }
+        }
+        co_return nullptr;
+    }
+
+    auto distributor::try_connect_cache(const memory::string &cache_key, const std::chrono::steady_clock::time_point now)
+        -> net::awaitable<unique_sock>
+    {
+        std::size_t endpoint_index{0};
+        bool has_candidate{false};
+        while (true)
+        {
+            const auto it = dns_cache_.find(cache_key);
+            if (it == dns_cache_.end())
+            {
+                break;
+            }
+            if (it->second.expiration_time <= now)
+            {
+                dns_cache_.erase(cache_key);
+                break;
+            }
+            if (endpoint_index >= it->second.endpoints.size())
+            {
+                has_candidate = endpoint_index > 0;
+                break;
+            }
+
+            const auto endpoint = it->second.endpoints[endpoint_index++];
+            auto conn = co_await pool_.acquire_tcp(endpoint);
+            if (conn && conn->is_open())
+            {
+                co_return conn;
+            }
+        }
+
+        if (has_candidate)
+        {
+            dns_cache_.erase(cache_key);
+        }
+        co_return nullptr;
     }
 
     auto distributor::route_positive(const std::string_view host, const std::string_view port)
@@ -47,9 +100,9 @@ namespace ngx::agent
     {
         /**
          * @details 通过上游 HTTP 代理建立 `CONNECT` 隧道：
-         * 1) 解析并连接到上游代理
-         * 2) 发送 `CONNECT host:port HTTP/1.1`（不带认证头）
-         * 3) 读取响应头直到 `\\r\\n\\r\\n`，解析状态码，必须为 200
+         * 1 解析并连接到上游代理
+         * 2 发送 `CONNECT host:port HTTP/1.1`（不带认证头）
+         * 3 读取响应头直到 `\\r\\n\\r\\n`，解析状态码，必须为 200
          *
          * @note 这是最小可用实现，用于做“直连失败回退”：
          * - 不解析完整 HTTP 头，仅检查状态行
@@ -62,16 +115,15 @@ namespace ngx::agent
 
         boost::system::error_code ec;
         const auto port_string = std::to_string(positive_port_);
-        const auto endpoints = co_await resolver_.async_resolve(
-            std::string_view(*positive_host_), std::string_view(port_string),
-            net::redirect_error(net::use_awaitable, ec));
+        auto token = net::redirect_error(net::use_awaitable, ec);
+        const auto endpoints = co_await resolver_.async_resolve((*positive_host_).c_str(), port_string.c_str(), token);
         if (ec || endpoints.empty())
         {
+            // 上游代理地址不可解析时，直接视为上游不可达
             co_return std::make_pair(gist::code::host_unreachable, nullptr);
         }
 
         auto socket_ptr = unique_sock(new tcp::socket(resolver_.get_executor()), transport::deleter{});
-        auto token = net::redirect_error(net::use_awaitable, ec);
         co_await net::async_connect(*socket_ptr, endpoints, token);
         if (ec)
         {
@@ -130,7 +182,8 @@ namespace ngx::agent
         }
 
         const auto second_space = status_line.find(' ', first_space + 1);
-        const auto code_str = status_line.substr(first_space + 1, second_space == std::string_view::npos ? std::string_view::npos : second_space - first_space - 1);
+        auto string_index = second_space == std::string_view::npos ? std::string_view::npos : second_space - first_space - 1;
+        const auto code_str = status_line.substr(first_space + 1, string_index);
         int status_code = 0;
         const auto [ptr, parse_ec] = std::from_chars(code_str.data(), code_str.data() + code_str.size(), status_code);
         static_cast<void>(ptr);
@@ -144,86 +197,91 @@ namespace ngx::agent
         {
             co_return std::make_pair(gist::code::bad_gateway, nullptr);
         }
-        
+
         co_return std::make_pair(gist::code::success, std::move(socket_ptr));
     }
 
     auto distributor::route_forward(const std::string_view host, const std::string_view port)
         -> net::awaitable<std::pair<gist::code, unique_sock>>
     {
-        /**
-         * @details 路由优先级：
-         * 1) 黑名单拦截（直接返回 `blocked`）
-         * 2) 尝试直连：DNS -> 连接池
-         * 3) 直连失败则回退：上游正向代理 `CONNECT` 隧道
-         *
-         * 这样设计的好处是：
-         * - 默认走直连，减少不必要的代理跳数
-         * - 在 DNS 或建连不可用的环境下，仍可通过上游代理兜底
-         */
-        // 1. DNS
+        // 第一关：黑名单快速拒绝
         if (blacklist_.domain(host))
         {
             co_return std::make_pair(gist::code::blocked, nullptr);
         }
-        // DNS 缓存查询
+
+        // 构造 host:port 缓存键（使用 PMR 资源）
         memory::string cache_key(mr_);
         cache_key.reserve(host.size() + 1 + port.size());
         cache_key.append(host);
         cache_key.push_back(':');
         cache_key.append(port);
-        const auto now = std::chrono::steady_clock::now();
-        std::optional<tcp::endpoint> cached_endpoint;
 
-        // 1. 尝试查找缓存（避免跨协程挂起持有迭代器）
-        if (auto it = dns_cache_.find(cache_key); it != dns_cache_.end() && it->second.expire_at > now)
+        // 第二关：常规 DNS 缓存快路径
+        if (auto cached_conn = co_await try_connect_cache(cache_key, std::chrono::steady_clock::now()))
         {
-            const auto &cached = it->second.endpoints;
-            if (!cached.empty())
-            {
-                cached_endpoint = cached.front();
-            }
+            co_return std::make_pair(gist::code::success, std::move(cached_conn));
         }
 
-        // 2. 如果缓存命中，尝试建立连接
-        if (cached_endpoint)
+        // 第三关：若同 key 已有先锋协程在解析，则挂起等待广播
+        if (const auto in_flight_it = flight_map_.find(cache_key); in_flight_it != flight_map_.end())
         {
-            auto conn = co_await pool_.acquire_tcp(*cached_endpoint);
-            if (conn && conn->is_open())
+            const auto timer = in_flight_it->second;
+            boost::system::error_code ignore_ec;
+            co_await timer->async_wait(net::redirect_error(net::use_awaitable, ignore_ec));
+
+            // 被唤醒后再次读取缓存，命中即直接复用
+            if (auto cached_conn = co_await try_connect_cache(cache_key, std::chrono::steady_clock::now()))
             {
-                co_return std::make_pair(gist::code::success, std::move(conn));
+                co_return std::make_pair(gist::code::success, std::move(cached_conn));
             }
-            // 连接失败，清除缓存项（重新查找以避免迭代器失效）
-            dns_cache_.erase(cache_key);
+            co_return co_await route_positive(host, port);
         }
-        // 缓存未命中或过期，执行解析
+
+        // 第四关：当前协程成为先头，负责真实解析并广播结果
+        const auto executor = co_await net::this_coro::executor;
+        auto timer = std::make_shared<net::steady_timer>(executor);
+        timer->expires_at(std::chrono::steady_clock::time_point::max());
+        flight_map_.insert_or_assign(cache_key, timer);
+
         boost::system::error_code ec;
         const auto results = co_await resolver_.async_resolve(host, port, net::redirect_error(net::use_awaitable, ec));
-        if (ec)
-        {
-            co_return co_await route_positive(host, port);
-        }
-        if (results.empty())
-        {
-            co_return co_await route_positive(host, port);
-        }
-        // 存入缓存，TTL 30 秒
-        std::vector<tcp::endpoint> endpoints;
-        endpoints.reserve(std::distance(results.begin(), results.end()));
-        for (const auto &ep : results)
-        {
-            endpoints.push_back(ep.endpoint());
-        }
-        dns_cache_[std::move(cache_key)] = dns_cache_entry{std::move(endpoints), now + std::chrono::seconds(30)};
-        // 2. 找池子要连接：失败则回退到正向代理
-        auto conn = co_await pool_.acquire_tcp(*results.begin());
-        if (!conn || !conn->is_open())
-        {
-            co_return co_await route_positive(host, port);
-        }
-        co_return std::make_pair(gist::code::success, std::move(conn));
+        flight_map_.erase(cache_key);
 
-        co_return std::make_pair(gist::code::bad_gateway, nullptr);
+        memory::vector<tcp::endpoint> resolved_endpoints(mr_);
+        if (!ec && !results.empty())
+        {
+            resolved_endpoints.reserve(std::distance(results.begin(), results.end()));
+            for (const auto &result : results)
+            {
+                resolved_endpoints.push_back(result.endpoint());
+            }
+
+            memory::vector<tcp::endpoint> cached_endpoints(mr_);
+            cached_endpoints.reserve(resolved_endpoints.size());
+            cached_endpoints.insert(cached_endpoints.end(), resolved_endpoints.begin(), resolved_endpoints.end());
+            dns_cache_.insert_or_assign(cache_key, 
+                addresses{std::move(cached_endpoints),std::chrono::steady_clock::now() + std::chrono::seconds(30)});
+            if (dns_cache_.size() > 10000)
+            {
+                dns_cache_.erase(dns_cache_.begin());
+            }
+        }
+
+        timer->cancel();
+
+        // 解析失败或空结果时回退上游代理
+        if (ec || resolved_endpoints.empty())
+        {
+            co_return co_await route_positive(host, port);
+        }
+
+        if (auto resolved_conn = co_await try_connect_endpoints(resolved_endpoints))
+        {
+            co_return std::make_pair(gist::code::success, std::move(resolved_conn));
+        }
+
+        co_return co_await route_positive(host, port);
     }
 
     auto distributor::route_reverse(const std::string_view host)

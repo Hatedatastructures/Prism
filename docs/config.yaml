@@ -1,0 +1,60 @@
+# 全局端口设置
+mixed-port: 7890
+socks-port: 7891
+allow-lan: true                # 允许局域网连接（手机可通过局域网IP连接）
+bind-address: '*'              # 监听所有网卡
+mode: rule
+log-level: info
+external-controller: 127.0.0.1:9090
+
+# DNS 设置（关闭，如需开启可自行调整）
+dns:
+  enable: false
+
+# ---------- 代理节点 ----------
+proxies:
+  # Trojan 代理（假设运行在 192.168.31.26，端口 8081）
+  - name: "🏠 局域网 Trojan"
+    type: trojan
+    server: 192.168.31.26
+    port: 8081                # Trojan 端口
+    password: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" 
+    udp: false
+    skip-cert-verify: true      # 局域网自签证书可跳过验证
+
+  # SOCKS5 代理（假设运行在 192.168.31.26，端口 8081，无认证）
+  - name: "🏠 局域网 SOCKS5"
+    type: socks5
+    server: 192.168.31.26
+    port: 8081                  # SOCKS5 端口
+    # username: your-user
+    # password: your-pass
+    udp: false
+
+
+# ---------- 策略组 ----------
+proxy-groups:
+  - name: "🚀 我的代理"
+    type: select
+    proxies:
+      - "🏠 局域网 Trojan"
+      - "🏠 局域网 SOCKS5"
+
+  # 可选：自动选择组（用于测试延迟）
+  - name: "⚡ 自动优选"
+    type: url-test
+    proxies:
+      - "🏠 局域网 Trojan"
+      - "🏠 局域网 SOCKS5"
+    url: "http://www.gstatic.com/generate_204"
+    interval: 300
+
+# ---------- 规则 ----------
+rules:
+  # 局域网直连（避免代理回环）
+  - IP-CIDR,192.168.0.0/16,DIRECT
+  - IP-CIDR,10.0.0.0/8,DIRECT
+  - IP-CIDR,172.16.0.0/12,DIRECT
+  - IP-CIDR,127.0.0.0/8,DIRECT
+
+  - MATCH,🚀 我的代理

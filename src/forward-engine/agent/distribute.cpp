@@ -9,8 +9,8 @@ namespace ngx::agent
      * @brief 构造接入分流器
      * @details 初始化 `worker` 绑定和过载状态位集合。
      */
-    distribute::distribute(memory::vector<worker_binding> bindings, const distribute_config config,
-                           memory::resource_pointer mr)
+    distribute::distribute(memory::vector<worker_binding> bindings, const distribute_config &config,
+                           const memory::resource_pointer mr)
         : bindings_(std::move(bindings), mr), overload_state_(mr), config_(config), mr_(mr)
     {
         overload_state_.resize(bindings_.size(), 0U);
@@ -79,11 +79,11 @@ namespace ngx::agent
         }
 
         const std::size_t workers_count = bindings_.size();
-        const std::size_t primary = static_cast<std::size_t>(mix_hash(affinity_value) % workers_count);
+        const auto primary = mix_hash(affinity_value) % workers_count;
         std::size_t secondary = primary;
         if (workers_count > 1U)
         {
-            secondary = static_cast<std::size_t>(mix_hash(affinity_value ^ 0xa24baed4963ee407ULL) % workers_count);
+            secondary = mix_hash(affinity_value ^ 0xa24baed4963ee407ULL) % workers_count;
             if (secondary == primary)
             {
                 secondary = (secondary + 1U) % workers_count;

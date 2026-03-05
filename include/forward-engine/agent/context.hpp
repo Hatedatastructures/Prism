@@ -4,7 +4,6 @@
 #include <forward-engine/agent/distributor.hpp>
 #include <forward-engine/agent/validator.hpp>
 #include <forward-engine/memory/pool.hpp>
-#include <forward-engine/transport/source.hpp>
 #include <forward-engine/transport/transmission.hpp>
 #include <boost/asio.hpp>
 #include <boost/asio/ssl.hpp>

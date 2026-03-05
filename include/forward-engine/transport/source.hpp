@@ -250,7 +250,7 @@ namespace ngx::transport
         explicit source(net::io_context &ioc,
                         const memory::resource_pointer resource = memory::current_resource(),
                         const std::uint32_t max_cache_per_endpoint = 32U,
-                        const std::uint64_t max_idle_seconds = 300ULL)
+                        const std::uint64_t max_idle_seconds = 30ULL)
             : ioc_(ioc),
               cache_(resource),
               max_cache_endpoint_(max_cache_per_endpoint),
@@ -351,7 +351,7 @@ namespace ngx::transport
         const std::uint32_t max_cache_endpoint_ = 64;
 
         // 空闲连接最大存活时间(超过则直接销毁，不检查)
-        const std::chrono::seconds max_idle_time_{300};
+        const std::chrono::seconds max_idle_time_{30};
     }; // class source
 
 }

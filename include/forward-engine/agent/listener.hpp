@@ -11,7 +11,6 @@
 #pragma once
 
 #include <chrono>
-#include <cstdint>
 #include <forward-engine/agent/config.hpp>
 #include <forward-engine/agent/distribute.hpp>
 #include <boost/asio.hpp>

@@ -11,7 +11,7 @@ namespace ngx::protocol
         // 4 字节 ID + 1 字节 type + payload
         result.resize(5 + frame_instance.payload.size());
 
-        std::uint32_t net_id = boost::endian::native_to_big(frame_instance.id);
+        const std::uint32_t net_id = boost::endian::native_to_big(frame_instance.id);
         std::memcpy(result.data(), &net_id, sizeof(std::uint32_t));
 
         result[4] = static_cast<char>(frame_instance.type);
@@ -21,7 +21,7 @@ namespace ngx::protocol
     }
 
     auto deserialize(const std::string_view string_value, frame &frame_instance)
-        -> ngx::gist::code
+        -> gist::code
     {
         // 检查最小长度 4 字节 ID + 1 字节 type = 5 字节
         if (string_value.size() < 5)
@@ -31,7 +31,7 @@ namespace ngx::protocol
 
         std::uint32_t net_id;
         std::memcpy(&net_id, string_value.data(), sizeof(std::uint32_t));
-        std::uint32_t id = boost::endian::big_to_native(net_id);
+        const std::uint32_t id = boost::endian::big_to_native(net_id);
 
         auto raw_type = static_cast<std::uint8_t>(string_value[4]);
         const auto type = static_cast<enum frame::type>(raw_type);

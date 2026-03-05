@@ -33,17 +33,15 @@ namespace ngx::agent
     /**
      * @brief 生成连接亲和键
      * @details
-     * - `IPv4`：端口与 `to_uint()` 混合；
-     * - `IPv6`：高低 64 位折叠后与端口混合。
+     * - `IPv4`：仅使用源地址 `to_uint()`；
+     * - `IPv6`：仅使用源地址高低 64 位折叠。
      */
     auto listener::make_affinity(const tcp::endpoint &endpoint) noexcept 
         -> std::uint64_t
     {
-        std::uint64_t value = static_cast<std::uint64_t>(endpoint.port()) << 48U;
         if (endpoint.address().is_v4())
         {
-            value ^= static_cast<std::uint64_t>(endpoint.address().to_v4().to_uint());
-            return value;
+            return static_cast<std::uint64_t>(endpoint.address().to_v4().to_uint());
         }
 
         const auto bytes = endpoint.address().to_v6().to_bytes();
@@ -54,7 +52,7 @@ namespace ngx::agent
             high = (high << 8U) | bytes[index];
             low = (low << 8U) | bytes[index + 8U];
         }
-        return value ^ high ^ low;
+        return high ^ low;
     }
 
     /**

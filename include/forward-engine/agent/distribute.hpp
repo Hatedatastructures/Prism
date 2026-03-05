@@ -92,7 +92,7 @@ namespace ngx::agent
          * @param config 分流策略参数
          * @param mr 内存资源
          */
-        explicit distribute(memory::vector<worker_binding> bindings,distribute_config config = {},
+        explicit distribute(memory::vector<worker_binding> bindings, const distribute_config &config = {},
                             memory::resource_pointer mr = memory::current_resource());
 
         /**
