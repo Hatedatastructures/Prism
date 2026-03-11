@@ -8,7 +8,7 @@ namespace ngx::agent
      * @brief 构造监听器并完成端口绑定
      * @details 仅监听层持有 `acceptor`，避免多 `worker` 抢占同端口。
      */
-    listener::listener(const config &cfg, distribute &dispatcher)
+    listener::listener(const config &cfg, balancer &dispatcher)
         : ioc_(1),acceptor_(ioc_),dispatcher_(dispatcher),
           buffer_size_(cfg.buffer.size),backpressure_delay_(2)
     {
@@ -78,7 +78,7 @@ namespace ngx::agent
             const tcp::endpoint remote_endpoint = socket.remote_endpoint(remote_excode);
             const std::uint64_t affinity = remote_excode ? 0ULL : make_affinity(remote_endpoint);
             // 拿到对应的 worker 索引
-            const distribute::select_result decision = dispatcher_.select(affinity);
+            const balancer::select_result decision = dispatcher_.select(affinity);
             if (decision.backpressure)
             {
                 co_await net::steady_timer(ioc_, backpressure_delay_).async_wait(net::use_awaitable);

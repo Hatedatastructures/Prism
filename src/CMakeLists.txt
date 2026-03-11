@@ -16,10 +16,10 @@ set(FORWARD_LIB_SOURCES
         ../include/forward-engine/transport/reverse.hpp
         forward-engine/agent/frame.cpp
         ../include/forward-engine/protocol/frame.hpp
-        forward-engine/agent/distributor.cpp
-        ../include/forward-engine/agent/distributor.hpp
-        forward-engine/agent/distribute.cpp
-        ../include/forward-engine/agent/distribute.hpp
+        forward-engine/agent/conduit.cpp
+        ../include/forward-engine/agent/conduit.hpp
+        forward-engine/agent/balancer.cpp
+        ../include/forward-engine/agent/balancer.hpp
         forward-engine/agent/listener.cpp
         ../include/forward-engine/agent/listener.hpp
         forward-engine/transport/source.cpp
@@ -62,7 +62,7 @@ set(FORWARD_LIB_SOURCES
         forward-engine/agent/handler.cpp
         ../include/forward-engine/gist/compatible.hpp
         ../include/forward-engine/gist/handling.hpp
-        ../include/forward-engine/agent/dispatcher.hpp
+        ../include/forward-engine/agent/handlers.hpp
 )
 
 # =============================================================

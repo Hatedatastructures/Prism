@@ -272,10 +272,15 @@ namespace ngx::gist
          */
         ttl_expired = 35,
         /**
+         * @brief 操作被禁止
+         * @details 权限不足或功能被配置禁用。
+         */
+        forbidden = 36,
+        /**
          * @brief 内部使用
          * @details 用于表示错误码数量，不用于实际错误处理。
          */
-        _count = 36
+        _count = 37
     };
 
     /**
@@ -390,6 +395,8 @@ namespace ngx::gist
             return "resource_unavailable";
         case code::ttl_expired:
             return "ttl_expired";
+        case code::forbidden:
+            return "forbidden";
         default:
             return "unknown";
         }

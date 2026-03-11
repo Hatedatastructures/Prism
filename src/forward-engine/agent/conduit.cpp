@@ -1,4 +1,4 @@
-#include <forward-engine/agent/distributor.hpp>
+#include <forward-engine/agent/conduit.hpp>
 #include <abnormal.hpp>
 #include <array>
 #include <charconv>
@@ -8,13 +8,13 @@ namespace ngx::agent
 {
     using tcp = boost::asio::ip::tcp;
 
-    distributor::distributor(source &pool, net::io_context &ioc, const memory::resource_pointer mr)
+    conduit::conduit(source &pool, net::io_context &ioc, const memory::resource_pointer mr)
         : pool_(pool), resolver_(ioc), mr_(mr ? mr : memory::current_resource()),
           reverse_map_(mr_), dns_cache_(mr_), flight_map_(mr_)
     {
     }
 
-    void distributor::set_positive_endpoint(const std::string_view host, const std::uint16_t port)
+    void conduit::set_positive_endpoint(const std::string_view host, const std::uint16_t port)
     {
         /**
          * @details 该配置由 `worker` 在初始化阶段注入：
@@ -36,14 +36,14 @@ namespace ngx::agent
         positive_port_ = port;
     }
 
-    void distributor::add_reverse_route(const std::string_view host, const tcp::endpoint &ep)
+    void conduit::add_reverse_route(const std::string_view host, const tcp::endpoint &ep)
     {
         memory::string host_key(mr_);
         host_key.assign(host);
         reverse_map_.insert_or_assign(std::move(host_key), ep);
     }
 
-    auto distributor::try_connect_endpoints(const memory::vector<tcp::endpoint> &endpoints)
+    auto conduit::try_connect_endpoints(const memory::vector<tcp::endpoint> &endpoints)
         -> net::awaitable<unique_sock>
     {
         for (const auto &endpoint : endpoints)
@@ -57,7 +57,7 @@ namespace ngx::agent
         co_return nullptr;
     }
 
-    auto distributor::try_connect_cache(const memory::string &cache_key, const std::chrono::steady_clock::time_point now)
+    auto conduit::try_connect_cache(const memory::string &cache_key, const std::chrono::steady_clock::time_point now)
         -> net::awaitable<unique_sock>
     {
         std::size_t endpoint_index{0};
@@ -95,7 +95,7 @@ namespace ngx::agent
         co_return nullptr;
     }
 
-    auto distributor::route_positive(const std::string_view host, const std::string_view port)
+    auto conduit::route_positive(const std::string_view host, const std::string_view port)
         -> net::awaitable<std::pair<gist::code, unique_sock>>
     {
         /**
@@ -201,7 +201,7 @@ namespace ngx::agent
         co_return std::make_pair(gist::code::success, std::move(socket_ptr));
     }
 
-    auto distributor::route_forward(const std::string_view host, const std::string_view port)
+    auto conduit::route_forward(const std::string_view host, const std::string_view port)
         -> net::awaitable<std::pair<gist::code, unique_sock>>
     {
         // 第一关：黑名单快速拒绝
@@ -284,7 +284,7 @@ namespace ngx::agent
         co_return co_await route_positive(host, port);
     }
 
-    auto distributor::route_reverse(const std::string_view host)
+    auto conduit::route_reverse(const std::string_view host)
         -> net::awaitable<std::pair<gist::code, unique_sock>>
     {
         // 1. 查配置表
@@ -300,7 +300,7 @@ namespace ngx::agent
         co_return std::make_pair(gist::code::bad_gateway, nullptr);
     }
 
-    auto distributor::route_direct(const tcp::endpoint ep) const
+    auto conduit::route_direct(const tcp::endpoint ep) const
         -> net::awaitable<std::pair<gist::code, unique_sock>>
     {
         auto conn = co_await pool_.acquire_tcp(ep);
@@ -309,6 +309,65 @@ namespace ngx::agent
             co_return std::make_pair(gist::code::bad_gateway, nullptr);
         }
         co_return std::make_pair(gist::code::success, std::move(conn));
+    }
+
+    auto conduit::route_udp(const std::string_view host, const std::string_view port)
+        -> net::awaitable<std::pair<gist::code, net::ip::udp::socket>>
+    {
+        // UDP 路由不走 positive 回退（UDP over HTTP CONNECT 无意义）
+        
+        // 黑名单检查
+        if (blacklist_.domain(host))
+        {
+            co_return std::pair{gist::code::blocked, net::ip::udp::socket{resolver_.get_executor()}};
+        }
+
+        // DNS 解析
+        boost::system::error_code ec;
+        const auto results = co_await resolver_.async_resolve(host, port, 
+            net::redirect_error(net::use_awaitable, ec));
+
+        if (ec || results.empty())
+        {
+            co_return std::pair{gist::code::host_unreachable, net::ip::udp::socket{resolver_.get_executor()}};
+        }
+
+        // 创建 UDP socket
+        net::ip::udp::socket socket(resolver_.get_executor());
+        socket.open(net::ip::udp::v6(), ec);
+        if (ec)
+        {
+            socket.open(net::ip::udp::v4(), ec);
+            if (ec)
+            {
+                co_return std::pair{gist::code::io_error, net::ip::udp::socket{resolver_.get_executor()}};
+            }
+        }
+
+        co_return std::pair{gist::code::success, std::move(socket)};
+    }
+
+    auto conduit::resolve_udp_target(const std::string_view host, const std::string_view port)
+        -> net::awaitable<std::pair<gist::code, net::ip::udp::endpoint>>
+    {
+        // 黑名单检查
+        if (blacklist_.domain(host))
+        {
+            co_return std::pair{gist::code::blocked, net::ip::udp::endpoint{}};
+        }
+
+        // DNS 解析
+        boost::system::error_code ec;
+        net::ip::udp::resolver udp_resolver(resolver_.get_executor());
+        const auto results = co_await udp_resolver.async_resolve(host, port,
+            net::redirect_error(net::use_awaitable, ec));
+
+        if (ec || results.empty())
+        {
+            co_return std::pair{gist::code::host_unreachable, net::ip::udp::endpoint{}};
+        }
+
+        co_return std::pair{gist::code::success, results.begin()->endpoint()};
     }
 
 }

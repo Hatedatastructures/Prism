@@ -66,7 +66,7 @@ namespace ngx::agent
      * @warning DNS 缓存可能导致域名解析结果过期，默认缓存时间为 60 秒。
      *
      */
-    class distributor
+    class conduit
     {
         /**
          * @brief 透明字符串哈希
@@ -162,7 +162,7 @@ namespace ngx::agent
          * @param ioc IO 上下文，用于 DNS 解析
          * @param mr 内存资源指针 (通常为线程局部池)
          */
-        explicit distributor(source &pool, net::io_context &ioc, memory::resource_pointer mr = memory::current_resource());
+        explicit conduit(source &pool, net::io_context &ioc, memory::resource_pointer mr = memory::current_resource());
 
         /**
          * @brief 设置上游正向代理 (HTTP `CONNECT`)
@@ -221,6 +221,34 @@ namespace ngx::agent
          */
         [[nodiscard]] auto route_forward(std::string_view host, std::string_view port)
             -> net::awaitable<std::pair<gist::code, unique_sock>>;
+
+        /**
+         * @brief 执行 UDP 路由（不走 positive 回退）
+         * @details UDP 路由流程：
+         * @details - 1. 黑名单检查：命中则返回 `blocked`
+         * @details - 2. DNS 解析：解析目标域名
+         * @details - 3. 创建 UDP socket：返回未连接的 UDP socket
+         *
+         * @note UDP 不走 positive 回退，因为 UDP over HTTP CONNECT 无意义
+         * @param host 目标主机名
+         * @param port 目标端口字符串
+         * @return `std::pair<gist::code, net::ip::udp::socket>` 包含结果代码和 UDP socket
+         * @retval `gist::code::blocked` 域名被黑名单拦截
+         * @retval `gist::code::host_unreachable` DNS 解析失败
+         * @retval `gist::code::success` UDP socket 创建成功
+         */
+        [[nodiscard]] auto route_udp(std::string_view host, std::string_view port)
+            -> net::awaitable<std::pair<gist::code, net::ip::udp::socket>>;
+
+        /**
+         * @brief 解析 UDP 目标地址
+         * @details 执行 DNS 解析并返回 UDP 端点
+         * @param host 目标主机名
+         * @param port 目标端口字符串
+         * @return `std::pair<gist::code, net::ip::udp::endpoint>` 包含结果代码和端点
+         */
+        [[nodiscard]] auto resolve_udp_target(std::string_view host, std::string_view port)
+            -> net::awaitable<std::pair<gist::code, net::ip::udp::endpoint>>;
 
     private:
         [[nodiscard]] auto try_connect_endpoints(const memory::vector<tcp::endpoint> &endpoints)

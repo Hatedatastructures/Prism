@@ -6,7 +6,7 @@
 #include <memory>
 #include <string>
 #include <forward-engine/transport/source.hpp>
-#include <forward-engine/agent/distributor.hpp>
+#include <forward-engine/agent/conduit.hpp>
 #include <forward-engine/agent/session.hpp>
 #include <forward-engine/transport/reliable.hpp>
 #include <forward-engine/abnormal/network.hpp>
@@ -26,7 +26,7 @@ namespace net = boost::asio;
 namespace ssl = boost::asio::ssl;
 using tcp = net::ip::tcp;
 
-#include <forward-engine/agent/detection.hpp>
+#include <forward-engine/agent/pipeline.hpp>
 
 #include <forward-engine/agent/config.hpp>
 #include <forward-engine/agent/context.hpp>
@@ -520,7 +520,7 @@ int main()
 
         // 初始化
         const auto pool = std::make_unique<ngx::transport::source>(ioc);
-        auto dist = std::make_unique<agent::distributor>(*pool, ioc);
+        auto dist = std::make_unique<agent::conduit>(*pool, ioc);
 
         auto ssl_ctx = std::make_shared<ssl::context>(ssl::context::tlsv12);
         ssl_ctx->set_verify_mode(ssl::verify_none);

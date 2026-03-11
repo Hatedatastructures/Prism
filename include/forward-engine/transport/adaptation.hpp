@@ -193,10 +193,8 @@ namespace ngx::transport
         template <typename MutableBufferSequence, typename CompletionToken>
         auto async_read_some(const MutableBufferSequence &buffers, CompletionToken &&token)
         {
-            // 如果有预读数据，先从中读取
             if (preread_offset_ < preread_buffer_.size())
             {
-                // 复制数据到缓冲区
                 std::size_t bytes_available = preread_buffer_.size() - preread_offset_;
                 std::size_t bytes_to_copy = 0;
                 auto buf_it = net::buffer_sequence_begin(buffers);
@@ -210,7 +208,6 @@ namespace ngx::transport
                     bytes_to_copy += copy_size;
                 }
                 preread_offset_ += bytes_to_copy;
-                // 立即完成，返回复制的字节数
                 return net::async_initiate<CompletionToken, void(boost::system::error_code, std::size_t)>(
                     [bytes_to_copy](auto &&handler)
                     {
@@ -218,12 +215,6 @@ namespace ngx::transport
                         std::forward<decltype(handler)>(handler)(ec, bytes_to_copy);
                     },
                     token);
-            }
-            // 否则委托给底层传输
-            if (trans_->is_reliable())
-            {
-                auto *tcp = static_cast<reliable *>(trans_.get());
-                return tcp->native_socket().async_read_some(buffers, std::forward<CompletionToken>(token));
             }
             return ngx::transport::async_read_some(*trans_, buffers, std::forward<CompletionToken>(token));
         }
@@ -248,11 +239,6 @@ namespace ngx::transport
         template <typename ConstBufferSequence, typename CompletionToken>
         auto async_write_some(const ConstBufferSequence &buffers, CompletionToken &&token)
         {
-            if (trans_->is_reliable())
-            {
-                auto *tcp = static_cast<reliable *>(trans_.get());
-                return tcp->native_socket().async_write_some(buffers, std::forward<CompletionToken>(token));
-            }
             return ngx::transport::async_write_some(*trans_, buffers, std::forward<CompletionToken>(token));
         }
 

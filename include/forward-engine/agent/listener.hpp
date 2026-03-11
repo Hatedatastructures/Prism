@@ -12,7 +12,7 @@
 
 #include <chrono>
 #include <forward-engine/agent/config.hpp>
-#include <forward-engine/agent/distribute.hpp>
+#include <forward-engine/agent/balancer.hpp>
 #include <boost/asio.hpp>
 
 namespace ngx::agent
@@ -33,7 +33,7 @@ namespace ngx::agent
          * @param cfg 代理配置
          * @param dispatcher 接入分流器引用
          */
-        explicit listener(const config &cfg, distribute &dispatcher);
+        explicit listener(const config &cfg, balancer &dispatcher);
 
         /**
          * @brief 启动监听事件循环
@@ -57,7 +57,7 @@ namespace ngx::agent
 
         net::io_context ioc_;                          ///< 监听线程 `io_context`
         tcp::acceptor acceptor_;                       ///< TCP 接收器
-        distribute &dispatcher_;                       ///< 分流器引用
+        balancer &dispatcher_;                       ///< 分流器引用
         std::uint32_t buffer_size_;                    ///< 连接缓冲区大小
         std::chrono::milliseconds backpressure_delay_; ///< 背压等待时长
     };

@@ -54,7 +54,7 @@
 #include <forward-engine/agent/handler.hpp>
 #include <forward-engine/trace/spdlog.hpp>
 #include <forward-engine/transport/transmission.hpp>
-#include <forward-engine/agent/dispatcher.hpp>
+#include <forward-engine/agent/handlers.hpp>
 
 namespace ngx::agent
 {

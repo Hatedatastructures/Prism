@@ -12,10 +12,8 @@
 #pragma once
 
 #include <cstddef>
-#include <cstdint>
 #include <functional>
 #include <forward-engine/memory/container.hpp>
-#include <forward-engine/memory/pool.hpp>
 #include <boost/asio.hpp>
 
 namespace ngx::agent
@@ -54,14 +52,14 @@ namespace ngx::agent
     };
 
     /**
-     * @class distribute
+     * @class balancer
      * @brief 无锁接入分流器
      * @details
      * - 输入：亲和键 + `worker` 快照；
      * - 输出：目标 `worker` 索引、是否触发溢出、是否建议背压；
      * - 执行模型：由监听线程单线程调用，不需要互斥锁。
      */
-    class distribute
+    class balancer
     {
     public:
         /**
@@ -92,7 +90,7 @@ namespace ngx::agent
          * @param config 分流策略参数
          * @param mr 内存资源
          */
-        explicit distribute(memory::vector<worker_binding> bindings, const distribute_config &config = {},
+        explicit balancer(memory::vector<worker_binding> bindings, const distribute_config &config = {},
                             memory::resource_pointer mr = memory::current_resource());
 
         /**

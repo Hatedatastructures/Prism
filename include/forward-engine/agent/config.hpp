@@ -23,6 +23,8 @@
 #pragma once
 
 #include <forward-engine/memory/container.hpp>
+#include <forward-engine/protocol/socks5/config.hpp>
+#include <forward-engine/protocol/trojan/config.hpp>
 
 /**
  * @namespace ngx::agent
@@ -306,5 +308,17 @@ namespace ngx::agent
          * @details 是否启用 Clash 客户端兼容特性。
          */
         bool clash = false;
+
+        /**
+         * @brief SOCKS5 协议配置
+         * @details 控制 SOCKS5 协议的能力开关和 UDP relay 参数。
+         */
+        protocol::socks5::config socks5;
+
+        /**
+         * @brief Trojan 协议配置
+         * @details 控制 Trojan 协议的能力开关和 UDP 参数。
+         */
+        protocol::trojan::config trojan;
     };
 }

@@ -1,7 +1,7 @@
 #pragma once
 
 /**
- * @file dispatcher.hpp
+ * @file handlers.hpp
  * @brief 协议处理器分发器
  * @details 定义具体协议处理器实现（`HTTP`、`SOCKS5`、`TLS`）及其全局注册函数。
  * 这些处理器将检测到的协议数据流转发到相应的协议处理流水线。
@@ -29,7 +29,7 @@
 
 #include <boost/asio.hpp>
 #include <forward-engine/agent/handler.hpp>
-#include <forward-engine/agent/detection.hpp>
+#include <forward-engine/agent/pipeline.hpp>
 
 namespace ngx::agent
 {
@@ -87,7 +87,7 @@ namespace ngx::agent
          * @details 返回字符串字面量 "http" 用于日志和调试。
          * @return "http" 处理器名称
          */
-        std::string_view name() const override
+        [[nodiscard]] std::string_view name() const override
         {
             return "http";
         }

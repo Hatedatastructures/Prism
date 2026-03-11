@@ -1,7 +1,7 @@
 #pragma once
 
 #include <forward-engine/agent/config.hpp>
-#include <forward-engine/agent/distributor.hpp>
+#include <forward-engine/agent/conduit.hpp>
 #include <forward-engine/agent/validator.hpp>
 #include <forward-engine/memory/pool.hpp>
 #include <forward-engine/transport/transmission.hpp>
@@ -36,7 +36,7 @@ namespace ngx::agent
     struct worker_context
     {
         net::io_context &io_context;          ///< IO 上下文
-        distributor &distributor;             ///< 路由分发器
+        conduit &distributor;             ///< 路由分发器
         memory::resource_pointer memory_pool; ///< 线程局部内存池
     };
 

@@ -84,9 +84,8 @@ namespace ngx::transport
             -> net::awaitable<std::size_t> override
         {
             boost::system::error_code sys_ec;
-            const auto n = co_await socket_.async_read_some(
-                net::buffer(buffer.data(), buffer.size()),
-                net::redirect_error(net::use_awaitable, sys_ec));
+            auto token = net::redirect_error(net::use_awaitable, sys_ec);
+            const auto n = co_await socket_.async_read_some(net::buffer(buffer.data(), buffer.size()),token);
             ec = ngx::gist::make_error_code(ngx::gist::to_code(sys_ec));
             co_return n;
         }
@@ -102,9 +101,8 @@ namespace ngx::transport
             -> net::awaitable<std::size_t> override
         {
             boost::system::error_code sys_ec;
-            const auto n = co_await socket_.async_write_some(
-                net::buffer(buffer.data(), buffer.size()),
-                net::redirect_error(net::use_awaitable, sys_ec));
+            auto token = net::redirect_error(net::use_awaitable, sys_ec);
+            const auto n = co_await socket_.async_write_some(net::buffer(buffer.data(), buffer.size()),token);
             ec = ngx::gist::make_error_code(ngx::gist::to_code(sys_ec));
             co_return n;
         }

@@ -153,20 +153,15 @@ namespace ngx::protocol
          * @details 封装了解析出的目标主机、端口以及是否需要正向代理，是路由决策的关键输入。
          * 该结构体使用项目自定义的 `memory::string` 管理内存，确保与线程局部内存池兼容。
          *
-         * 成员说明：
-         * - `host`：目标主机名或 IP 地址，使用 `memory::string` 存储；
-         * - `port`：目标端口号，使用 `memory::string` 存储（默认为 "80"）；
-         * - `positive`：是否为正向代理请求，影响路由选择逻辑。
-         *
          * 路由语义：
-         * - 当 `positive` 为 `true` 时，表示客户端请求使用正向代理；
-         * - 当 `positive` 为 `false` 时，表示普通请求或反向代理请求；
-         * - `agent::distributor` 根据此标志选择正向或反向路由。
+         * @details - 当 `positive` 为 `true` 时，表示客户端请求使用正向代理；
+         * @details - 当 `positive` 为 `false` 时，表示普通请求或反向代理请求；
+         * @details - `agent::distributor` 根据此标志选择正向或反向路由。
          *
          * 内存管理：
-         * - 构造函数接受 `memory::resource_pointer` 参数；
-         * - 成员字符串使用相同的内存资源分配内存；
-         * - 默认使用 `memory::current_resource()`（通常为线程局部池）。
+         * @details - 构造函数接受 `memory::resource_pointer` 参数；
+         * @details - 成员字符串使用相同的内存资源分配内存；
+         * @details - 默认使用 `memory::current_resource()`（通常为线程局部池）。
          *
          * @note 端口默认值为 "80"（HTTP 默认端口）。
          * @warning `host` 和 `port` 字符串可能为空，调用者应检查有效性。

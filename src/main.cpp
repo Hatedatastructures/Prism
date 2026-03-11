@@ -4,7 +4,7 @@
 #include <fstream>
 
 #include <forward-engine/agent.hpp>
-#include <forward-engine/agent/distribute.hpp>
+#include <forward-engine/agent/balancer.hpp>
 #include <forward-engine/agent/listener.hpp>
 #include <forward-engine/agent/validator.hpp>
 #include <forward-engine/memory.hpp>
@@ -13,7 +13,7 @@
 #include <forward-engine/core/configuration.hpp>
 #include <forward-engine/adapter/load.hpp>
 
-#include "agent/detection.hpp"
+#include "agent/pipeline.hpp"
 
 namespace agent = ngx::agent;
 constexpr std::string_view configuration_path = {R"(C:\Users\C1373\Desktop\code\forward-engine\src\configuration.json)"};
@@ -67,7 +67,7 @@ int main()
             workers.emplace_back(std::make_unique<agent::worker>(agent_config, shared_validator));
         }
 
-        ngx::memory::vector<agent::distribute::worker_binding> bindings;
+        ngx::memory::vector<agent::balancer::worker_binding> bindings;
         bindings.reserve(workers_count);
         for (const auto &worker_ptr : workers)
         {   // 遍历 workers 把钩子注册到 bindings 后续方便投递 socket
@@ -83,7 +83,7 @@ int main()
             bindings.emplace_back(delivery_function, snapshot_function);
         }
 
-        agent::distribute dispatcher(std::move(bindings));
+        agent::balancer dispatcher(std::move(bindings));
         agent::listener service_listener(agent_config, dispatcher);
 
         ngx::memory::vector<std::jthread> threads;

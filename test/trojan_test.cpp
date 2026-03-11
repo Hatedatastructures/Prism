@@ -39,7 +39,7 @@ net::awaitable<void> do_trojan_server(tcp::acceptor &acceptor, const std::string
         // 将 TCP socket 包装为可靠传输层
         auto transport = ngx::transport::make_reliable(std::move(socket));
         // 创建 Trojan 装饰器
-        auto trojan = ngx::protocol::trojan::make_trojan_stream(std::move(transport), user_credential_verifier);
+        auto trojan = ngx::protocol::trojan::make_trojan_stream(std::move(transport), {}, user_credential_verifier);
 
         // 执行握手
         std::cout << "Server starting Trojan handshake..." << std::endl;

@@ -9,6 +9,7 @@
 #include <string>
 #include <boost/asio/ip/address.hpp>
 #include <forward-engine/protocol/socks5/constants.hpp>
+#include <forward-engine/transport/form.hpp>
 #include <forward-engine/memory/container.hpp>
 
 namespace ngx::protocol::socks5
@@ -78,22 +79,13 @@ namespace ngx::protocol::socks5
      */
     struct request
     {
-        /**
-         * @brief 命令类型
-         * @details 如 CONNECT, BIND, UDP ASSOCIATE。
-         */
         command cmd;
 
-        /**
-         * @brief 目标端口
-         * @details 网络字节序。
-         */
         uint16_t destination_port;
 
-        /**
-         * @brief 目标地址
-         */
         address destination_address;
+
+        transport::form form = transport::form::stream;
     };
 
     /**

@@ -25,7 +25,6 @@
 
 #include <boost/asio.hpp>
 #include <cstddef>
-#include <functional>
 #include <memory>
 #include <span>
 #include <system_error>
@@ -117,7 +116,7 @@ namespace ngx::transport
          * @note 该方法是纯虚函数，必须由子类实现。
          * @warning 返回的执行器必须在传输层生命周期内保持有效。
          */
-        virtual executor_type executor() const = 0;
+        [[nodiscard]] virtual executor_type executor() const = 0;
 
         /**
          * @brief 获取关联的执行器（兼容 Asio Concept）
@@ -127,7 +126,7 @@ namespace ngx::transport
          * @note 该方法委托给 `executor()` 方法。
          * @warning 返回的执行器必须在传输层生命周期内保持有效。
          */
-        executor_type get_executor() const
+        [[nodiscard]] executor_type get_executor() const
         {
             return executor();
         }

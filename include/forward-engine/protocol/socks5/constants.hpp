@@ -4,7 +4,6 @@
  * @details 定义了 SOCKS5 协议的命令字、地址类型和响应码。
  */
 #pragma once
-
 #include <cstdint>
 
 /**
@@ -12,7 +11,7 @@
  * @brief SOCKS5 协议实现
  * @details 实现了 SOCKS5 协议 (RFC 1928) 的服务端逻辑。
  * 支持无认证 (NO AUTHENTICATION REQUIRED) 模式，处理 CONNECT、BIND 和 UDP ASSOCIATE 命令。
- * @note  参考文档 https://blog.csdn.net/qq_40873884/article/details/123636767
+ * @note  参考 [socks5 协议详解](https://blog.csdn.net/qq_40873884/article/details/123636767)
  */
 namespace ngx::protocol::socks5
 {

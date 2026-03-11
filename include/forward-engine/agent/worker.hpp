@@ -36,12 +36,12 @@
 
 #include <boost/asio.hpp>
 #include <forward-engine/transport/source.hpp>
-#include <forward-engine/agent/distributor.hpp>
+#include <forward-engine/agent/conduit.hpp>
 #include <forward-engine/agent/session.hpp>
 #include <forward-engine/agent/validator.hpp>
 #include <forward-engine/transport/reliable.hpp>
 #include <forward-engine/memory/pool.hpp>
-#include <forward-engine/agent/distribute.hpp>
+#include <forward-engine/agent/balancer.hpp>
 #include <atomic>
 #include <chrono>
 #include <memory>
@@ -368,7 +368,7 @@ namespace ngx::agent
 
         net::io_context ioc_;                                         ///< IO 上下文，所有异步操作的执行环境
         source pool_;                                                 ///< 连接池（资源仓库），管理到后端服务的连接复用
-        distributor distributor_;                                     ///< 路由分发器（业务大脑），决定数据转发目标
+        conduit distributor_;                                     ///< 路由分发器（业务大脑），决定数据转发目标
         std::shared_ptr<ssl::context> ssl_ctx_;                       ///< SSL 上下文，用于 TLS 协议处理（可为空）
         std::shared_ptr<std::atomic<std::uint32_t>> active_sessions_; ///< 活跃会话计数
         std::atomic<std::uint32_t> pending_handoffs_{0};              ///< 待处理投递计数

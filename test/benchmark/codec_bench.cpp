@@ -176,7 +176,7 @@ static void BM_Socks5DecodeHeader(benchmark::State &state)
     static constexpr std::array<std::uint8_t, 4> buffer = {0x05, 0x01, 0x00, 0x01};
     for (auto _ : state)
     {
-        auto [ec, header] = protocol::socks5::wire::decode_header(buffer);
+        auto [ec, header] = protocol::socks5::wire::parse_header(buffer);
         if (gist::failed(ec))
         {
             state.SkipWithError("SOCKS5 header parsing failed");
@@ -191,7 +191,7 @@ static void BM_Socks5DecodeIPv4(benchmark::State &state)
     static constexpr std::array<std::uint8_t, 4> buffer = {192, 168, 1, 1};
     for (auto _ : state)
     {
-        auto [ec, addr] = protocol::socks5::wire::decode_ipv4(buffer);
+        auto [ec, addr] = protocol::socks5::wire::parse_ipv4(buffer);
         if (gist::failed(ec))
         {
             state.SkipWithError("SOCKS5 ipv4 parsing failed");
@@ -219,7 +219,7 @@ static void BM_Socks5DecodeDomain(benchmark::State &state)
 
     for (auto _ : state)
     {
-        auto [ec, addr] = protocol::socks5::wire::decode_domain(buffer);
+        auto [ec, addr] = protocol::socks5::wire::parse_domain(buffer);
         if (gist::failed(ec))
         {
             state.SkipWithError("SOCKS5 domain parsing failed");
@@ -238,7 +238,7 @@ static void BM_Socks5DecodeIPv6(benchmark::State &state)
     }
     for (auto _ : state)
     {
-        auto [ec, addr] = protocol::socks5::wire::decode_ipv6(buffer);
+        auto [ec, addr] = protocol::socks5::wire::parse_ipv6(buffer);
         if (gist::failed(ec))
         {
             state.SkipWithError("SOCKS5 ipv6 parsing failed");
@@ -261,7 +261,7 @@ static void BM_Socks5DecodeDomain_VarLen(benchmark::State &state)
     const auto view = std::span<const std::uint8_t>(buffer.data(), 1 + len);
     for (auto _ : state)
     {
-        auto [ec, addr] = protocol::socks5::wire::decode_domain(view);
+        auto [ec, addr] = protocol::socks5::wire::parse_domain(view);
         if (gist::failed(ec))
         {
             state.SkipWithError("SOCKS5 domain parsing failed");
@@ -343,7 +343,7 @@ static void BM_TrojanDecodeIPv4(benchmark::State &state)
     static constexpr std::array<std::uint8_t, 4> buffer = {127, 0, 0, 1};
     for (auto _ : state)
     {
-        auto [ec, addr] = protocol::trojan::wire::decode_ipv4(buffer);
+        auto [ec, addr] = protocol::trojan::wire::parse_ipv4(buffer);
         if (gist::failed(ec))
         {
             state.SkipWithError("Trojan ipv4 parsing failed");
@@ -362,7 +362,7 @@ static void BM_TrojanDecodeIPv6(benchmark::State &state)
     }
     for (auto _ : state)
     {
-        auto [ec, addr] = protocol::trojan::wire::decode_ipv6(buffer);
+        auto [ec, addr] = protocol::trojan::wire::parse_ipv6(buffer);
         if (gist::failed(ec))
         {
             state.SkipWithError("Trojan ipv6 parsing failed");
@@ -385,7 +385,7 @@ static void BM_TrojanDecodeDomain_VarLen(benchmark::State &state)
     const auto view = std::span<const std::uint8_t>(buffer.data(), 1 + len);
     for (auto _ : state)
     {
-        auto [ec, addr] = protocol::trojan::wire::decode_domain(view);
+        auto [ec, addr] = protocol::trojan::wire::parse_domain(view);
         if (gist::failed(ec))
         {
             state.SkipWithError("Trojan domain parsing failed");

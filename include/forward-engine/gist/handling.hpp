@@ -43,7 +43,6 @@
 #include <type_traits>
 
 #include <boost/asio/error.hpp>
-#include <boost/system/error_code.hpp>
 #include <forward-engine/gist/code.hpp>
 #include <forward-engine/gist/compatible.hpp>
 

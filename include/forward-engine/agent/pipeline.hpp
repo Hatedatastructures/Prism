@@ -1,5 +1,5 @@
 /**
- * @file detection.hpp
+ * @file pipeline.hpp
  * @brief 协议检测和转发逻辑
  * @details 包含具体的协议处理器实现、转发辅助函数和协议处理管道。
  * 该文件实现了基于 `transmission` 抽象层的协议处理逻辑，支持 HTTP、SOCKS5、TLS 等协议。
@@ -28,6 +28,8 @@
 #pragma once
 #include <cstddef>
 #include <cctype>
+#include <cstring>
+#include <algorithm>
 
 #include <memory>
 #include <string>
@@ -41,7 +43,7 @@
 #include <boost/beast.hpp>
 
 #include <forward-engine/memory/pool.hpp>
-#include <forward-engine/agent/distributor.hpp>
+#include <forward-engine/agent/conduit.hpp>
 #include <forward-engine/protocol/analysis.hpp>
 #include <forward-engine/protocol/socks5.hpp>
 #include <forward-engine/transport/source.hpp>
@@ -137,6 +139,105 @@ namespace ngx::agent::pipeline
     }
 
     /**
+     * @brief 预读传输包装器
+     * @details 将协议检测阶段读取到的 `pre_read_data` 重新注入读取链路。
+     * 读取时优先返回预读缓存，缓存耗尽后再委托到底层 transmission。
+     * 这样 SOCKS5 握手看到的字节序列与“未被预读消费”时保持一致，避免读偏移。
+     */
+    class preview final : public transport::transmission
+    {
+    public:
+        /**
+         * @brief 构造预读回灌包装器
+         * @param inner 底层真实传输层，所有权转移
+         * @param pre_read 协议检测阶段预读到的字节切片
+         * @note `pre_read` 生命周期由外层 session 协程保证，本类仅顺序消费
+         */
+        explicit preview(transport::transmission_pointer inner, std::span<const std::byte> pre_read)
+            : inner_(std::move(inner)), pre_read_(pre_read)
+        {
+        }
+
+        /**
+         * @brief 继承底层可靠性属性（TCP/UDP）
+         */
+        [[nodiscard]] bool is_reliable() const noexcept override
+        {
+            return inner_ && inner_->is_reliable();
+        }
+
+        /**
+         * @brief 透传底层执行器，保持原有 strand/executor 上下文
+         */
+        [[nodiscard]] executor_type executor() const override
+        {
+            return inner_->executor();
+        }
+
+        /**
+         * @brief 异步读取（核心）
+         * @details
+         * 1) 若预读缓存还有剩余，先拷贝到调用方 buffer 并立即返回；
+         * 2) 若预读已耗尽，转发到底层 `inner_->async_read_some`。
+         * @note 该函数保证“先回灌再透传”的读取顺序。
+         */
+        auto async_read_some(std::span<std::byte> buffer, std::error_code &ec)
+            -> net::awaitable<std::size_t> override
+        {
+            if (pre_read_offset_ < pre_read_.size())
+            {
+                const auto remaining = pre_read_.size() - pre_read_offset_;
+                const auto to_copy = (std::min)(remaining, buffer.size());
+                if (to_copy > 0)
+                {
+                    std::memcpy(buffer.data(), pre_read_.data() + pre_read_offset_, to_copy);
+                    pre_read_offset_ += to_copy;
+                }
+                ec.clear();
+                co_return to_copy;
+            }
+
+            co_return co_await inner_->async_read_some(buffer, ec);
+        }
+
+        /**
+         * @brief 写入透传到底层传输层
+         */
+        auto async_write_some(std::span<const std::byte> buffer, std::error_code &ec)
+            -> net::awaitable<std::size_t> override
+        {
+            co_return co_await inner_->async_write_some(buffer, ec);
+        }
+
+        /**
+         * @brief 关闭底层连接
+         */
+        void close() override
+        {
+            if (inner_)
+            {
+                inner_->close();
+            }
+        }
+
+        /**
+         * @brief 取消底层未完成异步操作
+         */
+        void cancel() override
+        {
+            if (inner_)
+            {
+                inner_->cancel();
+            }
+        }
+
+    private:
+        transport::transmission_pointer inner_; ///< 底层真实传输层
+        std::span<const std::byte> pre_read_;   ///< 预读数据视图
+        std::size_t pre_read_offset_{0};        ///< 已消费预读偏移
+    };
+
+    /**
      * @brief 拨号连接上游服务器，从连接池内获取或新建连接
      * @details 根据目标地址和路由策略（正向/反向）连接上游服务器。该函数是协议处理的核心组件，
      * 负责创建到目标服务的连接，支持正向代理和反向代理两种路由模式。
@@ -165,7 +266,7 @@ namespace ngx::agent::pipeline
      * @throws `std::bad_alloc` 如果内存分配失败
      * @throws `std::runtime_error` 如果路由或连接失败
      */
-    inline auto dial(std::shared_ptr<distributor> distributor, std::string_view label,
+    inline auto dial(std::shared_ptr<conduit> distributor, std::string_view label,
                      const protocol::analysis::target &target, const bool allow_reverse, const bool require_open)
         -> net::awaitable<std::pair<gist::code, transport::transmission_pointer>>
     {
@@ -352,7 +453,7 @@ namespace ngx::agent::pipeline
             const auto target = protocol::analysis::resolve(req);
             trace::info("[Pipeline] Http analysis target = [host: {}, port: {}, positive: {}]", target.host, target.port, target.positive);
             // 使用 std::shared_ptr 的别名构造函数，创建一个不拥有所有权的 shared_ptr
-            std::shared_ptr<distributor> dist_ptr(&ctx.worker.distributor, [](distributor*) {});
+            std::shared_ptr<conduit> dist_ptr(&ctx.worker.distributor, [](conduit *) {});
             auto [fst, snd] = co_await dial(dist_ptr, "HTTP", target, true, false);
             if (gist::failed(fst) || !snd)
                 co_return;
@@ -398,71 +499,88 @@ namespace ngx::agent::pipeline
      * 处理流程：
      * @details - 握手协商：协商认证方法和协议版本；
      * @details - 请求解析：解析客户端请求，获取目标地址和端口；
-     * @details - 连接建立：调用 `dial()` 连接到目标服务器；
+     * @details - 命令分发：根据命令类型分发到 TCP 隧道或 UDP 中继；
      * @details - 响应发送：向客户端发送成功或错误响应；
      * @details - 隧道建立：建立双向数据隧道。
      *
-     * 握手阶段：
-     * @details - 方法协商：客户端发送支持的认证方法列表；
-     * @details - 方法选择：服务器选择支持的认证方法（通常是无认证）；
-     * @details - 握手完成：客户端收到方法选择响应，握手完成。
-     *
-     * 请求阶段：
-     * @details - 命令解析：解析客户端请求的命令（CONNECT、BIND、UDP ASSOCIATE）；
-     * @details - 地址解析：解析目标地址类型（IPv4、IPv6、域名）；
-     * @details - 端口解析：解析目标端口号（大端序）。
-     *
-     * 响应阶段：
-     * @details - 连接成功：发送成功响应，包含绑定地址和端口；
-     * @details - 连接失败：发送错误响应，包含错误码；
-     * @details - 原始隧道：建立客户端到目标的双向数据隧道。
+     * 命令处理：
+     * @details - CONNECT：建立 TCP 隧道，透明转发数据；
+     * @details - UDP_ASSOCIATE：创建 UDP 中继，返回绑定地址；
+     * @details - BIND：发送错误响应（不支持）。
      *
      * @param ctx 上下文
      * @param data 预读数据，协议检测时读取的初始数据
-     * @note 支持 CONNECT、BIND 和 UDP ASSOCIATE 命令（实际只实现了 CONNECT）。
+     * @note 支持 CONNECT 和 UDP_ASSOCIATE 命令。
      * @warning SOCKS5 协议要求预读数据为空，否则握手可能失败。
-     * @throws `std::bad_alloc` 如果内存分配失败
-     * @throws `std::runtime_error` 如果协议握手或隧道转发失败
      */
     inline auto socks5(session_context &ctx, const std::span<const std::byte> data)
         -> net::awaitable<void>
     {
-        using connector = transport::connector<transport::transmission_pointer>;
-        // 构造 SOCKS5 流，传入适配器
-        const auto agent = std::make_shared<protocol::socks5::stream<connector>>(connector(std::move(ctx.inbound), data));
-
-        // 注意：如果 data 不为空，需要注入到 stream 中，目前 socks5::stream 实现可能不支持预读数据注入
-        // 假设 socks5 握手前没有预读数据，或者 caller 保证 data 为空
-
+        // trace::debug("[Pipeline] SOCKS5 detection");
+        auto inbound = std::move(ctx.inbound);
+        if (!inbound)
+        {
+            trace::warn("[Pipeline] SOCKS5 inbound transmission missing.");
+            co_return;
+        }
+        if (!data.empty())
+        {
+            inbound = std::make_unique<preview>(std::move(inbound), data);
+        }
+        const auto agent = protocol::socks5::make_stream(std::move(inbound));
+        // 握手协商，获取认证方法和协议版本
         auto [ec, request] = co_await agent->handshake();
         if (gist::failed(ec))
-            co_return;
-
-        protocol::analysis::target target(ctx.frame_arena.get());
-        target.host = protocol::socks5::to_string(request.destination_address, ctx.frame_arena.get());
-        target.port = std::to_string(request.destination_port);
-        target.positive = true;
-
-        trace::info("[Pipeline] Socks5 analysis target = [host: {}, port: {}, positive: {}]", target.host, target.port, target.positive);
-        // 使用 std::shared_ptr 的别名构造函数，创建一个不拥有所有权的 shared_ptr
-        std::shared_ptr<distributor> dist_ptr(&ctx.worker.distributor, [](distributor*) {});
-        auto [conn_ec, outbound] = co_await dial(dist_ptr, "SOCKS5", target, true, true);
-        if (gist::failed(conn_ec) || !outbound)
         {
-            static_cast<void>(co_await agent->send_error(protocol::socks5::reply_code::host_unreachable));
+            trace::error("[Pipeline] SOCKS5 handshake failed: {}", gist::cached_message(ec));
             co_return;
         }
+        // trace::info("[Pipeline] SOCKS5 handshake cmd = {}", static_cast<int>(request.cmd));
 
-        if (gist::failed(co_await agent->send_success(request)))
+        // 根据命令类型分发
+        switch (request.cmd)
         {
-            co_return;
+        case protocol::socks5::command::connect:
+        {
+            // trace::debug("[Pipeline] SOCKS5 CONNECT");
+            protocol::analysis::target target(ctx.frame_arena.get());
+            target.host = protocol::socks5::to_string(request.destination_address, ctx.frame_arena.get());
+            target.port = std::to_string(request.destination_port);
+            target.positive = true;
+            trace::info("[Pipeline] SOCKS5 CONNECT target = [host: {}, port: {}]", target.host, target.port);
+            const auto dist_ptr = std::shared_ptr<conduit>(&ctx.worker.distributor, [](conduit *) {});
+            auto [conn_ec, outbound] = co_await dial(dist_ptr, "SOCKS5", target, true, true);
+            if (gist::failed(conn_ec) || !outbound)
+            {
+                co_await agent->async_write_error(protocol::socks5::reply_code::host_unreachable);
+                co_return;
+            }
+            if (gist::failed(co_await agent->async_write_success(request)))
+            {
+                co_return;
+            }
+            auto trans_ptr = agent->release();
+            co_await original_tunnel(std::move(trans_ptr), std::move(outbound), ctx.frame_arena.get(), ctx.buffer_size);
+            break;
         }
-
-        // 从 agent 中取回底层 connector，再释放 transmission
-        // 需确保 socks5::stream 提供了访问底层 socket 的方法
-        auto trans_ptr = agent->socket().release();
-        co_await original_tunnel(std::move(trans_ptr), std::move(outbound), ctx.frame_arena.get(), ctx.buffer_size);
-    } // function socks5
+        case protocol::socks5::command::udp_associate:
+        {
+            trace::info("[Pipeline] SOCKS5 UDP_ASSOCIATE");
+            const auto dist_ptr = std::shared_ptr<conduit>(&ctx.worker.distributor, [](conduit *) {});
+            auto route_callback = [dist_ptr](std::string_view host, std::string_view port)
+                -> net::awaitable<std::pair<gist::code, net::ip::udp::endpoint>>
+            {
+                co_return co_await dist_ptr->resolve_udp_target(host, port);
+            };
+            static_cast<void>(co_await agent->async_associate(request, std::move(route_callback)));
+            break;
+        }
+        default: // 不支持 bind 命令
+            trace::warn("[Pipeline] SOCKS5 BIND command not supported");
+            co_await agent->async_write_error(protocol::socks5::reply_code::command_not_supported);
+            break;
+        }
+    }
 
     /**
      * @brief TLS 协议处理
@@ -541,7 +659,7 @@ namespace ngx::agent::pipeline
         const auto target = protocol::analysis::resolve(req);
         trace::info("[Pipeline] Tls analysis target = [host: {}, port: {}, positive: {}]", target.host, target.port, target.positive);
         // 使用 std::shared_ptr 的别名构造函数，创建一个不拥有所有权的 shared_ptr
-        std::shared_ptr<distributor> dist_ptr(&ctx.worker.distributor, [](distributor*) {});
+        std::shared_ptr<conduit> dist_ptr(&ctx.worker.distributor, [](conduit *) {});
         auto res = co_await dial(dist_ptr, "HTTPS", target, true, false);
         if (gist::failed(res.first) || !res.second)
             co_return;

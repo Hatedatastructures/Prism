@@ -7,30 +7,29 @@ mode: rule
 log-level: info
 external-controller: 127.0.0.1:9090
 
-# DNS 设置（关闭，如需开启可自行调整）
+# DNS 设置（如需使用请补全 nameserver，否则设为 false）
 dns:
-  enable: false
+  enable: false                 # 暂时关闭 DNS 避免干扰
 
 # ---------- 代理节点 ----------
 proxies:
-  # Trojan 代理（假设运行在 192.168.31.26，端口 8081）
-  - name: "🏠 局域网 Trojan"
+  # Trojan 代理（运行在 192.168.137.1:8081）
+  - name: "🏠 局域网 Trojan"          # 名称与策略组引用一致
     type: trojan
-    server: 192.168.31.26
-    port: 8081                # Trojan 端口
-    password: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" 
+    server: 192.168.137.1
+    port: 8081
+    password: "forward-engine"
     udp: false
-    skip-cert-verify: true      # 局域网自签证书可跳过验证
+    skip-cert-verify: true
 
-  # SOCKS5 代理（假设运行在 192.168.31.26，端口 8081，无认证）
-  - name: "🏠 局域网 SOCKS5"
+  # SOCKS5 代理（运行在 192.168.137.1:8081）
+  - name: "🏠 局域网 SOCKS5"          # 名称与策略组引用一致
     type: socks5
-    server: 192.168.31.26
-    port: 8081                  # SOCKS5 端口
+    server: 192.168.137.1
+    port: 8081
     # username: your-user
     # password: your-pass
-    udp: false
-
+    udp: true
 
 # ---------- 策略组 ----------
 proxy-groups:
@@ -40,7 +39,6 @@ proxy-groups:
       - "🏠 局域网 Trojan"
       - "🏠 局域网 SOCKS5"
 
-  # 可选：自动选择组（用于测试延迟）
   - name: "⚡ 自动优选"
     type: url-test
     proxies:
@@ -57,4 +55,5 @@ rules:
   - IP-CIDR,172.16.0.0/12,DIRECT
   - IP-CIDR,127.0.0.0/8,DIRECT
 
+  # 默认规则：所有未匹配流量走“🚀 我的代理”策略组
   - MATCH,🚀 我的代理

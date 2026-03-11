@@ -30,7 +30,7 @@
 
 #include <forward-engine/agent/context.hpp>
 #include <forward-engine/transport/transmission.hpp>
-#include <forward-engine/agent/distributor.hpp>
+#include <forward-engine/agent/conduit.hpp>
 #include <forward-engine/protocol/analysis.hpp>
 #include <forward-engine/memory/pool.hpp>
 #include <forward-engine/trace/spdlog.hpp>

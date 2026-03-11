@@ -31,8 +31,8 @@
 #pragma once
 
 #include <forward-engine/agent/config.hpp>
-#include <forward-engine/agent/distributor.hpp>
-#include <forward-engine/agent/distribute.hpp>
+#include <forward-engine/agent/conduit.hpp>
+#include <forward-engine/agent/balancer.hpp>
 #include <forward-engine/agent/listener.hpp>
 #include <forward-engine/agent/session.hpp>
 #include <forward-engine/agent/worker.hpp>

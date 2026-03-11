@@ -20,7 +20,7 @@
    位置：[handler.hpp](../../include/forward-engine/agent/handler.hpp)，命名空间 `ngx::agent::handler` 的 `connect_upstream`。
 
 6. **路由决策与连接**：`distributor` 建立上游连接（直连或回退）  
-   位置：[distributor.cpp](../../src/forward-engine/agent/distributor.cpp)，类 `ngx::agent::distributor` 的 `route_forward`。
+   位置：[distributor.cpp](../../src/forward-engine/agent/conduit.cpp)，类 `ngx::agent::distributor` 的 `route_forward`。
 
 7. **响应发送与隧道切换**：连接成功后发送成功响应，进入原始 TCP 隧道转发。
 
@@ -172,7 +172,7 @@ SOCKS5 协议使用正向代理模式，路由决策流程如下：
 3. **直连尝试**：尝试直接连接到目标服务器。
 4. **上游代理回退**：如果直连失败，回退到配置的上游代理（通过 `CONNECT` 命令）。
 
-对应实现：[distributor.cpp](../../src/forward-engine/agent/distributor.cpp) 的 `ngx::agent::distributor::route_forward`。
+对应实现：[distributor.cpp](../../src/forward-engine/agent/conduit.cpp) 的 `ngx::agent::distributor::route_forward`。
 
 ## 5. 连接建立与隧道转发
 

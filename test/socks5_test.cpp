@@ -1,6 +1,7 @@
 #include <forward-engine/protocol/socks5.hpp>
 #include <forward-engine/abnormal/network.hpp>
 #include <forward-engine/gist/code.hpp>
+#include <forward-engine/transport/reliable.hpp>
 #include <boost/asio.hpp>
 #include <iostream>
 #include <thread>
@@ -12,6 +13,7 @@
 
 namespace net = boost::asio;
 namespace protocol = ngx::protocol;
+namespace transport = ngx::transport;
 using tcp = net::ip::tcp;
 
 /**
@@ -25,7 +27,8 @@ net::awaitable<void> do_socks5_server(tcp::acceptor &acceptor)
         auto socket = co_await acceptor.async_accept(net::use_awaitable);
 
         // 创建 SOCKS5 实例
-        auto socks5 = std::make_shared<protocol::socks5::stream<tcp::socket>>(std::move(socket));
+        auto reliable = transport::make_reliable(std::move(socket));
+        auto socks5 = std::make_shared<protocol::socks5::stream>(std::move(reliable));
 
         // 执行握手，获取目标地址信息
         std::cout << "服务器开始 SOCKS5 握手..." << std::endl;
@@ -45,7 +48,7 @@ net::awaitable<void> do_socks5_server(tcp::acceptor &acceptor)
 
         // 发送成功响应
         std::cout << "服务器发送成功响应..." << std::endl;
-        if (ngx::gist::failed(co_await socks5->send_success(req)))
+        if (ngx::gist::failed(co_await socks5->async_write_success(req)))
         {
             std::cerr << "服务器成功响应发送失败" << std::endl;
             co_return;
@@ -53,31 +56,34 @@ net::awaitable<void> do_socks5_server(tcp::acceptor &acceptor)
         std::cout << "服务器成功响应已发送" << std::endl;
 
         // 测试数据传输 (Echo)
-        std::array<char, 1024> buffer;
-        auto buf = net::buffer(buffer);
+        std::array<std::byte, 1024> buffer;
 
         // 读取客户端数据
-        auto [read_ec, n] = co_await socks5->async_read(buf);
-        if (ngx::gist::failed(read_ec) || n == 0)
+        std::error_code read_ec;
+        auto n = co_await socks5->async_read_some(std::span(buffer), read_ec);
+        if (ngx::gist::failed(ngx::gist::to_code(read_ec)) || n == 0)
         {
-            std::cerr << "数据读取失败: " << std::string_view(ngx::gist::describe(read_ec)) << std::endl;
+            std::cerr << "数据读取失败: " << std::string_view(ngx::gist::describe(ngx::gist::to_code(read_ec))) << std::endl;
             co_return;
         }
-        std::string received_msg(buffer.data(), n);
+        std::string received_msg(reinterpret_cast<const char*>(buffer.data()), n);
 
         std::cout << "服务器收到消息: " << received_msg << std::endl;
 
         // 回显给客户端
-        auto [write_ec, _] = co_await socks5->async_write(net::buffer(received_msg));
-        if (ngx::gist::failed(write_ec))
+        std::error_code write_ec;
+        co_await socks5->async_write_some(
+            std::span(reinterpret_cast<const std::byte*>(received_msg.data()), received_msg.size()),
+            write_ec);
+        if (ngx::gist::failed(ngx::gist::to_code(write_ec)))
         {
-            std::cerr << "数据回写失败: " << std::string_view(ngx::gist::describe(write_ec)) << std::endl;
+            std::cerr << "数据回写失败: " << std::string_view(ngx::gist::describe(ngx::gist::to_code(write_ec))) << std::endl;
             co_return;
         }
 
         // 关闭连接
         std::cout << "服务器测试完成，关闭连接" << std::endl;
-        co_await socks5->close();
+        socks5->close();
     }
     catch (const std::exception &e)
     {

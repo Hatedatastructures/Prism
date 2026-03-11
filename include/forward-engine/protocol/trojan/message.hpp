@@ -9,6 +9,7 @@
 #include <string>
 #include <boost/asio/ip/address.hpp>
 #include <forward-engine/protocol/trojan/constants.hpp>
+#include <forward-engine/transport/form.hpp>
 #include <forward-engine/memory/container.hpp>
 
 /**
@@ -84,27 +85,15 @@ namespace ngx::protocol::trojan
      */
     struct request
     {
-        /**
-         * @brief 命令类型
-         * @details CONNECT 或 UDP_ASSOCIATE。
-         */
         command cmd;
 
-        /**
-         * @brief 目标端口
-         */
         uint16_t port;
 
-        /**
-         * @brief 目标地址
-         */
         address destination_address;
 
-        /**
-         * @brief 用户凭据
-         * @details SHA224 编码的用户凭据 (56 字符)。
-         */
         std::array<char, 56> credential;
+
+        transport::form form = transport::form::stream;
     };
 
     /**
