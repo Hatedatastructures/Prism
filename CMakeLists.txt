@@ -1,18 +1,17 @@
-cmake_minimum_required(VERSION 3.15)
-project(Forward LANGUAGES CXX)
+cmake_minimum_required(VERSION 3.23)
+project(forward LANGUAGES CXX)
 
-cmake_policy(SET CMP0167 NEW)
+if(POLICY CMP0167)
+    cmake_policy(SET CMP0167 NEW)
+endif()
 
-
-# 全局设置
 set(CMAKE_CXX_STANDARD 23)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
-# 依赖管理
 list(APPEND CMAKE_PREFIX_PATH "c:/bin")
 
-if(NOT DEFINED OPENSSL_ROOT_DIR)                                                
+if(NOT DEFINED OPENSSL_ROOT_DIR)
     set(OPENSSL_ROOT_DIR "c:/bin")
 endif()
 set(OPENSSL_USE_STATIC_LIBS TRUE)
@@ -37,7 +36,7 @@ if(NOT TARGET Boost::system)
     )
 
     if(NOT boost_include_dir)
-        message(FATAL_ERROR "找不到 `boost` 头文件目录，无法继续构建")
+        message(FATAL_ERROR "Could not find the Boost headers required for the build")
     endif()
 
     message(STATUS "Boost Include Dir: ${boost_include_dir}")
@@ -52,16 +51,13 @@ endif()
 
 enable_testing()
 
-# benchmarks (may require network when benchmark is not preinstalled)
-option(FORWARD_ENGINE_ENABLE_BENCHMARK "Enable ForwardEngine benchmarks" ON)
+option(FORWARD_ENGINE_ENABLE_BENCHMARK "Enable forward benchmarks" ON)
 message(STATUS "FORWARD_ENGINE_ENABLE_BENCHMARK=${FORWARD_ENGINE_ENABLE_BENCHMARK}")
 
-# stress tools (long-running / memory heavy), not part of ctest
-option(FORWARD_ENGINE_ENABLE_STRESS "Enable ForwardEngine stress tools" ON)
+option(FORWARD_ENGINE_ENABLE_STRESS "Enable forward stress tools" ON)
 message(STATUS "FORWARD_ENGINE_ENABLE_STRESS=${FORWARD_ENGINE_ENABLE_STRESS}")
 
-# 添加子目录
 add_subdirectory(src)
-add_subdirectory(test/concurrency)
-add_subdirectory(test/stress)
-add_subdirectory(test)
+add_subdirectory(tests)
+add_subdirectory(benchmarks)
+add_subdirectory(stresses)

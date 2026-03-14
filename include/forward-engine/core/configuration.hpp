@@ -1,35 +1,11 @@
 /**
  * @file configuration.hpp
- * @brief 系统全局配置
- * @details 定义了 `ForwardEngine` 系统的全局配置结构，聚合代理服务和日志追踪配置。
- *
- * 设计原理：
- * - 配置聚合：将分散的子系统配置聚合为统一的结构，简化配置管理和传递；
- * - 类型安全：使用强类型结构体而非键值对，确保配置值的类型安全；
- * - 模块化设计：每个子系统维护独立的配置结构，顶层配置进行组合。
- *
- * 包含内容：
- * - 代理配置：`forward-engine/agent/config.hpp` - `Agent` 服务的工作线程数、连接池大小、超时设置等；
- * - 追踪配置：`forward-engine/trace/config.hpp` - 日志级别、输出格式、采样率、监控指标等。
- *
- * ```
- * // 构造默认配置
- * ngx::core::configuration config;
- *
- * // 修改配置参数
- * config.agent.worker_count = 8;
- * config.agent.connection_timeout = std::chrono::seconds(60);
- * config.trace.log_level = spdlog::level::debug;
- *
- * // 序列化为 JSON
- * std::string json = ngx::transformer::json::serialize(config);
- *
- * // 从 JSON 反序列化
- * auto parsed = ngx::transformer::json::deserialize<ngx::core::configuration>(json);
- * ```
- *
- * @note 配置结构通常仅在初始化时加载，对运行时性能无影响。
- * @warning 配置热重载时应注意线程安全性，避免数据竞争。
+ * @brief 系统全局配置定义
+ * @details 该文件定义了 ForwardEngine 系统的全局配置结构，采用聚合
+ * 设计模式将各子系统的独立配置组合为统一的顶层配置。这种设计使得
+ * 配置管理更加集中和便捷，同时保持了各子系统配置的独立性和可维护
+ * 性。配置结构采用强类型设计，确保编译期类型安全，避免运行时类型
+ * 错误。所有配置字段均为公开成员，便于序列化框架进行反射操作。
  */
 #pragma once
 
@@ -38,52 +14,28 @@
 
 /**
  * @namespace ngx::core
- * @brief 核心配置模块
- * @details 定义了系统的全局配置结构，聚合各子系统的配置。
- *
- * 包含组件：
- * - 全局配置 (`configuration`)：聚合代理服务和日志追踪配置。
- *
- * @note 配置结构应保持 POD 特性，便于序列化和反射。
- * @warning 配置热重载时应注意线程安全性。
+ * @brief 核心配置模块命名空间
+ * @details 该命名空间封装了系统的全局配置定义，作为配置管理的核心
+ * 聚合层。通过将配置结构置于独立命名空间，既避免了全局命名污染，
+ * 又为配置相关的类型和工具函数提供了逻辑分组。
  */
 namespace ngx::core
 {
     /**
      * @struct configuration
-     * @brief 全局配置结构
-     * @details 聚合了 `ForwardEngine` 系统所有子系统的配置信息，提供统一的配置管理接口。
-     *
-     * 字段说明：
-     * @details - `agent::config agent`：代理服务配置，包含工作线程数、连接池大小、超时设置等；
-     * @details - `trace::config trace`：日志追踪配置，包含日志级别、输出格式、采样率、监控指标等。
-     *
-     *
-     * 使用示例：
-     * ```
-     * // 构造默认配置
-     * ngx::core::configuration config;
-     *
-     * // 修改配置参数
-     * config.agent.worker_count = 8;
-     * config.agent.connection_timeout = std::chrono::seconds(60);
-     * config.trace.log_level = spdlog::level::debug;
-     *
-     * // 序列化为 JSON
-     * std::string json = ngx::transformer::json::serialize(config);
-     *
-     * // 从 JSON 反序列化
-     * auto parsed = ngx::transformer::json::deserialize<ngx::core::configuration>(json);
-     * ```
-     *
-     * @note 配置字段应使用 `public` 访问权限，简化序列化和反射实现。
-     * @warning 配置结构应保持 `POD`（普通旧数据）特性，避免包含复杂类型或动态分配。
-     * @warning 配置热重载时应注意线程安全性，避免数据竞争。
-     *
+     * @brief 全局配置聚合结构体
+     * @details 该结构体聚合了 ForwardEngine 系统所有子系统的配置项，
+     * 提供统一的配置访问入口。采用结构体而非类的设计，使配置数据保持
+     * POD 特性，便于 JSON 序列化、反序列化及反射操作。各子系统配置
+     * 保持独立定义，顶层配置仅负责组合，遵循单一职责原则。
+     * @note 配置结构应在程序初始化阶段完成加载，避免运行时频繁修改。
+     * @warning 若需支持配置热重载，必须确保配置访问的线程安全性，
+     * 建议采用读写锁或原子指针交换机制。
+     * @throws 无异常抛出，配置结构为纯数据载体。
      */
     struct configuration
     {
-        agent::config agent; ///< 代理服务配置
-        trace::config trace; ///< 日志追踪配置
+        agent::config agent;  // 代理服务配置，含线程数、连接池、超时等
+        trace::config trace;  // 日志追踪配置，含日志级别、格式、采样率等
     };
 }

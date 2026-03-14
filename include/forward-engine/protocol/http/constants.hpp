@@ -1,2967 +1,1406 @@
 /**
  * @file constants.hpp
  * @brief HTTP 协议常量定义
- * @details 定义了 HTTP/1.1 和 HTTP/2 协议的核心常量，包括：
- * - 状态码 (`status` 枚举)：完整的 HTTP 状态码定义，从 100 到 511
- * - 请求方法 (`verb` 枚举)：所有标准 HTTP 方法及扩展方法
- * - 头部字段 (`field` 枚举)：超过 500 个标准及扩展 HTTP 头部字段
- *
- * @note 设计原则：
- * - 零开销枚举：所有枚举使用底层整型，支持高效的 switch 匹配和序列化
- * - 标准兼容：严格遵循 RFC 7230-7235、RFC 7540 及 IANA 注册表
- * - 扩展友好：预留 `unknown` 值处理未识别常量，支持自定义扩展
- * - 内存高效：使用最小化存储类型（`unsigned` 用于状态码，`unsigned short` 用于头部字段）
- *
- * @warning 性能注意：在热路径中避免对 `field` 枚举进行线性查找，应使用预构建的哈希映射
- * @warning 线程安全：所有枚举值均为编译时常量，可安全用于多线程环境
- *
- * ```
- * // 使用示例：解析 HTTP 响应状态码
- * #include <forward-engine/protocol/http/constants.hpp>
- *
- * using namespace ngx::protocol::http;
- *
- * void handle_response(status code)
- * {
- *     switch (code)
- *     {
- *         case status::ok:
- *             std::cout << "请求成功" << std::endl;
- *             break;
- *         case status::not_found:
- *             std::cout << "资源未找到" << std::endl;
- *             break;
- *         case status::internal_server_error:
- *             std::cout << "服务器内部错误" << std::endl;
- *             break;
- *         default:
- *             // 处理未知状态码
- *             break;
- *     }
- * }
- *
- * // 头部字段快速查找示例
- * field header = field::content_type;
- * if (header == field::content_type)
- * {
- *     // 处理 Content-Type 头部
- * }
- * ```
+ * @details 定义 HTTP/1.1 和 HTTP/2 协议的核心常量，包括状态码、请求方法和
+ * 头部字段。状态码枚举 status 覆盖信息响应、成功、重定向、客户端错误和
+ * 服务器错误五大类别。请求方法枚举 verb 包含标准 HTTP 方法及 WebDAV、
+ * Subversion、UPnP 等扩展方法。头部字段枚举 field 包含超过 500 个标准
+ * 及扩展 HTTP 头部字段。设计遵循零开销原则，所有枚举使用最小化存储类型。
+ * @note 在热路径中避免对 field 枚举进行线性查找，应使用预构建的哈希映射。
+ * @warning 使用 switch 语句进行状态码匹配，避免线性查找以保证性能。
  */
 #pragma once
 
 /**
  * @namespace ngx::protocol::http
  * @brief HTTP 协议实现命名空间
- * @note 该模块设计为无状态，仅负责数据报文的处理，不管理连接生命周期
- * @warning 内存管理：协议处理器使用 `PMR` 内存池，确保零堆分配热路径
- * @details 包含 HTTP/1.1 和 HTTP/2 协议的完整实现，提供：
- * - 请求/响应的序列化与反序列化
- * - 协议状态机管理
- * - 流控与优先级处理（HTTP/2）
- * - 头部压缩（HPACK）
+ * @details 包含 HTTP/1.1 和 HTTP/2 协议的完整实现，提供请求和响应的序列化
+ * 与反序列化、协议状态机管理等功能。模块设计为无状态，仅负责数据报文的
+ * 处理，不管理连接生命周期。
  */
 namespace ngx::protocol::http
 {
     /**
      * @enum status
      * @brief HTTP 状态码枚举
-     * @note 设计考虑：
-     * @note - 使用 `unsigned` 底层类型确保与标准 HTTP 状态码范围（0-999）兼容
-     * @note - 为 `unknown` (0) 预留值处理未识别或自定义状态码
-     * @note - 支持通过 `static_cast<unsigned>` 直接转换为整型用于网络传输
-     * @note - 所有标准状态码均包含官方 RFC 描述
-     * @warning 性能提示：在热路径中使用 `switch` 语句进行状态码匹配，避免线性查找
-     * @warning 兼容性注意：部分扩展状态码（如 103 Early Hints）需要客户端支持
-     * @details 完整的 HTTP 状态码定义，覆盖 RFC 7231、RFC 6585、RFC 4918、RFC 5842、RFC 2774、RFC 7540 等标准。
-     * 状态码分类遵循 IETF 标准：
-     * @details - **1xx**：信息响应 - 请求已接收，继续处理
-     * @details - **2xx**：成功 - 请求已成功处理
-     * @details - **3xx**：重定向 - 需要进一步操作以完成请求
-     * @details - **4xx**：客户端错误 - 请求包含语法错误或无法完成
-     * @details - **5xx**：服务器错误 - 服务器在处理请求时发生错误
-     *
-     * ```
-     * // 状态码分类判断示例
-     * using namespace ngx::protocol::http;
-     *
-     * bool is_success(status code)
-     * {
-     *     auto value = static_cast<unsigned>(code);
-     *     return value >= 200 && value < 300;
-     * }
-     *
-     * bool is_client_error(status code)
-     * {
-     *     auto value = static_cast<unsigned>(code);
-     *     return value >= 400 && value < 500;
-     * }
-     *
-     * // 状态码到描述映射示例
-     * std::string_view get_status_description(status code)
-     * {
-     *     switch (code)
-     *     {
-     *         case status::ok: return "OK";
-     *         case status::not_found: return "Not Found";
-     *         case status::internal_server_error: return "Internal Server Error";
-     *         default: return "Unknown Status";
-     *     }
-     * }
-     * ```
+     * @details 完整的 HTTP 状态码定义，覆盖 RFC 7231、RFC 6585、RFC 4918 等
+     * 标准。状态码分类：1xx 信息响应、2xx 成功、3xx 重定向、4xx 客户端错误、
+     * 5xx 服务器错误。使用 unsigned 底层类型确保与标准 HTTP 状态码范围兼容。
+     * @note 在热路径中使用 switch 语句进行状态码匹配。
+     * @warning 状态码应在 100 到 599 范围内。
      */
     enum class status : unsigned
     {
-        /**
-         * @brief unknown
-         * @note 这个状态码表示服务器不能识别客户端的请求
-         */
+        // @brief 未知状态码
         unknown = 0,
 
-        /**
-         * @brief continue
-         * @note 这个临时响应表明，迄今为止的所有内容都是可行的，客户端应该继续请求，如果已经完成，则忽略它
-         */
+        // @brief 继续，临时响应表明迄今为止所有内容可行
         continue_ = 100,
 
-        /**
-         * @brief switching_protocols
-         * @note 这个状态码表示服务器已经理解了客户端的请求，并且同意切换到新的协议
-         */
+        // @brief 切换协议，服务器已理解并同意切换到新协议
         switching_protocols = 101,
 
-        /**
-         * @brief processing
-         * @note 这个状态码表示服务器已经理解了客户端的请求，并且正在处理它，但是没有响应体
-         */
+        // @brief 处理中，服务器已理解请求正在处理但尚无响应体
         processing = 102,
 
-        /**
-         * @brief early_hints
-         * @note 这个状态码表示服务器已经理解了客户端的请求，并且正在处理它，但是没有响应体
-         */
+        // @brief 早期提示，用于在最终响应前发送头部信息
         early_hints = 103,
 
-        /**
-         * @brief ok
-         * @note 这个状态码表示请求已经成功，响应体包含了请求的结果
-         */
+        // @brief 成功，请求已成功
         ok = 200,
 
-        /**
-         * @brief created
-         * @note 这个状态码表示请求已经成功，响应体包含了新创建的资源的信息
-         */
+        // @brief 已创建，请求成功且创建了新资源
         created = 201,
 
-        /**
-         * @brief accepted
-         * @note 这个状态码表示请求已经被接受，但是服务器还没有开始处理它
-         */
+        // @brief 已接受，请求已被接受但服务器尚未开始处理
         accepted = 202,
 
-        /**
-         * @brief non_authoritative_information
-         * @note 这个状态码表示服务器已经理解了客户端的请求，但是响应体包含了非授权的信息
-         */
+        // @brief 非权威信息，响应体包含非授权来源的信息
         non_authoritative_information = 203,
 
-        /**
-         * @brief no_content
-         * @note 这个状态码表示请求已经成功，但是响应体是空的
-         */
+        // @brief 无内容，请求成功但响应体为空
         no_content = 204,
 
-        /**
-         * @brief reset_content
-         * @note 这个状态码表示请求已经成功，但是响应体是空的
-         */
+        // @brief 重置内容，请求成功，客户端应重置文档视图
         reset_content = 205,
 
-        /**
-         * @brief partial_content
-         * @note 这个状态码表示请求已经成功，但是响应体只包含了资源的部分内容
-         */
+        // @brief 部分内容，请求成功，响应体仅包含资源的部分内容
         partial_content = 206,
 
-        /**
-         * @brief multi_status
-         * @note 这个状态码表示请求已经成功，但是响应体包含了多个状态码
-         */
+        // @brief 多状态，响应体包含多个状态码
         multi_status = 207,
 
-        /**
-         * @brief already_reported
-         * @note 这个状态码表示请求已经成功，但是响应体包含了已经存在的资源的信息
-         */
+        // @brief 已报告，资源状态已被报告
         already_reported = 208,
 
-        /**
-         * @brief im_used
-         * @note 这个状态码表示服务器已经理解了客户端的请求，但是响应体只包含了资源的部分内容
-         */
+        // @brief IM 已使用，实例操作已应用于响应
         im_used = 226,
 
-        /**
-         * @brief multiple_choices
-         * @note 这个状态码表示请求有多个选择，客户端可以根据自己的需求选择其中一个
-         */
+        // @brief 多种选择，请求有多个可选响应
         multiple_choices = 300,
 
-        /**
-         * @brief moved_permanently
-         * @note 这个状态码表示请求的资源已经被永久移动到了新的位置
-         */
+        // @brief 永久移动，资源已被永久移动到新位置
         moved_permanently = 301,
 
-        /**
-         * @brief found
-         * @note 这个状态码表示请求的资源已经被临时移动到了新的位置
-         */
+        // @brief 临时移动，资源已被临时移动到新位置
         found = 302,
 
-        /**
-         * @brief see_other
-         * @note 这个状态码表示请求的资源已经被临时移动到了新的位置
-         */
+        // @brief 查看其他，应使用 GET 方法访问其他位置
         see_other = 303,
 
-        /**
-         * @brief not_modified
-         * @note 这个状态码表示请求的资源没有被修改，客户端可以使用缓存的版本
-         */
+        // @brief 未修改，资源未修改，可使用缓存版本
         not_modified = 304,
 
-        /**
-         * @brief use_proxy
-         * @note 这个状态码表示请求的资源只能通过代理服务器访问
-         */
+        // @brief 使用代理，资源只能通过代理访问
         use_proxy = 305,
 
-        /**
-         * @brief switch_proxy
-         */
+        // @brief 临时重定向，请求应重定向到其他位置
         temporary_redirect = 307,
 
-        /**
-         * @brief permanent_redirect
-         * @note 这个状态码表示请求的资源已经被永久移动到了新的位置
-         */
+        // @brief 永久重定向，请求应永久重定向到其他位置
         permanent_redirect = 308,
 
-        /**
-         * @brief bad_request
-         * @note 这个状态码表示请求的语法错误，服务器无法理解
-         */
+        // @brief 错误请求，请求语法错误
         bad_request = 400,
 
-        /**
-         * @brief unauthorized
-         * @note 这个状态码表示请求需要进行身份验证，客户端需要提供有效的凭证
-         */
+        // @brief 未授权，请求需要身份验证
         unauthorized = 401,
 
-        /**
-         * @brief payment_required
-         * @note 这个状态码表示请求需要支付才能继续，客户端需要提供有效的支付凭证
-         */
+        // @brief 需要支付，请求需要支付才能继续
         payment_required = 402,
 
-        /**
-         * @brief forbidden
-         * @note 这个状态码表示请求被服务器拒绝，客户端没有权限访问该资源
-         */
+        // @brief 禁止访问，服务器拒绝请求
         forbidden = 403,
 
-        /**
-         * @brief not_found
-         * @note 这个状态码表示请求的资源不存在
-         */
+        // @brief 未找到，请求的资源不存在
         not_found = 404,
 
-        /**
-         * @brief method_not_allowed
-         * @note 这个状态码表示请求的方法不被服务器支持，客户端需要使用其他方法
-         */
+        // @brief 方法不允许，请求方法不被服务器支持
         method_not_allowed = 405,
 
-        /**
-         * @brief not_acceptable
-         * @note 这个状态码表示服务器无法根据客户端的请求生成响应
-         */
+        // @brief 不可接受，服务器无法生成客户端可接受的响应
         not_acceptable = 406,
 
-        /**
-         * @brief proxy_authentication_required
-         * @note 这个状态码表示请求需要通过代理服务器进行身份验证，客户端需要提供有效的凭证
-         */
+        // @brief 需要代理认证，需要通过代理进行身份验证
         proxy_authentication_required = 407,
 
-        /**
-         * @brief request_timeout
-         * @note 这个状态码表示服务器在等待客户端发送请求时超时
-         */
+        // @brief 请求超时，服务器等待请求超时
         request_timeout = 408,
 
-        /**
-         * @brief conflict
-         * @note 这个状态码表示请求与服务器当前的状态冲突
-         */
+        // @brief 冲突，请求与服务器当前状态冲突
         conflict = 409,
 
-        /**
-         * @brief gone
-         * @note 这个状态码表示请求的资源已经不存在，服务器不再保留该资源
-         */
+        // @brief 已删除，请求的资源已不存在
         gone = 410,
 
-        /**
-         * @brief length_required
-         * @note 这个状态码表示请求的实体主体长度缺失，服务器无法处理该请求
-         */
+        // @brief 需要长度，请求缺少 Content-Length 头部
         length_required = 411,
 
-        /**
-         * @brief precondition_failed
-         * @note 这个状态码表示请求的预条件失败，服务器无法满足该请求
-         */
+        // @brief 预条件失败，请求的预条件不满足
         precondition_failed = 412,
 
-        /**
-         * @brief payload_too_large
-         * @note 这个状态码表示请求的实体主体长度超过了服务器允许的最大值
-         */
+        // @brief 负载过大，请求体超过服务器允许的最大值
         payload_too_large = 413,
 
-        /**
-         * @brief uri_too_long
-         * @note 这个状态码表示请求的URI长度超过了服务器允许的最大值
-         */
+        // @brief URI 过长，请求的 URI 超过服务器允许的最大长度
         uri_too_long = 414,
 
-        /**
-         * @brief unsupported_media_type
-         * @note 这个状态码表示请求的实体主体媒体类型不被服务器支持
-         */
+        // @brief 不支持的媒体类型，请求体的媒体类型不被支持
         unsupported_media_type = 415,
 
-        /**
-         * @brief range_not_satisfiable
-         * @note 这个状态码表示请求的Range头字段指定的范围无法满足，服务器只能返回整个实体主体
-         */
+        // @brief 范围无法满足，请求的范围无法满足
         range_not_satisfiable = 416,
 
-        /**
-         * @brief expectation_failed
-         * @note 这个状态码表示服务器无法满足请求的Expect头字段指定的条件
-         */
+        // @brief 期望失败，服务器无法满足 Expect 头部的条件
         expectation_failed = 417,
 
-        /**
-         * @brief i_am_a_teapot
-         * @note 这个状态码表示服务端拒绝用茶壶煮咖啡。笑话，典故来源茶壶冲泡咖啡，而不是一个真正的HTTP服务器
-         */
+        // @brief 我是茶壶，服务端拒绝用茶壶煮咖啡
         i_am_a_teapot = 418,
 
-        /**
-         * @brief misdirected_request
-         * @note 这个状态码表示请求被错误的路由到了错误的服务器
-         */
+        // @brief 错误路由，请求被发送到无法产生响应的服务器
         misdirected_request = 421,
 
-        /**
-         * @brief unprocessable_entity
-         * @note 这个状态码表示请求的实体主体无法被服务器处理，服务器拒绝执行该请求
-         */
+        // @brief 无法处理的实体，请求格式正确但语义错误
         unprocessable_entity = 422,
 
-        /**
-         * @brief locked
-         * @note 这个状态码表示请求的资源被锁定，服务器拒绝执行该请求
-         */
+        // @brief 已锁定，请求的资源被锁定
         locked = 423,
 
-        /**
-         * @brief failed_dependency
-         * @note 这个状态码表示请求的依赖关系失败，服务器无法执行该请求
-         */
+        // @brief 依赖失败，请求依赖的资源操作失败
         failed_dependency = 424,
 
-        /**
-         * @brief too_early
-         * @note 这个状态码表示服务器拒绝执行该请求，因为请求的实体主体还没有准备好
-         */
+        // @brief 过早，服务器不愿处理早期数据
         too_early = 425,
 
-        /**
-         * @brief upgrade_required
-         * @note 这个状态码表示服务器拒绝执行该请求，因为客户端需要升级到支持的协议版本
-         */
+        // @brief 需要升级，客户端应切换到其他协议
         upgrade_required = 426,
 
-        /**
-         * @brief precondition_required
-         * @note 这个状态码表示服务器拒绝执行该请求，因为请求的预条件失败
-         */
+        // @brief 需要预条件，请求必须包含预条件头部
         precondition_required = 428,
 
-        /**
-         * @brief too_many_requests
-         * @note 这个状态码表示服务器拒绝执行该请求，因为客户端发送的请求数量超过了服务器的处理能力
-         */
+        // @brief 请求过多，客户端发送了过多请求
         too_many_requests = 429,
 
-        /**
-         * @brief request_header_fields_too_large
-         * @note 这个状态码表示请求的头字段长度超过了服务器允许的最大值
-         */
+        // @brief 头部字段过大，请求头部超过服务器允许的最大值
         request_header_fields_too_large = 431,
 
-        /**
-         * @brief unavailable_for_legal_reasons
-         * @note 这个状态码表示请求的资源在法律上是不可用的，服务器拒绝执行该请求
-         */
+        // @brief 法律原因不可用，因法律原因无法提供资源
         unavailable_for_legal_reasons = 451,
 
-        /**
-         * @brief internal_server_error
-         * @note 这个状态码表示服务器内部错误，无法完成请求
-         */
+        // @brief 服务器内部错误，服务器遇到意外情况
         internal_server_error = 500,
 
-        /**
-         * @brief not_implemented
-         * @note 这个状态码表示服务器不支持请求的功能
-         */
+        // @brief 未实现，服务器不支持请求的功能
         not_implemented = 501,
 
-        /**
-         * @brief bad_gateway
-         * @note 这个状态码表示服务器作为网关或代理，从上游服务器收到了无效的响应
-         */
+        // @brief 错误网关，网关或代理收到无效响应
         bad_gateway = 502,
 
-        /**
-         * @brief service_unavailable
-         * @note 这个状态码表示服务器暂时无法处理请求，通常是因为服务器过载或维护
-         */
+        // @brief 服务不可用，服务器暂时无法处理请求
         service_unavailable = 503,
 
-        /**
-         * @brief gateway_timeout
-         * @note 这个状态码表示服务器作为网关或代理，在等待上游服务器响应时超时
-         */
+        // @brief 网关超时，网关或代理等待上游响应超时
         gateway_timeout = 504,
 
-        /**
-         * @brief http_version_not_supported
-         * @note 这个状态码表示服务器不支持请求的HTTP协议版本
-         */
+        // @brief HTTP 版本不支持，服务器不支持请求的 HTTP 版本
         http_version_not_supported = 505,
 
-        /**
-         * @brief variant_also_negotiates
-         * @note 这个状态码表示服务器无法根据请求头字段协商响应的变体
-         */
+        // @brief 变体也协商，服务器内部配置错误
         variant_also_negotiates = 506,
 
-        /**
-         * @brief insufficient_storage
-         * @note 这个状态码表示服务器无法满足请求的存储需求，服务器拒绝执行该请求
-         */
+        // @brief 存储空间不足，服务器无法存储完成请求所需的内容
         insufficient_storage = 507,
 
-        /**
-         * @brief loop_detected
-         * @note 这个状态码表示服务器检测到请求的循环，服务器拒绝执行该请求
-         */
+        // @brief 检测到循环，服务器检测到无限循环
         loop_detected = 508,
 
-        /**
-         * @brief not_extended
-         * @note 这个状态码表示服务器拒绝执行该请求，因为请求的功能已被扩展，而服务器不支持该扩展
-         */
+        // @brief 未扩展，需要扩展支持
         not_extended = 510,
 
-        /**
-         * @brief network_authentication_required
-         * @note 这个状态码表示请求需要网络身份验证，服务器拒绝执行该请求
-         */
+        // @brief 需要网络认证，需要进行网络身份验证
         network_authentication_required = 511
-    }; // enum class status
+    };
 
     /**
      * @enum verb
-     * @brief HTTP 请求方法（动词）枚举
-     * @note 设计考虑：
-     * @note - 枚举值顺序遵循标准定义频率，优化 `switch` 语句性能
-     * @note - 为 `unknown` (0) 预留值处理自定义或非标准方法
-     * @note - 支持方法字符串到枚举值的双向转换（`to_string()` / `from_string()`）
-     * @note - 包含 WebDAV (`PROPFIND`、`PROPPATCH` 等) 和扩展方法
-     * @warning 安全性注意：正确处理 `TRACE` 和 `TRACK` 方法防止跨站跟踪攻击
-     * @warning 幂等性注意：正确实现幂等方法对重试机制和错误恢复至关重要
-     * @details 完整的 HTTP 请求方法定义，覆盖 RFC 7231、RFC 5789、RFC 4918、RFC 5842 等标准。
-     * 包含所有标准方法及常见扩展方法，用于标识请求对资源执行的操作类型。
-     *
-     * 核心方法分类：
-     * @details - 安全方法（`safe`）：`GET`、`HEAD`、`OPTIONS`、`TRACE` - 不应修改服务器状态
-     * @details - 幂等方法（`idempotent`）：`GET`、`HEAD`、`PUT`、`DELETE`、`OPTIONS`、`TRACE` - 重复执行效果相同
-     * @details - 缓存方法（`cacheable`）：`GET`、`HEAD`、`POST` - 可被缓存代理处理
-     *
-     * ```
-     * // 方法分类判断示例
-     * using namespace ngx::protocol::http;
-     *
-     * bool is_safe_method(verb method)
-     * {
-     *     switch (method)
-     *     {
-     *         case verb::get:
-     *         case verb::head:
-     *         case verb::options:
-     *         case verb::trace:
-     *             return true;
-     *         default:
-     *             return false;
-     *     }
-     * }
-     *
-     * bool is_idempotent(verb method)
-     * {
-     *     switch (method)
-     *     {
-     *         case verb::get:
-     *         case verb::head:
-     *         case verb::put:
-     *         case verb::delete_:
-     *         case verb::options:
-     *         case verb::trace:
-     *             return true;
-     *         case verb::post:
-     *         case verb::patch:
-     *         case verb::connect:
-     *             return false;
-     *         default:
-     *             return false; // 自定义方法默认非幂等
-     *     }
-     * }
-     *
-     * // 方法字符串转换示例
-     * std::string method_str = "GET";
-     * verb method = verb_from_string(method_str); // 返回 verb::get
-     * std::string result = to_string(verb::post); // 返回 "POST"
-     * ```
+     * @brief HTTP 请求方法枚举
+     * @details 完整的 HTTP 请求方法定义，覆盖 RFC 7231、RFC 5789、RFC 4918 等
+     * 标准。包含所有标准方法及 WebDAV、Subversion、UPnP 等扩展方法。
+     * 核心方法分类：安全方法（GET、HEAD、OPTIONS、TRACE）、幂等方法
+     * （GET、HEAD、PUT、DELETE、OPTIONS、TRACE）、缓存方法（GET、HEAD、POST）。
+     * @note 正确实现幂等方法对重试机制和错误恢复至关重要。
+     * @warning 自定义方法默认视为非幂等方法。
      */
     enum class verb
     {
-        /**
-         * @brief unknown
-         * @note 未知方法，表示请求方法字符串不属于已识别动词
-         */
+        // @brief 未知方法
         unknown = 0,
 
-        /**
-         * @brief delete_
-         * @note DELETE 方法：删除指定资源
-         */
+        // @brief DELETE 方法，删除指定资源
         delete_,
 
-        /**
-         * @brief get
-         * @note GET 方法：请求指定资源的表示，只应获取数据，不产生其他副作用
-         */
+        // @brief GET 方法，请求指定资源的表示
         get,
 
-        /**
-         * @brief head
-         * @note HEAD 方法：与 GET 相同，但只返回响应头，不返回响应体，用于获取元信息
-         */
+        // @brief HEAD 方法，与 GET 相同但只返回响应头
         head,
 
-        /**
-         * @brief post
-         * @note POST 方法：将请求中包含的实体作为指定 URI 的新子资源，可用于提交表单、注释等
-         */
+        // @brief POST 方法，提交数据作为新子资源
         post,
 
-        /**
-         * @brief put
-         * @note PUT 方法：将包含的实体存储在提供的 URI 下；存在则修改，不存在可创建
-         */
+        // @brief PUT 方法，存储实体到指定 URI
         put,
 
-        /**
-         * @brief connect
-         * @note CONNECT 方法：将请求连接转换为透明 TCP/IP 隧道，常用于 HTTPS 代理
-         */
+        // @brief CONNECT 方法，建立到服务器的隧道连接
         connect,
 
-        /**
-         * @brief options
-         * @note OPTIONS 方法：返回服务器对指定 URL 所支持的 HTTP 方法，可用 '*' 检测功能
-         */
+        // @brief OPTIONS 方法，查询服务器支持的方法
         options,
 
-        /**
-         * @brief trace
-         * @note TRACE 方法：回显收到的请求，使客户端可查看中间服务器所做的更改
-         */
+        // @brief TRACE 方法，回显收到的请求用于诊断
         trace,
 
-        // WebDAV
-        /**
-         * @brief copy
-         * @note COPY 方法：复制资源
-         */
+        // WebDAV 方法
+        // @brief COPY 方法，复制资源
         copy,
-        /**
-         * @brief lock
-         * @note LOCK 方法：锁定资源
-         */
+        // @brief LOCK 方法，锁定资源
         lock,
-        /**
-         * @brief mkcol
-         * @note MKCOL 方法：创建集合
-         */
+        // @brief MKCOL 方法，创建集合
         mkcol,
-        /**
-         * @brief move
-         * @note MOVE 方法：移动资源
-         */
+        // @brief MOVE 方法，移动资源
         move,
-        /**
-         * @brief propfind
-         * @note PROPFIND 方法：查找属性
-         */
+        // @brief PROPFIND 方法，查找属性
         propfind,
-        /**
-         * @brief proppatch
-         * @note PROPPATCH 方法：修补属性
-         */
+        // @brief PROPPATCH 方法，修改属性
         proppatch,
-        /**
-         * @brief search
-         * @note SEARCH 方法：搜索资源
-         */
+        // @brief SEARCH 方法，搜索资源
         search,
-        /**
-         * @brief unlock
-         * @note UNLOCK 方法：解锁资源
-         */
+        // @brief UNLOCK 方法，解锁资源
         unlock,
-        /**
-         * @brief bind
-         * @note BIND 方法：绑定资源
-         */
+        // @brief BIND 方法，绑定资源
         bind,
-        /**
-         * @brief rebind
-         * @note REBIND 方法：重新绑定资源
-         */
+        // @brief REBIND 方法，重新绑定资源
         rebind,
-        /**
-         * @brief unbind
-         * @note UNBIND 方法：解除绑定资源
-         */
+        // @brief UNBIND 方法，解除绑定资源
         unbind,
-        /**
-         * @brief acl
-         * @note ACL 方法：访问控制列表
-         */
+        // @brief ACL 方法，访问控制列表
         acl,
 
-        // Subversion
-        /**
-         * @brief report
-         * @note REPORT 方法：报告
-         */
+        // Subversion 方法
+        // @brief REPORT 方法，报告资源状态
         report,
-        /**
-         * @brief mkactivity
-         * @note MKACTIVITY 方法：创建活动
-         */
+        // @brief MKACTIVITY 方法，创建活动
         mkactivity,
-        /**
-         * @brief checkout
-         * @note CHECKOUT 方法：检出资源
-         */
+        // @brief CHECKOUT 方法，检出资源
         checkout,
-        /**
-         * @brief merge
-         * @note MERGE 方法：合并资源
-         */
+        // @brief MERGE 方法，合并资源
         merge,
 
-        // UPnP
-        /**
-         * @brief msearch
-         * @note M-SEARCH 方法：多播搜索
-         */
+        // UPnP 方法
+        // @brief M-SEARCH 方法，多播搜索
         msearch,
-        /**
-         * @brief notify
-         * @note NOTIFY 方法：通知
-         */
+        // @brief NOTIFY 方法，发送通知
         notify,
-        /**
-         * @brief subscribe
-         * @note SUBSCRIBE 方法：订阅
-         */
+        // @brief SUBSCRIBE 方法，订阅事件
         subscribe,
-        /**
-         * @brief unsubscribe
-         * @note UNSUBSCRIBE 方法：取消订阅
-         */
+        // @brief UNSUBSCRIBE 方法，取消订阅
         unsubscribe,
 
-        /**
-         * @brief patch
-         * @note PATCH 方法：对资源进行部分修改
-         */
+        // @brief PATCH 方法，对资源进行部分修改
         patch,
-        /**
-         * @brief purge
-         * @note PURGE 方法：清除缓存（Squid 等代理扩展）
-         */
+        // @brief PURGE 方法，清除缓存
         purge,
 
-        /**
-         * @brief mkcalendar
-         * @note MKCALENDAR 方法：创建日历
-         */
+        // @brief MKCALENDAR 方法，创建日历
         mkcalendar,
 
-        /**
-         * @brief link
-         * @note LINK 方法：建立资源链接
-         */
+        // @brief LINK 方法，建立资源链接
         link,
-        /**
-         * @brief unlink
-         * @note UNLINK 方法：移除资源链接
-         */
+        // @brief UNLINK 方法，移除资源链接
         unlink
     };
 
     /**
      * @enum field
      * @brief HTTP 头部字段枚举
-     * @note 设计考虑：
-     * @note - 使用 `unsigned short` 底层类型优化内存布局，支持高效数组索引
-     * @note - 字段顺序遵循字母排序，便于二分查找和前缀匹配优化
-     * @note - 为 `unknown` (0) 预留值处理未注册或自定义头部字段
-     * @note - 支持头部字段名到枚举值的双向转换（`to_string()` / `from_string()`）
-     * @note - 包含完整的 RFC 引用，便于标准合规性验证
-     * @warning 性能关键：头部字段查找应使用预构建的 `std::unordered_map` 或完美哈希，避免线性扫描
-     * @warning 安全性注意：正确处理 `Host`、`Origin`、`Referer` 等安全敏感头部，防止信息泄露和跨站请求伪造（CSRF）
-     * @warning 大小写敏感：HTTP 头部字段名大小写不敏感，但枚举映射使用规范大小写格式
      * @details 完整的 HTTP 头部字段定义，包含超过 500 个标准及扩展头部字段。
-     *
-     * 基于 IANA 注册表、RFC 标准及实际部署中的常见扩展，覆盖：
-     * @details - 标准请求/响应头部：`Content-Type`、`Authorization`、`Cache-Control` 等
-     * @details - 安全相关头部：`Strict-Transport-Security`、`Content-Security-Policy` 等
-     * @details - 性能优化头部：`Accept-Encoding`、`Content-Encoding`、`ETag` 等
-     * @details - WebSocket 头部：`Sec-WebSocket-Key`、`Sec-WebSocket-Accept` 等
-     * @details - 自定义及扩展头部：`X-Forwarded-For`、`X-Real-IP` 等常见代理头部
-     *
-     * 头部字段分类：
-     * @details - 端到端头部（`end-to-end`）：必须转发给最终接收者，如 `Content-Type`
-     * @details - 逐跳头部（`hop-by-hop`）：仅对单次传输有效，如 `Connection`、`Upgrade`
-     * @details - 请求限定头部（`request`）：仅出现在请求中，如 `Host`、`User-Agent`
-     * @details - 响应限定头部（`response`）：仅出现在响应中，如 `Server`、`Age`
-     *
-     * ```
-     * // 头部字段分类判断示例
-     * using namespace ngx::protocol::http;
-     *
-     * bool is_end_to_end_header(field header)
-     * {
-     *     // 端到端头部示例
-     *     switch (header)
-     *     {
-     *         case field::content_type:
-     *         case field::content_length:
-     *         case field::cache_control:
-     *         case field::etag:
-     *             return true;
-     *         case field::connection:
-     *         case field::upgrade:
-     *         case field::proxy_authenticate:
-     *             return false; // 逐跳头部
-     *         default:
-     *             // 默认视为端到端头部
-     *             return true;
-     *     }
-     * }
-     *
-     * bool is_security_header(field header)
-     * {
-     *     switch (header)
-     *     {
-     *         case field::strict_transport_security:
-     *         case field::content_security_policy:
-     *         case field::x_frame_options:
-     *         case field::x_content_type_options:
-     *             return true;
-     *         default:
-     *             return false;
-     *     }
-     * }
-     *
-     * // 头部字段名转换示例
-     * std::string header_name = "Content-Type";
-     * field header = field_from_string(header_name); // 返回 field::content_type
-     * std::string result = to_string(field::authorization); // 返回 "Authorization"
-     *
-     * // 批量头部处理优化示例
-     * std::vector<field> headers = parse_header_fields(buffer);
-     * std::sort(headers.begin(), headers.end()); // 枚举值排序优化后续处理
-     * ```
-     *
+     * 基于 IANA 注册表、RFC 标准及实际部署中的常见扩展定义。使用 unsigned short
+     * 底层类型优化内存布局，支持高效数组索引。字段顺序遵循字母排序。
+     * @note 头部字段查找应使用预构建的哈希映射，避免线性扫描。
+     * @warning 正确处理 Host、Origin、Referer 等安全敏感头部。
      */
     enum class field : unsigned short
     {
-        /**
-         * @brief unknown
-         * @note 未知或未识别的头部字段
-         */
+        // @brief 未知或未识别的头部字段
         unknown = 0,
 
-        /**
-         * @brief a_im
-         * @note A-IM 头，用于指示可接受的实例操作（RFC 4229）
-         */
+        // @brief A-IM 头，指示可接受的实例操作
         a_im,
 
-        /**
-         * @brief accept
-         * @note Accept 头，客户端可接受的媒体类型
-         */
+        // @brief Accept 头，客户端可接受的媒体类型
         accept,
 
-        /**
-         * @brief accept_additions
-         * @note Accept-Additions 头，扩展 Accept（RFC 4229）
-         */
+        // @brief Accept-Additions 头，扩展 Accept
         accept_additions,
 
-        /**
-         * @brief accept_charset
-         * @note Accept-Charset 头，客户端可接受的字符集
-         */
+        // @brief Accept-Charset 头，客户端可接受的字符集
         accept_charset,
 
-        /**
-         * @brief accept_datetime
-         * @note Accept-Datetime 头，用于内容协商的时间戳（RFC 7089）
-         */
+        // @brief Accept-Datetime 头，用于内容协商的时间戳
         accept_datetime,
 
-        /**
-         * @brief accept_encoding
-         * @note Accept-Encoding 头，客户端可接受的内容编码
-         */
+        // @brief Accept-Encoding 头，客户端可接受的内容编码
         accept_encoding,
 
-        /**
-         * @brief accept_features
-         * @note Accept-Features 头，用于特征协商（RFC 4229）
-         */
+        // @brief Accept-Features 头，用于特征协商
         accept_features,
 
-        /**
-         * @brief accept_language
-         * @note Accept-Language 头，客户端可接受的语言
-         */
+        // @brief Accept-Language 头，客户端可接受的语言
         accept_language,
 
-        /**
-         * @brief accept_patch
-         * @note Accept-Patch 头，服务器接受的补丁格式（RFC 5789）
-         */
+        // @brief Accept-Patch 头，服务器接受的补丁格式
         accept_patch,
 
-        /**
-         * @brief accept_post
-         * @note Accept-Post 头，服务器接受的 POST 内容类型（RFC 5992）
-         */
+        // @brief Accept-Post 头，服务器接受的 POST 内容类型
         accept_post,
 
-        /**
-         * @brief accept_ranges
-         * @note Accept-Ranges 头，服务器支持的范围请求单位
-         */
+        // @brief Accept-Ranges 头，服务器支持的范围请求单位
         accept_ranges,
 
-        /**
-         * @brief access_control
-         * @note Access-Control 头，WebDAV 访问控制扩展
-         */
+        // @brief Access-Control 头，WebDAV 访问控制扩展
         access_control,
 
-        /**
-         * @brief access_control_allow_credentials
-         * @note Access-Control-Allow-Credentials 头，CORS 是否允许携带凭据
-         */
+        // @brief Access-Control-Allow-Credentials 头，CORS 是否允许携带凭据
         access_control_allow_credentials,
 
-        /**
-         * @brief access_control_allow_headers
-         * @note Access-Control-Allow-Headers 头，CORS 允许的请求头
-         */
+        // @brief Access-Control-Allow-Headers 头，CORS 允许的请求头
         access_control_allow_headers,
 
-        /**
-         * @brief access_control_allow_methods
-         * @note Access-Control-Allow-Methods 头，CORS 允许的请求方法
-         */
+        // @brief Access-Control-Allow-Methods 头，CORS 允许的请求方法
         access_control_allow_methods,
 
-        /**
-         * @brief access_control_allow_origin
-         * @note Access-Control-Allow-Origin 头，CORS 允许的来源
-         */
+        // @brief Access-Control-Allow-Origin 头，CORS 允许的来源
         access_control_allow_origin,
 
-        /**
-         * @brief access_control_expose_headers
-         * @note Access-Control-Expose-Headers 头，CORS 允许前端读取的响应头
-         */
+        // @brief Access-Control-Expose-Headers 头，CORS 允许前端读取的响应头
         access_control_expose_headers,
 
-        /**
-         * @brief access_control_max_age
-         * @note Access-Control-Max-Age 头，CORS 预检结果缓存时长
-         */
+        // @brief Access-Control-Max-Age 头，CORS 预检结果缓存时长
         access_control_max_age,
 
-        /**
-         * @brief access_control_request_headers
-         * @note Access-Control-Request-Headers 头，预检请求中实际发送的头列表
-         */
+        // @brief Access-Control-Request-Headers 头，预检请求中实际发送的头列表
         access_control_request_headers,
 
-        /**
-         * @brief access_control_request_method
-         * @note Access-Control-Request-Method 头，预检请求中实际发送的方法
-         */
+        // @brief Access-Control-Request-Method 头，预检请求中实际发送的方法
         access_control_request_method,
 
-        /**
-         * @brief age
-         * @note Age 头，响应在缓存中停留的秒数
-         */
+        // @brief Age 头，响应在缓存中停留的秒数
         age,
 
-        /**
-         * @brief allow
-         * @note Allow 头，资源允许的 HTTP 方法集合
-         */
+        // @brief Allow 头，资源允许的 HTTP 方法集合
         allow,
 
-        /**
-         * @brief alpn
-         * @note ALPN 头，应用层协议协商（TLS 扩展）
-         */
+        // @brief ALPN 头，应用层协议协商
         alpn,
 
-        /**
-         * @brief also_control
-         * @note Also-Control 头，邮件/消息控制扩展
-         */
+        // @brief Also-Control 头，邮件消息控制扩展
         also_control,
 
-        /**
-         * @brief alt_svc
-         * @note Alt-Svc 头，服务器声明备用服务（RFC 7838）
-         */
+        // @brief Alt-Svc 头，服务器声明备用服务
         alt_svc,
 
-        /**
-         * @brief alt_used
-         * @note Alt-Used 头，客户端声明实际使用的备用服务（RFC 7838）
-         */
+        // @brief Alt-Used 头，客户端声明实际使用的备用服务
         alt_used,
 
-        /**
-         * @brief alternate_recipient
-         * @note Alternate-Recipient 头，邮件传输备用接收者
-         */
+        // @brief Alternate-Recipient 头，邮件传输备用接收者
         alternate_recipient,
 
-        /**
-         * @brief alternates
-         * @note Alternates 头，内容协商可选列表（RFC 4229）
-         */
+        // @brief Alternates 头，内容协商可选列表
         alternates,
 
-        /**
-         * @brief apparently_to
-         * @note Apparently-To 头，遗留邮件头
-         */
+        // @brief Apparently-To 头，遗留邮件头
         apparently_to,
 
-        /**
-         * @brief apply_to_redirect_ref
-         * @note Apply-To-Redirect-Ref 头，WebDAV 重定向引用
-         */
+        // @brief Apply-To-Redirect-Ref 头，WebDAV 重定向引用
         apply_to_redirect_ref,
 
-        /**
-         * @brief approved
-         * @note Approved 头，新闻组 邮件审批标记
-         */
+        // @brief Approved 头，新闻组邮件审批标记
         approved,
 
-        /**
-         * @brief archive
-         * @note Archive 头，档案标识
-         */
+        // @brief Archive 头，档案标识
         archive,
 
-        /**
-         * @brief archived_at
-         * @note Archived-At 头，消息归档 URL（RFC 5064）
-         */
+        // @brief Archived-At 头，消息归档 URL
         archived_at,
 
-        /**
-         * @brief article_names
-         * @note Article-Names 头，新闻组文章名称
-         */
+        // @brief Article-Names 头，新闻组文章名称
         article_names,
 
-        /**
-         * @brief article_updates
-         * @note Article-Updates 头，新闻组文章更新标记
-         */
+        // @brief Article-Updates 头，新闻组文章更新标记
         article_updates,
 
-        /**
-         * @brief authentication_control
-         * @note Authentication-Control 头，认证控制指令
-         */
+        // @brief Authentication-Control 头，认证控制指令
         authentication_control,
 
-        /**
-         * @brief authentication_info
-         * @note Authentication-Info 头，认证结果信息（RFC 7615）
-         */
+        // @brief Authentication-Info 头，认证结果信息
         authentication_info,
 
-        /**
-         * @brief authentication_results
-         * @note Authentication-Results 头，邮件认证结果（RFC 8601）
-         */
+        // @brief Authentication-Results 头，邮件认证结果
         authentication_results,
 
-        /**
-         * @brief authorization
-         * @note Authorization 头，客户端身份凭证
-         */
+        // @brief Authorization 头，客户端身份凭证
         authorization,
 
-        /**
-         * @brief auto_submitted
-         * @note Auto-Submitted 头，自动提交标识（RFC 3834）
-         */
+        // @brief Auto-Submitted 头，自动提交标识
         auto_submitted,
 
-        /**
-         * @brief autoforwarded
-         * @note Autoforwarded 头，自动转发标记
-         */
+        // @brief Autoforwarded 头，自动转发标记
         autoforwarded,
 
-        /**
-         * @brief autosubmitted
-         * @note Autosubmitted 头，同 Auto-Submitted（兼容）
-         */
+        // @brief Autosubmitted 头，同 Auto-Submitted
         autosubmitted,
 
-        /**
-         * @brief base
-         * @note Base 头，基准 URI（遗留）
-         */
+        // @brief Base 头，基准 URI
         base,
 
-        /**
-         * @brief bcc
-         * @note Bcc 头，密送地址
-         */
+        // @brief Bcc 头，密送地址
         bcc,
 
-        /**
-         * @brief body
-         * @note Body 头，消息体标识（遗留）
-         */
+        // @brief Body 头，消息体标识
         body,
 
-        /**
-         * @brief c_ext
-         * @note C-Ext 头，缓存控制扩展
-         */
+        // @brief C-Ext 头，缓存控制扩展
         c_ext,
 
-        /**
-         * @brief c_man
-         * @note C-Man 头，缓存管理指令
-         */
+        // @brief C-Man 头，缓存管理指令
         c_man,
 
-        /**
-         * @brief c_opt
-         * @note C-Opt 头，缓存选项
-         */
+        // @brief C-Opt 头，缓存选项
         c_opt,
 
-        /**
-         * @brief c_pep
-         * @note C-PEP 头，PEP 缓存扩展
-         */
+        // @brief C-PEP 头，PEP 缓存扩展
         c_pep,
 
-        /**
-         * @brief c_pep_info
-         * @note C-PEP-Info 头，PEP 缓存信息
-         */
+        // @brief C-PEP-Info 头，PEP 缓存信息
         c_pep_info,
 
-        /**
-         * @brief cache_control
-         * @note Cache-Control 头，缓存指令（RFC 7234）
-         */
+        // @brief Cache-Control 头，缓存指令
         cache_control,
 
-        /**
-         * @brief caldav_timezones
-         * @note CalDAV-Timezones 头，CalDAV 时区数据
-         */
+        // @brief CalDAV-Timezones 头，CalDAV 时区数据
         caldav_timezones,
 
-        /**
-         * @brief cancel_key
-         * @note Cancel-Key 头，新闻组取消密钥
-         */
+        // @brief Cancel-Key 头，新闻组取消密钥
         cancel_key,
 
-        /**
-         * @brief cancel_lock
-         * @note Cancel-Lock 头，新闻组取消锁
-         */
+        // @brief Cancel-Lock 头，新闻组取消锁
         cancel_lock,
 
-        /**
-         * @brief cc
-         * @note Cc 头，抄送地址
-         */
+        // @brief Cc 头，抄送地址
         cc,
 
-        /**
-         * @brief close
-         * @note Close 头，连接关闭标记（遗留）
-         */
+        // @brief Close 头，连接关闭标记
         close,
 
-        /**
-         * @brief comments
-         * @note Comments 头，附加说明
-         */
+        // @brief Comments 头，附加说明
         comments,
 
-        /**
-         * @brief compliance
-         * @note Compliance 头，合规性声明
-         */
+        // @brief Compliance 头，合规性声明
         compliance,
 
-        /**
-         * @brief connection
-         * @note Connection 头，连接管理（keep-alive / close）
-         */
+        // @brief Connection 头，连接管理
         connection,
 
-        /**
-         * @brief content_alternative
-         * @note Content-Alternative 头，备选内容
-         */
+        // @brief Content-Alternative 头，备选内容
         content_alternative,
 
-        /**
-         * @brief content_base
-         * @note Content-Base 头，内容基准 URI（遗留）
-         */
+        // @brief Content-Base 头，内容基准 URI
         content_base,
 
-        /**
-         * @brief content_description
-         * @note Content-Description 头，内容描述
-         */
+        // @brief Content-Description 头，内容描述
         content_description,
 
-        /**
-         * @brief content_disposition
-         * @note Content-Disposition 头，内容展示方式（RFC 6266）
-         */
+        // @brief Content-Disposition 头，内容展示方式
         content_disposition,
 
-        /**
-         * @brief content_duration
-         * @note Content-Duration 头，内容持续时间
-         */
+        // @brief Content-Duration 头，内容持续时间
         content_duration,
 
-        /**
-         * @brief content_encoding
-         * @note Content-Encoding 头，内容编码（gzip 等）
-         */
+        // @brief Content-Encoding 头，内容编码
         content_encoding,
 
-        /**
-         * @brief content_features
-         * @note Content-Features 头，内容特征标记
-         */
+        // @brief Content-Features 头，内容特征标记
         content_features,
 
-        /**
-         * @brief content_id
-         * @note Content-ID 头，内容标识（MIME）
-         */
+        // @brief Content-ID 头，内容标识
         content_id,
 
-        /**
-         * @brief content_identifier
-         * @note Content-Identifier 头，内容标识符
-         */
+        // @brief Content-Identifier 头，内容标识符
         content_identifier,
 
-        /**
-         * @brief content_language
-         * @note Content-Language 头，内容语言
-         */
+        // @brief Content-Language 头，内容语言
         content_language,
 
-        /**
-         * @brief content_length
-         * @note Content-Length 头，内容长度（字节）
-         */
+        // @brief Content-Length 头，内容长度
         content_length,
 
-        /**
-         * @brief content_location
-         * @note Content-Location 头，内容实际位置
-         */
+        // @brief Content-Location 头，内容实际位置
         content_location,
 
-        /**
-         * @brief content_md5
-         * @note Content-MD5 头，内容 MD5 摘要（已废弃）
-         */
+        // @brief Content-MD5 头，内容 MD5 摘要
         content_md5,
 
-        /**
-         * @brief content_range
-         * @note Content-Range 头，内容范围（分块传输）
-         */
+        // @brief Content-Range 头，内容范围
         content_range,
 
-        /**
-         * @brief content_return
-         * @note Content-Return 头，内容返回选项
-         */
+        // @brief Content-Return 头，内容返回选项
         content_return,
 
-        /**
-         * @brief content_script_type
-         * @note Content-Script-Type 头，默认脚本类型
-         */
+        // @brief Content-Script-Type 头，默认脚本类型
         content_script_type,
 
-        /**
-         * @brief content_style_type
-         * @note Content-Style-Type 头，默认样式类型
-         */
+        // @brief Content-Style-Type 头，默认样式类型
         content_style_type,
 
-        /**
-         * @brief content_transfer_encoding
-         * @note Content-Transfer-Encoding 头，MIME 传输编码
-         */
+        // @brief Content-Transfer-Encoding 头，MIME 传输编码
         content_transfer_encoding,
 
-        /**
-         * @brief content_type
-         * @note Content-Type 头，内容媒体类型
-         */
+        // @brief Content-Type 头，内容媒体类型
         content_type,
 
-        /**
-         * @brief content_version
-         * @note Content-Version 头，内容版本
-         */
+        // @brief Content-Version 头，内容版本
         content_version,
 
-        /**
-         * @brief control
-         * @note Control 头，控制指令（遗留）
-         */
+        // @brief Control 头，控制指令
         control,
 
-        /**
-         * @brief conversion
-         * @note Conversion 头，转换标记
-         */
+        // @brief Conversion 头，转换标记
         conversion,
 
-        /**
-         * @brief conversion_with_loss
-         * @note Conversion-With-Loss 头，有损转换标记
-         */
+        // @brief Conversion-With-Loss 头，有损转换标记
         conversion_with_loss,
 
-        /**
-         * @brief cookie
-         * @note Cookie 头，客户端携带的 Cookie
-         */
+        // @brief Cookie 头，客户端携带的 Cookie
         cookie,
 
-        /**
-         * @brief cookie2
-         * @note Cookie2 头，Cookie 协议版本 2（已废弃）
-         */
+        // @brief Cookie2 头，Cookie 协议版本 2
         cookie2,
 
-        /**
-         * @brief cost
-         * @note Cost 头，传输成本（试验）
-         */
+        // @brief Cost 头，传输成本
         cost,
 
-        /**
-         * @brief dasl
-         * @note DASL 头，DAV 搜索能力（RFC 5323）
-         */
+        // @brief DASL 头，DAV 搜索能力
         dasl,
 
-        /**
-         * @brief date
-         * @note Date 头，消息生成时间
-         */
+        // @brief Date 头，消息生成时间
         date,
 
-        /**
-         * @brief date_received
-         * @note Date-Received 头，接收时间（遗留）
-         */
+        // @brief Date-Received 头，接收时间
         date_received,
 
-        /**
-         * @brief dav
-         * @note DAV 头，DAV 版本
-         */
+        // @brief DAV 头，DAV 版本
         dav,
 
-        /**
-         * @brief default_style
-         * @note Default-Style 头，默认样式
-         */
+        // @brief Default-Style 头，默认样式
         default_style,
 
-        /**
-         * @brief deferred_delivery
-         * @note Deferred-Delivery 头，延迟投递时间
-         */
+        // @brief Deferred-Delivery 头，延迟投递时间
         deferred_delivery,
 
-        /**
-         * @brief delivery_date
-         * @note Delivery-Date 头，实际投递时间
-         */
+        // @brief Delivery-Date 头，实际投递时间
         delivery_date,
 
-        /**
-         * @brief delta_base
-         * @note Delta-Base 头，增量编码基准（RFC 3229）
-         */
+        // @brief Delta-Base 头，增量编码基准
         delta_base,
 
-        /**
-         * @brief depth
-         * @note Depth 头，WebDAV 深度标记
-         */
+        // @brief Depth 头，WebDAV 深度标记
         depth,
 
-        /**
-         * @brief derived_from
-         * @note Derived-From 头，派生资源标识
-         */
+        // @brief Derived-From 头，派生资源标识
         derived_from,
 
-        /**
-         * @brief destination
-         * @note Destination 头，WebDAV 目标 URI
-         */
+        // @brief Destination 头，WebDAV 目标 URI
         destination,
 
-        /**
-         * @brief differential_id
-         * @note Differential-ID 头，差分 ID
-         */
+        // @brief Differential-ID 头，差分 ID
         differential_id,
 
-        /**
-         * @brief digest
-         * @note Digest 头，内容摘要（RFC 3230）
-         */
+        // @brief Digest 头，内容摘要
         digest,
 
-        /**
-         * @brief discarded_x400_ipms_extensions
-         * @note Discarded-X400-IPMS-Extensions 头，丢弃的 X400 IPMS 扩展
-         */
+        // @brief Discarded-X400-IPMS-Extensions 头
         discarded_x400_ipms_extensions,
 
-        /**
-         * @brief discarded_x400_mts_extensions
-         * @note Discarded-X400-MTS-Extensions 头，丢弃的 X400 MTS 扩展
-         */
+        // @brief Discarded-X400-MTS-Extensions 头
         discarded_x400_mts_extensions,
 
-        /**
-         * @brief disclose_recipients
-         * @note Disclose-Recipients 头，是否公开收件人
-         */
+        // @brief Disclose-Recipients 头，是否公开收件人
         disclose_recipients,
 
-        /**
-         * @brief disposition_notification_options
-         * @note Disposition-Notification-Options 头，投递通知选项
-         */
+        // @brief Disposition-Notification-Options 头，投递通知选项
         disposition_notification_options,
 
-        /**
-         * @brief disposition_notification_to
-         * @note Disposition-Notification-To 头，投递通知地址
-         */
+        // @brief Disposition-Notification-To 头，投递通知地址
         disposition_notification_to,
 
-        /**
-         * @brief distribution
-         * @note Distribution 头，分发范围（新闻组）
-         */
+        // @brief Distribution 头，分发范围
         distribution,
 
-        /**
-         * @brief dkim_signature
-         * @note DKIM-Signature 头，邮件 DKIM 签名
-         */
+        // @brief DKIM-Signature 头，邮件 DKIM 签名
         dkim_signature,
 
-        /**
-         * @brief dl_expansion_history
-         * @note DL-Expansion-History 头，分发列表扩展历史
-         */
+        // @brief DL-Expansion-History 头，分发列表扩展历史
         dl_expansion_history,
 
-        /**
-         * @brief downgraded_bcc
-         * @note Downgraded-Bcc 头，降级密送信息
-         */
+        // @brief Downgraded-Bcc 头，降级密送信息
         downgraded_bcc,
 
-        /**
-         * @brief downgraded_cc
-         * @note Downgraded-Cc 头，降级抄送信息
-         */
+        // @brief Downgraded-Cc 头，降级抄送信息
         downgraded_cc,
 
-        /**
-         * @brief downgraded_disposition_notification_to
-         * @note Downgraded-Disposition-Notification-To 头，降级投递通知地址
-         */
+        // @brief Downgraded-Disposition-Notification-To 头
         downgraded_disposition_notification_to,
 
-        /**
-         * @brief downgraded_final_recipient
-         * @note Downgraded-Final-Recipient 头，降级最终收件人
-         */
+        // @brief Downgraded-Final-Recipient 头
         downgraded_final_recipient,
 
-        /**
-         * @brief downgraded_from
-         * @note Downgraded-From 头，降级发件人信息
-         */
+        // @brief Downgraded-From 头，降级发件人信息
         downgraded_from,
 
-        /**
-         * @brief downgraded_in_reply_to
-         * @note Downgraded-In-Reply-To 头，降级回复标识
-         */
+        // @brief Downgraded-In-Reply-To 头，降级回复标识
         downgraded_in_reply_to,
 
-        /**
-         * @brief downgraded_mail_from
-         * @note Downgraded-Mail-From 头，降级邮件来源
-         */
+        // @brief Downgraded-Mail-From 头，降级邮件来源
         downgraded_mail_from,
 
-        /**
-         * @brief downgraded_message_id
-         * @note Downgraded-Message-ID 头，降级消息 ID
-         */
+        // @brief Downgraded-Message-ID 头，降级消息 ID
         downgraded_message_id,
 
-        /**
-         * @brief downgraded_original_recipient
-         * @note Downgraded-Original-Recipient 头，降级原始收件人
-         */
+        // @brief Downgraded-Original-Recipient 头
         downgraded_original_recipient,
 
-        /**
-         * @brief downgraded_rcpt_to
-         * @note Downgraded-Rcpt-To 头，降级接收地址
-         */
+        // @brief Downgraded-Rcpt-To 头，降级接收地址
         downgraded_rcpt_to,
 
-        /**
-         * @brief downgraded_references
-         * @note Downgraded-References 头，降级引用信息
-         */
+        // @brief Downgraded-References 头，降级引用信息
         downgraded_references,
 
-        /**
-         * @brief downgraded_reply_to
-         * @note Downgraded-Reply-To 头，降级回复地址
-         */
+        // @brief Downgraded-Reply-To 头，降级回复地址
         downgraded_reply_to,
 
-        /**
-         * @brief downgraded_resent_bcc
-         * @note Downgraded-Resent-Bcc 头，降级重发密送
-         */
+        // @brief Downgraded-Resent-Bcc 头，降级重发密送
         downgraded_resent_bcc,
 
-        /**
-         * @brief downgraded_resent_cc
-         * @note Downgraded-Resent-Cc 头，降级重发抄送
-         */
+        // @brief Downgraded-Resent-Cc 头，降级重发抄送
         downgraded_resent_cc,
 
-        /**
-         * @brief downgraded_resent_from
-         * @note Downgraded-Resent-From 头，降级重发来源
-         */
+        // @brief Downgraded-Resent-From 头，降级重发来源
         downgraded_resent_from,
 
-        /**
-         * @brief downgraded_resent_reply_to
-         * @note Downgraded-Resent-Reply-To 头，降级重发回复地址
-         */
+        // @brief Downgraded-Resent-Reply-To 头
         downgraded_resent_reply_to,
 
-        /**
-         * @brief downgraded_resent_sender
-         * @note Downgraded-Resent-Sender 头，降级重发发送者
-         */
+        // @brief Downgraded-Resent-Sender 头，降级重发发送者
         downgraded_resent_sender,
 
-        /**
-         * @brief downgraded_resent_to
-         * @note Downgraded-Resent-To 头，降级重发收件人
-         */
+        // @brief Downgraded-Resent-To 头，降级重发收件人
         downgraded_resent_to,
 
-        /**
-         * @brief downgraded_return_path
-         * @note Downgraded-Return-Path 头，降级返回路径
-         */
+        // @brief Downgraded-Return-Path 头，降级返回路径
         downgraded_return_path,
 
-        /**
-         * @brief downgraded_sender
-         * @note Downgraded-Sender 头，降级发送者
-         */
+        // @brief Downgraded-Sender 头，降级发送者
         downgraded_sender,
 
-        /**
-         * @brief downgraded_to
-         * @note Downgraded-To 头，降级收件人
-         */
+        // @brief Downgraded-To 头，降级收件人
         downgraded_to,
 
-        /**
-         * @brief ediint_features
-         * @note EDIINT-Features 头，电子数据交换特征
-         */
+        // @brief EDIINT-Features 头，电子数据交换特征
         ediint_features,
 
-        /**
-         * @brief eesst_version
-         * @note EESST-Version 头，扩展安全服务版本
-         */
+        // @brief EESST-Version 头，扩展安全服务版本
         eesst_version,
 
-        /**
-         * @brief encoding
-         * @note Encoding 头，编码标记（遗留）
-         */
+        // @brief Encoding 头，编码标记
         encoding,
 
-        /**
-         * @brief encrypted
-         * @note Encrypted 头，加密标记（遗留）
-         */
+        // @brief Encrypted 头，加密标记
         encrypted,
 
-        /**
-         * @brief errors_to
-         * @note Errors-To 头，错误报告地址
-         */
+        // @brief Errors-To 头，错误报告地址
         errors_to,
 
-        /**
-         * @brief etag
-         * @note ETag 头，实体标签（缓存与条件请求）
-         */
+        // @brief ETag 头，实体标签
         etag,
 
-        /**
-         * @brief expect
-         * @note Expect 头，期望行为（如 100-continue）
-         */
+        // @brief Expect 头，期望行为
         expect,
 
-        /**
-         * @brief expires
-         * @note Expires 头，过期时间（HTTP/1.0 缓存）
-         */
+        // @brief Expires 头，过期时间
         expires,
 
-        /**
-         * @brief expiry_date
-         * @note Expiry-Date 头，显式过期日期
-         */
+        // @brief Expiry-Date 头，显式过期日期
         expiry_date,
 
-        /**
-         * @brief ext
-         * @note Ext 头，扩展标记（遗留）
-         */
+        // @brief Ext 头，扩展标记
         ext,
 
-        /**
-         * @brief followup_to
-         * @note Followup-To 头，后续回复新闻组
-         */
+        // @brief Followup-To 头，后续回复新闻组
         followup_to,
 
-        /**
-         * @brief forwarded
-         * @note Forwarded 头，代理链路信息（RFC 7239）
-         */
+        // @brief Forwarded 头，代理链路信息
         forwarded,
 
-        /**
-         * @brief from
-         * @note From 头，请求发起者邮箱或标识
-         */
+        // @brief From 头，请求发起者邮箱或标识
         from,
 
-        /**
-         * @brief generate_delivery_report
-         * @note Generate-Delivery-Report 头，生成投递报告
-         */
+        // @brief Generate-Delivery-Report 头，生成投递报告
         generate_delivery_report,
 
-        /**
-         * @brief getprofile
-         * @note GetProfile 头，获取配置文件
-         */
+        // @brief GetProfile 头，获取配置文件
         getprofile,
 
-        /**
-         * @brief hobareg
-         * @note Hobareg 头，HOBA 注册扩展
-         */
+        // @brief Hobareg 头，HOBA 注册扩展
         hobareg,
 
-        /**
-         * @brief host
-         * @note Host 头，请求目标主机与端口
-         */
+        // @brief Host 头，请求目标主机与端口
         host,
 
-        /**
-         * @brief http2_settings
-         * @note HTTP2-Settings 头，HTTP/2 设置帧（升级流程）
-         */
+        // @brief HTTP2-Settings 头，HTTP/2 设置帧
         http2_settings,
 
-        /**
-         * @brief if_
-         * @note If 头，WebDAV 条件判断
-         */
+        // @brief If 头，WebDAV 条件判断
         if_,
 
-        /**
-         * @brief if_match
-         * @note If-Match 头，条件请求：ETag 需匹配
-         */
+        // @brief If-Match 头，条件请求 ETag 需匹配
         if_match,
 
-        /**
-         * @brief if_modified_since
-         * @note If-Modified-Since 头，条件请求：修改时间需晚于该时间
-         */
+        // @brief If-Modified-Since 头，条件请求修改时间
         if_modified_since,
 
-        /**
-         * @brief if_none_match
-         * @note If-None-Match 头，条件请求：ETag 需不匹配
-         */
+        // @brief If-None-Match 头，条件请求 ETag 需不匹配
         if_none_match,
 
-        /**
-         * @brief if_range
-         * @note If-Range 头，范围请求条件：ETag/日期需匹配
-         */
+        // @brief If-Range 头，范围请求条件
         if_range,
 
-        /**
-         * @brief if_schedule_tag_match
-         * @note If-Schedule-Tag-Match 头，CalDAV 计划标签条件
-         */
+        // @brief If-Schedule-Tag-Match 头，CalDAV 计划标签条件
         if_schedule_tag_match,
 
-        /**
-         * @brief if_unmodified_since
-         * @note If-Unmodified-Since 头，条件请求：修改时间需早于该时间
-         */
+        // @brief If-Unmodified-Since 头，条件请求修改时间
         if_unmodified_since,
 
-        /**
-         * @brief im
-         * @note IM 头，实例操作（RFC 3229）
-         */
+        // @brief IM 头，实例操作
         im,
 
-        /**
-         * @brief importance
-         * @note Importance 头，重要性级别
-         */
+        // @brief Importance 头，重要性级别
         importance,
 
-        /**
-         * @brief in_reply_to
-         * @note In-Reply-To 头，回复消息标识
-         */
+        // @brief In-Reply-To 头，回复消息标识
         in_reply_to,
 
-        /**
-         * @brief incomplete_copy
-         * @note Incomplete-Copy 头，未完成复制标记
-         */
+        // @brief Incomplete-Copy 头，未完成复制标记
         incomplete_copy,
 
-        /**
-         * @brief injection_date
-         * @note Injection-Date 头，注入时间
-         */
+        // @brief Injection-Date 头，注入时间
         injection_date,
 
-        /**
-         * @brief injection_info
-         * @note Injection-Info 头，注入信息
-         */
+        // @brief Injection-Info 头，注入信息
         injection_info,
 
-        /**
-         * @brief jabber_id
-         * @note Jabber-ID 头，XMPP 标识（RFC 7395）
-         */
+        // @brief Jabber-ID 头，XMPP 标识
         jabber_id,
 
-        /**
-         * @brief keep_alive
-         * @note Keep-Alive 头，HTTP/1.0 长连接参数
-         */
+        // @brief Keep-Alive 头，HTTP/1.0 长连接参数
         keep_alive,
 
-        /**
-         * @brief keywords
-         * @note Keywords 头，关键词列表
-         */
+        // @brief Keywords 头，关键词列表
         keywords,
 
-        /**
-         * @brief label
-         * @note Label 头，内容标签（遗留）
-         */
+        // @brief Label 头，内容标签
         label,
 
-        /**
-         * @brief language
-         * @note Language 头，语言标识（遗留）
-         */
+        // @brief Language 头，语言标识
         language,
 
-        /**
-         * @brief last_modified
-         * @note Last-Modified 头，资源最后修改时间
-         */
+        // @brief Last-Modified 头，资源最后修改时间
         last_modified,
 
-        /**
-         * @brief latest_delivery_time
-         * @note Latest-Delivery-Time 头，最迟投递时间
-         */
+        // @brief Latest-Delivery-Time 头，最迟投递时间
         latest_delivery_time,
 
-        /**
-         * @brief lines
-         * @note Lines 头，行数统计
-         */
+        // @brief Lines 头，行数统计
         lines,
 
-        /**
-         * @brief link
-         * @note Link 头，资源关联关系（RFC 5988）
-         */
+        // @brief Link 头，资源关联关系
         link,
 
-        /**
-         * @brief list_archive
-         * @note List-Archive 头，邮件列表归档地址
-         */
+        // @brief List-Archive 头，邮件列表归档地址
         list_archive,
 
-        /**
-         * @brief list_help
-         * @note List-Help 头，邮件列表帮助地址
-         */
+        // @brief List-Help 头，邮件列表帮助地址
         list_help,
 
-        /**
-         * @brief list_id
-         * @note List-ID 头，邮件列表标识
-         */
+        // @brief List-ID 头，邮件列表标识
         list_id,
 
-        /**
-         * @brief list_owner
-         * @note List-Owner 头，邮件列表所有者地址
-         */
+        // @brief List-Owner 头，邮件列表所有者地址
         list_owner,
 
-        /**
-         * @brief list_post
-         * @note List-Post 头，邮件列表 posting 地址
-         */
+        // @brief List-Post 头，邮件列表 posting 地址
         list_post,
 
-        /**
-         * @brief list_subscribe
-         * @note List-Subscribe 头，邮件列表订阅地址
-         */
+        // @brief List-Subscribe 头，邮件列表订阅地址
         list_subscribe,
 
-        /**
-         * @brief list_unsubscribe
-         * @note List-Unsubscribe 头，邮件列表退订地址
-         */
+        // @brief List-Unsubscribe 头，邮件列表退订地址
         list_unsubscribe,
 
-        /**
-         * @brief list_unsubscribe_post
-         * @note List-Unsubscribe-Post 头，退订 POST 表单（RFC 8058）
-         */
+        // @brief List-Unsubscribe-Post 头，退订 POST 表单
         list_unsubscribe_post,
 
-        /**
-         * @brief location
-         * @note Location 头，重定向或新资源地址
-         */
+        // @brief Location 头，重定向或新资源地址
         location,
 
-        /**
-         * @brief lock_token
-         * @note Lock-Token 头，WebDAV 锁定令牌
-         */
+        // @brief Lock-Token 头，WebDAV 锁定令牌
         lock_token,
 
-        /**
-         * @brief man
-         * @note Man 头，缓存管理指令（遗留）
-         */
+        // @brief Man 头，缓存管理指令
         man,
 
-        /**
-         * @brief max_forwards
-         * @note Max-Forwards 头，最大转发次数（TRACE/OPTIONS）
-         */
+        // @brief Max-Forwards 头，最大转发次数
         max_forwards,
 
-        /**
-         * @brief memento_datetime
-         * @note Memento-Datetime 头，Memento 归档时间（RFC 7089）
-         */
+        // @brief Memento-Datetime 头，Memento 归档时间
         memento_datetime,
 
-        /**
-         * @brief message_context
-         * @note Message-Context 头，消息上下文
-         */
+        // @brief Message-Context 头，消息上下文
         message_context,
 
-        /**
-         * @brief message_id
-         * @note Message-ID 头，消息唯一标识
-         */
+        // @brief Message-ID 头，消息唯一标识
         message_id,
 
-        /**
-         * @brief message_type
-         * @note Message-Type 头，消息类型
-         */
+        // @brief Message-Type 头，消息类型
         message_type,
 
-        /**
-         * @brief meter
-         * @note Meter 头，计量信息
-         */
+        // @brief Meter 头，计量信息
         meter,
 
-        /**
-         * @brief method_check
-         * @note Method-Check 头，方法检查（遗留）
-         */
+        // @brief Method-Check 头，方法检查
         method_check,
 
-        /**
-         * @brief method_check_expires
-         * @note Method-Check-Expires 头，方法检查过期时间
-         */
+        // @brief Method-Check-Expires 头，方法检查过期时间
         method_check_expires,
 
-        /**
-         * @brief mime_version
-         * @note MIME-Version 头，MIME 版本
-         */
+        // @brief MIME-Version 头，MIME 版本
         mime_version,
 
-        /**
-         * @brief mmhs_acp127_message_identifier
-         * @note MMHS-ACP127-Message-Identifier 头，军用消息标识
-         */
+        // @brief MMHS-ACP127-Message-Identifier 头，军用消息标识
         mmhs_acp127_message_identifier,
 
-        /**
-         * @brief mmhs_authorizing_users
-         * @note MMHS-Authorizing-Users 头，授权用户列表
-         */
+        // @brief MMHS-Authorizing-Users 头，授权用户列表
         mmhs_authorizing_users,
 
-        /**
-         * @brief mmhs_codress_message_indicator
-         * @note MMHS-Codress-Message-Indicator 头，Codress 消息指示
-         */
+        // @brief MMHS-Codress-Message-Indicator 头
         mmhs_codress_message_indicator,
 
-        /**
-         * @brief mmhs_copy_precedence
-         * @note MMHS-Copy-Precedence 头，副本优先级
-         */
+        // @brief MMHS-Copy-Precedence 头，副本优先级
         mmhs_copy_precedence,
 
-        /**
-         * @brief mmhs_exempted_address
-         * @note MMHS-Exempted-Address 头，豁免地址
-         */
+        // @brief MMHS-Exempted-Address 头，豁免地址
         mmhs_exempted_address,
 
-        /**
-         * @brief mmhs_extended_authorisation_info
-         * @note MMHS-Extended-Authorisation-Info 头，扩展授权信息
-         */
+        // @brief MMHS-Extended-Authorisation-Info 头
         mmhs_extended_authorisation_info,
 
-        /**
-         * @brief mmhs_handling_instructions
-         * @note MMHS-Handling-Instructions 头，处理指令
-         */
+        // @brief MMHS-Handling-Instructions 头，处理指令
         mmhs_handling_instructions,
 
-        /**
-         * @brief mmhs_message_instructions
-         * @note MMHS-Message-Instructions 头，消息处理指令
-         */
+        // @brief MMHS-Message-Instructions 头，消息处理指令
         mmhs_message_instructions,
 
-        /**
-         * @brief mmhs_message_type
-         * @note MMHS-Message-Type 头，军用消息类型
-         */
+        // @brief MMHS-Message-Type 头，军用消息类型
         mmhs_message_type,
 
-        /**
-         * @brief mmhs_originator_plad
-         * @note MMHS-Originator-PLAD 头，发起者 PLAD
-         */
+        // @brief MMHS-Originator-PLAD 头，发起者 PLAD
         mmhs_originator_plad,
 
-        /**
-         * @brief mmhs_originator_reference
-         * @note MMHS-Originator-Reference 头，发起者引用
-         */
+        // @brief MMHS-Originator-Reference 头，发起者引用
         mmhs_originator_reference,
 
-        /**
-         * @brief mmhs_other_recipients_indicator_cc
-         * @note MMHS-Other-Recipients-Indicator-Cc 头，其他抄送指示
-         */
+        // @brief MMHS-Other-Recipients-Indicator-Cc 头
         mmhs_other_recipients_indicator_cc,
 
-        /**
-         * @brief mmhs_other_recipients_indicator_to
-         * @note MMHS-Other-Recipients-Indicator-To 头，其他收件人指示
-         */
+        // @brief MMHS-Other-Recipients-Indicator-To 头
         mmhs_other_recipients_indicator_to,
 
-        /**
-         * @brief mmhs_primary_precedence
-         * @note MMHS-Primary-Precedence 头，主优先级
-         */
+        // @brief MMHS-Primary-Precedence 头，主优先级
         mmhs_primary_precedence,
 
-        /**
-         * @brief mmhs_subject_indicator_codes
-         * @note MMHS-Subject-Indicator-Codes 头，主题指示码
-         */
+        // @brief MMHS-Subject-Indicator-Codes 头，主题指示码
         mmhs_subject_indicator_codes,
 
-        /**
-         * @brief mt_priority
-         * @note MT-Priority 头，消息传输优先级（RFC 6758）
-         */
+        // @brief MT-Priority 头，消息传输优先级
         mt_priority,
 
-        /**
-         * @brief negotiate
-         * @note Negotiate 头，内容协商（遗留）
-         */
+        // @brief Negotiate 头，内容协商
         negotiate,
 
-        /**
-         * @brief newsgroups
-         * @note Newsgroups 头，新闻组列表
-         */
+        // @brief Newsgroups 头，新闻组列表
         newsgroups,
 
-        /**
-         * @brief nntp_posting_date
-         * @note NNTP-Posting-Date 头，NNTP 发布时间
-         */
+        // @brief NNTP-Posting-Date 头，NNTP 发布时间
         nntp_posting_date,
 
-        /**
-         * @brief nntp_posting_host
-         * @note NNTP-Posting-Host 头，NNTP 发布主机
-         */
+        // @brief NNTP-Posting-Host 头，NNTP 发布主机
         nntp_posting_host,
 
-        /**
-         * @brief non_compliance
-         * @note Non-Compliance 头，不合规标记
-         */
+        // @brief Non-Compliance 头，不合规标记
         non_compliance,
 
-        /**
-         * @brief obsoletes
-         * @note Obsoletes 头，废弃标识
-         */
+        // @brief Obsoletes 头，废弃标识
         obsoletes,
 
-        /**
-         * @brief opt
-         * @note Opt 头，选项（遗留）
-         */
+        // @brief Opt 头，选项
         opt,
 
-        /**
-         * @brief optional
-         * @note Optional 头，可选标记
-         */
+        // @brief Optional 头，可选标记
         optional,
 
-        /**
-         * @brief optional_www_authenticate
-         * @note Optional-WWW-Authenticate 头，可选认证方式
-         */
+        // @brief Optional-WWW-Authenticate 头，可选认证方式
         optional_www_authenticate,
 
-        /**
-         * @brief ordering_type
-         * @note Ordering-Type 头，排序类型
-         */
+        // @brief Ordering-Type 头，排序类型
         ordering_type,
 
-        /**
-         * @brief organization
-         * @note Organization 头，组织名称
-         */
+        // @brief Organization 头，组织名称
         organization,
 
-        /**
-         * @brief origin
-         * @note Origin 头，跨域请求来源（CORS）
-         */
+        // @brief Origin 头，跨域请求来源
         origin,
 
-        /**
-         * @brief original_encoded_information_types
-         * @note Original-Encoded-Information-Types 头，原始编码信息类型
-         */
+        // @brief Original-Encoded-Information-Types 头
         original_encoded_information_types,
 
-        /**
-         * @brief original_from
-         * @note Original-From 头，原始发件人
-         */
+        // @brief Original-From 头，原始发件人
         original_from,
 
-        /**
-         * @brief original_message_id
-         * @note Original-Message-ID 头，原始消息 ID
-         */
+        // @brief Original-Message-ID 头，原始消息 ID
         original_message_id,
 
-        /**
-         * @brief original_recipient
-         * @note Original-Recipient 头，原始收件人
-         */
+        // @brief Original-Recipient 头，原始收件人
         original_recipient,
 
-        /**
-         * @brief original_sender
-         * @note Original-Sender 头，原始发送者
-         */
+        // @brief Original-Sender 头，原始发送者
         original_sender,
 
-        /**
-         * @brief original_subject
-         * @note Original-Subject 头，原始主题
-         */
+        // @brief Original-Subject 头，原始主题
         original_subject,
 
-        /**
-         * @brief originator_return_address
-         * @note Originator-Return-Address 头，发起者返回地址
-         */
+        // @brief Originator-Return-Address 头，发起者返回地址
         originator_return_address,
 
-        /**
-         * @brief overwrite
-         * @note Overwrite 头，WebDAV 覆盖标记
-         */
+        // @brief Overwrite 头，WebDAV 覆盖标记
         overwrite,
 
-        /**
-         * @brief p3p
-         * @note P3P 头，隐私策略（W3C）
-         */
+        // @brief P3P 头，隐私策略
         p3p,
 
-        /**
-         * @brief path
-         * @note Path 头，路由路径（电子邮件）
-         */
+        // @brief Path 头，路由路径
         path,
 
-        /**
-         * @brief pep
-         * @note PEP 头，策略扩展协议
-         */
+        // @brief PEP 头，策略扩展协议
         pep,
 
-        /**
-         * @brief pep_info
-         * @note PEP-Info 头，PEP 信息
-         */
+        // @brief PEP-Info 头，PEP 信息
         pep_info,
 
-        /**
-         * @brief pics_label
-         * @note PICS-Label 头，内容标签（已废弃）
-         */
+        // @brief PICS-Label 头，内容标签
         pics_label,
 
-        /**
-         * @brief position
-         * @note Position 头，位置信息
-         */
+        // @brief Position 头，位置信息
         position,
 
-        /**
-         * @brief posting_version
-         * @note Posting-Version 头，发布版本
-         */
+        // @brief Posting-Version 头，发布版本
         posting_version,
 
-        /**
-         * @brief pragma
-         * @note Pragma 头，实现相关指令（HTTP/1.0）
-         */
+        // @brief Pragma 头，实现相关指令
         pragma,
 
-        /**
-         * @brief prefer
-         * @note Prefer 头，客户端偏好（RFC 7240）
-         */
+        // @brief Prefer 头，客户端偏好
         prefer,
 
-        /**
-         * @brief preference_applied
-         * @note Preference-Applied 头，已应用的偏好
-         */
+        // @brief Preference-Applied 头，已应用的偏好
         preference_applied,
 
-        /**
-         * @brief prevent_nondelivery_report
-         * @note Prevent-NonDelivery-Report 头，阻止未投递报告
-         */
+        // @brief Prevent-NonDelivery-Report 头
         prevent_nondelivery_report,
 
-        /**
-         * @brief priority
-         * @note Priority 头，优先级（邮件/HTTP）
-         */
+        // @brief Priority 头，优先级
         priority,
 
-        /**
-         * @brief privicon
-         * @note Privicon 头，隐私图标（试验）
-         */
+        // @brief Privicon 头，隐私图标
         privicon,
 
-        /**
-         * @brief profileobject
-         * @note ProfileObject 头，配置文件对象
-         */
+        // @brief ProfileObject 头，配置文件对象
         profileobject,
 
-        /**
-         * @brief protocol
-         * @note Protocol 头，协议信息
-         */
+        // @brief Protocol 头，协议信息
         protocol,
 
-        /**
-         * @brief protocol_info
-         * @note Protocol-Info 头，协议信息（遗留）
-         */
+        // @brief Protocol-Info 头，协议信息
         protocol_info,
 
-        /**
-         * @brief protocol_query
-         * @note Protocol-Query 头，协议查询
-         */
+        // @brief Protocol-Query 头，协议查询
         protocol_query,
 
-        /**
-         * @brief protocol_request
-         * @note Protocol-Request 头，协议请求
-         */
+        // @brief Protocol-Request 头，协议请求
         protocol_request,
 
-        /**
-         * @brief proxy_authenticate
-         * @note Proxy-Authenticate 头，代理认证要求
-         */
+        // @brief Proxy-Authenticate 头，代理认证要求
         proxy_authenticate,
 
-        /**
-         * @brief proxy_authentication_info
-         * @note Proxy-Authentication-Info 头，代理认证信息
-         */
+        // @brief Proxy-Authentication-Info 头，代理认证信息
         proxy_authentication_info,
 
-        /**
-         * @brief proxy_authorization
-         * @note Proxy-Authorization 头，代理认证凭证
-         */
+        // @brief Proxy-Authorization 头，代理认证凭证
         proxy_authorization,
 
-        /**
-         * @brief proxy_connection
-         * @note Proxy-Connection 头，代理连接（遗留）
-         */
+        // @brief Proxy-Connection 头，代理连接
         proxy_connection,
 
-        /**
-         * @brief proxy_features
-         * @note Proxy-Features 头，代理特性
-         */
+        // @brief Proxy-Features 头，代理特性
         proxy_features,
 
-        /**
-         * @brief proxy_instruction
-         * @note Proxy-Instruction 头，代理指令
-         */
+        // @brief Proxy-Instruction 头，代理指令
         proxy_instruction,
 
-        /**
-         * @brief public_
-         * @note Public 头，公开方法列表（遗留）
-         */
+        // @brief Public 头，公开方法列表
         public_,
 
-        /**
-         * @brief public_key_pins
-         * @note Public-Key-Pins 头，公钥固定（RFC 7469）
-         */
+        // @brief Public-Key-Pins 头，公钥固定
         public_key_pins,
 
-        /**
-         * @brief public_key_pins_report_only
-         * @note Public-Key-Pins-Report-Only 头，公钥固定仅报告
-         */
+        // @brief Public-Key-Pins-Report-Only 头
         public_key_pins_report_only,
 
-        /**
-         * @brief range
-         * @note Range 头，请求字节范围
-         */
+        // @brief Range 头，请求字节范围
         range,
 
-        /**
-         * @brief received
-         * @note Received 头，邮件传输路径信息
-         */
+        // @brief Received 头，邮件传输路径信息
         received,
 
-        /**
-         * @brief received_spf
-         * @note Received-SPF 头，SPF 接收结果
-         */
+        // @brief Received-SPF 头，SPF 接收结果
         received_spf,
 
-        /**
-         * @brief redirect_ref
-         * @note Redirect-Ref 头，WebDAV 重定向引用
-         */
+        // @brief Redirect-Ref 头，WebDAV 重定向引用
         redirect_ref,
 
-        /**
-         * @brief references
-         * @note References 头，引用消息列表
-         */
+        // @brief References 头，引用消息列表
         references,
 
-        /**
-         * @brief referer
-         * @note Referer 头，请求来源页面地址
-         */
+        // @brief Referer 头，请求来源页面地址
         referer,
 
-        /**
-         * @brief referer_root
-         * @note Referer-Root 头，来源根路径（试验）
-         */
+        // @brief Referer-Root 头，来源根路径
         referer_root,
 
-        /**
-         * @brief relay_version
-         * @note Relay-Version 头，中继版本
-         */
+        // @brief Relay-Version 头，中继版本
         relay_version,
 
-        /**
-         * @brief reply_by
-         * @note Reply-By 头，回复截止时间
-         */
+        // @brief Reply-By 头，回复截止时间
         reply_by,
 
-        /**
-         * @brief reply_to
-         * @note Reply-To 头，回复地址（邮件）
-         */
+        // @brief Reply-To 头，回复地址
         reply_to,
 
-        /**
-         * @brief require_recipient_valid_since
-         * @note Require-Recipient-Valid-Since 头，收件人有效期要求
-         */
+        // @brief Require-Recipient-Valid-Since 头
         require_recipient_valid_since,
 
-        /**
-         * @brief resent_bcc
-         * @note Resent-Bcc 头，重发密送
-         */
+        // @brief Resent-Bcc 头，重发密送
         resent_bcc,
 
-        /**
-         * @brief resent_cc
-         * @note Resent-Cc 头，重发抄送
-         */
+        // @brief Resent-Cc 头，重发抄送
         resent_cc,
 
-        /**
-         * @brief resent_date
-         * @note Resent-Date 头，重发日期
-         */
+        // @brief Resent-Date 头，重发日期
         resent_date,
 
-        /**
-         * @brief resent_from
-         * @note Resent-From 头，重发来源
-         */
+        // @brief Resent-From 头，重发来源
         resent_from,
 
-        /**
-         * @brief resent_message_id
-         * @note Resent-Message-ID 头，重发消息 ID
-         */
+        // @brief Resent-Message-ID 头，重发消息 ID
         resent_message_id,
 
-        /**
-         * @brief resent_reply_to
-         * @note Resent-Reply-To 头，重发回复地址
-         */
+        // @brief Resent-Reply-To 头，重发回复地址
         resent_reply_to,
 
-        /**
-         * @brief resent_sender
-         * @note Resent-Sender 头，重发发送者
-         */
+        // @brief Resent-Sender 头，重发发送者
         resent_sender,
 
-        /**
-         * @brief resent_to
-         * @note Resent-To 头，重发收件人
-         */
+        // @brief Resent-To 头，重发收件人
         resent_to,
 
-        /**
-         * @brief resolution_hint
-         * @note Resolution-Hint 头，解析提示
-         */
+        // @brief Resolution-Hint 头，解析提示
         resolution_hint,
 
-        /**
-         * @brief resolver_location
-         * @note Resolver-Location 头，解析器位置
-         */
+        // @brief Resolver-Location 头，解析器位置
         resolver_location,
 
-        /**
-         * @brief retry_after
-         * @note Retry-After 头，稍后重试时间（秒或日期）
-         */
+        // @brief Retry-After 头，稍后重试时间
         retry_after,
 
-        /**
-         * @brief return_path
-         * @note Return-Path 头，退回路径（邮件）
-         */
+        // @brief Return-Path 头，退回路径
         return_path,
 
-        /**
-         * @brief safe
-         * @note Safe 头，安全标记（试验）
-         */
+        // @brief Safe 头，安全标记
         safe,
 
-        /**
-         * @brief schedule_reply
-         * @note Schedule-Reply 头，CalDAV 计划回复
-         */
+        // @brief Schedule-Reply 头，CalDAV 计划回复
         schedule_reply,
 
-        /**
-         * @brief schedule_tag
-         * @note Schedule-Tag 头，CalDAV 计划标签
-         */
+        // @brief Schedule-Tag 头，CalDAV 计划标签
         schedule_tag,
 
-        /**
-         * @brief sec_fetch_dest
-         * @note Sec-Fetch-Dest 头，Fetch 元数据：目标
-         */
+        // @brief Sec-Fetch-Dest 头，Fetch 元数据目标
         sec_fetch_dest,
 
-        /**
-         * @brief sec_fetch_mode
-         * @note Sec-Fetch-Mode 头，Fetch 元数据：模式
-         */
+        // @brief Sec-Fetch-Mode 头，Fetch 元数据模式
         sec_fetch_mode,
 
-        /**
-         * @brief sec_fetch_site
-         * @note Sec-Fetch-Site 头，Fetch 元数据：站点关系
-         */
+        // @brief Sec-Fetch-Site 头，Fetch 元数据站点关系
         sec_fetch_site,
 
-        /**
-         * @brief sec_fetch_user
-         * @note Sec-Fetch-User 头，Fetch 元数据：用户触发
-         */
+        // @brief Sec-Fetch-User 头，Fetch 元数据用户触发
         sec_fetch_user,
 
-        /**
-         * @brief sec_websocket_accept
-         * @note Sec-WebSocket-Accept 头，WebSocket 握手响应密钥
-         */
+        // @brief Sec-WebSocket-Accept 头，WebSocket 握手响应密钥
         sec_websocket_accept,
 
-        /**
-         * @brief sec_websocket_extensions
-         * @note Sec-WebSocket-Extensions 头，WebSocket 扩展列表
-         */
+        // @brief Sec-WebSocket-Extensions 头，WebSocket 扩展列表
         sec_websocket_extensions,
 
-        /**
-         * @brief sec_websocket_key
-         * @note Sec-WebSocket-Key 头，WebSocket 握手请求密钥
-         */
+        // @brief Sec-WebSocket-Key 头，WebSocket 握手请求密钥
         sec_websocket_key,
 
-        /**
-         * @brief sec_websocket_protocol
-         * @note Sec-WebSocket-Protocol 头，WebSocket 子协议
-         */
+        // @brief Sec-WebSocket-Protocol 头，WebSocket 子协议
         sec_websocket_protocol,
 
-        /**
-         * @brief sec_websocket_version
-         * @note Sec-WebSocket-Version 头，WebSocket 协议版本
-         */
+        // @brief Sec-WebSocket-Version 头，WebSocket 协议版本
         sec_websocket_version,
 
-        /**
-         * @brief security_scheme
-         * @note Security-Scheme 头，安全方案（试验）
-         */
+        // @brief Security-Scheme 头，安全方案
         security_scheme,
 
-        /**
-         * @brief see_also
-         * @note See-Also 头，参考链接
-         */
+        // @brief See-Also 头，参考链接
         see_also,
 
-        /**
-         * @brief sender
-         * @note Sender 头，实际发送者地址
-         */
+        // @brief Sender 头，实际发送者地址
         sender,
 
-        /**
-         * @brief sensitivity
-         * @note Sensitivity 头，敏感度标记
-         */
+        // @brief Sensitivity 头，敏感度标记
         sensitivity,
 
-        /**
-         * @brief server
-         * @note Server 头，服务器软件信息
-         */
+        // @brief Server 头，服务器软件信息
         server,
 
-        /**
-         * @brief set_cookie
-         * @note Set-Cookie 头，服务器下发 Cookie
-         */
+        // @brief Set-Cookie 头，服务器下发 Cookie
         set_cookie,
 
-        /**
-         * @brief set_cookie2
-         * @note Set-Cookie2 头，Cookie2 版本（已废弃）
-         */
+        // @brief Set-Cookie2 头，Cookie2 版本
         set_cookie2,
 
-        /**
-         * @brief setprofile
-         * @note SetProfile 头，设置配置文件
-         */
+        // @brief SetProfile 头，设置配置文件
         setprofile,
 
-        /**
-         * @brief sio_label
-         * @note SIO-Label 头，安全标签（试验）
-         */
+        // @brief SIO-Label 头，安全标签
         sio_label,
 
-        /**
-         * @brief sio_label_history
-         * @note SIO-Label-History 头，安全标签历史
-         */
+        // @brief SIO-Label-History 头，安全标签历史
         sio_label_history,
 
-        /**
-         * @brief slug
-         * @note Slug 头，AtomPub 资源简短名称
-         */
+        // @brief Slug 头，AtomPub 资源简短名称
         slug,
 
-        /**
-         * @brief soapaction
-         * @note SOAPAction 头，SOAP 动作（RFC 3902）
-         */
+        // @brief SOAPAction 头，SOAP 动作
         soapaction,
 
-        /**
-         * @brief solicitation
-         * @note Solicitation 头，征集标记
-         */
+        // @brief Solicitation 头，征集标记
         solicitation,
 
-        /**
-         * @brief status_uri
-         * @note Status-URI 头，状态 URI
-         */
+        // @brief Status-URI 头，状态 URI
         status_uri,
 
-        /**
-         * @brief strict_transport_security
-         * @note Strict-Transport-Security 头，强制 HTTPS（HSTS）
-         */
+        // @brief Strict-Transport-Security 头，强制 HTTPS
         strict_transport_security,
 
-        /**
-         * @brief subject
-         * @note Subject 头，主题/标题
-         */
+        // @brief Subject 头，主题标题
         subject,
 
-        /**
-         * @brief subok
-         * @note SubOK 头，订阅确认
-         */
+        // @brief SubOK 头，订阅确认
         subok,
 
-        /**
-         * @brief subst
-         * @note Subst 头，替换标记
-         */
+        // @brief Subst 头，替换标记
         subst,
 
-        /**
-         * @brief summary
-         * @note Summary 头，摘要信息
-         */
+        // @brief Summary 头，摘要信息
         summary,
 
-        /**
-         * @brief supersedes
-         * @note Supersedes 头，取代标识
-         */
+        // @brief Supersedes 头，取代标识
         supersedes,
 
-        /**
-         * @brief surrogate_capability
-         * @note Surrogate-Capability 头，代理能力声明
-         */
+        // @brief Surrogate-Capability 头，代理能力声明
         surrogate_capability,
 
-        /**
-         * @brief surrogate_control
-         * @note Surrogate-Control 头，代理控制指令
-         */
+        // @brief Surrogate-Control 头，代理控制指令
         surrogate_control,
 
-        /**
-         * @brief tcn
-         * @note TCN 头，透明内容协商
-         */
+        // @brief TCN 头，透明内容协商
         tcn,
 
-        /**
-         * @brief te
-         * @note TE 头，传输编码容忍度
-         */
+        // @brief TE 头，传输编码容忍度
         te,
 
-        /**
-         * @brief timeout
-         * @note Timeout 头，WebDAV 锁定超时
-         */
+        // @brief Timeout 头，WebDAV 锁定超时
         timeout,
 
-        /**
-         * @brief title
-         * @note Title 头，标题（遗留）
-         */
+        // @brief Title 头，标题
         title,
 
-        /**
-         * @brief to
-         * @note To 头，收件人地址
-         */
+        // @brief To 头，收件人地址
         to,
 
-        /**
-         * @brief topic
-         * @note Topic 头，主题关键词
-         */
+        // @brief Topic 头，主题关键词
         topic,
 
-        /**
-         * @brief trailer
-         * @note Trailer 头，分块传输尾部字段预告
-         */
+        // @brief Trailer 头，分块传输尾部字段预告
         trailer,
 
-        /**
-         * @brief transfer_encoding
-         * @note Transfer-Encoding 头，传输编码（chunked 等）
-         */
+        // @brief Transfer-Encoding 头，传输编码
         transfer_encoding,
 
-        /**
-         * @brief ttl
-         * @note TTL 头，生存时间（秒）
-         */
+        // @brief TTL 头，生存时间
         ttl,
 
-        /**
-         * @brief ua_color
-         * @note UA-Color 头，客户端颜色能力
-         */
+        // @brief UA-Color 头，客户端颜色能力
         ua_color,
 
-        /**
-         * @brief ua_media
-         * @note UA-Media 头，客户端媒体能力
-         */
+        // @brief UA-Media 头，客户端媒体能力
         ua_media,
 
-        /**
-         * @brief ua_pixels
-         * @note UA-Pixels 头，客户端像素能力
-         */
+        // @brief UA-Pixels 头，客户端像素能力
         ua_pixels,
 
-        /**
-         * @brief ua_resolution
-         * @note UA-Resolution 头，客户端分辨率
-         */
+        // @brief UA-Resolution 头，客户端分辨率
         ua_resolution,
 
-        /**
-         * @brief ua_windowpixels
-         * @note UA-Windowpixels 头，客户端窗口像素
-         */
+        // @brief UA-Windowpixels 头，客户端窗口像素
         ua_windowpixels,
 
-        /**
-         * @brief upgrade
-         * @note Upgrade 头，协议升级请求
-         */
+        // @brief Upgrade 头，协议升级请求
         upgrade,
 
-        /**
-         * @brief urgency
-         * @note Urgency 头，紧急程度
-         */
+        // @brief Urgency 头，紧急程度
         urgency,
 
-        /**
-         * @brief uri
-         * @note URI 头，统一资源标识（遗留）
-         */
+        // @brief URI 头，统一资源标识
         uri,
 
-        /**
-         * @brief user_agent
-         * @note User-Agent 头，客户端软件标识
-         */
+        // @brief User-Agent 头，客户端软件标识
         user_agent,
 
-        /**
-         * @brief variant_vary
-         * @note Variant-Vary 头，变体变化标记
-         */
+        // @brief Variant-Vary 头，变体变化标记
         variant_vary,
 
-        /**
-         * @brief vary
-         * @note Vary 头，缓存键变化字段列表
-         */
+        // @brief Vary 头，缓存键变化字段列表
         vary,
 
-        /**
-         * @brief vbr_info
-         * @note VBR-Info 头，可变比特率信息
-         */
+        // @brief VBR-Info 头，可变比特率信息
         vbr_info,
 
-        /**
-         * @brief version
-         * @note Version 头，版本标识（遗留）
-         */
+        // @brief Version 头，版本标识
         version,
 
-        /**
-         * @brief via
-         * @note Via 头，代理/网关路径
-         */
+        // @brief Via 头，代理网关路径
         via,
 
-        /**
-         * @brief want_digest
-         * @note Want-Digest 头，期望摘要算法（RFC 3230）
-         */
+        // @brief Want-Digest 头，期望摘要算法
         want_digest,
 
-        /**
-         * @brief warning
-         * @note Warning 头，警告信息（RFC 7234）
-         */
+        // @brief Warning 头，警告信息
         warning,
 
-        /**
-         * @brief www_authenticate
-         * @note WWW-Authenticate 头，服务器认证质询
-         */
+        // @brief WWW-Authenticate 头，服务器认证质询
         www_authenticate,
 
-        /**
-         * @brief x_archived_at
-         * @note X-Archived-At 头，归档地址（非标准）
-         */
+        // @brief X-Archived-At 头，归档地址
         x_archived_at,
 
-        /**
-         * @brief x_device_accept
-         * @note X-Device-Accept 头，设备可接受类型
-         */
+        // @brief X-Device-Accept 头，设备可接受类型
         x_device_accept,
 
-        /**
-         * @brief x_device_accept_charset
-         * @note X-Device-Accept-Charset 头，设备可接受字符集
-         */
+        // @brief X-Device-Accept-Charset 头
         x_device_accept_charset,
 
-        /**
-         * @brief x_device_accept_encoding
-         * @note X-Device-Accept-Encoding 头，设备可接受编码
-         */
+        // @brief X-Device-Accept-Encoding 头
         x_device_accept_encoding,
 
-        /**
-         * @brief x_device_accept_language
-         * @note X-Device-Accept-Language 头，设备可接受语言
-         */
+        // @brief X-Device-Accept-Language 头
         x_device_accept_language,
 
-        /**
-         * @brief x_device_user_agent
-         * @note X-Device-User-Agent 头，设备用户代理
-         */
+        // @brief X-Device-User-Agent 头，设备用户代理
         x_device_user_agent,
 
-        /**
-         * @brief x_frame_options
-         * @note X-Frame-Options 头，框架嵌入限制
-         */
+        // @brief X-Frame-Options 头，框架嵌入限制
         x_frame_options,
 
-        /**
-         * @brief x_mittente
-         * @note X-Mittente 头，发件人（非标准）
-         */
+        // @brief X-Mittente 头，发件人
         x_mittente,
 
-        /**
-         * @brief x_pgp_sig
-         * @note X-PGP-Sig 头，PGP 签名
-         */
+        // @brief X-PGP-Sig 头，PGP 签名
         x_pgp_sig,
 
-        /**
-         * @brief x_ricevuta
-         * @note X-Ricevuta 头，接收确认（非标准）
-         */
+        // @brief X-Ricevuta 头，接收确认
         x_ricevuta,
 
-        /**
-         * @brief x_riferimento_message_id
-         * @note X-Riferimento-Message-ID 头，引用消息 ID（非标准）
-         */
+        // @brief X-Riferimento-Message-ID 头，引用消息 ID
         x_riferimento_message_id,
 
-        /**
-         * @brief x_tiporicevuta
-         * @note X-TipoRicevuta 头，接收类型（非标准）
-         */
+        // @brief X-TipoRicevuta 头，接收类型
         x_tiporicevuta,
 
-        /**
-         * @brief x_trasporto
-         * @note X-Trasporto 头，传输方式（非标准）
-         */
+        // @brief X-Trasporto 头，传输方式
         x_trasporto,
 
-        /**
-         * @brief x_verificasicurezza
-         * @note X-VerificaSicurezza 头，安全验证（非标准）
-         */
+        // @brief X-VerificaSicurezza 头，安全验证
         x_verificasicurezza,
 
-        /**
-         * @brief x400_content_identifier
-         * @note X400-Content-Identifier 头，X400 内容标识
-         */
+        // @brief X400-Content-Identifier 头
         x400_content_identifier,
 
-        /**
-         * @brief x400_content_return
-         * @note X400-Content-Return 头，X400 内容返回
-         */
+        // @brief X400-Content-Return 头
         x400_content_return,
 
-        /**
-         * @brief x400_content_type
-         * @note X400-Content-Type 头，X400 内容类型
-         */
+        // @brief X400-Content-Type 头
         x400_content_type,
 
-        /**
-         * @brief x400_mts_identifier
-         * @note X400-MTS-Identifier 头，X400 传输系统标识
-         */
+        // @brief X400-MTS-Identifier 头
         x400_mts_identifier,
 
-        /**
-         * @brief x400_originator
-         * @note X400-Originator 头，X400 发起者
-         */
+        // @brief X400-Originator 头
         x400_originator,
 
-        /**
-         * @brief x400_received
-         * @note X400-Received 头，X400 接收信息
-         */
+        // @brief X400-Received 头
         x400_received,
 
-        /**
-         * @brief x400_recipients
-         * @note X400-Recipients 头，X400 收件人信息
-         */
+        // @brief X400-Recipients 头
         x400_recipients,
 
-        /**
-         * @brief x400_trace
-         * @note X400-Trace 头，X400 跟踪信息
-         */
+        // @brief X400-Trace 头
         x400_trace,
 
-        /**
-         * @brief xref
-         * @note Xref 头，交叉引用（新闻组）
-         */
+        // @brief Xref 头，交叉引用
         xref
-    }; // enum class header
+    };
 
-} // namespace ngx::protocol::http
+}

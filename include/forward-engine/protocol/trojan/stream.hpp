@@ -1,38 +1,18 @@
 /**
  * @file stream.hpp
  * @brief Trojan 协议装饰器
- * @details 实现了完整的 Trojan 协议装饰器，继承自 `transport::transmission`，提供协议握手、凭据验证和数据转发功能。
- * Trojan 协议是一种基于 TLS 的加密代理协议，通过在应用层添加固定格式的头部来实现流量伪装和认证。
+ * @details 实现完整的 Trojan 协议装饰器，继承自 transport::transmission，
+ * 提供协议握手、凭据验证和数据转发功能。Trojan 协议是一种基于 TLS 的
+ * 加密代理协议，通过在应用层添加固定格式的头部来实现流量伪装和认证。
+ * 该类采用装饰器设计模式，透明地增强底层传输层的功能，支持链式组合。
+ * 协议流程包括凭据读取、协议头部解析、格式验证、命令检查和数据转发。
+ * 所有操作基于 boost::asio::awaitable，支持异步无阻塞处理。
  *
- * 核心特性：
- * - 协议完整：实现 Trojan 协议完整握手流程，支持所有地址类型和命令
- * - 装饰器模式：包装底层传输层，透明添加协议头部，支持链式组合
- * - 凭据验证：支持可配置的凭据验证回调，实现灵活的认证机制
- * - 协程友好：所有操作基于 `boost::asio::awaitable`，支持异步无阻塞处理
- * - 错误处理完善：使用 `gist::code` 错误码系统，提供详细的协议错误信息
- * - 能力控制：通过 config 结构控制 TCP/UDP 命令的启用状态
- *
- * 协议流程：
- * 1. 凭据读取：读取 56 字节用户凭据（通常为 SHA224 哈希）
- * 2. 协议头部：解析命令、地址类型、目标地址和端口
- * 3. 格式验证：验证 CRLF 分隔符和协议格式
- * 4. 命令检查：根据 config 检查命令是否允许
- * 5. 数据转发：握手成功后，提供透明的加密数据转发
- *
- * 安全特性：
- * - 凭据验证：支持密码哈希验证，防止未授权访问
- * - 协议混淆：协议格式设计为与正常 TLS 流量相似，增强抗检测能力
- * - 前向安全：依赖底层 TLS 传输提供前向安全性
- *
- * @note 设计原则：
- * - 严格遵循 Trojan 协议规范，确保与主流客户端兼容
- * - 装饰器模式允许灵活组合，如 Trojan over TLS over TCP
- * - 零拷贝设计：尽可能使用 `std::span` 引用原始数据，避免内存复制
- * - 内存高效：使用栈分配缓冲区，避免热路径堆分配
- *
+ * @note 设计原则：严格遵循 Trojan 协议规范，确保与主流客户端兼容
+ * @note 装饰器模式允许灵活组合，如 Trojan over TLS over TCP
+ * @note 零拷贝设计：尽可能使用 std::span 引用原始数据，避免内存复制
  * @warning 安全考虑：必须启用凭据验证，否则协议无任何认证保护
- * @warning 加密依赖：协议本身不提供加密，依赖底层传输层（如 TLS）提供机密性
- * @warning 性能影响：协议头部增加固定开销，小包性能可能受影响
+ * @warning 加密依赖：协议本身不提供加密，依赖底层传输层提供机密性
  */
 
 #pragma once
@@ -59,39 +39,17 @@ namespace ngx::protocol::trojan
     /**
      * @class trojan_stream
      * @brief Trojan 协议装饰器
-     * @details 实现完整的 Trojan 协议装饰器，包装底层传输层并添加协议握手和数据处理功能。
-     * 该类采用装饰器设计模式，透明地增强底层传输层的功能，支持链式组合和灵活配置。
+     * @details 实现完整的 Trojan 协议装饰器，包装底层传输层并添加协议
+     * 握手和数据处理功能。该类采用装饰器设计模式，透明地增强底层传输
+     * 层的功能，支持链式组合和灵活配置。继承自 transport::transmission
+     * 提供统一的传输层接口，继承自 std::enable_shared_from_this 支持安全
+     * 的共享指针管理。持有 next_layer_ 的独占所有权，生命周期与对象绑定。
+     * 支持命令包括 CONNECT（需 enable_tcp=true）和 UDP_ASSOCIATE（需
+     * enable_udp=true），支持地址类型包括 IPv4、IPv6 和域名地址。
      *
-     * 继承关系：
-     * - 继承自 `transport::transmission`：提供统一的传输层接口
-     * - 继承自 `std::enable_shared_from_this`：支持安全的共享指针管理
-     *
-     * 装饰器特性：
-     * - 透明增强：对外提供与底层传输层相同的接口，内部添加协议处理逻辑
-     * - 链式组合：可与其他装饰器（如 TLS、压缩）组合，形成处理管道
-     * - 动态配置：支持运行时配置凭据验证器，适应不同认证需求
-     *
-     * 所有权模型：
-     * - 持有 `next_layer_` 的独占所有权（unique_ptr）
-     * - 生命周期与 trojan_stream 对象绑定
-     * - close() 后 next_layer_ 仍有效，可再次使用
-     * - 析构时自动释放底层资源
-     *
-     * 协议支持：
-     * - 命令：`command::connect`（需 enable_tcp=true）、`command::udp_associate`（需 enable_udp=true）
-     * - 地址类型：IPv4、IPv6、域名地址
-     * - 凭据格式：56 字节固定长度，通常为密码的 SHA224 哈希
-     * - 数据格式：协议头部后跟随原始负载，无额外封装
-     *
-     * 线程/协程边界：
-     * - 所有方法必须在同一 strand 内调用
-     * - 不支持并发访问，调用者需保证顺序执行
-     *
-     * @note 线程安全：单个实例非线程安全，应在同一协程或 `strand` 内使用
+     * @note 线程安全：单个实例非线程安全，应在同一协程或 strand 内使用
      * @note 生命周期：依赖底层传输层的生命周期，需确保底层传输层有效
-     * @note 性能考虑：协议头部处理增加固定开销，建议用于中大型数据传输
-     *
-     * @warning 加密警告：本类不提供加密功能，必须与 TLS 等加密传输层组合使用
+     * @warning 加密警告：本类不提供加密功能，必须与 TLS 等加密传输层组合
      * @warning 认证警告：未提供凭据验证器时，任何凭据都会通过，存在安全风险
      */
     class trojan_stream : public transport::transmission, public std::enable_shared_from_this<trojan_stream>
@@ -99,17 +57,14 @@ namespace ngx::protocol::trojan
     public:
         /**
          * @brief 构造函数
-         * @param next_layer 底层传输层智能指针（必须已建立连接）
+         * @param next_layer 底层传输层智能指针，必须已建立连接
          * @param cfg 协议配置
-         * @param credential_verifier 用户凭据验证回调函数（可选，默认无验证）
+         * @param credential_verifier 用户凭据验证回调函数，可选
          * @details 构造 Trojan 协议装饰器，包装底层传输层并配置凭据验证器。
          * 构造后对象处于就绪状态，可立即开始协议握手或数据读写操作。
+         * 构造函数通过 unique_ptr 获取底层传输层的所有权，调用者不应再使用原指针。
          *
-         * 所有权转移：
-         * - 构造函数通过 unique_ptr 获取底层传输层的所有权
-         * - 调用者不应再使用原指针
-         *
-         * @note 连接状态：底层传输层必须已建立连接，否则后续操作将失败
+         * @note 底层传输层必须已建立连接，否则后续操作将失败
          */
         explicit trojan_stream(transport::transmission_pointer next_layer,
                                const config &cfg = {},
@@ -169,36 +124,11 @@ namespace ngx::protocol::trojan
 
         /**
          * @brief 执行 Trojan 协议握手
+         * @return net::awaitable<std::pair<gist::code, request>> 握手结果和请求信息
          * @details 完整的 Trojan 协议握手流程，包括凭据验证、协议头部解析和命令检查。
-         *
-         * 状态机流程：
-         *
-         * 输入条件：next_layer_ 已建立连接
-         *
-         * 状态转换：
-         * 1. [初始] -> 凭据读取
-         *    - 读取 56 字节用户凭据
-         *    - 调用验证器检查凭据有效性
-         *
-         * 2. [凭据验证完成] -> 头部解析
-         *    - 读取 CRLF 分隔符
-         *    - 读取命令和地址类型
-         *    - 读取目标地址和端口
-         *
-         * 3. [头部解析完成] -> 命令检查
-         *    - 根据 config 检查命令允许/拒绝
-         *
-         * 4. [命令检查完成] -> 返回结果
-         *    - 成功：返回 request 对象，form 字段已根据命令设置
-         *    - 失败：返回错误码
-         *
-         * 失败行为：
-         * - 凭据验证失败：返回 auth_failed
-         * - 协议格式错误：返回 protocol_error
-         * - 网络错误：返回对应的网络错误码
-         * - 命令拒绝：返回 forbidden
-         *
-         * @return `net::awaitable<std::pair<gist::code, request>>` 握手结果和请求信息
+         * 状态机流程：首先读取 56 字节用户凭据并调用验证器检查有效性，然后读取
+         * CRLF 分隔符，接着解析命令和地址类型，读取目标地址和端口，最后根据
+         * config 检查命令是否允许。成功返回 request 对象，失败返回错误码。
          */
         auto handshake() -> net::awaitable<std::pair<gist::code, request>>
         {
@@ -401,7 +331,6 @@ namespace ngx::protocol::trojan
             req.port = port;
             std::copy(credential.begin(), credential.end(), req.credential.begin());
 
-            // 命令检查：根据配置决定允许/拒绝
             switch (req.cmd)
             {
             case command::connect:
@@ -429,13 +358,14 @@ namespace ngx::protocol::trojan
          * @brief 执行 Trojan 握手（使用预读数据）
          * @param preread_data 预读的数据
          * @return net::awaitable<std::pair<gist::code, request>> 握手结果和请求信息
+         * @details 与 handshake 类似，但支持传入预读的数据。预读数据会被优先
+         * 消费，不足部分再从网络读取。适用于已经读取了部分数据的场景。
          */
         auto handshake_preread(std::span<const std::byte> preread_data) -> net::awaitable<std::pair<gist::code, request>>
         {
             std::array<std::uint8_t, 1024> buffer;
             std::size_t offset = 0;
 
-            // 复制预读数据到缓冲区
             if (!preread_data.empty())
             {
                 const auto copy_size = std::min(preread_data.size(), buffer.size());
@@ -446,14 +376,12 @@ namespace ngx::protocol::trojan
             auto read_exact = [this, &buffer, &offset](std::span<std::byte> out) -> net::awaitable<std::pair<gist::code, std::size_t>>
             {
                 std::size_t total = 0;
-                // 先从缓冲区读取
                 while (total < out.size() && offset < 1024)
                 {
                     out[total] = static_cast<std::byte>(buffer[offset]);
                     total++;
                     offset++;
                 }
-                // 剩余从网络读取
                 while (total < out.size())
                 {
                     std::error_code ec;
@@ -633,7 +561,6 @@ namespace ngx::protocol::trojan
                 req.port = port;
                 std::copy(credential.begin(), credential.end(), req.credential.begin());
 
-                // 命令检查
                 switch (req.cmd)
                 {
                 case command::connect:
@@ -679,7 +606,8 @@ namespace ngx::protocol::trojan
         /**
          * @brief 释放底层传输层所有权
          * @return transport::transmission_pointer 底层传输层指针
-         * @details 释放后 trojan_stream 不再持有传输层，不应再调用其方法
+         * @details 释放后 trojan_stream 不再持有传输层，不应再调用其方法。
+         * 适用于需要将底层传输层转移给其他组件的场景。
          */
         transport::transmission_pointer release()
         {
@@ -687,22 +615,28 @@ namespace ngx::protocol::trojan
         }
 
     private:
-        // next_layer_ 所有权说明：
-        // - 构造时通过 unique_ptr 转移所有权
-        // - 生命周期与 trojan_stream 对象绑定
-        // - close() 后 next_layer_ 仍有效，可再次使用
-        // - 析构时自动释放底层资源
+        // 底层传输层，构造时通过 unique_ptr 转移所有权
         transport::transmission_pointer next_layer_;
+        // 协议配置
         config config_;
+        // 凭据验证回调函数
         std::function<bool(std::string_view)> verifier_;
     };
 
+    // Trojan 流智能指针类型
     using trojan_stream_ptr = std::shared_ptr<trojan_stream>;
 
+    /**
+     * @brief 创建 Trojan 流智能指针
+     * @param next_layer 底层传输层
+     * @param cfg 协议配置
+     * @param credential_verifier 凭据验证回调函数
+     * @return trojan_stream_ptr Trojan 流智能指针
+     */
     inline trojan_stream_ptr make_trojan_stream(transport::transmission_pointer next_layer, const config &cfg = {},
                                                 std::function<bool(std::string_view)> credential_verifier = nullptr)
     {
         return std::make_shared<trojan_stream>(std::move(next_layer), cfg, std::move(credential_verifier));
     }
 
-} // namespace ngx::protocol::trojan
+}

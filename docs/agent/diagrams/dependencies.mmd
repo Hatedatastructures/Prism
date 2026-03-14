@@ -1,0 +1,34 @@
+graph LR
+    subgraph "横向公共层"
+        account[account]
+        context[context]
+    end
+    
+    subgraph "纵向处理链"
+        front[front]
+        reactor[reactor]
+        connection[connection]
+        dispatch[dispatch<br/>header-only]
+        pipeline[pipeline]
+        distribution[distribution]
+    end
+    
+    subgraph "底层依赖"
+        transport[transport]
+        protocol[protocol]
+        memory[memory]
+    end
+    
+    front --> reactor
+    reactor --> connection
+    reactor --> distribution
+    connection --> dispatch
+    connection --> pipeline
+    dispatch --> pipeline
+    pipeline --> distribution
+    distribution --> transport
+    pipeline --> transport
+    
+    account --> memory
+    context --> account
+    context --> distribution

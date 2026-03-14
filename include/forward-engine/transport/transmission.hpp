@@ -2,25 +2,20 @@
  * @file transmission.hpp
  * @brief 传输层抽象接口
  * @details 定义了通用的流式传输接口，支持 TCP、UDP 以及协议装饰器。
- * 该接口采用纯协程设计，使用 `net::awaitable` 作为异步操作返回类型。
- * 所有具体的传输实现（如 TCP、UDP）和协议装饰器（如 Trojan）都应继承此接口。
- *
- * 架构说明：
- * - 传输抽象：`transmission` 接口定义了所有传输层必须实现的基本操作；
- * - 协程设计：所有异步操作返回 `net::awaitable`，简化异步操作调用；
- * - 错误码返回：通过 `std::error_code&` 参数返回错误，避免异常开销；
- * - 智能指针：`transmission_pointer` 智能指针自动管理传输层生命周期。
- *
- * 设计特性：
- * - 分层架构：支持 TCP、UDP 和协议装饰器（如 Trojan）的分层设计；
- * - 概念适配：提供 `get_executor()` 方法，兼容 Boost.Asio 的执行器概念；
- * - 错误码映射：自动映射项目错误码到 Boost.System 错误码；
- * - 异步包装：提供 `async_read_some` 和 `async_write_some` 包装函数，简化调用。
- *
+ * 该接口采用纯协程设计，使用 net::awaitable 作为异步操作返回类型。
+ * 所有具体的传输实现（如 TCP、UDP）和协议装饰器（如 Trojan）
+ * 都应继承此接口。传输抽象 transmission 接口定义了所有传输层
+ * 必须实现的基本操作。协程设计方面，所有异步操作返回 net::awaitable，
+ * 简化异步操作调用。错误码返回通过 std::error_code& 参数返回错误，
+ * 避免异常开销。智能指针 transmission_pointer 自动管理传输层生命周期。
+ * 设计特性包括分层架构，支持 TCP、UDP 和协议装饰器（如 Trojan）
+ * 的分层设计；概念适配，提供 get_executor 方法，
+ * 兼容 Boost.Asio 的执行器概念；错误码映射，
+ * 自动映射项目错误码到 Boost.System 错误码；异步包装，
+ * 提供 async_read_some 和 async_write_some 包装函数，简化调用。
  * @note 该接口是传输层的核心抽象，所有传输实现都必须继承此接口。
  * @warning 接口方法都是纯虚函数，必须由子类实现。
  */
-
 #pragma once
 
 #include <boost/asio.hpp>
@@ -32,31 +27,6 @@
 
 #include <forward-engine/gist/compatible.hpp>
 
-/**
- * @namespace ngx::transport
- * @brief 传输层 (Data Plane)
- * @warning - 该命名空间的内容主要用于底层网络 IO，请勿在业务逻辑中直接调用。
- * @warning - 传输层接口方法都是纯虚函数，必须由子类实现。
- * @throws 传输层操作可能抛出 `std::bad_alloc`（内存不足）或 `std::runtime_error`（网络错误）
- * @details 负责底层的数据搬运、连接管理和协议封装。
- * 该命名空间实现了基于 Boost.Asio 的现代 C++ 异步网络 IO，包含：
- * @details - 传输抽象：`transmission` 接口和 `reliable`、`unreliable` 实现；
- * @details - 连接池：`source` 类管理到上游服务的连接复用；
- * @details - IO 适配：`connector` 模板适配自定义接口到 Boost.Asio 概念；
- * @details - 反向代理：`reverse` 类实现反向代理的 TCP 隧道。
- *
- *
- * 传输层层次：
- *
- * ```
- * Boost.Asio Socket (tcp::socket, udp::socket)
- * └── ngx::transport::transmission (抽象接口)
- *     ├── ngx::transport::reliable (TCP 实现)
- *     └── ngx::transport::unreliable (UDP 实现)
- *         └── ngx::transport::connector (适配器)
- *             └── Boost.Beast / Boost.Asio.SSL
- * ```
- */
 namespace ngx::transport
 {
     namespace net = boost::asio;
@@ -65,26 +35,21 @@ namespace ngx::transport
      * @class transmission
      * @brief 传输层抽象接口
      * @details 提供了异步读写、关闭、取消等基本操作，是分层流式架构的核心。
-     * 该接口使用纯协程设计，直接返回 `net::awaitable`，简化异步操作调用。
-     * 所有异步操作通过 `std::error_code&` 参数返回错误，避免异常开销。
-     *
-     * 核心职责：
-     * @details - 可靠性标识：`is_reliable()` 方法标识传输层是否可靠（TCP/UDP）；
-     * @details - 执行器管理：`executor()` 方法返回关联的执行器；
-     * @details - 异步读取：`async_read_some()` 方法从传输层读取数据；
-     * @details - 异步写入：`async_write_some()` 方法向传输层写入数据；
-     * @details - 连接管理：`close()` 和 `cancel()` 方法管理连接生命周期。
-     *
-     * 设计原则：
-     * @details - 纯虚接口：所有方法都是纯虚函数，强制子类实现；
-     * @details - 协程优先：异步操作返回协程，避免回调地狱；
-     * @details - 错误码返回：通过参数返回错误码，避免异常开销；
-     * @details - 概念兼容：提供 `get_executor()` 方法，兼容 Boost.Asio 概念。
-     *
+     * 该接口使用纯协程设计，直接返回 net::awaitable，简化异步操作调用。
+     * 所有异步操作通过 std::error_code& 参数返回错误，避免异常开销。
+     * 核心职责包括可靠性标识，is_reliable 方法标识传输层是否可靠（TCP/UDP）；
+     * 执行器管理，executor 方法返回关联的执行器；异步读取，
+     * async_read_some 方法从传输层读取数据；异步写入，
+     * async_write_some 方法向传输层写入数据；连接管理，
+     * close 和 cancel 方法管理连接生命周期。设计原则包括纯虚接口，
+     * 所有方法都是纯虚函数，强制子类实现；协程优先，
+     * 异步操作返回协程，避免回调地狱；错误码返回，
+     * 通过参数返回错误码，避免异常开销；概念兼容，
+     * 提供 get_executor 方法，兼容 Boost.Asio 概念。
      * @note 该接口是传输层的核心抽象，所有传输实现都必须继承此接口。
      * @warning 接口方法都是纯虚函数，必须由子类实现。
-     * @throws `std::bad_alloc` 如果内存分配失败
-     * @throws `std::runtime_error` 如果网络 IO 失败
+     * @throws std::bad_alloc 如果内存分配失败
+     * @throws std::runtime_error 如果网络 IO 失败
      */
     class transmission
     {
@@ -100,10 +65,11 @@ namespace ngx::transport
 
         /**
          * @brief 检查传输是否可靠（如 TCP）
-         * @details 用于优化路径选择，避免 dynamic_cast。可靠传输（TCP）保证数据有序送达，
-         * 不可靠传输（UDP）不保证数据送达和顺序。
-         * @return `bool` 是否可靠（`true` 表示可靠，`false` 表示不可靠）
-         * @note 默认实现返回 `false`，可靠传输层（如 `reliable`）应重写此方法。
+         * @details 用于优化路径选择，避免 dynamic_cast。
+         * 可靠传输（TCP）保证数据有序送达，不可靠传输（UDP）
+         * 不保证数据送达和顺序。
+         * @return bool 是否可靠（true 表示可靠，false 表示不可靠）
+         * @note 默认实现返回 false，可靠传输层（如 reliable）应重写此方法。
          * @warning 此方法不抛出异常。
          */
         [[nodiscard]] virtual bool is_reliable() const noexcept { return false; }
@@ -112,7 +78,7 @@ namespace ngx::transport
          * @brief 获取关联的执行器（Executor）
          * @details 返回传输层关联的执行器，用于调度异步操作。
          * 执行器是 Boost.Asio 的核心概念，用于执行异步操作和调度任务。
-         * @return `executor_type` 执行器
+         * @return executor_type 执行器
          * @note 该方法是纯虚函数，必须由子类实现。
          * @warning 返回的执行器必须在传输层生命周期内保持有效。
          */
@@ -121,9 +87,9 @@ namespace ngx::transport
         /**
          * @brief 获取关联的执行器（兼容 Asio Concept）
          * @details 返回传输层关联的执行器，用于兼容 Boost.Asio 的执行器概念。
-         * 该方法是 `executor()` 的别名，用于 Boost.Asio 的标准接口。
-         * @return `executor_type` 执行器
-         * @note 该方法委托给 `executor()` 方法。
+         * 该方法是 executor 的别名，用于 Boost.Asio 的标准接口。
+         * @return executor_type 执行器
+         * @note 该方法委托给 executor 方法。
          * @warning 返回的执行器必须在传输层生命周期内保持有效。
          */
         [[nodiscard]] executor_type get_executor() const
@@ -133,42 +99,38 @@ namespace ngx::transport
 
         /**
          * @brief 异步读取数据
-         * @details 从传输层读取一些数据到缓冲区。返回实际读取的字节数，错误通过 `ec` 返回。
-         * 如果操作成功，`ec` 为 `std::error_code()`；否则包含错误信息。
-         *
-         * 读取特性：
-         * @details - 非阻塞：该方法是异步的，不会阻塞调用线程；
-         * @details - 协程返回：返回 `net::awaitable`，可在协程中使用 `co_await` 等待；
-         * @details - 错误码返回：通过 `ec` 参数返回错误，避免异常开销；
-         * @details - 部分读取：可能读取比请求更少的数据，这是正常的。
-         *
-         * @param buffer 接收缓冲区（`std::span<std::byte>` 类型）
+         * @details 从传输层读取一些数据到缓冲区。返回实际读取的字节数，
+         * 错误通过 ec 返回。如果操作成功，ec 为 std::error_code；
+         * 否则包含错误信息。读取特性包括非阻塞，
+         * 该方法是异步的，不会阻塞调用线程；协程返回，
+         * 返回 net::awaitable，可在协程中使用 co_await 等待；
+         * 错误码返回，通过 ec 参数返回错误，避免异常开销；
+         * 部分读取，可能读取比请求更少的数据，这是正常的。
+         * @param buffer 接收缓冲区（std::span<std::byte> 类型）
          * @param ec 错误码输出参数，用于返回错误信息
-         * @return `net::awaitable<std::size_t>` 异步操作，完成后返回读取的字节数
+         * @return net::awaitable<std::size_t> 异步操作，完成后返回读取的字节数
          * @note 该方法是纯虚函数，必须由子类实现。
          * @warning 缓冲区必须有效，且在整个异步操作期间保持有效。
-         * @throws `std::bad_alloc` 如果内存分配失败
+         * @throws std::bad_alloc 如果内存分配失败
          */
         virtual auto async_read_some(std::span<std::byte> buffer, std::error_code& ec)
             -> net::awaitable<std::size_t> = 0;
 
         /**
          * @brief 异步写入数据
-         * @details 将缓冲区中的数据写入传输层。返回实际写入的字节数，错误通过 `ec` 返回。
-         * 如果操作成功，`ec` 为 `std::error_code()`；否则包含错误信息。
-         *
-         * 写入特性：
-         * @details - 非阻塞：该方法是异步的，不会阻塞调用线程；
-         * @details - 协程返回：返回 `net::awaitable`，可在协程中使用 `co_await` 等待；
-         * @details - 错误码返回：通过 `ec` 参数返回错误，避免异常开销；
-         * @details - 部分写入：可能写入比请求更少的数据，这是正常的。
-         *
-         * @param buffer 发送缓冲区（`std::span<const std::byte>` 类型）
+         * @details 将缓冲区中的数据写入传输层。返回实际写入的字节数，
+         * 错误通过 ec 返回。如果操作成功，ec 为 std::error_code；
+         * 否则包含错误信息。写入特性包括非阻塞，
+         * 该方法是异步的，不会阻塞调用线程；协程返回，
+         * 返回 net::awaitable，可在协程中使用 co_await 等待；
+         * 错误码返回，通过 ec 参数返回错误，避免异常开销；
+         * 部分写入，可能写入比请求更少的数据，这是正常的。
+         * @param buffer 发送缓冲区（std::span<const std::byte> 类型）
          * @param ec 错误码输出参数，用于返回错误信息
-         * @return `net::awaitable<std::size_t>` 异步操作，完成后返回写入的字节数
+         * @return net::awaitable<std::size_t> 异步操作，完成后返回写入的字节数
          * @note 该方法是纯虚函数，必须由子类实现。
          * @warning 缓冲区必须有效，且在整个异步操作期间保持有效。
-         * @throws `std::bad_alloc` 如果内存分配失败
+         * @throws std::bad_alloc 如果内存分配失败
          */
         virtual auto async_write_some(std::span<const std::byte> buffer, std::error_code& ec)
             -> net::awaitable<std::size_t> = 0;
@@ -177,12 +139,9 @@ namespace ngx::transport
          * @brief 关闭传输层
          * @details 关闭底层连接或资源。关闭后，所有未完成的异步操作将被取消。
          * 该方法用于优雅关闭连接，确保资源被正确释放。
-         *
-         * 关闭特性：
-         * @details - 资源释放：释放底层 socket 和相关资源；
-         * @details - 操作取消：取消所有未完成的异步操作；
-         * @details - 幂等操作：多次调用不会产生副作用。
-         *
+         * 关闭特性包括资源释放，释放底层 socket 和相关资源；
+         * 操作取消，取消所有未完成的异步操作；幂等操作，
+         * 多次调用不会产生副作用。
          * @note 该方法是纯虚函数，必须由子类实现。
          * @warning 关闭后传输层对象不再可用，不应再调用其任何方法。
          * @throws 子类实现可能抛出异常
@@ -191,13 +150,11 @@ namespace ngx::transport
 
         /**
          * @brief 取消所有未完成的异步操作
-         * @details 取消当前所有挂起的异步读写操作。该方法用于快速终止所有正在进行的异步操作。
-         *
-         * 取消特性：
-         * @details - 异步取消：取消所有挂起的异步操作；
-         * @details - 错误返回：被取消的操作将返回 `operation_canceled` 错误；
-         * @details - 幂等操作：多次调用不会产生副作用。
-         *
+         * @details 取消当前所有挂起的异步读写操作。
+         * 该方法用于快速终止所有正在进行的异步操作。
+         * 取消特性包括异步取消，取消所有挂起的异步操作；
+         * 错误返回，被取消的操作将返回 operation_canceled 错误；
+         * 幂等操作，多次调用不会产生副作用。
          * @note 该方法是纯虚函数，必须由子类实现。
          * @warning 取消后，相关操作将失败并返回错误码。
          * @throws 子类实现可能抛出异常
@@ -207,14 +164,11 @@ namespace ngx::transport
 
     /**
      * @brief 传输层智能指针类型
-     * @details 用于管理传输层对象的生命周期。智能指针自动调用 `delete` 释放对象。
+     * @details 用于管理传输层对象的生命周期。智能指针自动调用 delete 释放对象。
      * 该类型是传输层对象的通用智能指针类型，用于所有传输层操作。
-     *
-     * 使用场景：
-     * @details - 工厂返回：工厂方法返回智能指针，自动管理生命周期；
-     * @details - 函数参数：函数参数使用智能指针传递，避免所有权问题；
-     * @details - 成员变量：成员变量使用智能指针，自动管理资源。
-     *
+     * 使用场景包括工厂返回，工厂方法返回智能指针，自动管理生命周期；
+     * 函数参数，函数参数使用智能指针传递，避免所有权问题；
+     * 成员变量，成员变量使用智能指针，自动管理资源。
      * @note 该智能指针是独占式所有权，不支持共享。
      * @warning 不应直接删除智能指针指向的对象，应让智能指针自动管理。
      */
@@ -224,17 +178,12 @@ namespace ngx::transport
      * @brief 基于 Boost.Asio 包装的异步读取数据到传输对象
      * @details 这是一个包装函数，将 Boost.Asio 的异步读取接口适配到传输层接口。
      * 该函数支持 Boost.Asio 的缓冲区序列和完成令牌，简化异步操作调用。
-     *
-     * 包装逻辑：
-     * @details - 缓冲区转换：将 Boost.Asio 缓冲区序列转换为 `std::span`；
-     * @details - 错误码映射：将项目错误码映射到 Boost.System 错误码；
-     * @details - 协程包装：在协程中调用传输层的异步读取方法；
-     * @details - 完成令牌：支持协程、回调等多种完成令牌。
-     *
-     * 错误码映射：
-     * @details - 项目错误码：如果错误码类别是项目错误码，映射到 Boost.System 类别；
-     * @details - 标准错误码：否则映射到 Boost.System 通用类别。
-     *
+     * 包装逻辑包括缓冲区转换，将 Boost.Asio 缓冲区序列转换为 std::span；
+     * 错误码映射，将项目错误码映射到 Boost.System 错误码；
+     * 协程包装，在协程中调用传输层的异步读取方法；
+     * 完成令牌，支持协程、回调等多种完成令牌。错误码映射方面，
+     * 项目错误码如果错误码类别是项目错误码，映射到 Boost.System 类别；
+     * 标准错误码否则映射到 Boost.System 通用类别。
      * @tparam MutableBufferSequence 可变缓冲区序列类型，满足 MutableBufferSequence 概念
      * @tparam CompletionToken 完成令牌类型，满足 CompletionToken 要求
      * @param trans 传输对象引用
@@ -243,7 +192,7 @@ namespace ngx::transport
      * @return 异步操作初始化结果，具体类型取决于 CompletionToken
      * @note 该函数是模板，可自动推导返回类型。
      * @warning 缓冲区序列必须在整个异步操作期间保持有效。
-     * @throws `std::bad_alloc` 如果内存分配失败
+     * @throws std::bad_alloc 如果内存分配失败
      */
     template <typename MutableBufferSequence, typename CompletionToken>
     auto async_read_some(transmission &trans, const MutableBufferSequence &buffers, CompletionToken &&token)
@@ -283,17 +232,12 @@ namespace ngx::transport
      * @brief 基于 Boost.Asio 包装的异步写入数据到传输对象
      * @details 这是一个包装函数，将 Boost.Asio 的异步写入接口适配到传输层接口。
      * 该函数支持 Boost.Asio 的缓冲区序列和完成令牌，简化异步操作调用。
-     *
-     * 包装逻辑：
-     * @details - 缓冲区转换：将 Boost.Asio 缓冲区序列转换为 `std::span`；
-     * @details - 错误码映射：将项目错误码映射到 Boost.System 错误码；
-     * @details - 协程包装：在协程中调用传输层的异步写入方法；
-     * @details - 完成令牌：支持协程、回调等多种完成令牌。
-     *
-     * 错误码映射：
-     * @details - 项目错误码：如果错误码类别是项目错误码，映射到 Boost.System 类别；
-     * @details - 标准错误码：否则映射到 Boost.System 通用类别。
-     *
+     * 包装逻辑包括缓冲区转换，将 Boost.Asio 缓冲区序列转换为 std::span；
+     * 错误码映射，将项目错误码映射到 Boost.System 错误码；
+     * 协程包装，在协程中调用传输层的异步写入方法；
+     * 完成令牌，支持协程、回调等多种完成令牌。错误码映射方面，
+     * 项目错误码如果错误码类别是项目错误码，映射到 Boost.System 类别；
+     * 标准错误码否则映射到 Boost.System 通用类别。
      * @tparam ConstBufferSequence 常量缓冲区序列类型，满足 ConstBufferSequence 概念
      * @tparam CompletionToken 完成令牌类型，满足 CompletionToken 要求
      * @param trans 传输对象引用
@@ -302,7 +246,7 @@ namespace ngx::transport
      * @return 异步操作初始化结果，具体类型取决于 CompletionToken
      * @note 该函数是模板，可自动推导返回类型。
      * @warning 缓冲区序列必须在整个异步操作期间保持有效。
-     * @throws `std::bad_alloc` 如果内存分配失败
+     * @throws std::bad_alloc 如果内存分配失败
      */
     template <typename ConstBufferSequence, typename CompletionToken>
     auto async_write_some(transmission &trans, const ConstBufferSequence &buffers, CompletionToken &&token)
@@ -336,4 +280,4 @@ namespace ngx::transport
         return net::async_initiate<CompletionToken, void(boost::system::error_code, std::size_t)>(std::move(init), token);
     }
 
-} // namespace ngx::transport
+}

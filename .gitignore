@@ -32,7 +32,7 @@ bazel-*
 !.bazelignore
 !.bazelrc
 *.exe
-cmake-build-debug
+cmake-build-*/
 !docs/.vitepress
 docs/.vitepress/cache
 docs/public

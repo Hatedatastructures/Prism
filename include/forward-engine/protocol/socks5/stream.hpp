@@ -1,31 +1,15 @@
 /**
  * @file stream.hpp
  * @brief SOCKS5 协议流封装
- * @details 实现了完整的 SOCKS5 协议 (RFC 1928) 服务端流封装，提供协程友好的高级 API。
- * 该类继承自 transport::transmission，将底层传输层包装为 SOCKS5 协议流，
- * 处理握手、认证、请求解析和响应生成。
- *
- * 核心特性：
- * - 协议完整：支持 SOCKS5 协议核心功能，包括 CONNECT 和 UDP_ASSOCIATE 命令
- * - 地址类型全面：支持 IPv4、IPv6 和域名地址类型
- * - 认证灵活：支持无认证 (0x00)，可扩展用户名/密码认证 (0x02)
- * - 错误处理完善：使用 `gist::code` 错误码系统，提供详细的协议错误信息
- * - 能力控制：通过 config 结构控制 TCP/UDP/BIND 命令的启用状态
- *
- * 协议流程：
- * 1. 方法协商：客户端发送支持的方法列表，服务器选择并确认
- * 2. 请求处理：读取客户端请求，解析命令、地址类型和目标地址
- * 3. 命令检查：根据 config 检查命令是否允许
- * 4. 响应发送：根据处理结果发送成功或错误响应
- * 5. 数据转发：握手成功后，提供透明的数据读写接口
- *
- * - 严格遵循 RFC 1928 标准，确保协议兼容性
- * - 内存高效：使用栈分配缓冲区，避免热路径堆分配
- * - 统一抽象：继承 transmission 接口，支持多态使用
- *
- * @warning 安全考虑：默认仅支持无认证，生产环境应启用用户名/密码认证
- * @warning 性能关键：握手阶段涉及多次网络往返，应考虑连接池复用
- * @warning 协议限制：仅实现服务端逻辑，客户端逻辑需另外实现
+ * @details 实现完整的 SOCKS5 协议（RFC 1928）服务端流封装，提供
+ * 协程友好的高级 API。该类继承自 transport::transmission，将底层
+ * 传输层包装为 SOCKS5 协议流，处理握手、认证、请求解析和响应
+ * 生成。核心特性包括协议完整性（支持 CONNECT 和 UDP_ASSOCIATE
+ * 命令）、地址类型全面（支持 IPv4、IPv6 和域名）、错误处理完善
+ * （使用 gist::code 错误码系统）、能力控制（通过 config 结构控制
+ * 命令启用状态）。协议流程分为方法协商、请求处理、命令检查、
+ * 响应发送和数据转发五个阶段。内存高效，使用栈分配缓冲区避免
+ * 热路径堆分配；统一抽象，继承 transmission 接口支持多态使用。
  */
 
 #pragma once
@@ -33,9 +17,10 @@
 #include <array>
 #include <functional>
 #include <string>
+
 #include <boost/asio.hpp>
 #include <boost/asio/experimental/awaitable_operators.hpp>
-#include <forward-engine/gist.hpp>
+
 #include <forward-engine/gist/handling.hpp>
 #include <forward-engine/memory/container.hpp>
 #include <forward-engine/transport/transmission.hpp>
@@ -52,16 +37,16 @@ namespace ngx::protocol::socks5
     /**
      * @class stream
      * @brief SOCKS5 协议流封装
-     * @details 将底层传输层封装为完整的 SOCKS5 协议流，提供协程友好的高层 API。
-     * 该类实现了 SOCKS5 协议的服务端逻辑，包括方法协商、请求处理和响应生成。
-     * stream 对象持有 next_layer_ 的独占所有权，其生命周期与 stream 对象绑定。
-     * 调用 close() 后 next_layer_ 仍有效，可再次使用；析构时通过 unique_ptr 自动释放底层资源，
-     * 无需显式定义析构函数。也可以通过 release() 提前转移所有权，但转移后不应再调用读写方法。
-     *
+     * @details 将底层传输层封装为完整的 SOCKS5 协议流，提供协程友好的
+     * 高层 API。该类实现了 SOCKS5 协议的服务端逻辑，包括方法协商、请求
+     * 处理和响应生成。stream 对象持有 next_layer_ 的独占所有权，其生命
+     * 周期与 stream 对象绑定。调用 close() 后 next_layer_ 仍有效，可
+     * 再次使用；析构时通过 unique_ptr 自动释放底层资源，无需显式定义
+     * 析构函数。也可以通过 release() 提前转移所有权，但转移后不应再
+     * 调用读写方法。
      * @note 实例非线程安全，应在同一协程或线程内使用
      * @note 拥有底层传输层的所有权，需确保生命周期正确管理
      * @note 握手缓冲区大小固定，避免动态分配
-     *
      * @warning 默认实现仅支持无认证，生产环境必须启用认证机制
      * @warning 严格遵循 RFC 1928，但某些扩展特性可能不受支持
      * @warning 不支持并发访问，调用者需保证顺序执行
@@ -69,15 +54,18 @@ namespace ngx::protocol::socks5
     class stream : public transport::transmission, public std::enable_shared_from_this<stream>
     {
     public:
+        // 路由回调函数类型，用于根据目标地址选择本地端点
         using route_callback = std::function<net::awaitable<std::pair<gist::code, net::ip::udp::endpoint>>(std::string_view, std::string_view)>;
+
         /**
          * @brief 构造函数
          * @param next_layer 已经建立连接的底层传输层智能指针
-         * @param cfg socks5协议配置
+         * @param cfg SOCKS5 协议配置
          * @details 构造 SOCKS5 协议流封装对象，接管底层传输层的所有权。
          * 构造后对象处于初始状态，等待客户端发起 SOCKS5 握手流程。
-         * @warning 构造函数通过独占智能指针获取底层传输层的所有权，调用者不应再使用原指针
-         * @note 连接状态：底层传输层必须已建立连接，否则后续操作将失败
+         * @warning 构造函数通过独占智能指针获取底层传输层的所有权，
+         * 调用者不应再使用原指针
+         * @note 底层传输层必须已建立连接，否则后续操作将失败
          */
         explicit stream(transport::transmission_pointer next_layer, const config &cfg = {})
             : next_layer_(std::move(next_layer)), config_(cfg)
@@ -87,6 +75,7 @@ namespace ngx::protocol::socks5
         /**
          * @brief 获取关联的执行器
          * @return executor_type 执行器
+         * @details 返回底层传输层的执行器，用于协程调度和异步操作。
          */
         executor_type executor() const override
         {
@@ -98,8 +87,9 @@ namespace ngx::protocol::socks5
          * @param buffer 接收缓冲区
          * @param ec 错误码输出参数
          * @return net::awaitable<std::size_t> 异步操作，完成后返回读取的字节数
-         * @details 握手成功后，从底层传输层读取数据。
-         * @warning 调用前必须确保 next_layer_ 传输层指针是有效且已连接状态
+         * @details 握手成功后，从底层传输层读取数据。直接透传到底层
+         * 传输层的 async_read_some 方法。
+         * @warning 调用前必须确保 next_layer_ 传输层指针有效且已连接
          */
         auto async_read_some(const std::span<std::byte> buffer, std::error_code &ec)
             -> net::awaitable<std::size_t> override
@@ -112,8 +102,9 @@ namespace ngx::protocol::socks5
          * @param buffer 发送缓冲区
          * @param ec 错误码输出参数
          * @return net::awaitable<std::size_t> 异步操作，完成后返回写入的字节数
-         * @details 握手成功后，向底层传输层写入数据。
-         * @warning 调用前必须确保 next_layer_ 传输层指针是有效且已连接状态
+         * @details 握手成功后，向底层传输层写入数据。直接透传到底层
+         * 传输层的 async_write_some 方法。
+         * @warning 调用前必须确保 next_layer_ 传输层指针有效且已连接
          */
         auto async_write_some(const std::span<const std::byte> buffer, std::error_code &ec)
             -> net::awaitable<std::size_t> override
@@ -123,6 +114,8 @@ namespace ngx::protocol::socks5
 
         /**
          * @brief 关闭传输层
+         * @details 关闭底层传输层连接，释放网络资源。调用后 next_layer_
+         * 指针仍然有效，但连接已断开。
          */
         void close() override
         {
@@ -134,6 +127,8 @@ namespace ngx::protocol::socks5
 
         /**
          * @brief 取消所有未完成的异步操作
+         * @details 取消底层传输层上所有待处理的异步操作，触发操作
+         * 以 operation_aborted 错误码完成。
          */
         void cancel() override
         {
@@ -145,17 +140,18 @@ namespace ngx::protocol::socks5
 
         /**
          * @brief 异步处理 UDP 关联请求
-         * @details 处理客户端发起的 UDP 关联请求，绑定本地端口并返回关联地址。
-         * @param request_info 包含请求信息的 socks5 请求结构体
+         * @param request_info 包含请求信息的 SOCKS5 请求结构体
          * @param route_callback 路由回调函数，用于根据目标地址选择合适的本地端点
          * @return net::awaitable<gist::code> 异步操作，完成后返回错误码
-         * @warning 调用前必须确保 next_layer_ 传输层指针是有效且已连接状态
+         * @details 处理客户端发起的 UDP 关联请求，绑定本地端口并返回关联
+         * 地址。成功后进入 UDP 数据报转发循环，直到控制连接关闭。
+         * @warning 调用前必须确保 next_layer_ 传输层指针有效且已连接
          */
         auto async_associate(const request &request_info, route_callback route_callback) const
             -> net::awaitable<gist::code>
         {
             if (!config_.enable_udp || request_info.form != transport::form::datagram)
-            { // 没启用 UDP 或 请求不是 UDP 关联
+            {
                 co_return gist::code::not_supported;
             }
 
@@ -188,36 +184,32 @@ namespace ngx::protocol::socks5
 
         /**
          * @brief 执行 SOCKS5 握手
-         * @details 执行完整的 SOCKS5 握手流程，包括方法协商、请求解析和命令检查。
-         * 前提是 next_layer_ 已建立连接。握手过程首先进行方法协商：读取客户端支持的方法列表，
-         * 并选择无认证方式（0x00）；若协商失败则立即返回错误码。协商成功后进入请求解析阶段，
-         * 读取命令、地址类型和目标地址，并根据配置检查命令是否允许。
-         *
-         * 命令处理规则：对于 connect 命令，要求 enable_tcp 为 true，成功后 form 字段设为 stream。
-         * 对于 udp_associate 命令，要求 enable_udp 为 true，成功后 form 设为 datagram。
-         * 对于 bind 命令，要求 enable_bind 为 true，成功后 form 设为 stream
-         * （注意：bind 的数据面当前尚未实现）。若命令不被支持或被配置禁用，会发送相应的错误响应
-         * （command_not_supported 或 connection_not_allowed）并返回错误码。地址解析支持 IPv4、IPv6
-         * 和域名类型，解析失败时同样返回错误码。
-         *
-         * 失败行为分类：协议错误（如方法协商失败、命令拒绝）会发送 SOCKS5 错误响应并返回错误码。
-         * 网络错误（如读取失败）直接返回错误码，不发送响应。
-         *
-         * 成功时返回包含目标地址、端口和命令信息的 request 对象。
-         *
          * @return net::awaitable<std::pair<gist::code, request>> 握手结果和请求信息
+         * @details 执行完整的 SOCKS5 握手流程，包括方法协商、请求解析和
+         * 命令检查。前提是 next_layer_ 已建立连接。握手过程首先进行方法
+         * 协商：读取客户端支持的方法列表，并选择无认证方式（0x00）；若
+         * 协商失败则立即返回错误码。协商成功后进入请求解析阶段，读取
+         * 命令、地址类型和目标地址，并根据配置检查命令是否允许。命令
+         * 处理规则：对于 connect 命令，要求 enable_tcp 为 true，成功后
+         * form 字段设为 stream；对于 udp_associate 命令，要求 enable_udp
+         * 为 true，成功后 form 设为 datagram；对于 bind 命令，要求
+         * enable_bind 为 true，成功后 form 设为 stream。若命令不被支持
+         * 或被配置禁用，会发送相应的错误响应并返回错误码。地址解析支持
+         * IPv4、IPv6 和域名类型，解析失败时同样返回错误码。失败行为
+         * 分类：协议错误（如方法协商失败、命令拒绝）会发送 SOCKS5 错误
+         * 响应并返回错误码；网络错误（如读取失败）直接返回错误码，不
+         * 发送响应。成功时返回包含目标地址、端口和命令信息的 request
+         * 对象。
          */
         auto handshake()
             -> net::awaitable<std::pair<gist::code, request>>
         {
-            // 认证方法协商，检查客户端支持的方法列表
             const auto [negotiation_ec, method] = co_await negotiated_authentication();
             if (gist::failed(negotiation_ec))
             {
                 co_return std::pair{negotiation_ec, request{}};
             }
 
-            // 读取请求头 (VER + CMD + RSV + ATYP)，解析为结构体
             auto [read_ec, header] = co_await read_request_header();
             if (gist::failed(read_ec))
             {
@@ -227,7 +219,6 @@ namespace ngx::protocol::socks5
             request req{};
             req.cmd = header.cmd;
 
-            // 命令权限检查，根据配置决定允许/拒绝
             switch (req.cmd)
             {
             case command::connect:
@@ -259,7 +250,6 @@ namespace ngx::protocol::socks5
                 co_return std::pair{gist::code::unsupported_command, request{}};
             }
 
-            // 解析目标地址，根据 ATYP 读取不同长度的地址数据
             switch (header.atyp)
             {
             case address_type::ipv4:
@@ -304,7 +294,10 @@ namespace ngx::protocol::socks5
 
         /**
          * @brief 发送成功响应
-         * @param info 请求信息 (用于回显绑定地址和端口)
+         * @param info 请求信息，用于回显绑定地址和端口
+         * @return net::awaitable<gist::code> 异步操作，完成后返回错误码
+         * @details 构建并发送 SOCKS5 成功响应，包含绑定地址和端口信息。
+         * 响应格式遵循 RFC 1928 规范。
          */
         auto async_write_success(const request &info) const
             -> net::awaitable<gist::code>
@@ -319,6 +312,9 @@ namespace ngx::protocol::socks5
         /**
          * @brief 发送错误响应
          * @param code 错误码
+         * @return net::awaitable<gist::code> 异步操作，完成后返回错误码
+         * @details 构建并发送 SOCKS5 错误响应，使用固定格式的错误报文。
+         * 响应中地址字段填充为零。
          */
         auto async_write_error(reply_code code) const
             -> net::awaitable<gist::code>
@@ -335,6 +331,7 @@ namespace ngx::protocol::socks5
         /**
          * @brief 获取底层传输层引用
          * @return transport::transmission& 底层传输层引用
+         * @details 返回底层传输层的可变引用，用于直接操作底层连接。
          * @warning 调用前应确保 is_valid() 返回 true
          */
         transmission &next_layer() noexcept
@@ -345,6 +342,7 @@ namespace ngx::protocol::socks5
         /**
          * @brief 获取底层传输层常量引用
          * @return const transport::transmission& 底层传输层常量引用
+         * @details 返回底层传输层的只读引用，用于查询底层连接状态。
          * @warning 调用前应确保 is_valid() 返回 true
          */
         const transmission &next_layer() const noexcept
@@ -355,6 +353,8 @@ namespace ngx::protocol::socks5
         /**
          * @brief 检查底层传输层是否有效
          * @return bool true 表示有效，false 表示已被 release() 转移
+         * @details 检查 next_layer_ 指针是否有效，用于判断是否可以
+         * 安全调用读写方法。
          */
         [[nodiscard]] bool is_valid() const noexcept
         {
@@ -363,8 +363,10 @@ namespace ngx::protocol::socks5
 
         /**
          * @brief 释放底层传输层所有权
-         * @return `transport::transmission_pointer` 底层传输层指针
-         * @details 释放后 `is_valid()` 返回 `false`，不应再调用读写方法
+         * @return transport::transmission_pointer 底层传输层指针
+         * @details 释放底层传输层的所有权并返回指针。释放后 is_valid()
+         * 返回 false，不应再调用读写方法。用于将底层连接转移给
+         * 其他组件管理。
          */
         transport::transmission_pointer release()
         {
@@ -374,9 +376,11 @@ namespace ngx::protocol::socks5
     private:
         /**
          * @brief 打开并绑定 UDP 数据报端口
-         * @details 使用当前执行器创建会话级 UDP socket，并绑定 `udp_bind_port`。
-         * 若 `udp_bind_port=0`，由系统自动分配端口。
-         * @return `gist::code` 与已绑定 socket 或错误码
+         * @return net::awaitable<std::pair<gist::code, net::ip::udp::socket>>
+         * 错误码与已绑定 socket
+         * @details 使用当前执行器创建会话级 UDP socket，并绑定到
+         * udp_bind_port 指定的端口。若 udp_bind_port 为 0，由系统
+         * 自动分配端口。socket 绑定成功后可用于接收 UDP 数据报。
          */
         auto bind_datagram_port() const
             -> net::awaitable<std::pair<gist::code, net::ip::udp::socket>>
@@ -400,8 +404,11 @@ namespace ngx::protocol::socks5
 
         /**
          * @brief 发送 UDP_ASSOCIATE 成功响应
-         * @details 将本地 UDP 绑定地址写回 SOCKS5 `BND.ADDR/BND.PORT`，
-         * 供客户端后续向该地址发送 UDP 数据报。
+         * @param request_info 原始请求信息
+         * @param local_endpoint 本地 UDP 端点
+         * @return net::awaitable<gist::code> 异步操作，完成后返回错误码
+         * @details 将本地 UDP 绑定地址写入 SOCKS5 响应的 BND.ADDR 和
+         * BND.PORT 字段，供客户端后续向该地址发送 UDP 数据报。
          */
         auto async_write_associate_success(const request &request_info, const net::ip::udp::endpoint &local_endpoint) const
             -> net::awaitable<gist::code>
@@ -414,8 +421,12 @@ namespace ngx::protocol::socks5
 
         /**
          * @brief UDP_ASSOCIATE 主循环
+         * @param ingress_socket 入站 UDP socket
+         * @param route_callback 路由回调函数
+         * @return net::awaitable<void> 异步操作
          * @details 持续读取客户端发往 ingress 的 UDP 数据报，并逐包转发。
-         * 当 socket 被取消时（控制面关闭触发），协程退出。
+         * 当 socket 被取消时（控制面关闭触发），协程退出。循环内部
+         * 处理 SOCKS5 UDP 报头解析、路由查询、数据转发和响应封装。
          */
         auto associate_loop(net::ip::udp::socket &ingress_socket, route_callback &route_callback) const
             -> net::awaitable<void>
@@ -445,11 +456,15 @@ namespace ngx::protocol::socks5
 
         /**
          * @brief 转发单个 SOCKS5 UDP 数据报
-         * @details 处理流程：
-         * 1. 解码 SOCKS5 UDP 报头；
-         * 2. 调用路由回调解析目标 endpoint；
-         * 3. 发送 payload 到目标并等待回包；
-         * 4. 将回包重新封装为 SOCKS5 UDP 数据报回写客户端。
+         * @param ingress_socket 入站 UDP socket
+         * @param ingress_packet 入站数据包
+         * @param client_endpoint 客户端端点
+         * @param route_callback 路由回调函数
+         * @param target_buffer 目标缓冲区
+         * @return net::awaitable<void> 异步操作
+         * @details 处理流程包括解码 SOCKS5 UDP 报头、调用路由回调解析
+         * 目标端点、发送 payload 到目标并等待回包、将回包重新封装为
+         * SOCKS5 UDP 数据报回写客户端。
          */
         auto relay_single_datagram(net::ip::udp::socket &ingress_socket, std::span<const std::byte> ingress_packet,
                                    const net::ip::udp::endpoint &client_endpoint, route_callback &route_callback, memory::vector<std::byte> &target_buffer) const
@@ -519,8 +534,11 @@ namespace ngx::protocol::socks5
 
         /**
          * @brief 监听控制面关闭并停止 UDP 数据面
-         * @details 控制连接任意读结束（EOF/错误）后，取消并关闭 ingress socket，
-         * 驱动 UDP 主循环快速退出。
+         * @param ingress_socket 入站 UDP socket
+         * @return net::awaitable<void> 异步操作
+         * @details 控制连接任意读结束（EOF 或错误）后，取消并关闭
+         * ingress socket，驱动 UDP 主循环快速退出。这是 UDP_ASSOCIATE
+         * 的标准终止机制。
          */
         auto wait_control_close(net::ip::udp::socket &ingress_socket) const
             -> net::awaitable<void>
@@ -533,6 +551,13 @@ namespace ngx::protocol::socks5
             ingress_socket.close(ignore_ec);
         }
 
+        /**
+         * @brief 将端点转换为地址结构
+         * @param endpoint UDP 端点
+         * @return address 地址变体
+         * @details 根据 IP 地址版本自动选择 IPv4 或 IPv6 地址类型，
+         * 将端点地址转换为 SOCKS5 地址格式。
+         */
         [[nodiscard]] static auto endpoint_to_address(const net::ip::udp::endpoint &endpoint) -> address
         {
             if (endpoint.address().is_v4())
@@ -544,23 +569,25 @@ namespace ngx::protocol::socks5
 
         /**
          * @brief 协商 SOCKS5 认证方法
-         * @return 协商结果错误码与选定的认证方法
+         * @return net::awaitable<std::pair<gist::code, auth_method>> 协商
+         * 结果错误码与选定的认证方法
+         * @details 读取客户端发送的方法协商请求，验证协议版本，检查
+         * 客户端支持的方法列表中是否包含无认证方法（0x00）。若支持
+         * 则选择无认证方法并返回成功；否则返回无可接受方法错误。
+         * 当前实现仅支持无认证模式，后续可扩展用户名密码认证。
          */
         auto negotiated_authentication() const
             -> net::awaitable<std::pair<gist::code, auth_method>>
-        { // TODO 还未实现用户认证现在仅支持无认证
-            // 缓冲区大小: 2 字节头 (VER + NMETHODS) + 最多 255 字节方法列表
+        {
             std::array<std::uint8_t, 257> methods_buffer{};
 
             std::error_code ec;
-            // 读取 greeting 头部 (VER + NMETHODS)
             co_await async_read_impl(std::span(reinterpret_cast<std::byte *>(methods_buffer.data()), 2), ec);
             if (ec)
             {
                 co_return std::pair{gist::to_code(ec), auth_method::no_acceptable_methods};
             }
 
-            // 验证协议版本，SOCKS5 必须为 0x05
             if (methods_buffer[0] != 0x05)
             {
                 co_return std::pair{gist::code::protocol_error, auth_method::no_acceptable_methods};
@@ -568,44 +595,12 @@ namespace ngx::protocol::socks5
 
             const std::uint8_t nmethods = methods_buffer[1];
 
-            // 协议层（SOCKS5 握手）
-            // +-- 方法协商 ---------------> 客户端方法列表
-            // |       VER=0x05, NMETHODS=n, METHODS=[0x00, 0x02, ...]
-            // |                           （客户端声明支持的无认证/用户名/其他方法）
-            // |
-            // |<-- 方法选择 --------------- 服务器选择 METHOD
-            // |       服务端决策点
-            // |       IF 服务端配置了用户数据库:
-            // |           IF 0x02 ∈ METHODS: 选择 0x02（强制认证）
-            // |           ELSE: 选择 0xFF（无可接受方法，断开）
-            // |       ELSE:
-            // |           选择 0x00（无认证，跳过认证阶段）
-            // |
-            // +-- 认证阶段[可选] ---------> 认证请求（仅当 METHOD=0x02）
-            // |       VER=0x01, ULEN, USER[], PLEN, PASSWD[]
-            // |       （明文传输，建议配合TLS使用）
-            // |
-            // |<-- 认证结果 --------------- 认证状态
-            // |       VER=0x01, STATUS=0x00（成功）/ 0x01（失败，断开）
-            // |
-            // +-- 请求阶段 ---------------> 连接请求
-            // |       VER=0x05, CMD, RSV, ATYP, DST.ADDR, DST.PORT
-            // |       CMD: 0x01=CONNECT, 0x02=BIND, 0x03=UDP ASSOCIATE
-            // |
-            // |<-- 响应阶段 --------------- 连接响应
-            // |       VER=0x05, REP, RSV, BND.ADDR, BND.PORT
-            // |       REP: 0x00=成功, 0x01-0x08=各类错误
-            // |
-            // v
-
-            // 读取客户端支持的认证方法列表
             co_await async_read_impl(std::span(reinterpret_cast<std::byte *>(methods_buffer.data() + 2), nmethods), ec);
             if (ec)
             {
                 co_return std::pair{gist::to_code(ec), auth_method::no_acceptable_methods};
             }
 
-            // 遍历方法列表，检查是否支持无认证 (0x00)
             bool no_auth_supported = false;
             const std::span<const std::uint8_t> methods(methods_buffer.data() + 2, nmethods);
             for (const auto method : methods)
@@ -617,10 +612,8 @@ namespace ngx::protocol::socks5
                 }
             }
 
-            // 发送服务器响应
             if (!no_auth_supported)
             {
-                // 无可接受的认证方法，响应 0xFF 表示拒绝
                 constexpr std::uint8_t response[] = {0x05, 0xFF};
                 co_await async_write_impl(std::span(reinterpret_cast<const std::byte *>(response), 2), ec);
                 if (ec)
@@ -630,7 +623,6 @@ namespace ngx::protocol::socks5
                 co_return std::pair{gist::code::not_supported, auth_method::no_acceptable_methods};
             }
 
-            // 协商成功，选择无认证方法
             constexpr std::uint8_t response[] = {0x05, 0x00};
             co_await async_write_impl(std::span(reinterpret_cast<const std::byte *>(response), 2), ec);
             if (ec)
@@ -642,7 +634,11 @@ namespace ngx::protocol::socks5
 
         /**
          * @brief 读取请求头部
-         * @return std::pair<gist::code, wire::header_parse> 包含结果错误码和解析后的头部
+         * @return net::awaitable<std::pair<gist::code, wire::header_parse>>
+         * 包含结果错误码和解析后的头部
+         * @details 读取 4 字节的请求头部（VER + CMD + RSV + ATYP），
+         * 并解析为结构化的头部信息。头部包含命令类型和地址类型，
+         * 用于后续的地址读取和命令处理。
          */
         auto read_request_header() const
             -> net::awaitable<std::pair<gist::code, wire::header_parse>>
@@ -666,10 +662,13 @@ namespace ngx::protocol::socks5
 
         /**
          * @brief 读取 IP 地址和端口
-         * @tparam N IP 地址字节数 (4 或 16)
+         * @tparam N IP 地址字节数（4 或 16）
          * @tparam Decoder 解码器类型
          * @param decoder 地址解码函数
-         * @return `std::tuple<gist::code, address, uint16_t>` 包含结果代码、地址和端口
+         * @return net::awaitable<std::tuple<gist::code, address, uint16_t>>
+         * 包含结果代码、地址和端口
+         * @details 读取指定长度的 IP 地址数据和 2 字节端口，使用
+         * 提供的解码器解析地址。适用于 IPv4 和 IPv6 地址类型。
          */
         template <size_t N, typename Decoder>
         auto read_address(Decoder &&decoder)
@@ -700,7 +699,10 @@ namespace ngx::protocol::socks5
 
         /**
          * @brief 读取域名地址和端口
-         * @return `std::tuple<gist::code, address, uint16_t>` 包含结果代码、地址和端口
+         * @return net::awaitable<std::tuple<gist::code, address, uint16_t>>
+         * 包含结果代码、地址和端口
+         * @details 读取域名长度字节、域名内容和端口。域名格式为
+         * 1 字节长度前缀后跟域名字符串，端口为 2 字节大端序整数。
          */
         auto read_domain_address() const
             -> net::awaitable<std::tuple<gist::code, address, uint16_t>>
@@ -740,53 +742,42 @@ namespace ngx::protocol::socks5
         /**
          * @brief 构建 SOCKS5 成功响应
          * @param req 请求信息，用于获取地址类型和绑定地址
-         * @param buffer 输出缓冲区，大小至少 262 字节 (1+1+1+1+255+2)
+         * @param buffer 输出缓冲区，大小至少 262 字节
          * @return std::size_t 实际写入的字节数
-         * @details 响应格式 (RFC 1928)
-         * ```txt
-         *   +----+-----+-------+------+----------+----------+
-         *   |VER | REP |  RSV  | ATYP | BND.ADDR | BND.PORT |
-         *   +----+-----+-------+------+----------+----------+
-         *   | 1  |  1  | X'00' |  1   | Variable |    2     |
-         *   +----+-----+-------+------+----------+----------+
-         * ```
+         * @details 构建符合 RFC 1928 规范的成功响应报文。响应格式为
+         * VER(1) + REP(1) + RSV(1) + ATYP(1) + BND.ADDR(变长) + BND.PORT(2)。
+         * 根据地址类型写入不同格式的地址数据。
          */
         static auto build_success_response(const request &req, std::span<std::uint8_t> buffer)
             -> std::size_t
         {
             std::size_t offset = 0;
-            buffer[offset++] = 0x05;                                             // 协议版本，SOCKS5 固定为 0x05
-            buffer[offset++] = static_cast<std::uint8_t>(reply_code::succeeded); // 响应码，成功为 0x00
-            buffer[offset++] = 0x00;                                             // 保留字段，固定为 0x00
+            buffer[offset++] = 0x05;
+            buffer[offset++] = static_cast<std::uint8_t>(reply_code::succeeded);
+            buffer[offset++] = 0x00;
 
-            // ATYP + BND.ADDR: 地址类型和绑定地址
-            // 根据地址类型写入不同的格式:
-            // - IPv4:    ATYP=0x01 + 4 字节地址
-            // - IPv6:    ATYP=0x04 + 16 字节地址
-            // - Domain:  ATYP=0x03 + 1 字节长度 + 域名内容
             std::visit([&buffer, &offset]<typename Address>(const Address &addr)
                        {
                 if constexpr (std::is_same_v<Address, ipv4_address>)
                 {
-                    buffer[offset++] = 0x01; // v4
+                    buffer[offset++] = 0x01;
                     std::copy_n(addr.bytes.begin(), 4, buffer.subspan(offset).begin());
                     offset += 4;
                 }
                 else if constexpr (std::is_same_v<Address, ipv6_address>)
                 {
-                    buffer[offset++] = 0x04; // v6
+                    buffer[offset++] = 0x04;
                     std::copy_n(addr.bytes.begin(), 16, buffer.subspan(offset).begin());
                     offset += 16;
                 }
                 else if constexpr (std::is_same_v<Address, domain_address>)
                 {
-                    buffer[offset++] = 0x03; // 域名
+                    buffer[offset++] = 0x03;
                     buffer[offset++] = addr.length;
                     std::copy_n(addr.value.begin(), addr.length, buffer.subspan(offset).begin());
                     offset += addr.length;
                 } }, req.destination_address);
 
-            // BND.PORT: 绑定端口，2 字节大端序 (高字节在前)
             buffer[offset++] = static_cast<std::uint8_t>((req.destination_port >> 8) & 0xFF);
             buffer[offset++] = static_cast<std::uint8_t>(req.destination_port & 0xFF);
 
@@ -794,22 +785,27 @@ namespace ngx::protocol::socks5
         }
 
         /**
-         * @brief 异步读取实现(内部)
+         * @brief 异步读取实现（内部）
          * @param buffer 要读取的字节数组
          * @param ec 错误码引用，用于存储读取错误信息
-         * @return 读取的字节数
+         * @return net::awaitable<std::size_t> 读取的字节数
+         * @details 直接透传到底层传输层的 async_read_some 方法。
+         * 注意 C++20 的 span 的 const 是针对 span 本身，不针对
+         * std::byte，如果为 const std::byte 则不能写入数据。
          */
         auto async_read_impl(const std::span<std::byte> buffer, std::error_code &ec) const
             -> net::awaitable<std::size_t>
-        { // 注意c++20的span的const是针对span本身,不针对std::byte,如果为const std::byte 则不能写入数据
+        {
             co_return co_await next_layer_->async_read_some(buffer, ec);
         }
 
         /**
-         * @brief 异步写入实现(内部)
+         * @brief 异步写入实现（内部）
          * @param buffer 要写入的字节数组
          * @param ec 错误码引用，用于存储写入错误信息
-         * @return 写入的字节数
+         * @return net::awaitable<std::size_t> 写入的字节数
+         * @details 循环调用底层传输层的 async_write_some 方法，直到
+         * 所有数据写入完成或发生错误。确保完整写入缓冲区内容。
          */
         auto async_write_impl(const std::span<const std::byte> buffer, std::error_code &ec) const
             -> net::awaitable<std::size_t>
@@ -827,20 +823,29 @@ namespace ngx::protocol::socks5
             co_return total;
         }
 
-        // next_layer_ 所有权说明：
-        // - 构造时通过 unique_ptr 转移所有权
-        // - 生命周期与 stream 对象绑定
-        // - close() 后 next_layer_ 仍有效，可再次使用
-        // - 析构时自动释放底层资源
+        // 底层传输层指针，所有权通过 unique_ptr 管理
+        // 构造时转移所有权，生命周期与 stream 对象绑定
+        // close() 后仍有效，析构时自动释放
         transport::transmission_pointer next_layer_;
+
+        // SOCKS5 协议配置，构造时传入，运行时只读
         config config_;
     };
 
     /**
-     * @brief SOCKS5 共享智能指针
+     * @brief SOCKS5 流共享智能指针
+     * @details 使用 shared_ptr 管理 stream 对象生命周期，支持协程
+     * 上下文中的异步保活。通过 shared_from_this 实现安全回调。
      */
     using stream_pointer = std::shared_ptr<stream>;
 
+    /**
+     * @brief 创建 SOCKS5 流对象
+     * @param next_layer 底层传输层指针
+     * @param cfg SOCKS5 协议配置
+     * @return stream_pointer 流对象共享指针
+     * @details 工厂函数，封装 std::make_shared 调用，简化对象创建。
+     */
     inline stream_pointer make_stream(transport::transmission_pointer next_layer, const config &cfg = {})
     {
         return std::make_shared<stream>(std::move(next_layer), cfg);
