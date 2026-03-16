@@ -56,6 +56,11 @@ add_executable(integration_test integration_test.cpp)
 target_compile_options(integration_test PRIVATE -g1 -Os -fno-keep-inline-dllexport)
 target_link_libraries(integration_test PRIVATE ${PROJECT_NAME}_static_library)
 
+add_executable(regression_test regression_test.cpp)
+target_compile_options(regression_test PRIVATE -g1 -Os -fno-keep-inline-dllexport)
+target_link_libraries(regression_test PRIVATE ${PROJECT_NAME}_static_library)
+add_test(NAME regression_test COMMAND regression_test)
+
 add_subdirectory(concurrency)
 
 if(MINGW)
@@ -74,6 +79,7 @@ if(MINGW)
             trojan_client_test
             transmission_test
             integration_test
+            regression_test
             concurrency_server
             concurrency_client)
         if(TARGET ${target_name})

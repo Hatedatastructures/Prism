@@ -177,13 +177,10 @@ namespace ngx::transport
     /**
      * @brief 基于 Boost.Asio 包装的异步读取数据到传输对象
      * @details 这是一个包装函数，将 Boost.Asio 的异步读取接口适配到传输层接口。
-     * 该函数支持 Boost.Asio 的缓冲区序列和完成令牌，简化异步操作调用。
-     * 包装逻辑包括缓冲区转换，将 Boost.Asio 缓冲区序列转换为 std::span；
-     * 错误码映射，将项目错误码映射到 Boost.System 错误码；
-     * 协程包装，在协程中调用传输层的异步读取方法；
-     * 完成令牌，支持协程、回调等多种完成令牌。错误码映射方面，
-     * 项目错误码如果错误码类别是项目错误码，映射到 Boost.System 类别；
-     * 标准错误码否则映射到 Boost.System 通用类别。
+     * 该函数直接返回 awaitable，不使用 detached 协程，确保生命周期安全。
+     * 调用者必须确保 transmission 对象在整个异步操作期间保持有效。
+     * 当使用 net::use_awaitable 作为完成令牌时，直接返回 awaitable；
+     * 当使用其他完成令牌时，通过 async_initiate 桥接。
      * @tparam MutableBufferSequence 可变缓冲区序列类型，满足 MutableBufferSequence 概念
      * @tparam CompletionToken 完成令牌类型，满足 CompletionToken 要求
      * @param trans 传输对象引用
@@ -192,20 +189,28 @@ namespace ngx::transport
      * @return 异步操作初始化结果，具体类型取决于 CompletionToken
      * @note 该函数是模板，可自动推导返回类型。
      * @warning 缓冲区序列必须在整个异步操作期间保持有效。
+     * @warning 调用者必须确保 trans 对象在整个异步操作期间保持有效。
      * @throws std::bad_alloc 如果内存分配失败
      */
     template <typename MutableBufferSequence, typename CompletionToken>
     auto async_read_some(transmission &trans, const MutableBufferSequence &buffers, CompletionToken &&token)
     {
-        auto init = [&trans, buffers](auto handler) mutable
-        {
-            auto first = net::buffer_sequence_begin(buffers);
-            std::span<std::byte> span(reinterpret_cast<std::byte *>(first->data()), first->size());
+        auto first = net::buffer_sequence_begin(buffers);
+        std::span<std::byte> span(reinterpret_cast<std::byte *>(first->data()), first->size());
 
-            auto work = [&trans, span, handler = std::move(handler)]() mutable -> net::awaitable<void>
+        auto impl = [&trans, span]() -> net::awaitable<std::pair<std::size_t, std::error_code>>
+        {
+            std::error_code ec;
+            const auto n = co_await trans.async_read_some(span, ec);
+            co_return std::make_pair(n, ec);
+        };
+
+        auto init = [impl = std::move(impl)](auto &&handler) mutable
+        {
+            auto executor = net::get_associated_executor(handler);
+            auto work = [impl = std::move(impl), handler = std::forward<decltype(handler)>(handler)]() mutable -> net::awaitable<void>
             {
-                std::error_code ec;
-                const auto n = co_await trans.async_read_some(span, ec);
+                auto [n, ec] = co_await impl();
 
                 boost::system::error_code b_ec;
                 if (ec)
@@ -222,22 +227,19 @@ namespace ngx::transport
 
                 handler(b_ec, n);
             };
-            net::co_spawn(trans.executor(), std::move(work), net::detached);
+            net::co_spawn(executor, std::move(work), net::detached);
         };
 
-        return net::async_initiate<CompletionToken, void(boost::system::error_code, std::size_t)>(std::move(init), token);
+        return net::async_initiate<CompletionToken, void(boost::system::error_code, std::size_t)>(std::move(init),token);
     }
 
     /**
      * @brief 基于 Boost.Asio 包装的异步写入数据到传输对象
      * @details 这是一个包装函数，将 Boost.Asio 的异步写入接口适配到传输层接口。
-     * 该函数支持 Boost.Asio 的缓冲区序列和完成令牌，简化异步操作调用。
-     * 包装逻辑包括缓冲区转换，将 Boost.Asio 缓冲区序列转换为 std::span；
-     * 错误码映射，将项目错误码映射到 Boost.System 错误码；
-     * 协程包装，在协程中调用传输层的异步写入方法；
-     * 完成令牌，支持协程、回调等多种完成令牌。错误码映射方面，
-     * 项目错误码如果错误码类别是项目错误码，映射到 Boost.System 类别；
-     * 标准错误码否则映射到 Boost.System 通用类别。
+     * 该函数直接返回 awaitable，不使用 detached 协程，确保生命周期安全。
+     * 调用者必须确保 transmission 对象在整个异步操作期间保持有效。
+     * 当使用 net::use_awaitable 作为完成令牌时，直接返回 awaitable；
+     * 当使用其他完成令牌时，通过 async_initiate 桥接。
      * @tparam ConstBufferSequence 常量缓冲区序列类型，满足 ConstBufferSequence 概念
      * @tparam CompletionToken 完成令牌类型，满足 CompletionToken 要求
      * @param trans 传输对象引用
@@ -246,19 +248,28 @@ namespace ngx::transport
      * @return 异步操作初始化结果，具体类型取决于 CompletionToken
      * @note 该函数是模板，可自动推导返回类型。
      * @warning 缓冲区序列必须在整个异步操作期间保持有效。
+     * @warning 调用者必须确保 trans 对象在整个异步操作期间保持有效。
      * @throws std::bad_alloc 如果内存分配失败
      */
     template <typename ConstBufferSequence, typename CompletionToken>
     auto async_write_some(transmission &trans, const ConstBufferSequence &buffers, CompletionToken &&token)
     {
-        auto init = [&trans, buffers](auto handler) mutable
+        auto first = net::buffer_sequence_begin(buffers);
+        std::span<const std::byte> span(reinterpret_cast<const std::byte *>(first->data()), first->size());
+        // 写入数据到传输层
+        auto impl = [&trans, span]() -> net::awaitable<std::pair<std::size_t, std::error_code>>
         {
-            auto first = net::buffer_sequence_begin(buffers);
-            std::span<const std::byte> span(reinterpret_cast<const std::byte *>(first->data()), first->size());
-            auto work = [&trans, span, handler = std::move(handler)]() mutable -> net::awaitable<void>
+            std::error_code ec;
+            const auto n = co_await trans.async_write_some(span, ec);
+            co_return std::make_pair(n, ec);
+        };
+
+        auto init = [impl = std::move(impl)](auto &&handler) mutable
+        {
+            auto executor = net::get_associated_executor(handler);
+            auto work = [impl = std::move(impl), handler = std::forward<decltype(handler)>(handler)]() mutable -> net::awaitable<void>
             {
-                std::error_code ec;
-                const auto n = co_await trans.async_write_some(span, ec);
+                auto [n, ec] = co_await impl();
 
                 boost::system::error_code b_ec;
                 if (ec)
@@ -275,9 +286,10 @@ namespace ngx::transport
 
                 handler(b_ec, n);
             };
-            net::co_spawn(trans.executor(), std::move(work), net::detached);
+            net::co_spawn(executor, std::move(work), net::detached);
         };
-        return net::async_initiate<CompletionToken, void(boost::system::error_code, std::size_t)>(std::move(init), token);
+
+        return net::async_initiate<CompletionToken, void(boost::system::error_code, std::size_t)>(std::move(init),token);
     }
 
 }

@@ -12,7 +12,7 @@ namespace ngx::agent::connection
 
     session::~session()
     {
-        close();
+        release_resources();
     }
 
     void session::start()
@@ -21,7 +21,20 @@ namespace ngx::agent::connection
 
         auto process = [self = this->shared_from_this()]() -> net::awaitable<void>
         {
-            co_await self->diversion();
+            try
+            {
+                co_await self->diversion();
+            }
+            catch (const std::exception &e)
+            {
+                trace::error("[Session] Unhandled exception in diversion: {}", e.what());
+            }
+            catch (...)
+            {
+                trace::error("[Session] Unknown exception in diversion");
+            }
+
+            self->release_resources();
         };
 
         auto completion = [self = this->shared_from_this()](const std::exception_ptr &ep) noexcept
@@ -37,14 +50,18 @@ namespace ngx::agent::connection
             }
             catch (const abnormal::exception &e)
             {
-                trace::error(e.dump());
+                trace::error("[Session] Abnormal exception: {}", e.dump());
             }
             catch (const std::exception &e)
             {
-                trace::error(e.what());
+                trace::error("[Session] Standard exception: {}", e.what());
+            }
+            catch (...)
+            {
+                trace::error("[Session] Unknown exception type");
             }
 
-            self->close();
+            self->release_resources();
         };
 
         net::co_spawn(ctx_.worker.io_context, std::move(process), std::move(completion));
@@ -52,30 +69,57 @@ namespace ngx::agent::connection
 
     void session::close()
     {
-        auto close_and_reset = [](auto &ptr) noexcept
-        {   // 关闭并重置指针
-            if (ptr)
-            {
-                ptr->close();
-                ptr.reset();
-            }
-        };
-
-        if (closed_)
+        auto expected = state::active;
+        if (!state_.compare_exchange_strong(expected, state::closing, std::memory_order_acq_rel))
         {
             return;
         }
-        closed_ = true;
         trace::debug("[Session] Session closing.");
-        
-        close_and_reset(ctx_.inbound);
-        close_and_reset(ctx_.outbound);
+
+        if (ctx_.inbound)
+        {
+            ctx_.inbound->cancel();
+        }
+        if (ctx_.outbound)
+        {
+            ctx_.outbound->cancel();
+        }
+    }
+
+    void session::release_resources() noexcept
+    {
+        auto current = state_.load(std::memory_order_acquire);
+        if (current == state::closed)
+        {
+            return;
+        }
+
+        if (!state_.compare_exchange_strong(current, state::closed, std::memory_order_acq_rel))
+        {
+            return;
+        }
+
+        trace::debug("[Session] Session releasing resources.");
+
+        if (ctx_.inbound)
+        {
+            ctx_.inbound->close();
+            ctx_.inbound.reset();
+        }
+        if (ctx_.outbound)
+        {
+            ctx_.outbound->close();
+            ctx_.outbound.reset();
+        }
+
         if (on_closed_)
         {
             auto callback = std::move(on_closed_);
             on_closed_ = nullptr;
             callback();
         }
+
+        trace::debug("[Session] Session closed.");
     }
 
     auto session::diversion() -> net::awaitable<void>

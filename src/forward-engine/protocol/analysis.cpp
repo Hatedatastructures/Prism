@@ -115,6 +115,60 @@ namespace ngx::protocol
         return protocol_type::unknown;
     }
 
+    auto analysis::detect_inner(const std::string_view peek_data)
+        -> inner_protocol
+    {
+        static constexpr std::array<std::string_view, 9> http_methods = {
+            "GET ", "POST ", "HEAD ", "PUT ", "DELETE ",
+            "CONNECT ", "OPTIONS ", "TRACE ", "PATCH "};
+
+        for (const auto &method : http_methods)
+        {
+            if (peek_data.size() >= method.size() &&
+                peek_data.substr(0, method.size()) == method)
+            {
+                return inner_protocol::http;
+            }
+        }
+
+        constexpr std::size_t trojan_min_length = 60;
+        if (peek_data.size() < trojan_min_length)
+        {
+            return inner_protocol::undetermined;
+        }
+
+        for (std::size_t i = 0; i < 56; ++i)
+        {
+            const auto c = static_cast<unsigned char>(peek_data[i]);
+            const bool is_hex_digit = (c >= '0' && c <= '9') ||
+                                      (c >= 'a' && c <= 'f') ||
+                                      (c >= 'A' && c <= 'F');
+            if (!is_hex_digit)
+            {
+                return inner_protocol::http;
+            }
+        }
+
+        if (peek_data[56] != '\r' || peek_data[57] != '\n')
+        {
+            return inner_protocol::http;
+        }
+
+        const auto cmd = static_cast<unsigned char>(peek_data[58]);
+        if (cmd != 0x01 && cmd != 0x03)
+        {
+            return inner_protocol::http;
+        }
+
+        const auto atyp = static_cast<unsigned char>(peek_data[59]);
+        if (atyp != 0x01 && atyp != 0x03 && atyp != 0x04)
+        {
+            return inner_protocol::http;
+        }
+
+        return inner_protocol::trojan;
+    }
+
     auto analysis::resolve(const http::request &req, const memory::resource_pointer mr)
         -> analysis::target
     {
@@ -157,18 +211,57 @@ namespace ngx::protocol
 
     void analysis::parse(const std::string_view src, memory::string &host, memory::string &port)
     {
-        if (const auto pos = src.find(':'); pos != std::string_view::npos)
+        if (src.empty())
         {
-            host.assign(src.substr(0, pos).begin(), src.substr(0, pos).end());
-            port.assign(src.substr(pos + 1).begin(), src.substr(pos + 1).end());
-            if (port.empty())
+            return;
+        }
+
+        if (src[0] == '[')
+        {
+            const auto closing_bracket = src.find(']');
+            if (closing_bracket == std::string_view::npos)
+            {
+                host.assign(src.begin(), src.end());
+                return;
+            }
+
+            host.assign(src.substr(1, closing_bracket - 1).begin(), src.substr(1, closing_bracket - 1).end());
+
+            if (closing_bracket + 1 < src.size() && src[closing_bracket + 1] == ':')
+            {
+                port.assign(src.substr(closing_bracket + 2).begin(), src.substr(closing_bracket + 2).end());
+            }
+            else
             {
                 port.assign("80");
             }
         }
         else
         {
-            host.assign(src.begin(), src.end());
+            const auto last_colon = src.rfind(':');
+            if (last_colon != std::string_view::npos)
+            {
+                const auto first_colon = src.find(':');
+                if (first_colon == last_colon)
+                {
+                    host.assign(src.substr(0, last_colon).begin(), src.substr(0, last_colon).end());
+                    port.assign(src.substr(last_colon + 1).begin(), src.substr(last_colon + 1).end());
+                }
+                else
+                {
+                    host.assign(src.begin(), src.end());
+                    port.assign("80");
+                }
+
+                if (port.empty())
+                {
+                    port.assign("80");
+                }
+            }
+            else
+            {
+                host.assign(src.begin(), src.end());
+            }
         }
     }
 }

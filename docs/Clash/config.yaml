@@ -30,20 +30,39 @@ proxies:
     # username: your-user
     # password: your-pass
     udp: true
+  # http
+  - name: "http"
+    type: http
+    server: 192.168.137.1
+    port: 8081
+  # https
+  - name: "https"
+    type: http
+    server: 192.168.137.1
+    port: 8081
+    # username: username
+    # password: password
+    tls: true 
+    # skip-cert-verify: true
+    # sni: custom.com
 
 # ---------- 策略组 ----------
 proxy-groups:
-  - name: "🚀 我的代理"
+  - name: "🚀 forward 代理测试"
     type: select
     proxies:
       - "🏠 局域网 Trojan"
       - "🏠 局域网 SOCKS5"
+      - "http"
+      - "https"
 
-  - name: "⚡ 自动优选"
+  - name: "⚡ 自动"
     type: url-test
     proxies:
       - "🏠 局域网 Trojan"
       - "🏠 局域网 SOCKS5"
+      - "http"
+      - "https"
     url: "http://www.gstatic.com/generate_204"
     interval: 300
 
@@ -55,5 +74,5 @@ rules:
   - IP-CIDR,172.16.0.0/12,DIRECT
   - IP-CIDR,127.0.0.0/8,DIRECT
 
-  # 默认规则：所有未匹配流量走“🚀 我的代理”策略组
-  - MATCH,🚀 我的代理
+  # 默认规则：所有未匹配流量走“🚀 forward 代理测试”策略组
+  - MATCH,🚀 forward 代理测试

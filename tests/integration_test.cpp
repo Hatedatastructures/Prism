@@ -173,7 +173,7 @@ net::awaitable<int> trojan_echo_server_coro(net::ip::tcp::acceptor& acceptor, co
             return cred == expected_credential;
         };
         
-        auto trojan = ngx::protocol::trojan::make_trojan_stream(std::move(transport), {}, verifier);
+        auto trojan = ngx::protocol::trojan::make_relay(std::move(transport), {}, verifier);
         
         // 执行 Trojan 握手
         auto [ec, request] = co_await trojan->handshake();

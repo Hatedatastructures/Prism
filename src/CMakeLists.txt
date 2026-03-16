@@ -56,6 +56,8 @@ target_compile_definitions(${PROJECT_NAME}_static_library
         BOOST_ASIO_HEADER_ONLY
         BOOST_ASIO_USE_OPENSSL
         BOOST_ASIO_CONCURRENCY_HINT_UNSAFE  # : 禁用 io_context 内部所有互斥锁
+        BOOST_ASIO_DISABLE_VISIBILITY       # : 解决 use_awaitable 重复符号问题
+#        BOOST_ASIO_ENABLE_HANDLER_TRACKING  # : 启用处理程序跟踪
         WIN32_LEAN_AND_MEAN
 )
 

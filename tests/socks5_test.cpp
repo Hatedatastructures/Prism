@@ -28,7 +28,7 @@ net::awaitable<void> do_socks5_server(tcp::acceptor &acceptor)
 
         // 创建 SOCKS5 实例
         auto reliable = transport::make_reliable(std::move(socket));
-        auto socks5 = std::make_shared<protocol::socks5::stream>(std::move(reliable));
+        auto socks5 = std::make_shared<protocol::socks5::relay>(std::move(reliable));
 
         // 执行握手，获取目标地址信息
         std::cout << "服务器开始 SOCKS5 握手..." << std::endl;

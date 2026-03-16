@@ -120,7 +120,7 @@ namespace ngx::transport
         static auto create_trojan(transmission_pointer next_layer,std::function<bool(std::string_view)> credential_verifier = nullptr)
             -> transmission_pointer
         {
-            return protocol::trojan::make_trojan_stream(std::move(next_layer), std::move(credential_verifier));
+            return protocol::trojan::make_relay(std::move(next_layer), {}, std::move(credential_verifier));
         }
     };
 

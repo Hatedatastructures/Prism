@@ -9,6 +9,7 @@
 
 #include <forward-engine/agent/config.hpp>
 #include <forward-engine/agent/distribution/router.hpp>
+#include <forward-engine/agent/account/entry.hpp>
 #include <forward-engine/memory/pool.hpp>
 #include <forward-engine/transport/transmission.hpp>
 #include <boost/asio.hpp>
@@ -17,6 +18,7 @@
 #include <functional>
 #include <memory>
 #include <string_view>
+#include <optional>
 
 /**
  * @namespace ngx::agent
@@ -88,6 +90,7 @@ namespace ngx::agent
      * @note 帧内存池用于会话期间的临时分配，会话结束后自动回收。
      * @warning 凭据验证器可能为空，使用前应检查有效性。
      * 入站和出站传输对象由会话管理，确保正确释放。
+     * account_lease 用于持有账户连接租约，确保连接限制生效。
      */
     struct session_context
     {
@@ -114,6 +117,9 @@ namespace ngx::agent
 
         // 出站传输对象，处理发往目标服务器的数据
         transport::transmission_pointer outbound;
+
+        // 账户连接租约，持有期间保持连接计数，会话结束时自动释放
+        account::lease account_lease;
     };
 
 }

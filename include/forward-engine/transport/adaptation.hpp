@@ -20,6 +20,7 @@
 #include <utility>
 #include <forward-engine/transport/transmission.hpp>
 #include <forward-engine/memory/container.hpp>
+#include <forward-engine/gist/compatible.hpp>
 
 /**
  * @namespace ngx::transport
@@ -55,10 +56,12 @@ namespace ngx::transport
      * 确保顺序读取，预读数据耗尽后委托给底层 transmission。线程安全性设计方面，
      * 适配器设计为单线程使用，不应在多线程间共享；支持移动构造和移动赋值，
      * 正确处理所有权转移；提供 release 方法释放底层 transmission 所有权。
+     * 生命周期安全方面，调用者必须确保 connector 在所有异步操作完成前保持有效。
      * @tparam TransmissionPtr 传输层指针类型，通常是 std::unique_ptr<transmission>
      * @note 该适配器主要用于协议处理阶段，不应在连接管理阶段使用。
      * @warning 预读数据必须与协议检测时读取的数据完全一致，
      * 否则会导致协议解析失败。
+     * @warning 调用者必须确保 connector 在所有异步操作完成前保持有效。
      * @throws std::bad_alloc 如果预读缓冲区分配失败
      */
     template <typename TransmissionPtr>
@@ -157,6 +160,7 @@ namespace ngx::transport
          * @return 异步操作结果，类型取决于完成令牌
          * @note 预读数据会优先返回，确保协议检测时读取的数据不丢失。
          * @warning 读取操作可能阻塞，建议在协程中调用。
+         * @warning 调用者必须确保 connector 在异步操作完成前保持有效。
          */
         template <typename MutableBufferSequence, typename CompletionToken>
         auto async_read_some(const MutableBufferSequence &buffers, CompletionToken &&token)
@@ -168,7 +172,7 @@ namespace ngx::transport
                 auto buf_it = net::buffer_sequence_begin(buffers);
                 auto buf_end = net::buffer_sequence_end(buffers);
                 for (; buf_it != buf_end && bytes_to_copy < bytes_available; ++buf_it)
-                {
+                {   // 遍历缓冲区序列，复制数据到用户缓冲区
                     auto buf = *buf_it;
                     std::size_t buf_size = buf.size();
                     std::size_t copy_size = std::min(buf_size, bytes_available - bytes_to_copy);
@@ -176,14 +180,15 @@ namespace ngx::transport
                     bytes_to_copy += copy_size;
                 }
                 preread_offset_ += bytes_to_copy;
-                return net::async_initiate<CompletionToken, void(boost::system::error_code, std::size_t)>(
-                    [bytes_to_copy]<typename T0>(T0 &&handler)
-                    {
-                        boost::system::error_code ec;
-                        std::forward<T0>(handler)(ec, bytes_to_copy);
-                    },
-                    token);
+                // 调用完成令牌，传递读取到的字节数
+                auto handler = [bytes_to_copy]<typename Callback>(Callback &&handler)
+                {
+                    boost::system::error_code ec;
+                    std::forward<Callback>(handler)(ec, bytes_to_copy);
+                };
+                return net::async_initiate<CompletionToken, void(boost::system::error_code, std::size_t)>(handler,token);
             }
+
             return ngx::transport::async_read_some(*trans_, buffers, std::forward<CompletionToken>(token));
         }
 
@@ -201,6 +206,7 @@ namespace ngx::transport
          * @return 异步操作结果，类型取决于完成令牌
          * @note 写入操作会阻塞，建议在协程中调用。
          * @warning 写入操作可能失败，请检查返回的错误码。
+         * @warning 调用者必须确保 connector 在异步操作完成前保持有效。
          */
         template <typename ConstBufferSequence, typename CompletionToken>
         auto async_write_some(const ConstBufferSequence &buffers, CompletionToken &&token)

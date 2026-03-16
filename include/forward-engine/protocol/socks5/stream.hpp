@@ -1,9 +1,9 @@
 /**
  * @file stream.hpp
- * @brief SOCKS5 协议流封装
- * @details 实现完整的 SOCKS5 协议（RFC 1928）服务端流封装，提供
+ * @brief SOCKS5 协议中继器
+ * @details 实现完整的 SOCKS5 协议（RFC 1928）服务端中继器，提供
  * 协程友好的高级 API。该类继承自 transport::transmission，将底层
- * 传输层包装为 SOCKS5 协议流，处理握手、认证、请求解析和响应
+ * 传输层包装为 SOCKS5 协议中继，处理握手、认证、请求解析和响应
  * 生成。核心特性包括协议完整性（支持 CONNECT 和 UDP_ASSOCIATE
  * 命令）、地址类型全面（支持 IPv4、IPv6 和域名）、错误处理完善
  * （使用 gist::code 错误码系统）、能力控制（通过 config 结构控制
@@ -35,12 +35,12 @@ namespace ngx::protocol::socks5
     namespace net = boost::asio;
 
     /**
-     * @class stream
-     * @brief SOCKS5 协议流封装
-     * @details 将底层传输层封装为完整的 SOCKS5 协议流，提供协程友好的
+     * @class relay
+     * @brief SOCKS5 协议中继器
+     * @details 将底层传输层封装为完整的 SOCKS5 协议中继，提供协程友好的
      * 高层 API。该类实现了 SOCKS5 协议的服务端逻辑，包括方法协商、请求
-     * 处理和响应生成。stream 对象持有 next_layer_ 的独占所有权，其生命
-     * 周期与 stream 对象绑定。调用 close() 后 next_layer_ 仍有效，可
+     * 处理和响应生成。relay 对象持有 next_layer_ 的独占所有权，其生命
+     * 周期与 relay 对象绑定。调用 close() 后 next_layer_ 仍有效，可
      * 再次使用；析构时通过 unique_ptr 自动释放底层资源，无需显式定义
      * 析构函数。也可以通过 release() 提前转移所有权，但转移后不应再
      * 调用读写方法。
@@ -51,7 +51,7 @@ namespace ngx::protocol::socks5
      * @warning 严格遵循 RFC 1928，但某些扩展特性可能不受支持
      * @warning 不支持并发访问，调用者需保证顺序执行
      */
-    class stream : public transport::transmission, public std::enable_shared_from_this<stream>
+    class relay : public transport::transmission, public std::enable_shared_from_this<relay>
     {
     public:
         // 路由回调函数类型，用于根据目标地址选择本地端点
@@ -61,13 +61,13 @@ namespace ngx::protocol::socks5
          * @brief 构造函数
          * @param next_layer 已经建立连接的底层传输层智能指针
          * @param cfg SOCKS5 协议配置
-         * @details 构造 SOCKS5 协议流封装对象，接管底层传输层的所有权。
+         * @details 构造 SOCKS5 协议中继对象，接管底层传输层的所有权。
          * 构造后对象处于初始状态，等待客户端发起 SOCKS5 握手流程。
          * @warning 构造函数通过独占智能指针获取底层传输层的所有权，
          * 调用者不应再使用原指针
          * @note 底层传输层必须已建立连接，否则后续操作将失败
          */
-        explicit stream(transport::transmission_pointer next_layer, const config &cfg = {})
+        explicit relay(transport::transmission_pointer next_layer, const config &cfg = {})
             : next_layer_(std::move(next_layer)), config_(cfg)
         {
         }
@@ -439,7 +439,7 @@ namespace ngx::protocol::socks5
                 auto token = net::redirect_error(net::use_awaitable, read_ec);
                 net::ip::udp::endpoint client_endpoint;
                 const auto ingress_n = co_await ingress_socket.async_receive_from(
-                    net::buffer(ingress_buffer.data(), ingress_buffer.size()),client_endpoint,token);
+                    net::buffer(ingress_buffer.data(), ingress_buffer.size()), client_endpoint, token);
                 if (read_ec)
                 {
                     if (read_ec == net::error::operation_aborted)
@@ -579,7 +579,7 @@ namespace ngx::protocol::socks5
         auto negotiated_authentication() const
             -> net::awaitable<std::pair<gist::code, auth_method>>
         {
-            std::array<std::uint8_t, 257> methods_buffer{};
+            std::array<std::uint8_t, 258> methods_buffer{};
 
             std::error_code ec;
             co_await async_read_impl(std::span(reinterpret_cast<std::byte *>(methods_buffer.data()), 2), ec);
@@ -833,21 +833,29 @@ namespace ngx::protocol::socks5
     };
 
     /**
-     * @brief SOCKS5 流共享智能指针
-     * @details 使用 shared_ptr 管理 stream 对象生命周期，支持协程
+     * @brief SOCKS5 中继器共享智能指针
+     * @details 使用 shared_ptr 管理 relay 对象生命周期，支持协程
      * 上下文中的异步保活。通过 shared_from_this 实现安全回调。
      */
-    using stream_pointer = std::shared_ptr<stream>;
+    using relay_pointer = std::shared_ptr<relay>;
 
     /**
-     * @brief 创建 SOCKS5 流对象
+     * @brief 创建 SOCKS5 中继器对象
      * @param next_layer 底层传输层指针
      * @param cfg SOCKS5 协议配置
-     * @return stream_pointer 流对象共享指针
+     * @return relay_pointer 中继器对象共享指针
      * @details 工厂函数，封装 std::make_shared 调用，简化对象创建。
      */
+    inline relay_pointer make_relay(transport::transmission_pointer next_layer, const config &cfg = {})
+    {
+        return std::make_shared<relay>(std::move(next_layer), cfg);
+    }
+
+    // 兼容旧名称，将在未来版本移除
+    using stream = relay;
+    using stream_pointer = relay_pointer;
     inline stream_pointer make_stream(transport::transmission_pointer next_layer, const config &cfg = {})
     {
-        return std::make_shared<stream>(std::move(next_layer), cfg);
+        return make_relay(std::move(next_layer), cfg);
     }
 }

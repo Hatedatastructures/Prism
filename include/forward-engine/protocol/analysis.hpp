@@ -49,6 +49,46 @@ namespace ngx::protocol
     };
 
     /**
+     * @enum inner_protocol
+     * @brief TLS 内部协议类型枚举
+     * @details 标识 TLS 握手后内部承载的应用层协议类型。TLS 连接可以
+     * 承载多种协议，如 HTTPS（HTTP over TLS）或 Trojan（代理协议 over TLS）。
+     * 该枚举用于 TLS 握手后的二次协议探测，区分不同的 TLS 子协议。
+     * 探测策略方面，Trojan 协议以 56 字节的十六进制凭据开头，HTTPS 协议
+     * 以 HTTP 方法（GET、POST 等）开头。探测逻辑检查前 56 字节是否全部
+     * 为有效的十六进制字符，如果是则判定为 Trojan，否则判定为 HTTPS。
+     * undetermined 表示数据不足以判断，需要继续读取。
+     * @note 该枚举仅用于 TLS 握手后的内部协议探测。
+     * @warning 探测结果基于有限数据，存在误判可能。
+     */
+    enum class inner_protocol
+    {
+        undetermined,
+        http,
+        trojan
+    };
+
+    /**
+     * @brief 将内部协议类型转换为字符串视图
+     * @param type 内部协议类型枚举值
+     * @return 内部协议类型的字符串表示
+     */
+    inline auto to_string_view(const inner_protocol type) -> std::string_view
+    {
+        switch (type)
+        {
+        case inner_protocol::undetermined:
+            return "undetermined";
+        case inner_protocol::http:
+            return "http";
+        case inner_protocol::trojan:
+            return "trojan";
+        default:
+            return "unknown";
+        }
+    }
+
+    /**
      * @brief 将协议类型转换为字符串视图
      * @details 将 protocol_type 枚举值转换为可读的字符串表示，用于日志
      * 输出、调试和监控。该函数提供编译时已知的字符串字面量，无运行时
@@ -191,6 +231,25 @@ namespace ngx::protocol
          */
         static auto detect(std::string_view peek_data)
             -> protocol_type;
+
+        /**
+         * @brief 探测 TLS 内部协议类型
+         * @details 在 TLS 握手完成后，探测内部承载的应用层协议类型。
+         * 该方法用于区分 HTTPS 和 Trojan over TLS 等协议。探测策略为
+         * 检查前 56 字节是否全部为有效的十六进制字符（0-9、a-f、A-F），
+         * 如果是则判定为 Trojan 协议（Trojan 凭据为 56 字节十六进制字符串），
+         * 否则判定为 HTTPS 协议。探测逻辑方面，Trojan 协议格式为
+         * 56 字节凭据 + CRLF + 命令 + 地址 + CRLF，凭据是密码的 SHA224
+         * 哈希值。HTTPS 协议以 HTTP 方法开头，如 GET、POST、CONNECT 等。
+         * 误判风险方面，理论上存在极小概率的 HTTP 请求前 56 字节恰好
+         * 全部为十六进制字符，但实际中几乎不可能发生。
+         * @param peek_data TLS 握手后读取的数据，建议至少 56 字节
+         * @return inner_protocol 检测到的内部协议类型
+         * @note 数据不足 56 字节时默认返回 inner_protocol::http。
+         * @warning 探测结果基于有限数据，存在极小概率误判。
+         */
+        static auto detect_inner(std::string_view peek_data)
+            -> inner_protocol;
 
     private:
         /**

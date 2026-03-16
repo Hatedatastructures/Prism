@@ -20,6 +20,7 @@
 #include <functional>
 #include <string_view>
 #include <span>
+#include <atomic>
 
 #include <boost/asio.hpp>
 #include <boost/asio/experimental/awaitable_operators.hpp>
@@ -69,6 +70,9 @@ namespace ngx::agent::connection
      * 对象不会被意外销毁。会话内部持有入站和出站两个传输层，以及帧内存池、
      * 缓冲区等运行时资源。协议检测采用预读探测方式，根据前 24 字节数据
      * 识别协议类型后分派到对应的处理管道。
+     * 生命周期管理采用"先停、再收"模型：close() 只负责标记关闭状态、
+     * 取消底层连接，不立即 reset 传输对象；资源释放在主处理协程退出后
+     * 或析构时统一进行，避免异步操作访问已释放对象。
      * @note 会话对象必须通过 std::shared_ptr 管理，禁止在栈上创建实例。
      * @note 构造后应立即调用 start() 方法启动异步处理流程，避免资源泄漏。
      * @warning 入站传输层的所有权将从参数转移到会话对象内部。
@@ -78,6 +82,17 @@ namespace ngx::agent::connection
     class session : public std::enable_shared_from_this<session>
     {
     public:
+        /**
+         * @brief 会话生命周期状态
+         * @details 用于跟踪会话的当前状态，确保关闭流程的正确性。
+         */
+        enum class state : std::uint8_t
+        {
+            active,     // 活跃状态，正常处理中
+            closing,    // 正在关闭，已取消底层连接
+            closed      // 已关闭，资源已释放
+        };
+
         /**
          * @brief 构造会话对象
          * @details 初始化会话的所有核心组件，包括传输层引用、内存池分配器和
@@ -122,10 +137,10 @@ namespace ngx::agent::connection
 
         /**
          * @brief 关闭会话并释放资源
-         * @details 强制关闭所有关联的传输层并释放资源。关闭操作会依次关闭
-         * 入站传输层和出站传输层，取消所有未完成的异步操作，并释放底层
-         * socket 资源。关闭完成后会触发注册的关闭回调函数（如果有）。
-         * 该方法是幂等的，多次调用无副作用，内部通过 closed_ 标志位保证。
+         * @details 标记会话为关闭状态，取消底层连接。采用"先停、再收"模型：
+         * close() 只负责标记关闭状态、取消底层连接，不立即 reset 传输对象；
+         * 资源释放在主处理协程退出后或析构时统一进行。
+         * 该方法是幂等的，多次调用无副作用，内部通过状态机保证。
          * @note 该函数是幂等的，多次调用无副作用。
          * @warning 关闭后会话对象不再可用，不应再调用任何其他方法。
          * @warning 该方法不抛出异常。
@@ -198,9 +213,16 @@ namespace ngx::agent::connection
          */
         auto diversion() -> net::awaitable<void>;
 
-        memory::frame_arena frame_arena_;  // 帧内存池
-        bool closed_{false};               // 会话是否已关闭
-        std::function<void()> on_closed_;  // 关闭回调
+        /**
+         * @brief 释放所有资源
+         * @details 关闭并释放传输层对象，触发关闭回调。
+         * 该方法只在确定没有异步操作运行时调用，确保安全释放。
+         */
+        void release_resources() noexcept;
+
+        memory::frame_arena frame_arena_;    // 帧内存池
+        std::atomic<state> state_{state::active}; // 会话状态（原子操作保证线程安全）
+        std::function<void()> on_closed_;    // 关闭回调
 
         session_context ctx_; // 会话上下文，持有所有状态
     };

@@ -14,13 +14,13 @@
 #include <forward-engine/abnormal.hpp>
 #include <forward-engine/core/configuration.hpp>
 #include <forward-engine/adapter/load.hpp>
+#include <forward-engine/crypto/sha224.hpp>
 namespace agent = ngx::agent;
 constexpr std::string_view configuration_path = {R"(C:\Users\C1373\Desktop\code\forward-engine\src\configuration.json)"};
 
 int main()
 {
     ngx::memory::system::enable_global_pooling();
-    ngx::agent::dispatch::register_handlers();
     try
     {
         const auto threads_count = std::thread::hardware_concurrency();
@@ -30,17 +30,19 @@ int main()
         }
         auto [agent, trace] = ngx::adapter::load(configuration_path);
         ngx::trace::init(trace);
-
+        ngx::agent::dispatch::register_handlers();
         const auto account_store = std::make_shared<agent::account::directory>(ngx::memory::system::global_pool());
         const auto &[credentials, users] = agent.authentication;
         account_store->reserve(credentials.size() + users.size());
         for (const auto &cred : credentials)
         {
-            account_store->upsert(std::string_view(cred.data(), cred.size()));
+            const auto normalized = ngx::crypto::normalize_credential(std::string_view(cred.data(), cred.size()));
+            account_store->upsert(normalized);
         }
         for (const auto &[credential, max_connections] : users)
         {
-            account_store->upsert(std::string_view(credential.data(), credential.size()), max_connections);
+            const auto normalized = ngx::crypto::normalize_credential(std::string_view(credential.data(), credential.size()));
+            account_store->upsert(normalized, max_connections);
         }
 
         const std::uint32_t workers_count = threads_count > 1U ? threads_count - 1U : 1U;

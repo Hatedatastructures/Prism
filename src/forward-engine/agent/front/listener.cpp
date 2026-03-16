@@ -5,17 +5,34 @@
 namespace ngx::agent::front
 {
     listener::listener(const config &cfg, balancer &dispatcher)
-        : ioc_(1),
-          acceptor_(ioc_),
-          dispatcher_(dispatcher),
-          buffer_size_(cfg.buffer.size),
-          backpressure_delay_(2)
+        : ioc_(1),acceptor_(ioc_),dispatcher_(dispatcher),
+          buffer_size_(cfg.buffer.size),backpressure_delay_(2)
     {
-        const tcp::endpoint endpoint(tcp::v4(), cfg.addressable.port);
+        net::ip::address addr;
+        boost::system::error_code ec;
+        addr = net::ip::make_address(cfg.addressable.host, ec);
+        if (ec)
+        {   // 目前不支持 IPv6 地址，仅支持 IPv4 地址
+            if (cfg.addressable.host == "localhost")
+            {   // 如果为 localhost，则使用回环地址 127.0.0.1
+                addr = net::ip::address_v4::loopback();
+            }
+            else if (cfg.addressable.host == "0.0.0.0" || cfg.addressable.host.empty())
+            {   // 如果为 0.0.0.0 或空字符串，则使用所有接口
+                addr = net::ip::address_v4::any();
+            }
+            else
+            {
+                throw std::system_error(ec, "Invalid listen address: " + std::string(cfg.addressable.host) + 
+                    ". Use IP address (e.g., 0.0.0.0, 127.0.0.1, ::) instead of hostname.");
+            }
+        }
+
+        const tcp::endpoint endpoint(addr, cfg.addressable.port);
         acceptor_.open(endpoint.protocol());
         acceptor_.set_option(net::socket_base::reuse_address(true));
-        acceptor_.set_option(net::socket_base::receive_buffer_size(262144));
-        acceptor_.set_option(net::socket_base::send_buffer_size(262144));
+        acceptor_.set_option(net::socket_base::receive_buffer_size(cfg.buffer.size));
+        acceptor_.set_option(net::socket_base::send_buffer_size(cfg.buffer.size));
         acceptor_.bind(endpoint);
         acceptor_.listen();
     }

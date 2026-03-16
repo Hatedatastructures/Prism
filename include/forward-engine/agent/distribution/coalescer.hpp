@@ -97,7 +97,8 @@ namespace ngx::agent::distribution
          * @param executor 执行器，用于创建等待定时器。
          * @return 请求合并记录的迭代器和是否为新创建的标志。
          * @details 若该键对应的请求正在进行中，返回现有记录；
-         * 否则创建新地请求记录。
+         * 否则创建新的请求记录。键存储在 flight 对象中，确保
+         * 哈希表中的 string_view 键指向有效的内存。
          */
         auto find_or_create(const memory::string &key, const net::any_io_executor &executor)
             -> std::pair<flight_iterator, bool>
@@ -110,7 +111,7 @@ namespace ngx::agent::distribution
 
             flights_.emplace_back(key, executor);
             const auto flight_it = std::prev(flights_.end());
-            flight_map_.emplace(key_view, flight_it);
+            flight_map_.emplace(std::string_view(flight_it->key), flight_it);
             return {flight_it, true};
         }
 
