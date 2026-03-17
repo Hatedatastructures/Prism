@@ -23,8 +23,8 @@ target_sources(${PROJECT_NAME}_static_library
             ${PROJECT_SOURCE_DIR}/include/forward-engine/transformer/json.hpp
 )
 
+add_subdirectory(channel)
 add_subdirectory(protocol)
-add_subdirectory(transport)
 add_subdirectory(trace)
 add_subdirectory(rule)
 add_subdirectory(agent)

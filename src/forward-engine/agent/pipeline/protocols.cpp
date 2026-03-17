@@ -1,6 +1,6 @@
 #include <forward-engine/agent/pipeline/protocols.hpp>
 #include <forward-engine/protocol/trojan.hpp>
-#include <forward-engine/transport/secure.hpp>
+#include <forward-engine/channel/transport/secure.hpp>
 #include <forward-engine/agent/account/directory.hpp>
 
 namespace ngx::agent::pipeline
@@ -8,8 +8,8 @@ namespace ngx::agent::pipeline
     auto http(session_context &ctx, std::span<const std::byte> data)
         -> net::awaitable<void>
     {
-        transport::connector stream(std::move(ctx.inbound));
-        transport::transmission_pointer outbound;
+        ngx::channel::connector stream(std::move(ctx.inbound));
+        ngx::channel::transport::transmission_pointer outbound;
 
         ctx.frame_arena.reset();
         auto mr = ctx.frame_arena.get();
@@ -40,19 +40,20 @@ namespace ngx::agent::pipeline
 
         if (req.method() == protocol::http::verb::connect)
         {
-            boost::system::error_code ec;
             constexpr std::string_view resp = {"HTTP/1.1 200 Connection Established\r\n\r\n"};
-            co_await stream.async_write_some(net::buffer(resp), net::redirect_error(net::use_awaitable, ec));
-            if (!ec)
+            boost::system::error_code write_ec;
+            co_await net::async_write(stream, net::buffer(resp), net::redirect_error(net::use_awaitable, write_ec));
+            if (!write_ec)
             {
-                co_await primitives::original_tunnel(stream.release(), std::move(outbound), mr, ctx.buffer_size);
+                co_await primitives::original_tunnel(stream.release(), std::move(outbound), ctx);
             }
             co_return;
         }
 
         std::error_code ec;
         const auto req_data = protocol::http::serialize(req, mr);
-        co_await outbound->async_write_some(std::span(reinterpret_cast<const std::byte *>(req_data.data()), req_data.size()), ec);
+        co_await outbound->async_write(
+            std::span(reinterpret_cast<const std::byte *>(req_data.data()), req_data.size()), ec);
         if (ec)
             co_return;
 
@@ -60,12 +61,12 @@ namespace ngx::agent::pipeline
         {
             auto buf = read_buffer.data();
             std::span span(static_cast<const std::byte *>(buf.data()), buf.size());
-            co_await outbound->async_write_some(span, ec);
+            co_await outbound->async_write(span, ec);
             if (ec)
                 co_return;
         }
 
-        co_await primitives::original_tunnel(stream.release(), std::move(outbound), mr, ctx.buffer_size);
+        co_await primitives::original_tunnel(stream.release(), std::move(outbound), ctx);
     }
 
     auto socks5(session_context &ctx, const std::span<const std::byte> data)
@@ -83,7 +84,7 @@ namespace ngx::agent::pipeline
             inbound = std::make_unique<primitives::preview>(std::move(inbound), data);
         }
 
-        const auto agent = protocol::socks5::make_relay(std::move(inbound));
+        const auto agent = protocol::socks5::make_relay(std::move(inbound), ctx.server.cfg.socks5);
         auto [ec, request] = co_await agent->handshake();
         if (gist::failed(ec))
         {
@@ -114,7 +115,7 @@ namespace ngx::agent::pipeline
                 co_return;
             }
             auto trans_ptr = agent->release();
-            co_await primitives::original_tunnel(std::move(trans_ptr), std::move(outbound), ctx.frame_arena.get(), ctx.buffer_size);
+            co_await primitives::original_tunnel(std::move(trans_ptr), std::move(outbound), ctx);
             break;
         }
         case protocol::socks5::command::udp_associate:
@@ -148,6 +149,17 @@ namespace ngx::agent::pipeline
         }
 
         trace::debug("[Pipeline] TLS handshake succeeded, detecting inner protocol");
+
+        // 注册活跃流清理回调，确保 session.close() 能关闭 TLS 流
+        ctx.active_stream_cancel = [ssl_stream]() noexcept
+        {
+            ssl_stream->lowest_layer().transmission().cancel();
+        };
+        ctx.active_stream_close = [ssl_stream]() noexcept
+        {
+            // 直接关闭底层传输（SSL shutdown 需要 read_some 接口，connector 不支持）
+            ssl_stream->lowest_layer().transmission().close();
+        };
 
         constexpr std::size_t min_detect_size = 60;
         constexpr std::chrono::seconds probe_timeout(5);
@@ -194,8 +206,7 @@ namespace ngx::agent::pipeline
             const auto bytes_read = std::get<0>(result);
             probe_buffer.insert(probe_buffer.end(), temp_buffer.begin(), temp_buffer.begin() + bytes_read);
 
-            inner_type = protocol::analysis::detect_inner(
-                std::string_view(reinterpret_cast<const char *>(probe_buffer.data()), probe_buffer.size()));
+            inner_type = protocol::analysis::detect_inner(std::string_view(reinterpret_cast<const char *>(probe_buffer.data()), probe_buffer.size()));
 
             if (inner_type != protocol::inner_protocol::undetermined)
             {
@@ -205,7 +216,7 @@ namespace ngx::agent::pipeline
             trace::debug("[Pipeline] TLS inner protocol undetermined after {} bytes, continuing probe", probe_buffer.size());
         }
 
-        trace::info("[Pipeline] TLS inner protocol detected: {}", protocol::to_string_view(inner_type));
+        trace::debug("[Pipeline] TLS inner protocol detected: {}", protocol::to_string_view(inner_type));
 
         const auto preread = std::span<const std::byte>(probe_buffer.data(), probe_buffer.size());
 
@@ -222,8 +233,7 @@ namespace ngx::agent::pipeline
         }
     }
 
-    auto https(session_context &ctx, primitives::shared_ssl_stream ssl_stream,
-               std::span<const std::byte> preread)
+    auto https(session_context &ctx, primitives::shared_ssl_stream ssl_stream, std::span<const std::byte> preread)
         -> net::awaitable<void>
     {
         if (!ssl_stream)
@@ -232,7 +242,7 @@ namespace ngx::agent::pipeline
             co_return;
         }
 
-        transport::transmission_pointer outbound;
+        ngx::channel::transport::transmission_pointer outbound;
 
         ctx.frame_arena.reset();
         auto mr = ctx.frame_arena.get();
@@ -270,14 +280,14 @@ namespace ngx::agent::pipeline
             co_await net::async_write(*ssl_stream, net::buffer(resp),token);
             if (!write_ec)
             {
-                co_await primitives::original_tunnel(ssl_stream, std::move(outbound), mr, ctx.buffer_size);
+                co_await primitives::original_tunnel(ssl_stream, std::move(outbound), ctx);
             }
             co_return;
         }
 
         std::error_code ec;
         const auto req_data = protocol::http::serialize(req, mr);
-        co_await outbound->async_write_some(std::span(reinterpret_cast<const std::byte *>(req_data.data()), req_data.size()), ec);
+        co_await outbound->async_write( std::span(reinterpret_cast<const std::byte *>(req_data.data()), req_data.size()), ec);
         if (ec)
             co_return;
 
@@ -285,12 +295,12 @@ namespace ngx::agent::pipeline
         {
             auto buf = read_buffer.data();
             std::span span(static_cast<const std::byte *>(buf.data()), buf.size());
-            co_await outbound->async_write_some(span, ec);
+            co_await outbound->async_write(span, ec);
             if (ec)
                 co_return;
         }
 
-        co_await primitives::original_tunnel(ssl_stream, std::move(outbound), mr, ctx.buffer_size);
+        co_await primitives::original_tunnel(ssl_stream, std::move(outbound), ctx);
     }
 
     auto trojan(session_context &ctx, primitives::shared_ssl_stream ssl_stream, std::span<const std::byte> preread)
@@ -302,7 +312,7 @@ namespace ngx::agent::pipeline
             co_return;
         }
         // 包装一层抹平的函数差异
-        auto tls_trans = std::make_unique<transport::secure>(ssl_stream);
+        auto tls_trans = std::make_unique<ngx::channel::transport::secure>(ssl_stream);
         // 获取凭证验证器，将 lease 存入 session_context 以保持整个连接生命周期
         auto verifier = [&ctx](const std::string_view credential) -> bool
         {
@@ -322,20 +332,14 @@ namespace ngx::agent::pipeline
             trace::debug("[Pipeline] Trojan credential verified, lease acquired and stored in session context");
             return true;
         };
-        // 配置协议
-        constexpr protocol::trojan::config trojan_cfg{
-            .enable_tcp = true, 
-            .enable_udp = true, // 当前udp还未支持，但是clash配置文件中用的是纯tcp
-            .udp_idle_timeout = 60,
-            .udp_max_datagram = 65535};
-
-        transport::transmission_pointer trans = std::move(tls_trans);
+        ngx::channel::transport::transmission_pointer trans = std::move(tls_trans);
         if (!preread.empty())
         {
             trans = std::make_unique<primitives::preview>(std::move(trans), preread);
         }
 
-        const auto trojan_relay = protocol::trojan::make_relay(std::move(trans), trojan_cfg, std::move(verifier));
+        const auto trojan_relay = protocol::trojan::make_relay(
+            std::move(trans), ctx.server.cfg.trojan, std::move(verifier));
 
         auto [handshake_ec, req] = co_await trojan_relay->handshake();
         if (gist::failed(handshake_ec))
@@ -364,7 +368,7 @@ namespace ngx::agent::pipeline
             }
 
             auto raw_trans = trojan_relay->release();
-            co_await primitives::original_tunnel(std::move(raw_trans), std::move(outbound), ctx.frame_arena.get(), ctx.buffer_size);
+            co_await primitives::original_tunnel(std::move(raw_trans), std::move(outbound), ctx);
             break; // 忙转发
         }
         case protocol::trojan::command::udp_associate:

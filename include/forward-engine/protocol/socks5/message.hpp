@@ -16,7 +16,7 @@
 #include <boost/asio/ip/address.hpp>
 
 #include <forward-engine/protocol/socks5/constants.hpp>
-#include <forward-engine/transport/form.hpp>
+#include <forward-engine/protocol/common/form.hpp>
 #include <forward-engine/memory/container.hpp>
 
 namespace ngx::protocol::socks5
@@ -105,7 +105,7 @@ namespace ngx::protocol::socks5
         address destination_address;
 
         // 传输形式（stream 或 datagram）
-        transport::form form = transport::form::stream;
+        ngx::protocol::form form = ngx::protocol::form::stream;
     };
 
     /**

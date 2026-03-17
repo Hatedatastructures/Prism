@@ -31,7 +31,7 @@
 #include <forward-engine/protocol/analysis.hpp>
 #include <forward-engine/protocol/sniff.hpp>
 #include <forward-engine/trace/spdlog.hpp>
-#include <forward-engine/transport/transmission.hpp>
+#include <forward-engine/channel/transport/transmission.hpp>
 #include <forward-engine/agent/pipeline/protocols.hpp>
 #include <forward-engine/agent/pipeline/primitives.hpp>
 
@@ -58,7 +58,7 @@ namespace ngx::agent::connection
     {
         server_context &server;                  // 服务器全局上下文引用
         worker_context &worker;                  // 工作线程上下文引用
-        transport::transmission_pointer inbound; // 入站传输层所有权
+        ngx::channel::transport::transmission_pointer inbound; // 入站传输层所有权
     };
 
     /**

@@ -11,7 +11,7 @@
 #include <forward-engine/agent/distribution/router.hpp>
 #include <forward-engine/agent/account/entry.hpp>
 #include <forward-engine/memory/pool.hpp>
-#include <forward-engine/transport/transmission.hpp>
+#include <forward-engine/channel/transport/transmission.hpp>
 #include <boost/asio.hpp>
 #include <boost/asio/ssl.hpp>
 #include <cstdint>
@@ -113,13 +113,21 @@ namespace ngx::agent
         std::uint32_t buffer_size;
 
         // 入站传输对象，处理来自客户端的数据
-        transport::transmission_pointer inbound;
+        ngx::channel::transport::transmission_pointer inbound;
 
         // 出站传输对象，处理发往目标服务器的数据
-        transport::transmission_pointer outbound;
+        ngx::channel::transport::transmission_pointer outbound;
 
         // 账户连接租约，持有期间保持连接计数，会话结束时自动释放
         account::lease account_lease;
+
+        // 活跃流取消回调（由 TLS 等加密协议处理器设置）
+        // 用于取消底层流的异步操作，当 ctx.inbound 被 move 后仍能正确清理
+        std::function<void()> active_stream_cancel;
+
+        // 活跃流关闭回调（由 TLS 等加密协议处理器设置）
+        // 用于关闭底层流连接，当 ctx.inbound 被 move 后仍能正确清理
+        std::function<void()> active_stream_close;
     };
 
 }

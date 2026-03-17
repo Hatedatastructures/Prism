@@ -1,35 +1,69 @@
 {
     "agent": {
-        "positive": {
-            "host": "localhost",
-            "port": 8080
-        },
-        "camouflage": "/api/notification/v1/stream?id=abcd-1234",
         "limit": {
             "concurrences": 2048,
             "blacklist": true
+        },
+        "positive": {
+            "host": "localhost",
+            "port": 8080
         },
         "addressable": {
             "host": "0.0.0.0",
             "port": 8081
         },
-        "authentication": {
-            "credentials": [
-                "forward-engine"
-            ]
-        },
         "certificate": {
             "key": "C:\\Users\\C1373\\Desktop\\code\\forward-engine\\key.pem",
             "cert": "C:\\Users\\C1373\\Desktop\\code\\forward-engine\\cert.pem"
         },
-        "clash": false
+        "authentication": {
+            "credentials": [
+                "forward-engine"
+            ],
+            "users": [
+                {
+                    "credential": "forward-engine",
+                    "max_connections": 0
+                }
+            ]
+        },
+        "camouflage": "/api/notification/v1/stream?id=abcd-1234",
+        "reverse_map": {
+        },
+        "pool": {
+            "max_cache_per_endpoint": 32,
+            "max_idle_seconds": 300
+        },
+        "buffer": {
+            "size": 65536
+        },
+        "clash": true,
+        "socks5": {
+            "enable_tcp": true,
+            "enable_udp": true,
+            "enable_bind": false,
+            "udp_bind_port": 0,
+            "udp_idle_timeout": 60,
+            "udp_max_datagram": 65535
+        },
+        "trojan": {
+            "enable_tcp": true,
+            "enable_udp": false,
+            "udp_idle_timeout": 60,
+            "udp_max_datagram": 65535
+        }
     },
     "trace": {
+        "file_name": "forward.log",
+        "path_name": "./logs",
+        "max_size": 67108864,
+        "max_files": 8,
+        "queue_size": 8192,
+        "thread_count": 1,
         "enable_console": true,
         "enable_file": true,
         "log_level": "info",
         "pattern": "[%Y-%m-%d %H:%M:%S.%e] [%5t] [%l] %v",
-        "trace_name": "forward_engine",
-        "path_name": "C:\\Users\\C1373\\Desktop\\code\\forward-engine\\logs"
+        "trace_name": "forward_engine"
     }
 }

@@ -57,7 +57,7 @@ namespace ngx::agent::distribution
             co_return std::make_pair(gist::code::host_unreachable, nullptr);
         }
 
-        auto socket = unique_sock(new tcp::socket(resolver_.get_executor()), transport::deleter{});
+        auto socket = unique_sock(new tcp::socket(resolver_.get_executor()), deleter{});
         co_await net::async_connect(*socket, endpoints, token);
         if (ec)
         {

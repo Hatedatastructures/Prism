@@ -12,41 +12,63 @@
 
 </div>
 
-## 项目简介
+## 📖 项目简介
 
-ForwardEngine 是一个基于 **C++23 + Boost.Asio** 的高性能代理引擎，采用纯协程架构（`net::awaitable`）与 PMR 内存模型，专为低延迟、高并发的网络转发场景设计。
+ForwardEngine 是一款基于 **C++23 协程** 与 **Boost.Asio** 构建的高性能代理引擎。
 
-当前支持 HTTP/HTTPS、SOCKS5（TCP + UDP）协议，适用于代理网关、网络中间件和边缘转发节点。
+它采用了现代 C++ 的最新特性——**纯协程架构**与**PMR 内存模型**，专为低延迟、高并发的网络转发场景打造。无论是作为代理网关、网络中间件，还是边缘转发节点，ForwardEngine 都能提供极致的性能与优雅的代码体验。
 
-## 核心亮点
+> 💡 **设计哲学**：用协程消灭回调地狱，用内存池消除堆分配，用零拷贝减少数据搬移。
 
-- **纯协程架构**：核心链路全程使用 `co_await`，通过线程封闭实现无锁并发
-- **PMR 内存策略**：全局内存池 + 帧分配器，热路径零堆分配
-- **智能连接池**：TCP 连接复用，支持僵尸检测、空闲超时、端点缓存上限
-- **动态协议识别**：首包嗅探 HTTP / SOCKS5 / TLS，自动分流处理
-- **负载均衡与反压**：基于评分的 Worker 选择，过载检测与滞后机制
-- **clash客户端**： 支持 clash 客户端配置，自动切换路由
+## ✨ 核心亮点
 
-## 协议支持
+| 特性 | 说明 |
+|------|------|
+| 🚀 **纯协程架构** | 核心链路全程 `co_await`，无回调地狱，代码可读性极高 |
+| 💾 **PMR 内存策略** | 全局内存池 + 帧分配器，热路径零堆分配 |
+| 🔌 **智能连接池** | TCP 连接复用，僵尸检测、空闲超时、端点缓存上限 |
+| 🔀 **透明隧道转发** | 握手后双向透传 TCP 字节流，零协议感知开销 |
+| 🔍 **动态协议识别** | 首包嗅探 HTTP/SOCKS5/TLS，自动分流处理 |
+| ⚖️ **负载均衡与反压** | 基于评分的 Worker 选择，过载检测与滞后机制 |
+| 🎯 **Clash 兼容** | 支持 Clash 客户端配置，自动切换路由 |
 
-- **HTTP/HTTPS** - HTTP 正向代理与 `CONNECT` 隧道
-- **SOCKS5** - RFC 1928，支持 TCP CONNECT 与 UDP ASSOCIATE
-- **TLS** - 服务端 TLS 终止，解密后按 HTTP 处理
-- **Trojan 协议** - 已实现但未接入运行链，待后续实现
+## 📦 协议支持
+
+| 协议 | 状态 | 说明 |
+|------|:----:|------|
+| HTTP/HTTPS | ✅ | HTTP 正向代理与 `CONNECT` 隧道 |
+| SOCKS5 | ✅ | RFC 1928，TCP CONNECT + UDP ASSOCIATE |
+| TLS | ✅ | 服务端 TLS 终止，解密后按 HTTP 处理 |
+| Trojan | ✅ | Trojan over TLS，凭据验证 + 流量转发 |
 
 ## 架构概览
 
-```txt
-接入层
-  listener -> balancer -> worker
-                              |
-                              v
-执行层
-  session -> handler -> router -> source(pool)
-                |
-                v
-协议层
-  http / socks5 / tls
+```mermaid
+graph TB
+    subgraph 接入层
+        L[Listener] --> B[Balancer]
+        B --> W1[Worker 1]
+        B --> W2[Worker 2]
+        B --> W3[Worker N]
+    end
+
+    subgraph 执行层
+        W1 --> S[Session]
+        S --> H[Handler]
+        H --> R[Router]
+        R --> P[Connection Pool]
+    end
+
+    subgraph 协议层
+        H --> HTTP
+        H --> SOCKS5
+        H --> TLS
+        H --> Trojan
+    end
+
+    subgraph 上游
+        P --> Target[目标服务器]
+    end
 ```
 
 ## 快速开始
@@ -102,7 +124,7 @@ curl -v -x socks5://127.0.0.1:8081 http://www.baidu.com
 | `pool.max_idle_seconds` | 空闲连接最大存活时间 | 60 |
 | `authentication.credentials` | 凭据列表（SHA224 哈希） | - |
 
-详细配置说明请参阅 [config.md](docs/agent/config.md)。
+详细配置说明请参阅 [配置详解](docs/user-guide/configuration.md)。
 
 ## 目录结构
 
@@ -123,6 +145,12 @@ ForwardEngine/
 ├── src/                       # 实现与入口
 ├── test/                      # 测试
 ├── docs/                      # 文档
+│   ├── user-guide/            # 用户指南
+│   ├── developer-guide/       # 开发者指南
+│   ├── protocols/             # 协议文档
+│   ├── reference/             # 参考资料
+│   ├── examples/              # 示例配置
+│   └── project/               # 项目管理
 └── CMakeLists.txt
 ```
 
@@ -142,17 +170,42 @@ ctest --test-dir build_release --output-on-failure
 
 - SOCKS5 仅支持无认证模式，密码验证待实现
 - 反向代理路由表暂不支持热更新
-- Trojan 协议已实现但未接入运行链
 
 ## 文档
 
 详细文档位于 `docs/` 目录：
 
-- [技术概述与使用指南](docs/premise.md)
-- [架构能力分析](docs/agent/architecture.md)
-- [模块设计](docs/agent/modules.md)
-- [运行时流程](docs/agent/runtime.md)
-- [开发进度](docs/progress.md)
+### 教程
+
+- [快速开始](docs/tutorial/getting-started.md) - 5 分钟快速上手
+- [配置详解](docs/tutorial/configuration.md) - 配置参数说明与性能调优
+- [故障排除](docs/tutorial/troubleshooting.md) - 常见问题排查与解决方案
+- [常见问题](docs/tutorial/faq.md) - FAQ 问答集
+
+### 技术手册
+
+- [架构设计](docs/manual/architecture.md) - 架构能力分析、时序链、关键实现细节
+- [模块设计](docs/manual/modules.md) - front、reactor、connection 等模块详解
+- [运行时流程](docs/manual/runtime.md) - Session 创建、协议检测、隧道转发流程
+- [路由与分发](docs/manual/routing.md) - Registry 单例模式、Handler 工厂
+- [API 参考](docs/manual/api.md) - 公开 API 入口与头文件组织
+
+### 协议文档
+
+- [HTTP 协议](docs/protocols/http.md) - HTTP 请求调用流程
+- [SOCKS5 协议](docs/protocols/socks5.md) - SOCKS5 握手与地址解析
+- [Trojan 协议](docs/protocols/trojan.md) - Trojan SSL 握手与凭据验证
+- [TLS 协议](docs/protocols/tls.md) - TLS 握手与协议检测
+
+### 参考资料
+
+- [配置结构体](docs/reference/config-structure.md) - config、server_context 等结构体详解
+- [上下文结构体](docs/reference/context.md) - session_context、worker_context 详解
+- [依赖关系](docs/reference/dependencies.md) - 目录依赖图与运行时调用图
+
+### 项目管理
+
+- [开发进度](docs/project/progress.md) - 项目概况、版本状态、路线图
 
 ## 许可证
 

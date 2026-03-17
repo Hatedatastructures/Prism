@@ -1,7 +1,7 @@
 #include <forward-engine/protocol/socks5.hpp>
 #include <forward-engine/abnormal/network.hpp>
 #include <forward-engine/gist/code.hpp>
-#include <forward-engine/transport/reliable.hpp>
+#include <forward-engine/channel/transport/reliable.hpp>
 #include <boost/asio.hpp>
 #include <iostream>
 #include <thread>
@@ -13,7 +13,7 @@
 
 namespace net = boost::asio;
 namespace protocol = ngx::protocol;
-namespace transport = ngx::transport;
+namespace transport = ngx::channel::transport;
 using tcp = net::ip::tcp;
 
 /**

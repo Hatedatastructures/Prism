@@ -8,9 +8,9 @@
 #include <boost/asio.hpp>
 #include <boost/asio/awaitable.hpp>
 #include <boost/asio/co_spawn.hpp>
-#include <forward-engine/transport/transmission.hpp>
-#include <forward-engine/transport/reliable.hpp>
-#include <forward-engine/transport/unreliable.hpp>
+#include <forward-engine/channel/transport/transmission.hpp>
+#include <forward-engine/channel/transport/reliable.hpp>
+#include <forward-engine/channel/transport/unreliable.hpp>
 #include <memory>
 #include <array>
 #include <thread>
@@ -33,7 +33,7 @@ int test_reliable_constructor()
 {
     net::io_context ioc;
     auto executor = ioc.get_executor();
-    auto reliable = ngx::transport::make_reliable(executor);
+    auto reliable = ngx::channel::transport::make_reliable(executor);
     
     TEST_ASSERT(reliable->executor() == executor);
     std::cout << "✓ test_reliable_constructor passed" << std::endl;
@@ -46,7 +46,7 @@ int test_reliable_from_socket()
     net::io_context ioc;
     auto executor = ioc.get_executor();
     net::ip::tcp::socket socket(executor);
-    auto reliable = ngx::transport::make_reliable(std::move(socket));
+    auto reliable = ngx::channel::transport::make_reliable(std::move(socket));
     
     TEST_ASSERT(reliable->executor() == executor);
     std::cout << "✓ test_reliable_from_socket passed" << std::endl;
@@ -66,17 +66,17 @@ net::awaitable<int> test_reliable_basic_read_write_coro()
     auto server_coro = [&]() -> net::awaitable<void>
     {
         net::ip::tcp::socket socket = co_await acceptor.async_accept(net::use_awaitable);
-        auto transport = ngx::transport::make_reliable(std::move(socket));
+        auto transport = ngx::channel::transport::make_reliable(std::move(socket));
         
         std::array<char, 1024> buffer{};
         auto mutable_buf = net::buffer(buffer);
         
         // 读取客户端数据
-        std::size_t n = co_await ngx::transport::async_read_some(*transport, mutable_buf, net::use_awaitable);
+        std::size_t n = co_await ngx::channel::transport::async_read_some(*transport, mutable_buf, net::use_awaitable);
         
         // 将数据回写给客户端
         auto const_buf = net::buffer(buffer.data(), n);
-        std::size_t written = co_await ngx::transport::async_write_some(*transport, const_buf, net::use_awaitable);
+        std::size_t written = co_await ngx::channel::transport::async_write_some(*transport, const_buf, net::use_awaitable);
         
         assert(n == written);
         assert(std::string_view(buffer.data(), n) == "Hello, Transmission!");
@@ -89,19 +89,19 @@ net::awaitable<int> test_reliable_basic_read_write_coro()
     {
         net::ip::tcp::socket socket(executor);
         co_await socket.async_connect(local_endpoint, net::use_awaitable);
-        auto transport = ngx::transport::make_reliable(std::move(socket));
+        auto transport = ngx::channel::transport::make_reliable(std::move(socket));
         
         std::string test_message = "Hello, Transmission!";
         auto const_buf = net::buffer(test_message);
         
         // 发送数据
-        std::size_t written = co_await ngx::transport::async_write_some(*transport, const_buf, net::use_awaitable);
+        std::size_t written = co_await ngx::channel::transport::async_write_some(*transport, const_buf, net::use_awaitable);
         assert(written == test_message.size());
         
         // 接收回显
         std::array<char, 1024> buffer{};
         auto mutable_buf = net::buffer(buffer);
-        std::size_t n = co_await ngx::transport::async_read_some(*transport, mutable_buf, net::use_awaitable);
+        std::size_t n = co_await ngx::channel::transport::async_read_some(*transport, mutable_buf, net::use_awaitable);
         
         assert(n == test_message.size());
         assert(std::string_view(buffer.data(), n) == test_message);
@@ -153,7 +153,7 @@ net::awaitable<int> test_reliable_close_coro()
     auto server_coro = [&]() -> net::awaitable<void>
     {
         net::ip::tcp::socket socket = co_await acceptor.async_accept(net::use_awaitable);
-        auto transport = ngx::transport::make_reliable(std::move(socket));
+        auto transport = ngx::channel::transport::make_reliable(std::move(socket));
         
         // 立即关闭连接
         transport->close();
@@ -163,7 +163,7 @@ net::awaitable<int> test_reliable_close_coro()
         auto mutable_buf = net::buffer(buffer);
         
         boost::system::error_code ec;
-        co_await ngx::transport::async_read_some(*transport, mutable_buf, net::redirect_error(net::use_awaitable, ec));
+        co_await ngx::channel::transport::async_read_some(*transport, mutable_buf, net::redirect_error(net::use_awaitable, ec));
         
         assert(ec);
         
@@ -221,7 +221,7 @@ int test_unreliable_constructor()
 {
     net::io_context ioc;
     auto executor = ioc.get_executor();
-    auto unreliable = std::make_shared<ngx::transport::unreliable>(executor);
+    auto unreliable = std::make_shared<ngx::channel::transport::unreliable>(executor);
     
     TEST_ASSERT(unreliable->executor() == executor);
     TEST_ASSERT(!unreliable->remote_endpoint().has_value());
@@ -235,7 +235,7 @@ int test_unreliable_set_remote_endpoint()
 {
     net::io_context ioc;
     auto executor = ioc.get_executor();
-    auto unreliable = std::make_shared<ngx::transport::unreliable>(executor);
+    auto unreliable = std::make_shared<ngx::channel::transport::unreliable>(executor);
     
     net::ip::udp::endpoint endpoint(net::ip::make_address("127.0.0.1"), 8888);
     unreliable->set_remote_endpoint(endpoint);

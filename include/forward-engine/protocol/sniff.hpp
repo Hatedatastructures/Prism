@@ -21,7 +21,7 @@
 
 #include <forward-engine/gist/code.hpp>
 #include <forward-engine/protocol/analysis.hpp>
-#include <forward-engine/transport/transmission.hpp>
+#include <forward-engine/channel/transport/transmission.hpp>
 
 /**
  * @namespace ngx::protocol::sniff
@@ -100,7 +100,7 @@ namespace ngx::protocol::sniff
      * @note 预读数据大小不应超过 32 字节，即 detection_result 缓冲区大小。
      * @warning 如果传输层已关闭或出错，返回的 ec 将包含相应错误代码。
      */
-    inline auto probe(transport::transmission &trans, std::size_t max_peek_size = 24)
+    inline auto probe(ngx::channel::transport::transmission &trans, std::size_t max_peek_size = 24)
         -> net::awaitable<detection_result>
     {
         detection_result result;

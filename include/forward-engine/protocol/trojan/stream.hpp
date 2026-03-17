@@ -18,8 +18,8 @@
 #pragma once
 
 #include <boost/asio.hpp>
-#include <forward-engine/transport/transmission.hpp>
-#include <forward-engine/transport/form.hpp>
+#include <forward-engine/channel/transport/transmission.hpp>
+#include <forward-engine/protocol/common/form.hpp>
 #include <forward-engine/protocol/trojan/constants.hpp>
 #include <forward-engine/protocol/trojan/message.hpp>
 #include <forward-engine/protocol/trojan/wire.hpp>
@@ -52,7 +52,7 @@ namespace ngx::protocol::trojan
      * @warning 加密警告：本类不提供加密功能，必须与 TLS 等加密传输层组合
      * @warning 认证警告：未提供凭据验证器时，任何凭据都会通过，存在安全风险
      */
-    class relay : public transport::transmission, public std::enable_shared_from_this<relay>
+    class relay : public ngx::channel::transport::transmission, public std::enable_shared_from_this<relay>
     {
     public:
         /**
@@ -66,7 +66,7 @@ namespace ngx::protocol::trojan
          *
          * @note 底层传输层必须已建立连接，否则后续操作将失败
          */
-        explicit relay(transport::transmission_pointer next_layer,
+        explicit relay(ngx::channel::transport::transmission_pointer next_layer,
                        const config &cfg = {},
                        std::function<bool(std::string_view)> credential_verifier = nullptr)
             : next_layer_(std::move(next_layer)), config_(cfg), verifier_(std::move(credential_verifier))
@@ -338,14 +338,14 @@ namespace ngx::protocol::trojan
                 {
                     co_return std::pair{gist::code::forbidden, request{}};
                 }
-                req.form = transport::form::stream;
+                req.form = ngx::protocol::form::stream;
                 break;
             case command::udp_associate:
                 if (!config_.enable_udp)
                 {
                     co_return std::pair{gist::code::forbidden, request{}};
                 }
-                req.form = transport::form::datagram;
+                req.form = ngx::protocol::form::datagram;
                 break;
             default:
                 co_return std::pair{gist::code::unsupported_command, request{}};
@@ -358,7 +358,7 @@ namespace ngx::protocol::trojan
          * @brief 获取底层传输层引用
          * @return transport::transmission& 底层传输层引用
          */
-        transport::transmission &next_layer() noexcept
+        ngx::channel::transport::transmission &next_layer() noexcept
         {
             return *next_layer_;
         }
@@ -367,7 +367,7 @@ namespace ngx::protocol::trojan
          * @brief 获取底层传输层常量引用
          * @return const transport::transmission& 底层传输层常量引用
          */
-        const transport::transmission &next_layer() const noexcept
+        const ngx::channel::transport::transmission &next_layer() const noexcept
         {
             return *next_layer_;
         }
@@ -378,14 +378,14 @@ namespace ngx::protocol::trojan
          * @details 释放后 relay 不再持有传输层，不应再调用其方法。
          * 适用于需要将底层传输层转移给其他组件的场景。
          */
-        transport::transmission_pointer release()
+        ngx::channel::transport::transmission_pointer release()
         {
             return std::move(next_layer_);
         }
 
     private:
         // 底层传输层，构造时通过 unique_ptr 转移所有权
-        transport::transmission_pointer next_layer_;
+        ngx::channel::transport::transmission_pointer next_layer_;
         // 协议配置
         config config_;
         // 凭据验证回调函数
@@ -407,7 +407,7 @@ namespace ngx::protocol::trojan
      * @return relay_pointer 中继器对象共享指针
      * @details 工厂函数，封装 std::make_shared 调用，简化对象创建。
      */
-    inline relay_pointer make_relay(transport::transmission_pointer next_layer, const config &cfg = {},
+    inline relay_pointer make_relay(ngx::channel::transport::transmission_pointer next_layer, const config &cfg = {},
                                     std::function<bool(std::string_view)> credential_verifier = nullptr)
     {
         return std::make_shared<relay>(std::move(next_layer), cfg, std::move(credential_verifier));
@@ -416,7 +416,7 @@ namespace ngx::protocol::trojan
     // 兼容旧名称，将在未来版本移除
     using trojan_stream = relay;
     using trojan_stream_ptr = relay_pointer;
-    inline trojan_stream_ptr make_trojan_stream(transport::transmission_pointer next_layer, const config &cfg = {},
+    inline trojan_stream_ptr make_trojan_stream(ngx::channel::transport::transmission_pointer next_layer, const config &cfg = {},
                                                 std::function<bool(std::string_view)> credential_verifier = nullptr)
     {
         return make_relay(std::move(next_layer), cfg, std::move(credential_verifier));

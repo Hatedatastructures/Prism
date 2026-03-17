@@ -24,7 +24,7 @@ namespace ngx::agent::reactor::launch
         };
 
         // 将原始 socket 封装为可靠传输，创建会话对象
-        auto inbound = ngx::transport::make_reliable(std::move(socket));
+        auto inbound = ngx::channel::transport::make_reliable(std::move(socket));
         connection::session_params params{server, worker, std::move(inbound)};
         const auto shared_session = ngx::agent::connection::make_session(std::move(params));
 

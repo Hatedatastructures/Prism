@@ -14,7 +14,7 @@
 #include <string>
 #include <boost/asio/ip/address.hpp>
 #include <forward-engine/protocol/trojan/constants.hpp>
-#include <forward-engine/transport/form.hpp>
+#include <forward-engine/protocol/common/form.hpp>
 #include <forward-engine/memory/container.hpp>
 
 /**
@@ -108,7 +108,7 @@ namespace ngx::protocol::trojan
         std::array<char, 56> credential;
 
         // 传输形式，由命令类型决定
-        transport::form form = transport::form::stream;
+        ngx::protocol::form form = ngx::protocol::form::stream;
     };
 
     /**

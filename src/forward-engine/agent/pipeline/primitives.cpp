@@ -1,6 +1,6 @@
 #include <forward-engine/agent/pipeline/primitives.hpp>
-#include <forward-engine/transport/reliable.hpp>
-#include <forward-engine/transport/secure.hpp>
+#include <forward-engine/channel/transport/reliable.hpp>
+#include <forward-engine/channel/transport/secure.hpp>
 
 namespace ngx::agent::pipeline::primitives
 {
@@ -40,12 +40,12 @@ namespace ngx::agent::pipeline::primitives
 
     auto dial(std::shared_ptr<distribution::router> router, std::string_view label,
               const protocol::analysis::target &target, const bool allow_reverse, const bool require_open)
-        -> net::awaitable<std::pair<gist::code, transport::transmission_pointer>>
+        -> net::awaitable<std::pair<gist::code, channel::transport::transmission_pointer>>
     {
         trace::debug("[Pipeline] {} dialing upstream: {}:{}", label, target.host, target.port);
 
         auto ec = gist::code::success;
-        transport::unique_sock socket;
+        channel::unique_sock socket;
 
         if (allow_reverse && !target.positive)
         {   // 允许使用反向代码并且解析到的目标地址支持反向代理
@@ -74,10 +74,10 @@ namespace ngx::agent::pipeline::primitives
         }
 
         trace::debug("[Pipeline] {} upstream connected: {}:{}", label, target.host, target.port);
-        co_return std::make_pair(ec, transport::make_reliable(std::move(*socket)));
+        co_return std::make_pair(ec, channel::transport::make_reliable(std::move(socket)));
     }
 
-    preview::preview(transport::transmission_pointer inner, std::span<const std::byte> preread)
+    preview::preview(channel::transport::transmission_pointer inner, std::span<const std::byte> preread)
         : inner_(std::move(inner)), preread_buffer_(preread.begin(), preread.end(), memory::current_resource())
     {
     }

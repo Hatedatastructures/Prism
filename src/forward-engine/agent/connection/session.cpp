@@ -76,6 +76,11 @@ namespace ngx::agent::connection
         }
         trace::debug("[Session] Session closing.");
 
+        // 先取消活跃流（TLS 等），因为 ctx_.inbound 可能已被 move
+        if (ctx_.active_stream_cancel)
+        {
+            ctx_.active_stream_cancel();
+        }
         if (ctx_.inbound)
         {
             ctx_.inbound->cancel();
@@ -100,6 +105,14 @@ namespace ngx::agent::connection
         }
 
         trace::debug("[Session] Session releasing resources.");
+
+        // 先关闭活跃流（TLS 等），因为 ctx_.inbound 可能已被 move
+        if (ctx_.active_stream_close)
+        {
+            ctx_.active_stream_close();
+            ctx_.active_stream_close = nullptr;
+            ctx_.active_stream_cancel = nullptr;
+        }
 
         if (ctx_.inbound)
         {

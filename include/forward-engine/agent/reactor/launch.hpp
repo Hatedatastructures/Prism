@@ -20,7 +20,7 @@
 #include <forward-engine/agent/reactor/stats.hpp>
 #include <forward-engine/agent/connection/session.hpp>
 #include <forward-engine/trace.hpp>
-#include <forward-engine/transport/reliable.hpp>
+#include <forward-engine/channel/transport/reliable.hpp>
 
 /**
  * @namespace ngx::agent::reactor::launch

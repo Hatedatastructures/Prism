@@ -1,7 +1,7 @@
 #include <forward-engine/protocol/trojan.hpp>
 #include <forward-engine/abnormal/network.hpp>
 #include <forward-engine/gist/code.hpp>
-#include <forward-engine/transport/reliable.hpp>
+#include <forward-engine/channel/transport/reliable.hpp>
 #include <boost/asio.hpp>
 #include <boost/asio/ssl.hpp>
 #include <iostream>
@@ -37,7 +37,7 @@ net::awaitable<void> do_trojan_server(tcp::acceptor &acceptor, const std::string
 
         // 创建 Trojan 实例
         // 将 TCP socket 包装为可靠传输层
-        auto trans = ngx::transport::make_reliable(std::move(socket));
+        auto trans = ngx::channel::transport::make_reliable(std::move(socket));
         // 创建 Trojan 中继器
         auto trojan = ngx::protocol::trojan::make_relay(std::move(trans), {}, user_credential_verifier);
 
@@ -64,13 +64,13 @@ net::awaitable<void> do_trojan_server(tcp::acceptor &acceptor, const std::string
         try
         {
             // 读取客户端数据
-            std::size_t n = co_await ngx::transport::async_read_some(*trojan, buf, net::use_awaitable);
+            std::size_t n = co_await ngx::channel::transport::async_read_some(*trojan, buf, net::use_awaitable);
             std::string received_msg(buffer.data(), n);
 
             std::cout << "Server received message: " << received_msg << std::endl;
 
             // 回显给客户端
-            co_await ngx::transport::async_write_some(*trojan, net::buffer(received_msg), net::use_awaitable);
+            co_await ngx::channel::transport::async_write_some(*trojan, net::buffer(received_msg), net::use_awaitable);
         }
         catch (const std::exception &e)
         {

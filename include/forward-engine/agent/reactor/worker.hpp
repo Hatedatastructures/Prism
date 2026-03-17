@@ -22,7 +22,7 @@
 #include <forward-engine/agent/reactor/tls.hpp>
 #include <forward-engine/memory/pool.hpp>
 #include <forward-engine/trace.hpp>
-#include <forward-engine/transport/source.hpp>
+#include <forward-engine/channel/pool/source.hpp>
 
 /**
  * @namespace ngx::agent::reactor
@@ -36,7 +36,7 @@ namespace ngx::agent::reactor
     namespace net = boost::asio;
     namespace ssl = net::ssl;
     using tcp = boost::asio::ip::tcp;
-    using source = ngx::transport::source;
+    using source = ngx::channel::source;
 
     /**
      * @class worker

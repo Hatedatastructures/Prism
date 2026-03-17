@@ -23,8 +23,8 @@
 
 #include <forward-engine/gist/handling.hpp>
 #include <forward-engine/memory/container.hpp>
-#include <forward-engine/transport/transmission.hpp>
-#include <forward-engine/transport/form.hpp>
+#include <forward-engine/channel/transport/transmission.hpp>
+#include <forward-engine/protocol/common/form.hpp>
 #include <forward-engine/protocol/socks5/constants.hpp>
 #include <forward-engine/protocol/socks5/message.hpp>
 #include <forward-engine/protocol/socks5/wire.hpp>
@@ -51,7 +51,7 @@ namespace ngx::protocol::socks5
      * @warning 严格遵循 RFC 1928，但某些扩展特性可能不受支持
      * @warning 不支持并发访问，调用者需保证顺序执行
      */
-    class relay : public transport::transmission, public std::enable_shared_from_this<relay>
+    class relay : public ngx::channel::transport::transmission, public std::enable_shared_from_this<relay>
     {
     public:
         // 路由回调函数类型，用于根据目标地址选择本地端点
@@ -67,7 +67,7 @@ namespace ngx::protocol::socks5
          * 调用者不应再使用原指针
          * @note 底层传输层必须已建立连接，否则后续操作将失败
          */
-        explicit relay(transport::transmission_pointer next_layer, const config &cfg = {})
+        explicit relay(ngx::channel::transport::transmission_pointer next_layer, const config &cfg = {})
             : next_layer_(std::move(next_layer)), config_(cfg)
         {
         }
@@ -150,7 +150,7 @@ namespace ngx::protocol::socks5
         auto async_associate(const request &request_info, route_callback route_callback) const
             -> net::awaitable<gist::code>
         {
-            if (!config_.enable_udp || request_info.form != transport::form::datagram)
+            if (!config_.enable_udp || request_info.form != ngx::protocol::form::datagram)
             {
                 co_return gist::code::not_supported;
             }
@@ -227,7 +227,7 @@ namespace ngx::protocol::socks5
                     co_await async_write_error(reply_code::connection_not_allowed);
                     co_return std::pair{gist::code::not_supported, request{}};
                 }
-                req.form = transport::form::stream;
+                req.form = ngx::protocol::form::stream;
                 break;
             case command::udp_associate:
                 if (!config_.enable_udp)
@@ -235,7 +235,7 @@ namespace ngx::protocol::socks5
                     co_await async_write_error(reply_code::connection_not_allowed);
                     co_return std::pair{gist::code::not_supported, request{}};
                 }
-                req.form = transport::form::datagram;
+                req.form = ngx::protocol::form::datagram;
                 break;
             case command::bind:
                 if (!config_.enable_bind)
@@ -243,7 +243,7 @@ namespace ngx::protocol::socks5
                     co_await async_write_error(reply_code::command_not_supported);
                     co_return std::pair{gist::code::unsupported_command, request{}};
                 }
-                req.form = transport::form::stream;
+                req.form = ngx::protocol::form::stream;
                 break;
             default:
                 co_await async_write_error(reply_code::command_not_supported);
@@ -334,7 +334,7 @@ namespace ngx::protocol::socks5
          * @details 返回底层传输层的可变引用，用于直接操作底层连接。
          * @warning 调用前应确保 is_valid() 返回 true
          */
-        transmission &next_layer() noexcept
+        ngx::channel::transport::transmission &next_layer() noexcept
         {
             return *next_layer_;
         }
@@ -345,7 +345,7 @@ namespace ngx::protocol::socks5
          * @details 返回底层传输层的只读引用，用于查询底层连接状态。
          * @warning 调用前应确保 is_valid() 返回 true
          */
-        const transmission &next_layer() const noexcept
+        const ngx::channel::transport::transmission &next_layer() const noexcept
         {
             return *next_layer_;
         }
@@ -368,7 +368,7 @@ namespace ngx::protocol::socks5
          * 返回 false，不应再调用读写方法。用于将底层连接转移给
          * 其他组件管理。
          */
-        transport::transmission_pointer release()
+        ngx::channel::transport::transmission_pointer release()
         {
             return std::move(next_layer_);
         }
@@ -826,7 +826,7 @@ namespace ngx::protocol::socks5
         // 底层传输层指针，所有权通过 unique_ptr 管理
         // 构造时转移所有权，生命周期与 stream 对象绑定
         // close() 后仍有效，析构时自动释放
-        transport::transmission_pointer next_layer_;
+        ngx::channel::transport::transmission_pointer next_layer_;
 
         // SOCKS5 协议配置，构造时传入，运行时只读
         config config_;
@@ -846,7 +846,7 @@ namespace ngx::protocol::socks5
      * @return relay_pointer 中继器对象共享指针
      * @details 工厂函数，封装 std::make_shared 调用，简化对象创建。
      */
-    inline relay_pointer make_relay(transport::transmission_pointer next_layer, const config &cfg = {})
+    inline relay_pointer make_relay(ngx::channel::transport::transmission_pointer next_layer, const config &cfg = {})
     {
         return std::make_shared<relay>(std::move(next_layer), cfg);
     }
@@ -854,7 +854,7 @@ namespace ngx::protocol::socks5
     // 兼容旧名称，将在未来版本移除
     using stream = relay;
     using stream_pointer = relay_pointer;
-    inline stream_pointer make_stream(transport::transmission_pointer next_layer, const config &cfg = {})
+    inline stream_pointer make_stream(ngx::channel::transport::transmission_pointer next_layer, const config &cfg = {})
     {
         return make_relay(std::move(next_layer), cfg);
     }

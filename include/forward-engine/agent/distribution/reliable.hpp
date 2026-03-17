@@ -20,14 +20,14 @@
 #include <forward-engine/agent/distribution/transparent.hpp>
 #include <forward-engine/gist/code.hpp>
 #include <forward-engine/memory/container.hpp>
-#include <forward-engine/transport/source.hpp>
+#include <forward-engine/channel/pool/source.hpp>
 
 namespace ngx::agent::distribution
 {
     namespace net = boost::asio;
     using tcp = boost::asio::ip::tcp;
-    using source = transport::source;
-    using unique_sock = transport::unique_sock;
+    using source = ngx::channel::source;
+    using unique_sock = ngx::channel::unique_sock;
 
     /**
      * @class reliable_resolver

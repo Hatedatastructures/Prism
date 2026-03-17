@@ -27,8 +27,8 @@
 #include <forward-engine/memory/container.hpp>
 #include <forward-engine/protocol/analysis.hpp>
 #include <forward-engine/trace/spdlog.hpp>
-#include <forward-engine/transport/transmission.hpp>
-#include <forward-engine/transport/adaptation.hpp>
+#include <forward-engine/channel/transport/transmission.hpp>
+#include <forward-engine/channel/adapter/adaptation.hpp>
 
 /**
  * @namespace ngx::agent::pipeline::primitives
@@ -42,7 +42,7 @@ namespace ngx::agent::pipeline::primitives
     namespace net = boost::asio;
     namespace ssl = net::ssl;
 
-    using ssl_connector = transport::connector<transport::transmission_pointer>;
+    using ssl_connector = ngx::channel::connector<ngx::channel::transport::transmission_pointer>;
     using ssl_stream = ssl::stream<ssl_connector>;
     using shared_ssl_stream = std::shared_ptr<ssl_stream>;
 
@@ -52,7 +52,7 @@ namespace ngx::agent::pipeline::primitives
      * @details 安全地关闭传输连接，若指针为空则不做任何操作。
      * 该函数不释放内存，仅调用传输对象的 close 方法。
      */
-    inline void shut_close(transport::transmission *trans) noexcept
+    inline void shut_close(ngx::channel::transport::transmission *trans) noexcept
     {
         if (trans)
         {
@@ -67,7 +67,7 @@ namespace ngx::agent::pipeline::primitives
      * 该函数确保资源被正确清理，适用于需要同时关闭连接和释放
      * 所有权的场景。
      */
-    inline void shut_close(transport::transmission_pointer &trans) noexcept
+    inline void shut_close(ngx::channel::transport::transmission_pointer &trans) noexcept
     {
         if (trans)
         {
@@ -90,7 +90,7 @@ namespace ngx::agent::pipeline::primitives
      */
     auto dial(std::shared_ptr<distribution::router> router, std::string_view label,
               const protocol::analysis::target &target, bool allow_reverse, bool require_open)
-        -> net::awaitable<std::pair<gist::code, transport::transmission_pointer>>;
+        -> net::awaitable<std::pair<gist::code, ngx::channel::transport::transmission_pointer>>;
 
     /**
      * @brief 执行 TLS 服务端握手
@@ -116,7 +116,7 @@ namespace ngx::agent::pipeline::primitives
      * @note 该类继承自 transmission 抽象基类，可透明地替换原始传输。
      * @note 预读数据在构造时被复制到内部缓冲区，确保数据生命周期安全。
      */
-    class preview final : public transport::transmission
+    class preview final : public ngx::channel::transport::transmission
     {
     public:
         /**
@@ -125,7 +125,7 @@ namespace ngx::agent::pipeline::primitives
          * @param preread 协议嗅探期间捕获的预读数据
          * @details 构造时会将预读数据复制到内部缓冲区，确保数据所有权安全。
          */
-        explicit preview(transport::transmission_pointer inner, std::span<const std::byte> preread);
+        explicit preview(ngx::channel::transport::transmission_pointer inner, std::span<const std::byte> preread);
 
         /**
          * @brief 报告内部传输是否可靠
@@ -160,6 +160,21 @@ namespace ngx::agent::pipeline::primitives
             -> net::awaitable<std::size_t> override;
 
         /**
+         * @brief 完整写入操作
+         * @details 委托给内部传输的 async_write，让子类（如 UDP）的特化生效。
+         */
+        auto async_write(std::span<const std::byte> buffer, std::error_code &ec)
+            -> net::awaitable<std::size_t> override
+        {
+            if (!inner_)
+            {
+                ec = std::make_error_code(std::errc::bad_file_descriptor);
+                co_return 0;
+            }
+            co_return co_await inner_->async_write(buffer, ec);
+        }
+
+        /**
          * @brief 关闭内部传输流
          */
         void close() override;
@@ -170,7 +185,7 @@ namespace ngx::agent::pipeline::primitives
         void cancel() override;
 
     private:
-        transport::transmission_pointer inner_;    // 内部传输对象
+        ngx::channel::transport::transmission_pointer inner_;    // 内部传输对象
         memory::vector<std::byte> preread_buffer_; // 预读数据缓冲区（拥有所有权）
         std::size_t offset_{0};                    // 当前预读偏移量
     };
@@ -181,34 +196,35 @@ namespace ngx::agent::pipeline::primitives
      * @tparam Outbound 出站流类型
      * @param inbound 入站流对象
      * @param outbound 出站流对象
-     * @param mr 隧道缓冲区使用的内存资源
-     * @param buffer_size 隧道缓冲区总大小
+     * @param ctx 会话上下文，提供内存资源和缓冲区配置
+     * @param complete_write 是否使用完整写入语义（默认 true）
      * @return 协程对象，隧道结束后完成
      * @details 建立双向数据转发隧道，同时处理入站到出站和出站到入站
      * 的数据流。隧道使用两个半缓冲区分别处理两个方向的数据转发，
      * 任一方向断开即终止整个隧道。隧道结束后自动关闭两端的连接。
-     * 写入操作采用完整写入语义，确保所有读取的数据都被完整写入对端。
+     * 当 complete_write 为 true 时，写入操作采用完整写入语义，
+     * 确保所有读取的数据都被完整写入对端；为 false 时使用单次写入，
+     * 适用于对吞吐量优先于可靠性的场景。
      * @note 缓冲区大小至少为 2 字节，实际使用时建议不小于 64KB。
-     * @warning 如果 mr 无效，将使用默认内存资源。
      */
     template <typename Inbound, typename Outbound>
-    auto original_tunnel(Inbound inbound, Outbound outbound, const memory::resource_pointer mr = memory::current_resource(),
-                         const std::uint32_t buffer_size = 262144U)
+    auto original_tunnel(Inbound inbound, Outbound outbound, const session_context &ctx, const bool complete_write = true)
         -> net::awaitable<void>
     {
+        auto mr = ctx.frame_arena.get();
         auto effective_mr = mr ? mr : memory::current_resource();
         if (!effective_mr)
         {
             effective_mr = std::pmr::get_default_resource();
         }
 
-        memory::vector<std::byte> buffer((std::max)(buffer_size, 2U), effective_mr);
+        memory::vector<std::byte> buffer((std::max)(ctx.buffer_size, 2U), effective_mr);
         const std::span span(buffer);
         const auto left_size = span.size() / 2;
         auto left = span.first(left_size);
         auto right = span.subspan(left_size);
 
-        auto forward = [](auto &from, auto &to, std::span<std::byte> scratch) -> net::awaitable<void>
+        auto forward = [complete_write](auto &from, auto &to, std::span<std::byte> scratch) -> net::awaitable<void>
         {   // 数据转发函数，从 from 读取数据，写入 to，scratch 为临时缓冲区
             boost::system::error_code ec;
             while (true)
@@ -235,31 +251,56 @@ namespace ngx::agent::pipeline::primitives
                     co_return;
                 }
 
-                ec.clear();
-                std::size_t total_written = 0; // 已写入的字节数
-                while (total_written < transferred)
-                {   // 防止没写完循环写
+                if (complete_write)
+                {
+                    // 完整写入模式：调用虚函数 async_write，由子类决定行为
+                    ec.clear();
+                    auto data_span = scratch.first(transferred);
                     std::size_t written = 0;
-                    auto remaining = scratch.subspan(total_written, transferred - total_written);
-                    if constexpr (requires { to->async_write_some(remaining, ec); })
+                    if constexpr (requires { to->async_write(data_span, ec); })
                     {
-                        written = co_await to->async_write_some(remaining, ec);
+                        written = co_await to->async_write(data_span, ec);
                     }
-                    else if constexpr (requires { to->async_write_some(net::buffer(remaining.data(), remaining.size()), token); })
+                    else if constexpr (requires { to.async_write(data_span, ec); })
                     {
-                        written = co_await to->async_write_some(net::buffer(remaining.data(), remaining.size()), token);
+                        written = co_await to.async_write(data_span, ec);
                     }
                     else
                     {
-                        written = co_await to.async_write_some(net::buffer(remaining.data(), remaining.size()), token);
+                        // 兼容 ssl_stream 等非 transmission 类型
+                        written = co_await net::async_write(*to, net::buffer(data_span.data(), data_span.size()),token);
+                    }
+
+                    if (ec || written < transferred)
+                    {
+                        trace::debug("[Tunnel] Write failed: written {} of {} bytes, ec: {}", written, transferred, ec.message());
+                        co_return;
+                    }
+                }
+                else
+                {
+                    // 单次写入模式：直接调用 async_write_some
+                    ec.clear();
+                    std::size_t written = 0;
+                    auto data_span = scratch.first(transferred);
+                    if constexpr (requires { to->async_write_some(data_span, ec); })
+                    {
+                        written = co_await to->async_write_some(data_span, ec);
+                    }
+                    else if constexpr (requires { to->async_write_some(net::buffer(data_span.data(), data_span.size()), token); })
+                    {
+                        written = co_await to->async_write_some(net::buffer(data_span.data(), data_span.size()), token);
+                    }
+                    else
+                    {
+                        written = co_await to.async_write_some(net::buffer(data_span.data(), data_span.size()), token);
                     }
 
                     if (ec)
                     {
-                        trace::debug("[Tunnel] Write failed: written {} of {} bytes, ec: {}", total_written + written, transferred, ec.message());
+                        trace::debug("[Tunnel] Write failed: written {} of {} bytes, ec: {}", written, transferred, ec.message());
                         co_return;
                     }
-                    total_written += written;
                 }
             }
         };

@@ -5,10 +5,10 @@
 #include <iostream>
 #include <memory>
 #include <string>
-#include <forward-engine/transport/source.hpp>
+#include <forward-engine/channel/pool/source.hpp>
 #include <forward-engine/agent/distribution/router.hpp>
 #include <forward-engine/agent/connection/session.hpp>
-#include <forward-engine/transport/reliable.hpp>
+#include <forward-engine/channel/transport/reliable.hpp>
 #include <forward-engine/abnormal/network.hpp>
 #include <forward-engine/gist/code.hpp>
 #include <forward-engine/memory.hpp>
@@ -89,7 +89,7 @@ net::awaitable<void> proxy_accept_one(tcp::acceptor acceptor, agent::server_cont
     {
         co_return;
     }
-    auto inbound = ngx::transport::make_reliable(std::move(socket));
+    auto inbound = ngx::channel::transport::make_reliable(std::move(socket));
 
     agent::connection::session_params params{server_ctx, worker_ctx, std::move(inbound)};
     auto session_ptr = agent::connection::make_session(std::move(params));
@@ -513,7 +513,7 @@ int main()
         // 2. 渚濊禆璧勬簮澹版槑锛堝湪 ioc 涔嬪悗锛屽厛鏋愭瀯锛?
 
         // 鍒濆鍖?
-        const auto pool = std::make_unique<ngx::transport::source>(ioc);
+        const auto pool = std::make_unique<ngx::channel::source>(ioc);
         auto dist = std::make_unique<agent::distribution::router>(*pool, ioc);
 
         auto ssl_ctx = std::make_shared<ssl::context>(ssl::context::tlsv12);

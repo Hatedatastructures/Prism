@@ -1,4 +1,4 @@
-#include <forward-engine/transport/source.hpp>
+#include <forward-engine/channel/pool/source.hpp>
 #include <forward-engine/agent/distribution/router.hpp>
 #include <boost/asio.hpp>
 #include <boost/asio/experimental/awaitable_operators.hpp>
@@ -150,7 +150,7 @@ net::awaitable<void> run_test(net::io_context &ioc, unsigned short echo_port, un
     std::cout << "[Test] Starting..." << std::endl;
     tcp::endpoint endpoint(net::ip::make_address("127.0.0.1"), echo_port);
 
-    ngx::transport::source pool(ioc);
+    ngx::channel::source pool(ioc);
     ngx::agent::distribution::router dist(pool, ioc);
 
     try

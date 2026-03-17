@@ -264,8 +264,7 @@ namespace ngx::agent::dispatch
             }
 
             trace::debug("[Unknown] Starting full-duplex splice.");
-            co_await pipeline::primitives::original_tunnel(std::move(ctx.inbound),std::move(ctx.outbound),
-                ctx.frame_arena.get(), ctx.buffer_size);
+            co_await pipeline::primitives::original_tunnel(std::move(ctx.inbound), std::move(ctx.outbound), ctx);
             trace::debug("[Unknown] Splice finished.");
         }
     };

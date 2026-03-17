@@ -9,11 +9,10 @@
 #pragma once
 
 #include <array>
-#include <cstdint>
 #include <cstring>
 #include <span>
-#include <forward-engine/gist.hpp>
 #include <cctype>
+#include <forward-engine/gist/code.hpp>
 #include <forward-engine/protocol/trojan/message.hpp>
 #include <forward-engine/memory/container.hpp>
 
@@ -156,7 +155,7 @@ namespace ngx::protocol::trojan::wire
         {
             return {gist::code::bad_message, {}};
         }
-        std::uint8_t len = buffer[0];
+        const std::uint8_t len = buffer[0];
         if (buffer.size() < static_cast<size_t>(1 + len))
         {
             return {gist::code::bad_message, {}};
@@ -214,11 +213,11 @@ namespace ngx::protocol::trojan::wire
         // 目标地址
         address destination_address;
         // 目标端口
-        std::uint16_t destination_port;
+        std::uint16_t destination_port{};
         // 负载数据在原始缓冲区中的偏移量
-        std::size_t payload_offset;
+        std::size_t payload_offset{};
         // 负载数据的长度
-        std::size_t payload_size;
+        std::size_t payload_size{};
     };
 
     /**
@@ -251,7 +250,7 @@ namespace ngx::protocol::trojan::wire
                 addr_len = 1 + addr.length;
             } }, frame.destination_address);
 
-        std::uint16_t len = static_cast<std::uint16_t>(addr_len + 2 + payload.size());
+        const auto len = static_cast<std::uint16_t>(addr_len + 2 + payload.size());
 
         std::visit([&out]<typename Address>(const Address &addr)
                    {
@@ -317,9 +316,8 @@ namespace ngx::protocol::trojan::wire
             return {gist::code::bad_message, {}};
         }
 
-        address_type atyp = static_cast<address_type>(static_cast<std::uint8_t>(buffer[0]));
-        std::uint16_t len = (static_cast<std::uint16_t>(buffer[1]) << 8) |
-                            static_cast<std::uint16_t>(buffer[2]);
+        const auto atyp = static_cast<address_type>(static_cast<std::uint8_t>(buffer[0]));
+        const std::uint16_t len = (static_cast<std::uint16_t>(buffer[1]) << 8) | static_cast<std::uint16_t>(buffer[2]);
 
         if (buffer.size() < static_cast<std::size_t>(3 + len))
         {
@@ -372,7 +370,7 @@ namespace ngx::protocol::trojan::wire
             {
                 return {gist::code::bad_message, {}};
             }
-            std::uint8_t domain_len = static_cast<std::uint8_t>(buffer[offset]);
+            const auto domain_len = static_cast<std::uint8_t>(buffer[offset]);
             if (len < 1 + domain_len + 2)
             {
                 return {gist::code::bad_message, {}};
