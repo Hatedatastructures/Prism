@@ -6,7 +6,7 @@
 
 `registry` 类采用静态局部变量实现线程安全的懒汉单例模式。
 
-**源码位置**: [handler.hpp](include/forward-engine/agent/dispatch/handler.hpp)
+**源码位置**: [handler.hpp](../../include/forward-engine/agent/dispatch/handler.hpp)
 
 ```cpp
 class registry
@@ -46,7 +46,7 @@ public:
 
 处理器通过模板方法 `register_handler<Handler>()` 注册到工厂。
 
-**源码位置**: [handler.hpp](include/forward-engine/agent/dispatch/handler.hpp)
+**源码位置**: [handler.hpp](../../include/forward-engine/agent/dispatch/handler.hpp)
 
 ```cpp
 template <typename Handler, typename... Args>
@@ -74,7 +74,7 @@ void register_handler(const protocol::protocol_type type, Args &&...args)
 
 **创建处理器**:
 
-**源码位置**: [handler.hpp](include/forward-engine/agent/dispatch/handler.hpp)
+**源码位置**: [handler.hpp](../../include/forward-engine/agent/dispatch/handler.hpp)
 
 ```cpp
 auto create(const protocol::protocol_type type) const -> shared_handler
@@ -90,7 +90,7 @@ auto create(const protocol::protocol_type type) const -> shared_handler
 
 ## 当前已注册的处理器
 
-**源码位置**: [handlers.hpp](include/forward-engine/agent/dispatch/handlers.hpp)
+**源码位置**: [handlers.hpp](../../include/forward-engine/agent/dispatch/handlers.hpp)
 
 ```cpp
 inline void register_handlers()
@@ -118,7 +118,7 @@ inline void register_handlers()
 
 当协议检测后无法找到对应处理器时，系统会回退到 `unknown` 处理器。
 
-**源码位置**: [session.cpp](src/forward-engine/agent/connection/session.cpp)
+**源码位置**: [session.cpp](../../src/forward-engine/agent/session/session.cpp)
 
 ```cpp
 auto handler = dispatch::registry::global().create(detect_result.type);
@@ -141,7 +141,7 @@ if (!handler)
 
 **Unknown 处理器行为**:
 
-**源码位置**: [handlers.hpp](include/forward-engine/agent/dispatch/handlers.hpp)
+**源码位置**: [handlers.hpp](../../include/forward-engine/agent/dispatch/handlers.hpp)
 
 ```cpp
 auto process(session_context &ctx, [[maybe_unused]] std::span<const std::byte> /*data*/)
@@ -170,9 +170,9 @@ auto process(session_context &ctx, [[maybe_unused]] std::span<const std::byte> /
 
 | 组件 | 位置 | 说明 |
 |------|------|------|
-| 配置字段 | [config.hpp](include/forward-engine/agent/config.hpp) | `protocol::trojan::config trojan;` 配置字段存在 |
+| 配置字段 | [config.hpp](../../include/forward-engine/agent/config.hpp) | `protocol::trojan::config trojan;` 配置字段存在 |
 | 协议命名空间 | `include/forward-engine/protocol/trojan/` | 包含 `config.hpp`, `constants.hpp`, `message.hpp`, `stream.hpp`, `wire.hpp` |
-| 注册函数 | [handlers.hpp](include/forward-engine/agent/dispatch/handlers.hpp) | `register_handlers()` 未注册 Trojan handler |
+| 注册函数 | [handlers.hpp](../../include/forward-engine/agent/dispatch/handlers.hpp) | `register_handlers()` 未注册 Trojan handler |
 
 **结论**: 当前运行链无法处理 Trojan 协议。即使配置了 `config.trojan` 字段，由于缺少对应的处理器注册，Trojan 协议流量会被回退到 `unknown` 处理器执行原始 TCP 透传。
 
@@ -181,7 +181,7 @@ auto process(session_context &ctx, [[maybe_unused]] std::span<const std::byte> /
 ```
 ┌─────────────────────────────────────────────────────────────┐
 │                        Session                               │
-│  1. protocol::sniff::probe() 检测协议类型                    │
+│  1. protocol::probe::probe() 检测协议类型                    │
 │  2. registry::global().create() 获取处理器                   │
 └─────────────────────────────────────────────────────────────┘
                               │

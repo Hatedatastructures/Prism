@@ -22,13 +22,13 @@
 #include <boost/asio/ssl.hpp>
 
 #include <forward-engine/agent/context.hpp>
-#include <forward-engine/agent/distribution/router.hpp>
-#include <forward-engine/gist/code.hpp>
+#include <forward-engine/agent/resolve/router.hpp>
+#include <forward-engine/fault/code.hpp>
 #include <forward-engine/memory/container.hpp>
 #include <forward-engine/protocol/analysis.hpp>
 #include <forward-engine/trace/spdlog.hpp>
 #include <forward-engine/channel/transport/transmission.hpp>
-#include <forward-engine/channel/adapter/adaptation.hpp>
+#include <forward-engine/channel/adapter/connector.hpp>
 
 /**
  * @namespace ngx::agent::pipeline::primitives
@@ -88,9 +88,9 @@ namespace ngx::agent::pipeline::primitives
      * 路由方法建立连接。连接成功后，将原始套接字包装为可靠传输对象
      * 返回。若路由失败或连接无效，返回相应的错误码和空指针。
      */
-    auto dial(std::shared_ptr<distribution::router> router, std::string_view label,
+    auto dial(std::shared_ptr<resolve::router> router, std::string_view label,
               const protocol::analysis::target &target, bool allow_reverse, bool require_open)
-        -> net::awaitable<std::pair<gist::code, ngx::channel::transport::transmission_pointer>>;
+        -> net::awaitable<std::pair<fault::code, ngx::channel::transport::transmission_pointer>>;
 
     /**
      * @brief 执行 TLS 服务端握手
@@ -104,7 +104,7 @@ namespace ngx::agent::pipeline::primitives
      * @warning 调用后 ctx.inbound 的所有权被转移，调用者不应再使用。
      */
     auto ssl_handshake(session_context &ctx, std::span<const std::byte> data)
-        -> net::awaitable<std::pair<gist::code, shared_ssl_stream>>;
+        -> net::awaitable<std::pair<fault::code, shared_ssl_stream>>;
 
     /**
      * @class preview
@@ -185,9 +185,9 @@ namespace ngx::agent::pipeline::primitives
         void cancel() override;
 
     private:
-        ngx::channel::transport::transmission_pointer inner_;    // 内部传输对象
-        memory::vector<std::byte> preread_buffer_; // 预读数据缓冲区（拥有所有权）
-        std::size_t offset_{0};                    // 当前预读偏移量
+        ngx::channel::transport::transmission_pointer inner_; // 内部传输对象
+        memory::vector<std::byte> preread_buffer_;            // 预读数据缓冲区（拥有所有权）
+        std::size_t offset_{0};                               // 当前预读偏移量
     };
 
     /**
@@ -207,8 +207,8 @@ namespace ngx::agent::pipeline::primitives
      * 适用于对吞吐量优先于可靠性的场景。
      * @note 缓冲区大小至少为 2 字节，实际使用时建议不小于 64KB。
      */
-    template <typename Inbound, typename Outbound>
-    auto original_tunnel(Inbound inbound, Outbound outbound, const session_context &ctx, const bool complete_write = true)
+    inline auto original_tunnel(ngx::channel::transport::transmission_pointer inbound, ngx::channel::transport::transmission_pointer outbound,
+                                const session_context &ctx, const bool complete_write = true)
         -> net::awaitable<void>
     {
         auto mr = ctx.frame_arena.get();
@@ -224,30 +224,17 @@ namespace ngx::agent::pipeline::primitives
         auto left = span.first(left_size);
         auto right = span.subspan(left_size);
 
-        auto forward = [complete_write](auto &from, auto &to, std::span<std::byte> scratch) -> net::awaitable<void>
-        {   // 数据转发函数，从 from 读取数据，写入 to，scratch 为临时缓冲区
-            boost::system::error_code ec;
+        auto forward = [complete_write](ngx::channel::transport::transmission_pointer &from,
+                                        ngx::channel::transport::transmission_pointer &to, std::span<std::byte> scratch) -> net::awaitable<void>
+        { // 数据转发函数，从 from 读取数据，写入 to，scratch 为临时缓冲区
+            std::error_code ec;
             while (true)
             {
                 ec.clear();
-                auto token = net::redirect_error(net::use_awaitable, ec);
-                std::size_t transferred = 0; // 读取字节数
-                if constexpr (requires { from->async_read_some(scratch, ec); })
-                {
-                    transferred = co_await from->async_read_some(scratch, ec);
-                }
-                else if constexpr (requires { from->async_read_some(net::buffer(scratch), token); })
-                {
-                    transferred = co_await from->async_read_some(net::buffer(scratch), token);
-                }
-                else
-                {
-                    transferred = co_await from.async_read_some(net::buffer(scratch), token);
-                }
+                const auto transferred = co_await from->async_read_some(scratch, ec);
 
                 if (ec || transferred == 0)
                 {
-                    trace::debug("[Tunnel] Read failed or closed: {} bytes, ec: {}", transferred, ec.message());
                     co_return;
                 }
 
@@ -256,24 +243,10 @@ namespace ngx::agent::pipeline::primitives
                     // 完整写入模式：调用虚函数 async_write，由子类决定行为
                     ec.clear();
                     auto data_span = scratch.first(transferred);
-                    std::size_t written = 0;
-                    if constexpr (requires { to->async_write(data_span, ec); })
-                    {
-                        written = co_await to->async_write(data_span, ec);
-                    }
-                    else if constexpr (requires { to.async_write(data_span, ec); })
-                    {
-                        written = co_await to.async_write(data_span, ec);
-                    }
-                    else
-                    {
-                        // 兼容 ssl_stream 等非 transmission 类型
-                        written = co_await net::async_write(*to, net::buffer(data_span.data(), data_span.size()),token);
-                    }
+                    const auto written = co_await to->async_write(data_span, ec);
 
                     if (ec || written < transferred)
                     {
-                        trace::debug("[Tunnel] Write failed: written {} of {} bytes, ec: {}", written, transferred, ec.message());
                         co_return;
                     }
                 }
@@ -281,24 +254,11 @@ namespace ngx::agent::pipeline::primitives
                 {
                     // 单次写入模式：直接调用 async_write_some
                     ec.clear();
-                    std::size_t written = 0;
                     auto data_span = scratch.first(transferred);
-                    if constexpr (requires { to->async_write_some(data_span, ec); })
-                    {
-                        written = co_await to->async_write_some(data_span, ec);
-                    }
-                    else if constexpr (requires { to->async_write_some(net::buffer(data_span.data(), data_span.size()), token); })
-                    {
-                        written = co_await to->async_write_some(net::buffer(data_span.data(), data_span.size()), token);
-                    }
-                    else
-                    {
-                        written = co_await to.async_write_some(net::buffer(data_span.data(), data_span.size()), token);
-                    }
+                    const auto written = co_await to->async_write_some(data_span, ec);
 
                     if (ec)
                     {
-                        trace::debug("[Tunnel] Write failed: written {} of {} bytes, ec: {}", written, transferred, ec.message());
                         co_return;
                     }
                 }
@@ -308,13 +268,7 @@ namespace ngx::agent::pipeline::primitives
         using namespace boost::asio::experimental::awaitable_operators;
         co_await (forward(inbound, outbound, left) || forward(outbound, inbound, right));
 
-        if constexpr (requires { shut_close(inbound); })
-        {
-            shut_close(inbound);
-        }
-        if constexpr (requires { shut_close(outbound); })
-        {
-            shut_close(outbound);
-        }
+        shut_close(inbound);
+        shut_close(outbound);
     }
 } // namespace ngx::agent::pipeline::primitives

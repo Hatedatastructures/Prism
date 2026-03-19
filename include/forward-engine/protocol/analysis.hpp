@@ -144,7 +144,7 @@ namespace ngx::protocol
          * 是路由决策的关键输入。该结构体使用项目自定义的 memory::string
          * 管理内存，确保与线程局部内存池兼容。路由语义方面，当 positive
          * 为 true 时表示客户端请求使用正向代理，当 positive 为 false 时
-         * 表示普通请求或反向代理请求。agent::distribution::router 根据
+         * 表示普通请求或反向代理请求。agent::resolve::router 根据
          * 此标志选择正向或反向路由。内存管理方面，构造函数接受
          * memory::resource_pointer 参数，成员字符串使用相同的内存资源
          * 分配内存，默认使用 memory::current_resource()。

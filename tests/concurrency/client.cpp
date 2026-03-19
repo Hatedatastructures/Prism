@@ -408,9 +408,9 @@ private:
             http::response resp(mr);
             auto result = co_await http::async_read(socket, resp, buffer, mr);
 
-            if (result != ngx::gist::code::success)
+            if (result != ngx::fault::code::success)
             {
-                if (result == ngx::gist::code::eof && config_.debug_output)
+                if (result == ngx::fault::code::eof && config_.debug_output)
                 {
                     ngx::trace::debug("stress mode: server closed connection");
                 }
@@ -471,11 +471,11 @@ private:
         http::response resp(mr);
         auto result = co_await http::async_read(socket, resp, buffer, mr);
 
-        if (result != ngx::gist::code::success)
+        if (result != ngx::fault::code::success)
         {
             ngx::trace::error("[错误] 读取响应失败");
             boost::system::error_code ec;
-            if (result == ngx::gist::code::eof)
+            if (result == ngx::fault::code::eof)
             {
                 ec = net::error::eof;
             }

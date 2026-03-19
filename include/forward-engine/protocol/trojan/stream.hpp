@@ -24,8 +24,8 @@
 #include <forward-engine/protocol/trojan/message.hpp>
 #include <forward-engine/protocol/trojan/wire.hpp>
 #include <forward-engine/protocol/trojan/config.hpp>
-#include <forward-engine/gist.hpp>
-#include <forward-engine/gist/handling.hpp>
+#include <forward-engine/fault.hpp>
+#include <forward-engine/fault/handling.hpp>
 #include <memory>
 #include <functional>
 #include <span>
@@ -124,18 +124,18 @@ namespace ngx::protocol::trojan
 
         /**
          * @brief 执行 Trojan 协议握手
-         * @return net::awaitable<std::pair<gist::code, request>> 握手结果和请求信息
+         * @return net::awaitable<std::pair<fault::code, request>> 握手结果和请求信息
          * @details 完整的 Trojan 协议握手流程，包括凭据验证、协议头部解析和命令检查。
          * 状态机流程：首先读取 56 字节用户凭据并调用验证器检查有效性，然后读取
          * CRLF 分隔符，接着解析命令和地址类型，读取目标地址和端口，最后根据
          * config 检查命令是否允许。成功返回 request 对象，失败返回错误码。
          */
-        auto handshake() -> net::awaitable<std::pair<gist::code, request>>
+        auto handshake() -> net::awaitable<std::pair<fault::code, request>>
         {
             std::array<std::uint8_t, 1024> buffer;
             std::size_t offset = 0;
 
-            auto read_exact = [this](std::span<std::byte> out) -> net::awaitable<std::pair<gist::code, std::size_t>>
+            auto read_exact = [this](std::span<std::byte> out) -> net::awaitable<std::pair<fault::code, std::size_t>>
             {
                 std::size_t total = 0;
                 while (total < out.size())
@@ -144,34 +144,34 @@ namespace ngx::protocol::trojan
                     const auto n = co_await next_layer_->async_read_some(out.subspan(total), ec);
                     if (ec)
                     {
-                        co_return std::pair{gist::to_code(ec), total};
+                        co_return std::pair{fault::to_code(ec), total};
                     }
                     if (n == 0)
                     {
-                        co_return std::pair{gist::code::eof, total};
+                        co_return std::pair{fault::code::eof, total};
                     }
                     total += n;
                 }
-                co_return std::pair{gist::code::success, total};
+                co_return std::pair{fault::code::success, total};
             };
 
             {
                 auto span = std::span<std::byte>(reinterpret_cast<std::byte *>(buffer.data()), 56);
                 auto [read_ec, n] = co_await read_exact(span);
-                if (gist::failed(read_ec))
+                if (fault::failed(read_ec))
                 {
                     co_return std::pair{read_ec, request{}};
                 }
                 if (n != 56)
                 {
-                    co_return std::pair{gist::code::bad_message, request{}};
+                    co_return std::pair{fault::code::bad_message, request{}};
                 }
                 offset += 56;
             }
 
             auto credential_span = std::span<const std::uint8_t>(buffer.data(), 56);
             auto [ec_cred, credential] = wire::decode_credential(credential_span);
-            if (gist::failed(ec_cred))
+            if (fault::failed(ec_cred))
             {
                 co_return std::pair{ec_cred, request{}};
             }
@@ -181,23 +181,23 @@ namespace ngx::protocol::trojan
                 std::string_view cred_view(credential.data(), 56);
                 if (!verifier_(cred_view))
                 {
-                    co_return std::pair{gist::code::auth_failed, request{}};
+                    co_return std::pair{fault::code::auth_failed, request{}};
                 }
             }
 
             {
                 auto span = std::span<std::byte>(reinterpret_cast<std::byte *>(buffer.data() + offset), 2);
                 auto [read_ec, n] = co_await read_exact(span);
-                if (gist::failed(read_ec) || n != 2)
+                if (fault::failed(read_ec) || n != 2)
                 {
-                    co_return std::pair{gist::failed(read_ec) ? read_ec : gist::code::bad_message, request{}};
+                    co_return std::pair{fault::failed(read_ec) ? read_ec : fault::code::bad_message, request{}};
                 }
                 offset += 2;
             }
 
             auto crlf_span = std::span<const std::uint8_t>(buffer.data() + 56, 2);
             auto ec_crlf = wire::decode_crlf(crlf_span);
-            if (gist::failed(ec_crlf))
+            if (fault::failed(ec_crlf))
             {
                 co_return std::pair{ec_crlf, request{}};
             }
@@ -205,16 +205,16 @@ namespace ngx::protocol::trojan
             {
                 auto span = std::span<std::byte>(reinterpret_cast<std::byte *>(buffer.data() + offset), 2);
                 auto [read_ec, n] = co_await read_exact(span);
-                if (gist::failed(read_ec) || n != 2)
+                if (fault::failed(read_ec) || n != 2)
                 {
-                    co_return std::pair{gist::failed(read_ec) ? read_ec : gist::code::bad_message, request{}};
+                    co_return std::pair{fault::failed(read_ec) ? read_ec : fault::code::bad_message, request{}};
                 }
                 offset += 2;
             }
 
             auto cmd_atyp_span = std::span<const std::uint8_t>(buffer.data() + 58, 2);
             auto [ec_header, header] = wire::decode_cmd_atyp(cmd_atyp_span);
-            if (gist::failed(ec_header))
+            if (fault::failed(ec_header))
             {
                 co_return std::pair{ec_header, request{}};
             }
@@ -228,12 +228,12 @@ namespace ngx::protocol::trojan
             {
                 auto span = std::span<std::byte>(reinterpret_cast<std::byte *>(buffer.data() + offset), 4);
                 auto [read_ec, n] = co_await read_exact(span);
-                if (gist::failed(read_ec) || n != 4)
+                if (fault::failed(read_ec) || n != 4)
                 {
-                    co_return std::pair{gist::failed(read_ec) ? read_ec : gist::code::bad_message, request{}};
+                    co_return std::pair{fault::failed(read_ec) ? read_ec : fault::code::bad_message, request{}};
                 }
                 auto [ec, addr] = wire::parse_ipv4(std::span<const std::uint8_t>(buffer.data() + offset, 4));
-                if (gist::failed(ec))
+                if (fault::failed(ec))
                 {
                     co_return std::pair{ec, request{}};
                 }
@@ -246,12 +246,12 @@ namespace ngx::protocol::trojan
             {
                 auto span = std::span<std::byte>(reinterpret_cast<std::byte *>(buffer.data() + offset), 16);
                 auto [read_ec, n] = co_await read_exact(span);
-                if (gist::failed(read_ec) || n != 16)
+                if (fault::failed(read_ec) || n != 16)
                 {
-                    co_return std::pair{gist::failed(read_ec) ? read_ec : gist::code::bad_message, request{}};
+                    co_return std::pair{fault::failed(read_ec) ? read_ec : fault::code::bad_message, request{}};
                 }
                 auto [ec, addr] = wire::parse_ipv6(std::span<const std::uint8_t>(buffer.data() + offset, 16));
-                if (gist::failed(ec))
+                if (fault::failed(ec))
                 {
                     co_return std::pair{ec, request{}};
                 }
@@ -264,21 +264,21 @@ namespace ngx::protocol::trojan
             {
                 auto span_len = std::span<std::byte>(reinterpret_cast<std::byte *>(buffer.data() + offset), 1);
                 auto [read_ec, n] = co_await read_exact(span_len);
-                if (gist::failed(read_ec) || n != 1)
+                if (fault::failed(read_ec) || n != 1)
                 {
-                    co_return std::pair{gist::failed(read_ec) ? read_ec : gist::code::bad_message, request{}};
+                    co_return std::pair{fault::failed(read_ec) ? read_ec : fault::code::bad_message, request{}};
                 }
                 std::uint8_t domain_len = buffer[offset];
                 offset += 1;
 
                 auto span_domain = std::span<std::byte>(reinterpret_cast<std::byte *>(buffer.data() + offset), domain_len);
                 auto [read_ec2, n2] = co_await read_exact(span_domain);
-                if (gist::failed(read_ec2) || n2 != domain_len)
+                if (fault::failed(read_ec2) || n2 != domain_len)
                 {
-                    co_return std::pair{gist::failed(read_ec2) ? read_ec2 : gist::code::bad_message, request{}};
+                    co_return std::pair{fault::failed(read_ec2) ? read_ec2 : fault::code::bad_message, request{}};
                 }
                 auto [ec, addr] = wire::parse_domain(std::span<const std::uint8_t>(buffer.data() + offset - 1, 1 + domain_len));
-                if (gist::failed(ec))
+                if (fault::failed(ec))
                 {
                     co_return std::pair{ec, request{}};
                 }
@@ -288,22 +288,22 @@ namespace ngx::protocol::trojan
                 break;
             }
             default:
-                co_return std::pair{gist::code::unsupported_address, request{}};
+                co_return std::pair{fault::code::unsupported_address, request{}};
             }
 
             {
                 auto span = std::span<std::byte>(reinterpret_cast<std::byte *>(buffer.data() + offset), 2);
                 auto [read_ec, n] = co_await read_exact(span);
-                if (gist::failed(read_ec) || n != 2)
+                if (fault::failed(read_ec) || n != 2)
                 {
-                    co_return std::pair{gist::failed(read_ec) ? read_ec : gist::code::bad_message, request{}};
+                    co_return std::pair{fault::failed(read_ec) ? read_ec : fault::code::bad_message, request{}};
                 }
                 offset += 2;
             }
 
             auto port_span = std::span<const std::uint8_t>(buffer.data() + offset - 2, 2);
             auto [ec_port, port] = wire::decode_port(port_span);
-            if (gist::failed(ec_port))
+            if (fault::failed(ec_port))
             {
                 co_return std::pair{ec_port, request{}};
             }
@@ -311,16 +311,16 @@ namespace ngx::protocol::trojan
             {
                 auto span = std::span<std::byte>(reinterpret_cast<std::byte *>(buffer.data() + offset), 2);
                 auto [read_ec, n] = co_await read_exact(span);
-                if (gist::failed(read_ec) || n != 2)
+                if (fault::failed(read_ec) || n != 2)
                 {
-                    co_return std::pair{gist::failed(read_ec) ? read_ec : gist::code::bad_message, request{}};
+                    co_return std::pair{fault::failed(read_ec) ? read_ec : fault::code::bad_message, request{}};
                 }
                 offset += 2;
             }
 
             auto final_crlf_span = std::span<const std::uint8_t>(buffer.data() + offset - 2, 2);
             auto ec_final_crlf = wire::decode_crlf(final_crlf_span);
-            if (gist::failed(ec_final_crlf))
+            if (fault::failed(ec_final_crlf))
             {
                 co_return std::pair{ec_final_crlf, request{}};
             }
@@ -336,22 +336,22 @@ namespace ngx::protocol::trojan
             case command::connect:
                 if (!config_.enable_tcp)
                 {
-                    co_return std::pair{gist::code::forbidden, request{}};
+                    co_return std::pair{fault::code::forbidden, request{}};
                 }
                 req.form = ngx::protocol::form::stream;
                 break;
             case command::udp_associate:
                 if (!config_.enable_udp)
                 {
-                    co_return std::pair{gist::code::forbidden, request{}};
+                    co_return std::pair{fault::code::forbidden, request{}};
                 }
                 req.form = ngx::protocol::form::datagram;
                 break;
             default:
-                co_return std::pair{gist::code::unsupported_command, request{}};
+                co_return std::pair{fault::code::unsupported_command, request{}};
             }
 
-            co_return std::pair{gist::code::success, req};
+            co_return std::pair{fault::code::success, req};
         }
 
         /**

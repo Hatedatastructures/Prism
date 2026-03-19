@@ -13,7 +13,7 @@
 
 #include <boost/asio.hpp>
 #include <forward-engine/channel/transport/transmission.hpp>
-#include <forward-engine/gist/handling.hpp>
+#include <forward-engine/fault/handling.hpp>
 #include <memory>
 #include <optional>
 
@@ -101,18 +101,18 @@ namespace ngx::channel::transport
                     sender_endpoint_, token);
                 if (sys_ec)
                 {
-                    ec = ngx::gist::make_error_code(ngx::gist::to_code(sys_ec));
+                    ec = ngx::fault::make_error_code(ngx::fault::to_code(sys_ec));
                     co_return 0;
                 }
                 if (!remote_endpoint_)
                 {
                     remote_endpoint_ = sender_endpoint_;
-                    ec = ngx::gist::make_error_code(ngx::gist::code::success);
+                    ec = ngx::fault::make_error_code(ngx::fault::code::success);
                     co_return n;
                 }
                 else if (sender_endpoint_ == *remote_endpoint_)
                 {
-                    ec = ngx::gist::make_error_code(ngx::gist::code::success);
+                    ec = ngx::fault::make_error_code(ngx::fault::code::success);
                     co_return n;
                 }
             }
@@ -129,14 +129,14 @@ namespace ngx::channel::transport
         {
             if (!remote_endpoint_)
             {
-                ec = ngx::gist::make_error_code(ngx::gist::code::io_error);
+                ec = ngx::fault::make_error_code(ngx::fault::code::io_error);
                 co_return 0;
             }
             boost::system::error_code sys_ec;
             auto token = net::redirect_error(net::use_awaitable, sys_ec);
             const auto n = co_await socket_.async_send_to(
                 net::buffer(buffer.data(), buffer.size()), *remote_endpoint_,token);
-            ec = ngx::gist::make_error_code(ngx::gist::to_code(sys_ec));
+            ec = ngx::fault::make_error_code(ngx::fault::to_code(sys_ec));
             co_return n;
         }
 

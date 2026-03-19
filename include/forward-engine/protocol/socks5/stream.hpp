@@ -6,7 +6,7 @@
  * 传输层包装为 SOCKS5 协议中继，处理握手、认证、请求解析和响应
  * 生成。核心特性包括协议完整性（支持 CONNECT 和 UDP_ASSOCIATE
  * 命令）、地址类型全面（支持 IPv4、IPv6 和域名）、错误处理完善
- * （使用 gist::code 错误码系统）、能力控制（通过 config 结构控制
+ * （使用 fault::code 错误码系统）、能力控制（通过 config 结构控制
  * 命令启用状态）。协议流程分为方法协商、请求处理、命令检查、
  * 响应发送和数据转发五个阶段。内存高效，使用栈分配缓冲区避免
  * 热路径堆分配；统一抽象，继承 transmission 接口支持多态使用。
@@ -21,7 +21,7 @@
 #include <boost/asio.hpp>
 #include <boost/asio/experimental/awaitable_operators.hpp>
 
-#include <forward-engine/gist/handling.hpp>
+#include <forward-engine/fault/handling.hpp>
 #include <forward-engine/memory/container.hpp>
 #include <forward-engine/channel/transport/transmission.hpp>
 #include <forward-engine/protocol/common/form.hpp>
@@ -55,7 +55,7 @@ namespace ngx::protocol::socks5
     {
     public:
         // 路由回调函数类型，用于根据目标地址选择本地端点
-        using route_callback = std::function<net::awaitable<std::pair<gist::code, net::ip::udp::endpoint>>(std::string_view, std::string_view)>;
+        using route_callback = std::function<net::awaitable<std::pair<fault::code, net::ip::udp::endpoint>>(std::string_view, std::string_view)>;
 
         /**
          * @brief 构造函数
@@ -142,21 +142,21 @@ namespace ngx::protocol::socks5
          * @brief 异步处理 UDP 关联请求
          * @param request_info 包含请求信息的 SOCKS5 请求结构体
          * @param route_callback 路由回调函数，用于根据目标地址选择合适的本地端点
-         * @return net::awaitable<gist::code> 异步操作，完成后返回错误码
+         * @return net::awaitable<fault::code> 异步操作，完成后返回错误码
          * @details 处理客户端发起的 UDP 关联请求，绑定本地端口并返回关联
          * 地址。成功后进入 UDP 数据报转发循环，直到控制连接关闭。
          * @warning 调用前必须确保 next_layer_ 传输层指针有效且已连接
          */
         auto async_associate(const request &request_info, route_callback route_callback) const
-            -> net::awaitable<gist::code>
+            -> net::awaitable<fault::code>
         {
             if (!config_.enable_udp || request_info.form != ngx::protocol::form::datagram)
             {
-                co_return gist::code::not_supported;
+                co_return fault::code::not_supported;
             }
 
             auto [open_ec, ingress_socket] = co_await bind_datagram_port();
-            if (gist::failed(open_ec))
+            if (fault::failed(open_ec))
             {
                 co_await async_write_error(reply_code::server_failure);
                 co_return open_ec;
@@ -167,24 +167,24 @@ namespace ngx::protocol::socks5
             if (endpoint_ec)
             {
                 co_await async_write_error(reply_code::server_failure);
-                co_return gist::to_code(endpoint_ec);
+                co_return fault::to_code(endpoint_ec);
             }
 
-            if (gist::failed(co_await async_write_associate_success(request_info, local_endpoint)))
+            if (fault::failed(co_await async_write_associate_success(request_info, local_endpoint)))
             {
                 boost::system::error_code ignore_ec;
                 ingress_socket.close(ignore_ec);
-                co_return gist::code::io_error;
+                co_return fault::code::io_error;
             }
 
             using namespace boost::asio::experimental::awaitable_operators;
             co_await (associate_loop(ingress_socket, route_callback) || wait_control_close(ingress_socket));
-            co_return gist::code::success;
+            co_return fault::code::success;
         }
 
         /**
          * @brief 执行 SOCKS5 握手
-         * @return net::awaitable<std::pair<gist::code, request>> 握手结果和请求信息
+         * @return net::awaitable<std::pair<fault::code, request>> 握手结果和请求信息
          * @details 执行完整的 SOCKS5 握手流程，包括方法协商、请求解析和
          * 命令检查。前提是 next_layer_ 已建立连接。握手过程首先进行方法
          * 协商：读取客户端支持的方法列表，并选择无认证方式（0x00）；若
@@ -202,16 +202,16 @@ namespace ngx::protocol::socks5
          * 对象。
          */
         auto handshake()
-            -> net::awaitable<std::pair<gist::code, request>>
+            -> net::awaitable<std::pair<fault::code, request>>
         {
             const auto [negotiation_ec, method] = co_await negotiated_authentication();
-            if (gist::failed(negotiation_ec))
+            if (fault::failed(negotiation_ec))
             {
                 co_return std::pair{negotiation_ec, request{}};
             }
 
             auto [read_ec, header] = co_await read_request_header();
-            if (gist::failed(read_ec))
+            if (fault::failed(read_ec))
             {
                 co_return std::pair{read_ec, request{}};
             }
@@ -225,7 +225,7 @@ namespace ngx::protocol::socks5
                 if (!config_.enable_tcp)
                 {
                     co_await async_write_error(reply_code::connection_not_allowed);
-                    co_return std::pair{gist::code::not_supported, request{}};
+                    co_return std::pair{fault::code::not_supported, request{}};
                 }
                 req.form = ngx::protocol::form::stream;
                 break;
@@ -233,7 +233,7 @@ namespace ngx::protocol::socks5
                 if (!config_.enable_udp)
                 {
                     co_await async_write_error(reply_code::connection_not_allowed);
-                    co_return std::pair{gist::code::not_supported, request{}};
+                    co_return std::pair{fault::code::not_supported, request{}};
                 }
                 req.form = ngx::protocol::form::datagram;
                 break;
@@ -241,13 +241,13 @@ namespace ngx::protocol::socks5
                 if (!config_.enable_bind)
                 {
                     co_await async_write_error(reply_code::command_not_supported);
-                    co_return std::pair{gist::code::unsupported_command, request{}};
+                    co_return std::pair{fault::code::unsupported_command, request{}};
                 }
                 req.form = ngx::protocol::form::stream;
                 break;
             default:
                 co_await async_write_error(reply_code::command_not_supported);
-                co_return std::pair{gist::code::unsupported_command, request{}};
+                co_return std::pair{fault::code::unsupported_command, request{}};
             }
 
             switch (header.atyp)
@@ -255,7 +255,7 @@ namespace ngx::protocol::socks5
             case address_type::ipv4:
             {
                 auto [ec, addr, port] = co_await read_address<4>(wire::parse_ipv4);
-                if (gist::failed(ec))
+                if (fault::failed(ec))
                 {
                     co_return std::pair{ec, request{}};
                 }
@@ -266,7 +266,7 @@ namespace ngx::protocol::socks5
             case address_type::ipv6:
             {
                 auto [ec, addr, port] = co_await read_address<16>(wire::parse_ipv6);
-                if (gist::failed(ec))
+                if (fault::failed(ec))
                 {
                     co_return std::pair{ec, request{}};
                 }
@@ -277,7 +277,7 @@ namespace ngx::protocol::socks5
             case address_type::domain:
             {
                 auto [ec, addr, port] = co_await read_domain_address();
-                if (gist::failed(ec))
+                if (fault::failed(ec))
                 {
                     co_return std::pair{ec, request{}};
                 }
@@ -286,38 +286,38 @@ namespace ngx::protocol::socks5
                 break;
             }
             default:
-                co_return std::pair{gist::code::unsupported_address, request{}};
+                co_return std::pair{fault::code::unsupported_address, request{}};
             }
 
-            co_return std::pair{gist::code::success, req};
+            co_return std::pair{fault::code::success, req};
         }
 
         /**
          * @brief 发送成功响应
          * @param info 请求信息，用于回显绑定地址和端口
-         * @return net::awaitable<gist::code> 异步操作，完成后返回错误码
+         * @return net::awaitable<fault::code> 异步操作，完成后返回错误码
          * @details 构建并发送 SOCKS5 成功响应，包含绑定地址和端口信息。
          * 响应格式遵循 RFC 1928 规范。
          */
         auto async_write_success(const request &info) const
-            -> net::awaitable<gist::code>
+            -> net::awaitable<fault::code>
         {
             std::array<std::uint8_t, 262> buffer{};
             const std::size_t len = build_success_response(info, buffer);
             std::error_code ec;
             co_await async_write_impl(std::span(reinterpret_cast<const std::byte *>(buffer.data()), len), ec);
-            co_return gist::to_code(ec);
+            co_return fault::to_code(ec);
         }
 
         /**
          * @brief 发送错误响应
          * @param code 错误码
-         * @return net::awaitable<gist::code> 异步操作，完成后返回错误码
+         * @return net::awaitable<fault::code> 异步操作，完成后返回错误码
          * @details 构建并发送 SOCKS5 错误响应，使用固定格式的错误报文。
          * 响应中地址字段填充为零。
          */
         auto async_write_error(reply_code code) const
-            -> net::awaitable<gist::code>
+            -> net::awaitable<fault::code>
         {
             const std::array<std::uint8_t, 10> response = {
                 0x05, static_cast<uint8_t>(code), 0x00, 0x01,
@@ -325,7 +325,7 @@ namespace ngx::protocol::socks5
                 0x00, 0x00};
             std::error_code ec;
             co_await async_write_impl(std::span(reinterpret_cast<const std::byte *>(response.data()), response.size()), ec);
-            co_return gist::to_code(ec);
+            co_return fault::to_code(ec);
         }
 
         /**
@@ -376,42 +376,42 @@ namespace ngx::protocol::socks5
     private:
         /**
          * @brief 打开并绑定 UDP 数据报端口
-         * @return net::awaitable<std::pair<gist::code, net::ip::udp::socket>>
+         * @return net::awaitable<std::pair<fault::code, net::ip::udp::socket>>
          * 错误码与已绑定 socket
          * @details 使用当前执行器创建会话级 UDP socket，并绑定到
          * udp_bind_port 指定的端口。若 udp_bind_port 为 0，由系统
          * 自动分配端口。socket 绑定成功后可用于接收 UDP 数据报。
          */
         auto bind_datagram_port() const
-            -> net::awaitable<std::pair<gist::code, net::ip::udp::socket>>
+            -> net::awaitable<std::pair<fault::code, net::ip::udp::socket>>
         {
             boost::system::error_code ec;
             net::ip::udp::socket ingress_socket(executor());
             ingress_socket.open(net::ip::udp::v4(), ec);
             if (ec)
             {
-                co_return std::pair{gist::to_code(ec), net::ip::udp::socket(executor())};
+                co_return std::pair{fault::to_code(ec), net::ip::udp::socket(executor())};
             }
 
             ingress_socket.bind(net::ip::udp::endpoint(net::ip::udp::v4(), config_.udp_bind_port), ec);
             if (ec)
             {
-                co_return std::pair{gist::to_code(ec), net::ip::udp::socket(executor())};
+                co_return std::pair{fault::to_code(ec), net::ip::udp::socket(executor())};
             }
 
-            co_return std::pair{gist::code::success, std::move(ingress_socket)};
+            co_return std::pair{fault::code::success, std::move(ingress_socket)};
         }
 
         /**
          * @brief 发送 UDP_ASSOCIATE 成功响应
          * @param request_info 原始请求信息
          * @param local_endpoint 本地 UDP 端点
-         * @return net::awaitable<gist::code> 异步操作，完成后返回错误码
+         * @return net::awaitable<fault::code> 异步操作，完成后返回错误码
          * @details 将本地 UDP 绑定地址写入 SOCKS5 响应的 BND.ADDR 和
          * BND.PORT 字段，供客户端后续向该地址发送 UDP 数据报。
          */
         auto async_write_associate_success(const request &request_info, const net::ip::udp::endpoint &local_endpoint) const
-            -> net::awaitable<gist::code>
+            -> net::awaitable<fault::code>
         {
             request response_info = request_info;
             response_info.destination_address = endpoint_to_address(local_endpoint);
@@ -473,7 +473,7 @@ namespace ngx::protocol::socks5
             const auto ingress_bytes = std::span<const std::uint8_t>(
                 reinterpret_cast<const std::uint8_t *>(ingress_packet.data()), ingress_packet.size());
             const auto [decode_ec, parsed] = wire::decode_udp_header(ingress_bytes);
-            if (gist::failed(decode_ec))
+            if (fault::failed(decode_ec))
             {
                 co_return;
             }
@@ -481,7 +481,7 @@ namespace ngx::protocol::socks5
             const auto target_host = to_string(parsed.header.destination_address, memory::current_resource());
             const auto target_port = std::to_string(parsed.header.destination_port);
             auto [route_ec, target_endpoint] = co_await route_callback(target_host, target_port);
-            if (gist::failed(route_ec))
+            if (fault::failed(route_ec))
             {
                 co_return;
             }
@@ -524,7 +524,7 @@ namespace ngx::protocol::socks5
             response_datagram.reserve(target_n + 64);
             const auto target_payload = std::span<const std::uint8_t>(
                 reinterpret_cast<const std::uint8_t *>(target_buffer.data()), target_n);
-            if (gist::failed(wire::encode_udp_datagram(response_header, target_payload, response_datagram)))
+            if (fault::failed(wire::encode_udp_datagram(response_header, target_payload, response_datagram)))
             {
                 co_return;
             }
@@ -569,7 +569,7 @@ namespace ngx::protocol::socks5
 
         /**
          * @brief 协商 SOCKS5 认证方法
-         * @return net::awaitable<std::pair<gist::code, auth_method>> 协商
+         * @return net::awaitable<std::pair<fault::code, auth_method>> 协商
          * 结果错误码与选定的认证方法
          * @details 读取客户端发送的方法协商请求，验证协议版本，检查
          * 客户端支持的方法列表中是否包含无认证方法（0x00）。若支持
@@ -577,7 +577,7 @@ namespace ngx::protocol::socks5
          * 当前实现仅支持无认证模式，后续可扩展用户名密码认证。
          */
         auto negotiated_authentication() const
-            -> net::awaitable<std::pair<gist::code, auth_method>>
+            -> net::awaitable<std::pair<fault::code, auth_method>>
         {
             std::array<std::uint8_t, 258> methods_buffer{};
 
@@ -585,12 +585,12 @@ namespace ngx::protocol::socks5
             co_await async_read_impl(std::span(reinterpret_cast<std::byte *>(methods_buffer.data()), 2), ec);
             if (ec)
             {
-                co_return std::pair{gist::to_code(ec), auth_method::no_acceptable_methods};
+                co_return std::pair{fault::to_code(ec), auth_method::no_acceptable_methods};
             }
 
             if (methods_buffer[0] != 0x05)
             {
-                co_return std::pair{gist::code::protocol_error, auth_method::no_acceptable_methods};
+                co_return std::pair{fault::code::protocol_error, auth_method::no_acceptable_methods};
             }
 
             const std::uint8_t nmethods = methods_buffer[1];
@@ -598,7 +598,7 @@ namespace ngx::protocol::socks5
             co_await async_read_impl(std::span(reinterpret_cast<std::byte *>(methods_buffer.data() + 2), nmethods), ec);
             if (ec)
             {
-                co_return std::pair{gist::to_code(ec), auth_method::no_acceptable_methods};
+                co_return std::pair{fault::to_code(ec), auth_method::no_acceptable_methods};
             }
 
             bool no_auth_supported = false;
@@ -618,30 +618,30 @@ namespace ngx::protocol::socks5
                 co_await async_write_impl(std::span(reinterpret_cast<const std::byte *>(response), 2), ec);
                 if (ec)
                 {
-                    co_return std::pair{gist::to_code(ec), auth_method::no_acceptable_methods};
+                    co_return std::pair{fault::to_code(ec), auth_method::no_acceptable_methods};
                 }
-                co_return std::pair{gist::code::not_supported, auth_method::no_acceptable_methods};
+                co_return std::pair{fault::code::not_supported, auth_method::no_acceptable_methods};
             }
 
             constexpr std::uint8_t response[] = {0x05, 0x00};
             co_await async_write_impl(std::span(reinterpret_cast<const std::byte *>(response), 2), ec);
             if (ec)
             {
-                co_return std::pair{gist::to_code(ec), auth_method::no_acceptable_methods};
+                co_return std::pair{fault::to_code(ec), auth_method::no_acceptable_methods};
             }
-            co_return std::pair{gist::code::success, auth_method::no_auth};
+            co_return std::pair{fault::code::success, auth_method::no_auth};
         }
 
         /**
          * @brief 读取请求头部
-         * @return net::awaitable<std::pair<gist::code, wire::header_parse>>
+         * @return net::awaitable<std::pair<fault::code, wire::header_parse>>
          * 包含结果错误码和解析后的头部
          * @details 读取 4 字节的请求头部（VER + CMD + RSV + ATYP），
          * 并解析为结构化的头部信息。头部包含命令类型和地址类型，
          * 用于后续的地址读取和命令处理。
          */
         auto read_request_header() const
-            -> net::awaitable<std::pair<gist::code, wire::header_parse>>
+            -> net::awaitable<std::pair<fault::code, wire::header_parse>>
         {
             std::array<std::uint8_t, 4> request_header{};
             std::error_code ec;
@@ -649,15 +649,15 @@ namespace ngx::protocol::socks5
 
             if (ec)
             {
-                co_return std::pair{gist::to_code(ec), wire::header_parse{}};
+                co_return std::pair{fault::to_code(ec), wire::header_parse{}};
             }
 
             auto [header_ec, header] = wire::parse_header(request_header);
-            if (gist::failed(header_ec))
+            if (fault::failed(header_ec))
             {
                 co_return std::pair{header_ec, wire::header_parse{}};
             }
-            co_return std::pair{gist::code::success, header};
+            co_return std::pair{fault::code::success, header};
         }
 
         /**
@@ -665,54 +665,54 @@ namespace ngx::protocol::socks5
          * @tparam N IP 地址字节数（4 或 16）
          * @tparam Decoder 解码器类型
          * @param decoder 地址解码函数
-         * @return net::awaitable<std::tuple<gist::code, address, uint16_t>>
+         * @return net::awaitable<std::tuple<fault::code, address, uint16_t>>
          * 包含结果代码、地址和端口
          * @details 读取指定长度的 IP 地址数据和 2 字节端口，使用
          * 提供的解码器解析地址。适用于 IPv4 和 IPv6 地址类型。
          */
         template <size_t N, typename Decoder>
         auto read_address(Decoder &&decoder)
-            -> net::awaitable<std::tuple<gist::code, address, uint16_t>>
+            -> net::awaitable<std::tuple<fault::code, address, uint16_t>>
         {
             std::array<std::uint8_t, N + 2> buffer{};
             std::error_code io_ec;
             co_await async_read_impl(std::span(reinterpret_cast<std::byte *>(buffer.data()), N + 2), io_ec);
             if (io_ec)
             {
-                co_return std::tuple<gist::code, address, uint16_t>{gist::code::io_error, address{}, 0};
+                co_return std::tuple<fault::code, address, uint16_t>{fault::code::io_error, address{}, 0};
             }
 
             auto [decode_ec, ip] = decoder(std::span<const std::uint8_t>(buffer.data(), N));
-            if (gist::failed(decode_ec))
+            if (fault::failed(decode_ec))
             {
-                co_return std::tuple<gist::code, address, uint16_t>{decode_ec, address{}, 0};
+                co_return std::tuple<fault::code, address, uint16_t>{decode_ec, address{}, 0};
             }
 
             auto [ec_port, port] = wire::decode_port(std::span<const std::uint8_t>(buffer.data() + N, 2));
-            if (gist::failed(ec_port))
+            if (fault::failed(ec_port))
             {
-                co_return std::tuple<gist::code, address, uint16_t>{ec_port, address{}, 0};
+                co_return std::tuple<fault::code, address, uint16_t>{ec_port, address{}, 0};
             }
 
-            co_return std::tuple{gist::code::success, address{ip}, port};
+            co_return std::tuple{fault::code::success, address{ip}, port};
         }
 
         /**
          * @brief 读取域名地址和端口
-         * @return net::awaitable<std::tuple<gist::code, address, uint16_t>>
+         * @return net::awaitable<std::tuple<fault::code, address, uint16_t>>
          * 包含结果代码、地址和端口
          * @details 读取域名长度字节、域名内容和端口。域名格式为
          * 1 字节长度前缀后跟域名字符串，端口为 2 字节大端序整数。
          */
         auto read_domain_address() const
-            -> net::awaitable<std::tuple<gist::code, address, uint16_t>>
+            -> net::awaitable<std::tuple<fault::code, address, uint16_t>>
         {
             std::uint8_t len = 0;
             std::error_code io_ec;
             co_await async_read_impl(std::span(reinterpret_cast<std::byte *>(&len), 1), io_ec);
             if (io_ec)
             {
-                co_return std::tuple<gist::code, address, uint16_t>{gist::code::io_error, address{}, 0};
+                co_return std::tuple<fault::code, address, uint16_t>{fault::code::io_error, address{}, 0};
             }
 
             std::array<std::uint8_t, 258> buffer{};
@@ -721,22 +721,22 @@ namespace ngx::protocol::socks5
             co_await async_read_impl(std::span(reinterpret_cast<std::byte *>(buffer.data() + 1), len + 2), io_ec);
             if (io_ec)
             {
-                co_return std::tuple<gist::code, address, uint16_t>{gist::code::io_error, address{}, 0};
+                co_return std::tuple<fault::code, address, uint16_t>{fault::code::io_error, address{}, 0};
             }
 
             auto [ec_domain, domain] = wire::parse_domain(std::span<const std::uint8_t>(buffer.data(), len + 1));
-            if (gist::failed(ec_domain))
+            if (fault::failed(ec_domain))
             {
-                co_return std::tuple<gist::code, address, uint16_t>{ec_domain, address{}, 0};
+                co_return std::tuple<fault::code, address, uint16_t>{ec_domain, address{}, 0};
             }
 
             auto [ec_port, port] = wire::decode_port(std::span<const std::uint8_t>(buffer.data() + 1 + len, 2));
-            if (gist::failed(ec_port))
+            if (fault::failed(ec_port))
             {
-                co_return std::tuple<gist::code, address, uint16_t>{ec_port, address{}, 0};
+                co_return std::tuple<fault::code, address, uint16_t>{ec_port, address{}, 0};
             }
 
-            co_return std::tuple{gist::code::success, address{domain}, port};
+            co_return std::tuple{fault::code::success, address{domain}, port};
         }
 
         /**

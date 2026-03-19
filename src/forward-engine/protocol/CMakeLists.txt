@@ -13,7 +13,7 @@ target_sources(${PROJECT_NAME}_static_library
             ${PROJECT_SOURCE_DIR}/include/forward-engine/protocol/analysis.hpp
             ${PROJECT_SOURCE_DIR}/include/forward-engine/protocol/frame.hpp
             ${PROJECT_SOURCE_DIR}/include/forward-engine/protocol/http.hpp
-            ${PROJECT_SOURCE_DIR}/include/forward-engine/protocol/sniff.hpp
+            ${PROJECT_SOURCE_DIR}/include/forward-engine/protocol/probe.hpp
             ${PROJECT_SOURCE_DIR}/include/forward-engine/protocol/socks5.hpp
             ${PROJECT_SOURCE_DIR}/include/forward-engine/protocol/trojan.hpp
             ${PROJECT_SOURCE_DIR}/include/forward-engine/protocol/common/form.hpp

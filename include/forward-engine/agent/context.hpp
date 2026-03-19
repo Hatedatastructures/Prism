@@ -8,7 +8,7 @@
 #pragma once
 
 #include <forward-engine/agent/config.hpp>
-#include <forward-engine/agent/distribution/router.hpp>
+#include <forward-engine/agent/resolve/router.hpp>
 #include <forward-engine/agent/account/entry.hpp>
 #include <forward-engine/memory/pool.hpp>
 #include <forward-engine/channel/transport/transmission.hpp>
@@ -74,7 +74,7 @@ namespace ngx::agent
         net::io_context &io_context;
 
         // 路由器引用，负责请求分发和后端选择
-        distribution::router &router;
+        resolve::router &router;
 
         // 内存池资源指针，用于 PMR 内存分配
         memory::resource_pointer memory_pool;

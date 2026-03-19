@@ -6,11 +6,11 @@ graph LR
     
     subgraph "纵向处理链"
         front[front]
-        reactor[reactor]
-        connection[connection]
+        worker[worker]
+        session[session]
         dispatch[dispatch<br/>header-only]
         pipeline[pipeline]
-        distribution[distribution]
+        resolve[resolve]
     end
     
     subgraph "底层依赖"
@@ -19,16 +19,16 @@ graph LR
         memory[memory]
     end
     
-    front --> reactor
-    reactor --> connection
-    reactor --> distribution
-    connection --> dispatch
-    connection --> pipeline
+    front --> worker
+    worker --> session
+    worker --> resolve
+    session --> dispatch
+    session --> pipeline
     dispatch --> pipeline
-    pipeline --> distribution
-    distribution --> transport
+    pipeline --> resolve
+    resolve --> transport
     pipeline --> transport
     
     account --> memory
     context --> account
-    context --> distribution
+    context --> resolve

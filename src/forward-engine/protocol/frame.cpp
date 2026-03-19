@@ -21,12 +21,12 @@ namespace ngx::protocol
     }
 
     auto deserialize(const std::string_view string_value, frame &frame_instance)
-        -> gist::code
+        -> fault::code
     {
         // 检查最小长度 4 字节 ID + 1 字节 type = 5 字节
         if (string_value.size() < 5)
         {
-            return ngx::gist::code::bad_message;
+            return ngx::fault::code::bad_message;
         }
 
         std::uint32_t net_id;
@@ -42,6 +42,6 @@ namespace ngx::protocol
         // 这要求 frame 是可复制赋值或可移动赋值（默认生成的是足够的）
         frame_instance = frame(type, id, payload);
 
-        return ngx::gist::code::success;
+        return ngx::fault::code::success;
     }
 }

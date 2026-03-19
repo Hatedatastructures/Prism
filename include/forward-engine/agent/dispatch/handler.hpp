@@ -5,7 +5,7 @@
  * 取代了传统的 switch-case 分发模式，提供了更灵活、可扩展的协议处理架构。
  * 核心组件包括 handler 协议处理器抽象基类，定义统一的协议处理接口。registry
  * 协议注册表工厂模式，支持动态注册和处理器创建。工作流程为 session 接收
- * 客户端连接，包装为 transmission 对象。调用 protocol::sniff::probe 检测
+ * 客户端连接，包装为 transmission 对象。调用 protocol::probe 检测
  * 协议类型。通过 registry::global().create 创建对应的协议处理器。调用处理器
  * 的 process 方法处理连接，传递 session_context。处理器内部调用具体的协议
  * 管道如 pipeline::http、pipeline::socks5 等。设计优势包括可扩展性，新增

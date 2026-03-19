@@ -12,7 +12,7 @@ Session 创建流程负责接收新连接并初始化会话上下文。该流程
 
 #### 1. launch::dispatch() 投递到 worker 事件循环
 
-**源码位置**: [launch.cpp](src/forward-engine/agent/reactor/launch.cpp)
+**源码位置**: [launch.cpp](../../src/forward-engine/agent/worker/launch.cpp)
 
 ```cpp
 void dispatch(net::io_context &ioc, server_context &server, worker_context &worker, stats::state &metrics, tcp::socket socket)
@@ -46,7 +46,7 @@ void dispatch(net::io_context &ioc, server_context &server, worker_context &work
 
 #### 2. launch::prime() 预配置 socket 参数
 
-**源码位置**: [launch.cpp](src/forward-engine/agent/reactor/launch.cpp)
+**源码位置**: [launch.cpp](../../src/forward-engine/agent/worker/launch.cpp)
 
 ```cpp
 void prime(tcp::socket &socket, std::uint32_t buffer_size) noexcept
@@ -65,7 +65,7 @@ void prime(tcp::socket &socket, std::uint32_t buffer_size) noexcept
 
 #### 3. launch::start() 创建 session
 
-**源码位置**: [launch.cpp](src/forward-engine/agent/reactor/launch.cpp)
+**源码位置**: [launch.cpp](../../src/forward-engine/agent/worker/launch.cpp)
 
 ```cpp
 void start(server_context &server, worker_context &worker, stats::state &metrics, tcp::socket socket)
@@ -77,8 +77,8 @@ void start(server_context &server, worker_context &worker, stats::state &metrics
     };
 
     auto inbound = ngx::channel::transport::make_reliable(std::move(socket));
-    connection::session_params params{server, worker, std::move(inbound)};
-    const auto shared_session = ngx::agent::connection::make_session(std::move(params));
+        session::session_params params{server, worker, std::move(inbound)};
+    const auto shared_session = ngx::agent::session::make_session(std::move(params));
 
     metrics.session_open();
     try
@@ -133,7 +133,7 @@ void start(server_context &server, worker_context &worker, stats::state &metrics
 
 #### 1. session::start() 启动协程
 
-**源码位置**: [session.cpp](src/forward-engine/agent/connection/session.cpp)
+**源码位置**: [session.cpp](../../src/forward-engine/agent/session/session.cpp)
 
 ```cpp
 void session::start()
@@ -156,7 +156,7 @@ void session::start()
         {
             std::rethrow_exception(ep);
         }
-        catch (const abnormal::exception &e)
+        catch (const exception::deviant &e)
         {
             trace::error(e.dump());
         }
@@ -179,7 +179,7 @@ void session::start()
 
 #### 2. session::diversion() 协程
 
-**源码位置**: [session.cpp](src/forward-engine/agent/connection/session.cpp)
+**源码位置**: [session.cpp](../../src/forward-engine/agent/session/session.cpp)
 
 ```cpp
 auto session::diversion() -> net::awaitable<void>
@@ -190,10 +190,10 @@ auto session::diversion() -> net::awaitable<void>
         co_return;
     }
     // 预读检测协议类型
-    auto detect_result = co_await protocol::sniff::probe(*ctx_.inbound, 24);
-    if (gist::failed(detect_result.ec))
+    auto detect_result = co_await protocol::probe::probe(*ctx_.inbound, 24);
+    if (fault::failed(detect_result.ec))
     {
-        trace::warn("[Session] Protocol detection failed: {}.", gist::describe(detect_result.ec));
+        trace::warn("[Session] Protocol detection failed: {}.", fault::describe(detect_result.ec));
         co_return;
     }
 
@@ -213,9 +213,9 @@ auto session::diversion() -> net::awaitable<void>
 }
 ```
 
-#### 3. protocol::sniff::probe() 预读 24 字节
+#### 3. protocol::probe::probe() 预读 24 字节
 
-**源码位置**: [sniff.hpp](include/forward-engine/protocol/sniff.hpp)
+**源码位置**: [probe.hpp](../../include/forward-engine/protocol/probe.hpp)
 
 ```cpp
 inline auto probe(ngx::channel::transport::transmission &trans, std::size_t max_peek_size = 24)
@@ -230,12 +230,12 @@ inline auto probe(ngx::channel::transport::transmission &trans, std::size_t max_
     std::size_t n = co_await trans.async_read_some(span, sys_ec);
     if (sys_ec)
     {
-        result.ec = gist::to_code(sys_ec);
+        result.ec = fault::to_code(sys_ec);
         co_return result;
     }
     if (n == 0)
     {
-        result.ec = gist::code::eof;
+        result.ec = fault::code::eof;
         co_return result;
     }
 
@@ -243,7 +243,7 @@ inline auto probe(ngx::channel::transport::transmission &trans, std::size_t max_
     result.type = protocol::analysis::detect(peek_view);
 
     result.pre_read_size = n;
-    result.ec = gist::code::success;
+    result.ec = fault::code::success;
 
     co_return result;
 }
@@ -256,7 +256,7 @@ inline auto probe(ngx::channel::transport::transmission &trans, std::size_t max_
 
 #### 4. dispatch::registry::global().create() 获取 handler
 
-**源码位置**: [handler.hpp](include/forward-engine/agent/dispatch/handler.hpp)
+**源码位置**: [handler.hpp](../../include/forward-engine/agent/dispatch/handler.hpp)
 
 ```cpp
 auto create(const protocol::protocol_type type) const -> shared_handler
@@ -291,7 +291,7 @@ auto create(const protocol::protocol_type type) const -> shared_handler
 
 ### HTTP 路径
 
-**源码位置**: [protocols.cpp](src/forward-engine/agent/pipeline/protocols.cpp)
+**源码位置**: [protocols.cpp](../../src/forward-engine/agent/pipeline/protocols.cpp)
 
 #### 流程步骤
 
@@ -299,7 +299,7 @@ auto create(const protocol::protocol_type type) const -> shared_handler
 ┌─────────────────────────────────────────────────────────────────┐
 │                        HTTP 处理流程                             │
 ├─────────────────────────────────────────────────────────────────┤
-│  1. 创建 connector 包装 inbound                                  │
+│  1. 创建 connector 包装 inbound                                        │
 │  2. 将预读数据写入 read_buffer                                   │
 │  3. 调用 http::async_read() 解析 HTTP 请求                       │
 │  4. 调用 analysis::resolve() 提取目标地址                        │
@@ -334,16 +334,16 @@ auto http(session_context &ctx, std::span<const std::byte> data)
     protocol::http::request req(mr);
     {
         const auto ec = co_await protocol::http::async_read(stream, req, read_buffer, mr);
-        if (gist::failed(ec))
+        if (fault::failed(ec))
             co_return;
 
         const auto target = protocol::analysis::resolve(req);
-        trace::info("[Pipeline] Http analysis target = [host: {}, port: {}, positive: {}]", 
+        trace::info("[Pipeline] Http analysis target = [host: {}, port: {}, positive: {}]",
                     target.host, target.port, target.positive);
-        
-        std::shared_ptr<distribution::router> router_ptr(&ctx.worker.router, [](distribution::router *) {});
+
+        std::shared_ptr<resolve::router> router_ptr(&ctx.worker.router, [](resolve::router *) {});
         auto [fst, snd] = co_await primitives::dial(router_ptr, "HTTP", target, true, false);
-        if (gist::failed(fst) || !snd)
+        if (fault::failed(fst) || !snd)
             co_return;
         outbound = std::move(snd);
     }
@@ -380,7 +380,7 @@ auto http(session_context &ctx, std::span<const std::byte> data)
 
 ### SOCKS5 路径
 
-**源码位置**: [protocols.cpp](src/forward-engine/agent/pipeline/protocols.cpp)
+**源码位置**: [protocols.cpp](../../src/forward-engine/agent/pipeline/protocols.cpp)
 
 #### 流程步骤
 
@@ -404,7 +404,7 @@ auto http(session_context &ctx, std::span<const std::byte> data)
 
 ### TLS 路径
 
-**源码位置**: [protocols.cpp](src/forward-engine/agent/pipeline/protocols.cpp)
+**源码位置**: [protocols.cpp](../../src/forward-engine/agent/pipeline/protocols.cpp)
 
 #### 流程步骤
 
@@ -412,7 +412,7 @@ auto http(session_context &ctx, std::span<const std::byte> data)
 ┌─────────────────────────────────────────────────────────────────┐
 │                        TLS 处理流程                              │
 ├─────────────────────────────────────────────────────────────────┤
-│  1. 创建 connector 包装 inbound                                  │
+│  1. 创建 connector 包装 inbound                                        │
 │  2. 创建 ssl::stream 并执行 TLS 握手                             │
 │  3. 调用 http::async_read() 解析内部 HTTP 请求                   │
 │  4. 调用 analysis::resolve() 提取目标地址                        │
@@ -427,15 +427,15 @@ auto http(session_context &ctx, std::span<const std::byte> data)
 
 #### primitives::dial() - 建立上游连接
 
-**源码位置**: [primitives.cpp](src/forward-engine/agent/pipeline/primitives.cpp)
+**源码位置**: [primitives.cpp](../../src/forward-engine/agent/pipeline/primitives.cpp)
 
 ```cpp
-auto dial(std::shared_ptr<distribution::router> router, std::string_view label,
+auto dial(std::shared_ptr<resolve::router> router, std::string_view label,
           const protocol::analysis::target &target, const bool allow_reverse,
           const bool require_open)
-    -> net::awaitable<std::pair<gist::code, ngx::channel::transport::transmission_pointer>>
+    -> net::awaitable<std::pair<fault::code, ngx::channel::transport::transmission_pointer>>
 {
-    auto ec = gist::code::success;
+    auto ec = fault::code::success;
     ngx::channel::unique_sock socket;
 
     if (allow_reverse && !target.positive)
@@ -451,16 +451,16 @@ auto dial(std::shared_ptr<distribution::router> router, std::string_view label,
         socket = std::move(routed);
     }
 
-    if (gist::failed(ec))
+    if (fault::failed(ec))
     {
-        trace::warn("[Pipeline] {} route failed: {}", label, gist::describe(ec));
+        trace::warn("[Pipeline] {} route failed: {}", label, fault::describe(ec));
         co_return std::make_pair(ec, nullptr);
     }
 
     if (require_open && (!socket || !socket->is_open()))
     {
         trace::error("[Pipeline] {} route to upstream failed (connection invalid).", label);
-        co_return std::make_pair(gist::code::connection_refused, nullptr);
+        co_return std::make_pair(fault::code::connection_refused, nullptr);
     }
 
     trace::debug("[Pipeline] {} upstream connected.", label);
@@ -470,7 +470,7 @@ auto dial(std::shared_ptr<distribution::router> router, std::string_view label,
 
 #### primitives::original_tunnel() - 双向隧道转发
 
-**源码位置**: [primitives.hpp](include/forward-engine/agent/pipeline/primitives.hpp)
+**源码位置**: [primitives.hpp](../../include/forward-engine/agent/pipeline/primitives.hpp)
 
 **设计要点**:
 - 使用单个缓冲区分割为两个半缓冲区
@@ -486,7 +486,7 @@ auto dial(std::shared_ptr<distribution::router> router, std::string_view label,
 
 ### 流程步骤
 
-**源码位置**: [session.cpp](src/forward-engine/agent/connection/session.cpp)
+**源码位置**: [session.cpp](../../src/forward-engine/agent/session/session.cpp)
 
 ```cpp
 void session::close()
@@ -545,7 +545,7 @@ void session::close()
 
 ### 回调链
 
-**源码位置**: [launch.cpp](src/forward-engine/agent/reactor/launch.cpp)
+**源码位置**: [launch.cpp](../../src/forward-engine/agent/worker/launch.cpp)
 
 ```cpp
 auto on_closed = [active_sessions]() noexcept

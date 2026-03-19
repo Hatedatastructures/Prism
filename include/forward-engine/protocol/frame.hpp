@@ -18,7 +18,7 @@
 
 #include <string>
 #include <string_view>
-#include <forward-engine/gist.hpp>
+#include <forward-engine/fault.hpp>
 
 /**
  * @namespace ngx::protocol
@@ -137,9 +137,9 @@ namespace ngx::protocol
      * 帧头。然后进行类型提取，读取第一个字节作为帧类型。接着进行 ID
      * 提取，读取接下来 4 字节网络字节序作为帧 ID。再进行负载提取，剩余
      * 字节作为负载数据，拷贝到帧对象中。最后进行验证检查，验证帧类型
-     * 是否为有效枚举值。错误处理方面，数据过短返回 gist::code::invalid
-     * _argument，无效类型返回 gist::code::invalid_argument，内存不足
-     * 返回 gist::code::out_of_memory，成功返回 gist::code::ok。输入
+     * 是否为有效枚举值。错误处理方面，数据过短返回 fault::code::invalid
+     * _argument，无效类型返回 fault::code::invalid_argument，内存不足
+     * 返回 fault::code::out_of_memory，成功返回 fault::code::ok。输入
      * 要求数据必须由 serialize 函数生成，数据必须完整不能是分片或部分
      * 数据，帧头必须使用网络字节序大端。输出说明方面，成功时 frame
      * _instance 被填充为解析出的帧，失败时 frame_instance 的状态未定义
@@ -148,11 +148,11 @@ namespace ngx::protocol
      * 解析使用简单指针运算无额外开销。
      * @param string_value 输入的二进制数据，必须是完整的序列化帧数据
      * @param frame_instance 输出的帧对象，成功时被填充为解析结果
-     * @return gist::code 反序列化结果状态码，gist::code::ok 表示成功
+     * @return fault::code 反序列化结果状态码，fault::code::ok 表示成功
      * @note 输入数据必须至少 5 字节，否则无法解析帧头。
      * @warning 失败时不要使用 frame_instance，它的状态可能被部分修改。
      * @warning 负载数据可能包含空字节，不能作为 C 字符串处理。
      */
     [[nodiscard]] auto deserialize(std::string_view string_value, frame &frame_instance)
-        -> gist::code;
+        -> fault::code;
 }

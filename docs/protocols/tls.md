@@ -4,11 +4,11 @@
 
 ## 1. 总体入口链路
 
-1. **连接接收**：`worker` 监听端口并接收连接，创建 `session`  
-   入口位置：[worker.hpp](../../include/forward-engine/agent/reactor/worker.hpp)，类 `ngx::agent::worker` 的 `do_accept`。
+1. **连接接收**：`worker` 监听端口并接收连接，创建 `session`
+   入口位置：[worker.hpp](../../include/forward-engine/agent/worker/worker.hpp)，类 `ngx::agent::worker` 的 `do_accept`。
 
-2. **协议识别**：`session::diversion` 预读并识别协议，检测到 TLS 握手特征  
-   位置：[session.cpp](../../src/forward-engine/agent/connection/session.cpp)，类 `ngx::agent::session` 的 `diversion`。  
+2. **协议识别**：`session::diversion` 预读并识别协议，检测到 TLS 握手特征
+   位置：[session.cpp](../../src/forward-engine/agent/session/session.cpp)，类 `ngx::agent::session` 的 `diversion`。  
    TLS 协议通过检查首字节是否为 `0x16`（Handshake）和后续字节是否符合 TLS 记录格式来识别。
 
 3. **TLS 处理器调用**：`handler::tls` 执行 TLS 握手并处理后续请求  
@@ -36,7 +36,7 @@ TLS 记录层格式：
 Type = 0x16 (Handshake) 表示 TLS 握手
 ```
 
-**检测代码位置**：[sniff.hpp](../../include/forward-engine/protocol/sniff.hpp)
+**检测代码位置**：[probe.hpp](../../include/forward-engine/protocol/probe.hpp)
 
 ### 2.2 协议类型枚举
 
@@ -56,7 +56,7 @@ enum class protocol_type
 
 SSL 上下文在 Worker 构造时创建：
 
-**位置**：[tls.cpp](../../src/forward-engine/agent/reactor/tls.cpp)
+**位置**：[tls.cpp](../../src/forward-engine/agent/worker/tls.cpp)
 
 **配置项**：
 - 加载证书链和私钥
@@ -167,7 +167,7 @@ openssl req -x509 -newkey rsa:4096 \
 
 ```
 worker.accept -> session::diversion
-  -> protocol::sniff::probe (检测 TLS)
+  -> protocol::probe::probe (检测 TLS)
   -> handler::tls
       -> 创建 ssl::stream
       -> async_handshake (TLS 握手)

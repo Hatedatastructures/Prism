@@ -25,15 +25,14 @@ namespace ngx::agent::pipeline
         protocol::http::request req(mr);
         {
             const auto ec = co_await protocol::http::async_read(stream, req, read_buffer, mr);
-            if (gist::failed(ec))
+            if (fault::failed(ec))
                 co_return;
 
             const auto target = protocol::analysis::resolve(req);
-            trace::info("[Pipeline] Http analysis target = [host: {}, port: {}, positive: {}]", target.host, target.port, target.positive);
 
-            std::shared_ptr<distribution::router> router_ptr(&ctx.worker.router, [](distribution::router *) {});
+            std::shared_ptr<resolve::router> router_ptr(&ctx.worker.router, [](resolve::router *) {});
             auto [fst, snd] = co_await primitives::dial(router_ptr, "HTTP", target, true, false);
-            if (gist::failed(fst) || !snd)
+            if (fault::failed(fst) || !snd)
                 co_return;
             outbound = std::move(snd);
         }
@@ -86,9 +85,9 @@ namespace ngx::agent::pipeline
 
         const auto agent = protocol::socks5::make_relay(std::move(inbound), ctx.server.cfg.socks5);
         auto [ec, request] = co_await agent->handshake();
-        if (gist::failed(ec))
+        if (fault::failed(ec))
         {
-            trace::error("[Pipeline] SOCKS5 handshake failed: {}", gist::cached_message(ec));
+            trace::error("[Pipeline] SOCKS5 handshake failed: {}", fault::cached_message(ec));
             co_return;
         }
 
@@ -100,17 +99,16 @@ namespace ngx::agent::pipeline
             target.host = protocol::socks5::to_string(request.destination_address, ctx.frame_arena.get());
             target.port = std::to_string(request.destination_port);
             target.positive = true;
-            trace::info("[Pipeline] SOCKS5 CONNECT target = [host: {}, port: {}]", target.host, target.port);
 
-            const auto router_ptr = std::shared_ptr<distribution::router>(&ctx.worker.router, [](distribution::router *) {});
+            const auto router_ptr = std::shared_ptr<resolve::router>(&ctx.worker.router, [](resolve::router *) {});
             auto [conn_ec, outbound] = co_await primitives::dial(router_ptr, "SOCKS5", target, true, true);
-            if (gist::failed(conn_ec) || !outbound)
+            if (fault::failed(conn_ec) || !outbound)
             {
                 co_await agent->async_write_error(protocol::socks5::reply_code::host_unreachable);
                 co_return;
             }
 
-            if (gist::failed(co_await agent->async_write_success(request)))
+            if (fault::failed(co_await agent->async_write_success(request)))
             {
                 co_return;
             }
@@ -122,9 +120,9 @@ namespace ngx::agent::pipeline
         {
             trace::info("[Pipeline] SOCKS5 UDP_ASSOCIATE");
 
-            const auto router_ptr = std::shared_ptr<distribution::router>(&ctx.worker.router, [](distribution::router *) {});
+            const auto router_ptr = std::shared_ptr<resolve::router>(&ctx.worker.router, [](resolve::router *) {});
             auto route_callback = [router_ptr](const std::string_view host, const std::string_view port)
-                -> net::awaitable<std::pair<gist::code, net::ip::udp::endpoint>>
+                -> net::awaitable<std::pair<fault::code, net::ip::udp::endpoint>>
             {
                 co_return co_await router_ptr->resolve_datagram_target(host, port);
             };
@@ -142,9 +140,9 @@ namespace ngx::agent::pipeline
         -> net::awaitable<void>
     {
         auto [handshake_ec, ssl_stream] = co_await primitives::ssl_handshake(ctx, data);
-        if (gist::failed(handshake_ec) || !ssl_stream)
+        if (fault::failed(handshake_ec) || !ssl_stream)
         {
-            trace::warn("[Pipeline] TLS handshake failed: {}", gist::describe(handshake_ec));
+            trace::warn("[Pipeline] TLS handshake failed: {}", fault::describe(handshake_ec));
             co_return;
         }
 
@@ -162,25 +160,28 @@ namespace ngx::agent::pipeline
         };
 
         constexpr std::size_t min_detect_size = 60;
-        constexpr std::chrono::seconds probe_timeout(5);
+        // 优化：缩短探测超时（5秒 → 500毫秒）
+        // 大多数情况下，客户端会在首包立即发送数据
+        constexpr std::chrono::milliseconds probe_timeout(500);
 
         memory::vector<std::byte> probe_buffer(ctx.frame_arena.get());
         probe_buffer.reserve(min_detect_size);
 
         auto inner_type = protocol::inner_protocol::undetermined;
 
-        while (probe_buffer.size() < min_detect_size)
+        // 使用单个累积超时 timer，而不是每次循环创建新 timer
+        net::steady_timer deadline(ssl_stream->get_executor());
+        deadline.expires_after(probe_timeout);
+        bool timeout_occurred = false;
+
+        while (probe_buffer.size() < min_detect_size && !timeout_occurred)
         {
             std::array<std::byte, 64> temp_buffer{};
             boost::system::error_code read_ec;
             auto token = net::redirect_error(net::use_awaitable, read_ec);
 
-            net::steady_timer timeout_timer(ssl_stream->get_executor());
-            timeout_timer.expires_after(probe_timeout);
-            bool timeout_occurred = false;
-
             auto read_op = ssl_stream->async_read_some(net::buffer(temp_buffer.data(), temp_buffer.size()), token);
-            auto timeout_op = timeout_timer.async_wait(net::use_awaitable);
+            auto timeout_op = deadline.async_wait(net::use_awaitable);
 
             using namespace boost::asio::experimental::awaitable_operators;
             auto result = co_await (std::move(read_op) || std::move(timeout_op));
@@ -188,12 +189,6 @@ namespace ngx::agent::pipeline
             if (result.index() == 1)
             {
                 timeout_occurred = true;
-            }
-
-            if (timeout_occurred)
-            {
-                trace::warn("[Pipeline] TLS inner protocol probe timeout after {} bytes", probe_buffer.size());
-                inner_type = protocol::inner_protocol::http;
                 break;
             }
 
@@ -215,6 +210,9 @@ namespace ngx::agent::pipeline
 
             trace::debug("[Pipeline] TLS inner protocol undetermined after {} bytes, continuing probe", probe_buffer.size());
         }
+
+        // 取消剩余的超时 timer
+        deadline.cancel();
 
         trace::debug("[Pipeline] TLS inner protocol detected: {}", protocol::to_string_view(inner_type));
 
@@ -257,18 +255,17 @@ namespace ngx::agent::pipeline
 
         protocol::http::request req(mr);
         const auto read_ec = co_await protocol::http::async_read(*ssl_stream, req, read_buffer, mr);
-        if (gist::failed(read_ec))
+        if (fault::failed(read_ec))
         {
-            trace::warn("[Pipeline] HTTPS read failed: {}", gist::describe(read_ec));
+            trace::warn("[Pipeline] HTTPS read failed: {}", fault::describe(read_ec));
             co_return;
         }
 
         const auto target = protocol::analysis::resolve(req);
-        trace::info("[Pipeline] HTTPS analysis target = [host: {}, port: {}, positive: {}]",target.host, target.port, target.positive);
 
-        std::shared_ptr<distribution::router> router_ptr(&ctx.worker.router, [](distribution::router *) {});
+        std::shared_ptr<resolve::router> router_ptr(&ctx.worker.router, [](resolve::router *) {});
         auto [dial_ec, outbound_ptr] = co_await primitives::dial(router_ptr, "HTTPS", target, true, false);
-        if (gist::failed(dial_ec) || !outbound_ptr)
+        if (fault::failed(dial_ec) || !outbound_ptr)
             co_return;
         outbound = std::move(outbound_ptr);
 
@@ -280,7 +277,8 @@ namespace ngx::agent::pipeline
             co_await net::async_write(*ssl_stream, net::buffer(resp),token);
             if (!write_ec)
             {
-                co_await primitives::original_tunnel(ssl_stream, std::move(outbound), ctx);
+                auto tls_trans = std::make_unique<ngx::channel::transport::secure>(ssl_stream);
+                co_await primitives::original_tunnel(std::move(tls_trans), std::move(outbound), ctx);
             }
             co_return;
         }
@@ -300,7 +298,8 @@ namespace ngx::agent::pipeline
                 co_return;
         }
 
-        co_await primitives::original_tunnel(ssl_stream, std::move(outbound), ctx);
+        auto tls_trans = std::make_unique<channel::transport::secure>(ssl_stream);
+        co_await primitives::original_tunnel(std::move(tls_trans), std::move(outbound), ctx);
     }
 
     auto trojan(session_context &ctx, primitives::shared_ssl_stream ssl_stream, std::span<const std::byte> preread)
@@ -342,9 +341,9 @@ namespace ngx::agent::pipeline
             std::move(trans), ctx.server.cfg.trojan, std::move(verifier));
 
         auto [handshake_ec, req] = co_await trojan_relay->handshake();
-        if (gist::failed(handshake_ec))
+        if (fault::failed(handshake_ec))
         {
-            trace::warn("[Pipeline] Trojan handshake failed: {}", gist::describe(handshake_ec));
+            trace::warn("[Pipeline] Trojan handshake failed: {}", fault::describe(handshake_ec));
             co_return;
         }
 
@@ -358,11 +357,10 @@ namespace ngx::agent::pipeline
             target.host = protocol::trojan::to_string(req.destination_address, ctx.frame_arena.get());
             target.port = std::to_string(req.port);
             target.positive = true;
-            trace::info("[Pipeline] Trojan CONNECT target = [host: {}, port: {}]", target.host, target.port);
 
-            const std::shared_ptr<distribution::router> router_ptr(&ctx.worker.router, [](distribution::router *) {});
+            const std::shared_ptr<resolve::router> router_ptr(&ctx.worker.router, [](resolve::router *) {});
             auto [dial_ec, outbound] = co_await primitives::dial(router_ptr, "Trojan", target, true, true);
-            if (gist::failed(dial_ec) || !outbound) // 获取出站流失败
+            if (fault::failed(dial_ec) || !outbound) // 获取出站流失败
             {   
                 co_return;
             }

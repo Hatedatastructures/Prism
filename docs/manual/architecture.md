@@ -40,13 +40,13 @@
 
 **reverse_map 路由**：
 - 配置定义：[config.hpp](../../include/forward-engine/agent/config.hpp)
-- 路由初始化：[worker.cpp](../../src/forward-engine/agent/reactor/worker.cpp)
-- 路由查询：[arbiter.hpp](../../include/forward-engine/agent/distribution/arbiter.hpp)
+- 路由初始化：[worker.cpp](../../src/forward-engine/agent/worker/worker.cpp)
+- 路由查询：[arbiter.hpp](../../include/forward-engine/agent/resolve/arbiter.hpp)
 
 #### 正向代理 Fallback
 
 **直连失败后转发**：
-- 实现位置：[router.cpp](../../src/forward-engine/agent/distribution/router.cpp)
+- 实现位置：[router.cpp](../../src/forward-engine/agent/resolve/router.cpp)
 - 处理流程：先检查黑名单 → 尝试直连 → 失败后转发到 positive endpoint
 
 #### 负载均衡
@@ -60,14 +60,14 @@
 #### 连接池
 
 **TCP 连接复用**：
-- 实现位置：[source.hpp](../../include/forward-engine/channel/pool/source.hpp)
+- 实现位置：[pool.hpp](../../include/forward-engine/channel/pool/pool.hpp)
 - 核心特性：栈式缓存（LIFO）、僵尸检测、线程隔离、空闲超时
 
 #### DNS 缓存
 
-- **reliable_resolver（TCP）**：[reliable.hpp](../../include/forward-engine/agent/distribution/reliable.hpp)，默认 TTL 120 秒，最大条目 10000
-- **datagram_resolver（UDP）**：[datagram.hpp](../../include/forward-engine/agent/distribution/datagram.hpp)，默认 TTL 120 秒，最大条目 4096
-- **请求合并**：[coalescer.hpp](../../include/forward-engine/agent/distribution/coalescer.hpp)，避免重复 DNS 查询
+- **tcpcache（TCP）**：[tcpcache.hpp](../../include/forward-engine/agent/resolve/tcpcache.hpp)，默认 TTL 120 秒，最大条目 10000
+- **udpcache（UDP）**：[udpcache.hpp](../../include/forward-engine/agent/resolve/udpcache.hpp)，默认 TTL 120 秒，最大条目 4096
+- **请求合并**：[coalescer.hpp](../../include/forward-engine/agent/resolve/coalescer.hpp)，避免重复 DNS 查询
 
 #### 账户认证与配额控制
 
@@ -125,7 +125,7 @@
 
 | 步骤 | 操作 | 源码位置 | 说明 |
 |------|------|----------|------|
-| 3 | `adapter::load(configuration_path)` | `src/main.cpp` | 从配置文件加载 agent 配置 |
+| 3 | `loader::load(configuration_path)` | `src/main.cpp` | 从配置文件加载 agent 配置 |
 | 4 | `trace::init(trace)` | `src/main.cpp` | 初始化日志追踪系统 |
 
 ### 2.3 账户存储初始化
@@ -183,32 +183,32 @@
 
 | 步骤 | 操作 | 源码位置 | 说明 |
 |------|------|----------|------|
-| 8 | `worker.dispatch_socket()` | `src/forward-engine/agent/reactor/worker.cpp` | Worker 接收分发请求 |
-| 9 | `launch::dispatch()` | `src/forward-engine/agent/reactor/launch.cpp` | 投递到 worker 事件循环 |
-| 10 | `net::post(ioc, ...)` | `src/forward-engine/agent/reactor/launch.cpp` | 跨线程投递到 IO 上下文 |
+| 8 | `worker.dispatch_socket()` | `src/forward-engine/agent/worker/worker.cpp` | Worker 接收分发请求 |
+| 9 | `launch::dispatch()` | `src/forward-engine/agent/worker/launch.cpp` | 投递到 worker 事件循环 |
+| 10 | `net::post(ioc, ...)` | `src/forward-engine/agent/worker/launch.cpp` | 跨线程投递到 IO 上下文 |
 
 ### 3.4 会话创建阶段
 
 | 步骤 | 操作 | 源码位置 | 说明 |
 |------|------|----------|------|
-| 11 | `launch::start()` | `src/forward-engine/agent/reactor/launch.cpp` | 启动会话 |
-| 12 | 创建 `inbound` 传输 | `src/forward-engine/agent/reactor/launch.cpp` | 包装 socket 为可靠传输 |
-| 13 | `make_session()` | `src/forward-engine/agent/reactor/launch.cpp` | 创建 session 实例 |
-| 14 | `session.start()` | `src/forward-engine/agent/reactor/launch.cpp` | 启动会话处理 |
+| 11 | `launch::start()` | `src/forward-engine/agent/worker/launch.cpp` | 启动会话 |
+| 12 | 创建 `inbound` 传输 | `src/forward-engine/agent/worker/launch.cpp` | 包装 socket 为可靠传输 |
+| 13 | `make_session()` | `src/forward-engine/agent/worker/launch.cpp` | 创建 session 实例 |
+| 14 | `session.start()` | `src/forward-engine/agent/worker/launch.cpp` | 启动会话处理 |
 
 ### 3.5 协议检测阶段
 
 | 步骤 | 操作 | 源码位置 | 说明 |
 |------|------|----------|------|
-| 15 | `session.diversion()` | `src/forward-engine/agent/connection/session.cpp` | 协议分流入口 |
-| 16 | `protocol::sniff::probe()` | `src/forward-engine/agent/connection/session.cpp` | 嗅探检测协议类型（预读 24 字节） |
-| 17 | `registry::global().create()` | `src/forward-engine/agent/connection/session.cpp` | 根据协议类型获取处理器 |
+| 15 | `session.diversion()` | `src/forward-engine/agent/session/session.cpp` | 协议分流入口 |
+| 16 | `protocol::probe::probe()` | `src/forward-engine/agent/session/session.cpp` | 嗅探检测协议类型（预读 24 字节） |
+| 17 | `registry::global().create()` | `src/forward-engine/agent/session/session.cpp` | 根据协议类型获取处理器 |
 
 ### 3.6 协议处理阶段
 
 | 步骤 | 操作 | 源码位置 | 说明 |
 |------|------|----------|------|
-| 18 | `handler->process()` | `src/forward-engine/agent/connection/session.cpp` | 调用处理器处理协议 |
+| 18 | `handler->process()` | `src/forward-engine/agent/session/session.cpp` | 调用处理器处理协议 |
 | 19 | 协议管道处理 | 见下表 | 根据协议类型调用对应管道 |
 
 **协议管道映射表：**
@@ -286,7 +286,7 @@ const tcp::endpoint endpoint(tcp::v4(), cfg.addressable.port);
 
 ### 5.2 async_forward 先直连后 Fallback
 
-**实现位置**：[router.cpp](../../src/forward-engine/agent/distribution/router.cpp)
+**实现位置**：[router.cpp](../../src/forward-engine/agent/resolve/router.cpp)
 
 **处理流程**：
 1. 先检查黑名单
@@ -297,7 +297,7 @@ const tcp::endpoint endpoint(tcp::v4(), cfg.addressable.port);
 
 ### 5.3 reverse_map 目标更偏向 IP Literal
 
-**实现位置**：[worker.cpp](../../src/forward-engine/agent/reactor/worker.cpp)
+**实现位置**：[worker.cpp](../../src/forward-engine/agent/worker/worker.cpp)
 
 **影响**：
 - `reverse_map` 的目标地址应为 IP Literal

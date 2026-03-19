@@ -80,12 +80,12 @@ SOCKS5 握手逻辑见 src/protocol/socks5/stream.cpp
 
 | 文档章节 | 主要源码文件 |
 |---------|-------------|
-| overview.md | `src/main.cpp`, `src/forward-engine/agent/front/listener.cpp`, `src/forward-engine/agent/reactor/launch.cpp`, `src/forward-engine/agent/connection/session.cpp` |
+| overview.md | `src/main.cpp`, `src/forward-engine/agent/front/listener.cpp`, `src/forward-engine/agent/worker/launch.cpp`, `src/forward-engine/agent/session/session.cpp` |
 | config.md | `include/forward-engine/agent/config.hpp`, `include/forward-engine/agent/context.hpp` |
 | architecture.md | 全局源码分析 |
-| modules.md | `src/forward-engine/agent/` 下各子目录源码 |
-| runtime.md | `src/forward-engine/agent/connection/session.cpp`, `src/forward-engine/agent/pipeline/protocols.cpp`, `src/forward-engine/agent/pipeline/primitives.cpp` |
-| routing.md | `include/forward-engine/agent/dispatch/handler.hpp`, `include/forward-engine/agent/dispatch/handlers.hpp`, `src/forward-engine/agent/distribution/router.cpp` |
+| modules.md | `src/forward-engine/agent/` 下各子目录源码 (worker, session, resolve, etc.) |
+| runtime.md | `src/forward-engine/agent/session/session.cpp`, `src/forward-engine/agent/pipeline/protocols.cpp`, `src/forward-engine/agent/pipeline/primitives.cpp` |
+| routing.md | `include/forward-engine/agent/dispatch/handler.hpp`, `include/forward-engine/agent/dispatch/handlers.hpp`, `src/forward-engine/agent/resolve/router.cpp` |
 | dependencies.md | `CMakeLists.txt`, 目录结构 |
 | api.md | `include/forward-engine/agent.hpp` |
 
@@ -101,8 +101,8 @@ SOCKS5 握手逻辑见 src/protocol/socks5/stream.cpp
 |-----|---------|---------|
 | HTTP/HTTPS 代理 | `src/protocol/http/`, `include/forward-engine/protocol/http/` | handler 注册 + 测试 |
 | SOCKS5 代理 | `src/protocol/socks5/`, `include/forward-engine/protocol/socks5/` | handler 注册 + `tests/socks5_test.cpp` |
-| TLS 终止 | `src/forward-engine/agent/reactor/tls.cpp`, `include/forward-engine/agent/reactor/tls.hpp` | 运行链接入 |
-| 反向代理 | `src/forward-engine/agent/distribution/arbiter.cpp`, `include/forward-engine/agent/distribution/arbiter.hpp` | 运行链接入 |
+| TLS 终止 | `src/forward-engine/agent/worker/tls.cpp`, `include/forward-engine/agent/worker/tls.hpp` | 运行链接入 |
+| 反向代理 | `src/forward-engine/agent/resolve/arbiter.cpp`, `include/forward-engine/agent/resolve/arbiter.hpp` | 运行链接入 |
 | 负载均衡 | `src/forward-engine/agent/front/balancer.cpp`, `include/forward-engine/agent/front/balancer.hpp` | 运行链接入 |
 
 ### 已确认未接入
@@ -123,7 +123,7 @@ SOCKS5 握手逻辑见 src/protocol/socks5/stream.cpp
 |-----|---------|---------|---------|
 | listener 绑定地址 | 绑定 `addressable.host` | 绑定 IPv4 | `src/forward-engine/agent/front/listener.cpp` |
 | async_forward 转发顺序 | 优先代理 | 先直连后 fallback | `src/forward-engine/agent/pipeline/primitives.cpp` |
-| reverse_map 目标解析 | 域名优先 | IP literal 优先 | `src/forward-engine/agent/distribution/arbiter.cpp` |
+| reverse_map 目标解析 | 域名优先 | IP literal 优先 | `src/forward-engine/agent/resolve/arbiter.cpp` |
 
 ---
 

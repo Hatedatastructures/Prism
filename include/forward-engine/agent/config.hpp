@@ -152,7 +152,7 @@ namespace ngx::agent
      * @struct config
      * @brief 代理服务全局配置
      * @details 聚合所有子模块配置，作为代理服务的完整配置入口。
-     * 该结构用于初始化 worker、account::directory 和 distribution::router。
+     * 该结构用于初始化 worker、account::directory 和 resolve::router。
      * 涵盖连接限制、正向代理、监听端点、TLS 证书、身份认证、
      * 伪装路径、反向代理路由、连接池、缓冲区以及协议配置等。
      * @note 所有配置字段均使用 PMR 容器，支持自定义内存分配器。

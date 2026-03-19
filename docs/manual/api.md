@@ -10,24 +10,24 @@
 #include <forward-engine/agent/account/directory.hpp>
 #include <forward-engine/agent/account/entry.hpp>
 #include <forward-engine/agent/config.hpp>
-#include <forward-engine/agent/connection/session.hpp>
+#include <forward-engine/agent/session/session.hpp>
 #include <forward-engine/agent/context.hpp>
 #include <forward-engine/agent/dispatch/handler.hpp>
 #include <forward-engine/agent/dispatch/handlers.hpp>
-#include <forward-engine/agent/distribution/arbiter.hpp>
-#include <forward-engine/agent/distribution/datagram.hpp>
-#include <forward-engine/agent/distribution/reliable.hpp>
-#include <forward-engine/agent/distribution/coalescer.hpp>
-#include <forward-engine/agent/distribution/router.hpp>
-#include <forward-engine/agent/distribution/transparent.hpp>
+#include <forward-engine/agent/resolve/arbiter.hpp>
+#include <forward-engine/agent/resolve/udpcache.hpp>
+#include <forward-engine/agent/resolve/tcpcache.hpp>
+#include <forward-engine/agent/resolve/coalescer.hpp>
+#include <forward-engine/agent/resolve/router.hpp>
+#include <forward-engine/agent/resolve/transparent.hpp>
 #include <forward-engine/agent/front/balancer.hpp>
 #include <forward-engine/agent/front/listener.hpp>
 #include <forward-engine/agent/pipeline/primitives.hpp>
 #include <forward-engine/agent/pipeline/protocols.hpp>
-#include <forward-engine/agent/reactor/launch.hpp>
-#include <forward-engine/agent/reactor/stats.hpp>
-#include <forward-engine/agent/reactor/tls.hpp>
-#include <forward-engine/agent/reactor/worker.hpp>
+#include <forward-engine/agent/worker/launch.hpp>
+#include <forward-engine/agent/worker/stats.hpp>
+#include <forward-engine/agent/worker/tls.hpp>
+#include <forward-engine/agent/worker/worker.hpp>
 ```
 
 ---
@@ -53,7 +53,7 @@
 ## 连接管理
 
 ```cpp
-#include <forward-engine/agent/connection/session.hpp> // session 类, make_session()
+#include <forward-engine/agent/session/session.hpp> // session 类, make_session()
 ```
 
 ---
@@ -70,12 +70,12 @@
 ## 分发路由
 
 ```cpp
-#include <forward-engine/agent/distribution/router.hpp>     // router 类
-#include <forward-engine/agent/distribution/arbiter.hpp>    // arbiter 类
-#include <forward-engine/agent/distribution/datagram.hpp>   // datagram_resolver 类
-#include <forward-engine/agent/distribution/reliable.hpp>   // reliable_resolver 类
-#include <forward-engine/agent/distribution/coalescer.hpp>  // coalescer 类
-#include <forward-engine/agent/distribution/transparent.hpp> // transparent_hash, transparent_equal
+#include <forward-engine/agent/resolve/router.hpp>     // router 类
+#include <forward-engine/agent/resolve/arbiter.hpp>    // arbiter 类
+#include <forward-engine/agent/resolve/udpcache.hpp>   // udpcache 类
+#include <forward-engine/agent/resolve/tcpcache.hpp>   // tcpcache 类
+#include <forward-engine/agent/resolve/coalescer.hpp>  // coalescer 类
+#include <forward-engine/agent/resolve/transparent.hpp> // transparent_hash, transparent_equal
 ```
 
 ---
@@ -101,10 +101,10 @@
 ## 工作线程
 
 ```cpp
-#include <forward-engine/agent/reactor/launch.hpp>  // launch 命名空间
-#include <forward-engine/agent/reactor/stats.hpp>   // stats::state 类
-#include <forward-engine/agent/reactor/tls.hpp>     // tls 命名空间
-#include <forward-engine/agent/reactor/worker.hpp>  // worker 类
+#include <forward-engine/agent/worker/launch.hpp>  // launch 命名空间
+#include <forward-engine/agent/worker/stats.hpp>   // stats::state 类
+#include <forward-engine/agent/worker/tls.hpp>     // tls 命名空间
+#include <forward-engine/agent/worker/worker.hpp>  // worker 类
 ```
 
 ---

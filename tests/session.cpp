@@ -5,12 +5,12 @@
 #include <iostream>
 #include <memory>
 #include <string>
-#include <forward-engine/channel/pool/source.hpp>
-#include <forward-engine/agent/distribution/router.hpp>
-#include <forward-engine/agent/connection/session.hpp>
+#include <forward-engine/channel/pool/pool.hpp>
+#include <forward-engine/agent/resolve/router.hpp>
+#include <forward-engine/agent/session/session.hpp>
 #include <forward-engine/channel/transport/reliable.hpp>
-#include <forward-engine/abnormal/network.hpp>
-#include <forward-engine/gist/code.hpp>
+#include <forward-engine/exception/network.hpp>
+#include <forward-engine/fault/code.hpp>
 #include <forward-engine/memory.hpp>
 #include <boost/asio.hpp>
 #include <boost/asio/ssl.hpp>
@@ -91,8 +91,8 @@ net::awaitable<void> proxy_accept_one(tcp::acceptor acceptor, agent::server_cont
     }
     auto inbound = ngx::channel::transport::make_reliable(std::move(socket));
 
-    agent::connection::session_params params{server_ctx, worker_ctx, std::move(inbound)};
-    auto session_ptr = agent::connection::make_session(std::move(params));
+    agent::session::session_params params{server_ctx, worker_ctx, std::move(inbound)};
+    auto session_ptr = agent::session::make_session(std::move(params));
     session_ptr->start();
 }
 
@@ -114,22 +114,22 @@ net::awaitable<std::string> read_proxy_connect_response(tcp::socket &socket)
         const std::size_t n = co_await socket.async_read_some(net::buffer(buf), token);
         if (ec)
         {
-            throw ngx::abnormal::security("proxy response read failed: " + ec.message());
+            throw ngx::exception::security("proxy response read failed: " + ec.message());
         }
         if (n == 0)
         {
-            throw ngx::abnormal::security("proxy response eof");
+            throw ngx::exception::security("proxy response eof");
         }
         response.append(buf.data(), n);
         if (response.size() > 8192)
         {
-            throw ngx::abnormal::security("proxy response too large");
+            throw ngx::exception::security("proxy response too large");
         }
     }
 
     if (!response.starts_with("HTTP/1.1 200"))
     {
-        throw ngx::abnormal::network("proxy connect failed: " + response);
+        throw ngx::exception::network("proxy connect failed: " + response);
     }
 
     co_return response;
@@ -171,7 +171,7 @@ net::awaitable<void> wait_until_true(std::shared_ptr<std::atomic_bool> flag, con
     {
         if (std::chrono::steady_clock::now() >= deadline)
         {
-            throw ngx::abnormal::network("timeout waiting for expected shutdown");
+            throw ngx::exception::network("timeout waiting for expected shutdown");
         }
 
         timer.expires_after(std::chrono::milliseconds(10));
@@ -225,7 +225,7 @@ net::awaitable<void> proxy_connect_client_echo(const tcp::endpoint proxy_ep, con
 
     if (echo != payload)
     {
-        throw ngx::abnormal::network("echo mismatch");
+        throw ngx::exception::network("echo mismatch");
     }
 
     info(std::format("{} client: echo verified, closing connection", tag));
@@ -338,12 +338,12 @@ net::awaitable<void> proxy_connect_client_expect_close(const tcp::endpoint proxy
 
     if (ec == net::error::operation_aborted)
     {
-        throw ngx::abnormal::security("timeout waiting for proxy to close client");
+        throw ngx::exception::security("timeout waiting for proxy to close client");
     }
 
     if (!ec && n != 0)
     {
-        throw ngx::abnormal::security("expected close but received data");
+        throw ngx::exception::security("expected close but received data");
     }
 
     info(std::format("{} client: 宸茶瀵熷埌浠ｇ悊鍏抽棴", tag));
@@ -513,8 +513,8 @@ int main()
         // 2. 渚濊禆璧勬簮澹版槑锛堝湪 ioc 涔嬪悗锛屽厛鏋愭瀯锛?
 
         // 鍒濆鍖?
-        const auto pool = std::make_unique<ngx::channel::source>(ioc);
-        auto dist = std::make_unique<agent::distribution::router>(*pool, ioc);
+        const auto pool = std::make_unique<ngx::channel::tcpool>(ioc);
+        auto dist = std::make_unique<agent::resolve::router>(*pool, ioc);
 
         auto ssl_ctx = std::make_shared<ssl::context>(ssl::context::tlsv12);
         ssl_ctx->set_verify_mode(ssl::verify_none);

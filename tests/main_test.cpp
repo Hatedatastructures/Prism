@@ -4,7 +4,7 @@
 #include <fstream>
 
 #include <memory.hpp>
-#include <abnormal.hpp>
+#include <exception.hpp>
 #include <trace.hpp>
 #include <transformer.hpp>
 #include <core/configuration.hpp>
@@ -18,7 +18,7 @@ ngx::memory::string load_file_data(std::string_view path)
     std::ifstream file(path.data(), std::ios::binary);
     if (!file.is_open())
     {
-        throw ngx::abnormal::security("system error : {}","file open failed");
+        throw ngx::exception::security("system error : {}","file open failed");
     }
     file.seekg(0, std::ios::end);
     const auto size = file.tellg();
@@ -62,7 +62,7 @@ int main()
         const auto threads_count = std::thread::hardware_concurrency();
         if (threads_count == 0)
         {
-            throw ngx::abnormal::security("system error : {}","core acquisition failed");
+            throw ngx::exception::security("system error : {}","core acquisition failed");
         }
         ngx::core::configuration config = mapping_configuration();
         ngx::trace::init(config.trace);
@@ -75,7 +75,7 @@ int main()
 
         // ... 
     }
-    catch(const ngx::abnormal::security& e)
+    catch(const ngx::exception::security& e)
     {
         std::cerr << e.what() << '\n';
     }

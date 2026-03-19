@@ -15,10 +15,11 @@
 
 #include <boost/asio.hpp>
 #include <boost/asio/ssl.hpp>
+#include <openssl/ssl.h>
 
 #include <forward-engine/channel/transport/transmission.hpp>
-#include <forward-engine/channel/adapter/adaptation.hpp>
-#include <forward-engine/gist/handling.hpp>
+#include <forward-engine/channel/adapter/connector.hpp>
+#include <forward-engine/fault/handling.hpp>
 
 namespace ngx::channel::transport
 {
@@ -79,7 +80,7 @@ namespace ngx::channel::transport
             auto token = net::redirect_error(net::use_awaitable, sys_ec);
             const auto n = co_await ssl_stream_->async_read_some(
                 net::buffer(buffer.data(), buffer.size()), token);
-            ec = ngx::gist::make_error_code(ngx::gist::to_code(sys_ec));
+            ec = ngx::fault::make_error_code(ngx::fault::to_code(sys_ec));
             co_return n;
         }
 
@@ -96,7 +97,7 @@ namespace ngx::channel::transport
             auto token = net::redirect_error(net::use_awaitable, sys_ec);
             const auto n = co_await ssl_stream_->async_write_some(
                 net::buffer(buffer.data(), buffer.size()), token);
-            ec = ngx::gist::make_error_code(ngx::gist::to_code(sys_ec));
+            ec = ngx::fault::make_error_code(ngx::fault::to_code(sys_ec));
             co_return n;
         }
 
@@ -105,6 +106,9 @@ namespace ngx::channel::transport
          */
         void close() override
         {
+            // best-effort SSL_shutdown：发送 close_notify 通知对端
+            // 非阻塞模式下立即返回，不等待对端响应
+            ::SSL_shutdown(ssl_stream_->native_handle());
             ssl_stream_->lowest_layer().transmission().close();
         }
 

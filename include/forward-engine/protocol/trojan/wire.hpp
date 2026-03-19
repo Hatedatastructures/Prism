@@ -12,7 +12,7 @@
 #include <cstring>
 #include <span>
 #include <cctype>
-#include <forward-engine/gist/code.hpp>
+#include <forward-engine/fault/code.hpp>
 #include <forward-engine/protocol/trojan/message.hpp>
 #include <forward-engine/memory/container.hpp>
 
@@ -20,7 +20,7 @@
  * @namespace ngx::protocol::trojan::wire
  * @brief Trojan 协议线级解析函数
  * @details 提供 Trojan 协议报文的底层编解码函数。所有函数使用 std::span
- * 作为输入参数，支持零拷贝操作。函数返回 gist::code 错误码和解析结果。
+ * 作为输入参数，支持零拷贝操作。函数返回 fault::code 错误码和解析结果。
  */
 namespace ngx::protocol::trojan::wire
 {
@@ -40,17 +40,17 @@ namespace ngx::protocol::trojan::wire
     /**
      * @brief 解码用户凭据
      * @param buffer 包含凭据的缓冲区，至少 56 字节
-     * @return std::pair<gist::code, std::array<char, 56>> 错误码和凭据数组
+     * @return std::pair<fault::code, std::array<char, 56>> 错误码和凭据数组
      * @details 从缓冲区提取 56 字节的十六进制凭据字符串。验证每个字节
      * 都是有效的十六进制字符（0-9、a-f、A-F）。凭据通常是密码的 SHA224
      * 哈希值的十六进制表示。
      */
     inline auto decode_credential(const std::span<const std::uint8_t> buffer)
-        -> std::pair<gist::code, std::array<char, 56>>
+        -> std::pair<fault::code, std::array<char, 56>>
     {
         if (buffer.size() < 56)
         {
-            return {gist::code::bad_message, {}};
+            return {fault::code::bad_message, {}};
         }
 
         std::array<char, 56> credential{};
@@ -58,134 +58,134 @@ namespace ngx::protocol::trojan::wire
         {
             if (!std::isxdigit(buffer[i]))
             {
-                return {gist::code::protocol_error, {}};
+                return {fault::code::protocol_error, {}};
             }
             credential[i] = static_cast<char>(buffer[i]);
         }
-        return {gist::code::success, credential};
+        return {fault::code::success, credential};
     }
 
     /**
      * @brief 验证 CRLF 分隔符
      * @param buffer 包含 CRLF 的缓冲区，至少 2 字节
-     * @return gist::code 验证结果
+     * @return fault::code 验证结果
      * @details 检查缓冲区前两个字节是否为回车换行符（\r\n）。
      * Trojan 协议使用 CRLF 作为字段分隔符。
      */
     inline auto decode_crlf(const std::span<const std::uint8_t> buffer)
-        -> gist::code
+        -> fault::code
     {
         if (buffer.size() < 2)
         {
-            return gist::code::bad_message;
+            return fault::code::bad_message;
         }
         if (buffer[0] != '\r' || buffer[1] != '\n')
         {
-            return gist::code::protocol_error;
+            return fault::code::protocol_error;
         }
-        return gist::code::success;
+        return fault::code::success;
     }
 
     /**
      * @brief 解码命令和地址类型
      * @param buffer 包含命令和地址类型的缓冲区，至少 2 字节
-     * @return std::pair<gist::code, header_parse> 错误码和解析结果
+     * @return std::pair<fault::code, header_parse> 错误码和解析结果
      * @details 从缓冲区提取命令字节和地址类型字节。第一个字节为命令，
      * 第二个字节为地址类型。不验证值的有效性，由调用者负责检查。
      */
     inline auto decode_cmd_atyp(std::span<const std::uint8_t> buffer)
-        -> std::pair<gist::code, header_parse>
+        -> std::pair<fault::code, header_parse>
     {
         if (buffer.size() < 2)
         {
-            return {gist::code::bad_message, {}};
+            return {fault::code::bad_message, {}};
         }
-        return {gist::code::success, {static_cast<command>(buffer[0]), static_cast<address_type>(buffer[1])}};
+        return {fault::code::success, {static_cast<command>(buffer[0]), static_cast<address_type>(buffer[1])}};
     }
 
     /**
      * @brief 解析 IPv4 地址
      * @param buffer 包含 IPv4 地址的缓冲区，至少 4 字节
-     * @return std::pair<gist::code, ipv4_address> 错误码和地址结构
+     * @return std::pair<fault::code, ipv4_address> 错误码和地址结构
      * @details 从缓冲区复制 4 字节的 IPv4 地址到地址结构。
      * 地址采用网络字节序（大端序）。
      */
     inline auto parse_ipv4(const std::span<const std::uint8_t> buffer)
-        -> std::pair<gist::code, ipv4_address>
+        -> std::pair<fault::code, ipv4_address>
     {
         if (buffer.size() < 4)
         {
-            return {gist::code::bad_message, {}};
+            return {fault::code::bad_message, {}};
         }
         ipv4_address addr{};
         std::memcpy(addr.bytes.data(), buffer.data(), 4);
-        return {gist::code::success, addr};
+        return {fault::code::success, addr};
     }
 
     /**
      * @brief 解析 IPv6 地址
      * @param buffer 包含 IPv6 地址的缓冲区，至少 16 字节
-     * @return std::pair<gist::code, ipv6_address> 错误码和地址结构
+     * @return std::pair<fault::code, ipv6_address> 错误码和地址结构
      * @details 从缓冲区复制 16 字节的 IPv6 地址到地址结构。
      * 地址采用网络字节序（大端序）。
      */
     inline auto parse_ipv6(const std::span<const std::uint8_t> buffer)
-        -> std::pair<gist::code, ipv6_address>
+        -> std::pair<fault::code, ipv6_address>
     {
         if (buffer.size() < 16)
         {
-            return {gist::code::bad_message, {}};
+            return {fault::code::bad_message, {}};
         }
         ipv6_address addr{};
         std::memcpy(addr.bytes.data(), buffer.data(), 16);
-        return {gist::code::success, addr};
+        return {fault::code::success, addr};
     }
 
     /**
      * @brief 解析域名地址
      * @param buffer 包含域名地址的缓冲区，格式为长度字节加域名内容
-     * @return std::pair<gist::code, domain_address> 错误码和地址结构
+     * @return std::pair<fault::code, domain_address> 错误码和地址结构
      * @details 从缓冲区解析域名地址。第一个字节为域名长度，后续为域名内容。
      * 域名最大长度为 255 字节。验证缓冲区长度是否足够。
      */
     inline auto parse_domain(const std::span<const std::uint8_t> buffer)
-        -> std::pair<gist::code, domain_address>
+        -> std::pair<fault::code, domain_address>
     {
         if (buffer.empty())
         {
-            return {gist::code::bad_message, {}};
+            return {fault::code::bad_message, {}};
         }
         const std::uint8_t len = buffer[0];
         if (buffer.size() < static_cast<size_t>(1 + len))
         {
-            return {gist::code::bad_message, {}};
+            return {fault::code::bad_message, {}};
         }
         domain_address addr{};
         if (len > addr.value.size())
         {
-            return {gist::code::bad_message, {}};
+            return {fault::code::bad_message, {}};
         }
         addr.length = len;
         std::memcpy(addr.value.data(), buffer.data() + 1, len);
-        return {gist::code::success, addr};
+        return {fault::code::success, addr};
     }
 
     /**
      * @brief 解码端口号
      * @param buffer 包含端口号的缓冲区，至少 2 字节
-     * @return std::pair<gist::code, uint16_t> 错误码和端口号
+     * @return std::pair<fault::code, uint16_t> 错误码和端口号
      * @details 从缓冲区读取 2 字节的端口号，采用大端序编码。
      * 第一个字节为高位，第二个字节为低位。
      */
     inline auto decode_port(const std::span<const std::uint8_t> buffer)
-        -> std::pair<gist::code, uint16_t>
+        -> std::pair<fault::code, uint16_t>
     {
         if (buffer.size() < 2)
         {
-            return {gist::code::bad_message, 0};
+            return {fault::code::bad_message, 0};
         }
         uint16_t port = (static_cast<uint16_t>(buffer[0]) << 8) | static_cast<uint16_t>(buffer[1]);
-        return {gist::code::success, port};
+        return {fault::code::success, port};
     }
 
     /**
@@ -225,14 +225,14 @@ namespace ngx::protocol::trojan::wire
      * @param frame UDP 帧信息
      * @param payload 用户数据
      * @param out 输出缓冲区
-     * @return gist::code 编码结果
+     * @return fault::code 编码结果
      * @details 将 UDP 帧信息和用户数据编码为 Trojan UDP 帧格式。
      * 输出格式为：ATYP(1) + LEN(2) + DST.ADDR + DST.PORT(2) + DATA。
      * LEN 字段为大端序，表示地址、端口和数据的总长度。
      */
     inline auto encode_udp_frame(const udp_frame &frame, std::span<const std::byte> payload,
                                  memory::vector<std::byte> &out)
-        -> gist::code
+        -> fault::code
     {
         std::size_t addr_len = 0;
         std::visit([&addr_len]<typename Address>(const Address &addr)
@@ -297,23 +297,23 @@ namespace ngx::protocol::trojan::wire
 
         out.insert(out.end(), payload.begin(), payload.end());
 
-        return gist::code::success;
+        return fault::code::success;
     }
 
     /**
      * @brief 解码 Trojan UDP 帧
      * @param buffer UDP 帧缓冲区
-     * @return std::pair<gist::code, udp_frame_parse> 错误码和解析结果
+     * @return std::pair<fault::code, udp_frame_parse> 错误码和解析结果
      * @details 解析 Trojan UDP 帧，提取目标地址、端口和负载数据位置。
      * 帧格式为：ATYP(1) + LEN(2) + DST.ADDR + DST.PORT(2) + DATA。
      * 最小帧长度为 9 字节（ATYP + LEN + IPv4 + PORT）。
      */
     inline auto decode_udp_frame(std::span<const std::byte> buffer)
-        -> std::pair<gist::code, udp_frame_parse>
+        -> std::pair<fault::code, udp_frame_parse>
     {
         if (buffer.size() < 9)
         {
-            return {gist::code::bad_message, {}};
+            return {fault::code::bad_message, {}};
         }
 
         const auto atyp = static_cast<address_type>(static_cast<std::uint8_t>(buffer[0]));
@@ -321,7 +321,7 @@ namespace ngx::protocol::trojan::wire
 
         if (buffer.size() < static_cast<std::size_t>(3 + len))
         {
-            return {gist::code::bad_message, {}};
+            return {fault::code::bad_message, {}};
         }
 
         std::size_t offset = 3;
@@ -334,12 +334,12 @@ namespace ngx::protocol::trojan::wire
         {
             if (len < 4 + 2)
             {
-                return {gist::code::bad_message, {}};
+                return {fault::code::bad_message, {}};
             }
             auto addr_span = std::span<const std::uint8_t>(
                 reinterpret_cast<const std::uint8_t *>(buffer.data() + offset), 4);
             auto [ec, addr] = parse_ipv4(addr_span);
-            if (gist::failed(ec))
+            if (fault::failed(ec))
             {
                 return {ec, {}};
             }
@@ -351,12 +351,12 @@ namespace ngx::protocol::trojan::wire
         {
             if (len < 16 + 2)
             {
-                return {gist::code::bad_message, {}};
+                return {fault::code::bad_message, {}};
             }
             auto addr_span = std::span<const std::uint8_t>(
                 reinterpret_cast<const std::uint8_t *>(buffer.data() + offset), 16);
             auto [ec, addr] = parse_ipv6(addr_span);
-            if (gist::failed(ec))
+            if (fault::failed(ec))
             {
                 return {ec, {}};
             }
@@ -368,17 +368,17 @@ namespace ngx::protocol::trojan::wire
         {
             if (len < 1)
             {
-                return {gist::code::bad_message, {}};
+                return {fault::code::bad_message, {}};
             }
             const auto domain_len = static_cast<std::uint8_t>(buffer[offset]);
             if (len < 1 + domain_len + 2)
             {
-                return {gist::code::bad_message, {}};
+                return {fault::code::bad_message, {}};
             }
             auto domain_span = std::span<const std::uint8_t>(
                 reinterpret_cast<const std::uint8_t *>(buffer.data() + offset), 1 + domain_len);
             auto [ec, addr] = parse_domain(domain_span);
-            if (gist::failed(ec))
+            if (fault::failed(ec))
             {
                 return {ec, {}};
             }
@@ -387,14 +387,14 @@ namespace ngx::protocol::trojan::wire
             break;
         }
         default:
-            return {gist::code::unsupported_address, {}};
+            return {fault::code::unsupported_address, {}};
         }
 
         offset += addr_size;
         auto port_span = std::span<const std::uint8_t>(
             reinterpret_cast<const std::uint8_t *>(buffer.data() + offset), 2);
         auto [port_ec, port] = decode_port(port_span);
-        if (gist::failed(port_ec))
+        if (fault::failed(port_ec))
         {
             return {port_ec, {}};
         }
@@ -408,6 +408,6 @@ namespace ngx::protocol::trojan::wire
         result.payload_offset = offset;
         result.payload_size = payload_size;
 
-        return {gist::code::success, result};
+        return {fault::code::success, result};
     }
 }

@@ -124,18 +124,18 @@ curl -v -x socks5://127.0.0.1:8081 http://www.baidu.com
 | `pool.max_idle_seconds` | 空闲连接最大存活时间 | 60 |
 | `authentication.credentials` | 凭据列表（SHA224 哈希） | - |
 
-详细配置说明请参阅 [配置详解](docs/user-guide/configuration.md)。
+详细配置说明请参阅 [配置详解](docs/tutorial/configuration.md)。
 
 ## 目录结构
 
 ```txt
 ForwardEngine/
 ├── include/forward-engine/    # 核心库头文件
-│   ├── abnormal/              # 异常定义
-│   ├── adapter/               # 配置加载
+│   ├── exception/              # 异常定义
+│   ├── loader/                # 配置加载
 │   ├── agent/                 # 代理核心逻辑
 │   ├── core/                  # 核心配置
-│   ├── gist/                  # 错误码与工具
+│   ├── fault/                 # 错误码与工具
 │   ├── memory/                # PMR 内存管理
 │   ├── protocol/              # 协议实现
 │   ├── rule/                  # 规则引擎
@@ -145,8 +145,8 @@ ForwardEngine/
 ├── src/                       # 实现与入口
 ├── test/                      # 测试
 ├── docs/                      # 文档
-│   ├── user-guide/            # 用户指南
-│   ├── developer-guide/       # 开发者指南
+│   ├── tutorial/            # 用户指南
+│   ├── manual/                # 开发者指南
 │   ├── protocols/             # 协议文档
 │   ├── reference/             # 参考资料
 │   ├── examples/              # 示例配置
@@ -185,7 +185,7 @@ ctest --test-dir build_release --output-on-failure
 ### 技术手册
 
 - [架构设计](docs/manual/architecture.md) - 架构能力分析、时序链、关键实现细节
-- [模块设计](docs/manual/modules.md) - front、reactor、connection 等模块详解
+- [模块设计](docs/manual/modules.md) - front、worker、session 等模块详解
 - [运行时流程](docs/manual/runtime.md) - Session 创建、协议检测、隧道转发流程
 - [路由与分发](docs/manual/routing.md) - Registry 单例模式、Handler 工厂
 - [API 参考](docs/manual/api.md) - 公开 API 入口与头文件组织

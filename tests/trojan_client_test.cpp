@@ -1,7 +1,7 @@
 #include <forward-engine/protocol/trojan.hpp>
 #include <forward-engine/transformer.hpp>
 #include <forward-engine/memory.hpp>
-#include <forward-engine/abnormal.hpp>
+#include <forward-engine/exception.hpp>
 #include <boost/asio.hpp>
 #include <boost/asio/ssl.hpp>
 #include <boost/asio/experimental/awaitable_operators.hpp>
@@ -48,7 +48,7 @@ auto load_file_data(std::string_view path)
     std::ifstream file(path.data(), std::ios::binary);
     if (!file.is_open())
     {
-        throw ngx::abnormal::security("system error : {}", "file open failed");
+        throw ngx::exception::security("system error : {}", "file open failed");
     }
     file.seekg(0, std::ios::end);
     auto size = file.tellg();

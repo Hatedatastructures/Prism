@@ -7,12 +7,12 @@
 ```
 agent/
 ├── account/      # 账户管理
-├── connection/   # 连接管理
-├── distribution/ # 分发路由
+├── session/      # 会话管理
+├── resolve/      # 分发路由
 ├── dispatch/     # 协议分发
 ├── front/        # 前端监听
 ├── pipeline/     # 协议管道
-└── reactor/      # 工作线程
+└── worker/       # 工作线程
 ```
 
 ---
@@ -25,12 +25,12 @@ graph TB
         front[front/]
     end
 
-    subgraph "投递层 (Reactor Layer)"
-        reactor[reactor/]
+    subgraph "投递层 (Worker Layer)"
+        worker[worker/]
     end
 
-    subgraph "连接层 (Connection Layer)"
-        connection[connection/]
+    subgraph "会话层 (Session Layer)"
+        session[session/]
     end
 
     subgraph "分发层 (Dispatch Layer - Header-only)"
@@ -41,14 +41,14 @@ graph TB
         pipeline[pipeline/]
     end
 
-    subgraph "路由层 (Distribution Layer)"
-        distribution[distribution/]
+    subgraph "路由层 (Resolve Layer)"
+        resolve[resolve/]
     end
 
     subgraph "传输层 (Channel Layer)"
         transport[channel/transport/]
         pool[channel/pool/]
-        adapter[channel/adapter/]
+        loader[channel/loader/]
     end
 
     subgraph "上下文统计层 (Common Layer)"
@@ -61,19 +61,19 @@ graph TB
         memory[memory/]
     end
 
-    front -->|回调绑定| reactor
-    reactor -->|创建 session| connection
-    reactor -->|持有 router| distribution
-    reactor -->|持有 source| pool
-    connection -->|获取 handler| dispatch
-    connection -->|调用协议处理| pipeline
+    front -->|回调绑定| worker
+    worker -->|创建 session| session
+    worker -->|持有 router| resolve
+    worker -->|持有 source| pool
+    session -->|获取 handler| dispatch
+    session -->|调用协议处理| pipeline
     dispatch -->|handler 调用协议处理| pipeline
-    pipeline -->|dial 连接上游| distribution
-    pipeline -->|transmission| adapter
+    pipeline -->|dial 连接上游| resolve
+    pipeline -->|transmission| loader
     account -->|PMR 容器| memory
     context --> config
     context --> account
-    context --> distribution
+    context --> resolve
 ```
 
 ---
@@ -85,7 +85,7 @@ graph TB
 | 模块 | 职责 | 被使用方 |
 |------|------|----------|
 | account | 账户注册表、用户凭据管理、连接配额控制 | main、worker、session |
-| context | 运行时上下文聚合（server_context、worker_context、session_context） | reactor、connection、pipeline |
+| context | 运行时上下文聚合（server_context、worker_context、session_context） | worker、session、pipeline |
 | config | 代理服务配置参数 | context、listener、worker |
 
 ### context.hpp 依赖关系
@@ -93,7 +93,7 @@ graph TB
 ```mermaid
 graph LR
     context[context.hpp] --> config[config.hpp]
-    context --> router[distribution/router.hpp]
+    context --> router[resolve/router.hpp]
     context --> pool[memory/pool.hpp]
     context --> transmission[channel/transport/transmission.hpp]
 ```
@@ -166,7 +166,7 @@ sequenceDiagram
 | listener | 监听指定端口，接受入站 TCP 连接，计算客户端亲和性值 |
 | balancer | 负载均衡器，根据负载快照选择目标 worker，支持反压机制 |
 
-### reactor 层
+### worker 层
 
 | 组件 | 职责 |
 |------|------|
@@ -175,7 +175,7 @@ sequenceDiagram
 | stats | 负载统计，活跃会话计数、事件循环延迟监控 |
 | tls | TLS 上下文管理，证书加载、SSL 配置 |
 
-### connection 层
+### session 层
 
 | 组件 | 职责 |
 |------|------|
@@ -196,14 +196,14 @@ sequenceDiagram
 | protocols | 协议处理类（http、socks5、tls） |
 | primitives | 基础传输，忙转发（original_tunnel、relay） |
 
-### distribution 层
+### resolve 层
 
 | 组件 | 职责 |
 |------|------|
 | router | 分发路由器门面，整合仲裁器、解析器、黑名单 |
 | arbiter | 反向代理路由分发，主机名到端点映射 |
-| reliable | TCP DNS 缓存，请求合并 |
-| datagram | UDP DNS 缓存，请求合并 |
+| tcpcache | TCP DNS 缓存，请求合并 |
+| udpcache | UDP DNS 缓存，请求合并 |
 
 ### account 层
 

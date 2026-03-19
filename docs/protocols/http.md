@@ -5,10 +5,10 @@
 ## 1. 总体入口链路
 
 1. **连接接收**：`worker` 监听端口并接收连接，创建 `session`  
-   入口位置：[worker.hpp](../../include/forward-engine/agent/reactor/worker.hpp)，类 `ngx::agent::worker` 的 `do_accept`。
+   入口位置：[worker.hpp](../../include/forward-engine/agent/worker/worker.hpp)，类 `ngx::agent::worker` 的 `do_accept`。
 
 2. **协议识别**：`session::diversion` 预读并识别协议，然后分流到 HTTP 处理器  
-   位置：[session.hpp](../../include/forward-engine/agent/connection/session.hpp)，类 `ngx::agent::session` 的 `diversion`。通过检查请求行前几个字节判断是否为 HTTP 协议（`GET `、`POST `、`CONNECT ` 等）。
+   位置：[session.hpp](../../include/forward-engine/agent/session/session.hpp)，类 `ngx::agent::session` 的 `diversion`。通过检查请求行前几个字节判断是否为 HTTP 协议（`GET `、`POST `、`CONNECT ` 等）。
 
 3. **HTTP 处理器调用**：`handler::http` 读取并解析 HTTP 请求，确定目标与路由方向  
    位置：[handlers.hpp](../../include/forward-engine/agent/dispatch/handlers.hpp)，命名空间 `ngx::agent::handler` 的 `http` 模板函数。
@@ -20,7 +20,7 @@
    位置：[primitives.cpp](../../src/forward-engine/agent/pipeline/primitives.cpp)，命名空间 `ngx::agent::pipeline::primitives` 的 `dial`。
 
 6. **路由决策与连接**：`router` 建立上游连接（直连或回退）  
-   位置：[router.cpp](../../src/forward-engine/agent/distribution/router.cpp)，类 `ngx::agent::distribution::router` 的 `async_forward` 与 `async_reverse`。
+   位置：[router.cpp](../../src/forward-engine/agent/resolve/router.cpp)，类 `ngx::agent::resolve::router` 的 `async_forward` 与 `async_reverse`。
 
 7. **隧道转发**：根据请求类型进入原始隧道（`original_tunnel`）或普通隧道（`tunnel`）转发。
 
@@ -43,7 +43,7 @@ const auto ec = co_await protocol_http::async_read(ctx.client_socket, req, read_
 1. **创建解析器**：使用 `beast::http::request_parser<http_body>`，设置头部限制（16KB）和正文限制（10MB）。
 2. **异步读取**：调用 `beast::http::async_read` 读取完整 HTTP 请求。
 3. **数据提取**：从解析器提取方法、目标、版本、头部字段和正文。
-4. **错误处理**：如果读取失败，返回相应的 `gist::code`：
+4. **错误处理**：如果读取失败，返回相应的 `fault::code`：
    - `eof`：连接关闭
    - `generic_error`：其他错误
 
@@ -76,7 +76,7 @@ Host: example.com:443
 
 **调用流程**：
 1. `analysis::resolve` 将其判定为正向代理，解析 `host:port`。
-2. `connect_upstream` 调用 `distributor::route_forward`（直连优先，失败回退上游代理）。
+2. `connect_upstream` 调用 `resolve::router::async_forward`（直连优先，失败回退上游代理）。
 3. 连接成功后，返回 `200 Connection Established` 给客户端。
 4. 进入原始 TCP 隧道透传（`original_tunnel`）。
 
@@ -94,7 +94,7 @@ Host: example.com
 
 **调用流程**：
 1. `analysis::resolve` 识别为正向代理并解析绝对 `URI`。
-2. `connect_upstream` 调用 `distributor::route_forward`，建立上游连接。
+2. `connect_upstream` 调用 `resolve::router::async_forward`，建立上游连接。
 3. 将解析后的 `req` 通过 `protocol::http::serialize` 序列化并转发给上游。
 4. 若 `read_buffer` 内还有预读数据，继续转发。
 5. 进入隧道转发（`tunnel`），支持持续双向流量。
@@ -109,7 +109,7 @@ Host: myservice.com
 
 **调用流程**：
 1. `analysis::resolve` 判定为反向代理，目标从 `Host` 头解析。
-2. `connect_upstream` 调用 `distributor::route_reverse`，根据路由表获取后端连接。
+2. `connect_upstream` 调用 `resolve::router::async_reverse`，根据路由表获取后端连接。
 3. 请求序列化并转发给后端。
 4. 继续转发预读数据并进入隧道转发（`tunnel`）。
 
@@ -117,7 +117,7 @@ Host: myservice.com
 
 ### 3.1 正向路由 `async_forward`
 
-路由优先级（[router.cpp](../../src/forward-engine/agent/distribution/router.cpp)）：
+路由优先级（[router.cpp](../../src/forward-engine/agent/resolve/router.cpp)）：
 1. **黑名单拦截**：检查目标地址是否在黑名单中（直接返回 `blocked`）。
 2. **DNS 解析并直连**：解析目标主机名，通过连接池 `acquire_tcp` 获取或创建连接。
 3. **直连失败回退**：如果直连失败，回退到配置的上游代理（通过 `CONNECT` 命令）。
@@ -125,7 +125,7 @@ Host: myservice.com
 ### 3.2 反向路由 `async_reverse`
 
 从 `reverse_map_` 取目标后端 `endpoint`，通过连接池复用连接。
-对应实现：[router.cpp](../../src/forward-engine/agent/distribution/router.cpp) 的 `ngx::agent::distribution::router::async_reverse`。
+对应实现：[router.cpp](../../src/forward-engine/agent/resolve/router.cpp) 的 `ngx::agent::resolve::router::async_reverse`。
 
 ### 3.3 上游代理回退 `async_positive`
 
@@ -135,7 +135,7 @@ Host: myservice.com
 3. 发送 `CONNECT host:port` 请求。
 4. 解析响应行状态码（仅接受 `200`）。
 
-对应实现：[router.cpp](../../src/forward-engine/agent/distribution/router.cpp) 的 `ngx::agent::distribution::router::async_positive`。
+对应实现：[router.cpp](../../src/forward-engine/agent/resolve/router.cpp) 的 `ngx::agent::resolve::router::async_positive`。
 
 ## 4. 隧道转发机制
 
@@ -198,13 +198,13 @@ auto tunnel(Context &ctx) -> net::awaitable<void>
 if (read_buffer.size() != 0)
 {
   trace::debug("[Handler] Forwarding {} bytes of prefetched data.", read_buffer.size());
-  co_await ngx::channel::adapter::async_write(*ctx.server_socket, read_buffer.data(), redirect_error);
+  co_await ngx::channel::loader::async_write(*ctx.server_socket, read_buffer.data(), redirect_error);
   read_buffer.consume(read_buffer.size());
 }
 ```
 
 **关键点**：
-- 使用 `ngx::channel::adapter::async_write` 保证完整写入。
+- 使用 `ngx::channel::loader::async_write` 保证完整写入。
 - 写入后调用 `consume` 清空缓冲区。
 
 ### 4.4 核心转发逻辑 `detail::tunnel::stream`
@@ -219,7 +219,7 @@ if (read_buffer.size() != 0)
 以下日志有助于确认 HTTP 请求走向：
 
 - `[Session] Detected protocol: http.`
-  位置：[session.hpp](../../include/forward-engine/agent/connection/session.hpp) 的 `ngx::agent::connection::session::diversion`。
+  位置：[session.hpp](../../include/forward-engine/agent/session/session.hpp) 的 `ngx::agent::session::session::diversion`。
 
 - `[Pipeline] HTTP request received: {method} {target}`
   位置：[protocols.cpp](../../src/forward-engine/agent/pipeline/protocols.cpp) 的 `ngx::agent::pipeline::http`。
@@ -244,7 +244,7 @@ worker.accept -> session::diversion
           -> handler::original_tunnel (纯 TCP 透传)
       -> else:
           -> protocol::http::serialize (请求序列化)
-          -> ngx::channel::adapter::async_write (转发请求头与正文)
+          -> ngx::channel::loader::async_write (转发请求头与正文)
           -> forward prefetched buffer (read_buffer.data) (预读数据转发)
           -> handler::tunnel (持续双向转发)
 ```
@@ -282,7 +282,7 @@ worker.accept -> session::diversion
 
 ## 8. 错误处理与状态码映射
 
-HTTP 协议错误到 `gist::code` 的映射：
+HTTP 协议错误到 `fault::code` 的映射：
 
 - `parse_error`：HTTP 报文解析失败（格式不合法、字段缺失等）
 - `bad_message`：消息格式错误（长度不足、字段越界等）
@@ -293,14 +293,14 @@ HTTP 协议错误到 `gist::code` 的映射：
 - `generic_error`：一般性错误
 
 **错误处理原则**：
-1. **热路径无异常**：网络 I/O、协议解析、数据转发等热路径严禁抛异常，必须使用 `gist::code` 返回值。
+1. **热路径无异常**：网络 I/O、协议解析、数据转发等热路径严禁抛异常，必须使用 `fault::code` 返回值。
 2. **异常仅用于启动阶段**：配置加载失败、内存耗尽等致命错误可使用异常。
-3. **错误码轻量**：`gist::code` 是 4 字节的轻量值对象，无动态分配。
+3. **错误码轻量**：`fault::code` 是 4 字节的轻量值对象，无动态分配。
 
 **典型错误场景**：
-- **连接建立失败**：返回 `gist::code::io_error`，记录日志并关闭连接。
-- **请求解析失败**：返回 `gist::code::parse_error`，发送 `400 Bad Request`（如适用）。
-- **目标解析失败**：返回 `gist::code::invalid_argument`，记录日志并关闭连接。
+- **连接建立失败**：返回 `fault::code::io_error`，记录日志并关闭连接。
+- **请求解析失败**：返回 `fault::code::parse_error`，发送 `400 Bad Request`（如适用）。
+- **目标解析失败**：返回 `fault::code::invalid_argument`，记录日志并关闭连接。
 - **隧道转发错误**：记录错误日志，优雅关闭两端连接。
 
 所有错误都会在相应位置记录详细日志，便于问题排查和系统监控。

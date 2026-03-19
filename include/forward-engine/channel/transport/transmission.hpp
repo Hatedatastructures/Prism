@@ -25,7 +25,7 @@
 #include <system_error>
 #include <utility>
 
-#include <forward-engine/gist/compatible.hpp>
+#include <forward-engine/fault/compatible.hpp>
 
 namespace ngx::channel::transport
 {
@@ -268,7 +268,7 @@ namespace ngx::channel::transport
                 boost::system::error_code b_ec;
                 if (ec)
                 {
-                    if (ec.category() == ngx::gist::category())
+                    if (ec.category() == ngx::fault::category())
                     {
                         b_ec = boost::system::error_code(ec.value(), boost::system::category());
                     }
@@ -326,7 +326,7 @@ namespace ngx::channel::transport
                 boost::system::error_code b_ec;
                 if (ec)
                 {
-                    if (ec.category() == ngx::gist::category())
+                    if (ec.category() == ngx::fault::category())
                     {
                         b_ec = boost::system::error_code(ec.value(), boost::system::category());
                     }

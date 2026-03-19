@@ -20,7 +20,7 @@
 #include <boost/beast/core/flat_buffer.hpp>
 
 #include <forward-engine/memory/container.hpp>
-#include <forward-engine/gist.hpp>
+#include <forward-engine/fault.hpp>
 
 #include <forward-engine/protocol/http/request.hpp>
 #include <forward-engine/protocol/http/response.hpp>
@@ -50,7 +50,7 @@ namespace ngx::protocol::http
      * 请求行解析、头部字段解析和请求体提取。支持 HTTP/1.0 和 HTTP/1.1 协议格式。
      */
     [[nodiscard]] auto deserialize(std::string_view string_value, request &http_request, memory::resource_pointer mr = nullptr)
-        -> gist::code;
+        -> fault::code;
 
     /**
      * @brief 异步读取并反序列化 HTTP 请求
@@ -65,11 +65,11 @@ namespace ngx::protocol::http
      * 的请求解析器处理分块传输编码和持久连接。解析器配置头部限制为 16KB，
      * 请求体限制为 10MB，防止恶意请求导致内存耗尽。
      * @note 函数必须在协程上下文中调用，使用 co_await 等待操作完成。
-     * @note 当连接关闭时返回 gist::code::eof，其他错误返回 gist::code::generic_error。
+     * @note 当连接关闭时返回 fault::code::eof，其他错误返回 fault::code::generic_error。
      */
     template <class Transport, class DynamicBuffer>
     auto async_read(Transport &socket, request &http_request, DynamicBuffer &buffer, memory::resource_pointer mr)
-        -> net::awaitable<gist::code>
+        -> net::awaitable<fault::code>
     {
         if (!mr)
         {
@@ -92,9 +92,9 @@ namespace ngx::protocol::http
         {
             if (ec == net::error::eof || ec == beast::http::error::end_of_stream)
             {
-                co_return gist::code::eof;
+                co_return fault::code::eof;
             }
-            co_return gist::code::generic_error;
+            co_return fault::code::generic_error;
         }
 
         auto beast_msg = parser.release();
@@ -114,7 +114,7 @@ namespace ngx::protocol::http
 
         http_request.keep_alive(beast_msg.keep_alive());
 
-        co_return gist::code::success;
+        co_return fault::code::success;
     }
 
     /**
@@ -129,7 +129,7 @@ namespace ngx::protocol::http
      */
     template <class Transport>
     auto async_read(Transport &socket, request &http_request, const memory::resource_pointer mr)
-        -> net::awaitable<gist::code>
+        -> net::awaitable<fault::code>
     {
         beast::flat_buffer buffer;
         co_return co_await async_read<Transport, beast::flat_buffer>(socket, http_request, buffer, mr);
@@ -144,7 +144,7 @@ namespace ngx::protocol::http
      * 状态行解析、头部字段解析和响应体提取。支持 HTTP/1.0 和 HTTP/1.1 协议格式。
      */
      [[nodiscard]] auto deserialize(std::string_view string_value, response &http_response)
-        -> gist::code;
+        -> fault::code;
 
     /**
      * @brief 异步读取并反序列化 HTTP 响应（便捷重载）
@@ -158,7 +158,7 @@ namespace ngx::protocol::http
      */
     template <class Transport>
     auto async_read(Transport &socket, response &http_response, memory::resource_pointer mr)
-        -> net::awaitable<gist::code>
+        -> net::awaitable<fault::code>
     {
         beast::flat_buffer buffer;
         co_return co_await async_read<Transport, beast::flat_buffer>(socket, http_response, buffer, mr);
@@ -177,11 +177,11 @@ namespace ngx::protocol::http
      * 的响应解析器处理分块传输编码和持久连接。解析器配置头部限制为 16KB，
      * 响应体限制为 10MB，防止恶意响应导致内存耗尽。
      * @note 函数必须在协程上下文中调用，使用 co_await 等待操作完成。
-     * @note 当连接关闭时返回 gist::code::eof，其他错误返回 gist::code::generic_error。
+     * @note 当连接关闭时返回 fault::code::eof，其他错误返回 fault::code::generic_error。
      */
     template <class Transport, class DynamicBuffer>
     auto async_read(Transport &socket, response &http_response, DynamicBuffer &buffer, memory::resource_pointer mr)
-        -> net::awaitable<gist::code>
+        -> net::awaitable<fault::code>
     {
         if (!mr)
         {
@@ -204,9 +204,9 @@ namespace ngx::protocol::http
         {
             if (ec == net::error::eof || ec == beast::http::error::end_of_stream)
             {
-                co_return gist::code::eof;
+                co_return fault::code::eof;
             }
-            co_return gist::code::generic_error;
+            co_return fault::code::generic_error;
         }
 
         auto beast_msg = parser.release();
@@ -225,7 +225,7 @@ namespace ngx::protocol::http
 
         http_response.keep_alive(beast_msg.keep_alive());
 
-        co_return gist::code::success;
+        co_return fault::code::success;
     }
 
 }

@@ -240,4 +240,4 @@ namespace ngx::trace::deprecated
         }
     }
 
-} // namespace ngx::trace
+} // namespace ngx::trace::deprecated

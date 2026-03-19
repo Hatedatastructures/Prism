@@ -60,21 +60,21 @@
 |--------|------|--------|------|
 | **front** | listener | ✅ 100% | 监听端口，接受连接，亲和性计算，反压机制 |
 | **front** | balancer | ✅ 100% | 加权评分选择，过载检测，全局反压 |
-| **reactor** | worker | ✅ 100% | 工作线程核心，管理 io_context、连接池、路由表 |
-| **reactor** | launch | ✅ 100% | 会话启动与跨线程连接分发 |
-| **reactor** | stats | ✅ 100% | 负载统计，EMA 平滑延迟测量 |
-| **reactor** | tls | ✅ 100% | TLS 上下文管理，证书加载 |
-| **connection** | session | ✅ 100% | 会话生命周期管理，协议检测分发 |
+| **worker** | worker | ✅ 100% | 工作线程核心，管理 io_context、连接池、路由表 |
+| **worker** | launch | ✅ 100% | 会话启动与跨线程连接分发 |
+| **worker** | stats | ✅ 100% | 负载统计，EMA 平滑延迟测量 |
+| **worker** | tls | ✅ 100% | TLS 上下文管理，证书加载 |
+| **session** | session | ✅ 100% | 会话生命周期管理，协议检测分发 |
 | **dispatch** | handler | ✅ 100% | 协议处理器抽象基类 |
 | **dispatch** | registry | ✅ 100% | 处理器注册表，工厂模式 |
 | **dispatch** | handlers | ✅ 100% | HTTP/SOCKS5/TLS/Unknown 处理器实现 |
 | **pipeline** | protocols | ✅ 100% | HTTP/SOCKS5/TLS 协议处理管道 |
 | **pipeline** | primitives | ✅ 100% | dial、preview、original_tunnel 原语 |
-| **distribution** | router | ✅ 100% | 统一路由入口，整合仲裁器、解析器 |
-| **distribution** | arbiter | ✅ 100% | 反向路由、直连路由、数据报路由 |
-| **distribution** | reliable_resolver | ✅ 100% | TCP DNS 解析，缓存，请求合并 |
-| **distribution** | datagram_resolver | ✅ 100% | UDP DNS 解析，缓存 |
-| **distribution** | coalescer | ✅ 100% | DNS 请求合并机制 |
+| **resolve** | router | ✅ 100% | 统一路由入口，整合仲裁器、解析器 |
+| **resolve** | arbiter | ✅ 100% | 反向路由、直连路由、数据报路由 |
+| **resolve** | tcpcache | ✅ 100% | TCP DNS 解析，缓存，请求合并 |
+| **resolve** | udpcache | ✅ 100% | UDP DNS 解析，缓存 |
+| **resolve** | coalescer | ✅ 100% | DNS 请求合并机制 |
 | **account** | directory | ✅ 100% | 账户目录，写时复制，无锁读取 |
 | **account** | entry | ✅ 100% | 账户运行时状态，连接数限制 |
 | **account** | lease | ✅ 100% | RAII 连接数管理 |
@@ -105,11 +105,11 @@
 |------|--------|------|
 | **source** | ✅ 100% | TCP 连接池，栈式缓存 + 僵尸检测 |
 
-#### adapter 子模块
+#### loader 子模块
 
 | 组件 | 完成度 | 说明 |
 |------|--------|------|
-| **adaptation** | ✅ 100% | Socket 适配器，支持预读数据注入 |
+| **connector** | ✅ 100% | Socket 适配器，支持预读数据注入 |
 
 ### Memory 模块 (`include/forward-engine/memory/`)
 
@@ -288,7 +288,7 @@ ForwardEngine 采用 **MIT 许可证**，允许：
 - 📝 保留版权声明
 - 📝 包含许可证副本
 
-查看完整许可证：[LICENSE](../LICENSE)
+查看完整许可证：[LICENSE](../../LICENSE)
 
 ---
 

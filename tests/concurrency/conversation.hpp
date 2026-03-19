@@ -34,11 +34,11 @@ namespace srv
             http::request req;
             const auto read_result = co_await http::async_read(socket_, req, ngx::memory::current_resource());
 
-            if (ngx::gist::failed(read_result))
+            if (ngx::fault::failed(read_result))
             {
-                if (read_result != ngx::gist::code::eof)
+                if (read_result != ngx::fault::code::eof)
                 {
-                    ngx::trace::error("initial read failed: {}", ngx::gist::cached_message(read_result));
+                    ngx::trace::error("initial read failed: {}", ngx::fault::cached_message(read_result));
                 }
                 co_return;
             }

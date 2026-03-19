@@ -25,15 +25,15 @@
 
 #include <forward-engine/memory/pool.hpp>
 #include <forward-engine/agent/context.hpp>
-#include <forward-engine/agent/distribution/router.hpp>
+#include <forward-engine/agent/resolve/router.hpp>
 #include <forward-engine/protocol/analysis.hpp>
 #include <forward-engine/protocol/socks5.hpp>
-#include <forward-engine/channel/adapter/adaptation.hpp>
+#include <forward-engine/channel/adapter/connector.hpp>
 #include <forward-engine/protocol/http/deserialization.hpp>
 #include <forward-engine/protocol/http/serialization.hpp>
 #include <forward-engine/trace/spdlog.hpp>
 #include <forward-engine/channel/transport/transmission.hpp>
-#include <forward-engine/gist/code.hpp>
+#include <forward-engine/fault/code.hpp>
 #include <forward-engine/agent/pipeline/primitives.hpp>
 
 /**

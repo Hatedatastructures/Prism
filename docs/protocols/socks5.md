@@ -5,10 +5,10 @@
 ## 1. 总体入口链路
 
 1. **连接接收**：`worker` 监听端口并接收连接，创建 `session`
-   入口位置：[worker.hpp](../../include/forward-engine/agent/reactor/worker.hpp)，类 `ngx::agent::reactor::worker` 的 `do_accept`。
+   入口位置：[worker.hpp](../../include/forward-engine/agent/worker/worker.hpp)，类 `ngx::agent::worker::worker` 的 `do_accept`。
 
 2. **协议识别**：`session::diversion` 预读并识别协议，然后分流到 SOCKS5 处理器
-   位置：[session.hpp](../../include/forward-engine/agent/connection/session.hpp)，类 `ngx::agent::connection::session` 的 `diversion`。通过检查前几个字节判断是否为 SOCKS5 协议（版本号为 `0x05`）。
+   位置：[session.hpp](../../include/forward-engine/agent/session/session.hpp)，类 `ngx::agent::session::session` 的 `diversion`。通过检查前几个字节判断是否为 SOCKS5 协议（版本号为 `0x05`）。
 
 3. **SOCKS5 处理器调用**：`handler::socks5` 创建 SOCKS5 流对象并执行握手
    位置：[handler.hpp](../../include/forward-engine/agent/dispatch/handler.hpp)，命名空间 `ngx::agent::dispatch` 的 `socks5` 模板函数。
@@ -20,7 +20,7 @@
    位置：[primitives.cpp](../../src/forward-engine/agent/pipeline/primitives.cpp)，命名空间 `ngx::agent::pipeline::primitives` 的 `dial`。
 
 6. **路由决策与连接**：`router` 建立上游连接（直连或回退）
-   位置：[router.cpp](../../src/forward-engine/agent/distribution/router.cpp)，类 `ngx::agent::distribution::router` 的 `async_forward`/`async_reverse`。
+   位置：[router.cpp](../../src/forward-engine/agent/resolve/router.cpp)，类 `ngx::agent::resolve::router` 的 `async_forward`/`async_reverse`。
 
 7. **响应发送与隧道切换**：连接成功后发送成功响应，进入原始 TCP 隧道转发。
 
@@ -129,7 +129,7 @@ SOCKS5 握手遵循 RFC 1928 标准，分为两个阶段：**方法协商阶段*
 
 1. **命令检查**：`handshake` 函数中检查命令是否为 `command::connect`。
 2. **错误响应**：调用 `send_error` 发送 `reply_code::command_not_supported` (`0x07`)。
-3. **错误返回**：返回 `gist::code::unsupported_command` 错误码。
+3. **错误返回**：返回 `fault::code::unsupported_command` 错误码。
 4. **连接关闭**：握手失败，连接终止。
 
 **错误响应格式**：
@@ -172,7 +172,7 @@ SOCKS5 协议使用正向代理模式，路由决策流程如下：
 3. **直连尝试**：尝试直接连接到目标服务器。
 4. **上游代理回退**：如果直连失败，回退到配置的上游代理（通过 `CONNECT` 命令）。
 
-对应实现：[router.cpp](../../src/forward-engine/agent/distribution/router.cpp) 的 `ngx::agent::distribution::router::async_forward`。
+对应实现：[router.cpp](../../src/forward-engine/agent/resolve/router.cpp) 的 `ngx::agent::resolve::router::async_forward`。
 
 ## 5. 连接建立与隧道转发
 
@@ -236,7 +236,7 @@ SOCKS5 协议在 `session::diversion` 阶段进行协议识别时，可能已经
 以下日志有助于确认 SOCKS5 请求走向：
 
 - `[Session] Detected protocol: socks5.`
-  位置：[session.hpp](../../include/forward-engine/agent/connection/session.hpp) 的 `ngx::agent::connection::session::diversion`。
+  位置：[session.hpp](../../include/forward-engine/agent/session/session.hpp) 的 `ngx::agent::session::session::diversion`。
 
 - `[Pipeline] SOCKS5 handshake failed: {error}`
   位置：[protocols.cpp](../../src/forward-engine/agent/pipeline/protocols.cpp) 的 `ngx::agent::pipeline::socks5`。
@@ -265,7 +265,7 @@ worker.accept -> session::diversion
           -> 验证命令类型 (仅支持 CONNECT)
       -> 构造 target 对象
       -> handler::connect_upstream
-          -> distributor::route_forward (正向路由)
+          -> resolve::router::async_forward (正向路由)
               -> 黑名单检查
               -> DNS 解析
               -> 直连尝试
@@ -312,7 +312,7 @@ worker.accept -> session::diversion
 
 ## 10. 错误处理与状态码映射
 
-SOCKS5 协议错误到 `gist::code` 的映射：
+SOCKS5 协议错误到 `fault::code` 的映射：
 
 - `unsupported_command`：命令不支持（收到 `BIND` 或 `UDP ASSOCIATE`）
 - `unsupported_address`：地址类型不支持（收到不支持的 ATYP 值）

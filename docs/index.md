@@ -12,10 +12,10 @@
 
 | 文档 | 说明 |
 |------|------|
-| [快速开始](user-guide/getting-started.md) | 5 分钟快速上手 ForwardEngine |
-| [配置详解](user-guide/configuration.md) | 配置参数说明与性能调优 |
-| [故障排除](user-guide/troubleshooting.md) | 常见问题排查与解决方案 |
-| [常见问题](user-guide/faq.md) | FAQ 问答集 |
+| [快速开始](tutorial/getting-started.md) | 5 分钟快速上手 ForwardEngine |
+| [配置详解](tutorial/configuration.md) | 配置参数说明与性能调优 |
+| [故障排除](tutorial/troubleshooting.md) | 常见问题排查与解决方案 |
+| [常见问题](tutorial/faq.md) | FAQ 问答集 |
 
 ### 开发者指南
 
@@ -23,12 +23,12 @@
 
 | 文档 | 说明 |
 |------|------|
-| [架构设计](developer-guide/architecture.md) | 架构能力分析、时序链、关键实现细节 |
-| [模块设计](developer-guide/modules.md) | front、reactor、connection、dispatch、pipeline、distribution、account 模块详解 |
-| [运行时流程](developer-guide/runtime.md) | Session 创建、协议检测、隧道转发、连接关闭流程 |
-| [路由与分发](developer-guide/routing.md) | Registry 单例模式、Handler 工厂、协议处理器注册 |
-| [API 参考](developer-guide/api.md) | 公开 API 入口与头文件组织 |
-| [文档验真](developer-guide/validation.md) | 文档验真规则与源码对应表 |
+| [架构设计](manual/architecture.md) | 架构能力分析、时序链、关键实现细节 |
+| [模块设计](manual/modules.md) | front、worker、session、dispatch、pipeline、resolve、account 模块详解 |
+| [运行时流程](manual/runtime.md) | Session 创建、协议检测、隧道转发、连接关闭流程 |
+| [路由与分发](manual/routing.md) | Registry 单例模式、Handler 工厂、协议处理器注册 |
+| [API 参考](manual/api.md) | 公开 API 入口与头文件组织 |
+| [文档验真](manual/validation.md) | 文档验真规则与源码对应表 |
 
 ### 协议文档
 
@@ -72,14 +72,14 @@
 
 ### 按角色查找
 
-- **普通用户**：[快速开始](user-guide/getting-started.md) → [配置详解](user-guide/configuration.md) → [常见问题](user-guide/faq.md)
-- **运维人员**：[配置详解](user-guide/configuration.md) → [故障排除](user-guide/troubleshooting.md)
-- **开发者**：[架构设计](developer-guide/architecture.md) → [模块设计](developer-guide/modules.md) → [API 参考](developer-guide/api.md)
+- **普通用户**：[快速开始](tutorial/getting-started.md) → [配置详解](tutorial/configuration.md) → [常见问题](tutorial/faq.md)
+- **运维人员**：[配置详解](tutorial/configuration.md) → [故障排除](tutorial/troubleshooting.md)
+- **开发者**：[架构设计](manual/architecture.md) → [模块设计](manual/modules.md) → [API 参考](manual/api.md)
 
 ### 按主题查找
 
 - **协议实现**：[HTTP](protocols/http.md) | [SOCKS5](protocols/socks5.md) | [Trojan](protocols/trojan.md)
-- **核心流程**：[运行时流程](developer-guide/runtime.md) | [路由与分发](developer-guide/routing.md)
+- **核心流程**：[运行时流程](manual/runtime.md) | [路由与分发](manual/routing.md)
 - **配置参考**：[配置结构体](reference/config-structure.md) | [依赖关系](reference/dependencies.md)
 
 ---

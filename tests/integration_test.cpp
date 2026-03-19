@@ -12,7 +12,7 @@
 #include <forward-engine/channel/transport/reliable.hpp>
 #include <forward-engine/channel/transport/unreliable.hpp>
 #include <forward-engine/protocol/trojan/stream.hpp>
-#include <forward-engine/gist.hpp>
+#include <forward-engine/fault.hpp>
 #include <memory>
 #include <array>
 #include <iostream>
@@ -177,9 +177,9 @@ net::awaitable<int> trojan_echo_server_coro(net::ip::tcp::acceptor& acceptor, co
         
         // 执行 Trojan 握手
         auto [ec, request] = co_await trojan->handshake();
-        if (ngx::gist::failed(ec))
+        if (ngx::fault::failed(ec))
         {
-            std::cerr << "Trojan handshake failed: " << ngx::gist::describe(ec) << std::endl;
+            std::cerr << "Trojan handshake failed: " << ngx::fault::describe(ec) << std::endl;
             co_return 1;
         }
         

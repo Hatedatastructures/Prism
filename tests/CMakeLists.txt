@@ -47,14 +47,17 @@ add_test(NAME trojan_test COMMAND trojan_test)
 add_executable(trojan_client_test trojan_client_test.cpp)
 target_compile_options(trojan_client_test PRIVATE -g1 -Os -fno-keep-inline-dllexport)
 target_link_libraries(trojan_client_test PRIVATE ${PROJECT_NAME}_static_library)
+add_test(NAME trojan_client_test COMMAND trojan_client_test)
 
 add_executable(transmission_test transmission_test.cpp)
 target_compile_options(transmission_test PRIVATE -g1 -Os -fno-keep-inline-dllexport)
 target_link_libraries(transmission_test PRIVATE ${PROJECT_NAME}_static_library)
+add_test(NAME transmission_test COMMAND transmission_test)
 
 add_executable(integration_test integration_test.cpp)
 target_compile_options(integration_test PRIVATE -g1 -Os -fno-keep-inline-dllexport)
 target_link_libraries(integration_test PRIVATE ${PROJECT_NAME}_static_library)
+add_test(NAME integration_test COMMAND integration_test)
 
 add_executable(regression_test regression_test.cpp)
 target_compile_options(regression_test PRIVATE -g1 -Os -fno-keep-inline-dllexport)

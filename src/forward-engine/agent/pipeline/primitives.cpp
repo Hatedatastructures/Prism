@@ -1,22 +1,21 @@
 #include <forward-engine/agent/pipeline/primitives.hpp>
 #include <forward-engine/channel/transport/reliable.hpp>
 #include <forward-engine/channel/transport/secure.hpp>
+#include <forward-engine/trace.hpp>
 
 namespace ngx::agent::pipeline::primitives
 {
     auto ssl_handshake(session_context &ctx, const std::span<const std::byte> data)
-        -> net::awaitable<std::pair<gist::code, shared_ssl_stream>>
+        -> net::awaitable<std::pair<fault::code, shared_ssl_stream>>
     {
         if (!ctx.server.ssl_ctx)
         {
-            trace::error("[Primitives] TLS handshake failed: SSL context is null");
-            co_return std::make_pair(gist::code::not_supported, nullptr);
+            co_return std::make_pair(fault::code::not_supported, nullptr);
         }
 
         if (!ctx.inbound)
-        {   // 入站指针为空
-            trace::error("[Primitives] TLS handshake failed: inbound transmission is null");
-            co_return std::make_pair(gist::code::io_error, nullptr);
+        {
+            co_return std::make_pair(fault::code::io_error, nullptr);
         }
         // 原有可能是 tcp socket 派生的 reliable 类，用 ssl_connector 来模拟一个 boost 库的 网路 io 接口
         ssl_connector connector(std::move(ctx.inbound), data); // 套用适配器抹平差异
@@ -30,21 +29,17 @@ namespace ngx::agent::pipeline::primitives
         co_await stream->async_handshake(ssl::stream_base::server, token);
         if (ec)
         {
-            trace::warn("[Primitives] TLS handshake failed: {}", ec.message());
-            co_return std::make_pair(gist::to_code(ec), nullptr);
+            co_return std::make_pair(fault::to_code(ec), nullptr);
         }
 
-        trace::debug("[Primitives] TLS handshake completed successfully");
-        co_return std::make_pair(gist::code::success, stream);
+        co_return std::make_pair(fault::code::success, stream);
     }
 
-    auto dial(std::shared_ptr<distribution::router> router, std::string_view label,
+    auto dial(std::shared_ptr<resolve::router> router, std::string_view label,
               const protocol::analysis::target &target, const bool allow_reverse, const bool require_open)
-        -> net::awaitable<std::pair<gist::code, channel::transport::transmission_pointer>>
+        -> net::awaitable<std::pair<fault::code, channel::transport::transmission_pointer>>
     {
-        trace::debug("[Pipeline] {} dialing upstream: {}:{}", label, target.host, target.port);
-
-        auto ec = gist::code::success;
+        auto ec = fault::code::success;
         channel::unique_sock socket;
 
         if (allow_reverse && !target.positive)
@@ -60,20 +55,18 @@ namespace ngx::agent::pipeline::primitives
             socket = std::move(routed);
         }
 
-        if (gist::failed(ec))
+        if (fault::failed(ec))
         {
-            trace::warn("[Pipeline] {} route failed: {}, target: {}:{}", label, gist::describe(ec),
+            trace::warn("[Pipeline] {} route failed: {}, target: {}:{}", label, fault::describe(ec),
              target.host, target.port);
             co_return std::make_pair(ec, nullptr);
         }
 
         if (require_open && (!socket || !socket->is_open()))
         {
-            trace::error("[Pipeline] {} route to upstream failed (connection invalid).", label);
-            co_return std::make_pair(gist::code::connection_refused, nullptr);
+            co_return std::make_pair(fault::code::connection_refused, nullptr);
         }
 
-        trace::debug("[Pipeline] {} upstream connected: {}:{}", label, target.host, target.port);
         co_return std::make_pair(ec, channel::transport::make_reliable(std::move(socket)));
     }
 

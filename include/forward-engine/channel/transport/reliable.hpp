@@ -14,8 +14,8 @@
 
 #include <boost/asio.hpp>
 #include <forward-engine/channel/transport/transmission.hpp>
-#include <forward-engine/channel/pool/source.hpp>
-#include <forward-engine/gist/handling.hpp>
+#include <forward-engine/channel/pool/pool.hpp>
+#include <forward-engine/fault/handling.hpp>
 #include <memory>
 #include <optional>
 #include <utility>
@@ -109,7 +109,7 @@ namespace ngx::channel::transport
             auto token = net::redirect_error(net::use_awaitable, sys_ec);
             const auto n = co_await native_socket().async_read_some(
                 net::buffer(buffer.data(), buffer.size()), token);
-            ec = ngx::gist::make_error_code(ngx::gist::to_code(sys_ec));
+            ec = ngx::fault::make_error_code(ngx::fault::to_code(sys_ec));
             co_return n;
         }
 
@@ -129,7 +129,7 @@ namespace ngx::channel::transport
             auto token = net::redirect_error(net::use_awaitable, sys_ec);
             const auto n = co_await native_socket().async_write_some(
                 net::buffer(buffer.data(), buffer.size()), token);
-            ec = ngx::gist::make_error_code(ngx::gist::to_code(sys_ec));
+            ec = ngx::fault::make_error_code(ngx::fault::to_code(sys_ec));
             co_return n;
         }
 

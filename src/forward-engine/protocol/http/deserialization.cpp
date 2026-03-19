@@ -99,14 +99,14 @@ namespace ngx::protocol::http
     } // namespace
 
     auto deserialize(const std::string_view string_value, request &http_request, memory::resource_pointer mr)
-        -> gist::code
+        -> fault::code
     {
         request parsed_request(mr ? mr : memory::current_resource());
 
         const std::size_t request_line_end = string_value.find("\r\n");
         if (request_line_end == std::string_view::npos)
         {
-            return gist::code::parse_error;
+            return fault::code::parse_error;
         }
 
         const std::string_view request_line = string_value.substr(0, request_line_end);
@@ -114,13 +114,13 @@ namespace ngx::protocol::http
         const std::size_t first_space = request_line.find(' ');
         if (first_space == std::string_view::npos)
         {
-            return gist::code::parse_error;
+            return fault::code::parse_error;
         }
 
         const std::size_t second_space = request_line.find(' ', first_space + 1);
         if (second_space == std::string_view::npos)
         {
-            return gist::code::parse_error;
+            return fault::code::parse_error;
         }
 
         const std::string_view method_part = request_line.substr(0, first_space);
@@ -130,7 +130,7 @@ namespace ngx::protocol::http
         unsigned int version_value = 0;
         if (!parse_http_version(version_part, version_value))
         {
-            return gist::code::parse_error;
+            return fault::code::parse_error;
         }
 
         parsed_request.method(method_part);
@@ -141,7 +141,7 @@ namespace ngx::protocol::http
         const std::size_t headers_end = string_value.find("\r\n\r\n", headers_start);
         if (headers_end == std::string_view::npos)
         {
-            return gist::code::parse_error;
+            return fault::code::parse_error;
         }
 
         std::string_view headers_block = string_value.substr(headers_start, headers_end - headers_start);
@@ -171,7 +171,7 @@ namespace ngx::protocol::http
             const std::size_t colon_pos = line.find(':');
             if (colon_pos == std::string_view::npos)
             {
-                return gist::code::parse_error;
+                return fault::code::parse_error;
             }
 
             // 去除头字段名和值的首尾空格
@@ -180,7 +180,7 @@ namespace ngx::protocol::http
 
             if (name.empty())
             {
-                return gist::code::parse_error;
+                return fault::code::parse_error;
             }
 
             parsed_request.set(name, value);
@@ -214,11 +214,11 @@ namespace ngx::protocol::http
         }
 
         http_request = std::move(parsed_request);
-        return gist::code::success;
+        return fault::code::success;
     }
 
     auto deserialize(const std::string_view string_value, response &http_response)
-        -> gist::code
+        -> fault::code
     {
         http_response.clear();
 
@@ -226,7 +226,7 @@ namespace ngx::protocol::http
         const std::size_t status_line_end = string_value.find("\r\n");
         if (status_line_end == std::string_view::npos)
         {
-            return gist::code::parse_error;
+            return fault::code::parse_error;
         }
 
         const std::string_view status_line = string_value.substr(0, status_line_end);
@@ -234,13 +234,13 @@ namespace ngx::protocol::http
         const std::size_t first_space = status_line.find(' ');
         if (first_space == std::string_view::npos)
         {
-            return gist::code::parse_error;
+            return fault::code::parse_error;
         }
 
         const std::size_t second_space = status_line.find(' ', first_space + 1);
         if (second_space == std::string_view::npos)
         {
-            return gist::code::parse_error;
+            return fault::code::parse_error;
         }
 
         const std::string_view version_part = status_line.substr(0, first_space);
@@ -251,14 +251,14 @@ namespace ngx::protocol::http
         unsigned int version_value = 0;
         if (!parse_http_version(version_part, version_value))
         {
-            return gist::code::parse_error;
+            return fault::code::parse_error;
         }
 
         // 3. 解析状态码
         unsigned int status_code_value = 0;
         if (!parse_status_code(status_code_part, status_code_value))
         {
-            return gist::code::parse_error;
+            return fault::code::parse_error;
         }
 
         // 4. 设置对象属性
@@ -271,7 +271,7 @@ namespace ngx::protocol::http
         const std::size_t headers_end = string_value.find("\r\n\r\n", headers_start);
         if (headers_end == std::string_view::npos)
         {
-            return gist::code::parse_error;
+            return fault::code::parse_error;
         }
 
         std::string_view headers_block = string_value.substr(headers_start, headers_end - headers_start);
@@ -300,7 +300,7 @@ namespace ngx::protocol::http
             const std::size_t colon_pos = line.find(':');
             if (colon_pos == std::string_view::npos)
             {
-                return gist::code::parse_error;
+                return fault::code::parse_error;
             }
 
             const std::string_view name = trim(line.substr(0, colon_pos));
@@ -308,7 +308,7 @@ namespace ngx::protocol::http
 
             if (name.empty())
             {
-                return gist::code::parse_error;
+                return fault::code::parse_error;
             }
 
             http_response.set(name, value);
@@ -343,7 +343,7 @@ namespace ngx::protocol::http
             http_response.keep_alive(true);
         }
 
-        return gist::code::success;
+        return fault::code::success;
     }
 
 } // namespace ngx::protocol::http
