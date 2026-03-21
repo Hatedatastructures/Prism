@@ -1,15 +1,17 @@
 #include <forward-engine/agent/pipeline/protocols.hpp>
-#include <forward-engine/protocol/trojan.hpp>
-#include <forward-engine/channel/transport/secure.hpp>
+#include <protocol.hpp>
+#include <forward-engine/channel/transport/encrypted.hpp>
 #include <forward-engine/agent/account/directory.hpp>
+#include <forward-engine/memory/container.hpp>
+#include <boost/asio/experimental/awaitable_operators.hpp>
 
 namespace ngx::agent::pipeline
 {
     auto http(session_context &ctx, std::span<const std::byte> data)
         -> net::awaitable<void>
     {
-        ngx::channel::connector stream(std::move(ctx.inbound));
-        ngx::channel::transport::transmission_pointer outbound;
+        channel::connector stream(std::move(ctx.inbound));
+        channel::transport::shared_transmission outbound;
 
         ctx.frame_arena.reset();
         auto mr = ctx.frame_arena.get();
@@ -24,69 +26,80 @@ namespace ngx::agent::pipeline
 
         protocol::http::request req(mr);
         {
-            const auto ec = co_await protocol::http::async_read(stream, req, read_buffer, mr);
-            if (fault::failed(ec))
+            if (fault::failed(co_await protocol::http::async_read(stream, req, read_buffer, mr)))
+            {
+                trace::warn("[Pipeline] HTTP read request failed");
                 co_return;
+            }
 
             const auto target = protocol::analysis::resolve(req);
+            trace::info("[Pipeline] HTTP request: {} {} -> {}:{}", req.method_string(), req.target(), target.host, target.port);
 
             std::shared_ptr<resolve::router> router_ptr(&ctx.worker.router, [](resolve::router *) {});
             auto [fst, snd] = co_await primitives::dial(router_ptr, "HTTP", target, true, false);
             if (fault::failed(fst) || !snd)
+            {
+                trace::warn("[Pipeline] HTTP dial failed, target: {}:{}", target.host, target.port);
+                // 给客户端返回 502 Bad Gateway
+                constexpr std::string_view resp_502 = {"HTTP/1.1 502 Bad Gateway\r\nContent-Length: 0\r\n\r\n"};
+
+                boost::system::error_code write_ec;
+                auto token = net::redirect_error(net::use_awaitable, write_ec);
+                co_await net::async_write(stream, net::buffer(resp_502), token);
                 co_return;
+            }
             outbound = std::move(snd);
         }
 
         if (req.method() == protocol::http::verb::connect)
-        {
+        {   // HTTP CONNECT 方法需要先回复 200 Connection Established 说明连接成功了，然后再进入隧道模式
             constexpr std::string_view resp = {"HTTP/1.1 200 Connection Established\r\n\r\n"};
             boost::system::error_code write_ec;
             co_await net::async_write(stream, net::buffer(resp), net::redirect_error(net::use_awaitable, write_ec));
             if (!write_ec)
             {
-                co_await primitives::original_tunnel(stream.release(), std::move(outbound), ctx);
+                co_await primitives::tunnel(stream.release(), std::move(outbound), ctx);
             }
             co_return;
         }
 
         std::error_code ec;
         const auto req_data = protocol::http::serialize(req, mr);
-        co_await outbound->async_write(
-            std::span(reinterpret_cast<const std::byte *>(req_data.data()), req_data.size()), ec);
+        co_await outbound->async_write(std::span(reinterpret_cast<const std::byte *>(req_data.data()), req_data.size()), ec);
         if (ec)
             co_return;
 
         if (read_buffer.size() > 0)
-        {
+        {   // 将预读的 HTTP 请求数据转发到目标服务器来获取响应确定建立的是一个正常的http连接
             auto buf = read_buffer.data();
             std::span span(static_cast<const std::byte *>(buf.data()), buf.size());
             co_await outbound->async_write(span, ec);
             if (ec)
                 co_return;
         }
-
-        co_await primitives::original_tunnel(stream.release(), std::move(outbound), ctx);
-    }
+        // HTTP 协议后续的请求和响应数据直接在隧道中转发，complete_write 参数设置为 false 可以降低延迟
+        co_await primitives::tunnel(stream.release(), std::move(outbound), ctx);
+    } // function http
 
     auto socks5(session_context &ctx, const std::span<const std::byte> data)
         -> net::awaitable<void>
     {
         auto inbound = std::move(ctx.inbound);
         if (!inbound)
-        {
+        {   // 检查入站传输对象是否存在，SOCKS5 协议需要它来完成握手和数据转发
             trace::warn("[Pipeline] SOCKS5 inbound transmission missing.");
             co_return;
         }
 
         if (!data.empty())
-        {
-            inbound = std::make_unique<primitives::preview>(std::move(inbound), data);
+        {   // 如果有预读数据，包装一层 preview 传输对象来提供预读功能，避免修改原有的传输接口导致大规模改动
+            inbound = std::make_shared<primitives::preview>(std::move(inbound), data, ctx.frame_arena.get());
         }
 
         const auto agent = protocol::socks5::make_relay(std::move(inbound), ctx.server.cfg.socks5);
         auto [ec, request] = co_await agent->handshake();
         if (fault::failed(ec))
-        {
+        {   // 协商失败，退出处理流程，agent raii 队象
             trace::error("[Pipeline] SOCKS5 handshake failed: {}", fault::cached_message(ec));
             co_return;
         }
@@ -94,16 +107,18 @@ namespace ngx::agent::pipeline
         switch (request.cmd)
         {
         case protocol::socks5::command::connect:
-        {
+        {   // tcp 连接请求，解析目标地址并建立连接
             protocol::analysis::target target(ctx.frame_arena.get());
             target.host = protocol::socks5::to_string(request.destination_address, ctx.frame_arena.get());
             target.port = std::to_string(request.destination_port);
             target.positive = true;
+            trace::info("[Pipeline] SOCKS5 CONNECT -> {}:{}", target.host, target.port);
 
             const auto router_ptr = std::shared_ptr<resolve::router>(&ctx.worker.router, [](resolve::router *) {});
             auto [conn_ec, outbound] = co_await primitives::dial(router_ptr, "SOCKS5", target, true, true);
             if (fault::failed(conn_ec) || !outbound)
             {
+                trace::warn("[Pipeline] SOCKS5 dial failed: {}, target: {}:{}", fault::describe(conn_ec), target.host, target.port);
                 co_await agent->async_write_error(protocol::socks5::reply_code::host_unreachable);
                 co_return;
             }
@@ -112,13 +127,17 @@ namespace ngx::agent::pipeline
             {
                 co_return;
             }
-            auto trans_ptr = agent->release();
-            co_await primitives::original_tunnel(std::move(trans_ptr), std::move(outbound), ctx);
+            auto trans = agent->release();
+            trace::debug("[Pipeline] SOCKS5 CONNECT tunnel opened, target: {}:{}", target.host, target.port);
+            co_await primitives::tunnel(std::move(trans), std::move(outbound), ctx);
+            trace::debug("[Pipeline] SOCKS5 CONNECT tunnel closed, target: {}:{}", target.host, target.port);
             break;
         }
         case protocol::socks5::command::udp_associate:
-        {
-            trace::info("[Pipeline] SOCKS5 UDP_ASSOCIATE");
+        {   // UDP 关联请求，解析目标地址并进入 UDP 转发模式
+            const auto target_host = protocol::socks5::to_string(request.destination_address, ctx.frame_arena.get());
+            const auto target_port = std::to_string(request.destination_port);
+            trace::info("[Pipeline] SOCKS5 UDP_ASSOCIATE -> {}:{}", target_host, target_port);
 
             const auto router_ptr = std::shared_ptr<resolve::router>(&ctx.worker.router, [](resolve::router *) {});
             auto route_callback = [router_ptr](const std::string_view host, const std::string_view port)
@@ -126,7 +145,11 @@ namespace ngx::agent::pipeline
             {
                 co_return co_await router_ptr->resolve_datagram_target(host, port);
             };
-            static_cast<void>(co_await agent->async_associate(request, std::move(route_callback)));
+            const auto associate_ec = co_await agent->async_associate(request, std::move(route_callback));
+            if (fault::failed(associate_ec))
+            {
+                trace::warn("[Pipeline] SOCKS5 UDP_ASSOCIATE failed: {}", fault::describe(associate_ec));
+            }
             break;
         }
         default:
@@ -136,17 +159,16 @@ namespace ngx::agent::pipeline
         }
     }
 
-    auto tls(session_context &ctx, const std::span<const std::byte> data)
+    auto trojan(session_context &ctx, const std::span<const std::byte> data)
         -> net::awaitable<void>
     {
+        // 1. TLS 握手
         auto [handshake_ec, ssl_stream] = co_await primitives::ssl_handshake(ctx, data);
         if (fault::failed(handshake_ec) || !ssl_stream)
         {
-            trace::warn("[Pipeline] TLS handshake failed: {}", fault::describe(handshake_ec));
+            trace::warn("[Pipeline] Trojan TLS handshake failed: {}", fault::describe(handshake_ec));
             co_return;
         }
-
-        trace::debug("[Pipeline] TLS handshake succeeded, detecting inner protocol");
 
         // 注册活跃流清理回调，确保 session.close() 能关闭 TLS 流
         ctx.active_stream_cancel = [ssl_stream]() noexcept
@@ -155,164 +177,37 @@ namespace ngx::agent::pipeline
         };
         ctx.active_stream_close = [ssl_stream]() noexcept
         {
-            // 直接关闭底层传输（SSL shutdown 需要 read_some 接口，connector 不支持）
             ssl_stream->lowest_layer().transmission().close();
         };
 
+        // 2. 读取 Trojan 握手数据
         constexpr std::size_t min_detect_size = 60;
-        // 优化：缩短探测超时（5秒 → 500毫秒）
-        // 大多数情况下，客户端会在首包立即发送数据
-        constexpr std::chrono::milliseconds probe_timeout(500);
+        memory::vector<std::byte> preread_buffer(ctx.frame_arena.get());
+        preread_buffer.reserve(min_detect_size);
 
-        memory::vector<std::byte> probe_buffer(ctx.frame_arena.get());
-        probe_buffer.reserve(min_detect_size);
-
-        auto inner_type = protocol::inner_protocol::undetermined;
-
-        // 使用单个累积超时 timer，而不是每次循环创建新 timer
-        net::steady_timer deadline(ssl_stream->get_executor());
-        deadline.expires_after(probe_timeout);
-        bool timeout_occurred = false;
-
-        while (probe_buffer.size() < min_detect_size && !timeout_occurred)
-        {
+        while (preread_buffer.size() < min_detect_size)
+        {   // 等待客户端发送完整的握手数据，至少 56 字节凭据 + 4 字节协议头部
             std::array<std::byte, 64> temp_buffer{};
             boost::system::error_code read_ec;
             auto token = net::redirect_error(net::use_awaitable, read_ec);
-
-            auto read_op = ssl_stream->async_read_some(net::buffer(temp_buffer.data(), temp_buffer.size()), token);
-            auto timeout_op = deadline.async_wait(net::use_awaitable);
-
-            using namespace boost::asio::experimental::awaitable_operators;
-            auto result = co_await (std::move(read_op) || std::move(timeout_op));
-
-            if (result.index() == 1)
+            const auto n = co_await ssl_stream->async_read_some(net::buffer(temp_buffer.data(), temp_buffer.size()), token);
+            if (read_ec || n == 0)
             {
-                timeout_occurred = true;
-                break;
-            }
-
-            if (read_ec)
-            {
-                trace::warn("[Pipeline] TLS inner protocol probe read failed: {}", read_ec.message());
+                trace::warn("[Pipeline] Trojan preread failed: {}", read_ec.message());
                 co_return;
             }
-
-            const auto bytes_read = std::get<0>(result);
-            probe_buffer.insert(probe_buffer.end(), temp_buffer.begin(), temp_buffer.begin() + bytes_read);
-
-            inner_type = protocol::analysis::detect_inner(std::string_view(reinterpret_cast<const char *>(probe_buffer.data()), probe_buffer.size()));
-
-            if (inner_type != protocol::inner_protocol::undetermined)
-            {
-                break;
-            }
-
-            trace::debug("[Pipeline] TLS inner protocol undetermined after {} bytes, continuing probe", probe_buffer.size());
+            preread_buffer.insert(preread_buffer.end(), temp_buffer.begin(), temp_buffer.begin() + n);
         }
 
-        // 取消剩余的超时 timer
-        deadline.cancel();
-
-        trace::debug("[Pipeline] TLS inner protocol detected: {}", protocol::to_string_view(inner_type));
-
-        const auto preread = std::span<const std::byte>(probe_buffer.data(), probe_buffer.size());
-
-        switch (inner_type)
+        // 3. 包装 TLS 流
+        channel::transport::shared_transmission trans = std::make_shared<channel::transport::encrypted>(ssl_stream);
+        if (!preread_buffer.empty())
         {
-        case protocol::inner_protocol::trojan:
-            co_await trojan(ctx, std::move(ssl_stream), preread);
-            break;
-        case protocol::inner_protocol::http:
-        case protocol::inner_protocol::undetermined:
-        default:
-            co_await https(ctx, std::move(ssl_stream), preread);
-            break;
-        }
-    }
-
-    auto https(session_context &ctx, primitives::shared_ssl_stream ssl_stream, std::span<const std::byte> preread)
-        -> net::awaitable<void>
-    {
-        if (!ssl_stream)
-        {
-            trace::error("[Pipeline] HTTPS ssl_stream is null");
-            co_return;
+            const auto preread_span = std::span<const std::byte>(preread_buffer.data(), preread_buffer.size());
+            trans = std::make_shared<primitives::preview>(std::move(trans), preread_span, ctx.frame_arena.get());
         }
 
-        ngx::channel::transport::transmission_pointer outbound;
-
-        ctx.frame_arena.reset();
-        auto mr = ctx.frame_arena.get();
-        beast::basic_flat_buffer read_buffer(protocol::http::network_allocator{mr});
-
-        if (!preread.empty())
-        {
-            auto dest = read_buffer.prepare(preread.size());
-            std::memcpy(dest.data(), preread.data(), preread.size());
-            read_buffer.commit(preread.size());
-        }
-
-        protocol::http::request req(mr);
-        const auto read_ec = co_await protocol::http::async_read(*ssl_stream, req, read_buffer, mr);
-        if (fault::failed(read_ec))
-        {
-            trace::warn("[Pipeline] HTTPS read failed: {}", fault::describe(read_ec));
-            co_return;
-        }
-
-        const auto target = protocol::analysis::resolve(req);
-
-        std::shared_ptr<resolve::router> router_ptr(&ctx.worker.router, [](resolve::router *) {});
-        auto [dial_ec, outbound_ptr] = co_await primitives::dial(router_ptr, "HTTPS", target, true, false);
-        if (fault::failed(dial_ec) || !outbound_ptr)
-            co_return;
-        outbound = std::move(outbound_ptr);
-
-        if (req.method() == protocol::http::verb::connect)
-        {
-            constexpr std::string_view resp = {"HTTP/1.1 200 Connection Established\r\n\r\n"};
-            boost::system::error_code write_ec;
-            auto token = net::redirect_error(net::use_awaitable, write_ec);
-            co_await net::async_write(*ssl_stream, net::buffer(resp),token);
-            if (!write_ec)
-            {
-                auto tls_trans = std::make_unique<ngx::channel::transport::secure>(ssl_stream);
-                co_await primitives::original_tunnel(std::move(tls_trans), std::move(outbound), ctx);
-            }
-            co_return;
-        }
-
-        std::error_code ec;
-        const auto req_data = protocol::http::serialize(req, mr);
-        co_await outbound->async_write( std::span(reinterpret_cast<const std::byte *>(req_data.data()), req_data.size()), ec);
-        if (ec)
-            co_return;
-
-        if (read_buffer.size() > 0)
-        {
-            auto buf = read_buffer.data();
-            std::span span(static_cast<const std::byte *>(buf.data()), buf.size());
-            co_await outbound->async_write(span, ec);
-            if (ec)
-                co_return;
-        }
-
-        auto tls_trans = std::make_unique<channel::transport::secure>(ssl_stream);
-        co_await primitives::original_tunnel(std::move(tls_trans), std::move(outbound), ctx);
-    }
-
-    auto trojan(session_context &ctx, primitives::shared_ssl_stream ssl_stream, std::span<const std::byte> preread)
-        -> net::awaitable<void>
-    {
-        if (!ssl_stream)
-        {
-            trace::error("[Pipeline] Trojan ssl_stream is null");
-            co_return;
-        }
-        // 包装一层抹平的函数差异
-        auto tls_trans = std::make_unique<ngx::channel::transport::secure>(ssl_stream);
-        // 获取凭证验证器，将 lease 存入 session_context 以保持整个连接生命周期
+        // 4. 凭证验证器
         auto verifier = [&ctx](const std::string_view credential) -> bool
         {
             if (!ctx.account_directory_ptr)
@@ -326,54 +221,47 @@ namespace ngx::agent::pipeline
                 trace::warn("[Pipeline] Trojan credential verification failed or connection limit reached");
                 return false;
             }
-            // 将 lease 移动到 session_context 中持有，连接结束时自动释放
             ctx.account_lease = std::move(lease);
-            trace::debug("[Pipeline] Trojan credential verified, lease acquired and stored in session context");
             return true;
         };
-        ngx::channel::transport::transmission_pointer trans = std::move(tls_trans);
-        if (!preread.empty())
-        {
-            trans = std::make_unique<primitives::preview>(std::move(trans), preread);
-        }
 
-        const auto trojan_relay = protocol::trojan::make_relay(
-            std::move(trans), ctx.server.cfg.trojan, std::move(verifier));
+        // 5. Trojan 握手
+        const auto agent = protocol::trojan::make_relay(std::move(trans), ctx.server.cfg.trojan, std::move(verifier));
 
-        auto [handshake_ec, req] = co_await trojan_relay->handshake();
-        if (fault::failed(handshake_ec))
+        auto [trojan_ec, req] = co_await agent->handshake();
+        if (fault::failed(trojan_ec))
         {
-            trace::warn("[Pipeline] Trojan handshake failed: {}", fault::describe(handshake_ec));
+            trace::warn("[Pipeline] Trojan handshake failed: {}", fault::describe(trojan_ec));
             co_return;
         }
 
-        // trace::debug("[Pipeline] Trojan handshake success, command: {}", static_cast<int>(req.cmd));
-
+        // 6. 命令处理
         switch (req.cmd)
         {
         case protocol::trojan::command::connect:
-        {   // 解析请求拿到目标地址和端口
+        {
             protocol::analysis::target target(ctx.frame_arena.get());
             target.host = protocol::trojan::to_string(req.destination_address, ctx.frame_arena.get());
             target.port = std::to_string(req.port);
             target.positive = true;
+            trace::info("[Pipeline] Trojan CONNECT -> {}:{}", target.host, target.port);
 
             const std::shared_ptr<resolve::router> router_ptr(&ctx.worker.router, [](resolve::router *) {});
             auto [dial_ec, outbound] = co_await primitives::dial(router_ptr, "Trojan", target, true, true);
-            if (fault::failed(dial_ec) || !outbound) // 获取出站流失败
-            {   
+            if (fault::failed(dial_ec) || !outbound)
+            {
+                trace::warn("[Pipeline] Trojan dial failed: {}, target: {}:{}", fault::describe(dial_ec), target.host, target.port);
                 co_return;
             }
 
-            auto raw_trans = trojan_relay->release();
-            co_await primitives::original_tunnel(std::move(raw_trans), std::move(outbound), ctx);
-            break; // 忙转发
-        }
-        case protocol::trojan::command::udp_associate:
-        {
-            trace::info("[Pipeline] Trojan UDP_ASSOCIATE not yet implemented");
+            auto raw_trans = agent->release();
+            co_await primitives::tunnel(std::move(raw_trans), std::move(outbound), ctx);
             break;
         }
+        case protocol::trojan::command::udp_associate:
+            // TODO: Trojan UDP_ASSOCIATE 实现
+            trace::warn("[Pipeline] Trojan UDP_ASSOCIATE not implemented");
+            break;
         default:
             trace::warn("[Pipeline] Trojan unknown command: {}", static_cast<int>(req.cmd));
             break;

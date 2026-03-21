@@ -64,13 +64,13 @@ net::awaitable<void> do_trojan_server(tcp::acceptor &acceptor, const std::string
         try
         {
             // 读取客户端数据
-            std::size_t n = co_await ngx::channel::transport::async_read_some(*trojan, buf, net::use_awaitable);
+            std::size_t n = co_await ngx::channel::transport::async_read_some(trojan, buf, net::use_awaitable);
             std::string received_msg(buffer.data(), n);
 
             std::cout << "Server received message: " << received_msg << std::endl;
 
             // 回显给客户端
-            co_await ngx::channel::transport::async_write_some(*trojan, net::buffer(received_msg), net::use_awaitable);
+            co_await ngx::channel::transport::async_write_some(trojan, net::buffer(received_msg), net::use_awaitable);
         }
         catch (const std::exception &e)
         {

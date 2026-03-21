@@ -215,11 +215,11 @@ namespace ngx::channel::transport
      * @details 使用执行器创建 TCP 传输层实例。Socket 在构造时不打开，
      * 需要在后续调用 open 或 accept 后才能使用。
      * @param executor 执行器
-     * @return transmission_pointer 创建的 reliable 实例
+     * @return shared_transmission 创建的 reliable 实例
      */
-    inline transmission_pointer make_reliable(net::any_io_executor executor)
+    inline shared_transmission make_reliable(net::any_io_executor executor)
     {
-        return std::make_unique<reliable>(executor);
+        return std::make_shared<reliable>(executor);
     }
 
     /**
@@ -227,11 +227,11 @@ namespace ngx::channel::transport
      * @details 使用已构造的 TCP socket 创建传输层实例。
      * Socket 必须已打开并连接。
      * @param socket TCP socket
-     * @return transmission_pointer 创建的 reliable 实例
+     * @return shared_transmission 创建的 reliable 实例
      */
-    inline transmission_pointer make_reliable(net::ip::tcp::socket socket)
+    inline shared_transmission make_reliable(net::ip::tcp::socket socket)
     {
-        return std::make_unique<reliable>(std::move(socket));
+        return std::make_shared<reliable>(std::move(socket));
     }
 
     /**
@@ -240,11 +240,11 @@ namespace ngx::channel::transport
      * unique_sock 包含 socket 指针和归还信息（deleter），
      * 在 close() 时将自动归还到连接池。
      * @param pooled 来自连接池的连接
-     * @return transmission_pointer 创建的 reliable 实例
+     * @return shared_transmission 创建的 reliable 实例
      * @note 该重载用于连接池复用场景
      */
-    inline transmission_pointer make_reliable(ngx::channel::unique_sock pooled)
+    inline shared_transmission make_reliable(ngx::channel::unique_sock pooled)
     {
-        return std::make_unique<reliable>(std::move(pooled));
+        return std::make_shared<reliable>(std::move(pooled));
     }
 }

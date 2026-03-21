@@ -276,8 +276,8 @@ auto create(const protocol::protocol_type type) const -> shared_handler
 |----------|----------|----------|
 | `http` | `dispatch::Http` | `pipeline::http()` |
 | `socks5` | `dispatch::Socks5` | `pipeline::socks5()` |
-| `tls` | `dispatch::Tls` | `pipeline::tls()` |
-| `unknown` | `dispatch::Unknown` | `primitives::original_tunnel()` |
+| `trojan` | `dispatch::Trojan` | `pipeline::trojan()` |
+| `unknown` | `dispatch::Unknown` | `primitives::tunnel()` |
 
 #### 5. 调用 handler->process(ctx, pre_read_data)
 
@@ -305,8 +305,8 @@ auto create(const protocol::protocol_type type) const -> shared_handler
 │  4. 调用 analysis::resolve() 提取目标地址                        │
 │  5. 调用 primitives::dial() 建立上游连接                         │
 │  6. 判断请求类型:                                                │
-│     ├─ CONNECT: 返回 200 → original_tunnel                      │
-│     └─ 其他: 序列化请求转发 → original_tunnel                    │
+│     ├─ CONNECT: 返回 200 → tunnel                      │
+│     └─ 其他: 序列化请求转发 → tunnel                    │
 └─────────────────────────────────────────────────────────────────┘
 ```
 
@@ -356,7 +356,7 @@ auto http(session_context &ctx, std::span<const std::byte> data)
         co_await stream.async_write_some(net::buffer(resp), net::redirect_error(net::use_awaitable, ec));
         if (!ec)
         {
-            co_await primitives::original_tunnel(stream.release(), std::move(outbound), mr, ctx.buffer_size);
+            co_await primitives::tunnel(stream.release(), std::move(outbound), mr, ctx.buffer_size);
         }
         co_return;
     }
@@ -374,7 +374,7 @@ auto http(session_context &ctx, std::span<const std::byte> data)
         co_await outbound->async_write_some(span, ec);
     }
 
-    co_await primitives::original_tunnel(stream.release(), std::move(outbound), mr, ctx.buffer_size);
+    co_await primitives::tunnel(stream.release(), std::move(outbound), mr, ctx.buffer_size);
 }
 ```
 
@@ -395,7 +395,7 @@ auto http(session_context &ctx, std::span<const std::byte> data)
 │     │   ├─ 提取目标地址                                         │
 │     │   ├─ dial() 建立上游连接                                  │
 │     │   ├─ 返回成功响应                                         │
-│     │   └─ original_tunnel 双向转发                             │
+│     │   └─ tunnel 双向转发                             │
 │     ├─ UDP_ASSOCIATE:                                           │
 │     │   └─ 调用 async_associate() 建立 UDP 转发                 │
 │     └─ BIND: 返回命令不支持错误                                 │
@@ -418,8 +418,8 @@ auto http(session_context &ctx, std::span<const std::byte> data)
 │  4. 调用 analysis::resolve() 提取目标地址                        │
 │  5. 调用 primitives::dial() 建立上游连接                         │
 │  6. 判断请求类型:                                                │
-│     ├─ CONNECT: 返回 200 → original_tunnel                      │
-│     └─ 其他: 序列化请求转发 → original_tunnel                    │
+│     ├─ CONNECT: 返回 200 → tunnel                      │
+│     └─ 其他: 序列化请求转发 → tunnel                    │
 └─────────────────────────────────────────────────────────────────┘
 ```
 
@@ -468,7 +468,7 @@ auto dial(std::shared_ptr<resolve::router> router, std::string_view label,
 }
 ```
 
-#### primitives::original_tunnel() - 双向隧道转发
+#### primitives::tunnel() - 双向隧道转发
 
 **源码位置**: [primitives.hpp](../../include/forward-engine/agent/pipeline/primitives.hpp)
 
@@ -586,7 +586,7 @@ auto on_closed = [active_sessions]() noexcept
 │  │                                                     │                │  │
 │  │                                                     ▼                │  │
 │  │                                        ┌───────────────────────────┐ │  │
-│  │                                        │    original_tunnel()      │ │  │
+│  │                                        │    tunnel()      │ │  │
 │  │                                        │    (双向隧道转发)         │ │  │
 │  │                                        └───────────────────────────┘ │  │
 │  │                                                     │                │  │

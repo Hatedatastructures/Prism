@@ -18,8 +18,8 @@
 #include <utility>
 
 #include <boost/asio.hpp>
-#include <boost/asio/experimental/awaitable_operators.hpp>
 #include <boost/asio/ssl.hpp>
+#include <boost/asio/experimental/awaitable_operators.hpp>
 
 #include <forward-engine/agent/context.hpp>
 #include <forward-engine/agent/resolve/router.hpp>
@@ -42,9 +42,10 @@ namespace ngx::agent::pipeline::primitives
     namespace net = boost::asio;
     namespace ssl = net::ssl;
 
-    using ssl_connector = ngx::channel::connector<ngx::channel::transport::transmission_pointer>;
+    using ssl_connector = channel::connector;
     using ssl_stream = ssl::stream<ssl_connector>;
     using shared_ssl_stream = std::shared_ptr<ssl_stream>;
+    using shared_transmission = channel::transport::shared_transmission;
 
     /**
      * @brief 关闭裸指针指向的传输对象
@@ -67,7 +68,7 @@ namespace ngx::agent::pipeline::primitives
      * 该函数确保资源被正确清理，适用于需要同时关闭连接和释放
      * 所有权的场景。
      */
-    inline void shut_close(ngx::channel::transport::transmission_pointer &trans) noexcept
+    inline void shut_close(shared_transmission &trans) noexcept
     {
         if (trans)
         {
@@ -90,7 +91,7 @@ namespace ngx::agent::pipeline::primitives
      */
     auto dial(std::shared_ptr<resolve::router> router, std::string_view label,
               const protocol::analysis::target &target, bool allow_reverse, bool require_open)
-        -> net::awaitable<std::pair<fault::code, ngx::channel::transport::transmission_pointer>>;
+        -> net::awaitable<std::pair<fault::code, shared_transmission>>;
 
     /**
      * @brief 执行 TLS 服务端握手
@@ -116,16 +117,18 @@ namespace ngx::agent::pipeline::primitives
      * @note 该类继承自 transmission 抽象基类，可透明地替换原始传输。
      * @note 预读数据在构造时被复制到内部缓冲区，确保数据生命周期安全。
      */
-    class preview final : public ngx::channel::transport::transmission
+    class preview final : public channel::transport::transmission
     {
     public:
         /**
          * @brief 构造预读回放包装器
          * @param inner 被包装的内部传输对象
          * @param preread 协议嗅探期间捕获的预读数据
+         * @param mr 内存资源，用于预读缓冲区分配
          * @details 构造时会将预读数据复制到内部缓冲区，确保数据所有权安全。
          */
-        explicit preview(ngx::channel::transport::transmission_pointer inner, std::span<const std::byte> preread);
+        explicit preview(shared_transmission inner, std::span<const std::byte> preread,
+                         memory::resource_pointer mr = memory::current_resource());
 
         /**
          * @brief 报告内部传输是否可靠
@@ -185,15 +188,13 @@ namespace ngx::agent::pipeline::primitives
         void cancel() override;
 
     private:
-        ngx::channel::transport::transmission_pointer inner_; // 内部传输对象
-        memory::vector<std::byte> preread_buffer_;            // 预读数据缓冲区（拥有所有权）
-        std::size_t offset_{0};                               // 当前预读偏移量
+        shared_transmission inner_;                // 内部传输对象
+        memory::vector<std::byte> preread_buffer_; // 预读数据缓冲区（拥有所有权）
+        std::size_t offset_{0};                    // 当前预读偏移量
     };
 
     /**
      * @brief 在两个流之间运行全双工隧道
-     * @tparam Inbound 入站流类型
-     * @tparam Outbound 出站流类型
      * @param inbound 入站流对象
      * @param outbound 出站流对象
      * @param ctx 会话上下文，提供内存资源和缓冲区配置
@@ -207,68 +208,7 @@ namespace ngx::agent::pipeline::primitives
      * 适用于对吞吐量优先于可靠性的场景。
      * @note 缓冲区大小至少为 2 字节，实际使用时建议不小于 64KB。
      */
-    inline auto original_tunnel(ngx::channel::transport::transmission_pointer inbound, ngx::channel::transport::transmission_pointer outbound,
-                                const session_context &ctx, const bool complete_write = true)
-        -> net::awaitable<void>
-    {
-        auto mr = ctx.frame_arena.get();
-        auto effective_mr = mr ? mr : memory::current_resource();
-        if (!effective_mr)
-        {
-            effective_mr = std::pmr::get_default_resource();
-        }
-
-        memory::vector<std::byte> buffer((std::max)(ctx.buffer_size, 2U), effective_mr);
-        const std::span span(buffer);
-        const auto left_size = span.size() / 2;
-        auto left = span.first(left_size);
-        auto right = span.subspan(left_size);
-
-        auto forward = [complete_write](ngx::channel::transport::transmission_pointer &from,
-                                        ngx::channel::transport::transmission_pointer &to, std::span<std::byte> scratch) -> net::awaitable<void>
-        { // 数据转发函数，从 from 读取数据，写入 to，scratch 为临时缓冲区
-            std::error_code ec;
-            while (true)
-            {
-                ec.clear();
-                const auto transferred = co_await from->async_read_some(scratch, ec);
-
-                if (ec || transferred == 0)
-                {
-                    co_return;
-                }
-
-                if (complete_write)
-                {
-                    // 完整写入模式：调用虚函数 async_write，由子类决定行为
-                    ec.clear();
-                    auto data_span = scratch.first(transferred);
-                    const auto written = co_await to->async_write(data_span, ec);
-
-                    if (ec || written < transferred)
-                    {
-                        co_return;
-                    }
-                }
-                else
-                {
-                    // 单次写入模式：直接调用 async_write_some
-                    ec.clear();
-                    auto data_span = scratch.first(transferred);
-                    const auto written = co_await to->async_write_some(data_span, ec);
-
-                    if (ec)
-                    {
-                        co_return;
-                    }
-                }
-            }
-        };
-
-        using namespace boost::asio::experimental::awaitable_operators;
-        co_await (forward(inbound, outbound, left) || forward(outbound, inbound, right));
-
-        shut_close(inbound);
-        shut_close(outbound);
-    }
+    auto tunnel(shared_transmission inbound, shared_transmission outbound,
+                const session_context &ctx, bool complete_write = true)
+        -> net::awaitable<void>;
 } // namespace ngx::agent::pipeline::primitives

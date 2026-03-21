@@ -113,8 +113,8 @@
 - 当前已注册的处理器：
   - `Http`：处理 HTTP/1.1 请求，委托给 `pipeline::http`
   - `Socks5`：处理 SOCKS5 协议，委托给 `pipeline::socks5`
-  - `Tls`：处理 TLS 握手，委托给 `pipeline::tls`
-  - `Unknown`：原始 TCP 透传，调用 `primitives::original_tunnel`
+  - `Trojan`：处理 Trojan over TLS，委托给 `pipeline::trojan`（内部完成 TLS 握手）
+  - `Unknown`：原始 TCP 透传，调用 `primitives::tunnel`
 - 注册函数：`register_handlers()` 在程序启动时调用
 - 源码：[handlers.hpp](../../include/forward-engine/agent/dispatch/handlers.hpp)
 
@@ -126,17 +126,18 @@
   1. 解析 HTTP 请求（使用 `beast::basic_flat_buffer` + 内存池分配器）
   2. 通过 `protocol::analysis::resolve` 提取目标
   3. 调用 `primitives::dial` 连接上游
-  4. CONNECT 方法：发送 `200 Connection Established` 后进入 `original_tunnel`
-  5. 普通请求：序列化请求转发后进入 `original_tunnel`
+  4. CONNECT 方法：发送 `200 Connection Established` 后进入 `tunnel`
+  5. 普通请求：序列化请求转发后进入 `tunnel`
 - SOCKS5 处理路径：
   1. 握手协商（支持认证方法选择）
   2. 请求解析（支持 CONNECT、UDP_ASSOCIATE 命令）
-  3. CONNECT：连接上游后发送成功响应，进入 `original_tunnel`
+  3. CONNECT：连接上游后发送成功响应，进入 `tunnel`
   4. UDP_ASSOCIATE：创建 UDP 中继
-- TLS 处理路径：
+- Trojan 处理路径：
   1. 执行 TLS 握手（服务器端）
-  2. 解密后作为 HTTP 请求解析
-  3. 后续流程同 HTTP 处理路径
+  2. 解析 Trojan 协议头，验证凭据
+  3. 提取目标地址，建立上游连接
+  4. 进入 `tunnel` 双向转发
 - 源码：[protocols.hpp](../../include/forward-engine/agent/pipeline/protocols.hpp)、[protocols.cpp](../../src/forward-engine/agent/pipeline/protocols.cpp)
 
 ### primitives
@@ -146,7 +147,7 @@
 - `preview`：预读数据回放包装器
   - 继承 `transmission` 接口
   - 优先返回预读数据，耗尽后委托给内部传输
-- `original_tunnel()`：全双工隧道转发
+- `tunnel()`：全双工隧道转发
   - 模板函数，支持任意传输类型
   - 使用双缓冲区实现双向转发
   - 任一方向断开即终止隧道

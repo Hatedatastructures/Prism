@@ -1,10 +1,9 @@
 /**
- * @file secure.hpp
- * @brief 安全传输层实现
+ * @file encrypted.hpp
+ * @brief 加密传输层实现
  * @details 将 ssl::stream 适配为 transmission 接口，供协议装饰器使用。
  * 该适配器允许 trojan::stream 等协议层装饰 TLS 加密流，
- * 实现协议处理与传输层的解耦。命名与 reliable.hpp 对应：
- * reliable 表示可靠传输（TCP），secure 表示安全传输（TLS）。
+ * 实现协议处理与传输层的解耦。
  */
 
 #pragma once
@@ -27,24 +26,24 @@ namespace ngx::channel::transport
     namespace ssl = net::ssl;
 
     /**
-     * @class secure
-     * @brief 安全传输层实现
+     * @class encrypted
+     * @brief 加密传输层实现
      * @details 将 ssl::stream<connector> 适配为 transmission 接口，
      * 使协议装饰器（如 trojan::stream）能够装饰 TLS 加密流。
      * 该类持有 ssl::stream 的共享所有权，确保在协议处理期间流对象有效。
      */
-    class secure : public transmission
+    class encrypted : public transmission
     {
     public:
-        using connector_type = ngx::channel::connector<transmission_pointer>;
+        using connector_type = ngx::channel::connector;
         using stream_type = ssl::stream<connector_type>;
-        using stream_ptr = std::shared_ptr<stream_type>;
+        using shared_stream = std::shared_ptr<stream_type>;
 
         /**
-         * @brief 构造安全传输层
+         * @brief 构造加密传输层
          * @param ssl_stream TLS 流的共享指针
          */
-        explicit secure(stream_ptr ssl_stream)
+        explicit encrypted(shared_stream ssl_stream)
             : ssl_stream_(std::move(ssl_stream))
         {
         }
@@ -140,24 +139,24 @@ namespace ngx::channel::transport
 
         /**
          * @brief 释放 TLS 流所有权
-         * @return stream_ptr TLS 流共享指针
+         * @return shared_stream TLS 流共享指针
          */
-        stream_ptr release()
+        shared_stream release()
         {
             return std::move(ssl_stream_);
         }
 
     private:
-        stream_ptr ssl_stream_;
+        shared_stream ssl_stream_;
     };
 
     /**
-     * @brief 创建安全传输层
+     * @brief 创建加密传输层
      * @param ssl_stream TLS 流的共享指针
-     * @return transmission_pointer 传输层指针
+     * @return shared_transmission 传输层指针
      */
-    inline transmission_pointer make_secure(secure::stream_ptr ssl_stream)
+    inline shared_transmission make_encrypted(encrypted::shared_stream ssl_stream)
     {
-        return std::make_unique<secure>(std::move(ssl_stream));
+        return std::make_shared<encrypted>(std::move(ssl_stream));
     }
 }

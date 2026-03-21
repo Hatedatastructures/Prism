@@ -7,7 +7,7 @@
  * 都应继承此接口。传输抽象 transmission 接口定义了所有传输层
  * 必须实现的基本操作。协程设计方面，所有异步操作返回 net::awaitable，
  * 简化异步操作调用。错误码返回通过 std::error_code& 参数返回错误，
- * 避免异常开销。智能指针 transmission_pointer 自动管理传输层生命周期。
+ * 避免异常开销。智能指针 shared_transmission 自动管理传输层生命周期。
  * 设计特性包括分层架构，支持 TCP、UDP 和协议装饰器（如 Trojan）
  * 的分层设计；概念适配，提供 get_executor 方法，
  * 兼容 Boost.Asio 的执行器概念；错误码映射，
@@ -26,6 +26,7 @@
 #include <utility>
 
 #include <forward-engine/fault/compatible.hpp>
+#include <forward-engine/trace.hpp>
 
 namespace ngx::channel::transport
 {
@@ -226,7 +227,7 @@ namespace ngx::channel::transport
      * @note 该智能指针是独占式所有权，不支持共享。
      * @warning 不应直接删除智能指针指向的对象，应让智能指针自动管理。
      */
-    using transmission_pointer = std::unique_ptr<transmission>;
+    using shared_transmission = std::shared_ptr<transmission>;
 
     /**
      * @brief 基于 Boost.Asio 包装的异步读取数据到传输对象
@@ -246,15 +247,15 @@ namespace ngx::channel::transport
      * @throws std::bad_alloc 如果内存分配失败
      */
     template <typename MutableBufferSequence, typename CompletionToken>
-    auto async_read_some(transmission &trans, const MutableBufferSequence &buffers, CompletionToken &&token)
+    auto async_read_some(std::shared_ptr<transmission> trans, const MutableBufferSequence &buffers, CompletionToken &&token)
     {
         auto first = net::buffer_sequence_begin(buffers);
         std::span<std::byte> span(reinterpret_cast<std::byte *>(first->data()), first->size());
 
-        auto impl = [&trans, span]() -> net::awaitable<std::pair<std::size_t, std::error_code>>
+        auto impl = [trans = std::move(trans), span]() -> net::awaitable<std::pair<std::size_t, std::error_code>>
         {
             std::error_code ec;
-            const auto n = co_await trans.async_read_some(span, ec);
+            const auto n = co_await trans->async_read_some(span, ec);
             co_return std::make_pair(n, ec);
         };
 
@@ -304,15 +305,15 @@ namespace ngx::channel::transport
      * @throws std::bad_alloc 如果内存分配失败
      */
     template <typename ConstBufferSequence, typename CompletionToken>
-    auto async_write_some(transmission &trans, const ConstBufferSequence &buffers, CompletionToken &&token)
+    auto async_write_some(std::shared_ptr<transmission> trans, const ConstBufferSequence &buffers, CompletionToken &&token)
     {
         auto first = net::buffer_sequence_begin(buffers);
         std::span<const std::byte> span(reinterpret_cast<const std::byte *>(first->data()), first->size());
 
-        auto impl = [&trans, span]() -> net::awaitable<std::pair<std::size_t, std::error_code>>
+        auto impl = [trans = std::move(trans), span]() -> net::awaitable<std::pair<std::size_t, std::error_code>>
         {
             std::error_code ec;
-            const auto n = co_await trans.async_write_some(span, ec);
+            const auto n = co_await trans->async_write_some(span, ec);
             co_return std::make_pair(n, ec);
         };
 
@@ -343,4 +344,4 @@ namespace ngx::channel::transport
 
         return net::async_initiate<CompletionToken, void(boost::system::error_code, std::size_t)>(std::move(init), token);
     }
-}
+} // namespace ngx::channel::transport

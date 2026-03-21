@@ -154,27 +154,12 @@ auto process(session_context &ctx, [[maybe_unused]] std::span<const std::byte> /
     }
 
     trace::debug("[Unknown] Starting full-duplex splice.");
-    co_await pipeline::primitives::original_tunnel(std::move(ctx.inbound),std::move(ctx.outbound),
-        ctx.frame_arena.get(), ctx.buffer_size);
+    co_await pipeline::primitives::tunnel(std::move(ctx.inbound), std::move(ctx.outbound), ctx);
     trace::debug("[Unknown] Splice finished.");
 }
 ```
 
 **执行条件**: `ctx.inbound` 和 `ctx.outbound` 都必须有效，否则无法执行透传。
-
-## Trojan 未注册的事实
-
-尽管代码库中存在 Trojan 协议相关实现，但 **Trojan 处理器未被注册到路由系统**。
-
-**证据**:
-
-| 组件 | 位置 | 说明 |
-|------|------|------|
-| 配置字段 | [config.hpp](../../include/forward-engine/agent/config.hpp) | `protocol::trojan::config trojan;` 配置字段存在 |
-| 协议命名空间 | `include/forward-engine/protocol/trojan/` | 包含 `config.hpp`, `constants.hpp`, `message.hpp`, `stream.hpp`, `wire.hpp` |
-| 注册函数 | [handlers.hpp](../../include/forward-engine/agent/dispatch/handlers.hpp) | `register_handlers()` 未注册 Trojan handler |
-
-**结论**: 当前运行链无法处理 Trojan 协议。即使配置了 `config.trojan` 字段，由于缺少对应的处理器注册，Trojan 协议流量会被回退到 `unknown` 处理器执行原始 TCP 透传。
 
 ## 架构总结
 
@@ -191,17 +176,15 @@ auto process(session_context &ctx, [[maybe_unused]] std::span<const std::byte> /
 │  ┌─────────────────────────────────────────────────────┐    │
 │  │ protocol_type::http   -> Http handler (singleton)    │    │
 │  │ protocol_type::socks5 -> Socks5 handler (singleton)  │    │
-│  │ protocol_type::tls    -> Tls handler (singleton)     │    │
+│  │ protocol_type::trojan -> Trojan handler (singleton)  │    │
 │  │ protocol_type::unknown-> Unknown handler (singleton) │    │
 │  └─────────────────────────────────────────────────────┘    │
-│                                                              │
-│  [未注册] protocol_type::trojan -> nullptr -> fallback      │
 └─────────────────────────────────────────────────────────────┘
                               │
                               ▼
 ┌─────────────────────────────────────────────────────────────┐
 │                    Handler.process()                         │
-│  Http/Socks5/Tls -> 对应 pipeline 处理                       │
-│  Unknown -> original_tunnel 原始 TCP 双向透传                │
+│  Http/Socks5/Trojan -> 对应 pipeline 处理                    │
+│  Unknown -> tunnel 原始 TCP 双向透传                         │
 └─────────────────────────────────────────────────────────────┘
 ```

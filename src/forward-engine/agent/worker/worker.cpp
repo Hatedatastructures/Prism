@@ -5,7 +5,7 @@ namespace ngx::agent::worker
     worker::worker(const agent::config &cfg, std::shared_ptr<account::directory> account_store)
         : ioc_(1),
           pool_(ioc_, memory::system::thread_local_pool(), cfg.pool.max_cache_per_endpoint, cfg.pool.max_idle_seconds),
-          router_(pool_, ioc_, memory::system::thread_local_pool()),
+          router_(pool_, ioc_, memory::system::thread_local_pool(), cfg.disable_ipv6),
           ssl_ctx_(tls::make(cfg)),
           server_ctx_{cfg, ssl_ctx_, std::move(account_store)},
           worker_ctx_{ioc_, router_, memory::system::thread_local_pool()}
@@ -34,6 +34,30 @@ namespace ngx::agent::worker
 
     void worker::run()
     {
+        // // 心跳看门狗：每秒打印一次，如果心跳中断说明 io_context 被阻塞
+        // net::co_spawn(ioc_,
+        //     []() -> net::awaitable<void>
+        //     {
+        //         try
+        //         {
+        //             net::steady_timer timer(co_await net::this_coro::executor);
+        //             while (true)
+        //             {
+        //                 timer.expires_after(std::chrono::seconds(1));
+        //                 boost::system::error_code ec;
+        //                 co_await timer.async_wait(net::redirect_error(net::use_awaitable, ec));
+        //                 if (ec)
+        //                     break;
+        //                 // 心跳看门狗：仅保持 io_context 活跃，不输出日志
+        //             }
+        //         }
+        //         catch (const std::exception &e)
+        //         {
+        //             trace::error("[Worker] heartbeat exception: {}", e.what());
+        //         }
+        //     },
+        //     net::detached);
+
         net::co_spawn(ioc_, metrics_.observe(ioc_), net::detached);
         ioc_.run();
     }

@@ -56,7 +56,8 @@ namespace ngx::agent::resolve
          * @param max_entries 缓存最大记录数，默认 10000 条。
          */
         explicit tcpcache(tcpool &pool, const net::any_io_executor &executor, memory::resource_pointer mr = memory::current_resource(),
-                                   std::chrono::seconds ttl = std::chrono::seconds(120), std::size_t max_entries = 10000);
+                                   std::chrono::seconds ttl = std::chrono::seconds(120), std::size_t max_entries = 10000,
+                                   bool disable_ipv6 = false);
 
         /**
          * @brief 解析目标主机并建立连接。
@@ -79,12 +80,15 @@ namespace ngx::agent::resolve
          */
         struct record
         {
-            memory::vector<tcp::endpoint> endpoints;      // 解析结果端点列表
-            std::chrono::steady_clock::time_point expire; // 过期时间
-            std::chrono::steady_clock::time_point inserted; // 插入时间（用于 FIFO 淘汰）
+            memory::vector<tcp::endpoint> endpoints;       // 解析结果端点列表
+            std::chrono::steady_clock::time_point expire;  // 过期时间
+            std::size_t next_index{0};                     // 下次尝试的端点索引（轮询）
+            bool failed{false};                            // 是否连接失败（负缓存标记）
         };
 
-        using hash_map = memory::unordered_map<memory::string, record, transparent_hash, transparent_equal>;
+        // LRU 淘汰：list 存储键，map 存储键到 list 迭代器的映射
+        using lru_list = memory::list<memory::string>;
+        using lru_map = memory::unordered_map<memory::string, std::pair<record, lru_list::iterator>, transparent_hash, transparent_equal>;
 
         /**
          * @brief 从缓存获取端点并尝试连接。
@@ -98,12 +102,14 @@ namespace ngx::agent::resolve
         [[nodiscard]] auto async_connect(const lookup_key &lookup, std::chrono::steady_clock::time_point now)
             -> net::awaitable<unique_sock>;
 
-        tcpool &pool_;              // 共享传输源
+        tcpool &pool_;               // 共享传输源
         tcp::resolver resolver_;      // TCP DNS 解析器
         memory::resource_pointer mr_; // 内存资源
         std::chrono::seconds ttl_;    // 缓存生存时间
         std::size_t max_entries_;     // 最大缓存条目数
-        hash_map records_;            // 端点缓存表
+        lru_list lru_order_;          // LRU 淘汰序（最近访问的在头部）
+        lru_map records_;             // 端点缓存表（存储 record 和 LRU 迭代器）
         coalescer coalescer_;         // 请求合并器
+        bool disable_ipv6_;           // 是否禁用 IPv6
     };
 } // namespace ngx::agent::resolve

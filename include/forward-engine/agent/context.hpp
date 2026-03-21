@@ -113,10 +113,10 @@ namespace ngx::agent
         std::uint32_t buffer_size;
 
         // 入站传输对象，处理来自客户端的数据
-        ngx::channel::transport::transmission_pointer inbound;
+        ngx::channel::transport::shared_transmission inbound;
 
         // 出站传输对象，处理发往目标服务器的数据
-        ngx::channel::transport::transmission_pointer outbound;
+        ngx::channel::transport::shared_transmission outbound;
 
         // 账户连接租约，持有期间保持连接计数，会话结束时自动释放
         account::lease account_lease;

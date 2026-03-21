@@ -234,19 +234,19 @@ auto handshake_preread(const std::string_view pre_read_data)
 ## 8. 关键日志与排查点
 
 以下日志有助于确认 Trojan 请求走向：
-- `[Pipeline] TLS handshake succeeded, detecting inner protocol`
-  位置：[protocols.cpp](../../src/forward-engine/agent/pipeline/protocols.cpp) 的 `ngx::agent::pipeline::tls`。
-- `[Pipeline] Trojan handshake failed: {error}`
+- `[Trojan] TLS handshake started`
   位置：[protocols.cpp](../../src/forward-engine/agent/pipeline/protocols.cpp) 的 `ngx::agent::pipeline::trojan`。
-- `[Pipeline] Trojan CONNECT target = [host: {}, port: {}]`
+- `[Trojan] TLS handshake failed: {error}`
+  位置：[protocols.cpp](../../src/forward-engine/agent/pipeline/protocols.cpp) 的 `ngx::agent::pipeline::trojan`。
+- `[Trojan] CONNECT target = [host: {}, port: {}]`
   位置：[protocols.cpp](../../src/forward-engine/agent/pipeline/protocols.cpp) 的 `ngx::agent::pipeline::trojan`。
 
 ## 9. 简化调用图（文字版）
 
 ```
-TLS 连接建立 -> pipeline::tls
-  -> protocol::analysis::detect_inner (内层协议检测)
-  -> pipeline::trojan (Trojan 协议处理)
+TLS 连接建立 -> handler::Trojan
+  -> pipeline::trojan (TLS 握手 + Trojan 协议处理)
+      -> TLS 握手 (async_handshake)
       -> protocol::trojan::relay 创建
       -> handshake (Trojan 握手)
           -> wire::decode_credential (解析凭据)

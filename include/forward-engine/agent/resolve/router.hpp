@@ -55,7 +55,8 @@ namespace ngx::agent::resolve
          * @param mr 内存资源，用于内部存储分配。
          */
         explicit router(tcpool &pool, net::io_context &ioc,
-                        memory::resource_pointer mr = memory::current_resource());
+                        memory::resource_pointer mr = memory::current_resource(),
+                        bool disable_ipv6 = false);
 
         /**
          * @brief 设置正向代理的默认上游端点。

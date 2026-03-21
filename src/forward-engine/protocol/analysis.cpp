@@ -96,10 +96,10 @@ namespace ngx::protocol
             return protocol_type::socks5;
         }
 
-        // 2. 检查 TLS (0x16)
+        // 2. 检查 TLS/Trojan (0x16)
         if (peek_data[0] == 0x16)
         {
-            return protocol_type::tls;
+            return protocol_type::trojan;
         }
 
         // 3. 检查 HTTP
@@ -179,8 +179,6 @@ namespace ngx::protocol
         {
             t.positive = true;
             parse(req.target(), t.host, t.port);
-            if (t.port == "80")
-                t.port.assign("443");
         }
         // B. 绝对 `URI`（`http://`/`https://`）只在正向代理里出现，请求行已包含完整目标
         else if (req.target().starts_with("http://") || req.target().starts_with("https://"))

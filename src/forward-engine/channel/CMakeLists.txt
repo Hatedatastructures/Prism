@@ -13,6 +13,6 @@ target_sources(${PROJECT_NAME}_static_library
             ${PROJECT_SOURCE_DIR}/include/forward-engine/channel/transport/transmission.hpp
             ${PROJECT_SOURCE_DIR}/include/forward-engine/channel/transport/reliable.hpp
             ${PROJECT_SOURCE_DIR}/include/forward-engine/channel/transport/unreliable.hpp
-            ${PROJECT_SOURCE_DIR}/include/forward-engine/channel/transport/secure.hpp
+            ${PROJECT_SOURCE_DIR}/include/forward-engine/channel/transport/encrypted.hpp
             ${PROJECT_SOURCE_DIR}/include/forward-engine/channel/adapter/connector.hpp
 )

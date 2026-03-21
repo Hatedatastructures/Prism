@@ -44,17 +44,17 @@ net::awaitable<int> echo_server_coro(net::ip::tcp::acceptor& acceptor)
         {
             // 读取客户端数据
             auto mutable_buf = net::buffer(buffer);
-            std::size_t n = co_await ngx::channel::transport::async_read_some(*transport, mutable_buf, net::use_awaitable);
-            
+            std::size_t n = co_await ngx::channel::transport::async_read_some(transport, mutable_buf, net::use_awaitable);
+
             if (n == 0)
             {
                 // 连接关闭
                 break;
             }
-            
+
             // 将数据回写给客户端
             auto const_buf = net::buffer(buffer.data(), n);
-            std::size_t written = co_await ngx::channel::transport::async_write_some(*transport, const_buf, net::use_awaitable);
+            std::size_t written = co_await ngx::channel::transport::async_write_some(transport, const_buf, net::use_awaitable);
             
             assert(n == written);
         }
@@ -82,25 +82,25 @@ net::awaitable<int> echo_client_coro(net::ip::tcp::endpoint server_endpoint, con
         
         // 发送测试消息
         auto send_buf = net::buffer(test_message);
-        std::size_t written = co_await ngx::channel::transport::async_write_some(*transport, send_buf, net::use_awaitable);
+        std::size_t written = co_await ngx::channel::transport::async_write_some(transport, send_buf, net::use_awaitable);
         assert(written == test_message.size());
-        
+
         // 接收回显
         std::array<char, 4096> buffer{};
         auto recv_buf = net::buffer(buffer);
-        std::size_t n = co_await ngx::channel::transport::async_read_some(*transport, recv_buf, net::use_awaitable);
-        
+        std::size_t n = co_await ngx::channel::transport::async_read_some(transport, recv_buf, net::use_awaitable);
+
         assert(n == test_message.size());
         assert(std::string_view(buffer.data(), n) == test_message);
-        
+
         // 发送第二条消息
         std::string second_message = "Second message";
         send_buf = net::buffer(second_message);
-        written = co_await ngx::channel::transport::async_write_some(*transport, send_buf, net::use_awaitable);
+        written = co_await ngx::channel::transport::async_write_some(transport, send_buf, net::use_awaitable);
         assert(written == second_message.size());
-        
+
         // 接收第二条回显
-        n = co_await ngx::channel::transport::async_read_some(*transport, recv_buf, net::use_awaitable);
+        n = co_await ngx::channel::transport::async_read_some(transport, recv_buf, net::use_awaitable);
         assert(n == second_message.size());
         assert(std::string_view(buffer.data(), n) == second_message);
         
@@ -189,17 +189,17 @@ net::awaitable<int> trojan_echo_server_coro(net::ip::tcp::acceptor& acceptor, co
         {
             // 读取客户端数据
             auto mutable_buf = net::buffer(buffer);
-            std::size_t n = co_await ngx::channel::transport::async_read_some(*trojan, mutable_buf, net::use_awaitable);
-            
+            std::size_t n = co_await ngx::channel::transport::async_read_some(trojan, mutable_buf, net::use_awaitable);
+
             if (n == 0)
             {
                 // 连接关闭
                 break;
             }
-            
+
             // 将数据回写给客户端
             auto const_buf = net::buffer(buffer.data(), n);
-            std::size_t written = co_await ngx::channel::transport::async_write_some(*trojan, const_buf, net::use_awaitable);
+            std::size_t written = co_await ngx::channel::transport::async_write_some(trojan, const_buf, net::use_awaitable);
             
             assert(n == written);
         }

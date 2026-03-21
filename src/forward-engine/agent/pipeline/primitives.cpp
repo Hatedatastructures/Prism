@@ -1,20 +1,22 @@
 #include <forward-engine/agent/pipeline/primitives.hpp>
 #include <forward-engine/channel/transport/reliable.hpp>
-#include <forward-engine/channel/transport/secure.hpp>
-#include <forward-engine/trace.hpp>
+#include <forward-engine/channel/transport/encrypted.hpp>
 
 namespace ngx::agent::pipeline::primitives
 {
     auto ssl_handshake(session_context &ctx, const std::span<const std::byte> data)
         -> net::awaitable<std::pair<fault::code, shared_ssl_stream>>
     {
+
         if (!ctx.server.ssl_ctx)
         {
+            trace::warn("[SSL] No SSL context configured");
             co_return std::make_pair(fault::code::not_supported, nullptr);
         }
 
         if (!ctx.inbound)
         {
+            trace::warn("[SSL] No inbound transmission for TLS handshake");
             co_return std::make_pair(fault::code::io_error, nullptr);
         }
         // 原有可能是 tcp socket 派生的 reliable 类，用 ssl_connector 来模拟一个 boost 库的 网路 io 接口
@@ -29,49 +31,66 @@ namespace ngx::agent::pipeline::primitives
         co_await stream->async_handshake(ssl::stream_base::server, token);
         if (ec)
         {
+            trace::warn("[SSL] TLS handshake failed: {} ({})", ec.message(), ec.value());
             co_return std::make_pair(fault::to_code(ec), nullptr);
         }
 
+        trace::debug("[SSL] TLS handshake succeeded");
         co_return std::make_pair(fault::code::success, stream);
+    }
+
+    // 检查目标地址是否为 IPv6 字面量
+    inline bool is_ipv6_literal(const std::string_view host) noexcept
+    {
+        // IPv6 地址包含冒号，且不是端口分隔符
+        return host.find(':') != std::string_view::npos;
     }
 
     auto dial(std::shared_ptr<resolve::router> router, std::string_view label,
               const protocol::analysis::target &target, const bool allow_reverse, const bool require_open)
-        -> net::awaitable<std::pair<fault::code, channel::transport::transmission_pointer>>
+        -> net::awaitable<std::pair<fault::code, shared_transmission>>
     {
-        auto ec = fault::code::success;
-        channel::unique_sock socket;
+        // 提前拒绝 IPv6 地址字面量
+        if (is_ipv6_literal(target.host))
+        {
+            trace::debug("[Pipeline] {} rejecting IPv6 literal: {}:{}", label, target.host, target.port);
+            co_return std::make_pair(fault::code::host_unreachable, nullptr);
+        }
 
+        // 路由到目标
+        fault::code ec;
+        channel::unique_sock socket;
         if (allow_reverse && !target.positive)
-        {   // 允许使用反向代码并且解析到的目标地址支持反向代理
-            auto [route_ec, routed] = co_await router->async_reverse(target.host);
-            ec = route_ec;
-            socket = std::move(routed);
+        {
+            auto result = co_await router->async_reverse(target.host);
+            ec = result.first;
+            socket = std::move(result.second);
         }
         else
         {
-            auto [route_ec, routed] = co_await router->async_forward(target.host, target.port);
-            ec = route_ec;
-            socket = std::move(routed);
+            auto result = co_await router->async_forward(target.host, target.port);
+            ec = result.first;
+            socket = std::move(result.second);
         }
 
         if (fault::failed(ec))
         {
-            trace::warn("[Pipeline] {} route failed: {}, target: {}:{}", label, fault::describe(ec),
-             target.host, target.port);
+            trace::warn("[Pipeline] {} route failed: {}, target: {}:{}", label, fault::describe(ec), target.host, target.port);
             co_return std::make_pair(ec, nullptr);
         }
 
         if (require_open && (!socket || !socket->is_open()))
         {
+            trace::warn("[Pipeline] {} socket not open, target: {}:{}", label, target.host, target.port);
             co_return std::make_pair(fault::code::connection_refused, nullptr);
         }
 
+        trace::info("[Pipeline] {} dial success, target: {}:{}", label, target.host, target.port);
         co_return std::make_pair(ec, channel::transport::make_reliable(std::move(socket)));
     }
 
-    preview::preview(channel::transport::transmission_pointer inner, std::span<const std::byte> preread)
-        : inner_(std::move(inner)), preread_buffer_(preread.begin(), preread.end(), memory::current_resource())
+    preview::preview(shared_transmission inner, std::span<const std::byte> preread, memory::resource_pointer mr)
+        : inner_(std::move(inner)), preread_buffer_(preread.begin(), preread.end(), mr ? mr : memory::current_resource())
     {
     }
 
@@ -140,5 +159,65 @@ namespace ngx::agent::pipeline::primitives
         {
             inner_->cancel();
         }
+    }
+
+    auto tunnel(shared_transmission inbound, shared_transmission outbound, const session_context &ctx, const bool complete_write)
+        -> net::awaitable<void>
+    {
+        using trans = shared_transmission;
+        // 分配缓冲区
+        auto *mr = ctx.frame_arena.get();
+        const auto array_size = (std::max)(ctx.buffer_size, 2U);
+        memory::vector<std::byte> buffer(array_size, mr ? mr : memory::current_resource());
+        // 切割缓冲区为两半，分别用于两个方向的转发
+        const auto half = buffer.size() / 2;
+        const auto left = std::span(buffer).first(half);
+        const auto right = std::span(buffer).last(half);
+
+        // 传输统计：[0] = 上行, [1] = 下行
+        std::array<std::size_t, 2> total_bytes{0, 0};
+
+        // 单向转发协程
+        auto forward = [complete_write, &total_bytes](const trans &from, const trans &to,
+                                                      const std::span<std::byte> scratch, const std::size_t idx)
+            -> net::awaitable<void>
+        {
+            std::error_code ec;
+            while (true)
+            {
+                const auto transferred = co_await from->async_read_some(scratch, ec);
+                if (ec || transferred == 0)
+                    co_return;
+
+                total_bytes[idx] += transferred;
+
+                const auto data = scratch.first(transferred);
+                std::size_t written;
+                if (complete_write)
+                {
+                    written = co_await to->async_write(data, ec);
+                }
+                else
+                {
+                    written = co_await to->async_write_some(data, ec);
+                }
+
+                if (ec || (complete_write && written < transferred))
+                    co_return;
+            }
+        };
+
+        // 并行双向转发，任一方向完成时取消另一方向
+        using namespace boost::asio::experimental::awaitable_operators;
+        co_await (forward(inbound, outbound, left, 0) || forward(outbound, inbound, right, 1));
+
+        // 输出传输统计
+        if (const auto up = total_bytes[0], down = total_bytes[1]; up > 0 || down > 0)
+        {
+            trace::info("[Tunnel] Transfer: Upload {} KB, Download {} KB", up / 1024, down / 1024);
+        }
+
+        shut_close(inbound);
+        shut_close(outbound);
     }
 } // namespace ngx::agent::pipeline::primitives

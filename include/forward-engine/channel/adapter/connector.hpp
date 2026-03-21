@@ -3,7 +3,7 @@
  * @brief Socket 异步 IO 适配器
  * @details 统一 TCP 和 UDP 的异步读写接口，屏蔽底层 API 差异。
  * 同时提供将 transmission 接口适配为 Boost.Asio 概念的适配器。
- * 适配器类 connector 模板将 transmission 接口适配为
+ * 适配器类 connector 将 transmission 接口适配为
  * AsyncReadStream/AsyncWriteStream 概念，支持注入预读数据，
  * 避免协议检测时丢失数据。提供 async_read_some 和 async_write_some
  * 方法，支持协程和回调，兼容 reliable（TCP）和 unreliable（UDP）
@@ -32,22 +32,21 @@ namespace ngx::channel
      * @details 将 transmission 接口适配为 Boost.Asio 的
      * AsyncReadStream/AsyncWriteStream 概念，以便与 Boost.Beast、
      * Boost.Asio.SSL 等库协同工作。该适配器是连接传输层和上层协议处理
-     * 的关键桥梁。
-     * @tparam TransmissionPtr 传输层指针类型，通常是 std::unique_ptr<transmission>
+     * 的关键桥梁。内部使用 shared_ptr 持有 transmission，确保
+     * co_spawn(detached) 异步操作期间传输对象不会被提前释放。
      */
-    template <typename TransmissionPtr>
     class connector
     {
     public:
         using executor_type = net::any_io_executor;
-        using transmission_type = typename TransmissionPtr::element_type;
+        using transmission_ptr = transport::shared_transmission;
 
         /**
          * @brief 构造函数（传输层指针 + 预读数据）
          * @param trans 传输层对象指针，所有权将被转移
          * @param preread 预读数据切片，默认为空
          */
-        explicit connector(TransmissionPtr trans, std::span<const std::byte> preread = {})
+        explicit connector(transmission_ptr trans, std::span<const std::byte> preread = {})
             : trans_(std::move(trans))
         {
             if (!preread.empty())
@@ -137,13 +136,13 @@ namespace ngx::channel
                 return net::async_initiate<CompletionToken, void(boost::system::error_code, std::size_t)>(handler, token);
             }
 
-            return ngx::channel::transport::async_read_some(*trans_, buffers, std::forward<CompletionToken>(token));
+            return transport::async_read_some(trans_, buffers, std::forward<CompletionToken>(token));
         }
 
         /**
          * @brief 适配 async_write_some
          * @tparam ConstBufferSequence 常量缓冲区序列类型
-         * @tparam CompletionToken 完成令牌类型（协程、回调等）
+         * @tparam CompletionToken 完成令牌类型
          * @param buffers 常量缓冲区序列，包含要写入的数据
          * @param token 完成令牌，用于接收写入结果
          * @return 异步操作结果，类型取决于完成令牌
@@ -151,7 +150,7 @@ namespace ngx::channel
         template <typename ConstBufferSequence, typename CompletionToken>
         auto async_write_some(const ConstBufferSequence &buffers, CompletionToken &&token)
         {
-            return ngx::channel::transport::async_write_some(*trans_, buffers, std::forward<CompletionToken>(token));
+            return transport::async_write_some(trans_, buffers, std::forward<CompletionToken>(token));
         }
 
         /**
@@ -204,7 +203,7 @@ namespace ngx::channel
 
         /**
          * @brief 获取底层传输层对象
-         * @return transmission_type& 传输层对象的引用
+         * @return transport::transmission& 传输层对象的引用
          */
         auto &transmission()
         {
@@ -213,15 +212,15 @@ namespace ngx::channel
 
         /**
          * @brief 释放传输层所有权
-         * @return TransmissionPtr 传输层对象指针
+         * @return transmission_pointer 传输层对象指针
          */
-        TransmissionPtr release()
+        transmission_ptr release()
         {
             return std::move(trans_);
         }
 
     private:
-        TransmissionPtr trans_;
+        transmission_ptr trans_;
         memory::vector<std::byte> preread_buffer_;
         std::size_t preread_offset_ = 0;
     };

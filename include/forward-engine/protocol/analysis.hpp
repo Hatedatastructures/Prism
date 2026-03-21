@@ -45,7 +45,7 @@ namespace ngx::protocol
         unknown,
         http,
         socks5,
-        tls
+        trojan
     };
 
     /**
@@ -113,8 +113,8 @@ namespace ngx::protocol
             return "http";
         case protocol_type::socks5:
             return "socks5";
-        case protocol_type::tls:
-            return "tls";
+        case protocol_type::trojan:
+            return "trojan";
         default:
             return "unknown";
         }

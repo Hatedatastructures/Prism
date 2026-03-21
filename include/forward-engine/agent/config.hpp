@@ -171,7 +171,7 @@ namespace ngx::agent
         endpoint addressable;
 
         // SSL/TLS 证书配置
-        struct certificate certificate;
+        certificate certificate;
 
         // 身份认证配置，管理用户凭据和连接限制
         struct authentication authentication;
@@ -187,6 +187,9 @@ namespace ngx::agent
 
         // 缓冲区配置，控制数据转发缓冲区大小
         struct buffer buffer;
+
+        // 是否禁用 IPv6，启用后 DNS 解析结果将过滤掉 IPv6 端点
+        bool disable_ipv6 = false;
 
         // Clash 兼容模式，启用后支持 Clash 客户端特性
         bool clash = false;

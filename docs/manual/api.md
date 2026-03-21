@@ -92,8 +92,8 @@
 ## 协议管道
 
 ```cpp
-#include <forward-engine/agent/pipeline/primitives.hpp>  // dial(), preview, original_tunnel()
-#include <forward-engine/agent/pipeline/protocols.hpp>   // http(), socks5(), tls()
+#include <forward-engine/agent/pipeline/primitives.hpp>  // dial(), preview, tunnel()
+#include <forward-engine/agent/pipeline/protocols.hpp>   // http(), socks5(), trojan()
 ```
 
 ---

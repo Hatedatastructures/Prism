@@ -196,23 +196,23 @@ namespace ngx::channel::transport
      * @brief 创建 unreliable 传输层
      * @param executor 执行器
      * @param remote_endpoint 远程端点（可选）
-     * @return transmission_pointer 创建的 unreliable 实例
+     * @return shared_transmission 创建的 unreliable 实例
      */
     inline auto make_unreliable(net::any_io_executor executor, std::optional<net::ip::udp::endpoint> remote_endpoint = std::nullopt)
-        -> transmission_pointer
+        -> shared_transmission
     {
-        return std::make_unique<unreliable>(executor, std::move(remote_endpoint));
+        return std::make_shared<unreliable>(executor, std::move(remote_endpoint));
     }
 
     /**
      * @brief 创建 unreliable 传输层（从现有 socket）
      * @param socket UDP socket
      * @param remote_endpoint 远程端点（可选）
-     * @return transmission_pointer 创建的 unreliable 实例
+     * @return shared_transmission 创建的 unreliable 实例
      */
     inline auto make_unreliable(net::ip::udp::socket socket, std::optional<net::ip::udp::endpoint> remote_endpoint = std::nullopt)
-        -> transmission_pointer
+        -> shared_transmission
     {
-        return std::make_unique<unreliable>(std::move(socket), std::move(remote_endpoint));
+        return std::make_shared<unreliable>(std::move(socket), std::move(remote_endpoint));
     }
 }

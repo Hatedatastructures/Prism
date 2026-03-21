@@ -130,12 +130,6 @@ namespace ngx::channel
         /**
          * @brief 归还连接（内部接口）
          * @param s socket 指针
-         */
-        void recycle(tcp::socket *s);
-
-        /**
-         * @brief 归还连接（内部接口，带端点信息）
-         * @param s socket 指针
          * @param endpoint 关联端点
          */
         void recycle(tcp::socket *s, const tcp::endpoint &endpoint);

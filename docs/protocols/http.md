@@ -22,7 +22,7 @@
 6. **路由决策与连接**：`router` 建立上游连接（直连或回退）  
    位置：[router.cpp](../../src/forward-engine/agent/resolve/router.cpp)，类 `ngx::agent::resolve::router` 的 `async_forward` 与 `async_reverse`。
 
-7. **隧道转发**：根据请求类型进入原始隧道（`original_tunnel`）或普通隧道（`tunnel`）转发。
+7. **隧道转发**：根据请求类型进入隧道（`tunnel`）转发。
 
 ## 2. HTTP 请求解析与目标判定详解
 
@@ -78,7 +78,7 @@ Host: example.com:443
 1. `analysis::resolve` 将其判定为正向代理，解析 `host:port`。
 2. `connect_upstream` 调用 `resolve::router::async_forward`（直连优先，失败回退上游代理）。
 3. 连接成功后，返回 `200 Connection Established` 给客户端。
-4. 进入原始 TCP 隧道透传（`original_tunnel`）。
+4. 进入原始 TCP 隧道透传（`tunnel`）。
 
 **关键点**：
 - `CONNECT` 请求完成后不再解析 HTTP 报文，而是纯 TCP 双向转发。
@@ -139,58 +139,25 @@ Host: myservice.com
 
 ## 4. 隧道转发机制
 
-### 4.1 CONNECT 请求的原始隧道转发
+### 4.1 双向隧道转发
 
-`original_tunnel` 用于 `CONNECT` 请求的纯 TCP 透传：
+`primitives::tunnel` 用于建立双向数据隧道：
 
 ```cpp
-template <typename Context>
-auto original_tunnel(Context &ctx) -> net::awaitable<void>
+auto tunnel(transmission_pointer inbound, transmission_pointer outbound,
+            session_context &ctx) -> net::awaitable<void>
 {
-  if (!ctx.server_socket) 
-  {
-    trace::warn("[Handler] raw tunnel: no upstream connection.");
-    co_return;
-  }
-    
-  auto tunnel_ctx = detail::make_tunnel_context(&*ctx.server_socket, &ctx.client_socket);
-  co_await detail::tunnel::stream(tunnel_ctx, ctx.buffer.data(), ctx.buffer.size());
-  shut_close(ctx.server_socket);
+  // 使用双缓冲区实现双向转发
+  // 任一方向断开即终止隧道
 }
 ```
 
 **特点**：
-- 不进行协议升级，纯字节流转发。
-- 使用 `detail::tunnel::stream` 核心转发逻辑。
-- 转发完成后关闭上游连接。
+- 纯字节流转发，不进行协议升级。
+- 使用 PMR 内存资源分配缓冲区。
+- 转发完成后关闭两端连接。
 
-### 4.2 普通 HTTP 请求的隧道转发
-
-`tunnel` 用于普通 HTTP 请求，支持 Obscura 协议升级：
-
-```cpp
-template <typename Context>
-auto tunnel(Context &ctx) -> net::awaitable<void>
-{
-  if (!ctx.server_socket) 
-  {
-    trace::warn("[Tunnel] aborted: upstream socket is missing.");
-    co_return;
-  }
-    
-  ctx.frame_arena.reset();
-  auto tunnel_ctx = detail::make_tunnel_context(ctx.server_socket.get(), &ctx.client_socket);
-  co_await detail::tunnel::stream(tunnel_ctx, ctx.buffer.data(), ctx.buffer.size());
-  shut_close(ctx.client_socket);
-  shut_close(ctx.server_socket);
-}
-```
-
-**特点**：
-- 支持协议升级（如 WebSocket）。
-- 转发完成后关闭客户端和上游连接。
-
-### 4.3 预读数据处理
+### 4.2 预读数据处理
 
 在 HTTP 请求解析过程中，可能已经预读了一些数据（如请求正文的开始部分）。这些数据需要转发给上游：
 
@@ -207,9 +174,9 @@ if (read_buffer.size() != 0)
 - 使用 `ngx::channel::loader::async_write` 保证完整写入。
 - 写入后调用 `consume` 清空缓冲区。
 
-### 4.4 核心转发逻辑 `detail::tunnel::stream`
+### 4.3 核心转发逻辑 `primitives::tunnel`
 
-`detail::tunnel::stream` 是通用的双向转发函数：
+`primitives::tunnel` 是通用的双向转发函数：
 - 在客户端和上游连接之间建立双向数据流。
 - 使用协程实现高效的并发转发。
 - 处理连接关闭和错误情况。
@@ -241,12 +208,12 @@ worker.accept -> session::diversion
           -> router::async_forward | async_reverse (路由决策与连接建立)
       -> if CONNECT:
           -> send "200 Connection Established"
-          -> handler::original_tunnel (纯 TCP 透传)
+          -> primitives::tunnel (纯 TCP 透传)
       -> else:
           -> protocol::http::serialize (请求序列化)
-          -> ngx::channel::loader::async_write (转发请求头与正文)
+          -> ngx::channel::adapter::async_write (转发请求头与正文)
           -> forward prefetched buffer (read_buffer.data) (预读数据转发)
-          -> handler::tunnel (持续双向转发)
+          -> primitives::tunnel (持续双向转发)
 ```
 
 ## 7. 协议常量与枚举

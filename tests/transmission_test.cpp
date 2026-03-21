@@ -72,11 +72,11 @@ net::awaitable<int> test_reliable_basic_read_write_coro()
         auto mutable_buf = net::buffer(buffer);
         
         // 读取客户端数据
-        std::size_t n = co_await ngx::channel::transport::async_read_some(*transport, mutable_buf, net::use_awaitable);
-        
+        std::size_t n = co_await ngx::channel::transport::async_read_some(transport, mutable_buf, net::use_awaitable);
+
         // 将数据回写给客户端
         auto const_buf = net::buffer(buffer.data(), n);
-        std::size_t written = co_await ngx::channel::transport::async_write_some(*transport, const_buf, net::use_awaitable);
+        std::size_t written = co_await ngx::channel::transport::async_write_some(transport, const_buf, net::use_awaitable);
         
         assert(n == written);
         assert(std::string_view(buffer.data(), n) == "Hello, Transmission!");
@@ -95,13 +95,13 @@ net::awaitable<int> test_reliable_basic_read_write_coro()
         auto const_buf = net::buffer(test_message);
         
         // 发送数据
-        std::size_t written = co_await ngx::channel::transport::async_write_some(*transport, const_buf, net::use_awaitable);
+        std::size_t written = co_await ngx::channel::transport::async_write_some(transport, const_buf, net::use_awaitable);
         assert(written == test_message.size());
-        
+
         // 接收回显
         std::array<char, 1024> buffer{};
         auto mutable_buf = net::buffer(buffer);
-        std::size_t n = co_await ngx::channel::transport::async_read_some(*transport, mutable_buf, net::use_awaitable);
+        std::size_t n = co_await ngx::channel::transport::async_read_some(transport, mutable_buf, net::use_awaitable);
         
         assert(n == test_message.size());
         assert(std::string_view(buffer.data(), n) == test_message);
@@ -163,7 +163,7 @@ net::awaitable<int> test_reliable_close_coro()
         auto mutable_buf = net::buffer(buffer);
         
         boost::system::error_code ec;
-        co_await ngx::channel::transport::async_read_some(*transport, mutable_buf, net::redirect_error(net::use_awaitable, ec));
+        co_await ngx::channel::transport::async_read_some(transport, mutable_buf, net::redirect_error(net::use_awaitable, ec));
         
         assert(ec);
         

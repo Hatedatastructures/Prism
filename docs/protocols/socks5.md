@@ -187,39 +187,32 @@ SOCKS5 协议使用正向代理模式，路由决策流程如下：
 **连接成功的情况**：
 1. **发送成功响应**：`co_await agent->send_success(request)`
 2. **恢复客户端 socket**：`ctx.client_socket = std::move(agent->socket())`
-3. **进入原始隧道转发**：`co_await original_tunnel(ctx)`
+3. **进入隧道转发**：`co_await tunnel(ctx)`
 
 **连接失败的情况**：
 1. **发送错误响应**：`co_await agent->send_error(protocol::socks5::reply_code::host_unreachable)`
 2. **连接关闭**：SOCKS5 流析构时自动关闭底层 socket
 
-### 5.3 原始隧道转发
+### 5.3 隧道转发
 
-SOCKS5 使用 `original_tunnel` 进行纯 TCP 隧道转发：
+SOCKS5 使用 `primitives::tunnel` 进行双向隧道转发：
 
 ```cpp
-template <typename Context>
-auto original_tunnel(Context &ctx) -> net::awaitable<void>
+auto tunnel(transmission_pointer inbound, transmission_pointer outbound,
+            session_context &ctx) -> net::awaitable<void>
 {
-  if (!ctx.server_socket) 
-  {
-    trace::warn("[Handler] raw tunnel: no upstream connection.");
-    co_return;
-  }
-    
-  auto tunnel_ctx = detail::make_tunnel_context(&*ctx.server_socket, &ctx.client_socket);
-  co_await detail::tunnel::stream(tunnel_ctx, ctx.buffer.data(), ctx.buffer.size());
-  shut_close(ctx.server_socket);
+  // 使用双缓冲区实现双向转发
+  // 任一方向断开即终止隧道
 }
 ```
 
 **特点**：
-- 不进行协议升级，纯字节流转发。
-- 使用 `detail::tunnel::stream` 核心转发逻辑。
-- 转发完成后关闭上游连接。
+- 纯字节流转发，不进行协议升级。
+- 使用 PMR 内存资源分配缓冲区。
+- 转发完成后关闭两端连接。
 
 **核心转发逻辑**：
-- `detail::tunnel::stream` 在客户端和上游连接之间建立双向数据流。
+- 在客户端和上游连接之间建立双向数据流。
 - 使用协程实现高效的并发转发。
 - 处理连接关闭和错误情况。
 
@@ -272,8 +265,7 @@ worker.accept -> session::diversion
               -> 上游代理回退 (可选)
       -> if 连接成功:
           -> send_success (发送成功响应)
-          -> original_tunnel (纯 TCP 透传)
-              -> detail::tunnel::stream (核心转发逻辑)
+          -> primitives::tunnel (双向 TCP 透传)
       -> else:
           -> send_error (发送错误响应)
           -> 连接关闭

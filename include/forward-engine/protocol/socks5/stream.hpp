@@ -67,7 +67,7 @@ namespace ngx::protocol::socks5
          * 调用者不应再使用原指针
          * @note 底层传输层必须已建立连接，否则后续操作将失败
          */
-        explicit relay(ngx::channel::transport::transmission_pointer next_layer, const config &cfg = {})
+        explicit relay(ngx::channel::transport::shared_transmission next_layer, const config &cfg = {})
             : next_layer_(std::move(next_layer)), config_(cfg)
         {
         }
@@ -177,8 +177,12 @@ namespace ngx::protocol::socks5
                 co_return fault::code::io_error;
             }
 
+            // 空闲超时：客户端在 udp_idle_timeout 秒内不发送 UDP 数据，主动关闭关联
+            net::steady_timer idle_timer(ingress_socket.get_executor());
+            idle_timer.expires_after(std::chrono::seconds(config_.udp_idle_timeout));
+
             using namespace boost::asio::experimental::awaitable_operators;
-            co_await (associate_loop(ingress_socket, route_callback) || wait_control_close(ingress_socket));
+            co_await (associate_loop(ingress_socket, route_callback, idle_timer) || wait_control_close(ingress_socket));
             co_return fault::code::success;
         }
 
@@ -363,12 +367,12 @@ namespace ngx::protocol::socks5
 
         /**
          * @brief 释放底层传输层所有权
-         * @return transport::transmission_pointer 底层传输层指针
+         * @return transport::shared_transmission 底层传输层指针
          * @details 释放底层传输层的所有权并返回指针。释放后 is_valid()
          * 返回 false，不应再调用读写方法。用于将底层连接转移给
          * 其他组件管理。
          */
-        ngx::channel::transport::transmission_pointer release()
+        ngx::channel::transport::shared_transmission release()
         {
             return std::move(next_layer_);
         }
@@ -428,18 +432,28 @@ namespace ngx::protocol::socks5
          * 当 socket 被取消时（控制面关闭触发），协程退出。循环内部
          * 处理 SOCKS5 UDP 报头解析、路由查询、数据转发和响应封装。
          */
-        auto associate_loop(net::ip::udp::socket &ingress_socket, route_callback &route_callback) const
+        auto associate_loop(net::ip::udp::socket &ingress_socket, route_callback &route_callback, net::steady_timer &idle_timer) const
             -> net::awaitable<void>
         {
             memory::vector<std::byte> ingress_buffer(config_.udp_max_datagram, memory::current_resource());
             memory::vector<std::byte> target_buffer(config_.udp_max_datagram, memory::current_resource());
             while (true)
             {
+                idle_timer.expires_after(std::chrono::seconds(config_.udp_idle_timeout));
                 boost::system::error_code read_ec;
                 auto token = net::redirect_error(net::use_awaitable, read_ec);
                 net::ip::udp::endpoint client_endpoint;
-                const auto ingress_n = co_await ingress_socket.async_receive_from(
-                    net::buffer(ingress_buffer.data(), ingress_buffer.size()), client_endpoint, token);
+
+                using namespace boost::asio::experimental::awaitable_operators;
+                auto buf = net::buffer(ingress_buffer.data(), ingress_buffer.size());
+                auto result = co_await (ingress_socket.async_receive_from(buf, client_endpoint, token) || idle_timer.async_wait(net::use_awaitable));
+
+                if (result.index() == 1)
+                {
+                    // 空闲超时，关闭 UDP 关联
+                    co_return;
+                }
+
                 if (read_ec)
                 {
                     if (read_ec == net::error::operation_aborted)
@@ -448,9 +462,11 @@ namespace ngx::protocol::socks5
                     }
                     continue;
                 }
+                const auto ingress_n = std::get<0>(result);
+                idle_timer.cancel();
 
-                co_await relay_single_datagram(ingress_socket, std::span<const std::byte>(ingress_buffer.data(), ingress_n),
-                                               client_endpoint, route_callback, target_buffer);
+                co_await relay_single_datagram(ingress_socket,
+                                               {ingress_buffer.data(), ingress_n}, client_endpoint, route_callback, target_buffer);
             }
         }
 
@@ -826,7 +842,7 @@ namespace ngx::protocol::socks5
         // 底层传输层指针，所有权通过 unique_ptr 管理
         // 构造时转移所有权，生命周期与 stream 对象绑定
         // close() 后仍有效，析构时自动释放
-        ngx::channel::transport::transmission_pointer next_layer_;
+        ngx::channel::transport::shared_transmission next_layer_;
 
         // SOCKS5 协议配置，构造时传入，运行时只读
         config config_;
@@ -837,25 +853,18 @@ namespace ngx::protocol::socks5
      * @details 使用 shared_ptr 管理 relay 对象生命周期，支持协程
      * 上下文中的异步保活。通过 shared_from_this 实现安全回调。
      */
-    using relay_pointer = std::shared_ptr<relay>;
+    using shared_relay = std::shared_ptr<relay>;
 
     /**
      * @brief 创建 SOCKS5 中继器对象
      * @param next_layer 底层传输层指针
      * @param cfg SOCKS5 协议配置
-     * @return relay_pointer 中继器对象共享指针
+     * @return shared_relay 中继器对象共享指针
      * @details 工厂函数，封装 std::make_shared 调用，简化对象创建。
      */
-    inline relay_pointer make_relay(ngx::channel::transport::transmission_pointer next_layer, const config &cfg = {})
+    inline shared_relay make_relay(ngx::channel::transport::shared_transmission next_layer, const config &cfg = {})
     {
         return std::make_shared<relay>(std::move(next_layer), cfg);
     }
 
-    // 兼容旧名称，将在未来版本移除
-    using stream = relay;
-    using stream_pointer = relay_pointer;
-    inline stream_pointer make_stream(ngx::channel::transport::transmission_pointer next_layer, const config &cfg = {})
-    {
-        return make_relay(std::move(next_layer), cfg);
-    }
 }

@@ -75,25 +75,7 @@
 - 特性：写时复制、无锁读取、透明查找、CAS 原子递增
 - 租约管理：[entry.hpp](../../include/forward-engine/agent/account/entry.hpp)，RAII 自动管理连接计数
 
-### 1.2 仅配置声明但未接入的能力
-
-#### Trojan 协议
-
-**配置声明存在**：[config.hpp](../../include/forward-engine/agent/config.hpp)
-
-**协议实现存在**：[protocol/trojan/](../../include/forward-engine/protocol/trojan/)
-
-**未接入运行链**：
-- `register_handlers()` 未注册 Trojan handler
-- `pipeline::tls()` 未检测 Trojan 协议特征
-- 当前运行链无法处理 Trojan 协议
-
-**接入步骤**：
-1. 创建 `dispatch::Trojan` 处理器类
-2. 在 `register_handlers()` 中注册
-3. 在 `pipeline::tls()` 中添加 Trojan 协议检测逻辑
-
-### 1.3 运行链完整度
+### 1.2 运行链完整度
 
 | 能力 | 配置 | 实现 | 接入 | 状态 |
 |------|------|------|------|------|
@@ -108,7 +90,7 @@
 | 连接池 | ✅ | ✅ | ✅ | 完整 |
 | DNS 缓存 | ✅ | ✅ | ✅ | 完整 |
 | 账户认证 | ✅ | ✅ | ✅ | 完整 |
-| Trojan 协议 | ✅ | ✅ | ❌ | 未接入 |
+| Trojan 协议 | ✅ | ✅ | ✅ | 完整 |
 
 ---
 
@@ -217,8 +199,8 @@
 |----------|----------|----------|----------|
 | HTTP | `dispatch::Http` | `pipeline::http()` | `include/forward-engine/agent/dispatch/handlers.hpp` |
 | SOCKS5 | `dispatch::Socks5` | `pipeline::socks5()` | `include/forward-engine/agent/dispatch/handlers.hpp` |
-| TLS | `dispatch::Tls` | `pipeline::tls()` | `include/forward-engine/agent/dispatch/handlers.hpp` |
-| Unknown | `dispatch::Unknown` | `primitives::original_tunnel()` | `include/forward-engine/agent/dispatch/handlers.hpp` |
+| Trojan | `dispatch::Trojan` | `pipeline::trojan()` | `include/forward-engine/agent/dispatch/handlers.hpp` |
+| Unknown | `dispatch::Unknown` | `primitives::tunnel()` | `include/forward-engine/agent/dispatch/handlers.hpp` |
 
 ### 3.7 上游连接阶段
 
@@ -233,7 +215,7 @@
 
 | 步骤 | 操作 | 源码位置 | 说明 |
 |------|------|----------|------|
-| 24 | `primitives::original_tunnel()` | `include/forward-engine/agent/pipeline/primitives.hpp` | 建立全双工隧道 |
+| 24 | `primitives::tunnel()` | `include/forward-engine/agent/pipeline/primitives.hpp` | 建立全双工隧道 |
 | 25 | 双向数据转发 | `include/forward-engine/agent/pipeline/primitives.hpp` | 并发转发双向数据流 |
 | 26 | 连接关闭 | `include/forward-engine/agent/pipeline/primitives.hpp` | 任一方向断开后关闭两端 |
 
@@ -247,7 +229,7 @@
 |----------|--------|----------|----------|
 | HTTP | `protocol_type::http` | `dispatch::Http` | `include/forward-engine/agent/dispatch/handlers.hpp` |
 | SOCKS5 | `protocol_type::socks5` | `dispatch::Socks5` | `include/forward-engine/agent/dispatch/handlers.hpp` |
-| TLS | `protocol_type::tls` | `dispatch::Tls` | `include/forward-engine/agent/dispatch/handlers.hpp` |
+| Trojan | `protocol_type::trojan` | `dispatch::Trojan` | `include/forward-engine/agent/dispatch/handlers.hpp` |
 | Unknown | `protocol_type::unknown` | `dispatch::Unknown` | `include/forward-engine/agent/dispatch/handlers.hpp` |
 
 **注册函数定义：**
@@ -258,7 +240,7 @@ inline void register_handlers()
     auto &factory = registry::global();
     factory.register_handler<Http>(protocol::protocol_type::http);
     factory.register_handler<Socks5>(protocol::protocol_type::socks5);
-    factory.register_handler<Tls>(protocol::protocol_type::tls);
+    factory.register_handler<Trojan>(protocol::protocol_type::trojan);
     factory.register_handler<Unknown>(protocol::protocol_type::unknown);
 }
 ```
@@ -394,9 +376,7 @@ Worker 绑定结构，用于负载均衡器与 Worker 通信：
 
 ### 高优先级
 
-| 任务 | 说明 | 状态 |
-|------|------|------|
-| Trojan 协议接入 | 创建 Trojan Handler 并注册到 `register_handlers()` | 📋 计划中 |
+当前无高优先级待完善项。
 
 ### 中优先级
 

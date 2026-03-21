@@ -69,11 +69,11 @@ namespace ngx::agent::session
 
     void session::close()
     {
-        auto expected = state::active;
-        if (!state_.compare_exchange_strong(expected, state::closing, std::memory_order_acq_rel))
+        if (state_ != state::active)
         {
             return;
         }
+        state_ = state::closing;
         trace::debug("[Session] Session closing.");
 
         // 先取消活跃流（TLS 等），因为 ctx_.inbound 可能已被 move
@@ -93,18 +93,12 @@ namespace ngx::agent::session
 
     void session::release_resources() noexcept
     {
-        auto current = state_.load(std::memory_order_acquire);
-        if (current == state::closed)
+        if (state_ == state::closed)
         {
             return;
         }
 
-        if (!state_.compare_exchange_strong(current, state::closed, std::memory_order_acq_rel))
-        {
-            return;
-        }
-
-        trace::debug("[Session] Session releasing resources.");
+        state_ = state::closed;
 
         // 先关闭活跃流（TLS 等），因为 ctx_.inbound 可能已被 move
         if (ctx_.active_stream_close)
@@ -162,7 +156,9 @@ namespace ngx::agent::session
         }
         // 预读的24字节数据
         auto span = std::span<const std::byte>(detect_result.pre_read_data.data(), detect_result.pre_read_size);
+        trace::debug("[Session] Dispatching to handler: {}", handler->name());
         co_await handler->process(ctx_, span);
+        trace::debug("[Session] Handler {} completed.", handler->name());
     }
 
     std::shared_ptr<session> make_session(session_params &&params) noexcept

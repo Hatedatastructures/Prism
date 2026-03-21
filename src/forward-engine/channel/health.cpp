@@ -104,7 +104,23 @@ namespace ngx::channel
         // FIN 不产生"可用数据"，available() 检测不到，必须 peek
         std::array<std::byte, 1> peek_buf{};
         auto &socket = const_cast<net::ip::tcp::socket &>(s);
+        // 保存原来的非阻塞状态，防止 socket 意外处于阻塞模式导致 receive 无限阻塞
+        const bool was_non_blocking = socket.non_blocking();
+        if (!was_non_blocking)
+        {
+            socket.non_blocking(true, ec);
+            if (ec)
+            {
+                return false;
+            }
+        }
         const auto n = socket.receive(net::buffer(peek_buf), net::socket_base::message_peek, ec);
+        // 恢复原来的非阻塞状态
+        if (!was_non_blocking)
+        {
+            boost::system::error_code ignore;
+            socket.non_blocking(was_non_blocking, ignore);
+        }
 
         if (ec == net::error::would_block || ec == net::error::try_again)
         {

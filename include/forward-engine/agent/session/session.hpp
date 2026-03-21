@@ -20,7 +20,6 @@
 #include <functional>
 #include <string_view>
 #include <span>
-#include <atomic>
 
 #include <boost/asio.hpp>
 #include <boost/asio/experimental/awaitable_operators.hpp>
@@ -58,7 +57,7 @@ namespace ngx::agent::session
     {
         server_context &server;                  // 服务器全局上下文引用
         worker_context &worker;                  // 工作线程上下文引用
-        ngx::channel::transport::transmission_pointer inbound; // 入站传输层所有权
+        ngx::channel::transport::shared_transmission inbound; // 入站传输层所有权
     };
 
     /**
@@ -221,7 +220,7 @@ namespace ngx::agent::session
         void release_resources() noexcept;
 
         memory::frame_arena frame_arena_;    // 帧内存池
-        std::atomic<state> state_{state::active}; // 会话状态（原子操作保证线程安全）
+        state state_{state::active}; // 会话状态（单线程 io_context，无需原子）
         std::function<void()> on_closed_;    // 关闭回调
 
         session_context ctx_; // 会话上下文，持有所有状态

@@ -48,7 +48,7 @@ graph TB
     subgraph "传输层 (Channel Layer)"
         transport[channel/transport/]
         pool[channel/pool/]
-        loader[channel/loader/]
+        adapter[channel/adapter/]
     end
 
     subgraph "上下文统计层 (Common Layer)"
@@ -64,12 +64,12 @@ graph TB
     front -->|回调绑定| worker
     worker -->|创建 session| session
     worker -->|持有 router| resolve
-    worker -->|持有 source| pool
+    worker -->|持有 tcpool| pool
     session -->|获取 handler| dispatch
     session -->|调用协议处理| pipeline
     dispatch -->|handler 调用协议处理| pipeline
     pipeline -->|dial 连接上游| resolve
-    pipeline -->|transmission| loader
+    pipeline -->|transmission| adapter
     account -->|PMR 容器| memory
     context --> config
     context --> account
@@ -170,7 +170,7 @@ sequenceDiagram
 
 | 组件 | 职责 |
 |------|------|
-| worker | 工作线程核心，持有 io_context、router、source、统计状态 |
+| worker | 工作线程核心，持有 io_context、router、tcpool、统计状态 |
 | launch | 连接分发与会话启动，socket 预配置、会话创建 |
 | stats | 负载统计，活跃会话计数、事件循环延迟监控 |
 | tls | TLS 上下文管理，证书加载、SSL 配置 |
@@ -187,14 +187,14 @@ sequenceDiagram
 |------|------|
 | handler | 协议处理器抽象基类，定义 process/type/name 接口 |
 | registry | 协议处理器工厂，支持动态注册和单例创建 |
-| handlers | 具体协议处理器实现，防止大量switch语句难以维护（Http、Socks5、Tls、Unknown） |
+| handlers | 具体协议处理器实现（Http、Socks5、Trojan、Unknown） |
 
 ### pipeline 层
 
 | 组件 | 职责 |
 |------|------|
-| protocols | 协议处理类（http、socks5、tls） |
-| primitives | 基础传输，忙转发（original_tunnel、relay） |
+| protocols | 协议处理类（http、socks5、trojan） |
+| primitives | 基础传输，隧道转发（tunnel、dial、preview） |
 
 ### resolve 层
 
@@ -237,7 +237,7 @@ session.diversion() → registry.create() → handler.process() → pipeline::*(
 ### 上游连接路径
 
 ```
-pipeline → router.async_forward() → source.acquire() → transport
+pipeline → router.async_forward() → tcpool.acquire() → transport
 ```
 
 ---

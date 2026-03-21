@@ -5,8 +5,8 @@
             "blacklist": true
         },
         "positive": {
-            "host": "localhost",
-            "port": 8080
+            "host": "",
+            "port": 0
         },
         "addressable": {
             "host": "0.0.0.0",
@@ -28,8 +28,7 @@
             ]
         },
         "camouflage": "/api/notification/v1/stream?id=abcd-1234",
-        "reverse_map": {
-        },
+        "reverse_map": {},
         "pool": {
             "max_cache_per_endpoint": 32,
             "max_idle_seconds": 300
@@ -37,6 +36,7 @@
         "buffer": {
             "size": 65536
         },
+        "disable_ipv6": false,
         "clash": true,
         "socks5": {
             "enable_tcp": true,
@@ -55,14 +55,14 @@
     },
     "trace": {
         "file_name": "forward.log",
-        "path_name": "./logs",
+        "path_name": "C:\\Users\\C1373\\Desktop\\code\\forward-engine\\logs",
         "max_size": 67108864,
         "max_files": 8,
         "queue_size": 8192,
         "thread_count": 1,
         "enable_console": true,
         "enable_file": true,
-        "log_level": "info",
+        "log_level": "debug",
         "pattern": "[%Y-%m-%d %H:%M:%S.%e] [%5t] [%l] %v",
         "trace_name": "forward_engine"
     }

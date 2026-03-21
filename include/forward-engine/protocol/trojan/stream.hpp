@@ -66,7 +66,7 @@ namespace ngx::protocol::trojan
          *
          * @note 底层传输层必须已建立连接，否则后续操作将失败
          */
-        explicit relay(ngx::channel::transport::transmission_pointer next_layer,
+        explicit relay(ngx::channel::transport::shared_transmission next_layer,
                        const config &cfg = {},
                        std::function<bool(std::string_view)> credential_verifier = nullptr)
             : next_layer_(std::move(next_layer)), config_(cfg), verifier_(std::move(credential_verifier))
@@ -374,18 +374,18 @@ namespace ngx::protocol::trojan
 
         /**
          * @brief 释放底层传输层所有权
-         * @return transport::transmission_pointer 底层传输层指针
+         * @return transport::shared_transmission 底层传输层指针
          * @details 释放后 relay 不再持有传输层，不应再调用其方法。
          * 适用于需要将底层传输层转移给其他组件的场景。
          */
-        ngx::channel::transport::transmission_pointer release()
+        ngx::channel::transport::shared_transmission release()
         {
             return std::move(next_layer_);
         }
 
     private:
         // 底层传输层，构造时通过 unique_ptr 转移所有权
-        ngx::channel::transport::transmission_pointer next_layer_;
+        ngx::channel::transport::shared_transmission next_layer_;
         // 协议配置
         config config_;
         // 凭据验证回调函数
@@ -397,17 +397,17 @@ namespace ngx::protocol::trojan
      * @details 使用 shared_ptr 管理 relay 对象生命周期，支持协程
      * 上下文中的异步保活。通过 shared_from_this 实现安全回调。
      */
-    using relay_pointer = std::shared_ptr<relay>;
+    using shared_relay = std::shared_ptr<relay>;
 
     /**
      * @brief 创建 Trojan 中继器对象
      * @param next_layer 底层传输层指针
      * @param cfg 协议配置
      * @param credential_verifier 凭据验证回调函数
-     * @return relay_pointer 中继器对象共享指针
+     * @return shared_relay 中继器对象共享指针
      * @details 工厂函数，封装 std::make_shared 调用，简化对象创建。
      */
-    inline relay_pointer make_relay(ngx::channel::transport::transmission_pointer next_layer, const config &cfg = {},
+    inline shared_relay make_relay(ngx::channel::transport::shared_transmission next_layer, const config &cfg = {},
                                     std::function<bool(std::string_view)> credential_verifier = nullptr)
     {
         return std::make_shared<relay>(std::move(next_layer), cfg, std::move(credential_verifier));
@@ -415,8 +415,8 @@ namespace ngx::protocol::trojan
 
     // 兼容旧名称，将在未来版本移除
     using trojan_stream = relay;
-    using trojan_stream_ptr = relay_pointer;
-    inline trojan_stream_ptr make_trojan_stream(ngx::channel::transport::transmission_pointer next_layer, const config &cfg = {},
+    using trojan_stream_ptr = shared_relay;
+    inline trojan_stream_ptr make_trojan_stream(ngx::channel::transport::shared_transmission next_layer, const config &cfg = {},
                                                 std::function<bool(std::string_view)> credential_verifier = nullptr)
     {
         return make_relay(std::move(next_layer), cfg, std::move(credential_verifier));

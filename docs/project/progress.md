@@ -9,7 +9,7 @@
 - **核心技术**：C++23、Boost.Asio 协程、BoringSSL、PMR 内存管理
 - **开发状态**：**稳定可用**，核心功能已完成
 - **当前版本**：v0.8.0
-- **最后更新**：2026年3月17日
+- **最后更新**：2026年3月21日
 - **主要依赖**：Boost(system)、BoringSSL、spdlog、glaze
 
 ---
@@ -69,7 +69,7 @@
 | **dispatch** | registry | ✅ 100% | 处理器注册表，工厂模式 |
 | **dispatch** | handlers | ✅ 100% | HTTP/SOCKS5/TLS/Unknown 处理器实现 |
 | **pipeline** | protocols | ✅ 100% | HTTP/SOCKS5/TLS 协议处理管道 |
-| **pipeline** | primitives | ✅ 100% | dial、preview、original_tunnel 原语 |
+| **pipeline** | primitives | ✅ 100% | dial、preview、tunnel 原语 |
 | **resolve** | router | ✅ 100% | 统一路由入口，整合仲裁器、解析器 |
 | **resolve** | arbiter | ✅ 100% | 反向路由、直连路由、数据报路由 |
 | **resolve** | tcpcache | ✅ 100% | TCP DNS 解析，缓存，请求合并 |
@@ -97,15 +97,15 @@
 | **transmission** | ✅ 100% | 传输层抽象接口 |
 | **reliable** | ✅ 100% | TCP 可靠传输实现 |
 | **unreliable** | ✅ 100% | UDP 不可靠传输实现 |
-| **secure** | ✅ 100% | TLS 安全传输 |
+| **encrypted** | ✅ 100% | TLS 加密传输 |
 
 #### pool 子模块
 
 | 组件 | 完成度 | 说明 |
 |------|--------|------|
-| **source** | ✅ 100% | TCP 连接池，栈式缓存 + 僵尸检测 |
+| **tcpool** | ✅ 100% | TCP 连接池，栈式缓存 + 僵尸检测 |
 
-#### loader 子模块
+#### adapter 子模块
 
 | 组件 | 完成度 | 说明 |
 |------|--------|------|
@@ -232,6 +232,22 @@ curl -v -x socks5://127.0.0.1:8081 http://www.baidu.com
 ---
 
 ## 更新日志
+
+### 2026年3月21日
+
+**架构变更：**
+- 移除独立的 `pipeline::tls` 函数，TLS 处理整合到 `pipeline::trojan` 中
+- `dispatch::Tls` 处理器移除，由 `dispatch::Trojan` 统一处理 TLS 流量
+- `primitives::original_tunnel` 重命名为 `primitives::tunnel`
+
+**模块重命名：**
+- `secure` → `encrypted`：TLS 传输层模块重命名为更准确的加密传输语义
+- `loader` → `adapter`：Channel 子模块重命名，更准确反映适配器职责
+
+**文档同步：**
+- 更新 `progress.md`：transport 子模块表格（secure → encrypted）
+- 更新 `dependencies.md`：loader → adapter 路径引用
+- 更新 `CLAUDE.md`：模块描述更新
 
 ### 2026年3月17日（下午）
 

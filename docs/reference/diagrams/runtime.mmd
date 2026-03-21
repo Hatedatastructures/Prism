@@ -22,7 +22,7 @@ sequenceDiagram
     Session->>Dispatch: registry::create(type)
     Dispatch-->>Session: handler
     Session->>Handler: process(ctx, data)
-    Handler->>Pipeline: http/socks5/tls()
+    Handler->>Pipeline: http/socks5/trojan()
     Pipeline->>Router: dial()
     Router->>Transport: connect upstream
-    Pipeline->>Pipeline: original_tunnel()
+    Pipeline->>Pipeline: tunnel()
