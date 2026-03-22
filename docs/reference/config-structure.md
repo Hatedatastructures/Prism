@@ -319,7 +319,7 @@ resolve::router &router;
 
 路由器引用，负责请求分发和后端选择。
 
-**定义位置**: [resolve/router.hpp](../../include/forward-engine/agent/resolve/router.hpp)
+**定义位置**: [resolve/router.hpp](../../include/forward-engine/resolve/router.hpp)
 
 ---
 

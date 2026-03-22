@@ -7,6 +7,7 @@
  */
 #pragma once
 
+#include <forward-engine/resolve/config.hpp>
 #include <forward-engine/memory/container.hpp>
 #include <forward-engine/protocol/socks5/config.hpp>
 #include <forward-engine/protocol/trojan/config.hpp>
@@ -199,5 +200,8 @@ namespace ngx::agent
 
         // Trojan 协议配置，控制能力开关和 UDP 参数
         protocol::trojan::config trojan;
+
+        // DNS 解析器配置，控制上游服务器、缓存、规则等
+        resolve::config dns;
     };
 }

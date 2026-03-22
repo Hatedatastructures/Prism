@@ -111,7 +111,7 @@ namespace ngx::channel
         }
 
         // 创建新连接（Windows 上需要 co_spawn + close 方案处理超时）
-        // 超时设为 300ms，配合 tcpcache 顺序尝试多个端点
+        // 超时设为 300ms，配合 router 顺序尝试多个端点
         constexpr auto connect_timeout = std::chrono::milliseconds(300);
 
         // 打包所有状态到一个结构体，只需一次堆分配

@@ -20,7 +20,7 @@
    位置：[primitives.cpp](../../src/forward-engine/agent/pipeline/primitives.cpp)，命名空间 `ngx::agent::pipeline::primitives` 的 `dial`。
 
 6. **路由决策与连接**：`router` 建立上游连接（直连或回退）  
-   位置：[router.cpp](../../src/forward-engine/agent/resolve/router.cpp)，类 `ngx::agent::resolve::router` 的 `async_forward` 与 `async_reverse`。
+   位置：[router.cpp](../../src/forward-engine/resolve/router.cpp)，类 `ngx::resolve::router` 的 `async_forward` 与 `async_reverse`。
 
 7. **隧道转发**：根据请求类型进入隧道（`tunnel`）转发。
 
@@ -117,7 +117,7 @@ Host: myservice.com
 
 ### 3.1 正向路由 `async_forward`
 
-路由优先级（[router.cpp](../../src/forward-engine/agent/resolve/router.cpp)）：
+路由优先级（[router.cpp](../../src/forward-engine/resolve/router.cpp)）：
 1. **黑名单拦截**：检查目标地址是否在黑名单中（直接返回 `blocked`）。
 2. **DNS 解析并直连**：解析目标主机名，通过连接池 `acquire_tcp` 获取或创建连接。
 3. **直连失败回退**：如果直连失败，回退到配置的上游代理（通过 `CONNECT` 命令）。
@@ -125,7 +125,7 @@ Host: myservice.com
 ### 3.2 反向路由 `async_reverse`
 
 从 `reverse_map_` 取目标后端 `endpoint`，通过连接池复用连接。
-对应实现：[router.cpp](../../src/forward-engine/agent/resolve/router.cpp) 的 `ngx::agent::resolve::router::async_reverse`。
+对应实现：[router.cpp](../../src/forward-engine/resolve/router.cpp) 的 `ngx::resolve::router::async_reverse`。
 
 ### 3.3 上游代理回退 `async_positive`
 
@@ -135,7 +135,7 @@ Host: myservice.com
 3. 发送 `CONNECT host:port` 请求。
 4. 解析响应行状态码（仅接受 `200`）。
 
-对应实现：[router.cpp](../../src/forward-engine/agent/resolve/router.cpp) 的 `ngx::agent::resolve::router::async_positive`。
+对应实现：[router.cpp](../../src/forward-engine/resolve/router.cpp) 的 `ngx::resolve::router::async_positive`。
 
 ## 4. 隧道转发机制
 

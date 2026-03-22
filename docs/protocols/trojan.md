@@ -157,7 +157,7 @@ Trojan 协议**始终使用正向代理模式**，路由决策流程如下：
 3. **直连尝试**：尝试直接连接到目标服务器。
 4. **上游代理回退**：如果直连失败，回退到配置的上游代理。
 
-对应实现：[router.cpp](../../src/forward-engine/agent/resolve/router.cpp) 的 `ngx::agent::resolve::router::async_forward`。
+对应实现：[router.cpp](../../src/forward-engine/resolve/router.cpp) 的 `ngx::resolve::router::async_forward`。
 
 ## 6. 双向隧道转发
 

@@ -8,7 +8,7 @@
 #pragma once
 
 #include <forward-engine/agent/config.hpp>
-#include <forward-engine/agent/resolve/router.hpp>
+#include <forward-engine/resolve/router.hpp>
 #include <forward-engine/agent/account/entry.hpp>
 #include <forward-engine/memory/pool.hpp>
 #include <forward-engine/channel/transport/transmission.hpp>

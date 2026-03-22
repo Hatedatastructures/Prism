@@ -1,5 +1,6 @@
 #include <forward-engine/channel/pool/pool.hpp>
-#include <forward-engine/agent/resolve/router.hpp>
+#include <forward-engine/resolve/router.hpp>
+#include <forward-engine/resolve/config.hpp>
 #include <boost/asio.hpp>
 #include <boost/asio/experimental/awaitable_operators.hpp>
 #include <array>
@@ -151,7 +152,8 @@ net::awaitable<void> run_test(net::io_context &ioc, unsigned short echo_port, un
     tcp::endpoint endpoint(net::ip::make_address("127.0.0.1"), echo_port);
 
     ngx::channel::tcpool pool(ioc);
-    ngx::agent::resolve::router dist(pool, ioc);
+    ngx::resolve::config dns_cfg;
+    ngx::resolve::router dist(pool, ioc, std::move(dns_cfg));
 
     try
     {

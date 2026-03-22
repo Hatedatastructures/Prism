@@ -15,7 +15,7 @@
 
 #include <forward-engine/agent/account/directory.hpp>
 #include <forward-engine/agent/front/balancer.hpp>
-#include <forward-engine/agent/resolve/router.hpp>
+#include <forward-engine/resolve/router.hpp>
 #include <forward-engine/agent/context.hpp>
 #include <forward-engine/agent/worker/launch.hpp>
 #include <forward-engine/agent/worker/stats.hpp>

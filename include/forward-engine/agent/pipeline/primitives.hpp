@@ -22,7 +22,7 @@
 #include <boost/asio/experimental/awaitable_operators.hpp>
 
 #include <forward-engine/agent/context.hpp>
-#include <forward-engine/agent/resolve/router.hpp>
+#include <forward-engine/resolve/router.hpp>
 #include <forward-engine/fault/code.hpp>
 #include <forward-engine/memory/container.hpp>
 #include <forward-engine/protocol/analysis.hpp>

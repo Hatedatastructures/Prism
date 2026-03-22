@@ -41,12 +41,12 @@
 **reverse_map 路由**：
 - 配置定义：[config.hpp](../../include/forward-engine/agent/config.hpp)
 - 路由初始化：[worker.cpp](../../src/forward-engine/agent/worker/worker.cpp)
-- 路由查询：[arbiter.hpp](../../include/forward-engine/agent/resolve/arbiter.hpp)
+- 路由查询：[router.hpp](../../include/forward-engine/resolve/router.hpp)
 
 #### 正向代理 Fallback
 
 **直连失败后转发**：
-- 实现位置：[router.cpp](../../src/forward-engine/agent/resolve/router.cpp)
+- 实现位置：[router.cpp](../../src/forward-engine/resolve/router.cpp)
 - 处理流程：先检查黑名单 → 尝试直连 → 失败后转发到 positive endpoint
 
 #### 负载均衡
@@ -65,9 +65,9 @@
 
 #### DNS 缓存
 
-- **tcpcache（TCP）**：[tcpcache.hpp](../../include/forward-engine/agent/resolve/tcpcache.hpp)，默认 TTL 120 秒，最大条目 10000
-- **udpcache（UDP）**：[udpcache.hpp](../../include/forward-engine/agent/resolve/udpcache.hpp)，默认 TTL 120 秒，最大条目 4096
-- **请求合并**：[coalescer.hpp](../../include/forward-engine/agent/resolve/coalescer.hpp)，避免重复 DNS 查询
+- **cache**：[cache.hpp](../../include/forward-engine/resolve/cache.hpp)，支持正向缓存和负缓存，默认 TTL 120 秒，最大条目 10000，serve-stale 模式
+- **请求合并**：[coalescer.hpp](../../include/forward-engine/resolve/coalescer.hpp)，避免重复 DNS 查询
+- **域名规则**：[rules.hpp](../../include/forward-engine/resolve/rules.hpp)，基于反转 Trie 的规则引擎，支持静态 IP、广告屏蔽、CNAME 重定向
 
 #### 账户认证与配额控制
 
@@ -208,7 +208,7 @@
 |------|------|----------|------|
 | 20 | `protocol::analysis::resolve()` | `src/forward-engine/agent/pipeline/protocols.cpp` | 解析请求获取目标地址 |
 | 21 | `primitives::dial()` | `src/forward-engine/agent/pipeline/primitives.cpp` | 建立上游连接 |
-| 22 | `router->async_reverse()` 或 `router->async_forward()` | `src/forward-engine/agent/pipeline/primitives.cpp` | 路由选择 |
+| 22 | `router->async_reverse()` 或 `router->async_forward()` | `src/forward-engine/resolve/router.cpp` | 路由选择 |
 | 23 | `ngx::channel::transport::make_reliable()` | `src/forward-engine/agent/pipeline/primitives.cpp` | 包装为可靠传输 |
 
 ### 3.8 双向转发阶段
@@ -268,14 +268,17 @@ const tcp::endpoint endpoint(tcp::v4(), cfg.addressable.port);
 
 ### 5.2 async_forward 先直连后 Fallback
 
-**实现位置**：[router.cpp](../../src/forward-engine/agent/resolve/router.cpp)
+**实现位置**：[router.cpp](../../src/forward-engine/resolve/router.cpp)
 
 **处理流程**：
-1. 先检查黑名单
-2. 尝试 DNS 解析并直连目标
-3. 直连失败后才调用 `async_positive()` 转发到 positive endpoint
+1. DNS 解析目标域名（通过 recursor 的六阶段查询管道）
 
-**设计意图**：优先直连减少延迟，仅在直连不可达时使用上游代理。
+
+2. IPv6 过滤（若 disable_ipv6 为 true）
+3. 带重试连接（最多尝试 3 个端点）
+4. 通过连接池获取已建立的 socket
+
+**设计意图**：DNS 解析由 recursor 整合规则、缓存、请求合并，减少实际上游查询次数。
 
 ### 5.3 reverse_map 目标更偏向 IP Literal
 

@@ -14,10 +14,10 @@
 
 #include <boost/asio.hpp>
 
-#include <forward-engine/agent/resolve/transparent.hpp>
+#include <forward-engine/resolve/transparent.hpp>
 #include <forward-engine/memory/container.hpp>
 
-namespace ngx::agent::resolve
+namespace ngx::resolve
 {
     namespace net = boost::asio;
 
@@ -152,27 +152,9 @@ namespace ngx::agent::resolve
             }
         }
 
-        /**
-         * @brief 获取请求合并列表。
-         * @return 请求合并列表的引用。
-         */
-        [[nodiscard]] auto flights() noexcept -> flight_list &
-        {
-            return flights_;
-        }
-
-        /**
-         * @brief 获取请求合并索引。
-         * @return 请求合并索引的引用。
-         */
-        [[nodiscard]] auto index() noexcept -> flight_hash_map &
-        {
-            return flight_map_;
-        }
-
     private:
         memory::resource_pointer mr_; // 内存资源
         flight_list flights_;         // 请求合并列表
         flight_hash_map flight_map_;  // 请求合并索引
     };
-} // namespace ngx::agent::resolve
+} // namespace ngx::resolve

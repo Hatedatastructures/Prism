@@ -51,6 +51,29 @@
             "enable_udp": false,
             "udp_idle_timeout": 60,
             "udp_max_datagram": 65535
+        },
+        "dns": {
+            "servers": [
+                {
+                    "address": "8.8.8.8",
+                    "port": 53,
+                    "protocol": "udp",
+                    "timeout_ms": 2000
+                },
+                {
+                    "address": "1.1.1.1",
+                    "port": 53,
+                    "protocol": "udp",
+                    "timeout_ms": 2000
+                }
+            ],
+            "mode": "first",
+            "timeout_ms": 5000,
+            "cache_enabled": true,
+            "cache_size": 10000,
+            "serve_stale": true,
+            "ttl_min": 60,
+            "ttl_max": 86400
         }
     },
     "trace": {

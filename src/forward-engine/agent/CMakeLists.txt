@@ -10,7 +10,6 @@ target_sources(${PROJECT_NAME}_static_library
 
 add_subdirectory(account)
 add_subdirectory(session)
-add_subdirectory(resolve)
 add_subdirectory(front)
 add_subdirectory(pipeline)
 add_subdirectory(worker)

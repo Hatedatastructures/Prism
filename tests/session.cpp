@@ -6,7 +6,7 @@
 #include <memory>
 #include <string>
 #include <forward-engine/channel/pool/pool.hpp>
-#include <forward-engine/agent/resolve/router.hpp>
+#include <forward-engine/resolve/router.hpp>
 #include <forward-engine/agent/session/session.hpp>
 #include <forward-engine/channel/transport/reliable.hpp>
 #include <forward-engine/exception/network.hpp>
@@ -514,7 +514,8 @@ int main()
 
         // 鍒濆鍖?
         const auto pool = std::make_unique<ngx::channel::tcpool>(ioc);
-        auto dist = std::make_unique<agent::resolve::router>(*pool, ioc);
+        ngx::resolve::config dns_cfg;
+        auto dist = std::make_unique<ngx::resolve::router>(*pool, ioc, std::move(dns_cfg));
 
         auto ssl_ctx = std::make_shared<ssl::context>(ssl::context::tlsv12);
         ssl_ctx->set_verify_mode(ssl::verify_none);

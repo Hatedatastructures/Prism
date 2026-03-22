@@ -14,12 +14,12 @@
 #include <forward-engine/agent/context.hpp>
 #include <forward-engine/agent/dispatch/handler.hpp>
 #include <forward-engine/agent/dispatch/handlers.hpp>
-#include <forward-engine/agent/resolve/arbiter.hpp>
-#include <forward-engine/agent/resolve/udpcache.hpp>
-#include <forward-engine/agent/resolve/tcpcache.hpp>
-#include <forward-engine/agent/resolve/coalescer.hpp>
-#include <forward-engine/agent/resolve/router.hpp>
-#include <forward-engine/agent/resolve/transparent.hpp>
+#include <forward-engine/resolve/router.hpp>
+#include <forward-engine/resolve/cache.hpp>
+#include <forward-engine/resolve/cache.hpp>
+#include <forward-engine/resolve/coalescer.hpp>
+#include <forward-engine/resolve/router.hpp>
+#include <forward-engine/resolve/transparent.hpp>
 #include <forward-engine/agent/front/balancer.hpp>
 #include <forward-engine/agent/front/listener.hpp>
 #include <forward-engine/agent/pipeline/primitives.hpp>
@@ -70,12 +70,12 @@
 ## 分发路由
 
 ```cpp
-#include <forward-engine/agent/resolve/router.hpp>     // router 类
-#include <forward-engine/agent/resolve/arbiter.hpp>    // arbiter 类
-#include <forward-engine/agent/resolve/udpcache.hpp>   // udpcache 类
-#include <forward-engine/agent/resolve/tcpcache.hpp>   // tcpcache 类
-#include <forward-engine/agent/resolve/coalescer.hpp>  // coalescer 类
-#include <forward-engine/agent/resolve/transparent.hpp> // transparent_hash, transparent_equal
+#include <forward-engine/resolve/router.hpp>     // router 类
+#include <forward-engine/resolve/router.hpp>    // arbiter 类
+#include <forward-engine/resolve/cache.hpp>   // udpcache 类
+#include <forward-engine/resolve/cache.hpp>   // tcpcache 类
+#include <forward-engine/resolve/coalescer.hpp>  // coalescer 类
+#include <forward-engine/resolve/transparent.hpp> // transparent_hash, transparent_equal
 ```
 
 ---

@@ -31,7 +31,7 @@
 - 内部资源组合：
   - `io_context`：单线程事件循环
   - `ngx::channel::tcpool`：TCP 连接池
-  - `resolve::router`：路由表
+  - `resolve::router`：路由表（来自顶层 `resolve` 模块）
   - `ssl::context`：TLS 上下文（可选）
   - `stats::state`：负载统计
   - `server_context`：服务端全局上下文
@@ -154,54 +154,153 @@
 - 源码：[primitives.hpp](../../include/forward-engine/agent/pipeline/primitives.hpp)、[primitives.cpp](../../src/forward-engine/agent/pipeline/primitives.cpp)
 
 ## 6. resolve 模块
-位置：`include/forward-engine/agent/resolve/`、`src/forward-engine/agent/resolve/`
+位置：`include/forward-engine/resolve/`、`src/forward-engine/resolve/`
 
-### router
-- 职责：统一路由入口，整合子组件
+> **重要**：resolve 已从 `agent/resolve/` 提升为顶层独立模块，命名空间为 `ngx::resolve`。
+> Agent 层通过 `worker` 持有 `resolve::router` 成员来使用该模块。
+
+### 模块架构概览
+
+```
+┌─────────────────────────────────────────────────────────┐
+│                      router                             │  ← 分发层门面（反向/正向/直连/数据报路由）
+│  整合 recursor + 反向路由表 + 连接池                      │
+├─────────────────────────────────────────────────────────┤
+│                     recursor                             │  ← 解析器门面（六阶段查询管道）
+│  规则匹配 → 缓存查找 → 请求合并 → 上游查询 → IP过滤 → 存储 │
+├──────────┬──────────┬──────────┬────────────────────────┤
+│ resolver │  cache   │  rules   │ coalescer              │
+│ 四协议查询 │ 正/负缓存 │ 域名规则   │ 请求合并               │
+├──────────┴──────────┴──────────┴────────────────────────┤
+│                      packet                             │  ← DNS 报文编解码（RFC 1035）
+├─────────────────────────────────────────────────────────┤
+│                    transparent                           │  ← 透明哈希与相等比较器（FNV-1a）
+├─────────────────────────────────────────────────────────┤
+│                      config                             │  ← 配置类型（header-only）
+└─────────────────────────────────────────────────────────┘
+```
+
+### config
+- 职责：DNS 解析器全部配置类型，header-only 实现
+- 核心类型：
+  - `dns_protocol` 枚举：`udp`、`tcp`、`tls`（DoT）、`https`（DoH）
+  - `dns_remote` 结构体：上游服务器配置（地址、协议、端口、超时、TLS 选项、DoH 路径）
+  - `resolve_mode` 枚举：`fastest`（并发选最快）、`first`（并发选首个成功）、`fallback`（顺序尝试）
+  - `address_rule` 结构体：域名 → 静态 IP 映射（支持通配符 `*.xxx.com`）、广告屏蔽标记
+  - `cname_rule` 结构体：域名 CNAME 重定向
+  - `config` 结构体：聚合以上所有配置，包含缓存参数（容量、TTL、serve-stale）、TTL 钳制范围（ttl_min/ttl_max）、IPv4/IPv6 黑名单
+- 地址解析规则：无 scheme 默认 UDP（端口 53）；`tcp://` 端口 53；`tls://` 端口 853；`https://` 端口 443
+- 通过 Glaze 库提供 JSON 序列化能力
+- 源码：[config.hpp](../../include/forward-engine/resolve/config.hpp)
+
+### packet
+- 职责：DNS 报文编解码，完全不依赖系统 resolver（RFC 1035）
+- 核心类型：
+  - `qtype` 枚举：A(1)、NS(2)、CNAME(5)、SOA(6)、MX(15)、TXT(16)、AAAA(28)、OPT(41)
+  - `question` 结构体：DNS 查询段（域名 + 查询类型 + 类别）
+  - `record` 结构体：DNS 资源记录（域名 + 类型 + 类别 + TTL + RDATA）
+  - `message` 类：完整的 DNS 报文
 - 关键方法：
-  - `async_reverse()`：反向代理路由，通过 arbiter 查找路由表
-  - `async_direct()`：直连端点路由，直接通过连接池获取
-  - `async_forward()`：正向代理路由，**先直连后 fallback 到 positive endpoint**
-  - `async_datagram()`：数据报路由，通过 arbiter 解析目标
-  - `resolve_datagram_target()`：仅解析 UDP 端点，不创建套接字
-- 关键实现：
-  - 黑名单过滤在 `async_forward` 入口处检查
-  - `async_positive` 发送 CONNECT 请求到上游代理
-- 源码：[router.hpp](../../include/forward-engine/agent/resolve/router.hpp)、[router.cpp](../../src/forward-engine/agent/resolve/router.cpp)
+  - `message::pack()`：序列化为 wire format，实现域名压缩指针减少报文体积
+  - `message::unpack()`：反序列化 wire format，检测压缩指针循环防止恶意报文
+  - `message::make_query()`：构造标准递归查询报文
+  - `message::extract_ips()`：从 answer/authority/additional 段提取所有 A/AAAA 记录的 IP
+  - `message::min_ttl()`：取所有记录中的最小 TTL，用于缓存 TTL 钳制
+- TCP 帧封装：`pack_tcp()` / `unpack_tcp()`，2 字节大端长度前缀 + DNS 报文（RFC 1035 §4.2.2）
+- 源码：[packet.hpp](../../include/forward-engine/resolve/packet.hpp)、[packet.cpp](../../src/forward-engine/resolve/packet.cpp)
 
-### arbiter
-- 职责：反向路由、直连路由、数据报路由
-- 关键实现：
-  - 无状态协调器，所有依赖通过引用注入
-  - 使用透明哈希和相等比较器支持异构键查找
-  - `reverse_map` 类型：`unordered_map<string, tcp::endpoint, transparent_hash, transparent_equal>`
-- 源码：[arbiter.hpp](../../include/forward-engine/agent/resolve/arbiter.hpp)
+### resolver
+- 职责：异步 DNS 查询客户端，支持四种传输协议
+- 核心类型：
+  - `resolve_result` 结构体：封装 DNS 响应报文、IP 列表、RTT、来源服务器、错误码
+  - `resolver` 类：异步 DNS 解析器
+- 关键方法：
+  - `resolve(domain, qtype)`：异步解析域名，返回 `awaitable<resolve_result>`
+  - `set_servers()` / `set_mode()` / `set_timeout()`：配置上游服务器、查询策略、超时
+- 四种查询协议的实现：
+  - **UDP**（`query_udp`）：512 字节缓冲区，检测 TC 标志自动回退 TCP（RFC 1035 §4.2.1）
+  - **TCP**（`query_tcp`）：2 字节大端长度前缀 + DNS 报文帧格式
+  - **DoT**（`query_tls`）：TCP + TLS 层，支持 SNI 设置和证书验证控制（BoringSSL）
+  - **DoH**（`query_https`）：TLS + HTTP/1.1 POST（RFC 8484），手动解析 HTTP 响应头提取 Content-Length
+- 查询调度策略（`resolve()` 方法）：
+  - `fallback`：按顺序逐一尝试上游，首个成功即返回
+  - `first`：并发查询所有上游，第一个成功响应即返回
+  - `fastest`：并发查询所有上游，选 RTT 最低的成功响应
+- 超时机制：每个 I/O 操作使用 `steady_timer` + `||`（Asio awaitable 并行组合）实现超时取消
+- 源码：[resolver.hpp](../../include/forward-engine/resolve/resolver.hpp)、[resolver.cpp](../../src/forward-engine/resolve/resolver.cpp)
 
-### tcpcache
-- 职责：TCP DNS 解析、缓存、请求合并
-- 关键实现：
-  - 两级优化：缓存命中 -> 请求合并 -> 发起 DNS 解析
-  - 缓存 TTL 默认 120 秒，最大条目 10000
-  - FIFO 淘汰策略
-  - 连接失败时清除对应缓存记录
-- 源码：[tcpcache.hpp](../../include/forward-engine/agent/resolve/tcpcache.hpp)、[tcpcache.cpp](../../src/forward-engine/agent/resolve/tcpcache.cpp)
+### recursor
+- 职责：高性能 DNS 解析器门面（Facade），替代系统 `getaddrinfo`
+- 设计为 per-worker 实例，非线程安全
+- 六阶段查询管道（`query_pipeline`）：
+  1. **规则匹配**：查域名规则引擎（blocked / negative / 静态 IP / CNAME）
+  2. **缓存查找**：命中缓存直接返回（含负缓存和 serve-stale 判断）
+  3. **请求合并**：相同查询挂起等待，仅发送一次上游请求（coalescer）
+  4. **上游查询**：调用 `resolver` 向上游发请求
+  5. **IP 黑名单过滤**：遍历结果列表移除黑名单网段内的 IP
+  6. **TTL 钳制 + 缓存存储**：取 min TTL 并 clamp 到 `[ttl_min, ttl_max]` 后写入缓存；查询失败写入负缓存
+- 公开接口：
+  - `resolve(host)`：并发解析 A + AAAA，合并 IP 列表返回
+  - `resolve_tcp(host, port)`：解析到 TCP 端点列表
+  - `resolve_udp(host, port)`：解析到 UDP 端点（优先 A 记录，回退 AAAA）
+- 源码：[recursor.hpp](../../include/forward-engine/resolve/recursor.hpp)、[recursor.cpp](../../src/forward-engine/resolve/recursor.cpp)
 
-### udpcache
-- 职责：UDP DNS 解析、缓存
+### cache
+- 职责：DNS 结果缓存，支持正向缓存和负缓存
 - 关键实现：
-  - 与 `tcpcache` 类似的缓存和请求合并机制
-  - 仅存储单个端点（UDP 场景通常不需要尝试多个地址）
-  - 缓存 TTL 默认 120 秒，最大条目 4096
-- 源码：[udpcache.hpp](../../include/forward-engine/agent/resolve/udpcache.hpp)、[udpcache.cpp](../../src/forward-engine/agent/resolve/udpcache.cpp)
+  - 缓存键格式：`"domain:qtype_num"`（如 `example.com:1`）
+  - `get()` 多级判断：未过期正向缓存 → 未过期负缓存 → 过期 + serve-stale → 过期删除
+  - `put()` 写入正向缓存，FIFO 淘汰（超过 `max_entries` 时删除最早插入的条目）
+  - `put_negative()` 写入负缓存（独立 negative_ttl，默认 30 秒）
+  - `evict_expired()` 清理所有过期条目
+  - 使用 `transparent_hash` / `transparent_equal` 实现异构键查找
+- 非线程安全，设计为 per-worker 实例
+- 源码：[cache.hpp](../../include/forward-engine/resolve/cache.hpp)、[cache.cpp](../../src/forward-engine/resolve/cache.cpp)
+
+### rules
+- 职责：域名规则引擎，基于反转域名基数树（Trie）实现高效匹配
+- 核心类型：
+  - `rule_result` 结构体：规则匹配结果（静态 IP 列表、CNAME 目标、广告屏蔽标记、拦截标记）
+  - `domain_trie` 类：反转域名基数树
+  - `rules_engine` 类：整合地址规则和 CNAME 规则两棵 Trie
+- 关键实现：
+  - **反转存储**：`www.example.com` 存储为 `com → example → www`，将后缀匹配等价于 Trie 前缀遍历
+  - **通配符处理**：`*.example.com` 在 `example` 节点标记 `wildcard`，查询域名至少比通配符多一级标签才匹配
+  - **规则优先级**：地址规则优先于 CNAME 规则
+- 源码：[rules.hpp](../../include/forward-engine/resolve/rules.hpp)、[rules.cpp](../../src/forward-engine/resolve/rules.cpp)
 
 ### coalescer
-- 职责：请求合并机制
+- 职责：请求合并（Request Coalescing），将同一目标的并发请求合并为单次操作
 - 关键实现：
-  - `flight` 结构体：跟踪正在进行的请求
-  - 使用永不超时的定时器挂起等待协程
-  - 延迟清理：通过 `pending_cleanup` 标记避免迭代器失效
-  - `flush_cleanup()` 在下一次请求开始前执行实际删除
-- 源码：[coalescer.hpp](../../include/forward-engine/agent/resolve/coalescer.hpp)
+  - `flight` 结构体：跟踪正在进行的请求（键、定时器、等待者计数、完成状态）
+  - 使用永不超时的 `steady_timer` 挂起等待协程
+  - `find_or_create()`：查找或创建 flight 记录，返回是否为新建
+  - 延迟清理：通过 `pending_cleanup` 标记避免迭代器失效，`flush_cleanup()` 在下次请求前执行实际删除
+- 非线程安全
+- 源码：[coalescer.hpp](../../include/forward-engine/resolve/coalescer.hpp)
+
+### transparent
+- 职责：透明哈希与相等比较器，允许 `unordered_map` 中混合使用 `string_view` 和 `memory::string` 查找
+- 核心类型：
+  - `transparent_hash`：FNV-1a 哈希算法
+  - `transparent_equal`：四种混合比较重载（view↔view、string↔view、view↔string、string↔string）
+- 被 `cache`、`coalescer`、`router` 广泛复用
+- 源码：[transparent.hpp](../../include/forward-engine/resolve/transparent.hpp)
+
+### router
+- 职责：分发层路由器顶层门面，整合 DNS 解析器、反向路由表和连接池
+- 关键方法：
+  - `async_reverse(host)`：反向代理路由，通过反向路由表查找目标端点，从连接池获取
+  - `async_direct(ep)`：直连路由，已知端点直接从连接池获取
+  - `async_forward(host, port)`：正向转发，DNS 解析后带重试连接（最多 3 次）
+  - `async_datagram(host, port)`：UDP 数据报路由，解析目标后创建 UDP socket
+  - `resolve_datagram_target(host, port)`：仅解析 UDP 端点，不创建套接字
+- 关键实现：
+  - 内部持有 `recursor dns_` 成员进行 DNS 解析
+  - `reverse_map` 类型：`unordered_map<string, tcp::endpoint>` 支持透明异构查找
+  - IPv6 过滤：当 `disable_ipv6` 为 true 时，在多个层级拒绝/过滤 IPv6 地址
+  - `connect_with_retry()`：遍历端点列表最多尝试 3 次，通过连接池获取已建立的 socket
+- 源码：[router.hpp](../../include/forward-engine/resolve/router.hpp)、[router.cpp](../../src/forward-engine/resolve/router.cpp)
 
 ## 7. account 模块
 位置：`include/forward-engine/agent/account/`、`src/forward-engine/agent/account/`

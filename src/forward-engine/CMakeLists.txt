@@ -26,6 +26,6 @@ target_sources(${PROJECT_NAME}_static_library
 add_subdirectory(channel)
 add_subdirectory(protocol)
 add_subdirectory(trace)
-add_subdirectory(rule)
+add_subdirectory(resolve)
 add_subdirectory(agent)
 add_subdirectory(crypto)
