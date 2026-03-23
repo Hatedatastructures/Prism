@@ -81,6 +81,8 @@ proxy-groups:
 
 # ---------- 规则 ----------
 rules:
+  # 阻止访问 IPv6 网站（当前开发环境没有 IPv6，避免一直 warning 一直输出连接失败）
+  - IP-CIDR6,::/0,REJECT
   # 局域网直连（避免代理回环）
   - IP-CIDR,192.168.0.0/16,DIRECT
   - IP-CIDR,10.0.0.0/8,DIRECT

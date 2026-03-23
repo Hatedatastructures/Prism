@@ -9,6 +9,8 @@
 #include <cctype>
 #include <numeric>
 
+#include <boost/asio/experimental/awaitable_operators.hpp>
+
 #include <forward-engine/resolve/recursor.hpp>
 
 namespace ngx::resolve
@@ -245,20 +247,20 @@ namespace ngx::resolve
     auto recursor::resolve(const std::string_view host)
         -> net::awaitable<std::pair<fault::code, memory::vector<net::ip::address>>>
     {
-        // 并发查询 A 和 AAAA
-        auto [ec4, ips4] = co_await query_pipeline(host, qtype::a);
-        auto [ec6, ips6] = co_await query_pipeline(host, qtype::aaaa);
+        // 并行查询 A 和 AAAA
+        using namespace boost::asio::experimental::awaitable_operators;
+        auto [result4, result6] = co_await (query_pipeline(host, qtype::a) && query_pipeline(host, qtype::aaaa));
 
         // 合并结果
         memory::vector<net::ip::address> all_ips(mr_);
-        all_ips.reserve(ips4.size() + ips6.size());
-        all_ips.insert(all_ips.end(), ips4.begin(), ips4.end());
-        all_ips.insert(all_ips.end(), ips6.begin(), ips6.end());
+        all_ips.reserve(result4.second.size() + result6.second.size());
+        all_ips.insert(all_ips.end(), result4.second.begin(), result4.second.end());
+        all_ips.insert(all_ips.end(), result6.second.begin(), result6.second.end());
 
         if (all_ips.empty())
         {
             // 至少有一种查询成功才视为成功（但无 IP）
-            if (succeeded(ec4) || succeeded(ec6))
+            if (succeeded(result4.first) || succeeded(result6.first))
             {
                 co_return std::make_pair(fault::code::dns_failed, std::move(all_ips));
             }
@@ -273,18 +275,18 @@ namespace ngx::resolve
     {
         const auto port_num = static_cast<std::uint16_t>(std::stoi(std::string(port)));
 
-        // 并发查询 A 和 AAAA
-        auto [ec4, ips4] = co_await query_pipeline(host, qtype::a);
-        auto [ec6, ips6] = co_await query_pipeline(host, qtype::aaaa);
+        // 并行查询 A 和 AAAA
+        using namespace boost::asio::experimental::awaitable_operators;
+        auto [result4, result6] = co_await (query_pipeline(host, qtype::a) && query_pipeline(host, qtype::aaaa));
 
         memory::vector<tcp::endpoint> endpoints(mr_);
-        endpoints.reserve(ips4.size() + ips6.size());
+        endpoints.reserve(result4.second.size() + result6.second.size());
 
-        for (const auto &ip : ips4)
+        for (const auto &ip : result4.second)
         {
             endpoints.emplace_back(ip, port_num);
         }
-        for (const auto &ip : ips6)
+        for (const auto &ip : result6.second)
         {
             endpoints.emplace_back(ip, port_num);
         }

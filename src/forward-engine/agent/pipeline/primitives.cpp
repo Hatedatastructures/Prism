@@ -42,8 +42,9 @@ namespace ngx::agent::pipeline::primitives
     // 检查目标地址是否为 IPv6 字面量
     inline bool is_ipv6_literal(const std::string_view host) noexcept
     {
-        // IPv6 地址包含冒号，且不是端口分隔符
-        return host.find(':') != std::string_view::npos;
+        boost::system::error_code ec;
+        const auto addr = net::ip::make_address(host, ec);
+        return !ec && addr.is_v6();
     }
 
     auto dial(std::shared_ptr<resolve::router> router, std::string_view label,
@@ -214,7 +215,7 @@ namespace ngx::agent::pipeline::primitives
         // 输出传输统计
         if (const auto up = total_bytes[0], down = total_bytes[1]; up > 0 || down > 0)
         {
-            trace::info("[Tunnel] Transfer: Upload {} KB, Download {} KB", up / 1024, down / 1024);
+            trace::info("[Tunnel] Transfer: Upload {} B, Download {} B", up, down);
         }
 
         shut_close(inbound);

@@ -55,19 +55,32 @@ namespace ngx::resolve
     auto router::async_forward(const std::string_view host, const std::string_view port)
         -> net::awaitable<std::pair<fault::code, unique_sock>>
     {
-        // 禁用 IPv6 时，直接拒绝 IPv6 地址字面量
-        if (disable_ipv6_)
+        // 统一检测 IP 字面量（IPv4 / IPv6）
         {
             boost::system::error_code ec;
             const auto addr = net::ip::make_address(host, ec);
-            if (!ec && addr.is_v6())
+            if (!ec)
             {
-                trace::debug("[Resolve] IPv6 disabled, rejected literal: {}", host);
-                co_return std::make_pair(fault::code::host_unreachable, nullptr);
+                // IPv6 + 禁用 → 拒绝
+                if (addr.is_v6() && disable_ipv6_)
+                {
+                    trace::debug("[Resolve] IPv6 disabled, rejected literal: {}", host);
+                    co_return std::make_pair(fault::code::host_unreachable, nullptr);
+                }
+                // IPv4 或 IPv6（未禁用）→ 直接构造 endpoint 连接
+                const auto port_num = static_cast<std::uint16_t>(std::stoi(std::string(port)));
+                const tcp::endpoint ep(addr, port_num);
+                trace::debug("[Resolve] literal address, direct connect: {}", host);
+                auto socket = co_await pool_.acquire_tcp(ep);
+                if (socket && socket->is_open())
+                {
+                    co_return std::make_pair(fault::code::success, std::move(socket));
+                }
+                co_return std::make_pair(fault::code::bad_gateway, nullptr);
             }
         }
 
-        // DNS 解析
+        // 非字面量 → DNS 解析
         auto [resolve_ec, endpoints] = co_await dns_.resolve_tcp(host, port);
         if (fault::failed(resolve_ec) || endpoints.empty())
         {

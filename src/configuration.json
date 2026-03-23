@@ -36,7 +36,7 @@
         "buffer": {
             "size": 65536
         },
-        "disable_ipv6": false,
+        "disable_ipv6": true,
         "clash": true,
         "socks5": {
             "enable_tcp": true,
