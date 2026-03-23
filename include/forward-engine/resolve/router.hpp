@@ -136,6 +136,12 @@ namespace ngx::resolve
             -> net::awaitable<std::pair<fault::code, unique_sock>>;
 
         /**
+         * @brief 查询是否禁用了 IPv6。
+         * @return 是否禁用 IPv6。
+         */
+        [[nodiscard]] auto ipv6_disabled() const noexcept -> bool { return disable_ipv6_; }
+
+        /**
          * @brief 异步路由直连 TCP 端点。
          * @param ep 目标 TCP 端点。
          * @return 协程对象，返回结果码与 TCP 套接字的配对。

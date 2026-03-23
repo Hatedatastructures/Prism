@@ -31,7 +31,7 @@
         "reverse_map": {},
         "pool": {
             "max_cache_per_endpoint": 32,
-            "max_idle_seconds": 300
+            "max_idle_seconds": 1000
         },
         "buffer": {
             "size": 65536

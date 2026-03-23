@@ -191,6 +191,10 @@ namespace ngx::resolve
             }
             if (filtered.empty())
             {
+                if (config_.cache_enabled)
+                {
+                    cache_.put_negative(qname, qt);
+                }
                 trace::warn("[Resolve] {} all IPs blacklisted", qname);
                 co_return std::make_pair(fault::code::blocked, memory::vector<net::ip::address>(mr_));
             }
@@ -214,9 +218,14 @@ namespace ngx::resolve
                 cache_.put(qname, qt, result.ips, ttl);
             }
         }
-        else if (failed(result.error))
+        else if (config_.cache_enabled && failed(result.error))
         {
             // 负缓存
+            cache_.put_negative(qname, qt);
+        }
+        else if (config_.cache_enabled && succeeded(result.error) && result.ips.empty())
+        {
+            // 上游返回成功但无 IP（如 CNAME 委托），写负缓存避免合并等待者反复查询
             cache_.put_negative(qname, qt);
         }
 

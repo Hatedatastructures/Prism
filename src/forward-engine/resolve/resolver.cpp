@@ -112,10 +112,13 @@ namespace ngx::resolve
             co_return fallback;
         }
 
-        // fastest / first 模式：并发查询所有上游
-        memory::vector<resolve_result> results(mr_);
-        results.resize(servers_.size());
-        for (auto &r : results)
+        // first / fastest 模式：并发查询所有上游
+        // 使用 shared_ptr 延长生命周期，确保 detached 任务在协程帧销毁后
+        // 仍可安全访问 query 和 results（first 模式会提前 co_return）
+        auto query_shared = std::make_shared<message>(std::move(query_msg));
+        auto results_shared = std::make_shared<memory::vector<resolve_result>>(mr_);
+        results_shared->resize(servers_.size());
+        for (auto &r : *results_shared)
         {
             r = resolve_result(mr_);
         }
@@ -123,23 +126,23 @@ namespace ngx::resolve
         for (std::size_t i = 0; i < servers_.size(); ++i)
         {
             const auto &server = servers_[i];
-            auto &result = results[i];
 
-            auto task = [this, &server, &query_msg, &result]() -> net::awaitable<void>
+            auto task = [this, &server, query_shared, results_shared, i]() -> net::awaitable<void>
             {
+                auto &result = (*results_shared)[i];
                 switch (server.protocol)
                 {
                 case dns_protocol::udp:
-                    result = co_await query_udp(server, query_msg);
+                    result = co_await query_udp(server, *query_shared);
                     break;
                 case dns_protocol::tcp:
-                    result = co_await query_tcp(server, query_msg);
+                    result = co_await query_tcp(server, *query_shared);
                     break;
                 case dns_protocol::tls:
-                    result = co_await query_tls(server, query_msg);
+                    result = co_await query_tls(server, *query_shared);
                     break;
                 case dns_protocol::https:
-                    result = co_await query_https(server, query_msg);
+                    result = co_await query_https(server, *query_shared);
                     break;
                 }
 
@@ -160,7 +163,7 @@ namespace ngx::resolve
             // first 模式：收到第一个成功响应即返回
             if (mode_ == resolve_mode::first)
             {
-                for (auto &r : results)
+                for (auto &r : *results_shared)
                 {
                     if (!is_pending(r) && succeeded(r.error) && !r.ips.empty())
                     {
@@ -171,7 +174,7 @@ namespace ngx::resolve
 
             // 等待所有结果完成
             bool all_done = true;
-            for (const auto &r : results)
+            for (const auto &r : *results_shared)
             {
                 if (is_pending(r))
                 {
@@ -191,7 +194,7 @@ namespace ngx::resolve
 
         // fastest 模式：选 RTT 最低的成功响应
         resolve_result *best = nullptr;
-        for (auto &r : results)
+        for (auto &r : *results_shared)
         {
             if (succeeded(r.error) && !r.ips.empty())
             {
@@ -206,9 +209,9 @@ namespace ngx::resolve
             co_return std::move(*best);
         }
 
-        if (!results.empty())
+        if (!results_shared->empty())
         {
-            co_return std::move(results.front());
+            co_return std::move(results_shared->front());
         }
 
         auto fallback = resolve_result(mr_);

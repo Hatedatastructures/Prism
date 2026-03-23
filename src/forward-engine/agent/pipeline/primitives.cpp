@@ -50,8 +50,8 @@ namespace ngx::agent::pipeline::primitives
               const protocol::analysis::target &target, const bool allow_reverse, const bool require_open)
         -> net::awaitable<std::pair<fault::code, shared_transmission>>
     {
-        // 提前拒绝 IPv6 地址字面量
-        if (is_ipv6_literal(target.host))
+        // 拒绝 IPv6 地址字面量（仅在禁用 IPv6 时）
+        if (router->ipv6_disabled() && is_ipv6_literal(target.host))
         {
             trace::debug("[Pipeline] {} rejecting IPv6 literal: {}:{}", label, target.host, target.port);
             co_return std::make_pair(fault::code::host_unreachable, nullptr);
