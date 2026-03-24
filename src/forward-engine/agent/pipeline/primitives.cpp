@@ -1,6 +1,7 @@
 #include <forward-engine/agent/pipeline/primitives.hpp>
 #include <forward-engine/channel/transport/reliable.hpp>
 #include <forward-engine/channel/transport/encrypted.hpp>
+#include <chrono>
 
 namespace ngx::agent::pipeline::primitives
 {
@@ -55,7 +56,7 @@ namespace ngx::agent::pipeline::primitives
         if (router->ipv6_disabled() && is_ipv6_literal(target.host))
         {
             trace::debug("[Pipeline] {} rejecting IPv6 literal: {}:{}", label, target.host, target.port);
-            co_return std::make_pair(fault::code::host_unreachable, nullptr);
+            co_return std::make_pair(fault::code::ipv6_disabled, nullptr);
         }
 
         // 路由到目标
@@ -166,6 +167,9 @@ namespace ngx::agent::pipeline::primitives
         -> net::awaitable<void>
     {
         using trans = shared_transmission;
+        // 记录开始时间
+        const auto start_time = std::chrono::steady_clock::now();
+
         // 分配缓冲区
         auto *mr = ctx.frame_arena.get();
         const auto array_size = (std::max)(ctx.buffer_size, 2U);
@@ -212,10 +216,14 @@ namespace ngx::agent::pipeline::primitives
         using namespace boost::asio::experimental::awaitable_operators;
         co_await (forward(inbound, outbound, left, 0) || forward(outbound, inbound, right, 1));
 
+        // 计算耗时
+        const auto end_time = std::chrono::steady_clock::now();
+
         // 输出传输统计
         if (const auto up = total_bytes[0], down = total_bytes[1]; up > 0 || down > 0)
         {
-            trace::info("[Tunnel] Transfer: Upload {} B, Download {} B", up, down);
+            trace::info("[Tunnel] [{}] Transfer: Upload {} B, Download {} B, duration: {} ms",
+                        ctx.session_id, up, down,  std::chrono::duration_cast<std::chrono::milliseconds>(end_time - start_time).count());
         }
 
         shut_close(inbound);

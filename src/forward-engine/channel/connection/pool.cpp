@@ -292,6 +292,11 @@ namespace ngx::channel
                     co_await cleanup_timer_->async_wait(token);
                     if (ec)
                         break;
+                    trace::debug("[Pool] total acquires: {}, total hits: {}, total creates: {}, total evictions: {}, total recycles: {}, total idle: {}",
+                                 stat_acquires_.load(std::memory_order_relaxed), stat_hits_.load(std::memory_order_relaxed),
+                                 stat_creates_.load(std::memory_order_relaxed), stat_evictions_.load(std::memory_order_relaxed),
+                                 stat_recycles_.load(std::memory_order_relaxed), stat_idle_.load(std::memory_order_relaxed));
+                    // 执行清理操作
                     cleanup();
                 }
             }

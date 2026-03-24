@@ -33,6 +33,7 @@
 #include <forward-engine/channel/transport/transmission.hpp>
 #include <forward-engine/agent/pipeline/protocols.hpp>
 #include <forward-engine/agent/pipeline/primitives.hpp>
+#include <atomic>
 
 /**
  * @namespace ngx::agent::session
@@ -44,6 +45,18 @@
 namespace ngx::agent::session
 {
     namespace net = boost::asio;
+
+    namespace detail
+    {
+        // 全局会话 ID 计数器，使用原子操作保证线程安全
+        inline std::atomic<std::uint64_t> session_id_counter{0};
+
+        // 生成新的会话 ID，性能优化：单次原子递增
+        [[nodiscard]] inline std::uint64_t generate_session_id() noexcept
+        {
+            return ++session_id_counter;
+        }
+    } // namespace detail
 
 
     /**
@@ -193,6 +206,17 @@ namespace ngx::agent::session
             on_closed_ = std::move(callback);
         }
 
+        /**
+         * @brief 获取会话 ID
+         * @return 会话的唯一标识符
+         * @details 会话 ID 是全局唯一的 64 位整数，从 1 开始递增。
+         * 用于日志追踪和问题定位。
+         */
+        [[nodiscard]] std::uint64_t id() const noexcept
+        {
+            return id_;
+        }
+
     private:
 
         /**
@@ -219,6 +243,7 @@ namespace ngx::agent::session
          */
         void release_resources() noexcept;
 
+        std::uint64_t id_;                        // 会话唯一标识符
         memory::frame_arena frame_arena_;    // 帧内存池
         state state_{state::active}; // 会话状态（单线程 io_context，无需原子）
         std::function<void()> on_closed_;    // 关闭回调

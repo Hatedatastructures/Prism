@@ -81,7 +81,8 @@ namespace ngx::fault
         resource_unavailable = 34,                    // 资源不可用
         ttl_expired = 35,                             // TTL 已过期
         forbidden = 36,                               // 禁止访问
-        _count = 37                                   // 错误码总数（内部使用）
+        ipv6_disabled = 37,                           // IPv6 被禁用
+        _count = 38                                   // 错误码总数（内部使用）
     };
 
     /**
@@ -173,6 +174,8 @@ namespace ngx::fault
             return "ttl_expired";
         case code::forbidden:
             return "forbidden";
+        case code::ipv6_disabled:
+            return "ipv6_disabled";
         default:
             return "unknown";
         }

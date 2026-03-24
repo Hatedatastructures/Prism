@@ -9,7 +9,7 @@
 - **核心技术**：C++23、Boost.Asio 协程、BoringSSL、PMR 内存管理
 - **开发状态**：**稳定可用**，核心功能已完成
 - **当前版本**：v0.8.0
-- **最后更新**：2026年3月21日
+- **最后更新**：2026年3月24日
 - **主要依赖**：Boost(system)、BoringSSL、spdlog、glaze
 
 ---
@@ -155,9 +155,9 @@
 
 | 任务 | 优先级 | 状态 |
 |------|--------|------|
-| SOCKS5 用户名密码认证 | 中 | 📋 计划中 |
-| Listener 支持 IPv6 和 host 绑定 | 中 | 📋 计划中 |
-| JSON 序列化接口完善 | 低 | 🔄 80% 完成 |
+| SOCKS5 用户名密码认证 | 中 | 计划中 |
+| Listener 支持 IPv6 和 host 绑定 | 中 | 计划中 |
+| JSON 序列化接口完善 | 低 | 80% 完成 |
 
 ### 中期目标（v1.0.0）
 
@@ -233,6 +233,21 @@ curl -v -x socks5://127.0.0.1:8081 http://www.baidu.com
 
 ## 更新日志
 
+### 2026年3月24日
+
+**架构优化：**
+- `disable_ipv6` 配置从 `agent::config` 下沉到 `resolve::config`，消除多层传参
+- DNS 解析层（recursor）在 `disable_ipv6` 启用时跳过 AAAA 查询，DNS 查询量减半
+- 移除 router 层冗余的 IPv6 过滤逻辑（DNS 结果过滤、connect_with_retry 跳过）
+- router 通过 `recursor::ipv6_disabled()` 统一访问 IPv6 禁用状态，不再持有独立副本
+
+**文档同步：**
+- 更新 README.md：配置默认值与代码一致、`dns.disable_ipv6` 字段位置
+- 更新 architecture.md：async_forward 处理流程描述
+- 更新 modules.md：IPv6 过滤归 DNS 层统一处理
+- 更新 config-structure.md、configuration.md：`max_idle_seconds` 默认值 60 → 30
+- 更新 progress.md：去掉 emoji，更新日期和日志
+
 ### 2026年3月21日
 
 **架构变更：**
@@ -294,18 +309,18 @@ curl -v -x socks5://127.0.0.1:8081 http://www.baidu.com
 
 ForwardEngine 采用 **MIT 许可证**，允许：
 
-- ✅ 商业使用
-- ✅ 修改和分发
-- ✅ 私人使用
-- ✅ 专利使用
+- 商业使用
+- 修改和分发
+- 私人使用
+- 专利使用
 
 要求：
 
-- 📝 保留版权声明
-- 📝 包含许可证副本
+- 保留版权声明
+- 包含许可证副本
 
 查看完整许可证：[LICENSE](../../LICENSE)
 
 ---
 
-**感谢关注 ForwardEngine 的开发进展！** 🚀
+**感谢关注 ForwardEngine 的开发进展！**

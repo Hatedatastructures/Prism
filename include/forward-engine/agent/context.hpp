@@ -94,6 +94,9 @@ namespace ngx::agent
      */
     struct session_context
     {
+        // 会话唯一标识符，用于日志追踪
+        std::uint64_t session_id{0};
+
         // 服务器上下文的常量引用，提供全局资源访问
         const server_context &server;
 

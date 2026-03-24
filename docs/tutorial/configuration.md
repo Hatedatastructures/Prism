@@ -57,7 +57,7 @@
   "agent": {
     "pool": {
       "max_cache_per_endpoint": 32,
-      "max_idle_seconds": 60
+      "max_idle_seconds": 30
     }
   }
 }
@@ -66,7 +66,7 @@
 | 字段 | 默认值 | 说明 |
 |------|--------|------|
 | `max_cache_per_endpoint` | 32 | 每个目标最大缓存连接数 |
-| `max_idle_seconds` | 60 | 连接最大空闲时间（秒） |
+| `max_idle_seconds` | 30 | 连接最大空闲时间（秒） |
 
 ### 日志配置
 

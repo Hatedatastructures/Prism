@@ -157,7 +157,7 @@ struct pool_config pool;
 | 子字段 | 类型 | 默认值 | 说明 |
 |--------|------|--------|------|
 | `max_cache_per_endpoint` | `std::uint32_t` | `32` | 单个目标端点最大缓存连接数 |
-| `max_idle_seconds` | `std::uint64_t` | `60` | 空闲连接最大存活时间（秒） |
+| `max_idle_seconds` | `std::uint64_t` | `30` | 空闲连接最大存活时间（秒） |
 
 **用途**: 连接池缓存 TCP 连接，避免频繁的三次握手，提升性能。
 

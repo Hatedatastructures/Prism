@@ -250,7 +250,15 @@ namespace ngx::agent::pipeline
             auto [dial_ec, outbound] = co_await primitives::dial(router_ptr, "Trojan", target, true, true);
             if (fault::failed(dial_ec) || !outbound)
             {
-                trace::warn("[Pipeline] Trojan dial failed: {}, target: {}:{}", fault::describe(dial_ec), target.host, target.port);
+                // IPv6 被禁用是预期行为，使用 debug 级别
+                if (dial_ec == fault::code::ipv6_disabled)
+                {
+                    trace::debug("[Pipeline] Trojan IPv6 disabled, target: {}:{}", target.host, target.port);
+                }
+                else
+                {
+                    trace::warn("[Pipeline] Trojan dial failed: {}, target: {}:{}", fault::describe(dial_ec), target.host, target.port);
+                }
                 co_return;
             }
 

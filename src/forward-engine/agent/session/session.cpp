@@ -6,7 +6,8 @@ namespace dispatch = ngx::agent::dispatch;
 namespace ngx::agent::session
 {
     session::session(session_params params)
-        : ctx_{params.server, params.worker, frame_arena_, nullptr, nullptr, params.server.cfg.buffer.size, std::move(params.inbound)}
+        : id_(detail::generate_session_id())
+        , ctx_{id_, params.server, params.worker, frame_arena_, nullptr, nullptr, params.server.cfg.buffer.size, std::move(params.inbound)}
     {
     }
 
@@ -17,7 +18,7 @@ namespace ngx::agent::session
 
     void session::start()
     {
-        trace::debug("[Session] Session started.");
+        trace::debug("[Session] [{}] Session started.", id_);
 
         auto process = [self = this->shared_from_this()]() -> net::awaitable<void>
         {
@@ -27,18 +28,18 @@ namespace ngx::agent::session
             }
             catch (const std::exception &e)
             {
-                trace::error("[Session] Unhandled exception in diversion: {}", e.what());
+                trace::error("[Session] [{}] Unhandled exception in diversion: {}", self->id_, e.what());
             }
             catch (...)
             {
-                trace::error("[Session] Unknown exception in diversion");
+                trace::error("[Session] [{}] Unknown exception in diversion", self->id_);
             }
 
             self->release_resources();
         };
 
         auto completion = [self = this->shared_from_this()](const std::exception_ptr &ep) noexcept
-        {  
+        {
             if (!ep)
             {
                 return;
@@ -50,15 +51,15 @@ namespace ngx::agent::session
             }
             catch (const ::ngx::exception::deviant &e)
             {
-                trace::error("[Session] Abnormal exception: {}", e.dump());
+                trace::error("[Session] [{}] Abnormal exception: {}", self->id_, e.dump());
             }
             catch (const std::exception &e)
             {
-                trace::error("[Session] Standard exception: {}", e.what());
+                trace::error("[Session] [{}] Standard exception: {}", self->id_, e.what());
             }
             catch (...)
             {
-                trace::error("[Session] Unknown exception type");
+                trace::error("[Session] [{}] Unknown exception type", self->id_);
             }
 
             self->release_resources();
@@ -74,7 +75,7 @@ namespace ngx::agent::session
             return;
         }
         state_ = state::closing;
-        trace::debug("[Session] Session closing.");
+        trace::debug("[Session] [{}] Session closing.", id_);
 
         // 先取消活跃流（TLS 等），因为 ctx_.inbound 可能已被 move
         if (ctx_.active_stream_cancel)
@@ -126,21 +127,21 @@ namespace ngx::agent::session
             callback();
         }
 
-        trace::debug("[Session] Session closed.");
+        trace::debug("[Session] [{}] Session closed.", id_);
     }
 
     auto session::diversion() -> net::awaitable<void>
     {
         if (!ctx_.inbound)
         {   //检测入站指针是否有效
-            trace::warn("[Session] diversion aborted: missing inbound transmission.");
+            trace::warn("[Session] [{}] diversion aborted: missing inbound transmission.", id_);
             co_return;
         }
         // 预读检测协议类型
         auto detect_result = co_await protocol::probe(*ctx_.inbound, 24);
         if (fault::failed(detect_result.ec))
         {
-            trace::warn("[Session] Protocol detection failed: {}.", fault::describe(detect_result.ec));
+            trace::warn("[Session] [{}] Protocol detection failed: {}.", id_, fault::describe(detect_result.ec));
             co_return;
         }
 
@@ -150,15 +151,15 @@ namespace ngx::agent::session
             handler = dispatch::registry::global().create(protocol::protocol_type::unknown);
             if (!handler)
             {
-                trace::warn("[Session] No handler available for protocol.");
+                trace::warn("[Session] [{}] No handler available for protocol.", id_);
                 co_return;
             }
         }
         // 预读的24字节数据
         auto span = std::span<const std::byte>(detect_result.pre_read_data.data(), detect_result.pre_read_size);
-        trace::debug("[Session] Dispatching to handler: {}", handler->name());
+        trace::debug("[Session] [{}] Dispatching to handler: {}", id_, handler->name());
         co_await handler->process(ctx_, span);
-        trace::debug("[Session] Handler {} completed.", handler->name());
+        trace::debug("[Session] [{}] Handler {} completed.", id_, handler->name());
     }
 
     std::shared_ptr<session> make_session(session_params &&params) noexcept
