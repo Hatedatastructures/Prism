@@ -60,18 +60,18 @@ namespace ngx::agent::pipeline::primitives
 
         // 路由到目标
         fault::code ec;
-        channel::unique_sock socket;
+        channel::pooled_connection conn;
         if (allow_reverse && !target.positive)
         {
             auto result = co_await router->async_reverse(target.host);
             ec = result.first;
-            socket = std::move(result.second);
+            conn = std::move(result.second);
         }
         else
         {
             auto result = co_await router->async_forward(target.host, target.port);
             ec = result.first;
-            socket = std::move(result.second);
+            conn = std::move(result.second);
         }
 
         if (fault::failed(ec))
@@ -80,14 +80,14 @@ namespace ngx::agent::pipeline::primitives
             co_return std::make_pair(ec, nullptr);
         }
 
-        if (require_open && (!socket || !socket->is_open()))
+        if (require_open && !conn.valid())
         {
             trace::warn("[Pipeline] {} socket not open, target: {}:{}", label, target.host, target.port);
             co_return std::make_pair(fault::code::connection_refused, nullptr);
         }
 
         trace::info("[Pipeline] {} dial success, target: {}:{}", label, target.host, target.port);
-        co_return std::make_pair(ec, channel::transport::make_reliable(std::move(socket)));
+        co_return std::make_pair(ec, channel::transport::make_reliable(std::move(conn)));
     }
 
     preview::preview(shared_transmission inner, std::span<const std::byte> preread, memory::resource_pointer mr)

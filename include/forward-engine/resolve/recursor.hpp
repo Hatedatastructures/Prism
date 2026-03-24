@@ -87,6 +87,9 @@ namespace ngx::resolve
         [[nodiscard]] auto resolve_udp(std::string_view host, std::string_view port)
             -> net::awaitable<std::pair<fault::code, udp::endpoint>>;
 
+        // 查询是否禁用了 IPv6
+        [[nodiscard]] auto ipv6_disabled() const noexcept -> bool { return config_.disable_ipv6; }
+
     private:
         /**
          * @brief 完整查询管道。

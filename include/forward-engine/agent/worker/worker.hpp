@@ -22,7 +22,7 @@
 #include <forward-engine/agent/worker/tls.hpp>
 #include <forward-engine/memory/pool.hpp>
 #include <forward-engine/trace.hpp>
-#include <forward-engine/channel/pool/pool.hpp>
+#include <forward-engine/channel/connection/pool.hpp>
 
 /**
  * @namespace ngx::agent::worker
@@ -36,7 +36,7 @@ namespace ngx::agent::worker
     namespace net = boost::asio;
     namespace ssl = net::ssl;
     using tcp = boost::asio::ip::tcp;
-    using tcpool = ngx::channel::tcpool;
+    using connection_pool = ngx::channel::connection_pool;
 
     /**
      * @class worker
@@ -101,7 +101,7 @@ namespace ngx::agent::worker
         // 事件循环上下文，单线程运行。
         net::io_context ioc_;
         // 连接池，管理到后端的连接复用。
-        tcpool pool_;
+        connection_pool pool_;
         // 路由表，决定请求转发目标。
         resolve::router router_;
         // TLS 上下文，为空表示明文模式。

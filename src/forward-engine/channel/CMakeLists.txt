@@ -1,6 +1,6 @@
 target_sources(${PROJECT_NAME}_static_library
         PRIVATE
-        pool/pool.cpp
+        connection/pool.cpp
         health.cpp
 )
 

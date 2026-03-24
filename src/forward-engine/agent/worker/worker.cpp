@@ -4,8 +4,8 @@ namespace ngx::agent::worker
 {
     worker::worker(const agent::config &cfg, std::shared_ptr<account::directory> account_store)
         : ioc_(1),
-          pool_(ioc_, memory::system::thread_local_pool(), cfg.pool.max_cache_per_endpoint, cfg.pool.max_idle_seconds),
-          router_(pool_, ioc_, cfg.dns, memory::system::thread_local_pool(), cfg.disable_ipv6),
+          pool_(ioc_, memory::system::thread_local_pool(), cfg.pool),
+          router_(pool_, ioc_, cfg.dns, memory::system::thread_local_pool()),
           ssl_ctx_(tls::make(cfg)),
           server_ctx_{cfg, ssl_ctx_, std::move(account_store)},
           worker_ctx_{ioc_, router_, memory::system::thread_local_pool()}
@@ -59,6 +59,7 @@ namespace ngx::agent::worker
             net::detached);
 
         net::co_spawn(ioc_, metrics_.observe(ioc_), net::detached);
+        pool_.start();
         ioc_.run();
     }
 

@@ -298,7 +298,7 @@
 - 关键实现：
   - 内部持有 `recursor dns_` 成员进行 DNS 解析
   - `reverse_map` 类型：`unordered_map<string, tcp::endpoint>` 支持透明异构查找
-  - IPv6 过滤：当 `disable_ipv6` 为 true 时，在多个层级拒绝/过滤 IPv6 地址
+  - IPv6 过滤：由 DNS 层统一处理，配置 `dns.disable_ipv6` 后跳过 AAAA 查询
   - `connect_with_retry()`：遍历端点列表最多尝试 3 次，通过连接池获取已建立的 socket
 - 源码：[router.hpp](../../include/forward-engine/resolve/router.hpp)、[router.cpp](../../src/forward-engine/resolve/router.cpp)
 

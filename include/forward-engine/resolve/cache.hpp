@@ -150,9 +150,7 @@ namespace ngx::resolve
         bool serve_stale_;                 // serve-stale 模式开关
 
         // 复用现有的 transparent_hash / transparent_equal
-        using cache_map = memory::unordered_map<memory::string, cache_entry,
-            ::ngx::resolve::transparent_hash,
-            ::ngx::resolve::transparent_equal>;
+        using cache_map = memory::unordered_map<memory::string, cache_entry,transparent_hash,transparent_equal>;
         cache_map entries_; // 缓存表
     };
 

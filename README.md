@@ -100,7 +100,7 @@ curl -v -x socks5://127.0.0.1:8081 http://www.baidu.com
 | `dns.mode` | DNS 解析策略（`first` 取最快响应） | `first` |
 | `dns.cache_enabled` | DNS 缓存开关 | `true` |
 | `dns.serve_stale` | 缓存过期后是否返回旧结果 | `true` |
-| `disable_ipv6` | 禁用 IPv6 连接 | `false` |
+| `dns.disable_ipv6` | 禁用 IPv6（跳过 AAAA 查询，过滤 IPv6 端点） | `false` |
 
 详细配置说明请参阅 [配置详解](docs/tutorial/configuration.md)。
 

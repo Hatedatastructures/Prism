@@ -5,7 +5,7 @@
 #include <iostream>
 #include <memory>
 #include <string>
-#include <forward-engine/channel/pool/pool.hpp>
+#include <forward-engine/channel/connection/pool.hpp>
 #include <forward-engine/resolve/router.hpp>
 #include <forward-engine/agent/session/session.hpp>
 #include <forward-engine/channel/transport/reliable.hpp>
@@ -513,7 +513,7 @@ int main()
         // 2. 渚濊禆璧勬簮澹版槑锛堝湪 ioc 涔嬪悗锛屽厛鏋愭瀯锛?
 
         // 鍒濆鍖?
-        const auto pool = std::make_unique<ngx::channel::tcpool>(ioc);
+        const auto pool = std::make_unique<ngx::channel::connection_pool>(ioc);
         ngx::resolve::config dns_cfg;
         auto dist = std::make_unique<ngx::resolve::router>(*pool, ioc, std::move(dns_cfg));
 

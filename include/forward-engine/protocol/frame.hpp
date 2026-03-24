@@ -74,7 +74,7 @@ namespace ngx::protocol
         // 帧类型，决定帧的语义和处理方式
         enum type type;
         // 帧 ID，用于多路复用、排序或关联请求响应
-        std::uint32_t id;
+        std::uint32_t id{};
         // 帧负载数据，可以是文本或二进制内容
         std::string payload;
 

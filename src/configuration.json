@@ -31,12 +31,18 @@
         "reverse_map": {},
         "pool": {
             "max_cache_per_endpoint": 32,
-            "max_idle_seconds": 1000
+            "max_idle_seconds": 20,
+            "connect_timeout_ms": 300,
+            "cleanup_interval_sec": 10,
+            "recv_buffer_size": 65536,
+            "send_buffer_size": 65536,
+            "tcp_nodelay": true,
+            "keep_alive": true,
+            "cache_ipv6": false
         },
         "buffer": {
             "size": 65536
         },
-        "disable_ipv6": true,
         "clash": true,
         "socks5": {
             "enable_tcp": true,
@@ -55,16 +61,22 @@
         "dns": {
             "servers": [
                 {
+                    "address": "114.114.114.114",
+                    "port": 53,
+                    "protocol": "udp",
+                    "timeout_ms": 1500
+                },
+                {
+                    "address": "119.29.29.29",
+                    "port": 53,
+                    "protocol": "udp",
+                    "timeout_ms": 1500
+                },
+                {
                     "address": "8.8.8.8",
                     "port": 53,
                     "protocol": "udp",
-                    "timeout_ms": 2000
-                },
-                {
-                    "address": "1.1.1.1",
-                    "port": 53,
-                    "protocol": "udp",
-                    "timeout_ms": 2000
+                    "timeout_ms": 1500
                 }
             ],
             "mode": "first",
@@ -73,7 +85,8 @@
             "cache_size": 10000,
             "serve_stale": true,
             "ttl_min": 60,
-            "ttl_max": 86400
+            "ttl_max": 86400,
+            "disable_ipv6": true
         }
     },
     "trace": {

@@ -1,4 +1,4 @@
-#include <forward-engine/channel/pool/pool.hpp>
+#include <forward-engine/channel/connection/pool.hpp>
 #include <forward-engine/resolve/router.hpp>
 #include <forward-engine/resolve/config.hpp>
 #include <boost/asio.hpp>
@@ -139,7 +139,7 @@ net::awaitable<void> positive_proxy_server(tcp::acceptor acceptor, tcp::endpoint
 /**
  * @brief 连接池与正向代理回退用例
  * @details 测试分两部分：
- * 1) 验证连接池复用：`acquire_tcp` 两次拿到同一个 socket 指针
+ * 1) 验证连接池复用：`async_acquire` 两次拿到同一个 socket 指针
  * 2) 验证回退：对不可解析域名发起 `route_forward`，应走上游代理 `CONNECT`，并能与回显服务通信
  * @param ioc `io_context`
  * @param echo_port 回显服务端口
@@ -151,48 +151,50 @@ net::awaitable<void> run_test(net::io_context &ioc, unsigned short echo_port, un
     std::cout << "[Test] Starting..." << std::endl;
     tcp::endpoint endpoint(net::ip::make_address("127.0.0.1"), echo_port);
 
-    ngx::channel::tcpool pool(ioc);
+    ngx::channel::connection_pool pool(ioc);
     ngx::resolve::config dns_cfg;
     ngx::resolve::router dist(pool, ioc, std::move(dns_cfg));
 
     try
     {
         std::cout << "[Test] Step 1: Acquire connection" << std::endl;
-        auto c1 = co_await pool.acquire_tcp(endpoint);
+        auto [code1, c1] = co_await pool.async_acquire(endpoint);
+        assert(ngx::fault::succeeded(code1));
+        assert(c1.valid());
         std::cout << "  Got c1" << std::endl;
         auto c1_ptr = c1.get();
-        assert(c1_ptr != nullptr);
 
         std::cout << "[Test] Step 2: Recycle connection (by destruction)" << std::endl;
-        c1.reset();
+        c1 = ngx::channel::pooled_connection{};
 
         std::cout << "[Test] Step 3: Acquire again (should reuse)" << std::endl;
-        auto c2 = co_await pool.acquire_tcp(endpoint);
-        std::cout << "  Got c2" << std::endl;
+        auto [code2, c2] = co_await pool.async_acquire(endpoint);
+        assert(ngx::fault::succeeded(code2));
+        assert(c2.valid());
         assert(c2.get() == c1_ptr);
-        c2.reset();
+        c2 = ngx::channel::pooled_connection{};
 
         std::cout << "[Test] Step 4: Route via positive proxy fallback" << std::endl;
         dist.set_positive_endpoint("127.0.0.1", proxy_port);
 
         /**
-         * @details 使用不可解析域名触发“直连失败”，从而覆盖回退分支：
+         * @details 使用不可解析域名触发"直连失败"，从而覆盖回退分支：
          * - 直连 DNS 解析失败 -> `route_forward` 回退到 `route_positive`
          * - `route_positive` 连接到 `positive_proxy_server`，通过 `CONNECT` 建立到 echo 的隧道
          */
-        auto [route_ec, socket_ptr] = co_await dist.async_forward("example.invalid", "80");
+        auto [route_ec, conn] = co_await dist.async_forward("example.invalid", "80");
         assert(ngx::fault::succeeded(route_ec));
-        assert(socket_ptr && socket_ptr->is_open());
+        assert(conn.valid());
 
         static constexpr std::string_view msg = "ping";
         boost::system::error_code rw_ec;
         auto token = net::redirect_error(net::use_awaitable, rw_ec);
-        co_await net::async_write(*socket_ptr, net::buffer(msg), token);
+        co_await net::async_write(*conn, net::buffer(msg), token);
         assert(!rw_ec);
 
         std::array<char, 16> buf{};
         rw_ec.clear();
-        const auto n = co_await socket_ptr->async_read_some(net::buffer(buf), token);
+        const auto n = co_await conn->async_read_some(net::buffer(buf), token);
         assert(!rw_ec);
         assert(n == msg.size());
         assert(std::string_view(buf.data(), n) == msg);

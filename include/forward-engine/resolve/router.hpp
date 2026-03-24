@@ -16,7 +16,7 @@
 #include <boost/asio.hpp>
 
 #include <forward-engine/resolve/recursor.hpp>
-#include <forward-engine/channel/pool/pool.hpp>
+#include <forward-engine/channel/connection/pool.hpp>
 #include <forward-engine/fault/code.hpp>
 #include <forward-engine/memory/container.hpp>
 
@@ -24,8 +24,8 @@ namespace ngx::resolve
 {
     namespace net = boost::asio;
     using tcp = boost::asio::ip::tcp;
-    using tcpool = ngx::channel::tcpool;
-    using unique_sock = ngx::channel::unique_sock;
+    using connection_pool = ngx::channel::connection_pool;
+    using pooled_connection = ngx::channel::pooled_connection;
 
     /**
      * @class router
@@ -105,10 +105,9 @@ namespace ngx::resolve
          * @param ioc IO 上下文，用于创建执行器和定时器。
          * @param dns_cfg DNS 解析器配置。
          * @param mr 内存资源，用于内部存储分配。
-         * @param disable_ipv6 是否禁用 IPv6。
          */
-        explicit router(tcpool &pool, net::io_context &ioc, config dns_cfg,
-                        memory::resource_pointer mr = memory::current_resource(), bool disable_ipv6 = false);
+        explicit router(connection_pool &pool, net::io_context &ioc, config dns_cfg,
+                        memory::resource_pointer mr = memory::current_resource());
 
         /**
          * @brief 设置正向代理的默认上游端点。
@@ -133,13 +132,13 @@ namespace ngx::resolve
          * @details 通过反向路由表查找目标端点并建立连接。
          */
         [[nodiscard]] auto async_reverse(std::string_view host) const
-            -> net::awaitable<std::pair<fault::code, unique_sock>>;
+            -> net::awaitable<std::pair<fault::code, pooled_connection>>;
 
         /**
          * @brief 查询是否禁用了 IPv6。
          * @return 是否禁用 IPv6。
          */
-        [[nodiscard]] auto ipv6_disabled() const noexcept -> bool { return disable_ipv6_; }
+        [[nodiscard]] auto ipv6_disabled() const noexcept -> bool { return dns_.ipv6_disabled(); }
 
         /**
          * @brief 异步路由直连 TCP 端点。
@@ -148,7 +147,7 @@ namespace ngx::resolve
          * @details 直接通过传输源获取到指定端点的连接，无需任何查找。
          */
         [[nodiscard]] auto async_direct(tcp::endpoint ep) const
-            -> net::awaitable<std::pair<fault::code, unique_sock>>;
+            -> net::awaitable<std::pair<fault::code, pooled_connection>>;
 
         /**
          * @brief 异步路由正向代理请求。
@@ -159,7 +158,7 @@ namespace ngx::resolve
          * DNS 缓存和请求合并机制来优化连接建立过程。
          */
         [[nodiscard]] auto async_forward(std::string_view host, std::string_view port)
-            -> net::awaitable<std::pair<fault::code, unique_sock>>;
+            -> net::awaitable<std::pair<fault::code, pooled_connection>>;
 
         /**
          * @brief 异步路由数据报请求。
@@ -191,7 +190,7 @@ namespace ngx::resolve
          * @details 内部方法，用于处理配置了正向代理端点的情况。
          */
         [[nodiscard]] auto async_positive(std::string_view host, std::string_view port)
-            -> net::awaitable<std::pair<fault::code, unique_sock>>;
+            -> net::awaitable<std::pair<fault::code, pooled_connection>>;
 
         /**
          * @brief 从端点列表中尝试连接，最多尝试 3 个端点。
@@ -199,16 +198,15 @@ namespace ngx::resolve
          * @return 成功连接的套接字，或 nullptr。
          */
         [[nodiscard]] auto connect_with_retry(std::span<const tcp::endpoint> endpoints)
-            -> net::awaitable<unique_sock>;
+            -> net::awaitable<pooled_connection>;
 
-        tcpool &pool_;                                // 共享 TCP 传输源
+        connection_pool &pool_;                       // 共享 TCP 传输源
         memory::resource_pointer mr_;                 // 内存资源
         recursor dns_;                                // DNS 解析器
         reverse_map reverse_map_;                     // 反向路由表
         net::any_io_executor executor_;               // 执行器（用于创建 UDP socket）
         std::optional<memory::string> positive_host_; // 正向代理主机名
         std::uint16_t positive_port_{0};              // 正向代理端口
-        bool disable_ipv6_;                           // 是否禁用 IPv6
     };
 
     /**

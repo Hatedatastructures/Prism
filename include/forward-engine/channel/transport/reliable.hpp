@@ -14,7 +14,7 @@
 
 #include <boost/asio.hpp>
 #include <forward-engine/channel/transport/transmission.hpp>
-#include <forward-engine/channel/pool/pool.hpp>
+#include <forward-engine/channel/connection/pool.hpp>
 #include <forward-engine/fault/handling.hpp>
 #include <memory>
 #include <optional>
@@ -72,13 +72,12 @@ namespace ngx::channel::transport
 
         /**
          * @brief 构造函数（连接池复用）
-         * @details 从连接池获取的连接创建传输层。该构造函数接收 unique_sock，
-         * 其中包含 socket 指针和归还信息（deleter）。在 close() 时，
-         * socket 将被归还到连接池而非直接关闭，实现连接复用。
-         * @param pooled 来自连接池的连接，包含 socket 和归还信息
+         * @details 从连接池获取的连接创建传输层。该构造函数接收 pooled_connection，
+         * 析构或 close() 时 socket 将被归还到连接池而非直接关闭，实现连接复用。
+         * @param pooled 来自连接池的连接
          * @note pooled_ 持有 socket 的所有权，native_socket() 返回 *pooled_
          */
-        explicit reliable(ngx::channel::unique_sock pooled)
+        explicit reliable(ngx::channel::pooled_connection pooled)
             : pooled_(std::move(pooled))
         {
         }
@@ -142,9 +141,9 @@ namespace ngx::channel::transport
          */
         void close() override
         {
-            if (pooled_)
+            if (pooled_.valid())
             {
-                pooled_.reset();
+                pooled_ = pooled_connection{};
                 return;
             }
             if (socket_)
@@ -174,9 +173,9 @@ namespace ngx::channel::transport
          */
         socket_type &native_socket() noexcept
         {
-            if (pooled_)
+            if (pooled_.valid())
             {
-                return *pooled_;
+                return *pooled_.get();
             }
             return *socket_;
         }
@@ -198,16 +197,16 @@ namespace ngx::channel::transport
          */
         const socket_type &native_socket() const noexcept
         {
-            if (pooled_)
+            if (pooled_.valid())
             {
-                return *pooled_;
+                return *pooled_.get();
             }
             return *socket_;
         }
 
     private:
-        std::optional<socket_type> socket_; ///< 非池连接的 socket 存储
-        ngx::channel::unique_sock pooled_;   ///< 池连接，持有归还信息（deleter）
+        std::optional<socket_type> socket_;       ///< 非池连接的 socket 存储
+        ngx::channel::pooled_connection pooled_;  ///< 池连接，RAII 包装器
     };
 
     /**
@@ -237,13 +236,12 @@ namespace ngx::channel::transport
     /**
      * @brief 创建 reliable 传输层（从连接池连接）
      * @details 使用来自连接池的连接创建传输层实例。
-     * unique_sock 包含 socket 指针和归还信息（deleter），
-     * 在 close() 时将自动归还到连接池。
+     * pooled_connection 是 RAII 包装器，在 close() 时将自动归还到连接池。
      * @param pooled 来自连接池的连接
      * @return shared_transmission 创建的 reliable 实例
      * @note 该重载用于连接池复用场景
      */
-    inline shared_transmission make_reliable(ngx::channel::unique_sock pooled)
+    inline shared_transmission make_reliable(ngx::channel::pooled_connection pooled)
     {
         return std::make_shared<reliable>(std::move(pooled));
     }

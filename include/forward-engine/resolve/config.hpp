@@ -18,10 +18,7 @@
 #pragma once
 
 #include <chrono>
-#include <cstdint>
 #include <cstddef>
-#include <optional>
-#include <string_view>
 
 #include <boost/asio.hpp>
 
@@ -178,6 +175,9 @@ namespace ngx::resolve
         memory::vector<address_rule> address_rules; // 地址映射规则列表
         memory::vector<cname_rule> cname_rules;     // CNAME 重定向规则列表
 
+        // 是否禁用 IPv6，启用后跳过 AAAA 查询并过滤 IPv6 端点
+        bool disable_ipv6{false};
+
         // IP 过滤
         memory::vector<net::ip::network_v4> blacklist_v4; // IPv4 黑名单
         memory::vector<net::ip::network_v6> blacklist_v6; // IPv6 黑名单
@@ -266,5 +266,6 @@ struct glz::meta<ngx::resolve::config>
         "ttl_min", &T::ttl_min,
         "ttl_max", &T::ttl_max,
         "address_rules", &T::address_rules,
-        "cname_rules", &T::cname_rules);
+        "cname_rules", &T::cname_rules,
+        "disable_ipv6", &T::disable_ipv6);
 };

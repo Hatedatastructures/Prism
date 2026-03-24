@@ -11,6 +11,7 @@
 #include <forward-engine/memory/container.hpp>
 #include <forward-engine/protocol/socks5/config.hpp>
 #include <forward-engine/protocol/trojan/config.hpp>
+#include <forward-engine/channel/connection/pool.hpp>
 
 /**
  * @namespace ngx::agent
@@ -114,24 +115,7 @@ namespace ngx::agent
         memory::vector<user> users;
     };
 
-    /**
-     * @struct pool_config
-     * @brief 连接池配置
-     * @details 控制连接池的行为参数，包括缓存大小和空闲超时。
-     * 连接池缓存 TCP 连接以避免频繁的三次握手，提升性能。
-     * 合理配置可平衡内存占用和连接复用效率。
-     * @note 连接池缓存 TCP 连接，避免频繁的三次握手，提升性能。
-     * @warning 设置过大的缓存数可能导致内存压力，应根据实际
-     * 并发连接数调整。
-     */
-    struct pool_config
-    {
-        // 单个目标端点最大缓存连接数，默认 32
-        std::uint32_t max_cache_per_endpoint = 32U;
-
-        // 空闲连接最大存活时间（秒），默认 60 秒
-        std::uint64_t max_idle_seconds = 60ULL;
-    };
+    using pool_config = channel::config;
 
     /**
      * @struct buffer
@@ -184,13 +168,10 @@ namespace ngx::agent
         memory::map<memory::string, endpoint> reverse_map;
 
         // 连接池配置，控制连接缓存和空闲超时
-        struct pool_config pool;
+        pool_config pool;
 
         // 缓冲区配置，控制数据转发缓冲区大小
         struct buffer buffer;
-
-        // 是否禁用 IPv6，启用后 DNS 解析结果将过滤掉 IPv6 端点
-        bool disable_ipv6 = false;
 
         // Clash 兼容模式，启用后支持 Clash 客户端特性
         bool clash = false;

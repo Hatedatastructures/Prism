@@ -247,9 +247,18 @@ namespace ngx::resolve
     auto recursor::resolve(const std::string_view host)
         -> net::awaitable<std::pair<fault::code, memory::vector<net::ip::address>>>
     {
-        // 并行查询 A 和 AAAA
+        // 并行查询 A 和 AAAA（禁用 IPv6 时跳过 AAAA）
         using namespace boost::asio::experimental::awaitable_operators;
-        auto [result4, result6] = co_await (query_pipeline(host, qtype::a) && query_pipeline(host, qtype::aaaa));
+        using result_t = std::pair<fault::code, memory::vector<net::ip::address>>;
+
+        result_t result6{fault::code::success, memory::vector<net::ip::address>(mr_)};
+        if (config_.disable_ipv6)
+        {
+            auto result4 = co_await query_pipeline(host, qtype::a);
+            co_return std::move(result4);
+        }
+        auto [result4, result6_out] = co_await (query_pipeline(host, qtype::a) && query_pipeline(host, qtype::aaaa));
+        result6 = std::move(result6_out);
 
         // 合并结果
         memory::vector<net::ip::address> all_ips(mr_);
@@ -275,9 +284,23 @@ namespace ngx::resolve
     {
         const auto port_num = static_cast<std::uint16_t>(std::stoi(std::string(port)));
 
-        // 并行查询 A 和 AAAA
+        // 并行查询 A 和 AAAA（禁用 IPv6 时跳过 AAAA）
         using namespace boost::asio::experimental::awaitable_operators;
-        auto [result4, result6] = co_await (query_pipeline(host, qtype::a) && query_pipeline(host, qtype::aaaa));
+        using ip_result_t = std::pair<fault::code, memory::vector<net::ip::address>>;
+
+        ip_result_t result6{fault::code::success, memory::vector<net::ip::address>(mr_)};
+        ip_result_t result4{fault::code::dns_failed, memory::vector<net::ip::address>(mr_)};
+
+        if (config_.disable_ipv6)
+        {
+            result4 = co_await query_pipeline(host, qtype::a);
+        }
+        else
+        {
+            auto [r4, r6] = co_await (query_pipeline(host, qtype::a) && query_pipeline(host, qtype::aaaa));
+            result4 = std::move(r4);
+            result6 = std::move(r6);
+        }
 
         memory::vector<tcp::endpoint> endpoints(mr_);
         endpoints.reserve(result4.second.size() + result6.second.size());
@@ -302,7 +325,7 @@ namespace ngx::resolve
     auto recursor::resolve_udp(const std::string_view host, const std::string_view port)
         -> net::awaitable<std::pair<fault::code, udp::endpoint>>
     {
-        // 先尝试 A 记录，再尝试 AAAA
+        // 先尝试 A 记录，再尝试 AAAA（禁用 IPv6 时跳过）
         auto [ec4, ips4] = co_await query_pipeline(host, qtype::a);
 
         const auto port_num = static_cast<std::uint16_t>(std::stoi(std::string(port)));
@@ -312,12 +335,14 @@ namespace ngx::resolve
             co_return std::make_pair(fault::code::success, udp::endpoint(ips4.front(), port_num));
         }
 
-        // A 记录无结果，尝试 AAAA
-        auto [ec6, ips6] = co_await query_pipeline(host, qtype::aaaa);
-
-        if (!ips6.empty())
+        // 禁用 IPv6 时不再回退 AAAA
+        if (!config_.disable_ipv6)
         {
-            co_return std::make_pair(fault::code::success, udp::endpoint(ips6.front(), port_num));
+            auto [ec6, ips6] = co_await query_pipeline(host, qtype::aaaa);
+            if (!ips6.empty())
+            {
+                co_return std::make_pair(fault::code::success, udp::endpoint(ips6.front(), port_num));
+            }
         }
 
         co_return std::make_pair(fault::code::dns_failed, udp::endpoint{});

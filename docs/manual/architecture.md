@@ -60,7 +60,7 @@
 #### 连接池
 
 **TCP 连接复用**：
-- 实现位置：[pool.hpp](../../include/forward-engine/channel/pool/pool.hpp)
+- 实现位置：[pool.hpp](../../include/forward-engine/channel/connection/pool.hpp)
 - 核心特性：栈式缓存（LIFO）、僵尸检测、线程隔离、空闲超时
 
 #### DNS 缓存
@@ -271,10 +271,8 @@ const tcp::endpoint endpoint(tcp::v4(), cfg.addressable.port);
 **实现位置**：[router.cpp](../../src/forward-engine/resolve/router.cpp)
 
 **处理流程**：
-1. DNS 解析目标域名（通过 recursor 的六阶段查询管道）
-
-
-2. IPv6 过滤（若 disable_ipv6 为 true）
+1. IPv6 字面量检测（若 `dns.disable_ipv6` 为 true，直接拒绝 IPv6 地址）
+2. DNS 解析目标域名（通过 recursor 的查询管道，已内置 IPv6 过滤）
 3. 带重试连接（最多尝试 3 个端点）
 4. 通过连接池获取已建立的 socket
 

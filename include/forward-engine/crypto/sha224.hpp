@@ -24,17 +24,17 @@ namespace ngx::crypto
      * @param input 输入字符串
      * @return 56 字节的十六进制哈希字符串
      */
-    [[nodiscard]] inline auto sha224(std::string_view input) -> std::string
+    [[nodiscard]] inline auto sha224(const std::string_view input) -> std::string
     {
         std::array<unsigned char, SHA224_DIGEST_LENGTH> hash{};
         SHA224(reinterpret_cast<const unsigned char *>(input.data()), input.size(), hash.data());
 
-        constexpr char hex_chars[] = "0123456789abcdef";
         std::string result;
         result.reserve(56);
         for (const auto byte : hash)
         {
-            result.push_back(hex_chars[(byte >> 4) & 0x0F]);
+            constexpr char hex_chars[] = "0123456789abcdef";
+            result.push_back(hex_chars[byte >> 4 & 0x0F]);
             result.push_back(hex_chars[byte & 0x0F]);
         }
         return result;
@@ -45,7 +45,7 @@ namespace ngx::crypto
      * @param str 输入字符串
      * @return 如果字符串只包含十六进制字符则返回 true
      */
-    [[nodiscard]] inline auto is_hex_string(std::string_view str) -> bool
+    [[nodiscard]] inline auto is_hex_string(const std::string_view str) -> bool
     {
         for (const auto c : str)
         {
@@ -64,7 +64,7 @@ namespace ngx::crypto
      * @details 如果输入已经是 56 字节的十六进制字符串，直接返回；
      *          否则计算其 SHA224 哈希值。
      */
-    [[nodiscard]] inline auto normalize_credential(std::string_view credential) -> std::string
+    [[nodiscard]] inline auto normalize_credential(const std::string_view credential) -> std::string
     {
         if (credential.size() == 56 && is_hex_string(credential))
         {
