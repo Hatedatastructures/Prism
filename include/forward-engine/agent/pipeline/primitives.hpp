@@ -1,5 +1,3 @@
-#pragma once
-
 /**
  * @file primitives.hpp
  * @brief 管道原语定义
@@ -7,6 +5,8 @@
  * 上游拨号、TLS 握手以及双向隧道转发等核心功能。这些原语为 HTTP、SOCKS5、TLS
  * 等具体协议处理提供底层支撑，确保协议处理逻辑的一致性和可复用性。
  */
+
+#pragma once
 
 #include <algorithm>
 #include <cstddef>

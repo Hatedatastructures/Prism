@@ -182,29 +182,36 @@ namespace ngx::agent::pipeline::primitives
         // 传输统计：[0] = 上行, [1] = 下行
         std::array<std::size_t, 2> total_bytes{0, 0};
 
+        struct forward_context
+        {
+            const trans &from;
+            const trans &to;
+            const std::span<std::byte> scratch;
+            const std::size_t idx;
+        };
+
         // 单向转发协程
-        auto forward = [complete_write, &total_bytes](const trans &from, const trans &to,
-                                                      const std::span<std::byte> scratch, const std::size_t idx)
+        auto forward = [complete_write, &total_bytes](forward_context context)
             -> net::awaitable<void>
         {
             std::error_code ec;
             while (true)
             {
-                const auto transferred = co_await from->async_read_some(scratch, ec);
+                const auto transferred = co_await context.from->async_read_some(context.scratch, ec);
                 if (ec || transferred == 0)
                     co_return;
 
-                total_bytes[idx] += transferred;
+                total_bytes[context.idx] += transferred;
 
-                const auto data = scratch.first(transferred);
+                const auto data = context.scratch.first(transferred);
                 std::size_t written;
                 if (complete_write)
                 {
-                    written = co_await to->async_write(data, ec);
+                    written = co_await context.to->async_write(data, ec);
                 }
                 else
                 {
-                    written = co_await to->async_write_some(data, ec);
+                    written = co_await context.to->async_write_some(data, ec);
                 }
 
                 if (ec || (complete_write && written < transferred))
@@ -214,7 +221,7 @@ namespace ngx::agent::pipeline::primitives
 
         // 并行双向转发，任一方向完成时取消另一方向
         using namespace boost::asio::experimental::awaitable_operators;
-        co_await (forward(inbound, outbound, left, 0) || forward(outbound, inbound, right, 1));
+        co_await (forward({inbound, outbound, left, 0}) || forward({outbound, inbound, right, 1}));
 
         // 计算耗时
         const auto end_time = std::chrono::steady_clock::now();
@@ -223,7 +230,7 @@ namespace ngx::agent::pipeline::primitives
         if (const auto up = total_bytes[0], down = total_bytes[1]; up > 0 || down > 0)
         {
             trace::info("[Tunnel] [{}] Transfer: Upload {} B, Download {} B, duration: {} ms",
-                        ctx.session_id, up, down,  std::chrono::duration_cast<std::chrono::milliseconds>(end_time - start_time).count());
+                        ctx.session_id, up, down, std::chrono::duration_cast<std::chrono::milliseconds>(end_time - start_time).count());
         }
 
         shut_close(inbound);
