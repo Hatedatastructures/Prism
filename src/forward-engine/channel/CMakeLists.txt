@@ -2,6 +2,9 @@ target_sources(${PROJECT_NAME}_static_library
         PRIVATE
         connection/pool.cpp
         health.cpp
+        eyeball/racer.cpp
+        smux/frame.cpp
+        smux/multiplexer.cpp
 )
 
 target_sources(${PROJECT_NAME}_static_library
@@ -15,4 +18,8 @@ target_sources(${PROJECT_NAME}_static_library
             ${PROJECT_SOURCE_DIR}/include/forward-engine/channel/transport/unreliable.hpp
             ${PROJECT_SOURCE_DIR}/include/forward-engine/channel/transport/encrypted.hpp
             ${PROJECT_SOURCE_DIR}/include/forward-engine/channel/adapter/connector.hpp
+            ${PROJECT_SOURCE_DIR}/include/forward-engine/channel/eyeball/racer.hpp
+            ${PROJECT_SOURCE_DIR}/include/forward-engine/channel/smux/config.hpp
+            ${PROJECT_SOURCE_DIR}/include/forward-engine/channel/smux/frame.hpp
+            ${PROJECT_SOURCE_DIR}/include/forward-engine/channel/smux/multiplexer.hpp
 )

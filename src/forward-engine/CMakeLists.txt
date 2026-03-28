@@ -12,8 +12,7 @@ target_sources(${PROJECT_NAME}_static_library
             ${PROJECT_SOURCE_DIR}/include/forward-engine/exception/protocol.hpp
             ${PROJECT_SOURCE_DIR}/include/forward-engine/exception/security.hpp
             ${PROJECT_SOURCE_DIR}/include/forward-engine/loader/load.hpp
-            ${PROJECT_SOURCE_DIR}/include/forward-engine/core/broker.hpp
-            ${PROJECT_SOURCE_DIR}/include/forward-engine/core/configuration.hpp
+            ${PROJECT_SOURCE_DIR}/include/forward-engine/config.hpp
             ${PROJECT_SOURCE_DIR}/include/forward-engine/fault/code.hpp
             ${PROJECT_SOURCE_DIR}/include/forward-engine/fault/compatible.hpp
             ${PROJECT_SOURCE_DIR}/include/forward-engine/fault/handling.hpp

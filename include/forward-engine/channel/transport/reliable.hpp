@@ -181,6 +181,16 @@ namespace ngx::channel::transport
         }
 
         /**
+         * @brief 关闭写端（半关闭）
+         * @details 调用 socket 的 shutdown_send，通知对端不再发送数据。
+         */
+        void shutdown_write() override
+        {
+            boost::system::error_code ec;
+            native_socket().shutdown(net::ip::tcp::socket::shutdown_send, ec);
+        }
+
+        /**
          * @brief 检查传输是否可靠（如 TCP）
          * @details 重写基类虚函数，返回 true 表示这是可靠传输。
          * @return bool 始终返回 true

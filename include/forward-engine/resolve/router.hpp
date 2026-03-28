@@ -17,6 +17,8 @@
 
 #include <forward-engine/resolve/recursor.hpp>
 #include <forward-engine/channel/connection/pool.hpp>
+#include <forward-engine/channel/eyeball/racer.hpp>
+#include <forward-engine/channel/transport/transmission.hpp>
 #include <forward-engine/fault/code.hpp>
 #include <forward-engine/memory/container.hpp>
 
@@ -26,6 +28,7 @@ namespace ngx::resolve
     using tcp = boost::asio::ip::tcp;
     using connection_pool = ngx::channel::connection_pool;
     using pooled_connection = ngx::channel::pooled_connection;
+    using shared_transmission = ngx::channel::transport::shared_transmission;
 
     /**
      * @class router
@@ -232,4 +235,5 @@ namespace ngx::resolve
 
         return std::pair{fault::code::success, std::move(socket)};
     }
+
 } // namespace ngx::resolve

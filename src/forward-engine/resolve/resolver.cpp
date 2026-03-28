@@ -99,7 +99,7 @@ namespace ngx::resolve
                     break;
                 }
 
-                trace::debug("[Resolve] query to {} completed: error={}, ips={}, rtt={}ms", server.address,
+                trace::debug("[Resolve] query to {} completed: code={}, ips={}, rtt={}ms", server.address,
                              fault::describe(result.error), result.ips.size(), result.rtt_ms);
 
                 if (succeeded(result.error) && !result.ips.empty())
@@ -146,7 +146,7 @@ namespace ngx::resolve
                     break;
                 }
 
-                trace::debug("[Resolve] query to {} completed: error={}, ips={}, rtt={}ms", server.address,
+                trace::debug("[Resolve] query to {} completed: code={}, ips={}, rtt={}ms", server.address,
                              fault::describe(result.error), result.ips.size(), result.rtt_ms);
             };
             net::co_spawn(ioc_, std::move(task), net::detached);

@@ -112,10 +112,10 @@ namespace ngx::resolve
 
         net::io_context &ioc_;        // IO 上下文
         memory::resource_pointer mr_; // 内存资源
-        config config_;          // DNS 配置
-        resolver upstream_;      // 上游 DNS 客户端
-        cache cache_;            // DNS 缓存
-        rules_engine rules_;     // 域名规则引擎
+        config config_;               // DNS 配置
+        resolver upstream_;           // 上游 DNS 客户端
+        cache cache_;                 // DNS 缓存
+        rules_engine rules_;          // 域名规则引擎
         coalescer coalescer_;         // 请求合并器
     };
 

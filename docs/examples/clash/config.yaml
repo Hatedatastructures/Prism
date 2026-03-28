@@ -17,12 +17,12 @@ dns:
   nameserver:
     - https://dns.alidns.com/dns-query
     - https://doh.pub/dns-query
-  fallback:
-    - https://1.1.1.1/dns-query
-    - https://dns.google/dns-query
-  fallback-filter:
-    geoip: true
-    geoip-code: CN
+  # fallback:
+  #   - https://1.1.1.1/dns-query
+  #   - https://dns.google/dns-query
+  # fallback-filter:
+  #   geoip: true  # 现在禁用掉，避免误伤国内IP导致无法访问国内站点
+  #   geoip-code: CN
 
 # ---------- 代理节点 ----------
 proxies:
@@ -34,6 +34,20 @@ proxies:
     password: "forward-engine"
     udp: false
     skip-cert-verify: true
+
+  # Trojan + smux 多路复用（复用单条 TLS 连接承载多个子流）
+  - name: "🏠 局域网 Trojan Mux"
+    type: trojan
+    server: 192.168.137.1
+    port: 8081
+    password: "forward-engine"
+    udp: false
+    skip-cert-verify: true
+    smux:
+      enabled: true
+      protocol: smux         
+      # max-streams: 32              # 单 mux 会话最大子流数
+      # max-conn: 4                  # 同时保持的 mux 连接数
 
   # SOCKS5 代理（运行在 192.168.137.1:8081）
   - name: "🏠 局域网 SOCKS5"          # 名称与策略组引用一致
@@ -65,6 +79,7 @@ proxy-groups:
     type: select
     proxies:
       - "🏠 局域网 Trojan"
+      - "🏠 局域网 Trojan Mux"
       - "🏠 局域网 SOCKS5"
       - "http"
       - "https"
@@ -73,6 +88,7 @@ proxy-groups:
     type: url-test
     proxies:
       - "🏠 局域网 Trojan"
+      - "🏠 局域网 Trojan Mux"
       - "🏠 局域网 SOCKS5"
       - "http"
       - "https"

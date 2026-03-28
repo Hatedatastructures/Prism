@@ -179,14 +179,16 @@ namespace ngx::resolve
         flight_it->timer.cancel();
         coalescer::cleanup_flight(flight_it);
 
-        // 5：IP 过滤
+        // 5：IP 过滤（按查询类型过滤地址族 + 黑名单）
         if (succeeded(result.error) && !result.ips.empty())
         {
             memory::vector<net::ip::address> filtered(mr_);
             filtered.reserve(result.ips.size());
+            const bool want_v4 = (qt == qtype::a);
+            const bool want_v6 = (qt == qtype::aaaa);
             for (const auto &ip : result.ips)
             {
-                if (!is_blacklisted(ip))
+                if (!is_blacklisted(ip) && ip.is_v4() == want_v4 && ip.is_v6() == want_v6)
                 {
                     filtered.push_back(ip);
                 }

@@ -12,6 +12,7 @@
 #include <forward-engine/protocol/socks5/config.hpp>
 #include <forward-engine/protocol/trojan/config.hpp>
 #include <forward-engine/channel/connection/pool.hpp>
+#include <forward-engine/channel/smux/config.hpp>
 
 /**
  * @namespace ngx::agent
@@ -181,6 +182,9 @@ namespace ngx::agent
 
         // Trojan 协议配置，控制能力开关和 UDP 参数
         protocol::trojan::config trojan;
+
+        // smux 多路复用配置，控制 smux 服务端行为
+        channel::smux::config mux;
 
         // DNS 解析器配置，控制上游服务器、缓存、规则等
         resolve::config dns;

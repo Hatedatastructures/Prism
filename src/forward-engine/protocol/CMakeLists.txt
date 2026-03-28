@@ -1,7 +1,6 @@
 target_sources(${PROJECT_NAME}_static_library
         PRIVATE
         analysis.cpp
-        frame.cpp
 )
 
 target_sources(${PROJECT_NAME}_static_library
@@ -11,7 +10,6 @@ target_sources(${PROJECT_NAME}_static_library
         FILES
             ${PROJECT_SOURCE_DIR}/include/forward-engine/protocol.hpp
             ${PROJECT_SOURCE_DIR}/include/forward-engine/protocol/analysis.hpp
-            ${PROJECT_SOURCE_DIR}/include/forward-engine/protocol/frame.hpp
             ${PROJECT_SOURCE_DIR}/include/forward-engine/protocol/http.hpp
             ${PROJECT_SOURCE_DIR}/include/forward-engine/protocol/probe.hpp
             ${PROJECT_SOURCE_DIR}/include/forward-engine/protocol/socks5.hpp

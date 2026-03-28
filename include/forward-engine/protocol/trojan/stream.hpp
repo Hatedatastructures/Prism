@@ -347,6 +347,9 @@ namespace ngx::protocol::trojan
                 }
                 req.form = ngx::protocol::form::datagram;
                 break;
+            case command::mux:
+                req.form = ngx::protocol::form::stream;
+                break;
             default:
                 co_return std::pair{fault::code::unsupported_command, request{}};
             }

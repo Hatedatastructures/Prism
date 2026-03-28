@@ -82,7 +82,17 @@ namespace ngx::fault
         ttl_expired = 35,                             // TTL 已过期
         forbidden = 36,                               // 禁止访问
         ipv6_disabled = 37,                           // IPv6 被禁用
-        _count = 38                                   // 错误码总数（内部使用）
+
+        // Mux 相关错误码
+        mux_not_enabled = 38,                         // Mux 未启用
+        mux_session_error = 39,                       // Mux 会话错误
+        mux_stream_error = 40,                        // Mux 流错误
+        mux_window_exceeded = 41,                     // Mux 窗口超限
+        mux_protocol_error = 42,                      // Mux 协议错误
+        mux_connection_limit = 43,                    // Mux 连接数限制
+        mux_stream_limit = 44,                        // Mux 流数限制
+
+        _count = 45                                   // 错误码总数（内部使用）
     };
 
     /**
@@ -176,6 +186,20 @@ namespace ngx::fault
             return "forbidden";
         case code::ipv6_disabled:
             return "ipv6_disabled";
+        case code::mux_not_enabled:
+            return "mux_not_enabled";
+        case code::mux_session_error:
+            return "mux_session_error";
+        case code::mux_stream_error:
+            return "mux_stream_error";
+        case code::mux_window_exceeded:
+            return "mux_window_exceeded";
+        case code::mux_protocol_error:
+            return "mux_protocol_error";
+        case code::mux_connection_limit:
+            return "mux_connection_limit";
+        case code::mux_stream_limit:
+            return "mux_stream_limit";
         default:
             return "unknown";
         }

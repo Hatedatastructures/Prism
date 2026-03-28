@@ -1,6 +1,7 @@
 #include <forward-engine/agent/pipeline/protocols.hpp>
 #include <protocol.hpp>
 #include <forward-engine/channel/transport/encrypted.hpp>
+#include <forward-engine/channel/smux/multiplexer.hpp>
 #include <forward-engine/agent/account/directory.hpp>
 #include <forward-engine/memory/container.hpp>
 #include <boost/asio/experimental/awaitable_operators.hpp>
@@ -243,6 +244,23 @@ namespace ngx::agent::pipeline
             protocol::analysis::target target(ctx.frame_arena.get());
             target.host = protocol::trojan::to_string(req.destination_address, ctx.frame_arena.get());
             target.port = std::to_string(req.port);
+
+            // Mihomo smux 兼容：客户端用 CONNECT + 虚假地址标记 mux 连接
+            // 检测 mux 标记地址，命中则走 smux 多路复用逻辑
+            if (ctx.server.cfg.mux.enabled &&
+                target.host.size() >= 18 &&
+                target.host.substr(target.host.size() - 18) == ".mux.sing-box.arpa")
+            {
+                trace::info("[Pipeline] Trojan CONNECT with mux marker, creating sing-mux session");
+                // 清除 session 流关闭回调，transport 生命周期由 multiplexer 接管
+                ctx.active_stream_close = nullptr;
+                ctx.active_stream_cancel = nullptr;
+                auto smux_session = std::make_shared<channel::smux::multiplexer>(
+                    agent->release(), ctx.worker.router, ctx.server.cfg.mux, true);
+                smux_session->start();
+                co_return;
+            }
+
             target.positive = true;
             trace::info("[Pipeline] Trojan CONNECT -> {}:{}", target.host, target.port);
 
@@ -270,6 +288,22 @@ namespace ngx::agent::pipeline
             // TODO: Trojan UDP_ASSOCIATE 实现
             trace::warn("[Pipeline] Trojan UDP_ASSOCIATE not implemented");
             break;
+        case protocol::trojan::command::mux:
+        {
+            if (!ctx.server.cfg.mux.enabled)
+            {
+                trace::warn("[Pipeline] Trojan MUX disabled, command ignored");
+                co_return;
+            }
+            trace::info("[Pipeline] Trojan MUX, creating smux session");
+            // 清除 session 流关闭回调，transport 生命周期由 multiplexer 接管
+            ctx.active_stream_close = nullptr;
+            ctx.active_stream_cancel = nullptr;
+            auto smux_session = std::make_shared<channel::smux::multiplexer>(
+                agent->release(), ctx.worker.router, ctx.server.cfg.mux, false);
+            smux_session->start();
+            co_return;
+        }
         default:
             trace::warn("[Pipeline] Trojan unknown command: {}", static_cast<int>(req.cmd));
             break;

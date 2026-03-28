@@ -30,7 +30,10 @@ namespace ngx::protocol::trojan
         connect = 0x01,
 
         // 建立 UDP over TLS 关联，值 0x03
-        udp_associate = 0x03
+        udp_associate = 0x03,
+
+        // Mihomo smux 多路复用命令，值 0x7f
+        mux = 0x7f
     };
 
     /**

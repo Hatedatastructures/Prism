@@ -397,9 +397,6 @@ namespace ngx::resolve
         encode_records(authority);
         encode_records(additional);
 
-        trace::debug("[Resolve] {} bytes, {}Q {}A {}NS {}AR",
-                     buf.size(), questions.size(), answers.size(), authority.size(), additional.size());
-
         return buf;
     }
 
@@ -513,9 +510,6 @@ namespace ngx::resolve
         {
             return std::nullopt;
         }
-
-        trace::debug("[Resolve] {} bytes -> {}Q {}A {}NS {}AR",
-                     data.size(), qdcount, ancount, nscount, arcount);
 
         return msg;
     }

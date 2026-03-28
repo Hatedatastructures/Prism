@@ -1,7 +1,8 @@
 #include <forward-engine/resolve/router.hpp>
 
-#include <exception.hpp>
-#include <trace.hpp>
+#include <forward-engine/channel/transport/reliable.hpp>
+#include <forward-engine/exception.hpp>
+#include <forward-engine/trace.hpp>
 
 #include <algorithm>
 #include <boost/asio/experimental/awaitable_operators.hpp>
@@ -100,25 +101,16 @@ namespace ngx::resolve
     auto router::connect_with_retry(const std::span<const tcp::endpoint> endpoints)
         -> net::awaitable<pooled_connection>
     {
-        constexpr std::size_t max_attempts = 3;
-        std::size_t attempted = 0;
-
+        // TODO: 并发竞速连接（co_spawn(detached) 在 MinGW 上触发 0xC0000005，
+        // 待后续用 || 操作符或 asio::steady_timer 延迟方案重写）
         for (const auto &ep : endpoints)
         {
-            trace::debug("[Resolve] connect attempt [{}] {}", attempted + 1, ep.address().to_string());
-
             auto [code, conn] = co_await pool_.async_acquire(ep);
             if (conn.valid())
             {
                 co_return conn;
             }
-
-            if (++attempted >= max_attempts)
-            {
-                break;
-            }
         }
-
         co_return pooled_connection{};
     }
 
@@ -169,4 +161,5 @@ namespace ngx::resolve
     {
         co_return co_await dns_.resolve_udp(host, port);
     }
+
 } // namespace ngx::resolve

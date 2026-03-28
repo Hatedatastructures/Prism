@@ -137,6 +137,15 @@ namespace ngx::channel::transport
             -> net::awaitable<std::size_t> = 0;
 
         /**
+         * @brief 关闭写端（半关闭）
+         * @details 关闭传输层的发送方向，通知对端不再发送数据。
+         * 默认空实现，reliable 层重写以调用 socket shutdown。
+         */
+        virtual void shutdown_write()
+        {
+        }
+
+        /**
          * @brief 关闭传输层
          * @details 关闭底层连接或资源。关闭后，所有未完成的异步操作将被取消。
          * 该方法用于优雅关闭连接，确保资源被正确释放。

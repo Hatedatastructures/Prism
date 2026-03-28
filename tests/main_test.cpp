@@ -7,7 +7,7 @@
 #include <exception.hpp>
 #include <trace.hpp>
 #include <transformer.hpp>
-#include <core/configuration.hpp>
+#include <forward-engine/config.hpp>
 
 namespace agent = ngx::agent;
 namespace http = ngx::protocol::http;
@@ -30,17 +30,17 @@ ngx::memory::string load_file_data(std::string_view path)
 
 /**
  * @brief 从文件中映射配置
- * @return ngx::core::configuration 配置对象
+ * @return ngx::config 配置对象
  */
-ngx::core::configuration mapping_configuration()
+ngx::config mapping_configuration()
 {
-    ngx::core::configuration config;
+    ngx::config cfg;
     try
     {
         ngx::memory::string config_string{load_file_data(R"(C:\Users\C1373\Desktop\code\ForwardEngine\src\configuration.json)")};
-        if (ngx::transformer::json::deserialize({config_string.data(), config_string.size()}, config))
+        if (ngx::transformer::json::deserialize({config_string.data(), config_string.size()}, cfg))
         {
-            return config;
+            return cfg;
         }
     }
     catch (...)
@@ -56,7 +56,7 @@ ngx::core::configuration mapping_configuration()
 int main()
 {
     // 启用全局内存池
-    ngx::memory::system::enable_global_pooling(); 
+    ngx::memory::system::enable_global_pooling();
     try
     {
         const auto threads_count = std::thread::hardware_concurrency();
@@ -64,16 +64,16 @@ int main()
         {
             throw ngx::exception::security("system error : {}","core acquisition failed");
         }
-        ngx::core::configuration config = mapping_configuration();
-        ngx::trace::init(config.trace);
+        ngx::config cfg = mapping_configuration();
+        ngx::trace::init(cfg.trace);
 
 
-        ngx::trace::info("json string : {} ", ngx::transformer::json::serialize<ngx::core::configuration>(config));
+        ngx::trace::info("json string : {} ", ngx::transformer::json::serialize<ngx::config>(cfg));
 
 
-        std::cout << ngx::transformer::json::serialize<ngx::core::configuration>(config) << std::endl;
+        std::cout << ngx::transformer::json::serialize<ngx::config>(cfg) << std::endl;
 
-        // ... 
+        // ...
     }
     catch(const ngx::exception::security& e)
     {

@@ -58,6 +58,12 @@
             "udp_idle_timeout": 60,
             "udp_max_datagram": 65535
         },
+        "mux": {
+            "enabled": true,
+            "max_streams": 32,
+            "buffer_size": 4096,
+            "keepalive_interval_ms": 30000
+        },
         "dns": {
             "servers": [
                 {
