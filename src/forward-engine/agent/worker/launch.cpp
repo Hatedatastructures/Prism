@@ -14,6 +14,28 @@ namespace ngx::agent::worker::launch
         socket.set_option(net::socket_base::send_buffer_size(buffer_size), ec);
     }
 
+    [[nodiscard]] std::optional<tcp::socket> migrate_executor(tcp::socket &sock, net::io_context &target_ioc) noexcept
+    {
+        // release 前 query 本地地址，判断 IPv4/IPv6
+        boost::system::error_code ec;
+        auto local_ep = sock.local_endpoint(ec);
+        const auto protocol = ec ? tcp::v4() : (local_ep.address().is_v6() ? tcp::v6() : tcp::v4());
+
+        // 剥离原生句柄，sock 变为空壳
+        auto native_handle = sock.release();
+
+        // 在目标 io_context 上重建 socket 并绑定句柄
+        tcp::socket migrated(target_ioc);
+        migrated.assign(protocol, native_handle, ec);
+        if (ec || !migrated.is_open())
+        {
+            trace::error("socket migration failed: {}", ec.message());
+            return std::nullopt;
+        }
+
+        return migrated;
+    }
+
     void start(server_context &server, worker_context &worker, stats::state &metrics, tcp::socket socket)
     {
         // 获取活跃会话计数器，用于会话关闭时递减
@@ -73,29 +95,29 @@ namespace ngx::agent::worker::launch
         // 记录连接移交进入队列
         metrics.handoff_push();
 
-        auto start_session = [&server, &worker, &metrics, sock = std::move(socket)]() mutable
+        auto start_session = [&server, &worker, &metrics, sock = std::move(socket), &ioc]() mutable
         {
             // 记录连接移交离开队列
             metrics.handoff_pop();
 
-            // 检查 socket 是否仍然有效
-            if (!sock.is_open())
+            // 将 socket 从 listener 的 io_context 迁移到 worker 的 io_context
+            auto migrated = migrate_executor(sock, ioc);
+            if (!migrated)
             {
                 return;
             }
 
             // 配置 socket 选项
-            prime(sock, server.cfg.buffer.size);
+            prime(*migrated, server.cfg.buffer.size);
 
             try
             {
-                // 启动会话处理
-                start(server, worker, metrics, std::move(sock));
+                start(server, worker, metrics, std::move(*migrated));
             }
             catch (const std::exception &e)
             {
                 trace::error("session launch failed: {}", e.what());
-            } 
+            }
         };
         net::post(ioc, std::move(start_session));
     }

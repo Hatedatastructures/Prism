@@ -98,5 +98,22 @@ namespace ngx::channel::smux
          * - 30000 (30秒)：适合大多数场景
          */
         std::uint32_t keepalive_interval_ms = 30000;
+
+        /**
+         * @brief UDP 管道空闲超时（毫秒）
+         * @details UDP 管道在无数据传输时自动关闭的超时时间。
+         * 每次收到客户端 PSH 数据报时重置计时器。
+         * 默认 60000（60秒），适合 DNS 查询等短时 UDP 流。
+         * 长时间 UDP 会话可设为 120000 以上。
+         */
+        std::uint32_t udp_idle_timeout_ms = 60000;
+
+        /**
+         * @brief UDP 数据报最大长度（字节）
+         * @details 限制单个 UDP 数据报的编码后最大长度。
+         * SOCKS5 UDP 头部最多增加 26 字节（IPv6），
+         * 实际 payload 最大为 udp_max_datagram - 26。
+         */
+        std::uint32_t udp_max_datagram = 65535;
     };
 } // namespace ngx::channel::smux

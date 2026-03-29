@@ -60,7 +60,7 @@
         },
         "mux": {
             "enabled": true,
-            "max_streams": 32,
+            "max_streams": 256,
             "buffer_size": 4096,
             "keepalive_interval_ms": 30000
         },

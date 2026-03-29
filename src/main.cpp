@@ -7,6 +7,7 @@
  * → 绑定负载均衡器 → 启动监听线程接受外部连接。
  */
 
+#include <exception>
 #include <memory>
 #include <thread>
 #include <vector>

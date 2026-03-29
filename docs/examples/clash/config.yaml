@@ -45,7 +45,8 @@ proxies:
     skip-cert-verify: true
     smux:
       enabled: true
-      protocol: smux         
+      protocol: smux
+      only-tcp: true                 # 禁用 UDP，UDP 连接直接走底层协议
       # max-streams: 32              # 单 mux 会话最大子流数
       # max-conn: 4                  # 同时保持的 mux 连接数
 

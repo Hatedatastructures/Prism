@@ -13,6 +13,7 @@
 #include <atomic>
 #include <cstdint>
 #include <memory>
+#include <optional>
 #include <span>
 
 #include <boost/asio.hpp>
@@ -33,6 +34,7 @@ namespace ngx::channel::smux
     namespace net = boost::asio;
 
     class pipe;
+    class datagram_pipe;
 
     /**
      * @class multiplexer
@@ -46,6 +48,7 @@ namespace ngx::channel::smux
     class multiplexer : public std::enable_shared_from_this<multiplexer>
     {
         friend class pipe;
+        friend class datagram_pipe;
 
     public:
         /**
@@ -112,6 +115,12 @@ namespace ngx::channel::smux
          */
         void remove_pipe(std::uint32_t stream_id);
 
+        /**
+         * @brief 从活跃 UDP 管道映射中移除指定管道
+         * @param stream_id 要移除的流标识符
+         */
+        void remove_datagram_pipe(std::uint32_t stream_id);
+
     private:
         /**
          * @brief 运行入口，根据模式决定是否先协商协议
@@ -127,7 +136,7 @@ namespace ngx::channel::smux
          * Version > 0 时额外读取 [PaddingLen 2B big-endian][Padding N bytes]。
          * @return 错误码，成功时为空
          */
-        auto negotiate_protocol() -> net::awaitable<std::error_code>;
+        auto negotiate_protocol() const -> net::awaitable<std::error_code>;
 
         /**
          * @brief 帧循环主协程
@@ -186,8 +195,8 @@ namespace ngx::channel::smux
         resolve::router &router_;                  // 路由器引用
         const config &config_;                     // smux 配置
         bool sing_mux_;                             // sing-mux 模式标志
-        memory::unsynchronized_pool own_pool_;     // multiplexer 自有的内存池
-        memory::resource_pointer mr_;              // PMR 内存资源（指向 own_pool_）
+        memory::unsynchronized_pool own_pool_;     // multiplexer 自有的内存池（预留）
+        memory::resource_pointer mr_;              // PMR 内存资源（构造时由外部传入或使用默认资源）
         std::atomic<bool> active_{false};          // 会话活跃标志
 
         /**
@@ -207,6 +216,9 @@ namespace ngx::channel::smux
 
         /// 已连接的活跃管道
         memory::unordered_map<std::uint32_t, std::shared_ptr<pipe>> pipes_;
+
+        /// 活跃的 UDP 管道
+        memory::unordered_map<std::uint32_t, std::shared_ptr<datagram_pipe>> udp_pipes_;
         memory::vector<std::byte> recv_buffer_; // 帧头读取缓冲
 
         // 发送串行化 strand
@@ -300,5 +312,92 @@ namespace ngx::channel::smux
         std::atomic<bool> mux_closed_{false};    // mux 端已关闭
         std::atomic<bool> target_closed_{false}; // target 端已关闭
     }; // class pipe
+
+    /**
+     * @class datagram_pipe
+     * @brief smux UDP 数据报管道
+     * @details 处理 smux 中的 UDP 流。每个 PSH 帧承载一个 SOCKS5 UDP relay
+     * 格式数据报，可发往不同目标。上行方向通过 idle_timer 管理生命周期，
+     * 超时自动关闭。串行处理数据报，由 frame_loop co_await 调用。
+     */
+    class datagram_pipe : public std::enable_shared_from_this<datagram_pipe>
+    {
+    public:
+        /**
+         * @brief 构造 datagram_pipe
+         * @param stream_id 流标识符
+         * @param mux 所属 multiplexer
+         * @param cfg smux 配置参数
+         * @param router 路由器引用，用于 DNS 解析
+         * @param mr PMR 内存资源
+         */
+        datagram_pipe(std::uint32_t stream_id, std::shared_ptr<multiplexer> mux,
+                       const config &cfg, resolve::router &router,
+                       memory::resource_pointer mr);
+
+        /**
+         * @brief 析构函数
+         * @details 自动调用 close() 释放资源。
+         */
+        ~datagram_pipe();
+
+        /**
+         * @brief 启动空闲超时监控
+         * @details 通过 co_spawn 启动 uplink_loop 协程，管理 UDP 管道
+         * 生命周期。异常或空闲超时时自动调用 close()。
+         */
+        void start();
+
+        /**
+         * @brief 接收 mux 数据报并转发到目标
+         * @param data SOCKS5 UDP relay 格式数据
+         * @return 协程等待对象
+         */
+        auto on_mux_data(std::span<const std::byte> data) -> net::awaitable<void>;
+
+        /**
+         * @brief 关闭管道
+         * @details 幂等操作，关闭 UDP socket，取消 timer，从 multiplexer 移除。
+         */
+        void close();
+
+        /**
+         * @brief 获取流标识符
+         * @return 流 ID
+         */
+        [[nodiscard]] std::uint32_t stream_id() const noexcept
+        {
+            return stream_id_;
+        }
+
+    private:
+        /**
+         * @brief 空闲超时监控循环
+         */
+        auto uplink_loop() -> net::awaitable<void>;
+
+        /**
+         * @brief 中继单个 UDP 数据报
+         * @param udp_packet SOCKS5 UDP relay 格式数据报
+         */
+        auto relay_datagram(std::span<const std::byte> udp_packet) -> net::awaitable<void>;
+
+        /**
+         * @brief 重置空闲计时器
+         */
+        void touch_idle_timer();
+
+        std::uint32_t stream_id_;
+        std::shared_ptr<multiplexer> mux_;
+        resolve::router &router_;
+        const config &config_;
+        memory::resource_pointer mr_;
+        bool closed_ = false;
+
+        net::steady_timer idle_timer_;
+        std::optional<net::ip::udp::socket> egress_socket_;
+        net::ip::udp::endpoint::protocol_type socket_protocol_{net::ip::udp::v4()};
+        memory::vector<std::byte> recv_buffer_;
+    }; // class datagram_pipe
 
 } // namespace ngx::channel::smux

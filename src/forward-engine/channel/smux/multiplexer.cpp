@@ -12,16 +12,15 @@
 #include <forward-engine/trace.hpp>
 
 #include <boost/asio/co_spawn.hpp>
-#include <boost/asio/detached.hpp>
 
 constexpr std::string_view tag = "[Smux]";
 
 namespace ngx::channel::smux
 {
-    multiplexer::multiplexer(transport::shared_transmission transport, resolve::router &router,                             const config &cfg, const bool sing_mux, const memory::resource_pointer mr)
+    multiplexer::multiplexer(transport::shared_transmission transport, resolve::router &router, const config &cfg, const bool sing_mux, const memory::resource_pointer mr)
         : transport_(std::move(transport)), router_(router), config_(cfg), sing_mux_(sing_mux),
           mr_(mr ? mr : memory::current_resource()),
-          pending_(mr_), pipes_(mr_), recv_buffer_(mr_),
+          pending_(mr_), pipes_(mr_), udp_pipes_(mr_), recv_buffer_(mr_),
           send_strand_(net::make_strand(transport_->executor()))
     {
         recv_buffer_.resize(config_.buffer_size);
@@ -48,6 +47,10 @@ namespace ngx::channel::smux
                 {
                     trace::error("{} frame loop exception: {}", tag, e.what());
                 }
+                catch (...)
+                {
+                    trace::error("{} frame loop unknown exception", tag);
+                }
             }
             self->close();
         };
@@ -73,12 +76,31 @@ namespace ngx::channel::smux
         pending_.clear();
 
         // std::move 避免 iterator invalidation：close() 中 pipe 调用
-        // remove_pipe 对空 map 操作
+        // remove_pipe/remove_datagram_pipe 对空 map 操作
         for (auto pipes = std::move(pipes_); auto &p : pipes | std::views::values)
         {
             if (p)
             {
-                p->close();
+                try
+                {
+                    p->close();
+                }
+                catch (...)
+                {
+                }
+            }
+        }
+        for (auto udp_pipes = std::move(udp_pipes_); auto &p : udp_pipes | std::views::values)
+        {
+            if (p)
+            {
+                try
+                {
+                    p->close();
+                }
+                catch (...)
+                {
+                }
             }
         }
 
@@ -96,6 +118,11 @@ namespace ngx::channel::smux
     void multiplexer::remove_pipe(const std::uint32_t stream_id)
     {
         pipes_.erase(stream_id);
+    }
+
+    void multiplexer::remove_datagram_pipe(const std::uint32_t stream_id)
+    {
+        udp_pipes_.erase(stream_id);
     }
 
     /**
@@ -120,7 +147,7 @@ namespace ngx::channel::smux
      * @details 读取 sing-mux 协议头：[Version 1B][Protocol 1B]，
      * Version > 0 时额外读取 [PaddingLen 2B big-endian][Padding N bytes]。
      */
-    auto multiplexer::negotiate_protocol() -> net::awaitable<std::error_code>
+    auto multiplexer::negotiate_protocol() const -> net::awaitable<std::error_code>
     {
         std::error_code ec;
 
@@ -258,8 +285,8 @@ namespace ngx::channel::smux
     auto multiplexer::handle_syn(const std::uint32_t stream_id)
         -> net::awaitable<void>
     {
-        // 检查 pending + active 总数
-        if (pending_.size() + pipes_.size() >= config_.max_streams)
+        // 检查 pending + active 总数（含 UDP 管道）
+        if (pending_.size() + pipes_.size() + udp_pipes_.size() >= config_.max_streams)
         {
             trace::warn("{} max streams reached, rejecting stream {}", tag, stream_id);
             co_return;
@@ -288,8 +315,29 @@ namespace ngx::channel::smux
             {
                 entry.connecting = true;
                 // 连接操作低频（仅首次），co_spawn 不阻塞帧循环
+                // 使用异常回调防止未捕获异常导致 std::terminate()
                 auto self = shared_from_this();
-                net::co_spawn(transport_->executor(), self->connect_pipe(stream_id), net::detached);
+                net::co_spawn(transport_->executor(), self->connect_pipe(stream_id),
+                              [self, stream_id](const std::exception_ptr &ep)
+                              {
+                                  if (ep)
+                                  {
+                                      try
+                                      {
+                                          std::rethrow_exception(ep);
+                                      }
+                                      catch (const std::exception &e)
+                                      {
+                                          trace::debug("{} stream {} connect_pipe error: {}",
+                                                       tag, stream_id, e.what());
+                                      }
+                                      catch (...)
+                                      {
+                                          trace::error("{} stream {} connect_pipe unknown error",
+                                                       tag, stream_id);
+                                      }
+                                  }
+                              });
             }
             co_return;
         }
@@ -299,6 +347,14 @@ namespace ngx::channel::smux
         if (sit != pipes_.end() && sit->second)
         {
             co_await sit->second->on_mux_data(payload);
+            co_return;
+        }
+
+        // 3. active UDP pipe：转发数据报
+        const auto uit = udp_pipes_.find(stream_id);
+        if (uit != udp_pipes_.end() && uit->second)
+        {
+            co_await uit->second->on_mux_data(payload);
         }
     }
 
@@ -319,6 +375,14 @@ namespace ngx::channel::smux
         if (it != pipes_.end() && it->second)
         {
             it->second->on_mux_fin();
+            return;
+        }
+
+        // active UDP pipe：FIN 直接关闭
+        auto uit = udp_pipes_.find(stream_id);
+        if (uit != udp_pipes_.end() && uit->second)
+        {
+            uit->second->close();
         }
     }
 
@@ -353,8 +417,8 @@ namespace ngx::channel::smux
             trace::warn("{} stream {} address parse failed", tag, stream_id);
             if (sing_mux_)
             {
-                const std::byte error_status{0x01};
-                co_await send_data(stream_id, std::span<const std::byte>(&error_status, 1));
+                constexpr std::byte error_status{0x01};
+                co_await send_data(stream_id, std::span(&error_status, 1));
             }
             pending_.erase(stream_id);
             send_fin(stream_id);
@@ -366,11 +430,53 @@ namespace ngx::channel::smux
         const auto host = std::move(addr->host);
         const auto port = addr->port;
         const auto offset = addr->offset;
+        const bool is_udp = addr->is_udp;
         memory::vector<std::byte> remaining_data(mr_);
         if (offset < entry.buffer.size())
         {
             const auto remaining = std::span<const std::byte>(entry.buffer).subspan(offset);
             remaining_data.assign(remaining.begin(), remaining.end());
+        }
+
+        // UDP 流：创建 datagram_pipe
+        if (is_udp)
+        {
+            trace::debug("{} stream {} creating UDP pipe", tag, stream_id);
+
+            // sing_mux 模式发送 StreamResponse（success）
+            if (sing_mux_)
+            {
+                constexpr std::byte success_status{0x00};
+                co_await send_data(stream_id, std::span<const std::byte>(&success_status, 1));
+            }
+
+            pending_.erase(stream_id);
+
+            auto dp = std::make_shared<datagram_pipe>(stream_id, shared_from_this(), config_, router_, mr_);
+            dp->start();
+
+            // 先转发剩余数据（第一个数据报），再注册到 udp_pipes_
+            // 避免 connect_pipe 协程在 relay_datagram 中挂起期间，
+            // frame_loop 读到同流 PSH 帧后再次调用 relay_datagram，
+            // 导致同一 UDP socket 上出现两个 pending async_receive_from
+            if (!remaining_data.empty())
+            {
+                co_await dp->on_mux_data(remaining_data);
+            }
+
+            // 仅在会话仍活跃时注册，close() 后不再添加
+            if (active_.load(std::memory_order_acquire))
+            {
+                udp_pipes_[stream_id] = dp;
+            }
+            else
+            {
+                // close() 已执行，主动清理避免泄漏
+                dp->close();
+            }
+
+            trace::debug("{} stream {} UDP pipe created", tag, stream_id);
+            co_return;
         }
 
         trace::debug("{} stream {} connecting to {}:{}", tag, stream_id, host, port);
@@ -383,7 +489,7 @@ namespace ngx::channel::smux
             trace::warn("{} stream {} connect to {}:{} failed", tag, stream_id, host, port);
             if (sing_mux_)
             {
-                const std::byte error_status{0x01};
+                constexpr std::byte error_status{0x01};
                 co_await send_data(stream_id, std::span<const std::byte>(&error_status, 1));
             }
             pending_.erase(stream_id);
@@ -394,8 +500,8 @@ namespace ngx::channel::smux
         // sing_mux 模式发送 StreamResponse（success）
         if (sing_mux_)
         {
-            const std::byte success_status{0x00};
-            co_await send_data(stream_id, std::span<const std::byte>(&success_status, 1));
+            constexpr std::byte success_status{0x00};
+            co_await send_data(stream_id, std::span(&success_status, 1));
         }
 
         // 创建 pipe 前 erase pending，避免 pending_ 和 pipes_ 同时持有
@@ -433,11 +539,25 @@ namespace ngx::channel::smux
         hdr.cmd = command::fin;
         hdr.stream_id = stream_id;
 
-        // 捕获 shared_ptr 确保 detached 协程运行期间 mux 不被销毁
         auto self = shared_from_this();
-        net::co_spawn(transport_->executor(),
-                      [self, hdr]() -> net::awaitable<void> { co_await self->send_frame(hdr, {}); },
-                      net::detached);
+        net::co_spawn(transport_->executor(), [self, hdr]() -> net::awaitable<void>
+                      { co_await self->send_frame(hdr, {}); }, [self, stream_id](const std::exception_ptr &ep)
+                      {
+                if (ep)
+                {
+                    try
+                    {
+                        std::rethrow_exception(ep);
+                    }
+                    catch (const std::exception &e)
+                    {
+                        trace::debug("{} stream {} send_fin error: {}",
+                                     tag, stream_id, e.what());
+                    }
+                    catch (...)
+                    {
+                    }
+                } });
     }
 
     /**
@@ -493,6 +613,10 @@ namespace ngx::channel::smux
                 catch (const std::exception &e)
                 {
                     trace::debug("{} stream {} uplink error: {}", tag, self->stream_id_, e.what());
+                }
+                catch (...)
+                {
+                    trace::error("{} stream {} uplink unknown error", tag, self->stream_id_);
                 }
             }
             self->close();
@@ -564,9 +688,21 @@ namespace ngx::channel::smux
             target_.reset();
         }
 
-        mux_->remove_pipe(stream_id_);
+        try
+        {
+            mux_->remove_pipe(stream_id_);
+        }
+        catch (...)
+        {
+        }
 
-        trace::debug("{} stream {} closed", tag, stream_id_);
+        try
+        {
+            trace::debug("{} stream {} closed", tag, stream_id_);
+        }
+        catch (...)
+        {
+        }
     }
 
     /**
@@ -603,6 +739,226 @@ namespace ngx::channel::smux
         if (!mux_closed_.load(std::memory_order_acquire) && mux_->is_active())
         {
             mux_->send_fin(stream_id_);
+        }
+    }
+
+    // ========== datagram_pipe 实现 ==========
+
+    datagram_pipe::datagram_pipe(const std::uint32_t stream_id, std::shared_ptr<multiplexer> mux,
+                                 const config &cfg, resolve::router &router,
+                                 const memory::resource_pointer mr)
+        : stream_id_(stream_id), mux_(std::move(mux)), router_(router), config_(cfg), mr_(mr),
+          idle_timer_(mux_->transport_->executor()), recv_buffer_(mr)
+    {
+        recv_buffer_.resize(config_.udp_max_datagram);
+    }
+
+    datagram_pipe::~datagram_pipe()
+    {
+        close();
+    }
+
+    void datagram_pipe::start()
+    {
+        touch_idle_timer();
+
+        auto self = shared_from_this();
+        auto on_done = [self](const std::exception_ptr &ep)
+        {
+            if (ep)
+            {
+                try
+                {
+                    std::rethrow_exception(ep);
+                }
+                catch (const std::exception &e)
+                {
+                    trace::debug("{} stream {} UDP uplink error: {}", tag, self->stream_id_, e.what());
+                }
+                catch (...)
+                {
+                    trace::error("{} stream {} UDP uplink unknown error", tag, self->stream_id_);
+                }
+            }
+            self->close();
+        };
+        net::co_spawn(mux_->transport_->executor(), uplink_loop(), std::move(on_done));
+    }
+
+    /**
+     * @details 空闲超时监控循环。每次 touch_idle_timer() 重设计时器时，
+     * 当前等待收到 operation_aborted，continue 后重新等待。
+     * 正常到期表示空闲超时，退出循环触发 close()。
+     */
+    auto datagram_pipe::uplink_loop() -> net::awaitable<void>
+    {
+        while (!closed_)
+        {
+            boost::system::error_code ec;
+            co_await idle_timer_.async_wait(
+                net::redirect_error(net::use_awaitable, ec));
+            if (ec == net::error::operation_aborted)
+            {
+                continue; // timer 被 touch_idle_timer 重设
+            }
+            break; // 正常到期 = 空闲超时
+        }
+        trace::debug("{} stream {} UDP idle timeout", tag, stream_id_);
+        co_return;
+    }
+
+    /**
+     * @details 重置空闲计时器。expires_after 自动取消之前的等待，
+     * uplink_loop 会收到 aborted 并 continue。
+     */
+    void datagram_pipe::touch_idle_timer()
+    {
+        idle_timer_.expires_after(std::chrono::milliseconds(config_.udp_idle_timeout_ms));
+    }
+
+    /**
+     * @details 接收 mux 数据报，重置空闲计时器，中继到目标。
+     */
+    auto datagram_pipe::on_mux_data(std::span<const std::byte> data) -> net::awaitable<void>
+    {
+        if (closed_)
+        {
+            co_return;
+        }
+        touch_idle_timer();
+        co_await relay_datagram(data);
+    }
+
+    /**
+     * @details 核心中继逻辑：
+     * 1. 解析 SOCKS5 UDP 头部得到目标地址和 payload
+     * 2. DNS 解析目标
+     * 3. 通过 egress_socket 发送到目标
+     * 4. 接收回包
+     * 5. 编码为 SOCKS5 UDP 格式通过 mux 回传
+     */
+    auto datagram_pipe::relay_datagram(std::span<const std::byte> udp_packet) -> net::awaitable<void>
+    {
+        // 解析 SOCKS5 UDP relay 头部
+        auto dgram = parse_udp_datagram(udp_packet, mr_);
+        if (!dgram)
+        {
+            trace::warn("{} stream {} UDP datagram parse failed", tag, stream_id_);
+            co_return;
+        }
+
+        trace::debug("{} stream {} UDP relay to {}:{}", tag, stream_id_, dgram->host, dgram->port);
+
+        // DNS 解析目标
+        const auto [code, target_ep] = co_await router_.resolve_datagram_target(dgram->host, std::to_string(dgram->port));
+        if (code != fault::code::success)
+        {
+            trace::debug("{} stream {} UDP resolve {}:{} failed", tag, stream_id_, dgram->host, dgram->port);
+            co_return;
+        }
+
+        // 创建或复用 UDP socket
+        if (!egress_socket_)
+        {
+            auto executor = co_await net::this_coro::executor;
+            egress_socket_.emplace(executor, target_ep.protocol());
+            socket_protocol_ = target_ep.protocol();
+        }
+        else if (socket_protocol_ != target_ep.protocol())
+        {
+            // 协议不匹配（如 IPv4→IPv6），重新创建
+            auto executor = co_await net::this_coro::executor;
+            boost::system::error_code bec;
+            egress_socket_->close(bec);
+            egress_socket_.emplace(executor, target_ep.protocol());
+            socket_protocol_ = target_ep.protocol();
+        }
+
+        // 发送数据报到目标
+        boost::system::error_code ec;
+        co_await egress_socket_->async_send_to(
+            net::buffer(dgram->payload.data(), dgram->payload.size()),
+            target_ep,
+            net::redirect_error(net::use_awaitable, ec));
+        if (ec)
+        {
+            trace::debug("{} stream {} UDP send to {}:{} failed: {}",
+                         tag, stream_id_, dgram->host, dgram->port, ec.message());
+            co_return;
+        }
+
+        // 接收回包
+        net::ip::udp::endpoint sender_ep;
+        const auto n = co_await egress_socket_->async_receive_from(
+            net::buffer(recv_buffer_.data(), recv_buffer_.size()),
+            sender_ep,
+            net::redirect_error(net::use_awaitable, ec));
+        if (ec)
+        {
+            trace::debug("{} stream {} UDP recv failed: {}", tag, stream_id_, ec.message());
+            co_return;
+        }
+
+        // 编码回包为 SOCKS5 UDP 格式
+        std::string reply_host;
+        try
+        {
+            reply_host = sender_ep.address().to_string();
+        }
+        catch (...)
+        {
+            co_return;
+        }
+        auto reply_port = sender_ep.port();
+        auto payload = std::span<const std::byte>(recv_buffer_.data(), n);
+        auto encoded = build_udp_datagram(reply_host, reply_port, payload, mr_);
+
+        // 通过 mux 回传
+        co_await mux_->send_data(stream_id_, encoded);
+        trace::debug("{} stream {} UDP relay completed", tag, stream_id_);
+    }
+
+    /**
+     * @details 幂等关闭。关闭 UDP socket、取消 timer、从 multiplexer 移除。
+     */
+    void datagram_pipe::close()
+    {
+        if (closed_)
+        {
+            return;
+        }
+        closed_ = true;
+
+        if (egress_socket_)
+        {
+            boost::system::error_code ec;
+            egress_socket_->cancel(ec);
+            egress_socket_->close(ec);
+            egress_socket_.reset();
+        }
+
+        try
+        {
+            idle_timer_.cancel();
+        }
+        catch (...)
+        {
+        }
+
+        try
+        {
+            mux_->remove_datagram_pipe(stream_id_);
+        }
+        catch (...)
+        {
+        }
+
+        try
+        {
+            trace::debug("{} stream {} UDP pipe closed", tag, stream_id_);
+        }
+        catch (...)
+        {
         }
     }
 

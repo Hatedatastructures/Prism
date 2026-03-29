@@ -64,8 +64,7 @@ namespace ngx::channel::smux
      * @struct parsed_address
      * @brief 从 mux 首个 PSH 帧解析出的目标地址
      * @details sing-mux StreamRequest 格式：
-     * [Flags 2B][ATYP 1B][Addr(var)][Port 2B]。Flags bit0=UDP，
-     * 目前只支持 TCP (Flags=0x0000)。
+     * [Flags 2B][ATYP 1B][Addr(var)][Port 2B]。Flags bit0 标识 UDP 流。
      * 支持 IPv4 (ATYP=0x01)、域名 (ATYP=0x03)、IPv6 (ATYP=0x04)。
      * offset 指向地址之后的第一个数据字节，用于转发剩余负载。
      */
@@ -74,7 +73,42 @@ namespace ngx::channel::smux
         memory::string host;          // 目标主机（IPv4/IPv6/域名）
         std::uint16_t port = 0;       // 目标端口
         std::size_t offset = 0;       // 地址结束位置，相对于原始 buffer
+        bool is_udp = false;          // 是否为 UDP 流（Flags bit0）
     };
+
+    /**
+     * @struct udp_datagram
+     * @brief UDP 数据报解析结果
+     * @details 格式：[ATYP 1B][Addr(var)][Port 2B][Data]
+     */
+    struct udp_datagram
+    {
+        memory::string host;          // 目标主机
+        std::uint16_t port = 0;       // 目标端口
+        std::span<const std::byte> payload; // 数据部分（不含 UDP 头部）
+    };
+
+    /**
+     * @brief 解析 UDP 数据报
+     * @param data 包含 [ATYP 1B][Addr][Port 2B][Data] 的字节序列
+     * @param mr 内存资源
+     * @return 解析结果，nullopt 表示数据不足或格式错误
+     */
+    [[nodiscard]] auto parse_udp_datagram(std::span<const std::byte> data, memory::resource_pointer mr)
+        -> std::optional<udp_datagram>;
+
+    /**
+     * @brief 构建 UDP 数据报
+     * @param host 目标主机
+     * @param port 目标端口
+     * @param payload 数据负载
+     * @param mr 内存资源
+     * @return 编码后的完整 UDP 数据报
+     */
+    [[nodiscard]] auto build_udp_datagram(std::string_view host, std::uint16_t port,
+                                          std::span<const std::byte> payload,
+                                          memory::resource_pointer mr)
+        -> memory::vector<std::byte>;
 
     /**
      * @brief 解析 mux 首个 PSH 中的 Flags+地址

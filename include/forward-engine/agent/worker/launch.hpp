@@ -11,6 +11,7 @@
 
 #include <atomic>
 #include <memory>
+#include <optional>
 #include <string_view>
 
 #include <boost/asio.hpp>
@@ -45,6 +46,17 @@ namespace ngx::agent::worker::launch
      * @param socket 待配置的 TCP socket。
      * @param buffer_size 接收和发送缓冲区大小，单位字节。
      */
+    /**
+     * @brief 将 socket 的 executor 从当前 io_context 迁移到目标 io_context。
+     * @details socket 被 move 后 executor 不会改变，导致后续异步操作仍在
+     * 原线程上执行。该函数通过释放原生句柄并重新绑定到目标 io_context 来
+     * 解决这个问题。迁移失败时返回空 optional。
+     * @param sock 待迁移的 socket，迁移后变为空壳。
+     * @param target_ioc 目标 io_context，迁移后 socket 的 executor 将绑定到它。
+     * @return 迁移后的新 socket，失败时为空。
+     */
+    [[nodiscard]] std::optional<tcp::socket> migrate_executor(tcp::socket &sock, net::io_context &target_ioc) noexcept;
+
     void prime(tcp::socket &socket, std::uint32_t buffer_size) noexcept;
 
     /**

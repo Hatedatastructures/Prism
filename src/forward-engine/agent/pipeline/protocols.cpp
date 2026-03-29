@@ -53,7 +53,7 @@ namespace ngx::agent::pipeline
         }
 
         if (req.method() == protocol::http::verb::connect)
-        {   // HTTP CONNECT 方法需要先回复 200 Connection Established 说明连接成功了，然后再进入隧道模式
+        { // HTTP CONNECT 方法需要先回复 200 Connection Established 说明连接成功了，然后再进入隧道模式
             constexpr std::string_view resp = {"HTTP/1.1 200 Connection Established\r\n\r\n"};
             boost::system::error_code write_ec;
             co_await net::async_write(stream, net::buffer(resp), net::redirect_error(net::use_awaitable, write_ec));
@@ -71,7 +71,7 @@ namespace ngx::agent::pipeline
             co_return;
 
         if (read_buffer.size() > 0)
-        {   // 将预读的 HTTP 请求数据转发到目标服务器来获取响应确定建立的是一个正常的http连接
+        { // 将预读的 HTTP 请求数据转发到目标服务器来获取响应确定建立的是一个正常的http连接
             auto buf = read_buffer.data();
             std::span span(static_cast<const std::byte *>(buf.data()), buf.size());
             co_await outbound->async_write(span, ec);
@@ -87,20 +87,20 @@ namespace ngx::agent::pipeline
     {
         auto inbound = std::move(ctx.inbound);
         if (!inbound)
-        {   // 检查入站传输对象是否存在，SOCKS5 协议需要它来完成握手和数据转发
+        { // 检查入站传输对象是否存在，SOCKS5 协议需要它来完成握手和数据转发
             trace::warn("[Pipeline] SOCKS5 inbound transmission missing.");
             co_return;
         }
 
         if (!data.empty())
-        {   // 如果有预读数据，包装一层 preview 传输对象来提供预读功能，避免修改原有的传输接口导致大规模改动
+        { // 如果有预读数据，包装一层 preview 传输对象来提供预读功能，避免修改原有的传输接口导致大规模改动
             inbound = std::make_shared<primitives::preview>(std::move(inbound), data, ctx.frame_arena.get());
         }
 
         const auto agent = protocol::socks5::make_relay(std::move(inbound), ctx.server.cfg.socks5);
         auto [ec, request] = co_await agent->handshake();
         if (fault::failed(ec))
-        {   // 协商失败，退出处理流程，agent raii 队象
+        { // 协商失败，退出处理流程，agent raii 队象
             trace::error("[Pipeline] SOCKS5 handshake failed: {}", fault::cached_message(ec));
             co_return;
         }
@@ -108,7 +108,7 @@ namespace ngx::agent::pipeline
         switch (request.cmd)
         {
         case protocol::socks5::command::connect:
-        {   // tcp 连接请求，解析目标地址并建立连接
+        { // tcp 连接请求，解析目标地址并建立连接
             protocol::analysis::target target(ctx.frame_arena.get());
             target.host = protocol::socks5::to_string(request.destination_address, ctx.frame_arena.get());
             target.port = std::to_string(request.destination_port);
@@ -135,7 +135,7 @@ namespace ngx::agent::pipeline
             break;
         }
         case protocol::socks5::command::udp_associate:
-        {   // UDP 关联请求，解析目标地址并进入 UDP 转发模式
+        { // UDP 关联请求，解析目标地址并进入 UDP 转发模式
             const auto target_host = protocol::socks5::to_string(request.destination_address, ctx.frame_arena.get());
             const auto target_port = std::to_string(request.destination_port);
             trace::info("[Pipeline] SOCKS5 UDP_ASSOCIATE -> {}:{}", target_host, target_port);
@@ -187,7 +187,7 @@ namespace ngx::agent::pipeline
         preread_buffer.reserve(min_detect_size);
 
         while (preread_buffer.size() < min_detect_size)
-        {   // 等待客户端发送完整的握手数据，至少 56 字节凭据 + 4 字节协议头部
+        { // 等待客户端发送完整的握手数据，至少 56 字节凭据 + 4 字节协议头部
             std::array<std::byte, 64> temp_buffer{};
             boost::system::error_code read_ec;
             auto token = net::redirect_error(net::use_awaitable, read_ec);
