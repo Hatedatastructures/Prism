@@ -1,12 +1,11 @@
 /**
  * @file parcel.hpp
  * @brief 多路复用 UDP 数据报管道
- * @details multiplex::parcel 是协议无关的 UDP 中继管道。
- * 每个 PSH 帧承载一个 SOCKS5 UDP relay 格式数据报，
- * 可发往不同目标。上行方向通过 idle_timer 管理生命周期，
- * 超时自动关闭.串行处理数据报.由 frame_loop co_await 调用.
- *
- * @note 通过 core 的虚函数接口发送帧，不依赖具体协议。
+ * @details multiplex::parcel 是协议无关的 UDP 中继管道。每个 PSH 帧
+ * 承载一个 SOCKS5 UDP relay 格式数据报，可发往不同目标。上行方向
+ * 通过 idle_timer 管理生命周期，超时自动关闭，串行处理数据报，
+ * 由 frame_loop co_await 调用。通过 core 的虚函数接口发送帧，
+ * 不依赖具体协议。
  */
 #pragma once
 
@@ -37,7 +36,7 @@ namespace ngx::multiplex
      * @class parcel
      * @brief 多路复用 UDP 数据报管道
      * @details 处理 mux 中的 UDP 流。每个数据帧承载 SOCKS5 UDP relay
-     * 格式数据报。空闲超时自动关闭，串行处理保证线程安全.
+     * 格式数据报。空闲超时自动关闭，串行处理保证线程安全。
      */
     class parcel : public std::enable_shared_from_this<parcel>
     {

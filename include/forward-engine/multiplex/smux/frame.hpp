@@ -70,10 +70,10 @@ namespace ngx::multiplex::smux
      */
     struct parsed_address
     {
-        memory::string host;          // 目标主机（IPv4/IPv6/域名）
-        std::uint16_t port = 0;       // 目标端口
-        std::size_t offset = 0;       // 地址结束位置，相对于原始 buffer
-        bool is_udp = false;          // 是否为 UDP 流（Flags bit0）
+        memory::string host;    // 目标主机（IPv4/IPv6/域名）
+        std::uint16_t port = 0; // 目标端口
+        std::size_t offset = 0; // 地址结束位置，相对于原始 buffer
+        bool is_udp = false;    // 是否为 UDP 流（Flags bit0）
     };
 
     /**
@@ -83,8 +83,8 @@ namespace ngx::multiplex::smux
      */
     struct udp_datagram
     {
-        memory::string host;          // 目标主机
-        std::uint16_t port = 0;       // 目标端口
+        memory::string host;                // 目标主机
+        std::uint16_t port = 0;             // 目标端口
         std::span<const std::byte> payload; // 数据部分（不含 UDP 头部）
     };
 

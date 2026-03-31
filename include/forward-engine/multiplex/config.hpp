@@ -16,34 +16,23 @@ namespace ngx::multiplex
     /**
      * @struct config
      * @brief 多路复用通用配置
-     * @details 控制 mux 服务端的通用行为参数。
-     * 各协议实现可继承此结构添加协议特有的配置字段。
-     *
-     * @section stream_management 流管理
-     *
-     * mux 服务端管理多个并发流：
-     * - 每个新流创建时检查 max_streams 限制
-     * - 每个流独立连接目标服务器
-     * - 流之间相互独立，互不影响
+     * @details 控制 mux 服务端的通用行为参数。各协议实现可继承此
+     * 结构添加协议特有的配置字段。mux 服务端管理多个并发流，每个
+     * 新流创建时检查 max_streams 限制，每流独立连接目标服务器，
+     * 流之间相互独立，互不影响。
      */
     struct config
     {
-        /// 是否启用多路复用服务端
-        bool enabled = false;
+        bool enabled = false; // 是否启用多路复用服务端
 
-        /// 单个 mux 会话最大并发流数
-        std::uint32_t max_streams = 32;
+        std::uint32_t max_streams = 32; // 单个 mux 会话最大并发流数
 
-        /// 每流缓冲区大小（字节）
-        std::uint32_t buffer_size = 4096;
+        std::uint32_t buffer_size = 4096; // 每流缓冲区大小（字节）
 
-        /// 心跳间隔（毫秒）
-        std::uint32_t keepalive_interval_ms = 30000;
+        std::uint32_t keepalive_interval_ms = 30000; // 心跳间隔（毫秒）
 
-        /// UDP 管道空闲超时（毫秒），超时自动关闭
-        std::uint32_t udp_idle_timeout_ms = 60000;
+        std::uint32_t udp_idle_timeout_ms = 60000; // UDP 管道空闲超时（毫秒），超时自动关闭
 
-        /// UDP 数据报最大长度（字节）
-        std::uint32_t udp_max_datagram = 65535;
-    };
+        std::uint32_t udp_max_datagram = 65535; // UDP 数据报最大长度（字节）
+    }; // struct config
 } // namespace ngx::multiplex

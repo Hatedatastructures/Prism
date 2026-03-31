@@ -85,7 +85,7 @@ namespace ngx::multiplex::smux
         auto send_frame(const frame_header &hdr, std::span<const std::byte> payload) const
             -> net::awaitable<void>;
 
-        memory::vector<std::byte> recv_buffer_; ///< 帧头读取缓冲
+        memory::vector<std::byte> recv_buffer_; // 帧头读取缓冲
     }; // class craft
 
 } // namespace ngx::multiplex::smux

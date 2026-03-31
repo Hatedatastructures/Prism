@@ -85,14 +85,14 @@ namespace ngx::multiplex
          */
         auto uplink_loop() -> net::awaitable<void>;
 
-        std::uint32_t id_;                          ///< 流标识符
-        std::shared_ptr<core> owner_;               ///< 所属 core
-        memory::resource_pointer mr_;               ///< PMR 内存资源
-        channel::transport::shared_transmission target_;     ///< 目标传输层
-        bool closed_ = false;                       ///< 关闭标志
-        memory::vector<std::byte> recv_buffer_;     ///< 上行读缓冲
-        std::atomic<bool> mux_closed_{false};       ///< mux 端已关闭
-        std::atomic<bool> target_closed_{false};    ///< target 端已关闭
+        std::uint32_t id_;                               // 流标识符
+        std::shared_ptr<core> owner_;                    // 所属 core
+        memory::resource_pointer mr_;                    // PMR 内存资源
+        channel::transport::shared_transmission target_; // 目标传输层
+        bool closed_ = false;                            // 关闭标志
+        memory::vector<std::byte> recv_buffer_;          // 上行读缓冲
+        std::atomic<bool> mux_closed_{false};            // mux 端已关闭
+        std::atomic<bool> target_closed_{false};         // target 端已关闭
     }; // class duct
 
 } // namespace ngx::multiplex

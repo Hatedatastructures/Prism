@@ -302,7 +302,56 @@
   - `connect_with_retry()`：遍历端点列表最多尝试 3 次，通过连接池获取已建立的 socket
 - 源码：[router.hpp](../../include/forward-engine/resolve/router.hpp)、[router.cpp](../../src/forward-engine/resolve/router.cpp)
 
-## 7. account 模块
+## 7. multiplex 模块
+位置：`include/forward-engine/multiplex/`、src/forward-engine/multiplex/`
+
+> **重要**：multiplex 是多路复用模块，支持 smux 协议（兼容 Mihomo/xtaci/smux v1），
+> 通过 Trojan cmd=0x7F 触发。详细文档见 [multiplex.md](multiplex.md)。
+
+### 模块架构概览
+
+```
+┌──────────────────────────────────────────────────────────────┐
+│                        craft (smux 协议实现)                   │
+├──────────────────────────────────────────────────────────────┤
+│                         core (抽象基类)                        │
+├────────────────────────┬─────────────────────────────────────┤
+│      duct (TCP 流)     │         parcel (UDP 数据报)          │
+├────────────────────────┴─────────────────────────────────────┤
+│                       smux::frame                            │
+└──────────────────────────────────────────────────────────────┘
+```
+
+### core
+- 职责：多路复用核心抽象基类，管理流生命周期和发送串行化
+- 流状态：pending（等待地址）、duct（TCP 流）、parcel（UDP 数据报）
+- 发送串行化：通过 `send_strand_` 确保帧不会交错写入
+- 源码：[core.hpp](../../include/forward-engine/multiplex/core.hpp)、[core.cpp](../../src/forward-engine/multiplex/core.cpp)
+
+### duct
+- 职责：TCP 流双向转发管道
+- 上行：独立协程 `uplink_loop()` 读 target → mux
+- 下行：帧循环直接 `co_await` 写 target，天然反压
+- 源码：[duct.hpp](../../include/forward-engine/multiplex/duct.hpp)、[duct.cpp](../../src/forward-engine/multiplex/duct.cpp)
+
+### parcel
+- 职责：UDP 数据报中继管道
+- 每个 PSH 帧承载 SOCKS5 UDP relay 格式数据报
+- 空闲超时自动关闭
+- 源码：[parcel.hpp](../../include/forward-engine/multiplex/parcel.hpp)、[parcel.cpp](../../src/forward-engine/multiplex/parcel.cpp)
+
+### smux::craft
+- 职责：smux 多路复用会话服务端（兼容 Mihomo/xtaci/smux v1 + sing-mux 协商）
+- 帧格式：8 字节定长帧头 [Version][Cmd][Length LE][StreamID LE]
+- 协议协商：sing-mux 协议头解析
+- 源码：[craft.hpp](../../include/forward-engine/multiplex/smux/craft.hpp)、[craft.cpp](../../src/forward-engine/multiplex/smux/craft.cpp)
+
+### smux::frame
+- 职责：smux 帧编解码、地址解析、UDP 数据报构建
+- 命令类型：SYN(0x00)、FIN(0x01)、PSH(0x02)、NOP(0x03)
+- 源码：[frame.hpp](../../include/forward-engine/multiplex/smux/frame.hpp)、[frame.cpp](../../src/forward-engine/multiplex/smux/frame.cpp)
+
+## 8. account 模块
 位置：`include/forward-engine/agent/account/`、`src/forward-engine/agent/account/`
 
 ### directory

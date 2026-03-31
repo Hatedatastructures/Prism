@@ -2,7 +2,7 @@
  * @file parcel.cpp
  * @brief 多路复用 UDP 数据报管道实现
  * @details multiplex::parcel 的 UDP 中继实现。每个 PSH 帧承载
- * SOCKS5 UDP relay 格式数据报，解析目标地址后通过 UDP socket 中继.
+ * SOCKS5 UDP relay 格式数据报，解析目标地址后通过 UDP socket 中继。
  */
 
 #include <forward-engine/multiplex/parcel.hpp>
@@ -141,6 +141,7 @@ namespace ngx::multiplex
             co_return;
         }
 
+        // 发送请求，等待响应
         boost::system::error_code ec;
         auto token = net::redirect_error(net::use_awaitable, ec);
         auto bytes_sent = net::buffer(dgram->payload.data(), dgram->payload.size());
@@ -161,6 +162,7 @@ namespace ngx::multiplex
             co_return;
         }
 
+        // 编码响应数据报，发回 mux
         std::string reply_host;
         reply_host = sender_ep.address().to_string();
         auto reply_port = sender_ep.port();

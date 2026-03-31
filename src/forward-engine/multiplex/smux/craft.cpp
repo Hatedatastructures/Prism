@@ -1,8 +1,8 @@
 /**
  * @file craft.cpp
  * @brief smux 多路复用会话服务端实现（兼容 Mihomo/xtaci/smux v1）
- * @details smux::craft 实现 smux v1 帧协议，包括帧循环、协议协商、地址解析和流连接。
-继承 core 的通用流管理能力。
+ * @details smux::craft 实现 smux v1 帧协议，包括帧循环、协议协商、
+ * 地址解析和流连接。继承 core 的通用流管理能力。
  */
 
 #include <forward-engine/multiplex/smux/craft.hpp>
@@ -43,6 +43,7 @@ namespace ngx::multiplex::smux
     {
         std::error_code ec;
 
+        // sing-mux 协议头：[Version 1B][Protocol 1B]，Version > 0 时额外读 padding
         std::array<std::byte, 2> header{};
         const auto n = co_await transport_->async_read(header, ec);
         if (ec)
@@ -56,6 +57,7 @@ namespace ngx::multiplex::smux
 
         if (const auto version = static_cast<std::uint8_t>(header[0]); version > 0)
         {
+            // 读取 padding 长度和 padding 数据
             std::array<std::byte, 2> padding_len_buf{};
             const auto pn = co_await transport_->async_read(padding_len_buf, ec);
             if (ec)
@@ -172,6 +174,7 @@ namespace ngx::multiplex::smux
     auto craft::handle_data(const std::uint32_t stream_id, std::span<const std::byte> payload)
         -> net::awaitable<void>
     {
+        // pending 流：累积数据，数据足够时异步发起连接
         if (const auto pit = pending_.find(stream_id); pit != pending_.end())
         {
             auto &entry = pit->second;
@@ -203,6 +206,7 @@ namespace ngx::multiplex::smux
             co_return;
         }
 
+        // 已连接的 TCP 流：直接转发
         const auto sit = ducts_.find(stream_id);
         if (sit != ducts_.end() && sit->second)
         {
@@ -210,6 +214,7 @@ namespace ngx::multiplex::smux
             co_return;
         }
 
+        // UDP 流：转发数据报
         const auto uit = parcels_.find(stream_id);
         if (uit != parcels_.end() && uit->second)
         {
@@ -250,6 +255,7 @@ namespace ngx::multiplex::smux
         auto addr = parse_mux_address(entry.buffer, mr_);
         if (!addr)
         {
+            // 数据不足，等待更多；超过最大长度则报错
             if (entry.buffer.size() < 21)
             {
                 entry.connecting = false;
@@ -267,6 +273,7 @@ namespace ngx::multiplex::smux
         const auto port = addr->port;
         const auto offset = addr->offset;
         const bool is_udp = addr->is_udp;
+        // 提取地址之后的数据，连接成功后需要转发
         memory::vector<std::byte> remaining_data(mr_);
         if (offset < entry.buffer.size())
         {
@@ -276,6 +283,7 @@ namespace ngx::multiplex::smux
 
         if (is_udp)
         {
+            // UDP 流：创建 parcel，发送成功状态
             trace::debug("{} stream {} creating UDP parcel", tag, stream_id);
 
             constexpr std::byte success_status{0x00};
@@ -304,6 +312,7 @@ namespace ngx::multiplex::smux
             co_return;
         }
 
+        // TCP 流：连接目标，创建 duct
         trace::debug("{} stream {} connecting to {}:{}", tag, stream_id, host, port);
 
         auto [code, conn] = co_await router_.async_forward(host, std::to_string(port));
@@ -350,6 +359,7 @@ namespace ngx::multiplex::smux
 
     void craft::send_fin(const std::uint32_t stream_id)
     {
+        // FIN 发送不阻塞调用者，异步执行
         frame_header hdr{};
         hdr.cmd = command::fin;
         hdr.stream_id = stream_id;
@@ -388,6 +398,7 @@ namespace ngx::multiplex::smux
     auto craft::send_frame(const frame_header &hdr, const std::span<const std::byte> payload) const
         -> net::awaitable<void>
     {
+        // strand 串行化发送，避免帧交错
         co_await net::post(send_strand_, net::use_awaitable);
 
         auto frame = serialize(hdr, payload, mr_);

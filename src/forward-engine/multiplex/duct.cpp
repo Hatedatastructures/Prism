@@ -74,6 +74,7 @@ namespace ngx::multiplex
 
     void duct::on_mux_fin()
     {
+        // mux 端半关闭，shutdown target 发送方向
         mux_closed_.store(true, std::memory_order_release);
 
         if (target_)
@@ -82,6 +83,7 @@ namespace ngx::multiplex
             trace::debug("{} stream {} mux fin, shutdown send", tag, id_);
         }
 
+        // target 端也已关闭，完全关闭管道
         if (target_closed_.load(std::memory_order_acquire))
         {
             close();
@@ -134,11 +136,14 @@ namespace ngx::multiplex
             {
                 break;
             }
+            // 数据发回 mux 客户端
             co_await owner_->send_data(id_, std::span(recv_buffer_.data(), n));
         }
 
+        // target 端关闭完成
         target_closed_.store(true, std::memory_order_release);
 
+        // mux 端未关闭且会话活跃，通知 mux 端
         if (!mux_closed_.load(std::memory_order_acquire) && owner_->is_active())
         {
             owner_->send_fin(id_);

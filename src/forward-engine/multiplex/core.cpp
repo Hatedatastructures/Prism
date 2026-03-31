@@ -1,7 +1,8 @@
 /**
  * @file core.cpp
  * @brief 多路复用核心基类实现
- * @details core 的非虚方法实现：start、close、remove_duct、remove_parcel。这些方法对所有 mux 协议通用.
+ * @details core 的非虚方法实现：start、close、remove_duct、
+ * remove_parcel。这些方法对所有 mux 协议通用。
  */
 
 #include <forward-engine/multiplex/core.hpp>

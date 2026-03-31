@@ -21,7 +21,7 @@ namespace ngx::multiplex::smux
     namespace
     {
 
-        // IPv4 地址格式化：直接写入字符串，避免 printf 开销
+        // 手写 IPv4 格式化，避免 printf 开销
         void format_ipv4(const std::byte *data, char *buf)
         {
             const auto a = static_cast<uint8_t>(data[0]);
@@ -139,6 +139,7 @@ namespace ngx::multiplex::smux
             return std::nullopt;
         }
 
+        // Flags 高字节在前，bit0 标识 UDP 流
         const auto flags = static_cast<std::uint16_t>(data[0]) << 8 | static_cast<std::uint16_t>(data[1]);
         const bool is_udp = (flags & 1) != 0;
 
@@ -199,6 +200,7 @@ namespace ngx::multiplex::smux
         {
             return std::nullopt;
         }
+        // 端口大端序
         const std::uint16_t port = static_cast<std::uint16_t>(data[offset]) << 8 | static_cast<std::uint16_t>(data[offset + 1]);
 
         return parsed_address{
@@ -274,6 +276,7 @@ namespace ngx::multiplex::smux
         {
             return std::nullopt;
         }
+        // 端口大端序
         const std::uint16_t port = static_cast<std::uint16_t>(data[offset]) << 8 |
                                    static_cast<std::uint16_t>(data[offset + 1]);
         offset += 2;

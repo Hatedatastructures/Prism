@@ -3,18 +3,10 @@
  * @brief 多路复用核心抽象基类
  * @details 定义 multiplex::core，提供所有多路复用协议共享的
  * 会话生命周期管理、流状态跟踪和发送串行化。协议特定的帧格式、
- * 解析和协商由子类实现（如 smux::craft）。
- *
- * @section architecture 架构
- *
- * core 管理三种流状态：
- * - **pending**: SYN 后等待地址数据（首 PSH 帧）
- * - **duct**: TCP 流双向转发
- * - **parcel**: UDP 数据报中继
- *
- * duct 和 parcel 通过 core 的虚函数接口
- * （send_data / send_fin / executor）与具体协议交互，
- * 无需感知底层帧格式。
+ * 解析和协商由子类实现（如 smux::craft）。core 管理三种流状态：
+ * pending（SYN 后等待地址数据）、duct（TCP 流双向转发）、
+ * parcel（UDP 数据报中继）。duct 和 parcel 通过 core 的虚函数
+ * 接口与具体协议交互，无需感知底层帧格式。
  */
 #pragma once
 
@@ -45,9 +37,8 @@ namespace ngx::multiplex
     /**
      * @class core
      * @brief 多路复用核心抽象基类
-     * @details 管理流生命周期和发送串行化。
-     * SYN 创建 pending_entry，协议子类解析地址后连接目标，
-     * 创建 duct/parcel 进行双向转发。
+     * @details 管理流生命周期和发送串行化。SYN 创建 pending_entry，
+     * 协议子类解析地址后连接目标，创建 duct/parcel 进行双向转发。
      * 发送操作通过 strand 串行化，确保帧不会被交错写入。
      */
     class core : public std::enable_shared_from_this<core>
@@ -135,11 +126,11 @@ namespace ngx::multiplex
          */
         void remove_parcel(std::uint32_t stream_id);
 
-        channel::transport::shared_transmission transport_; ///< 底层传输连接
-        resolve::router &router_;                           ///< 路由器引用
-        const config &config_;                              ///< mux 配置
-        memory::resource_pointer mr_;                       ///< PMR 内存资源
-        std::atomic<bool> active_{false};                   ///< 会话活跃标志
+        channel::transport::shared_transmission transport_; // 底层传输连接
+        resolve::router &router_;                           // 路由器引用
+        const config &config_;                              // mux 配置
+        memory::resource_pointer mr_;                       // PMR 内存资源
+        std::atomic<bool> active_{false};                   // 会话活跃标志
 
         /**
          * @struct pending_entry
@@ -148,17 +139,17 @@ namespace ngx::multiplex
          */
         struct pending_entry
         {
-            memory::vector<std::byte> buffer; ///< 累积的地址+数据
-            bool connecting = false;          ///< 是否已发起连接
+            memory::vector<std::byte> buffer; // 累积的地址+数据
+            bool connecting = false;          // 是否已发起连接
 
             explicit pending_entry(memory::resource_pointer mr) : buffer(mr) {}
         };
 
-        memory::unordered_map<std::uint32_t, pending_entry> pending_;           ///< 待连接流
-        memory::unordered_map<std::uint32_t, std::shared_ptr<duct>> ducts_;     ///< 已连接的活跃 TCP 管道
-        memory::unordered_map<std::uint32_t, std::shared_ptr<parcel>> parcels_; ///< 活跃的 UDP 管道
+        memory::unordered_map<std::uint32_t, pending_entry> pending_;           // 待连接流
+        memory::unordered_map<std::uint32_t, std::shared_ptr<duct>> ducts_;     // 已连接的活跃 TCP 管道
+        memory::unordered_map<std::uint32_t, std::shared_ptr<parcel>> parcels_; // 活跃的 UDP 管道
 
-        net::strand<net::any_io_executor> send_strand_; ///< 发送串行化 strand
+        net::strand<net::any_io_executor> send_strand_; // 发送串行化 strand
     }; // class core
 
 } // namespace ngx::multiplex
