@@ -77,7 +77,8 @@ namespace ngx::agent::pipeline::primitives
 
         if (fault::failed(ec))
         {
-            trace::warn("[Pipeline] {} route failed: {}, target: {}:{}", label, fault::describe(ec), target.host, target.port);
+            trace::warn("[Pipeline] {} route failed: {}, target: {}:{}", label,
+                        fault::describe(ec), target.host, target.port);
             co_return std::make_pair(ec, nullptr);
         }
 

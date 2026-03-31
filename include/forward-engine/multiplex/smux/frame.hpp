@@ -15,7 +15,7 @@
 
 #include <forward-engine/memory/container.hpp>
 
-namespace ngx::channel::smux
+namespace ngx::multiplex::smux
 {
 
     /**
@@ -106,8 +106,7 @@ namespace ngx::channel::smux
      * @return 编码后的完整 UDP 数据报
      */
     [[nodiscard]] auto build_udp_datagram(std::string_view host, std::uint16_t port,
-                                          std::span<const std::byte> payload,
-                                          memory::resource_pointer mr)
+                                          std::span<const std::byte> payload, memory::resource_pointer mr)
         -> memory::vector<std::byte>;
 
     /**
@@ -181,4 +180,4 @@ namespace ngx::channel::smux
         return serialize(hdr, {}, mr);
     }
 
-} // namespace ngx::channel::smux
+} // namespace ngx::multiplex::smux

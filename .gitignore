@@ -8,7 +8,6 @@ config.log
 build/
 build*/
 _external/
-core.*
 \#*\#
 !.github
 !.gitignore

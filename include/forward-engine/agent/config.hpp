@@ -12,7 +12,7 @@
 #include <forward-engine/protocol/socks5/config.hpp>
 #include <forward-engine/protocol/trojan/config.hpp>
 #include <forward-engine/channel/connection/pool.hpp>
-#include <forward-engine/channel/smux/config.hpp>
+#include <forward-engine/multiplex/config.hpp>
 
 /**
  * @namespace ngx::agent
@@ -172,7 +172,7 @@ namespace ngx::agent
         pool_config pool;
 
         // 缓冲区配置，控制数据转发缓冲区大小
-        struct buffer buffer;
+        buffer buffer;
 
         // Clash 兼容模式，启用后支持 Clash 客户端特性
         bool clash = false;
@@ -183,8 +183,8 @@ namespace ngx::agent
         // Trojan 协议配置，控制能力开关和 UDP 参数
         protocol::trojan::config trojan;
 
-        // smux 多路复用配置，控制 smux 服务端行为
-        channel::smux::config mux;
+        // 多路复用配置，控制 mux 服务端行为
+        multiplex::config mux;
 
         // DNS 解析器配置，控制上游服务器、缓存、规则等
         resolve::config dns;
