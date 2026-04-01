@@ -87,7 +87,7 @@ namespace psm::protocol
                 "GET ", "POST ", "HEAD ", "PUT ", "DELETE ",
                 "CONNECT ", "OPTIONS ", "TRACE ", "PATCH "};
 
-        if (peek_data.size() < 1)
+        if (peek_data.empty())
             return protocol_type::unknown;
 
         // 1. 检查 SOCKS5 (0x05)

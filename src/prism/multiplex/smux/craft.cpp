@@ -20,7 +20,8 @@ namespace psm::multiplex::smux
 {
     craft::craft(channel::transport::shared_transmission transport, resolve::router &router,
                  const config &cfg, const memory::resource_pointer mr)
-        : core(std::move(transport), router, cfg, mr)
+        : core(std::move(transport), router, cfg, mr),
+          channel_(transport_->executor(), 128)
     {
         recv_buffer_ = memory::vector<std::byte>(mr_);
         recv_buffer_.resize(config_.buffer_size);
@@ -30,16 +31,23 @@ namespace psm::multiplex::smux
 
     auto craft::run() -> net::awaitable<void>
     {
+        // 启动发送循环
+        const auto self = std::static_pointer_cast<craft>(shared_from_this());
+        net::co_spawn(executor(), self->send_loop(), net::detached);
+
         // 执行协议协商，验证客户端兼容性
         if (const auto ec = co_await negotiate_protocol())
         {
             trace::warn("{} protocol negotiate failed: {}", tag, ec.message());
+            channel_.cancel();
             co_return;
         }
         trace::debug("{} protocol negotiated", tag);
 
         // 进入帧循环，处理客户端命令
         co_await frame_loop();
+
+        channel_.cancel();
     }
 
     auto craft::negotiate_protocol() const -> net::awaitable<std::error_code>
@@ -432,17 +440,57 @@ namespace psm::multiplex::smux
     auto craft::send_frame(const frame_header &hdr, const std::span<const std::byte> payload) const
         -> net::awaitable<void>
     {
-        // strand 串行化发送，避免帧交错
-        co_await net::post(send_strand_, net::use_awaitable);
-
         auto frame = serialize(hdr, payload, mr_);
 
-        std::error_code ec;
-        co_await transport_->async_write(frame, ec);
-        if (ec)
+        boost::system::error_code ec;
+        auto token = net::redirect_error(net::use_awaitable, ec);
+        co_await channel_.async_send(boost::system::error_code{}, std::move(frame), token);
+        if (ec) // 发送到一个队列里面，由 send_loop() 消费
         {
-            trace::debug("{} send frame failed: {}", tag, ec.message());
+            trace::debug("{} send frame to channel failed: {}", tag, ec.message());
         }
+    }
+
+    /**
+     * @brief 发送循环，将多路复用帧写入底层传输
+     * @details 该协程作为独立的发送线程运行，从 channel_ 队列中取出帧并写入
+     * transport_。channel_ 是一个有界通道，由 send_frame() 和 send_fin() 生产帧。
+     * 当 transport_ 写入失败时关闭整个会话，异常时仅记录日志并退出。
+     */
+    auto craft::send_loop() -> net::awaitable<void>
+    {
+        trace::debug("{} send loop started", tag);
+        try
+        {
+            while (is_active())
+            {
+                boost::system::error_code ec;
+                auto token = net::redirect_error(net::use_awaitable, ec);
+                auto frame = co_await channel_.async_receive(token);
+                if (ec)
+                {
+                    break;
+                }
+
+                std::error_code transport_ec;   // 发送到客户端
+                co_await transport_->async_write(frame, transport_ec);
+                if (transport_ec)
+                {
+                    trace::debug("{} send frame failed: {}", tag, transport_ec.message());
+                    close(); // Notify core to close
+                    break;
+                }
+            }
+        }
+        catch (const std::exception &e)
+        {
+            trace::debug("{} send loop error: {}", tag, e.what());
+        }
+        catch (...)
+        {
+            trace::debug("{} send loop unknown error", tag);
+        }
+        trace::debug("{} send loop ended", tag);
     }
 
 } // namespace psm::multiplex::smux

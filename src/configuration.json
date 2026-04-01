@@ -61,7 +61,7 @@
         "mux": {
             "enabled": true,
             "max_streams": 256,
-            "buffer_size": 4096,
+            "buffer_size": 65536,
             "keepalive_interval_ms": 30000
         },
         "dns": {
@@ -83,7 +83,9 @@
             "timeout_ms": 5000,
             "cache_enabled": true,
             "cache_size": 10000,
+            "cache_ttl": 120,
             "serve_stale": true,
+            "negative_ttl": 300,
             "ttl_min": 60,
             "ttl_max": 86400,
             "disable_ipv6": true

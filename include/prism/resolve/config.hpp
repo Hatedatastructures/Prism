@@ -162,10 +162,11 @@ namespace psm::resolve
         std::uint32_t timeout_ms{5000};           // 全局超时（毫秒）
 
         // 缓存配置
-        bool cache_enabled{true};            // 是否启用 DNS 缓存
-        std::size_t cache_size{10000};       // 缓存最大条目数
-        std::chrono::seconds cache_ttl{120}; // 缓存默认 TTL
-        bool serve_stale{true};              // 过期后是否仍提供缓存数据
+        bool cache_enabled{true};               // 是否启用 DNS 缓存
+        std::size_t cache_size{10000};          // 缓存最大条目数
+        std::chrono::seconds cache_ttl{120};    // 缓存默认 TTL
+        bool serve_stale{true};                 // 过期后是否仍提供缓存数据
+        std::chrono::seconds negative_ttl{300}; // 负缓存 TTL（失败域名缓存时间）
 
         // TTL 钳制
         std::uint32_t ttl_min{60};    // 最小 TTL（秒）
@@ -263,6 +264,7 @@ struct glz::meta<psm::resolve::config>
         "cache_size", &T::cache_size,
         "cache_ttl", &T::cache_ttl,
         "serve_stale", &T::serve_stale,
+        "negative_ttl", &T::negative_ttl,
         "ttl_min", &T::ttl_min,
         "ttl_max", &T::ttl_max,
         "address_rules", &T::address_rules,

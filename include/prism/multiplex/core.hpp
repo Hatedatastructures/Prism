@@ -17,7 +17,7 @@
 
 #include <boost/asio.hpp>
 
-#include <prism/multiplex/config.hpp>
+#include <prism/multiplex/config.hpp>   
 #include <prism/channel/transport/transmission.hpp>
 #include <prism/memory/container.hpp>
 
@@ -148,8 +148,6 @@ namespace psm::multiplex
         memory::unordered_map<std::uint32_t, pending_entry> pending_;           // 待连接流
         memory::unordered_map<std::uint32_t, std::shared_ptr<duct>> ducts_;     // 已连接的活跃 TCP 管道
         memory::unordered_map<std::uint32_t, std::shared_ptr<parcel>> parcels_; // 活跃的 UDP 管道
-
-        net::strand<net::any_io_executor> send_strand_; // 发送串行化 strand
     }; // class core
 
 } // namespace psm::multiplex

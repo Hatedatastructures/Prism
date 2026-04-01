@@ -149,8 +149,16 @@ namespace psm::resolve
         std::size_t max_entries_;          // 最大条目数
         bool serve_stale_;                 // serve-stale 模式开关
 
-        // 复用现有的 transparent_hash / transparent_equal
-        using cache_map = memory::unordered_map<memory::string, cache_entry,transparent_hash,transparent_equal>;
+        // LRU 淘汰：双向链表维护访问顺序（头部=最近访问，尾部=最旧）
+        using lru_list = memory::list<memory::string>;
+        lru_list lru_order_;
+
+        // 缓存表：键 -> (条目, LRU链表迭代器)
+        using cache_map = memory::unordered_map<
+            memory::string,
+            std::pair<cache_entry, lru_list::iterator>,
+            transparent_hash,
+            transparent_equal>;
         cache_map entries_; // 缓存表
     };
 

@@ -19,10 +19,9 @@ namespace psm::multiplex
 {
     core::core(channel::transport::shared_transmission transport, resolve::router &router,
                const config &cfg, const memory::resource_pointer mr)
-        : transport_(std::move(transport)), router_(router), config_(cfg),
+        : transport_(std::move(transport)), router_(router), config_(cfg),      
           mr_(mr ? mr : memory::current_resource()),
-          pending_(mr_), ducts_(mr_), parcels_(mr_),
-          send_strand_(net::make_strand(transport_->executor()))
+          pending_(mr_), ducts_(mr_), parcels_(mr_)
     {
     }
 

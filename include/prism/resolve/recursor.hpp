@@ -11,6 +11,8 @@
 
 #pragma once
 
+#include <atomic>
+#include <memory>
 #include <string_view>
 #include <utility>
 
@@ -59,6 +61,11 @@ namespace psm::resolve
          * @param mr 内存资源指针。
          */
         explicit recursor(net::io_context &ioc, config cfg, memory::resource_pointer mr = memory::current_resource());
+
+        /**
+         * @brief 析构函数，停止后台协程。
+         */
+        ~recursor();
 
         /**
          * @brief 异步解析域名到 IP 地址列表。
@@ -117,6 +124,9 @@ namespace psm::resolve
         cache cache_;                 // DNS 缓存
         rules_engine rules_;          // 域名规则引擎
         coalescer coalescer_;         // 请求合并器
+
+        // 生命周期标志，用于安全停止后台协程
+        std::shared_ptr<std::atomic<bool>> alive_;
     };
 
 } // namespace psm::resolve

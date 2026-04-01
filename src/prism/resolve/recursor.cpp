@@ -18,8 +18,8 @@ namespace psm::resolve
     recursor::recursor(net::io_context &ioc, config cfg, const memory::resource_pointer mr)
         : ioc_(ioc), mr_(mr ? mr : memory::current_resource()), config_(std::move(cfg)),
           upstream_(ioc_, mr_), cache_(mr_, config_.cache_ttl, config_.cache_size, config_.serve_stale),
-          rules_(mr_),
-          coalescer_(mr_)
+          rules_(mr_), coalescer_(mr_),
+          alive_(std::make_shared<std::atomic<bool>>(true))
     {
         // 初始化上游服务器和解析策略
         if (!config_.servers.empty())
@@ -45,6 +45,32 @@ namespace psm::resolve
         for (const auto &rule : config_.cname_rules)
         {
             rules_.add_cname_rule(rule.domain, rule.target);
+        }
+
+        // 启动定时过期清理协程（惰性清理，避免每次查询 O(n) 遍历）
+        // 捕获 alive_ 的 shared_ptr，确保对象销毁时协程安全退出
+        auto alive = alive_;
+        auto scheduled_cleaning = [this, alive]() -> net::awaitable<void>
+        {
+            auto timer = net::steady_timer(ioc_);
+            while (alive->load())
+            {
+                timer.expires_after(std::chrono::seconds(30));
+                boost::system::error_code ec;
+                co_await timer.async_wait(net::redirect_error(net::use_awaitable, ec));
+                if (ec == net::error::operation_aborted || !alive->load())
+                    co_return; // io_context 关闭或对象销毁时退出
+                cache_.evict_expired();
+            }
+        };
+        net::co_spawn(ioc_, std::move(scheduled_cleaning), net::detached);
+    }
+
+    recursor::~recursor()
+    {
+        if (alive_)
+        {
+            alive_->store(false); // 通知协程退出
         }
     }
 
@@ -123,10 +149,9 @@ namespace psm::resolve
             }
         }
 
-        // 2：缓存查找
+        // 2：缓存查找（惰性清理：定时异步执行，不再每次查询遍历）
         if (config_.cache_enabled)
         {
-            cache_.evict_expired();
             if (auto cached = cache_.get(qname, qt); cached)
             {
                 if (cached->empty())
@@ -197,7 +222,7 @@ namespace psm::resolve
             {
                 if (config_.cache_enabled)
                 {
-                    cache_.put_negative(qname, qt);
+                    cache_.put_negative(qname, qt, config_.negative_ttl);
                 }
                 trace::warn("[Resolve] {} all IPs blacklisted", qname);
                 co_return std::make_pair(fault::code::blocked, memory::vector<net::ip::address>(mr_));
@@ -225,12 +250,12 @@ namespace psm::resolve
         else if (config_.cache_enabled && failed(result.error))
         {
             // 负缓存
-            cache_.put_negative(qname, qt);
+            cache_.put_negative(qname, qt, config_.negative_ttl);
         }
         else if (config_.cache_enabled && succeeded(result.error) && result.ips.empty())
         {
             // 上游返回成功但无 IP（如 CNAME 委托），写负缓存避免合并等待者反复查询
-            cache_.put_negative(qname, qt);
+            cache_.put_negative(qname, qt, config_.negative_ttl);
         }
 
         if (succeeded(result.error))

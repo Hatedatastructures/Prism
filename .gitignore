@@ -12,6 +12,8 @@ _external/
 !.github
 !.gitignore
 !.clang-format
+!.claude
+.claude/plan/
 *.so
 *.a
 vgcore.*
@@ -40,6 +42,4 @@ compile_commands.json
 
 # Ignore Bzlmod lock file until it is more stable
 MODULE.bazel.lock
-
-SKILL.md
 CLAUDE.md

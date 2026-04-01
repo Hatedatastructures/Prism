@@ -24,19 +24,9 @@ dns:
   #   geoip: true  # 现在禁用掉，避免误伤国内IP导致无法访问国内站点
   #   geoip-code: CN
 
-# ---------- 代理节点 ----------
+# ---------- 协议测试节点 ----------
 proxies:
-  # Trojan 代理（运行在 192.168.137.1:8081）
-  - name: "🏠 局域网 Trojan"          # 名称与策略组引用一致
-    type: trojan
-    server: 192.168.137.1
-    port: 8081
-    password: "prism"
-    udp: false
-    skip-cert-verify: true
-
-  # Trojan + smux 多路复用（复用单条 TLS 连接承载多个子流）
-  - name: "🏠 局域网 Trojan Mux"
+  - name: "Smux Unlimited Conn Unlimited Streams TCP"
     type: trojan
     server: 192.168.137.1
     port: 8081
@@ -46,25 +36,99 @@ proxies:
     smux:
       enabled: true
       protocol: smux
-      only-tcp: true                 # 禁用 UDP，UDP 连接直接走底层协议
-      # max-streams: 32              # 单 mux 会话最大子流数
-      # max-conn: 4                  # 同时保持的 mux 连接数
+      only-tcp: true 
 
-  # SOCKS5 代理（运行在 192.168.137.1:8081）
-  - name: "🏠 局域网 SOCKS5"          # 名称与策略组引用一致
+  - name: "Smux Unlimited Conn Unlimited Streams UDP"
+    type: trojan
+    server: 192.168.137.1
+    port: 8081
+    password: "prism"
+    udp: false
+    skip-cert-verify: true
+    smux:
+      enabled: true
+      protocol: smux
+      only-tcp: false 
+
+  - name: "Smux 4 Conn 64 Streams TCP"
+    type: trojan
+    server: 192.168.137.1
+    port: 8081
+    password: "prism"
+    udp: false
+    skip-cert-verify: true
+    smux:
+      enabled: true
+      protocol: smux
+      only-tcp: true              
+      max-streams: 64             
+      max-conn: 4
+
+  - name: "Smux 4 Conn 64 Streams UDP"
+    type: trojan
+    server: 192.168.137.1
+    port: 8081
+    password: "prism"
+    udp: false
+    skip-cert-verify: true
+    smux:
+      enabled: true
+      protocol: smux
+      only-tcp: false              
+      max-streams: 64             
+      max-conn: 4
+
+  - name: "Smux 1 Conn 256 Streams TCP"
+    type: trojan
+    server: 192.168.137.1
+    port: 8081
+    password: "prism"
+    udp: false
+    skip-cert-verify: true
+    smux:
+      enabled: true
+      protocol: smux
+      only-tcp: true              
+      max-streams: 256             
+      max-conn: 1   
+
+  - name: "Smux 1 Conn 256 Streams UDP"
+    type: trojan
+    server: 192.168.137.1
+    port: 8081
+    password: "prism"
+    udp: false
+    skip-cert-verify: true
+    smux:
+      enabled: true
+      protocol: smux
+      only-tcp: false              
+      max-streams: 256             
+      max-conn: 1   
+
+
+  # SOCKS5 代理
+  - name: "SOCKS5 UDP"         
     type: socks5
     server: 192.168.137.1
     port: 8081
-    # username: your-user
-    # password: your-pass
     udp: true
+
+  - name: "SOCKS5 TCP"         
+    type: socks5
+    server: 192.168.137.1
+    port: 8081
+    udp: false
+
   # http
-  - name: "http"
+  - name: "Http"
     type: http
     server: 192.168.137.1
     port: 8081
+
+
   # https
-  - name: "https"
+  - name: "Https"
     type: http
     server: 192.168.137.1
     port: 8081
@@ -74,25 +138,46 @@ proxies:
     # skip-cert-verify: true
     # sni: custom.com
 
+  - name: "Trojan"          
+    type: trojan
+    server: 192.168.137.1
+    port: 8081
+    password: "prism"
+    udp: false
+    skip-cert-verify: true               
+
+
 # ---------- 策略组 ----------
 proxy-groups:
-  - name: "🚀 forward 代理测试"
+  - name: "Prism 协议测试"
     type: select
     proxies:
-      - "🏠 局域网 Trojan"
-      - "🏠 局域网 Trojan Mux"
-      - "🏠 局域网 SOCKS5"
-      - "http"
-      - "https"
+      - "Smux Unlimited Conn Unlimited Streams TCP"
+      - "Smux Unlimited Conn Unlimited Streams UDP"
+      - "Smux 4 Conn 64 Streams TCP"
+      - "Smux 4 Conn 64 Streams UDP"
+      - "Smux 1 Conn 256 Streams TCP"
+      - "Smux 1 Conn 256 Streams UDP"
+      - "SOCKS5 TCP"
+      - "SOCKS5 UDP"
+      - "Http"
+      - "Https"
+      - "Trojan"
 
-  - name: "⚡ 自动"
+  - name: "自动选择"
     type: url-test
     proxies:
-      - "🏠 局域网 Trojan"
-      - "🏠 局域网 Trojan Mux"
-      - "🏠 局域网 SOCKS5"
-      - "http"
-      - "https"
+      - "Smux Unlimited Conn Unlimited Streams TCP"
+      - "Smux Unlimited Conn Unlimited Streams UDP"
+      - "Smux 4 Conn 64 Streams TCP"
+      - "Smux 4 Conn 64 Streams UDP"
+      - "Smux 1 Conn 256 Streams TCP"
+      - "Smux 1 Conn 256 Streams UDP"
+      - "SOCKS5 TCP"
+      - "SOCKS5 UDP"
+      - "Http"
+      - "Https"
+      - "Trojan"
     url: "http://www.gstatic.com/generate_204"
     interval: 300
 
@@ -106,5 +191,4 @@ rules:
   - IP-CIDR,172.16.0.0/12,DIRECT
   - IP-CIDR,127.0.0.0/8,DIRECT
 
-  # 默认规则：所有未匹配流量走“🚀 forward 代理测试”策略组
-  - MATCH,🚀 forward 代理测试
+  - MATCH,Prism 协议测试

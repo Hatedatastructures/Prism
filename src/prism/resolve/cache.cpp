@@ -11,7 +11,7 @@ namespace psm::resolve
                  const std::size_t max_entries, const bool serve_stale)
         : mr_(mr ? mr : memory::current_resource()),
           default_ttl_(ttl), max_entries_(max_entries),
-          serve_stale_(serve_stale), entries_(mr_)
+          serve_stale_(serve_stale), lru_order_(mr_), entries_(mr_)
     {
     }
 
@@ -45,11 +45,15 @@ namespace psm::resolve
         }
 
         const auto now = std::chrono::steady_clock::now();
-        auto &entry = it->second;
+        const auto &entry = it->second.first; // pair<cache_entry, lru_list::iterator>
+        const auto &lru_it = it->second.second;
 
-        // 未过期：直接返回结果
+        // 未过期：直接返回结果，并更新 LRU 顺序（移动到链表头部）
         if (now < entry.expire)
         {
+            // LRU 更新：将访问的键移到链表头部
+            lru_order_.splice(lru_order_.begin(), lru_order_, lru_it);
+
             // 正向缓存：返回 IP 列表
             if (!entry.failed)
             {
@@ -65,6 +69,9 @@ namespace psm::resolve
         if (serve_stale_)
         {
             trace::debug("[Resolve] stale cache hit, refresh needed: {}", domain);
+            // LRU 更新
+            lru_order_.splice(lru_order_.begin(), lru_order_, lru_it);
+
             if (!entry.failed)
             {
                 return memory::vector<net::ip::address>(entry.ips, mr_);
@@ -74,6 +81,7 @@ namespace psm::resolve
 
         // 已过期 + !serve_stale：删除条目并返回未命中
         trace::debug("[Resolve] expired entry removed: {}", domain);
+        lru_order_.erase(lru_it); // 同步删除 LRU 链表节点
         entries_.erase(it);
         return std::nullopt;
     }
@@ -92,23 +100,30 @@ namespace psm::resolve
         entry.inserted = now;
         entry.failed = false;
 
-        // 插入或覆盖
-        entries_.insert_or_assign(std::move(key), std::move(entry));
+        // 检查是否已存在（更新情况）
+        if (const auto existing_it = entries_.find(std::string_view(key)); existing_it != entries_.end())
+        {
+            // 更新现有条目，保持 LRU 位置（移到头部）
+            const auto &lru_it = existing_it->second.second;
+            lru_order_.splice(lru_order_.begin(), lru_order_, lru_it);
+            existing_it->second.first = std::move(entry);
+            return;
+        }
 
-        // FIFO 淘汰：条目数超过上限时移除 inserted 最早的条目
+        // 新插入：添加到 LRU 链表头部
+        lru_order_.push_front(key);
+        const auto lru_it = lru_order_.begin();
+
+        // 插入缓存表
+        entries_.emplace(key, std::make_pair(std::move(entry), lru_it));
+
+        // LRU 淘汰：条目数超过上限时移除链表尾部（最旧）条目
         while (entries_.size() > max_entries_)
         {
-            auto oldest_it = entries_.begin();
-            for (auto it = entries_.begin(); it != entries_.end(); ++it)
-            {
-                if (it->second.inserted < oldest_it->second.inserted)
-                {
-                    oldest_it = it;
-                }
-            }
-
-            trace::debug("[Resolve] FIFO eviction: {} entries, limit {}", entries_.size(), max_entries_);
-            entries_.erase(oldest_it);
+            const auto &oldest_key = lru_order_.back();
+            trace::debug("[Resolve] LRU eviction: {} entries, limit {}", entries_.size(), max_entries_);
+            entries_.erase(oldest_key); // O(1) 哈希查找
+            lru_order_.pop_back();      // O(1) 删除尾部
         }
     }
 
@@ -124,7 +139,22 @@ namespace psm::resolve
         entry.inserted = now;
         entry.failed = true;
 
-        entries_.insert_or_assign(std::move(key), std::move(entry));
+        // 检查是否已存在（更新情况）
+        if (const auto existing_it = entries_.find(std::string_view(key)); existing_it != entries_.end())
+        {
+            // 更新现有条目，保持 LRU 位置（移到头部）
+            auto &lru_it = existing_it->second.second;
+            lru_order_.splice(lru_order_.begin(), lru_order_, lru_it);
+            existing_it->second.first = std::move(entry);
+            return;
+        }
+
+        // 新插入：添加到 LRU 链表头部
+        lru_order_.push_front(key);
+        const auto lru_it = lru_order_.begin();
+
+        // 插入缓存表
+        entries_.emplace(key, std::make_pair(std::move(entry), lru_it));
 
         trace::debug("[Resolve] negative cache inserted: {} for {}s", domain, negative_ttl.count());
     }
@@ -137,8 +167,10 @@ namespace psm::resolve
         std::size_t evicted = 0;
         while (it != entries_.end())
         {
-            if (it->second.expire <= now)
+            if (it->second.first.expire <= now) // pair<cache_entry, lru_list::iterator>
             {
+                // 同步删除 LRU 链表节点
+                lru_order_.erase(it->second.second);
                 it = entries_.erase(it);
                 ++evicted;
             }

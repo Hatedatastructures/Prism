@@ -214,7 +214,7 @@ namespace psm::multiplex::smux
     auto parse_udp_datagram(std::span<const std::byte> data, const memory::resource_pointer mr)
         -> std::optional<udp_datagram>
     {
-        if (data.size() < 1)
+        if (data.empty())
         {
             return std::nullopt;
         }
@@ -296,7 +296,7 @@ namespace psm::multiplex::smux
         memory::vector<std::byte> buffer(mr);
 
         // IPv4
-        std::array<uint8_t, 4> v4buf;
+        std::array<uint8_t, 4> v4buf{};
         if (inet_pton(AF_INET, host.data(), v4buf.data()) == 1)
         {
             buffer.resize(1 + 4 + 2 + payload.size());
@@ -313,7 +313,7 @@ namespace psm::multiplex::smux
         }
 
         // IPv6
-        std::array<uint8_t, 16> v6buf;
+        std::array<uint8_t, 16> v6buf{};
         if (inet_pton(AF_INET6, host.data(), v6buf.data()) == 1)
         {
             buffer.resize(1 + 16 + 2 + payload.size());

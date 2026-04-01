@@ -13,6 +13,8 @@
 #include <cstdint>
 #include <span>
 
+#include <boost/asio/experimental/concurrent_channel.hpp>
+
 #include <prism/multiplex/core.hpp>
 #include <prism/multiplex/config.hpp>
 #include <prism/multiplex/smux/frame.hpp>
@@ -84,6 +86,11 @@ namespace psm::multiplex::smux
         /// 发送帧到客户端（通过 strand 串行化）
         auto send_frame(const frame_header &hdr, std::span<const std::byte> payload) const
             -> net::awaitable<void>;
+
+        using channel_type = net::experimental::concurrent_channel<void(boost::system::error_code, memory::vector<std::byte>)>;
+        mutable channel_type channel_;
+
+        auto send_loop() -> net::awaitable<void>;
 
         memory::vector<std::byte> recv_buffer_; // 帧头读取缓冲
     }; // class craft
