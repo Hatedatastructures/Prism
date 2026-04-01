@@ -1,12 +1,12 @@
 # 上下文结构体详解
 
-本文档详细说明 ForwardEngine 中的上下文结构体，涵盖各字段职责、生命周期及所有权模型。
+本文档详细说明 Prism 中的上下文结构体，涵盖各字段职责、生命周期及所有权模型。
 
 ---
 
 ## server_context 结构体
 
-**源码位置**: [context.hpp](../../include/forward-engine/agent/context.hpp)
+**源码位置**: [context.hpp](../../include/prism/agent/context.hpp)
 
 `server_context` 聚合服务器级别的共享资源，在服务器启动时创建，被所有工作线程共享。
 
@@ -62,7 +62,7 @@ std::shared_ptr<account::directory> account_store;
 
 ## worker_context 结构体
 
-**源码位置**: [context.hpp](../../include/forward-engine/agent/context.hpp)
+**源码位置**: [context.hpp](../../include/prism/agent/context.hpp)
 
 `worker_context` 封装单个工作线程的独立资源，实现线程间的资源隔离和避免锁竞争。
 
@@ -88,7 +88,7 @@ resolve::router &router;
 
 路由器引用，负责请求分发和后端选择。
 
-**定义位置**: [router.hpp](../../include/forward-engine/resolve/router.hpp)
+**定义位置**: [router.hpp](../../include/prism/resolve/router.hpp)
 
 **所有权**: Worker 独占，每个 Worker 拥有独立的路由器实例。
 
@@ -102,7 +102,7 @@ memory::resource_pointer memory_pool;
 
 内存池资源指针，用于 PMR 内存分配。
 
-**定义位置**: [pool.hpp](../../include/forward-engine/memory/pool.hpp)
+**定义位置**: [pool.hpp](../../include/prism/memory/pool.hpp)
 
 **特性**:
 - 每个 Worker 独立的内存池
@@ -121,7 +121,7 @@ memory::resource_pointer memory_pool;
 
 ## session_context 结构体
 
-**源码位置**: [context.hpp](../../include/forward-engine/agent/context.hpp)
+**源码位置**: [context.hpp](../../include/prism/agent/context.hpp)
 
 `session_context` 聚合单个连接会话所需的所有资源和状态，是请求处理流程的核心数据结构。
 
@@ -155,7 +155,7 @@ memory::frame_arena &frame_arena;
 
 帧内存池引用，用于会话期间的临时内存分配。
 
-**定义位置**: [pool.hpp](../../include/forward-engine/memory/pool.hpp)
+**定义位置**: [pool.hpp](../../include/prism/memory/pool.hpp)
 
 **特性**:
 - 使用栈上缓冲区（128 字节）和单调增长资源
@@ -209,7 +209,7 @@ ngx::channel::transport::transmission_pointer inbound;
 
 入站传输对象，处理来自客户端的数据。
 
-**类型定义**: [transmission.hpp](../../include/forward-engine/channel/transport/transmission.hpp)
+**类型定义**: [transmission.hpp](../../include/prism/channel/transport/transmission.hpp)
 
 ```cpp
 using transmission_pointer = std::unique_ptr<transmission>;

@@ -104,15 +104,15 @@ graph LR
 
 `dispatch` 目录是纯 header-only 层，特点如下：
 
-- **位置**: `include/forward-engine/agent/dispatch/`
+- **位置**: `include/prism/agent/dispatch/`
 - **文件**: `handler.hpp`, `handlers.hpp`
-- **无源文件**: 不存在 `src/forward-engine/agent/dispatch/` 目录
+- **无源文件**: 不存在 `src/prism/agent/dispatch/` 目录
 - **设计原因**: 协议处理器为轻量级单例，模板工厂方法需要内联实现
 
 ### dispatch 模块结构
 
 ```
-include/forward-engine/agent/dispatch/
+include/prism/agent/dispatch/
 ├── handler.hpp    # handler 基类 + registry 工厂
 └── handlers.hpp   # Http/Socks5/Tls/Unknown 具体实现
 ```

@@ -2,7 +2,7 @@
 
 #include <chrono>
 #include <boost/asio.hpp>
-#include <forward-engine/memory.hpp>
+#include <prism/memory.hpp>
 #include "handler.hpp"
 
 namespace srv
@@ -32,13 +32,13 @@ namespace srv
         boost::asio::awaitable<void> run()
         {
             http::request req;
-            const auto read_result = co_await http::async_read(socket_, req, ngx::memory::current_resource());
+            const auto read_result = co_await http::async_read(socket_, req, psm::memory::current_resource());
 
-            if (ngx::fault::failed(read_result))
+            if (psm::fault::failed(read_result))
             {
-                if (read_result != ngx::fault::code::eof)
+                if (read_result != psm::fault::code::eof)
                 {
-                    ngx::trace::error("initial read failed: {}", ngx::fault::cached_message(read_result));
+                    psm::trace::error("initial read failed: {}", psm::fault::cached_message(read_result));
                 }
                 co_return;
             }
@@ -47,8 +47,8 @@ namespace srv
 
             if (mode == srv::mode::stress)
             {
-                ngx::trace::info("stress mode activated");
-                co_await handle_stress(socket_, ngx::memory::current_resource());
+                psm::trace::info("stress mode activated");
+                co_await handle_stress(socket_, psm::memory::current_resource());
             }
             else
             {
@@ -62,9 +62,9 @@ namespace srv
         boost::asio::awaitable<void> handle_concurrent()
         {
             const auto &preset = preset_ok;
-            const auto res = handler::make_response(preset, ngx::memory::current_resource());
+            const auto res = handler::make_response(preset, psm::memory::current_resource());
 
-            const auto response_data = http::serialize(res, ngx::memory::current_resource());
+            const auto response_data = http::serialize(res, psm::memory::current_resource());
             co_await net::async_write(socket_, net::buffer(response_data), net::use_awaitable);
         }
 

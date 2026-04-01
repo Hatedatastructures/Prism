@@ -1,5 +1,5 @@
-#include <forward-engine/memory/pool.hpp>
-#include <forward-engine/memory/container.hpp>
+#include <prism/memory/pool.hpp>
+#include <prism/memory/container.hpp>
 
 #include "counting_resource.hpp"
 
@@ -16,7 +16,7 @@
 #include <windows.h>
 #endif
 
-using namespace ngx;
+using namespace psm;
 
 namespace
 {

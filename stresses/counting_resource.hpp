@@ -4,7 +4,7 @@
 #include <atomic>
 #include <cstddef>
 
-namespace ngx::stress
+namespace psm::stress
 {
     /**
      * @brief 计数内存资源

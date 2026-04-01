@@ -1,5 +1,5 @@
-if(NOT FORWARD_ENGINE_ENABLE_BENCHMARK)
-    message(STATUS "Benchmarks disabled (FORWARD_ENGINE_ENABLE_BENCHMARK=OFF)")
+if(NOT PRISM_ENABLE_BENCHMARK)
+    message(STATUS "Benchmarks disabled (PRISM_ENABLE_BENCHMARK=OFF)")
     return()
 endif()
 

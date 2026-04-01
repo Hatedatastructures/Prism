@@ -13,16 +13,16 @@
             "port": 8081
         },
         "certificate": {
-            "key": "C:\\Users\\C1373\\Desktop\\code\\forward-engine\\key.pem",
-            "cert": "C:\\Users\\C1373\\Desktop\\code\\forward-engine\\cert.pem"
+            "key": "C:\\Users\\C1373\\Desktop\\code\\prism\\key.pem",
+            "cert": "C:\\Users\\C1373\\Desktop\\code\\prism\\cert.pem"
         },
         "authentication": {
             "credentials": [
-                "forward-engine"
+                "prism"
             ],
             "users": [
                 {
-                    "credential": "forward-engine",
+                    "credential": "prism",
                     "max_connections": 0
                 }
             ]
@@ -91,7 +91,7 @@
     },
     "trace": {
         "file_name": "forward.log",
-        "path_name": "C:\\Users\\C1373\\Desktop\\code\\forward-engine\\logs",
+        "path_name": "C:\\Users\\C1373\\Desktop\\code\\prism\\logs",
         "max_size": 67108864,
         "max_files": 8,
         "queue_size": 8192,

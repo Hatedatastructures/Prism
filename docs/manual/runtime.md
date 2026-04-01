@@ -1,6 +1,6 @@
 # 运行时流程
 
-本文档详细描述 forward-engine 的运行时流程，涵盖 Session 创建、协议检测、隧道转发和连接关闭四个核心阶段。
+本文档详细描述 prism 的运行时流程，涵盖 Session 创建、协议检测、隧道转发和连接关闭四个核心阶段。
 
 ---
 
@@ -12,7 +12,7 @@ Session 创建流程负责接收新连接并初始化会话上下文。该流程
 
 #### 1. launch::dispatch() 投递到 worker 事件循环
 
-**源码位置**: [launch.cpp](../../src/forward-engine/agent/worker/launch.cpp)
+**源码位置**: [launch.cpp](../../src/prism/agent/worker/launch.cpp)
 
 ```cpp
 void dispatch(net::io_context &ioc, server_context &server, worker_context &worker, stats::state &metrics, tcp::socket socket)
@@ -46,7 +46,7 @@ void dispatch(net::io_context &ioc, server_context &server, worker_context &work
 
 #### 2. launch::prime() 预配置 socket 参数
 
-**源码位置**: [launch.cpp](../../src/forward-engine/agent/worker/launch.cpp)
+**源码位置**: [launch.cpp](../../src/prism/agent/worker/launch.cpp)
 
 ```cpp
 void prime(tcp::socket &socket, std::uint32_t buffer_size) noexcept
@@ -65,7 +65,7 @@ void prime(tcp::socket &socket, std::uint32_t buffer_size) noexcept
 
 #### 3. launch::start() 创建 session
 
-**源码位置**: [launch.cpp](../../src/forward-engine/agent/worker/launch.cpp)
+**源码位置**: [launch.cpp](../../src/prism/agent/worker/launch.cpp)
 
 ```cpp
 void start(server_context &server, worker_context &worker, stats::state &metrics, tcp::socket socket)
@@ -133,7 +133,7 @@ void start(server_context &server, worker_context &worker, stats::state &metrics
 
 #### 1. session::start() 启动协程
 
-**源码位置**: [session.cpp](../../src/forward-engine/agent/session/session.cpp)
+**源码位置**: [session.cpp](../../src/prism/agent/session/session.cpp)
 
 ```cpp
 void session::start()
@@ -179,7 +179,7 @@ void session::start()
 
 #### 2. session::diversion() 协程
 
-**源码位置**: [session.cpp](../../src/forward-engine/agent/session/session.cpp)
+**源码位置**: [session.cpp](../../src/prism/agent/session/session.cpp)
 
 ```cpp
 auto session::diversion() -> net::awaitable<void>
@@ -215,7 +215,7 @@ auto session::diversion() -> net::awaitable<void>
 
 #### 3. protocol::probe::probe() 预读 24 字节
 
-**源码位置**: [probe.hpp](../../include/forward-engine/protocol/probe.hpp)
+**源码位置**: [probe.hpp](../../include/prism/protocol/probe.hpp)
 
 ```cpp
 inline auto probe(ngx::channel::transport::transmission &trans, std::size_t max_peek_size = 24)
@@ -256,7 +256,7 @@ inline auto probe(ngx::channel::transport::transmission &trans, std::size_t max_
 
 #### 4. dispatch::registry::global().create() 获取 handler
 
-**源码位置**: [handler.hpp](../../include/forward-engine/agent/dispatch/handler.hpp)
+**源码位置**: [handler.hpp](../../include/prism/agent/dispatch/handler.hpp)
 
 ```cpp
 auto create(const protocol::protocol_type type) const -> shared_handler
@@ -291,7 +291,7 @@ auto create(const protocol::protocol_type type) const -> shared_handler
 
 ### HTTP 路径
 
-**源码位置**: [protocols.cpp](../../src/forward-engine/agent/pipeline/protocols.cpp)
+**源码位置**: [protocols.cpp](../../src/prism/agent/pipeline/protocols.cpp)
 
 #### 流程步骤
 
@@ -380,7 +380,7 @@ auto http(session_context &ctx, std::span<const std::byte> data)
 
 ### SOCKS5 路径
 
-**源码位置**: [protocols.cpp](../../src/forward-engine/agent/pipeline/protocols.cpp)
+**源码位置**: [protocols.cpp](../../src/prism/agent/pipeline/protocols.cpp)
 
 #### 流程步骤
 
@@ -404,7 +404,7 @@ auto http(session_context &ctx, std::span<const std::byte> data)
 
 ### TLS 路径
 
-**源码位置**: [protocols.cpp](../../src/forward-engine/agent/pipeline/protocols.cpp)
+**源码位置**: [protocols.cpp](../../src/prism/agent/pipeline/protocols.cpp)
 
 #### 流程步骤
 
@@ -427,7 +427,7 @@ auto http(session_context &ctx, std::span<const std::byte> data)
 
 #### primitives::dial() - 建立上游连接
 
-**源码位置**: [primitives.cpp](../../src/forward-engine/agent/pipeline/primitives.cpp)
+**源码位置**: [primitives.cpp](../../src/prism/agent/pipeline/primitives.cpp)
 
 ```cpp
 auto dial(std::shared_ptr<resolve::router> router, std::string_view label,
@@ -470,7 +470,7 @@ auto dial(std::shared_ptr<resolve::router> router, std::string_view label,
 
 #### primitives::tunnel() - 双向隧道转发
 
-**源码位置**: [primitives.hpp](../../include/forward-engine/agent/pipeline/primitives.hpp)
+**源码位置**: [primitives.hpp](../../include/prism/agent/pipeline/primitives.hpp)
 
 **设计要点**:
 - 使用单个缓冲区分割为两个半缓冲区
@@ -486,7 +486,7 @@ auto dial(std::shared_ptr<resolve::router> router, std::string_view label,
 
 ### 流程步骤
 
-**源码位置**: [session.cpp](../../src/forward-engine/agent/session/session.cpp)
+**源码位置**: [session.cpp](../../src/prism/agent/session/session.cpp)
 
 ```cpp
 void session::close()
@@ -545,7 +545,7 @@ void session::close()
 
 ### 回调链
 
-**源码位置**: [launch.cpp](../../src/forward-engine/agent/worker/launch.cpp)
+**源码位置**: [launch.cpp](../../src/prism/agent/worker/launch.cpp)
 
 ```cpp
 auto on_closed = [active_sessions]() noexcept
@@ -564,7 +564,7 @@ auto on_closed = [active_sessions]() noexcept
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────────┐
-│                           forward-engine 运行时总览                          │
+│                           prism 运行时总览                          │
 ├─────────────────────────────────────────────────────────────────────────────┤
 │                                                                             │
 │  ┌──────────────┐    ┌──────────────┐    ┌──────────────┐    ┌───────────┐ │

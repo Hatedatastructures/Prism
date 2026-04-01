@@ -6,12 +6,12 @@
 #include <cstring>
 
 #include <boost/asio.hpp>
-#include <forward-engine/protocol.hpp>
-#include <forward-engine/trace.hpp>
+#include <prism/protocol.hpp>
+#include <prism/trace.hpp>
 
 namespace srv
 {
-    namespace http = ngx::protocol::http;
+    namespace http = psm::protocol::http;
     namespace net = boost::asio;
 
     constexpr std::string_view JSON_CONTENT = "application/json; charset=utf-8";
@@ -31,12 +31,12 @@ namespace srv
     class handler final
     {
     public:
-        static auto make_response(const response_preset &preset, ngx::memory::resource_pointer mr = nullptr)
+        static auto make_response(const response_preset &preset, psm::memory::resource_pointer mr = nullptr)
             -> http::response
         {
             if (!mr)
             {
-                mr = ngx::memory::current_resource();
+                mr = psm::memory::current_resource();
             }
 
             http::response res;
@@ -44,7 +44,7 @@ namespace srv
             res.set(http::field::content_type, preset.content_type);
             res.set(http::field::connection, "close");
 
-            ngx::memory::string body(preset.body.begin(), preset.body.end(), mr);
+            psm::memory::string body(preset.body.begin(), preset.body.end(), mr);
             res.body(std::move(body));
 
             return res;
@@ -72,17 +72,17 @@ namespace srv
         return mode::concurrent;
     }
 
-    inline auto handle_stress(net::ip::tcp::socket &socket, ngx::memory::resource_pointer mr = nullptr)
+    inline auto handle_stress(net::ip::tcp::socket &socket, psm::memory::resource_pointer mr = nullptr)
         -> net::awaitable<void>
     {
         if (!mr)
         {
-            mr = ngx::memory::current_resource();
+            mr = psm::memory::current_resource();
         }
 
         constexpr std::size_t chunk_size = 4 * 1024;
 
-        ngx::memory::string chunk_data(chunk_size, '\0', mr);
+        psm::memory::string chunk_data(chunk_size, '\0', mr);
         for (std::size_t i = 0; i < chunk_size; ++i)
         {
             chunk_data[i] = static_cast<char>('A' + (i % 26));
@@ -93,7 +93,7 @@ namespace srv
         resp.status(http::status::ok);
         resp.set(http::field::content_type, JSON_CONTENT);
         resp.set(http::field::connection, "keep-alive");
-        resp.body(ngx::memory::string(chunk_data, mr));
+        resp.body(psm::memory::string(chunk_data, mr));
 
         const auto response_data = http::serialize(resp, mr);
 
@@ -105,11 +105,11 @@ namespace srv
         socket.non_blocking(true, ec);
         if (ec)
         {
-            ngx::trace::error("stress mode: failed to set non-blocking: {}", ec.message());
+            psm::trace::error("stress mode: failed to set non-blocking: {}", ec.message());
             co_return;
         }
 
-        ngx::trace::debug("stress mode: sending 4KB response every 50ms or on client message...");
+        psm::trace::debug("stress mode: sending 4KB response every 50ms or on client message...");
 
         while (true)
         {
@@ -126,14 +126,14 @@ namespace srv
                 if (auto n = socket.read_some(net::buffer(recv_buf), ec); n > 0)
                 {
                     has_data = true;
-                    ngx::trace::debug("stress mode: received {} bytes from client", n);
+                    psm::trace::debug("stress mode: received {} bytes from client", n);
                 }
                 else if (ec == net::error::would_block || ec == net::error::try_again)
                 {
                 }
                 else if (ec)
                 {
-                    ngx::trace::debug("stress mode: client disconnected ({})", ec.message());
+                    psm::trace::debug("stress mode: client disconnected ({})", ec.message());
                     co_return;
                 }
             }
@@ -142,11 +142,11 @@ namespace srv
             co_await net::async_write(socket, net::buffer(response_data), net::redirect_error(net::use_awaitable, ec));
             if (ec)
             {
-                ngx::trace::debug("stress mode: write failed ({})", ec.message());
+                psm::trace::debug("stress mode: write failed ({})", ec.message());
                 break;
             }
 
-            ngx::trace::debug("stress mode: sent 4KB response ({})", has_data ? "client triggered" : "timeout");
+            psm::trace::debug("stress mode: sent 4KB response ({})", has_data ? "client triggered" : "timeout");
         }
     }
 }

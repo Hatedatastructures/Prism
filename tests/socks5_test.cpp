@@ -1,7 +1,7 @@
-#include <forward-engine/protocol/socks5.hpp>
-#include <forward-engine/exception/network.hpp>
-#include <forward-engine/fault/code.hpp>
-#include <forward-engine/channel/transport/reliable.hpp>
+#include <prism/protocol/socks5.hpp>
+#include <prism/exception/network.hpp>
+#include <prism/fault/code.hpp>
+#include <prism/channel/transport/reliable.hpp>
 #include <boost/asio.hpp>
 #include <iostream>
 #include <thread>
@@ -12,8 +12,8 @@
 #include <vector>
 
 namespace net = boost::asio;
-namespace protocol = ngx::protocol;
-namespace transport = ngx::channel::transport;
+namespace protocol = psm::protocol;
+namespace transport = psm::channel::transport;
 using tcp = net::ip::tcp;
 
 /**
@@ -33,9 +33,9 @@ net::awaitable<void> do_socks5_server(tcp::acceptor &acceptor)
         // 执行握手，获取目标地址信息
         std::cout << "服务器开始 SOCKS5 握手..." << std::endl;
         auto [ec, req] = co_await socks5->handshake();
-        if (ngx::fault::failed(ec))
+        if (psm::fault::failed(ec))
         {
-            std::cerr << "服务器握手失败: " << std::string_view(ngx::fault::describe(ec)) << std::endl;
+            std::cerr << "服务器握手失败: " << std::string_view(psm::fault::describe(ec)) << std::endl;
             co_return;
         }
         std::cout << "服务器握手成功，收到目标信息" << std::endl;
@@ -48,7 +48,7 @@ net::awaitable<void> do_socks5_server(tcp::acceptor &acceptor)
 
         // 发送成功响应
         std::cout << "服务器发送成功响应..." << std::endl;
-        if (ngx::fault::failed(co_await socks5->async_write_success(req)))
+        if (psm::fault::failed(co_await socks5->async_write_success(req)))
         {
             std::cerr << "服务器成功响应发送失败" << std::endl;
             co_return;
@@ -61,9 +61,9 @@ net::awaitable<void> do_socks5_server(tcp::acceptor &acceptor)
         // 读取客户端数据
         std::error_code read_ec;
         auto n = co_await socks5->async_read_some(std::span(buffer), read_ec);
-        if (ngx::fault::failed(ngx::fault::to_code(read_ec)) || n == 0)
+        if (psm::fault::failed(psm::fault::to_code(read_ec)) || n == 0)
         {
-            std::cerr << "数据读取失败: " << std::string_view(ngx::fault::describe(ngx::fault::to_code(read_ec))) << std::endl;
+            std::cerr << "数据读取失败: " << std::string_view(psm::fault::describe(psm::fault::to_code(read_ec))) << std::endl;
             co_return;
         }
         std::string received_msg(reinterpret_cast<const char*>(buffer.data()), n);
@@ -75,9 +75,9 @@ net::awaitable<void> do_socks5_server(tcp::acceptor &acceptor)
         co_await socks5->async_write_some(
             std::span(reinterpret_cast<const std::byte*>(received_msg.data()), received_msg.size()),
             write_ec);
-        if (ngx::fault::failed(ngx::fault::to_code(write_ec)))
+        if (psm::fault::failed(psm::fault::to_code(write_ec)))
         {
-            std::cerr << "数据回写失败: " << std::string_view(ngx::fault::describe(ngx::fault::to_code(write_ec))) << std::endl;
+            std::cerr << "数据回写失败: " << std::string_view(psm::fault::describe(psm::fault::to_code(write_ec))) << std::endl;
             co_return;
         }
 
@@ -111,7 +111,7 @@ net::awaitable<void> raw_socks5_handshake(tcp::socket &socket, const std::string
 
         if (method_response[0] != 0x05 || method_response[1] != 0x00)
         {
-            throw ngx::exception::network("SOCKS5 方法协商失败");
+            throw psm::exception::network("SOCKS5 方法协商失败");
         }
 
         // 发送 CONNECT 请求
@@ -123,7 +123,7 @@ net::awaitable<void> raw_socks5_handshake(tcp::socket &socket, const std::string
         // 地址类型和地址
         if (host.find(':') != std::string::npos)
         {
-            throw ngx::exception::network("IPv6 地址测试暂不支持");
+            throw psm::exception::network("IPv6 地址测试暂不支持");
         }
         else if (host.find('.') != std::string::npos)
         {
@@ -167,7 +167,7 @@ net::awaitable<void> raw_socks5_handshake(tcp::socket &socket, const std::string
             else
             {
                 if (total_read > 0 && response[1] != 0x00)
-                    throw ngx::exception::network("SOCKS5 连接请求被拒绝");
+                    throw psm::exception::network("SOCKS5 连接请求被拒绝");
             }
         }
         catch (const boost::system::system_error &e)
@@ -232,7 +232,7 @@ int main()
                 
                 if (received_msg != test_msg)
                 {
-                    throw ngx::exception::network("Message echo verification failed");
+                    throw psm::exception::network("Message echo verification failed");
                 }
                 
                 std::cout << "Client test success: " << test_msg << std::endl;

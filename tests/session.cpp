@@ -5,13 +5,13 @@
 #include <iostream>
 #include <memory>
 #include <string>
-#include <forward-engine/channel/connection/pool.hpp>
-#include <forward-engine/resolve/router.hpp>
-#include <forward-engine/agent/session/session.hpp>
-#include <forward-engine/channel/transport/reliable.hpp>
-#include <forward-engine/exception/network.hpp>
-#include <forward-engine/fault/code.hpp>
-#include <forward-engine/memory.hpp>
+#include <prism/channel/connection/pool.hpp>
+#include <prism/resolve/router.hpp>
+#include <prism/agent/session/session.hpp>
+#include <prism/channel/transport/reliable.hpp>
+#include <prism/exception/network.hpp>
+#include <prism/fault/code.hpp>
+#include <prism/memory.hpp>
 #include <boost/asio.hpp>
 #include <boost/asio/ssl.hpp>
 #include <trace/spdlog.hpp>
@@ -22,17 +22,17 @@
 namespace net = boost::asio;
 namespace ssl = boost::asio::ssl;
 using tcp = net::ip::tcp;
-#include <forward-engine/agent/config.hpp>
-#include <forward-engine/agent/context.hpp>
-#include <forward-engine/agent/account/directory.hpp>
+#include <prism/agent/config.hpp>
+#include <prism/agent/context.hpp>
+#include <prism/agent/account/directory.hpp>
 
-namespace agent = ngx::agent;
+namespace agent = psm::agent;
 
 namespace
 {
     void info(const std::string_view msg)
     {
-        ngx::trace::info("{}", msg);
+        psm::trace::info("{}", msg);
     }
 }
 
@@ -89,7 +89,7 @@ net::awaitable<void> proxy_accept_one(tcp::acceptor acceptor, agent::server_cont
     {
         co_return;
     }
-    auto inbound = ngx::channel::transport::make_reliable(std::move(socket));
+    auto inbound = psm::channel::transport::make_reliable(std::move(socket));
 
     agent::session::session_params params{server_ctx, worker_ctx, std::move(inbound)};
     auto session_ptr = agent::session::make_session(std::move(params));
@@ -114,22 +114,22 @@ net::awaitable<std::string> read_proxy_connect_response(tcp::socket &socket)
         const std::size_t n = co_await socket.async_read_some(net::buffer(buf), token);
         if (ec)
         {
-            throw ngx::exception::security("proxy response read failed: " + ec.message());
+            throw psm::exception::security("proxy response read failed: " + ec.message());
         }
         if (n == 0)
         {
-            throw ngx::exception::security("proxy response eof");
+            throw psm::exception::security("proxy response eof");
         }
         response.append(buf.data(), n);
         if (response.size() > 8192)
         {
-            throw ngx::exception::security("proxy response too large");
+            throw psm::exception::security("proxy response too large");
         }
     }
 
     if (!response.starts_with("HTTP/1.1 200"))
     {
-        throw ngx::exception::network("proxy connect failed: " + response);
+        throw psm::exception::network("proxy connect failed: " + response);
     }
 
     co_return response;
@@ -171,7 +171,7 @@ net::awaitable<void> wait_until_true(std::shared_ptr<std::atomic_bool> flag, con
     {
         if (std::chrono::steady_clock::now() >= deadline)
         {
-            throw ngx::exception::network("timeout waiting for expected shutdown");
+            throw psm::exception::network("timeout waiting for expected shutdown");
         }
 
         timer.expires_after(std::chrono::milliseconds(10));
@@ -225,7 +225,7 @@ net::awaitable<void> proxy_connect_client_echo(const tcp::endpoint proxy_ep, con
 
     if (echo != payload)
     {
-        throw ngx::exception::network("echo mismatch");
+        throw psm::exception::network("echo mismatch");
     }
 
     info(std::format("{} client: echo verified, closing connection", tag));
@@ -338,12 +338,12 @@ net::awaitable<void> proxy_connect_client_expect_close(const tcp::endpoint proxy
 
     if (ec == net::error::operation_aborted)
     {
-        throw ngx::exception::security("timeout waiting for proxy to close client");
+        throw psm::exception::security("timeout waiting for proxy to close client");
     }
 
     if (!ec && n != 0)
     {
-        throw ngx::exception::security("expected close but received data");
+        throw psm::exception::security("expected close but received data");
     }
 
     info(std::format("{} client: 宸茶瀵熷埌浠ｇ悊鍏抽棴", tag));
@@ -489,9 +489,9 @@ int main()
 #endif
     try
     {
-        ngx::memory::system::enable_global_pooling();
+        psm::memory::system::enable_global_pooling();
         {
-            ngx::trace::config cfg;
+            psm::trace::config cfg;
             cfg.path_name = (std::filesystem::path("test_logs") / "session").string();
             cfg.file_name = "session_test.log";
             cfg.max_size = 4U * 1024U * 1024U;
@@ -502,7 +502,7 @@ int main()
             cfg.enable_file = false;
             cfg.log_level = "debug";
             cfg.trace_name = "session_test";
-            ngx::trace::init(cfg);
+            psm::trace::init(cfg);
         }
 
         // 1. ioc 蹇呴』鏈€鍏堝０鏄庯紙鏈€鍚庢瀽鏋勶級
@@ -513,25 +513,25 @@ int main()
         // 2. 渚濊禆璧勬簮澹版槑锛堝湪 ioc 涔嬪悗锛屽厛鏋愭瀯锛?
 
         // 鍒濆鍖?
-        const auto pool = std::make_unique<ngx::channel::connection_pool>(ioc);
-        ngx::resolve::config dns_cfg;
-        auto dist = std::make_unique<ngx::resolve::router>(*pool, ioc, std::move(dns_cfg));
+        const auto pool = std::make_unique<psm::channel::connection_pool>(ioc);
+        psm::resolve::config dns_cfg;
+        auto dist = std::make_unique<psm::resolve::router>(*pool, ioc, std::move(dns_cfg));
 
         auto ssl_ctx = std::make_shared<ssl::context>(ssl::context::tlsv12);
         ssl_ctx->set_verify_mode(ssl::verify_none);
 
         agent::config cfg;
-        auto account_store = std::make_shared<agent::account::directory>(ngx::memory::system::global_pool());
+        auto account_store = std::make_shared<agent::account::directory>(psm::memory::system::global_pool());
         agent::server_context server_ctx{cfg, ssl_ctx, account_store};
 
-        auto mr = ngx::memory::system::thread_local_pool();
+        auto mr = psm::memory::system::thread_local_pool();
         agent::worker_context worker_ctx{ioc, *dist, mr};
 
         // 娉ㄥ唽鍗忚澶勭悊鍣?
         // 娉ㄦ剰锛氳繖閲岀殑 arena 浠呯敤浜?handler 鏋勯€狅紝瀹為檯澶勭悊鏃朵細浣跨敤 session 鐨?arena
         // 浣嗙敱浜?handler 宸ュ巶璁捐闂锛屾垜浠渶瑕佹彁渚涗竴涓复鏃剁殑 arena
         // 蹇呴』淇濊瘉 arena 鍦ㄦ祴璇曟湡闂村瓨娲?
-        ngx::memory::frame_arena dummy_arena;
+        psm::memory::frame_arena dummy_arena;
         // frame_arena 榛樿鏋勯€犱娇鐢?thread_local_pool锛屼笉闇€瑕?mr 鍙傛暟
         // 涔嬪墠鐨?mr 鍙橀噺鍏跺疄娌＄敤锛宖rame_arena 鍐呴儴鑷繁鑾峰彇
 
@@ -561,11 +561,11 @@ int main()
             std::rethrow_exception(test_error);
         }
 
-        ngx::trace::shutdown();
+        psm::trace::shutdown();
     }
     catch (const std::exception &e)
     {
-        ngx::trace::shutdown();
+        psm::trace::shutdown();
         std::cerr << std::format("session_test failed: {}", e.what()) << std::endl;
         return 1;
     }

@@ -1,10 +1,10 @@
 # 项目开发进度与贡献指南
 
-本文档记录了 ForwardEngine 的开发状态、路线图以及如何参与贡献。无论你是想了解项目进展，还是希望贡献代码，这里都能找到需要的信息。
+本文档记录了 Prism 的开发状态、路线图以及如何参与贡献。无论你是想了解项目进展，还是希望贡献代码，这里都能找到需要的信息。
 
 ## 项目概况
 
-- **项目名称**：ForwardEngine
+- **项目名称**：Prism
 - **项目类型**：高性能代理引擎
 - **核心技术**：C++23、Boost.Asio 协程、BoringSSL、PMR 内存管理
 - **开发状态**：**稳定可用**，核心功能已完成
@@ -54,7 +54,7 @@
 
 ## 模块完成度详情
 
-### Agent 模块 (`include/forward-engine/agent/`)
+### Agent 模块 (`include/prism/agent/`)
 
 | 子模块 | 组件 | 完成度 | 说明 |
 |--------|------|--------|------|
@@ -79,7 +79,7 @@
 | **account** | entry | ✅ 100% | 账户运行时状态，连接数限制 |
 | **account** | lease | ✅ 100% | RAII 连接数管理 |
 
-### Protocol 模块 (`include/forward-engine/protocol/`)
+### Protocol 模块 (`include/prism/protocol/`)
 
 | 协议 | 完成度 | 说明 |
 |------|--------|------|
@@ -88,7 +88,7 @@
 | **Trojan** | ✅ 100% | Trojan over TLS 协议，密码验证 + 流量伪装 |
 | **协议探测** | ✅ 100% | 动态检测 HTTP/SOCKS5/TLS 协议类型 |
 
-### Channel 模块 (`include/forward-engine/channel/`)
+### Channel 模块 (`include/prism/channel/`)
 
 #### transport 子模块
 
@@ -111,7 +111,7 @@
 |------|--------|------|
 | **connector** | ✅ 100% | Socket 适配器，支持预读数据注入 |
 
-### Memory 模块 (`include/forward-engine/memory/`)
+### Memory 模块 (`include/prism/memory/`)
 
 | 组件 | 完成度 | 说明 |
 |------|--------|------|
@@ -307,7 +307,7 @@ curl -v -x socks5://127.0.0.1:8081 http://www.baidu.com
 
 ## 许可证
 
-ForwardEngine 采用 **MIT 许可证**，允许：
+Prism 采用 **MIT 许可证**，允许：
 
 - 商业使用
 - 修改和分发
@@ -323,4 +323,4 @@ ForwardEngine 采用 **MIT 许可证**，允许：
 
 ---
 
-**感谢关注 ForwardEngine 的开发进展！**
+**感谢关注 Prism 的开发进展！**

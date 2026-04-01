@@ -7,10 +7,10 @@
  * 3. trojan lease 持有和释放
  */
 
-#include <forward-engine/protocol/analysis.hpp>
-#include <forward-engine/agent/account/directory.hpp>
-#include <forward-engine/memory.hpp>
-#include <forward-engine/trace/spdlog.hpp>
+#include <prism/protocol/analysis.hpp>
+#include <prism/agent/account/directory.hpp>
+#include <prism/memory.hpp>
+#include <prism/trace/spdlog.hpp>
 #include <string>
 #include <string_view>
 
@@ -21,19 +21,19 @@ namespace
 
     void log_info(const std::string_view msg)
     {
-        ngx::trace::info("[RegressionTest] {}", msg);
+        psm::trace::info("[RegressionTest] {}", msg);
     }
 
     void log_pass(const std::string_view msg)
     {
         ++passed;
-        ngx::trace::info("[RegressionTest] PASS: {}", msg);
+        psm::trace::info("[RegressionTest] PASS: {}", msg);
     }
 
     void log_fail(const std::string_view msg)
     {
         ++failed;
-        ngx::trace::error("[RegressionTest] FAIL: {}", msg);
+        psm::trace::error("[RegressionTest] FAIL: {}", msg);
     }
 }
 
@@ -44,11 +44,11 @@ void test_ipv6_parsing()
 {
     log_info("=== Testing IPv6 host:port parsing ===");
 
-    ngx::memory::resource_pointer mr = ngx::memory::current_resource();
+    psm::memory::resource_pointer mr = psm::memory::current_resource();
 
-    auto parse = [&](const std::string_view input) -> std::pair<ngx::memory::string, ngx::memory::string>
+    auto parse = [&](const std::string_view input) -> std::pair<psm::memory::string, psm::memory::string>
     {
-        ngx::protocol::analysis::target t = ngx::protocol::analysis::resolve(input, mr);
+        psm::protocol::analysis::target t = psm::protocol::analysis::resolve(input, mr);
         return {t.host, t.port};
     };
 
@@ -109,8 +109,8 @@ void test_inner_protocol_detection()
 
     {
         std::string http_request = "GET / HTTP/1.1\r\nHost: example.com\r\n\r\n";
-        auto result = ngx::protocol::analysis::detect_inner(http_request);
-        if (result != ngx::protocol::inner_protocol::http)
+        auto result = psm::protocol::analysis::detect_inner(http_request);
+        if (result != psm::protocol::inner_protocol::http)
         {
             log_fail("HTTP detection failed");
             return;
@@ -119,8 +119,8 @@ void test_inner_protocol_detection()
 
     {
         std::string partial_data = "GET ";
-        auto result = ngx::protocol::analysis::detect_inner(partial_data);
-        if (result != ngx::protocol::inner_protocol::http)
+        auto result = psm::protocol::analysis::detect_inner(partial_data);
+        if (result != psm::protocol::inner_protocol::http)
         {
             log_fail("Partial HTTP detection failed");
             return;
@@ -129,8 +129,8 @@ void test_inner_protocol_detection()
 
     {
         std::string short_data(30, 'a');
-        auto result = ngx::protocol::analysis::detect_inner(short_data);
-        if (result != ngx::protocol::inner_protocol::undetermined)
+        auto result = psm::protocol::analysis::detect_inner(short_data);
+        if (result != psm::protocol::inner_protocol::undetermined)
         {
             log_fail("Short data should be undetermined");
             return;
@@ -143,8 +143,8 @@ void test_inner_protocol_detection()
         trojan_like[57] = '\n';
         trojan_like[58] = 0x01;
         trojan_like[59] = 0x01;
-        auto result = ngx::protocol::analysis::detect_inner(trojan_like);
-        if (result != ngx::protocol::inner_protocol::trojan)
+        auto result = psm::protocol::analysis::detect_inner(trojan_like);
+        if (result != psm::protocol::inner_protocol::trojan)
         {
             log_fail("Trojan detection failed");
             return;
@@ -154,8 +154,8 @@ void test_inner_protocol_detection()
     {
         std::string invalid_trojan(60, 'a');
         invalid_trojan[56] = 'x';
-        auto result = ngx::protocol::analysis::detect_inner(invalid_trojan);
-        if (result != ngx::protocol::inner_protocol::http)
+        auto result = psm::protocol::analysis::detect_inner(invalid_trojan);
+        if (result != psm::protocol::inner_protocol::http)
         {
             log_fail("Invalid Trojan should be HTTP");
             return;
@@ -172,11 +172,11 @@ void test_trojan_lease()
 {
     log_info("=== Testing Trojan lease hold and release ===");
 
-    ngx::agent::account::directory dir;
+    psm::agent::account::directory dir;
     dir.upsert("test_credential", 2);
 
     {
-        auto lease1 = ngx::agent::account::try_acquire(dir, "test_credential");
+        auto lease1 = psm::agent::account::try_acquire(dir, "test_credential");
         if (!lease1)
         {
             log_fail("First lease acquire failed");
@@ -190,7 +190,7 @@ void test_trojan_lease()
             return;
         }
 
-        auto lease2 = ngx::agent::account::try_acquire(dir, "test_credential");
+        auto lease2 = psm::agent::account::try_acquire(dir, "test_credential");
         if (!lease2)
         {
             log_fail("Second lease acquire failed");
@@ -203,7 +203,7 @@ void test_trojan_lease()
             return;
         }
 
-        auto lease3 = ngx::agent::account::try_acquire(dir, "test_credential");
+        auto lease3 = psm::agent::account::try_acquire(dir, "test_credential");
         if (lease3)
         {
             log_fail("Third lease should fail due to limit");
@@ -223,8 +223,8 @@ void test_trojan_lease()
 
 int main()
 {
-    ngx::memory::system::enable_global_pooling();
-    ngx::trace::init({});
+    psm::memory::system::enable_global_pooling();
+    psm::trace::init({});
 
     log_info("Starting regression tests...");
 
@@ -234,7 +234,7 @@ int main()
 
     log_info("Regression tests completed.");
 
-    ngx::trace::info("[RegressionTest] Results: {} passed, {} failed", passed, failed);
+    psm::trace::info("[RegressionTest] Results: {} passed, {} failed", passed, failed);
 
     return failed > 0 ? 1 : 0;
 }

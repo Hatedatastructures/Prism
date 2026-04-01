@@ -4,8 +4,8 @@
 #include <iostream>
 #include <vector>
 
-namespace json = ngx::transformer::json;
-namespace trace = ngx::trace;
+namespace json = psm::transformer::json;
+namespace trace = psm::trace;
 
 struct product
 {
@@ -22,7 +22,7 @@ struct order
 
 void init()
 {
-    ngx::memory::system::enable_global_pooling();
+    psm::memory::system::enable_global_pooling();
 
     trace::config config;
     config.file_name = "forward.log";
@@ -38,7 +38,7 @@ void init()
 int main()
 {
     init();
-    ngx::memory::string product_json(ngx::memory::current_resource());
+    psm::memory::string product_json(psm::memory::current_resource());
     if (!json::serialize(product{"apple", 100}, product_json))
     {
         trace::error("serialize failed");
@@ -46,7 +46,7 @@ int main()
     }
     trace::info("product json: {}", product_json);
 
-    ngx::memory::string order_json(ngx::memory::current_resource());
+    psm::memory::string order_json(psm::memory::current_resource());
     if (!json::serialize(order{"customer1", {{"apple", 100}, {"orange", 200}}}, order_json))
     {
         trace::error("serialize failed");

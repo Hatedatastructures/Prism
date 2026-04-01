@@ -1,6 +1,6 @@
-# ForwardEngine 架构设计
+# Prism 架构设计
 
-本文档详细描述 ForwardEngine 的架构设计，包括能力边界、时序链和关键实现细节。
+本文档详细描述 Prism 的架构设计，包括能力边界、时序链和关键实现细节。
 
 ---
 
@@ -13,46 +13,46 @@
 #### HTTP/HTTPS 代理
 
 **CONNECT 方法（隧道代理）**：
-- 实现位置：[protocols.cpp](../../src/forward-engine/agent/pipeline/protocols.cpp)
+- 实现位置：[protocols.cpp](../../src/prism/agent/pipeline/protocols.cpp)
 - 处理流程：解析 HTTP 请求后，对 CONNECT 方法返回 `HTTP/1.1 200 Connection Established`，随后建立双向隧道
 
 **普通 HTTP 请求转发**：
-- 实现位置：[protocols.cpp](../../src/forward-engine/agent/pipeline/protocols.cpp)
+- 实现位置：[protocols.cpp](../../src/prism/agent/pipeline/protocols.cpp)
 - 处理流程：序列化请求并转发到上游，同时转发预读缓冲区中的剩余数据
 
 #### SOCKS5 代理
 
 **CONNECT 命令**：
-- 实现位置：[protocols.cpp](../../src/forward-engine/agent/pipeline/protocols.cpp)
+- 实现位置：[protocols.cpp](../../src/prism/agent/pipeline/protocols.cpp)
 - 处理流程：握手协商 → 目标解析 → 建立上游连接 → 返回成功响应 → 双向隧道
 
 **UDP_ASSOCIATE 命令**：
-- 实现位置：[protocols.cpp](../../src/forward-engine/agent/pipeline/protocols.cpp)
+- 实现位置：[protocols.cpp](../../src/prism/agent/pipeline/protocols.cpp)
 - 处理流程：调用 `async_associate()` 建立 UDP 中继
 
 #### TLS 终止
 
 **TLS 握手**：
-- 实现位置：[protocols.cpp](../../src/forward-engine/agent/pipeline/protocols.cpp)
+- 实现位置：[protocols.cpp](../../src/prism/agent/pipeline/protocols.cpp)
 - 握手后作为 HTTPS 处理，执行服务器端 TLS 握手
 
 #### 反向代理
 
 **reverse_map 路由**：
-- 配置定义：[config.hpp](../../include/forward-engine/agent/config.hpp)
-- 路由初始化：[worker.cpp](../../src/forward-engine/agent/worker/worker.cpp)
-- 路由查询：[router.hpp](../../include/forward-engine/resolve/router.hpp)
+- 配置定义：[config.hpp](../../include/prism/agent/config.hpp)
+- 路由初始化：[worker.cpp](../../src/prism/agent/worker/worker.cpp)
+- 路由查询：[router.hpp](../../include/prism/resolve/router.hpp)
 
 #### 正向代理 Fallback
 
 **直连失败后转发**：
-- 实现位置：[router.cpp](../../src/forward-engine/resolve/router.cpp)
+- 实现位置：[router.cpp](../../src/prism/resolve/router.cpp)
 - 处理流程：先检查黑名单 → 尝试直连 → 失败后转发到 positive endpoint
 
 #### 负载均衡
 
 **基于评分的 Worker 选择**：
-- 实现位置：[balancer.hpp](../../include/forward-engine/agent/front/balancer.hpp)
+- 实现位置：[balancer.hpp](../../include/prism/agent/front/balancer.hpp)
 - 评分公式：`score = weight_session * (sessions/capacity) + weight_pending * (pending/capacity) + weight_lag * (lag/capacity)`
 - 默认权重：session 60%、pending 10%、lag 30%
 - 过载检测：采用滞后机制（进入阈值 90%，退出阈值 80%）
@@ -60,20 +60,20 @@
 #### 连接池
 
 **TCP 连接复用**：
-- 实现位置：[pool.hpp](../../include/forward-engine/channel/connection/pool.hpp)
+- 实现位置：[pool.hpp](../../include/prism/channel/connection/pool.hpp)
 - 核心特性：栈式缓存（LIFO）、僵尸检测、线程隔离、空闲超时
 
 #### DNS 缓存
 
-- **cache**：[cache.hpp](../../include/forward-engine/resolve/cache.hpp)，支持正向缓存和负缓存，默认 TTL 120 秒，最大条目 10000，serve-stale 模式
-- **请求合并**：[coalescer.hpp](../../include/forward-engine/resolve/coalescer.hpp)，避免重复 DNS 查询
-- **域名规则**：[rules.hpp](../../include/forward-engine/resolve/rules.hpp)，基于反转 Trie 的规则引擎，支持静态 IP、广告屏蔽、CNAME 重定向
+- **cache**：[cache.hpp](../../include/prism/resolve/cache.hpp)，支持正向缓存和负缓存，默认 TTL 120 秒，最大条目 10000，serve-stale 模式
+- **请求合并**：[coalescer.hpp](../../include/prism/resolve/coalescer.hpp)，避免重复 DNS 查询
+- **域名规则**：[rules.hpp](../../include/prism/resolve/rules.hpp)，基于反转 Trie 的规则引擎，支持静态 IP、广告屏蔽、CNAME 重定向
 
 #### 账户认证与配额控制
 
-- 实现位置：[directory.hpp](../../include/forward-engine/agent/account/directory.hpp)
+- 实现位置：[directory.hpp](../../include/prism/agent/account/directory.hpp)
 - 特性：写时复制、无锁读取、透明查找、CAS 原子递增
-- 租约管理：[entry.hpp](../../include/forward-engine/agent/account/entry.hpp)，RAII 自动管理连接计数
+- 租约管理：[entry.hpp](../../include/prism/agent/account/entry.hpp)，RAII 自动管理连接计数
 
 ### 1.2 运行链完整度
 
@@ -149,75 +149,75 @@
 | 步骤 | 操作 | 源码位置 | 说明 |
 |------|------|----------|------|
 | 1 | `listener.listen()` | `src/main.cpp` | 监听线程入口 |
-| 2 | `net::co_spawn(accept_loop())` | `src/forward-engine/agent/front/listener.cpp` | 启动接受连接协程 |
-| 3 | `acceptor_.async_accept()` | `src/forward-engine/agent/front/listener.cpp` | 异步接受新连接 |
+| 2 | `net::co_spawn(accept_loop())` | `src/prism/agent/front/listener.cpp` | 启动接受连接协程 |
+| 3 | `acceptor_.async_accept()` | `src/prism/agent/front/listener.cpp` | 异步接受新连接 |
 
 ### 3.2 负载均衡阶段
 
 | 步骤 | 操作 | 源码位置 | 说明 |
 |------|------|----------|------|
-| 4 | `make_affinity()` | `src/forward-engine/agent/front/listener.cpp` | 根据客户端 IP 计算亲和性哈希 |
-| 5 | `balancer.select(affinity)` | `src/forward-engine/agent/front/listener.cpp` | 选择目标 worker |
-| 6 | 检查 `backpressure` | `src/forward-engine/agent/front/listener.cpp` | 若过载则延迟 |
-| 7 | `balancer.dispatch()` | `src/forward-engine/agent/front/listener.cpp` | 分发 socket 到选定 worker |
+| 4 | `make_affinity()` | `src/prism/agent/front/listener.cpp` | 根据客户端 IP 计算亲和性哈希 |
+| 5 | `balancer.select(affinity)` | `src/prism/agent/front/listener.cpp` | 选择目标 worker |
+| 6 | 检查 `backpressure` | `src/prism/agent/front/listener.cpp` | 若过载则延迟 |
+| 7 | `balancer.dispatch()` | `src/prism/agent/front/listener.cpp` | 分发 socket 到选定 worker |
 
 ### 3.3 Worker 分发阶段
 
 | 步骤 | 操作 | 源码位置 | 说明 |
 |------|------|----------|------|
-| 8 | `worker.dispatch_socket()` | `src/forward-engine/agent/worker/worker.cpp` | Worker 接收分发请求 |
-| 9 | `launch::dispatch()` | `src/forward-engine/agent/worker/launch.cpp` | 投递到 worker 事件循环 |
-| 10 | `net::post(ioc, ...)` | `src/forward-engine/agent/worker/launch.cpp` | 跨线程投递到 IO 上下文 |
+| 8 | `worker.dispatch_socket()` | `src/prism/agent/worker/worker.cpp` | Worker 接收分发请求 |
+| 9 | `launch::dispatch()` | `src/prism/agent/worker/launch.cpp` | 投递到 worker 事件循环 |
+| 10 | `net::post(ioc, ...)` | `src/prism/agent/worker/launch.cpp` | 跨线程投递到 IO 上下文 |
 
 ### 3.4 会话创建阶段
 
 | 步骤 | 操作 | 源码位置 | 说明 |
 |------|------|----------|------|
-| 11 | `launch::start()` | `src/forward-engine/agent/worker/launch.cpp` | 启动会话 |
-| 12 | 创建 `inbound` 传输 | `src/forward-engine/agent/worker/launch.cpp` | 包装 socket 为可靠传输 |
-| 13 | `make_session()` | `src/forward-engine/agent/worker/launch.cpp` | 创建 session 实例 |
-| 14 | `session.start()` | `src/forward-engine/agent/worker/launch.cpp` | 启动会话处理 |
+| 11 | `launch::start()` | `src/prism/agent/worker/launch.cpp` | 启动会话 |
+| 12 | 创建 `inbound` 传输 | `src/prism/agent/worker/launch.cpp` | 包装 socket 为可靠传输 |
+| 13 | `make_session()` | `src/prism/agent/worker/launch.cpp` | 创建 session 实例 |
+| 14 | `session.start()` | `src/prism/agent/worker/launch.cpp` | 启动会话处理 |
 
 ### 3.5 协议检测阶段
 
 | 步骤 | 操作 | 源码位置 | 说明 |
 |------|------|----------|------|
-| 15 | `session.diversion()` | `src/forward-engine/agent/session/session.cpp` | 协议分流入口 |
-| 16 | `protocol::probe::probe()` | `src/forward-engine/agent/session/session.cpp` | 嗅探检测协议类型（预读 24 字节） |
-| 17 | `registry::global().create()` | `src/forward-engine/agent/session/session.cpp` | 根据协议类型获取处理器 |
+| 15 | `session.diversion()` | `src/prism/agent/session/session.cpp` | 协议分流入口 |
+| 16 | `protocol::probe::probe()` | `src/prism/agent/session/session.cpp` | 嗅探检测协议类型（预读 24 字节） |
+| 17 | `registry::global().create()` | `src/prism/agent/session/session.cpp` | 根据协议类型获取处理器 |
 
 ### 3.6 协议处理阶段
 
 | 步骤 | 操作 | 源码位置 | 说明 |
 |------|------|----------|------|
-| 18 | `handler->process()` | `src/forward-engine/agent/session/session.cpp` | 调用处理器处理协议 |
+| 18 | `handler->process()` | `src/prism/agent/session/session.cpp` | 调用处理器处理协议 |
 | 19 | 协议管道处理 | 见下表 | 根据协议类型调用对应管道 |
 
 **协议管道映射表：**
 
 | 协议类型 | 处理器类 | 管道函数 | 源码位置 |
 |----------|----------|----------|----------|
-| HTTP | `dispatch::Http` | `pipeline::http()` | `include/forward-engine/agent/dispatch/handlers.hpp` |
-| SOCKS5 | `dispatch::Socks5` | `pipeline::socks5()` | `include/forward-engine/agent/dispatch/handlers.hpp` |
-| Trojan | `dispatch::Trojan` | `pipeline::trojan()` | `include/forward-engine/agent/dispatch/handlers.hpp` |
-| Unknown | `dispatch::Unknown` | `primitives::tunnel()` | `include/forward-engine/agent/dispatch/handlers.hpp` |
+| HTTP | `dispatch::Http` | `pipeline::http()` | `include/prism/agent/dispatch/handlers.hpp` |
+| SOCKS5 | `dispatch::Socks5` | `pipeline::socks5()` | `include/prism/agent/dispatch/handlers.hpp` |
+| Trojan | `dispatch::Trojan` | `pipeline::trojan()` | `include/prism/agent/dispatch/handlers.hpp` |
+| Unknown | `dispatch::Unknown` | `primitives::tunnel()` | `include/prism/agent/dispatch/handlers.hpp` |
 
 ### 3.7 上游连接阶段
 
 | 步骤 | 操作 | 源码位置 | 说明 |
 |------|------|----------|------|
-| 20 | `protocol::analysis::resolve()` | `src/forward-engine/agent/pipeline/protocols.cpp` | 解析请求获取目标地址 |
-| 21 | `primitives::dial()` | `src/forward-engine/agent/pipeline/primitives.cpp` | 建立上游连接 |
-| 22 | `router->async_reverse()` 或 `router->async_forward()` | `src/forward-engine/resolve/router.cpp` | 路由选择 |
-| 23 | `ngx::channel::transport::make_reliable()` | `src/forward-engine/agent/pipeline/primitives.cpp` | 包装为可靠传输 |
+| 20 | `protocol::analysis::resolve()` | `src/prism/agent/pipeline/protocols.cpp` | 解析请求获取目标地址 |
+| 21 | `primitives::dial()` | `src/prism/agent/pipeline/primitives.cpp` | 建立上游连接 |
+| 22 | `router->async_reverse()` 或 `router->async_forward()` | `src/prism/resolve/router.cpp` | 路由选择 |
+| 23 | `ngx::channel::transport::make_reliable()` | `src/prism/agent/pipeline/primitives.cpp` | 包装为可靠传输 |
 
 ### 3.8 双向转发阶段
 
 | 步骤 | 操作 | 源码位置 | 说明 |
 |------|------|----------|------|
-| 24 | `primitives::tunnel()` | `include/forward-engine/agent/pipeline/primitives.hpp` | 建立全双工隧道 |
-| 25 | 双向数据转发 | `include/forward-engine/agent/pipeline/primitives.hpp` | 并发转发双向数据流 |
-| 26 | 连接关闭 | `include/forward-engine/agent/pipeline/primitives.hpp` | 任一方向断开后关闭两端 |
+| 24 | `primitives::tunnel()` | `include/prism/agent/pipeline/primitives.hpp` | 建立全双工隧道 |
+| 25 | 双向数据转发 | `include/prism/agent/pipeline/primitives.hpp` | 并发转发双向数据流 |
+| 26 | 连接关闭 | `include/prism/agent/pipeline/primitives.hpp` | 任一方向断开后关闭两端 |
 
 ---
 
@@ -227,10 +227,10 @@
 
 | 协议类型 | 枚举值 | 处理器类 | 注册位置 |
 |----------|--------|----------|----------|
-| HTTP | `protocol_type::http` | `dispatch::Http` | `include/forward-engine/agent/dispatch/handlers.hpp` |
-| SOCKS5 | `protocol_type::socks5` | `dispatch::Socks5` | `include/forward-engine/agent/dispatch/handlers.hpp` |
-| Trojan | `protocol_type::trojan` | `dispatch::Trojan` | `include/forward-engine/agent/dispatch/handlers.hpp` |
-| Unknown | `protocol_type::unknown` | `dispatch::Unknown` | `include/forward-engine/agent/dispatch/handlers.hpp` |
+| HTTP | `protocol_type::http` | `dispatch::Http` | `include/prism/agent/dispatch/handlers.hpp` |
+| SOCKS5 | `protocol_type::socks5` | `dispatch::Socks5` | `include/prism/agent/dispatch/handlers.hpp` |
+| Trojan | `protocol_type::trojan` | `dispatch::Trojan` | `include/prism/agent/dispatch/handlers.hpp` |
+| Unknown | `protocol_type::unknown` | `dispatch::Unknown` | `include/prism/agent/dispatch/handlers.hpp` |
 
 **注册函数定义：**
 
@@ -245,7 +245,7 @@ inline void register_handlers()
 }
 ```
 
-源码位置：`include/forward-engine/agent/dispatch/handlers.hpp`
+源码位置：`include/prism/agent/dispatch/handlers.hpp`
 
 ---
 
@@ -253,7 +253,7 @@ inline void register_handlers()
 
 ### 5.1 Listener 绑定 IPv4 而非 addressable.host
 
-**问题位置**：[listener.cpp](../../src/forward-engine/agent/front/listener.cpp)
+**问题位置**：[listener.cpp](../../src/prism/agent/front/listener.cpp)
 
 ```cpp
 const tcp::endpoint endpoint(tcp::v4(), cfg.addressable.port);
@@ -268,7 +268,7 @@ const tcp::endpoint endpoint(tcp::v4(), cfg.addressable.port);
 
 ### 5.2 async_forward 先直连后 Fallback
 
-**实现位置**：[router.cpp](../../src/forward-engine/resolve/router.cpp)
+**实现位置**：[router.cpp](../../src/prism/resolve/router.cpp)
 
 **处理流程**：
 1. IPv6 字面量检测（若 `dns.disable_ipv6` 为 true，直接拒绝 IPv6 地址）
@@ -280,7 +280,7 @@ const tcp::endpoint endpoint(tcp::v4(), cfg.addressable.port);
 
 ### 5.3 reverse_map 目标更偏向 IP Literal
 
-**实现位置**：[worker.cpp](../../src/forward-engine/agent/worker/worker.cpp)
+**实现位置**：[worker.cpp](../../src/prism/agent/worker/worker.cpp)
 
 **影响**：
 - `reverse_map` 的目标地址应为 IP Literal

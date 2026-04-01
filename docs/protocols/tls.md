@@ -1,21 +1,21 @@
-# TLS 协议在 ForwardEngine 内的调用流程
+# TLS 协议在 Prism 内的调用流程
 
-本文说明 TLS 连接在 ForwardEngine 内的处理流程。TLS 处理已整合到 Trojan 处理器中，Trojan over TLS 是主要的 TLS 入口。
+本文说明 TLS 连接在 Prism 内的处理流程。TLS 处理已整合到 Trojan 处理器中，Trojan over TLS 是主要的 TLS 入口。
 
 ## 1. 总体入口链路
 
 1. **连接接收**：`worker` 监听端口并接收连接，创建 `session`
-   入口位置：[worker.hpp](../../include/forward-engine/agent/worker/worker.hpp)
+   入口位置：[worker.hpp](../../include/prism/agent/worker/worker.hpp)
 
 2. **协议识别**：`session::diversion` 预读并识别协议，检测到 TLS 握手特征
-   位置：[session.cpp](../../src/forward-engine/agent/session/session.cpp)
+   位置：[session.cpp](../../src/prism/agent/session/session.cpp)
    TLS 协议通过检查首字节是否为 `0x16`（Handshake）来识别。
 
 3. **Trojan 处理器调用**：`handler::Trojan` 执行 TLS 握手并处理后续请求
-   位置：[handlers.hpp](../../include/forward-engine/agent/dispatch/handlers.hpp)
+   位置：[handlers.hpp](../../include/prism/agent/dispatch/handlers.hpp)
 
 4. **TLS 握手**：执行服务器端 TLS 握手
-   位置：[protocols.cpp](../../src/forward-engine/agent/pipeline/protocols.cpp)，函数 `pipeline::trojan`
+   位置：[protocols.cpp](../../src/prism/agent/pipeline/protocols.cpp)，函数 `pipeline::trojan`
 
 5. **内部协议处理**：握手成功后，解析 Trojan 协议或 HTTP 请求
 
@@ -35,7 +35,7 @@ TLS 记录层格式：
 Type = 0x16 (Handshake) 表示 TLS 握手
 ```
 
-**检测代码位置**：[probe.hpp](../../include/forward-engine/protocol/probe.hpp)
+**检测代码位置**：[probe.hpp](../../include/prism/protocol/probe.hpp)
 
 ### 2.2 协议类型枚举
 
@@ -55,7 +55,7 @@ enum class protocol_type
 
 SSL 上下文在 Worker 构造时创建：
 
-**位置**：[tls.cpp](../../src/forward-engine/agent/worker/tls.cpp)
+**位置**：[tls.cpp](../../src/prism/agent/worker/tls.cpp)
 
 **配置项**：
 - 加载证书链和私钥
@@ -92,7 +92,7 @@ auto trojan(session_context &ctx, std::span<const std::byte> data)
 }
 ```
 
-**位置**：[protocols.cpp](../../src/forward-engine/agent/pipeline/protocols.cpp)
+**位置**：[protocols.cpp](../../src/prism/agent/pipeline/protocols.cpp)
 
 ## 4. 握手后处理
 
@@ -153,13 +153,13 @@ openssl req -x509 -newkey rsa:4096 \
 以下日志有助于确认 TLS 请求走向：
 
 - `[Trojan] TLS handshake started`
-  位置：[protocols.cpp](../../src/forward-engine/agent/pipeline/protocols.cpp)
+  位置：[protocols.cpp](../../src/prism/agent/pipeline/protocols.cpp)
 
 - `[Trojan] TLS handshake failed: {error}`
-  位置：[protocols.cpp](../../src/forward-engine/agent/pipeline/protocols.cpp)
+  位置：[protocols.cpp](../../src/prism/agent/pipeline/protocols.cpp)
 
 - `[Trojan] handshake completed, ALPN: {protocol}`
-  位置：[protocols.cpp](../../src/forward-engine/agent/pipeline/protocols.cpp)
+  位置：[protocols.cpp](../../src/prism/agent/pipeline/protocols.cpp)
 
 ## 7. 简化调用图
 

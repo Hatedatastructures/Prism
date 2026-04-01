@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.23)
-project(forward LANGUAGES CXX)
+project(prism LANGUAGES CXX)
 
 if(POLICY CMP0167)
     cmake_policy(SET CMP0167 NEW)
@@ -51,11 +51,11 @@ endif()
 
 enable_testing()
 
-option(FORWARD_ENGINE_ENABLE_BENCHMARK "Enable forward benchmarks" ON)
-message(STATUS "FORWARD_ENGINE_ENABLE_BENCHMARK=${FORWARD_ENGINE_ENABLE_BENCHMARK}")
+option(PRISM_ENABLE_BENCHMARK "Enable forward benchmarks" ON)
+message(STATUS "PRISM_ENABLE_BENCHMARK=${PRISM_ENABLE_BENCHMARK}")
 
-option(FORWARD_ENGINE_ENABLE_STRESS "Enable forward stress tools" ON)
-message(STATUS "FORWARD_ENGINE_ENABLE_STRESS=${FORWARD_ENGINE_ENABLE_STRESS}")
+option(PRISM_ENABLE_STRESS "Enable forward stress tools" ON)
+message(STATUS "PRISM_ENABLE_STRESS=${PRISM_ENABLE_STRESS}")
 
 add_subdirectory(src)
 add_subdirectory(tests)

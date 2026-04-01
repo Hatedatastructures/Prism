@@ -1,6 +1,6 @@
-#include <forward-engine/channel/connection/pool.hpp>
-#include <forward-engine/resolve/router.hpp>
-#include <forward-engine/resolve/config.hpp>
+#include <prism/channel/connection/pool.hpp>
+#include <prism/resolve/router.hpp>
+#include <prism/resolve/config.hpp>
 #include <boost/asio.hpp>
 #include <boost/asio/experimental/awaitable_operators.hpp>
 #include <array>
@@ -151,28 +151,28 @@ net::awaitable<void> run_test(net::io_context &ioc, unsigned short echo_port, un
     std::cout << "[Test] Starting..." << std::endl;
     tcp::endpoint endpoint(net::ip::make_address("127.0.0.1"), echo_port);
 
-    ngx::channel::connection_pool pool(ioc);
-    ngx::resolve::config dns_cfg;
-    ngx::resolve::router dist(pool, ioc, std::move(dns_cfg));
+    psm::channel::connection_pool pool(ioc);
+    psm::resolve::config dns_cfg;
+    psm::resolve::router dist(pool, ioc, std::move(dns_cfg));
 
     try
     {
         std::cout << "[Test] Step 1: Acquire connection" << std::endl;
         auto [code1, c1] = co_await pool.async_acquire(endpoint);
-        assert(ngx::fault::succeeded(code1));
+        assert(psm::fault::succeeded(code1));
         assert(c1.valid());
         std::cout << "  Got c1" << std::endl;
         auto c1_ptr = c1.get();
 
         std::cout << "[Test] Step 2: Recycle connection (by destruction)" << std::endl;
-        c1 = ngx::channel::pooled_connection{};
+        c1 = psm::channel::pooled_connection{};
 
         std::cout << "[Test] Step 3: Acquire again (should reuse)" << std::endl;
         auto [code2, c2] = co_await pool.async_acquire(endpoint);
-        assert(ngx::fault::succeeded(code2));
+        assert(psm::fault::succeeded(code2));
         assert(c2.valid());
         assert(c2.get() == c1_ptr);
-        c2 = ngx::channel::pooled_connection{};
+        c2 = psm::channel::pooled_connection{};
 
         std::cout << "[Test] Step 4: Route via positive proxy fallback" << std::endl;
         dist.set_positive_endpoint("127.0.0.1", proxy_port);
@@ -183,7 +183,7 @@ net::awaitable<void> run_test(net::io_context &ioc, unsigned short echo_port, un
          * - `route_positive` 连接到 `positive_proxy_server`，通过 `CONNECT` 建立到 echo 的隧道
          */
         auto [route_ec, conn] = co_await dist.async_forward("example.invalid", "80");
-        assert(ngx::fault::succeeded(route_ec));
+        assert(psm::fault::succeeded(route_ec));
         assert(conn.valid());
 
         static constexpr std::string_view msg = "ping";

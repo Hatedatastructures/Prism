@@ -4,7 +4,7 @@
 #include <thread>
 
 #include <boost/asio.hpp>
-#include <forward-engine/trace.hpp>
+#include <prism/trace.hpp>
 
 #include "conversation.hpp"
 
@@ -34,7 +34,7 @@ namespace srv
 
         void start()
         {
-            ngx::trace::debug("[server] 开始监听端口 {}...", acceptor_.local_endpoint().port());
+            psm::trace::debug("[server] 开始监听端口 {}...", acceptor_.local_endpoint().port());
 
             boost::asio::co_spawn(io_context_, accept_loop(), boost::asio::detached);
 
@@ -57,11 +57,11 @@ namespace srv
 
                 if (ec)
                 {
-                    ngx::trace::error("[server] 接受连接失败: {}", ec.message());
+                    psm::trace::error("[server] 接受连接失败: {}", ec.message());
                     continue;
                 }
 
-                ngx::trace::debug("[server] 新连接: {}:{}", socket.remote_endpoint().address().to_string(),
+                psm::trace::debug("[server] 新连接: {}:{}", socket.remote_endpoint().address().to_string(),
                                   socket.remote_endpoint().port());
 
                 const auto session = std::make_shared<conversation>(std::move(socket), response_delay_);

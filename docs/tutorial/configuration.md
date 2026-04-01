@@ -1,6 +1,6 @@
 # 配置详解
 
-本文档详细说明 ForwardEngine 的配置参数和调优建议。
+本文档详细说明 Prism 的配置参数和调优建议。
 
 ## 协议支持详解
 
@@ -83,7 +83,7 @@
 }
 ```
 
-可选字段与默认值（见 `include/forward-engine/trace/config.hpp`）：
+可选字段与默认值（见 `include/prism/trace/config.hpp`）：
 
 | 字段 | 默认值 | 说明 |
 |------|--------|------|

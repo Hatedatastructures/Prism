@@ -1,12 +1,12 @@
 # 路由与分发机制
 
-本文档描述 forward-engine 的协议路由与处理器分发机制。
+本文档描述 prism 的协议路由与处理器分发机制。
 
 ## Registry 单例模式
 
 `registry` 类采用静态局部变量实现线程安全的懒汉单例模式。
 
-**源码位置**: [handler.hpp](../../include/forward-engine/agent/dispatch/handler.hpp)
+**源码位置**: [handler.hpp](../../include/prism/agent/dispatch/handler.hpp)
 
 ```cpp
 class registry
@@ -46,7 +46,7 @@ public:
 
 处理器通过模板方法 `register_handler<Handler>()` 注册到工厂。
 
-**源码位置**: [handler.hpp](../../include/forward-engine/agent/dispatch/handler.hpp)
+**源码位置**: [handler.hpp](../../include/prism/agent/dispatch/handler.hpp)
 
 ```cpp
 template <typename Handler, typename... Args>
@@ -74,7 +74,7 @@ void register_handler(const protocol::protocol_type type, Args &&...args)
 
 **创建处理器**:
 
-**源码位置**: [handler.hpp](../../include/forward-engine/agent/dispatch/handler.hpp)
+**源码位置**: [handler.hpp](../../include/prism/agent/dispatch/handler.hpp)
 
 ```cpp
 auto create(const protocol::protocol_type type) const -> shared_handler
@@ -90,7 +90,7 @@ auto create(const protocol::protocol_type type) const -> shared_handler
 
 ## 当前已注册的处理器
 
-**源码位置**: [handlers.hpp](../../include/forward-engine/agent/dispatch/handlers.hpp)
+**源码位置**: [handlers.hpp](../../include/prism/agent/dispatch/handlers.hpp)
 
 ```cpp
 inline void register_handlers()
@@ -118,7 +118,7 @@ inline void register_handlers()
 
 当协议检测后无法找到对应处理器时，系统会回退到 `unknown` 处理器。
 
-**源码位置**: [session.cpp](../../src/forward-engine/agent/session/session.cpp)
+**源码位置**: [session.cpp](../../src/prism/agent/session/session.cpp)
 
 ```cpp
 auto handler = dispatch::registry::global().create(detect_result.type);
@@ -141,7 +141,7 @@ if (!handler)
 
 **Unknown 处理器行为**:
 
-**源码位置**: [handlers.hpp](../../include/forward-engine/agent/dispatch/handlers.hpp)
+**源码位置**: [handlers.hpp](../../include/prism/agent/dispatch/handlers.hpp)
 
 ```cpp
 auto process(session_context &ctx, [[maybe_unused]] std::span<const std::byte> /*data*/)

@@ -1,7 +1,7 @@
 # Agent 模块设计
 
 ## 1. front 模块
-位置：`include/forward-engine/agent/front/`、`src/forward-engine/agent/front/`
+位置：`include/prism/agent/front/`、`src/prism/agent/front/`
 
 ### listener
 - 职责：监听 TCP 端口、接受入站连接、计算亲和性、分发连接
@@ -11,7 +11,7 @@
   - `make_affinity()` 计算客户端亲和性哈希（IPv4 直接取地址值，IPv6 取高低 64 位异或）
   - 当前绑定 IPv4 + `addressable.port`（不使用 `addressable.host`）
   - 反压机制：当负载均衡器返回反压标志时，延迟 2ms 后继续接受
-- 源码：[listener.hpp](../../include/forward-engine/agent/front/listener.hpp)、[listener.cpp](../../src/forward-engine/agent/front/listener.cpp)
+- 源码：[listener.hpp](../../include/prism/agent/front/listener.hpp)、[listener.cpp](../../src/prism/agent/front/listener.cpp)
 
 ### balancer
 - 职责：负载均衡、选择最优 worker、反压机制
@@ -21,10 +21,10 @@
   - 使用 MurmurHash3 混合函数计算亲和性候选
   - 不直接依赖 `worker::worker` 类型，而是依赖 `worker_binding` 回调绑定
   - 全局反压触发条件：所有 worker 过载 或 最低评分 >= 95%
-- 源码：[balancer.hpp](../../include/forward-engine/agent/front/balancer.hpp)、[balancer.cpp](../../src/forward-engine/agent/front/balancer.cpp)
+- 源码：[balancer.hpp](../../include/prism/agent/front/balancer.hpp)、[balancer.cpp](../../src/prism/agent/front/balancer.cpp)
 
 ## 2. worker 模块
-位置：`include/forward-engine/agent/worker/`、`src/forward-engine/agent/worker/`
+位置：`include/prism/agent/worker/`、`src/prism/agent/worker/`
 
 ### worker
 - 职责：工作线程核心，管理事件循环和资源
@@ -41,7 +41,7 @@
   - `dispatch_socket()` 跨线程接收连接，投递到 `io_context`
   - `load_snapshot()` 导出负载快照供负载均衡器使用
   - 构造时解析反向路由规则并设置正向代理端点
-- 源码：[worker.hpp](../../include/forward-engine/agent/worker/worker.hpp)、[worker.cpp](../../src/forward-engine/agent/worker/worker.cpp)
+- 源码：[worker.hpp](../../include/prism/agent/worker/worker.hpp)、[worker.cpp](../../src/prism/agent/worker/worker.cpp)
 
 ### launch
 - 职责：会话启动与连接分发
@@ -52,7 +52,7 @@
 - 关键实现：
   - 使用 `handoff_push/pop` 跟踪待处理连接数
   - 会话关闭时通过回调递减活跃会话计数
-- 源码：[launch.hpp](../../include/forward-engine/agent/worker/launch.hpp)、[launch.cpp](../../src/forward-engine/agent/worker/launch.cpp)
+- 源码：[launch.hpp](../../include/prism/agent/worker/launch.hpp)、[launch.cpp](../../src/prism/agent/worker/launch.cpp)
 
 ### stats
 - 职责：负载统计、EMA 平滑延迟测量
@@ -62,7 +62,7 @@
   - 事件循环延迟：每 250ms 采样一次，预热 16 次后计算抖动基线
   - EMA 平滑：`smoothed = (smoothed * 7 + effective) / 8`
   - 延迟上限 20ms，过滤 1ms 以内的小抖动
-- 源码：[stats.hpp](../../include/forward-engine/agent/worker/stats.hpp)、[stats.cpp](../../src/forward-engine/agent/worker/stats.cpp)
+- 源码：[stats.hpp](../../include/prism/agent/worker/stats.hpp)、[stats.cpp](../../src/prism/agent/worker/stats.cpp)
 
 ### tls
 - 职责：TLS 证书配置、SSL 上下文创建
@@ -71,10 +71,10 @@
   - 启用 GREASE 扩展增加 TLS 指纹随机性
   - 设置 ALPN 协议列表（h2、http/1.1）
   - 若未配置证书则返回空指针，运行明文模式
-- 源码：[tls.hpp](../../include/forward-engine/agent/worker/tls.hpp)、[tls.cpp](../../src/forward-engine/agent/worker/tls.cpp)
+- 源码：[tls.hpp](../../include/prism/agent/worker/tls.hpp)、[tls.cpp](../../src/prism/agent/worker/tls.cpp)
 
 ## 3. session 模块
-位置：`include/forward-engine/agent/session/`、`src/forward-engine/agent/session/`
+位置：`include/prism/agent/session/`、`src/prism/agent/session/`
 
 ### session
 - 职责：单个连接的完整生命周期管理
@@ -85,10 +85,10 @@
   - 通过 `shared_from_this` 实现异步生命周期保活
   - 支持设置凭证验证器和账户目录
   - 关闭时触发 `on_closed` 回调
-- 源码：[session.hpp](../../include/forward-engine/agent/session/session.hpp)、[session.cpp](../../src/forward-engine/agent/session/session.cpp)
+- 源码：[session.hpp](../../include/prism/agent/session/session.hpp)、[session.cpp](../../src/prism/agent/session/session.cpp)
 
 ## 4. dispatch 模块
-位置：`include/forward-engine/agent/dispatch/`
+位置：`include/prism/agent/dispatch/`
 
 **重要：dispatch 是 header-only 层，无 .cpp 文件**
 
@@ -98,7 +98,7 @@
   - `process()`：处理协议连接的核心协程方法
   - `type()`：返回支持的协议类型枚举
   - `name()`：返回协议名称字符串
-- 源码：[handler.hpp](../../include/forward-engine/agent/dispatch/handler.hpp)
+- 源码：[handler.hpp](../../include/prism/agent/dispatch/handler.hpp)
 
 ### registry
 - 职责：处理器注册表、工厂模式
@@ -107,7 +107,7 @@
   - 模板工厂：`register_handler<Handler>(type, args...)`
   - 处理器单例：工厂内部使用 `static shared_handler` 确保单例
   - 透明查找：支持 `string_view` 异构键查找
-- 源码：[handler.hpp](../../include/forward-engine/agent/dispatch/handler.hpp)
+- 源码：[handler.hpp](../../include/prism/agent/dispatch/handler.hpp)
 
 ### handlers
 - 当前已注册的处理器：
@@ -116,10 +116,10 @@
   - `Trojan`：处理 Trojan over TLS，委托给 `pipeline::trojan`（内部完成 TLS 握手）
   - `Unknown`：原始 TCP 透传，调用 `primitives::tunnel`
 - 注册函数：`register_handlers()` 在程序启动时调用
-- 源码：[handlers.hpp](../../include/forward-engine/agent/dispatch/handlers.hpp)
+- 源码：[handlers.hpp](../../include/prism/agent/dispatch/handlers.hpp)
 
 ## 5. pipeline 模块
-位置：`include/forward-engine/agent/pipeline/`、`src/forward-engine/agent/pipeline/`
+位置：`include/prism/agent/pipeline/`、`src/prism/agent/pipeline/`
 
 ### protocols
 - HTTP 处理路径：
@@ -138,7 +138,7 @@
   2. 解析 Trojan 协议头，验证凭据
   3. 提取目标地址，建立上游连接
   4. 进入 `tunnel` 双向转发
-- 源码：[protocols.hpp](../../include/forward-engine/agent/pipeline/protocols.hpp)、[protocols.cpp](../../src/forward-engine/agent/pipeline/protocols.cpp)
+- 源码：[protocols.hpp](../../include/prism/agent/pipeline/protocols.hpp)、[protocols.cpp](../../src/prism/agent/pipeline/protocols.cpp)
 
 ### primitives
 - `dial()`：拨号连接上游
@@ -151,10 +151,10 @@
   - 模板函数，支持任意传输类型
   - 使用双缓冲区实现双向转发
   - 任一方向断开即终止隧道
-- 源码：[primitives.hpp](../../include/forward-engine/agent/pipeline/primitives.hpp)、[primitives.cpp](../../src/forward-engine/agent/pipeline/primitives.cpp)
+- 源码：[primitives.hpp](../../include/prism/agent/pipeline/primitives.hpp)、[primitives.cpp](../../src/prism/agent/pipeline/primitives.cpp)
 
 ## 6. resolve 模块
-位置：`include/forward-engine/resolve/`、`src/forward-engine/resolve/`
+位置：`include/prism/resolve/`、`src/prism/resolve/`
 
 > **重要**：resolve 已从 `agent/resolve/` 提升为顶层独立模块，命名空间为 `ngx::resolve`。
 > Agent 层通过 `worker` 持有 `resolve::router` 成员来使用该模块。
@@ -191,7 +191,7 @@
   - `config` 结构体：聚合以上所有配置，包含缓存参数（容量、TTL、serve-stale）、TTL 钳制范围（ttl_min/ttl_max）、IPv4/IPv6 黑名单
 - 地址解析规则：无 scheme 默认 UDP（端口 53）；`tcp://` 端口 53；`tls://` 端口 853；`https://` 端口 443
 - 通过 Glaze 库提供 JSON 序列化能力
-- 源码：[config.hpp](../../include/forward-engine/resolve/config.hpp)
+- 源码：[config.hpp](../../include/prism/resolve/config.hpp)
 
 ### packet
 - 职责：DNS 报文编解码，完全不依赖系统 resolver（RFC 1035）
@@ -207,7 +207,7 @@
   - `message::extract_ips()`：从 answer/authority/additional 段提取所有 A/AAAA 记录的 IP
   - `message::min_ttl()`：取所有记录中的最小 TTL，用于缓存 TTL 钳制
 - TCP 帧封装：`pack_tcp()` / `unpack_tcp()`，2 字节大端长度前缀 + DNS 报文（RFC 1035 §4.2.2）
-- 源码：[packet.hpp](../../include/forward-engine/resolve/packet.hpp)、[packet.cpp](../../src/forward-engine/resolve/packet.cpp)
+- 源码：[packet.hpp](../../include/prism/resolve/packet.hpp)、[packet.cpp](../../src/prism/resolve/packet.cpp)
 
 ### resolver
 - 职责：异步 DNS 查询客户端，支持四种传输协议
@@ -227,7 +227,7 @@
   - `first`：并发查询所有上游，第一个成功响应即返回
   - `fastest`：并发查询所有上游，选 RTT 最低的成功响应
 - 超时机制：每个 I/O 操作使用 `steady_timer` + `||`（Asio awaitable 并行组合）实现超时取消
-- 源码：[resolver.hpp](../../include/forward-engine/resolve/resolver.hpp)、[resolver.cpp](../../src/forward-engine/resolve/resolver.cpp)
+- 源码：[resolver.hpp](../../include/prism/resolve/resolver.hpp)、[resolver.cpp](../../src/prism/resolve/resolver.cpp)
 
 ### recursor
 - 职责：高性能 DNS 解析器门面（Facade），替代系统 `getaddrinfo`
@@ -243,7 +243,7 @@
   - `resolve(host)`：并发解析 A + AAAA，合并 IP 列表返回
   - `resolve_tcp(host, port)`：解析到 TCP 端点列表
   - `resolve_udp(host, port)`：解析到 UDP 端点（优先 A 记录，回退 AAAA）
-- 源码：[recursor.hpp](../../include/forward-engine/resolve/recursor.hpp)、[recursor.cpp](../../src/forward-engine/resolve/recursor.cpp)
+- 源码：[recursor.hpp](../../include/prism/resolve/recursor.hpp)、[recursor.cpp](../../src/prism/resolve/recursor.cpp)
 
 ### cache
 - 职责：DNS 结果缓存，支持正向缓存和负缓存
@@ -255,7 +255,7 @@
   - `evict_expired()` 清理所有过期条目
   - 使用 `transparent_hash` / `transparent_equal` 实现异构键查找
 - 非线程安全，设计为 per-worker 实例
-- 源码：[cache.hpp](../../include/forward-engine/resolve/cache.hpp)、[cache.cpp](../../src/forward-engine/resolve/cache.cpp)
+- 源码：[cache.hpp](../../include/prism/resolve/cache.hpp)、[cache.cpp](../../src/prism/resolve/cache.cpp)
 
 ### rules
 - 职责：域名规则引擎，基于反转域名基数树（Trie）实现高效匹配
@@ -267,7 +267,7 @@
   - **反转存储**：`www.example.com` 存储为 `com → example → www`，将后缀匹配等价于 Trie 前缀遍历
   - **通配符处理**：`*.example.com` 在 `example` 节点标记 `wildcard`，查询域名至少比通配符多一级标签才匹配
   - **规则优先级**：地址规则优先于 CNAME 规则
-- 源码：[rules.hpp](../../include/forward-engine/resolve/rules.hpp)、[rules.cpp](../../src/forward-engine/resolve/rules.cpp)
+- 源码：[rules.hpp](../../include/prism/resolve/rules.hpp)、[rules.cpp](../../src/prism/resolve/rules.cpp)
 
 ### coalescer
 - 职责：请求合并（Request Coalescing），将同一目标的并发请求合并为单次操作
@@ -277,7 +277,7 @@
   - `find_or_create()`：查找或创建 flight 记录，返回是否为新建
   - 延迟清理：通过 `pending_cleanup` 标记避免迭代器失效，`flush_cleanup()` 在下次请求前执行实际删除
 - 非线程安全
-- 源码：[coalescer.hpp](../../include/forward-engine/resolve/coalescer.hpp)
+- 源码：[coalescer.hpp](../../include/prism/resolve/coalescer.hpp)
 
 ### transparent
 - 职责：透明哈希与相等比较器，允许 `unordered_map` 中混合使用 `string_view` 和 `memory::string` 查找
@@ -285,7 +285,7 @@
   - `transparent_hash`：FNV-1a 哈希算法
   - `transparent_equal`：四种混合比较重载（view↔view、string↔view、view↔string、string↔string）
 - 被 `cache`、`coalescer`、`router` 广泛复用
-- 源码：[transparent.hpp](../../include/forward-engine/resolve/transparent.hpp)
+- 源码：[transparent.hpp](../../include/prism/resolve/transparent.hpp)
 
 ### router
 - 职责：分发层路由器顶层门面，整合 DNS 解析器、反向路由表和连接池
@@ -300,10 +300,10 @@
   - `reverse_map` 类型：`unordered_map<string, tcp::endpoint>` 支持透明异构查找
   - IPv6 过滤：由 DNS 层统一处理，配置 `dns.disable_ipv6` 后跳过 AAAA 查询
   - `connect_with_retry()`：遍历端点列表最多尝试 3 次，通过连接池获取已建立的 socket
-- 源码：[router.hpp](../../include/forward-engine/resolve/router.hpp)、[router.cpp](../../src/forward-engine/resolve/router.cpp)
+- 源码：[router.hpp](../../include/prism/resolve/router.hpp)、[router.cpp](../../src/prism/resolve/router.cpp)
 
 ## 7. multiplex 模块
-位置：`include/forward-engine/multiplex/`、src/forward-engine/multiplex/`
+位置：`include/prism/multiplex/`、src/prism/multiplex/`
 
 > **重要**：multiplex 是多路复用模块，支持 smux 协议（兼容 Mihomo/xtaci/smux v1），
 > 通过 Trojan cmd=0x7F 触发。详细文档见 [multiplex.md](multiplex.md)。
@@ -326,33 +326,33 @@
 - 职责：多路复用核心抽象基类，管理流生命周期和发送串行化
 - 流状态：pending（等待地址）、duct（TCP 流）、parcel（UDP 数据报）
 - 发送串行化：通过 `send_strand_` 确保帧不会交错写入
-- 源码：[core.hpp](../../include/forward-engine/multiplex/core.hpp)、[core.cpp](../../src/forward-engine/multiplex/core.cpp)
+- 源码：[core.hpp](../../include/prism/multiplex/core.hpp)、[core.cpp](../../src/prism/multiplex/core.cpp)
 
 ### duct
 - 职责：TCP 流双向转发管道
 - 上行：独立协程 `uplink_loop()` 读 target → mux
 - 下行：帧循环直接 `co_await` 写 target，天然反压
-- 源码：[duct.hpp](../../include/forward-engine/multiplex/duct.hpp)、[duct.cpp](../../src/forward-engine/multiplex/duct.cpp)
+- 源码：[duct.hpp](../../include/prism/multiplex/duct.hpp)、[duct.cpp](../../src/prism/multiplex/duct.cpp)
 
 ### parcel
 - 职责：UDP 数据报中继管道
 - 每个 PSH 帧承载 SOCKS5 UDP relay 格式数据报
 - 空闲超时自动关闭
-- 源码：[parcel.hpp](../../include/forward-engine/multiplex/parcel.hpp)、[parcel.cpp](../../src/forward-engine/multiplex/parcel.cpp)
+- 源码：[parcel.hpp](../../include/prism/multiplex/parcel.hpp)、[parcel.cpp](../../src/prism/multiplex/parcel.cpp)
 
 ### smux::craft
 - 职责：smux 多路复用会话服务端（兼容 Mihomo/xtaci/smux v1 + sing-mux 协商）
 - 帧格式：8 字节定长帧头 [Version][Cmd][Length LE][StreamID LE]
 - 协议协商：sing-mux 协议头解析
-- 源码：[craft.hpp](../../include/forward-engine/multiplex/smux/craft.hpp)、[craft.cpp](../../src/forward-engine/multiplex/smux/craft.cpp)
+- 源码：[craft.hpp](../../include/prism/multiplex/smux/craft.hpp)、[craft.cpp](../../src/prism/multiplex/smux/craft.cpp)
 
 ### smux::frame
 - 职责：smux 帧编解码、地址解析、UDP 数据报构建
 - 命令类型：SYN(0x00)、FIN(0x01)、PSH(0x02)、NOP(0x03)
-- 源码：[frame.hpp](../../include/forward-engine/multiplex/smux/frame.hpp)、[frame.cpp](../../src/forward-engine/multiplex/smux/frame.cpp)
+- 源码：[frame.hpp](../../include/prism/multiplex/smux/frame.hpp)、[frame.cpp](../../src/prism/multiplex/smux/frame.cpp)
 
 ## 8. account 模块
-位置：`include/forward-engine/agent/account/`、`src/forward-engine/agent/account/`
+位置：`include/prism/agent/account/`、`src/prism/agent/account/`
 
 ### directory
 - 职责：账户目录管理
@@ -365,7 +365,7 @@
   - `upsert()`：插入或更新账户条目
   - `find()`：无锁查找，返回 `shared_ptr<entry>`
   - `try_acquire()`：尝试获取连接租约
-- 源码：[directory.hpp](../../include/forward-engine/agent/account/directory.hpp)、[directory.cpp](../../src/forward-engine/agent/account/directory.cpp)
+- 源码：[directory.hpp](../../include/prism/agent/account/directory.hpp)、[directory.cpp](../../src/prism/agent/account/directory.cpp)
 
 ### entry
 - 职责：账户运行时状态
@@ -375,7 +375,7 @@
   - `downlink_bytes`：下行流量统计
   - `active_connections`：活跃连接数
 - 所有统计字段使用原子操作保证线程安全
-- 源码：[entry.hpp](../../include/forward-engine/agent/account/entry.hpp)
+- 源码：[entry.hpp](../../include/prism/agent/account/entry.hpp)
 
 ### lease
 - 职责：RAII 连接数管理
@@ -384,4 +384,4 @@
   - 析构时自动递减活跃连接数
   - 不可拷贝，仅支持移动语义
   - 空租约表示获取失败或已达连接上限
-- 源码：[entry.hpp](../../include/forward-engine/agent/account/entry.hpp)
+- 源码：[entry.hpp](../../include/prism/agent/account/entry.hpp)

@@ -1,26 +1,26 @@
-# SOCKS5 请求在 ForwardEngine 内的调用流程
+# SOCKS5 请求在 Prism 内的调用流程
 
 本文说明 SOCKS5 请求进入代理后的完整调用链，以及 SOCKS5 协议握手、地址解析、连接建立的全过程。所有流程均基于协程模型运行。
 
 ## 1. 总体入口链路
 
 1. **连接接收**：`worker` 监听端口并接收连接，创建 `session`
-   入口位置：[worker.hpp](../../include/forward-engine/agent/worker/worker.hpp)，类 `ngx::agent::worker::worker` 的 `do_accept`。
+   入口位置：[worker.hpp](../../include/prism/agent/worker/worker.hpp)，类 `ngx::agent::worker::worker` 的 `do_accept`。
 
 2. **协议识别**：`session::diversion` 预读并识别协议，然后分流到 SOCKS5 处理器
-   位置：[session.hpp](../../include/forward-engine/agent/session/session.hpp)，类 `ngx::agent::session::session` 的 `diversion`。通过检查前几个字节判断是否为 SOCKS5 协议（版本号为 `0x05`）。
+   位置：[session.hpp](../../include/prism/agent/session/session.hpp)，类 `ngx::agent::session::session` 的 `diversion`。通过检查前几个字节判断是否为 SOCKS5 协议（版本号为 `0x05`）。
 
 3. **SOCKS5 处理器调用**：`handler::socks5` 创建 SOCKS5 流对象并执行握手
-   位置：[handler.hpp](../../include/forward-engine/agent/dispatch/handler.hpp)，命名空间 `ngx::agent::dispatch` 的 `socks5` 模板函数。
+   位置：[handler.hpp](../../include/prism/agent/dispatch/handler.hpp)，命名空间 `ngx::agent::dispatch` 的 `socks5` 模板函数。
 
 4. **协议握手执行**：`protocol::socks5::relay::handshake` 执行完整的 SOCKS5 握手流程
-   位置：[stream.hpp](../../include/forward-engine/protocol/socks5/stream.hpp)，类 `ngx::protocol::socks5::relay` 的 `handshake`。
+   位置：[stream.hpp](../../include/prism/protocol/socks5/stream.hpp)，类 `ngx::protocol::socks5::relay` 的 `handshake`。
 
 5. **上游连接建立**：`primitives::dial` 根据解析的目标地址建立连接
-   位置：[primitives.cpp](../../src/forward-engine/agent/pipeline/primitives.cpp)，命名空间 `ngx::agent::pipeline::primitives` 的 `dial`。
+   位置：[primitives.cpp](../../src/prism/agent/pipeline/primitives.cpp)，命名空间 `ngx::agent::pipeline::primitives` 的 `dial`。
 
 6. **路由决策与连接**：`router` 建立上游连接（直连或回退）
-   位置：[router.cpp](../../src/forward-engine/resolve/router.cpp)，类 `ngx::resolve::router` 的 `async_forward`/`async_reverse`。
+   位置：[router.cpp](../../src/prism/resolve/router.cpp)，类 `ngx::resolve::router` 的 `async_forward`/`async_reverse`。
 
 7. **响应发送与隧道切换**：连接成功后发送成功响应，进入原始 TCP 隧道转发。
 
@@ -49,7 +49,7 @@ SOCKS5 握手遵循 RFC 1928 标准，分为两个阶段：**方法协商阶段*
    - 如果支持 `0x00`：发送 `[0x05, 0x00]`
    - 如果不支持：发送 `[0x05, 0xFF]`
 
-**关键代码位置**：[stream.hpp](../../include/forward-engine/protocol/socks5/stream.hpp) 第 190-258 行。
+**关键代码位置**：[stream.hpp](../../include/prism/protocol/socks5/stream.hpp) 第 190-258 行。
 
 ### 2.2 请求读取阶段
 
@@ -94,7 +94,7 @@ SOCKS5 握手遵循 RFC 1928 标准，分为两个阶段：**方法协商阶段*
 - **解析函数**：`wire::decode_domain` 解析域名，`wire::decode_port` 解析端口
 - **最大长度**：1 + 255 + 2 = 258 字节
 
-**关键代码位置**：[stream.hpp](../../include/forward-engine/protocol/socks5/stream.hpp) 第 291-359 行。
+**关键代码位置**：[stream.hpp](../../include/prism/protocol/socks5/stream.hpp) 第 291-359 行。
 
 ### 2.4 完整握手流程
 
@@ -172,7 +172,7 @@ SOCKS5 协议使用正向代理模式，路由决策流程如下：
 3. **直连尝试**：尝试直接连接到目标服务器。
 4. **上游代理回退**：如果直连失败，回退到配置的上游代理（通过 `CONNECT` 命令）。
 
-对应实现：[router.cpp](../../src/forward-engine/resolve/router.cpp) 的 `ngx::resolve::router::async_forward`。
+对应实现：[router.cpp](../../src/prism/resolve/router.cpp) 的 `ngx::resolve::router::async_forward`。
 
 ## 5. 连接建立与隧道转发
 
@@ -229,16 +229,16 @@ SOCKS5 协议在 `session::diversion` 阶段进行协议识别时，可能已经
 以下日志有助于确认 SOCKS5 请求走向：
 
 - `[Session] Detected protocol: socks5.`
-  位置：[session.hpp](../../include/forward-engine/agent/session/session.hpp) 的 `ngx::agent::session::session::diversion`。
+  位置：[session.hpp](../../include/prism/agent/session/session.hpp) 的 `ngx::agent::session::session::diversion`。
 
 - `[Pipeline] SOCKS5 handshake failed: {error}`
-  位置：[protocols.cpp](../../src/forward-engine/agent/pipeline/protocols.cpp) 的 `ngx::agent::pipeline::socks5`。
+  位置：[protocols.cpp](../../src/prism/agent/pipeline/protocols.cpp) 的 `ngx::agent::pipeline::socks5`。
 
 - `[Pipeline] SOCKS5 CONNECT target = [host: {}, port: {}]`
-  位置：[protocols.cpp](../../src/forward-engine/agent/pipeline/protocols.cpp) 的 `ngx::agent::pipeline::socks5`。
+  位置：[protocols.cpp](../../src/prism/agent/pipeline/protocols.cpp) 的 `ngx::agent::pipeline::socks5`。
 
 - `[Pipeline] SOCKS5 upstream connected`
-  位置：[primitives.cpp](../../src/forward-engine/agent/pipeline/primitives.cpp) 的 `ngx::agent::pipeline::primitives::dial`。
+  位置：[primitives.cpp](../../src/prism/agent/pipeline/primitives.cpp) 的 `ngx::agent::pipeline::primitives::dial`。
 
 ## 8. 简化调用图（文字版）
 
@@ -273,7 +273,7 @@ worker.accept -> session::diversion
 
 ## 9. 协议常量与枚举
 
-关键枚举定义在 [constants.hpp](../../include/forward-engine/protocol/socks5/constants.hpp)：
+关键枚举定义在 [constants.hpp](../../include/prism/protocol/socks5/constants.hpp)：
 
 ### 9.1 命令类型（`command`）
 - `connect` (`0x01`)：建立 TCP 连接（唯一支持的命令）

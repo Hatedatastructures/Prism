@@ -1,5 +1,5 @@
-if(NOT FORWARD_ENGINE_ENABLE_STRESS)
-    message(STATUS "Stress tools disabled (FORWARD_ENGINE_ENABLE_STRESS=OFF)")
+if(NOT PRISM_ENABLE_STRESS)
+    message(STATUS "Stress tools disabled (PRISM_ENABLE_STRESS=OFF)")
     return()
 endif()
 

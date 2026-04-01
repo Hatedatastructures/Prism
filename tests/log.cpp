@@ -5,7 +5,7 @@
 #include <filesystem>
 #include <trace/spdlog.hpp>
 
-namespace deprecated_log = ngx::trace::deprecated;
+namespace deprecated_log = psm::trace::deprecated;
 namespace asio = boost::asio;
 namespace fs = std::filesystem;
 /**

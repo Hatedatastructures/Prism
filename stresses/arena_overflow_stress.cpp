@@ -1,5 +1,5 @@
-#include <forward-engine/memory/pool.hpp>
-#include <forward-engine/memory/container.hpp>
+#include <prism/memory/pool.hpp>
+#include <prism/memory/container.hpp>
 
 #include <atomic>
 #include <chrono>
@@ -13,7 +13,7 @@
 #include <algorithm>
 #include <numeric>
 
-using namespace ngx;
+using namespace psm;
 
 namespace
 {

@@ -1,6 +1,6 @@
 #include <trace/spdlog.hpp>
-#include <forward-engine/exception/network.hpp>
-#include <forward-engine/fault/code.hpp>
+#include <prism/exception/network.hpp>
+#include <prism/fault/code.hpp>
 #include <boost/asio.hpp>
 #include <exception>
 #include <filesystem>
@@ -11,7 +11,7 @@
 
 namespace net = boost::asio;
 namespace fs = std::filesystem;
-namespace ntrace = ngx::trace;
+namespace ntrace = psm::trace;
 
 namespace
 {
@@ -67,7 +67,7 @@ net::awaitable<void> run_spdlog_test(const net::any_io_executor executor)
     const auto size = file_size_or_zero(log_path);
     if (size == 0)
     {
-        throw ngx::exception::network("spdlog_test: 日志文件未生成或为空: " + log_path.string());
+        throw psm::exception::network("spdlog_test: 日志文件未生成或为空: " + log_path.string());
     }
 
     (void)executor;

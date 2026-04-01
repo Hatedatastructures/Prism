@@ -10,11 +10,11 @@ auto main() -> int
     SetConsoleOutputCP(CP_UTF8);
 #endif
 
-    ngx::trace::config trace_config;
+    psm::trace::config trace_config;
     trace_config.enable_console = true;
     trace_config.enable_file = false;
     trace_config.log_level = "debug";
-    ngx::trace::init(trace_config);
+    psm::trace::init(trace_config);
 
     try
     {
@@ -27,7 +27,7 @@ auto main() -> int
     }
     catch (const std::exception &e)
     {
-        ngx::trace::error("服务器异常: {}", e.what());
+        psm::trace::error("服务器异常: {}", e.what());
     }
 
     return 0;

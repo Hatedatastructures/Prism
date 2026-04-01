@@ -1,6 +1,6 @@
 # 故障排除
 
-本文档提供 ForwardEngine 常见问题的排查方法和解决方案。
+本文档提供 Prism 常见问题的排查方法和解决方案。
 
 ## 常见问题速查
 
@@ -23,7 +23,7 @@ netstat -ano | findstr :8081
 
 **排查步骤**：
 
-1. **确认服务运行**：`tasklist | findstr Forward.exe`
+1. **确认服务运行**：`tasklist | findstr Prism.exe`
 2. **检查防火墙**：允许代理端口通过
 3. **测试连接**：`telnet 127.0.0.1 8081`
 

@@ -1,5 +1,5 @@
-#include <forward-engine/memory/pool.hpp>
-#include <forward-engine/memory/container.hpp>
+#include <prism/memory/pool.hpp>
+#include <prism/memory/container.hpp>
 
 #include "counting_resource.hpp"
 
@@ -17,7 +17,7 @@
 #include <windows.h>
 #endif
 
-using namespace ngx;
+using namespace psm;
 
 namespace
 {
@@ -91,7 +91,7 @@ namespace
     {
         // 1. 初始化内存资源
         memory::resource_pointer upstream = memory::system::thread_local_pool();
-        ngx::stress::counting_resource counter(upstream);
+        psm::stress::counting_resource counter(upstream);
 
         // 2. 等待所有线程就绪
         start_latch.arrive_and_wait();

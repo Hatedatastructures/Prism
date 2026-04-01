@@ -1,6 +1,6 @@
 # 文档验真规则
 
-本文档定义了 forward-engine 项目文档的验真标准，确保文档内容与源码实现一致。
+本文档定义了 prism 项目文档的验真标准，确保文档内容与源码实现一致。
 
 ## 验真规则
 
@@ -80,14 +80,14 @@ SOCKS5 握手逻辑见 src/protocol/socks5/stream.cpp
 
 | 文档章节 | 主要源码文件 |
 |---------|-------------|
-| overview.md | `src/main.cpp`, `src/forward-engine/agent/front/listener.cpp`, `src/forward-engine/agent/worker/launch.cpp`, `src/forward-engine/agent/session/session.cpp` |
-| config.md | `include/forward-engine/agent/config.hpp`, `include/forward-engine/agent/context.hpp` |
+| overview.md | `src/main.cpp`, `src/prism/agent/front/listener.cpp`, `src/prism/agent/worker/launch.cpp`, `src/prism/agent/session/session.cpp` |
+| config.md | `include/prism/agent/config.hpp`, `include/prism/agent/context.hpp` |
 | architecture.md | 全局源码分析 |
-| modules.md | `src/forward-engine/agent/` 下各子目录源码 (worker, session, resolve, etc.) |
-| runtime.md | `src/forward-engine/agent/session/session.cpp`, `src/forward-engine/agent/pipeline/protocols.cpp`, `src/forward-engine/agent/pipeline/primitives.cpp` |
-| routing.md | `include/forward-engine/agent/dispatch/handler.hpp`, `include/forward-engine/agent/dispatch/handlers.hpp`, `src/forward-engine/resolve/router.cpp` |
+| modules.md | `src/prism/agent/` 下各子目录源码 (worker, session, resolve, etc.) |
+| runtime.md | `src/prism/agent/session/session.cpp`, `src/prism/agent/pipeline/protocols.cpp`, `src/prism/agent/pipeline/primitives.cpp` |
+| routing.md | `include/prism/agent/dispatch/handler.hpp`, `include/prism/agent/dispatch/handlers.hpp`, `src/prism/resolve/router.cpp` |
 | dependencies.md | `CMakeLists.txt`, 目录结构 |
-| api.md | `include/forward-engine/agent.hpp` |
+| api.md | `include/prism/agent.hpp` |
 
 ---
 
@@ -99,11 +99,11 @@ SOCKS5 握手逻辑见 src/protocol/socks5/stream.cpp
 
 | 功能 | 源码位置 | 验证方式 |
 |-----|---------|---------|
-| HTTP/HTTPS 代理 | `src/protocol/http/`, `include/forward-engine/protocol/http/` | handler 注册 + 测试 |
-| SOCKS5 代理 | `src/protocol/socks5/`, `include/forward-engine/protocol/socks5/` | handler 注册 + `tests/socks5_test.cpp` |
-| TLS 终止 | `src/forward-engine/agent/worker/tls.cpp`, `include/forward-engine/agent/worker/tls.hpp` | 运行链接入 |
-| 反向代理 | `src/forward-engine/resolve/router.cpp`, `include/forward-engine/resolve/router.hpp` | 运行链接入 |
-| 负载均衡 | `src/forward-engine/agent/front/balancer.cpp`, `include/forward-engine/agent/front/balancer.hpp` | 运行链接入 |
+| HTTP/HTTPS 代理 | `src/protocol/http/`, `include/prism/protocol/http/` | handler 注册 + 测试 |
+| SOCKS5 代理 | `src/protocol/socks5/`, `include/prism/protocol/socks5/` | handler 注册 + `tests/socks5_test.cpp` |
+| TLS 终止 | `src/prism/agent/worker/tls.cpp`, `include/prism/agent/worker/tls.hpp` | 运行链接入 |
+| 反向代理 | `src/prism/resolve/router.cpp`, `include/prism/resolve/router.hpp` | 运行链接入 |
+| 负载均衡 | `src/prism/agent/front/balancer.cpp`, `include/prism/agent/front/balancer.hpp` | 运行链接入 |
 
 ### 已确认未接入
 
@@ -111,7 +111,7 @@ SOCKS5 握手逻辑见 src/protocol/socks5/stream.cpp
 
 | 功能 | 配置位置 | 未接入原因 |
 |-----|---------|-----------|
-| Trojan 协议 | `include/forward-engine/protocol/trojan/config.hpp` | `dispatch::register_handlers()` 未注册 handler |
+| Trojan 协议 | `include/prism/protocol/trojan/config.hpp` | `dispatch::register_handlers()` 未注册 handler |
 
 **说明**：Trojan 协议源码实现存在于 `src/protocol/trojan/` 目录，测试文件 `tests/trojan_test.cpp` 也存在，但 dispatch 未将其接入运行链。
 
@@ -121,9 +121,9 @@ SOCKS5 握手逻辑见 src/protocol/socks5/stream.cpp
 
 | 项目 | 预期行为 | 实际行为 | 源码位置 |
 |-----|---------|---------|---------|
-| listener 绑定地址 | 绑定 `addressable.host` | 绑定 IPv4 | `src/forward-engine/agent/front/listener.cpp` |
-| async_forward 转发顺序 | 优先代理 | 先直连后 fallback | `src/forward-engine/agent/pipeline/primitives.cpp` |
-| reverse_map 目标解析 | 域名优先 | IP literal 优先 | `src/forward-engine/resolve/router.cpp` |
+| listener 绑定地址 | 绑定 `addressable.host` | 绑定 IPv4 | `src/prism/agent/front/listener.cpp` |
+| async_forward 转发顺序 | 优先代理 | 先直连后 fallback | `src/prism/agent/pipeline/primitives.cpp` |
+| reverse_map 目标解析 | 域名优先 | IP literal 优先 | `src/prism/resolve/router.cpp` |
 
 ---
 

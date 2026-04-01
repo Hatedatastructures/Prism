@@ -1,7 +1,7 @@
-#include <forward-engine/protocol/trojan.hpp>
-#include <forward-engine/exception/network.hpp>
-#include <forward-engine/fault/code.hpp>
-#include <forward-engine/channel/transport/reliable.hpp>
+#include <prism/protocol/trojan.hpp>
+#include <prism/exception/network.hpp>
+#include <prism/fault/code.hpp>
+#include <prism/channel/transport/reliable.hpp>
 #include <boost/asio.hpp>
 #include <boost/asio/ssl.hpp>
 #include <iostream>
@@ -13,7 +13,7 @@
 
 namespace net = boost::asio;
 namespace ssl = boost::asio::ssl;
-namespace protocol = ngx::protocol;
+namespace protocol = psm::protocol;
 using tcp = net::ip::tcp;
 
 /**
@@ -37,21 +37,21 @@ net::awaitable<void> do_trojan_server(tcp::acceptor &acceptor, const std::string
 
         // 创建 Trojan 实例
         // 将 TCP socket 包装为可靠传输层
-        auto trans = ngx::channel::transport::make_reliable(std::move(socket));
+        auto trans = psm::channel::transport::make_reliable(std::move(socket));
         // 创建 Trojan 中继器
-        auto trojan = ngx::protocol::trojan::make_relay(std::move(trans), {}, user_credential_verifier);
+        auto trojan = psm::protocol::trojan::make_relay(std::move(trans), {}, user_credential_verifier);
 
         // 执行握手
         std::cout << "Server starting Trojan handshake..." << std::endl;
         auto [ec, req] = co_await trojan->handshake();
-        if (ngx::fault::failed(ec))
+        if (psm::fault::failed(ec))
         {
-            std::cerr << "Server handshake failed: " << std::string_view(ngx::fault::describe(ec)) << std::endl;
+            std::cerr << "Server handshake failed: " << std::string_view(psm::fault::describe(ec)) << std::endl;
             co_return;
         }
         std::cout << "Server handshake success" << std::endl;
 
-        auto host_str = ngx::protocol::trojan::to_string(req.destination_address);
+        auto host_str = psm::protocol::trojan::to_string(req.destination_address);
         std::cout << "Trojan Server received request: "
                   << "CMD=" << static_cast<int>(req.cmd)
                   << ", ADDR=" << host_str
@@ -64,13 +64,13 @@ net::awaitable<void> do_trojan_server(tcp::acceptor &acceptor, const std::string
         try
         {
             // 读取客户端数据
-            std::size_t n = co_await ngx::channel::transport::async_read_some(trojan, buf, net::use_awaitable);
+            std::size_t n = co_await psm::channel::transport::async_read_some(trojan, buf, net::use_awaitable);
             std::string received_msg(buffer.data(), n);
 
             std::cout << "Server received message: " << received_msg << std::endl;
 
             // 回显给客户端
-            co_await ngx::channel::transport::async_write_some(trojan, net::buffer(received_msg), net::use_awaitable);
+            co_await psm::channel::transport::async_write_some(trojan, net::buffer(received_msg), net::use_awaitable);
         }
         catch (const std::exception &e)
         {
@@ -128,7 +128,7 @@ net::awaitable<void> do_trojan_client(tcp::endpoint endpoint,
 
         if (received_msg != test_msg)
         {
-            throw ngx::exception::network(ngx::fault::code::generic_error);
+            throw psm::exception::network(psm::fault::code::generic_error);
         }
 
         std::cout << "Client test success: " << test_msg << std::endl;

@@ -1,16 +1,16 @@
-#include <forward-engine/protocol/http/constants.hpp>
-#include <forward-engine/protocol/http/request.hpp>
+#include <prism/protocol/http/constants.hpp>
+#include <prism/protocol/http/request.hpp>
 
-#include <forward-engine/protocol/http/response.hpp>
+#include <prism/protocol/http/response.hpp>
 
-#include <forward-engine/protocol/http/serialization.hpp>
-#include <forward-engine/protocol/http/deserialization.hpp>
-#include <forward-engine/memory/container.hpp>
+#include <prism/protocol/http/serialization.hpp>
+#include <prism/protocol/http/deserialization.hpp>
+#include <prism/memory/container.hpp>
 #include <iostream>
 #include <string>
 
 
-namespace http = ngx::protocol::http;
+namespace http = psm::protocol::http;
 
 void serialization()
 {
@@ -48,7 +48,7 @@ void deserialization()
         "\r\n"
         "{\"name\":\"test\",\"age\":18}";
 
-    if (http::request req; ngx::fault::succeeded(http::deserialize(request_str, req)))
+    if (http::request req; psm::fault::succeeded(http::deserialize(request_str, req)))
     {
         std::cout << "request" << std::endl;
         std::cout << http::serialize(req) << std::endl << std::endl << std::endl;
@@ -67,7 +67,7 @@ void deserialization()
         "\r\n"
         "{\"name\":\"test\",\"age\":18}";
 
-    if (http::response resp; ngx::fault::succeeded(http::deserialize(response_str, resp)))
+    if (http::response resp; psm::fault::succeeded(http::deserialize(response_str, resp)))
     {
         std::cout << "response" << std::endl;
         std::cout << http::serialize(resp) << std::endl;

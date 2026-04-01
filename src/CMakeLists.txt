@@ -31,7 +31,7 @@ add_library(${PROJECT_NAME}_static_library STATIC)
 target_include_directories(${PROJECT_NAME}_static_library
         PUBLIC
         ${PROJECT_SOURCE_DIR}/include
-        ${PROJECT_SOURCE_DIR}/include/forward-engine
+        ${PROJECT_SOURCE_DIR}/include/prism
         ${boost_include_dir}
         ${Boost_INCLUDE_DIRS}
         ${BORINGSSL_ROOT}/include
@@ -61,7 +61,7 @@ target_compile_definitions(${PROJECT_NAME}_static_library
         WIN32_LEAN_AND_MEAN
 )
 
-add_subdirectory(forward-engine)
+add_subdirectory(prism)
 
 add_executable(${PROJECT_NAME}
         main.cpp

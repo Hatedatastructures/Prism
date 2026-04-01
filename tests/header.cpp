@@ -1,4 +1,4 @@
-#include <forward-engine/protocol/http/header.hpp>
+#include <prism/protocol/http/header.hpp>
 #include <iostream>
 #include <cassert>
 #include <vector>
@@ -7,10 +7,10 @@
     #include <windows.h>
 #endif
 
-#include <forward-engine/protocol/http/request.hpp>
-#include <forward-engine/memory/pool.hpp>
+#include <prism/protocol/http/request.hpp>
+#include <prism/memory/pool.hpp>
 
-namespace http = ngx::protocol::http;
+namespace http = psm::protocol::http;
 
 /**
  * @brief 测试 `headers` 类的基本操作
@@ -137,7 +137,7 @@ void test_clear_and_reserve()
 
 int main()
 {
-    ngx::memory::system::enable_global_pooling();
+    psm::memory::system::enable_global_pooling();
     SetConsoleOutputCP(CP_UTF8);
     std::cout << "HTTP 头字段模块测试启动..." << std::endl;
 

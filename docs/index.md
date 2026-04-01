@@ -1,6 +1,6 @@
-# ForwardEngine 文档
+# Prism 文档
 
-欢迎使用 ForwardEngine 文档！本文档站点提供完整的使用指南、开发参考和协议规范。
+欢迎使用 Prism 文档！本文档站点提供完整的使用指南、开发参考和协议规范。
 
 ---
 
@@ -8,11 +8,11 @@
 
 ### 用户指南
 
-面向 ForwardEngine 使用者的入门和配置指南。
+面向 Prism 使用者的入门和配置指南。
 
 | 文档 | 说明 |
 |------|------|
-| [快速开始](tutorial/getting-started.md) | 5 分钟快速上手 ForwardEngine |
+| [快速开始](tutorial/getting-started.md) | 5 分钟快速上手 Prism |
 | [配置详解](tutorial/configuration.md) | 配置参数说明与性能调优 |
 | [故障排除](tutorial/troubleshooting.md) | 常见问题排查与解决方案 |
 | [常见问题](tutorial/faq.md) | FAQ 问答集 |
@@ -36,7 +36,7 @@
 
 | 文档 | 说明 |
 |------|------|
-| [HTTP 协议](protocols/http.md) | HTTP 请求在 ForwardEngine 内的调用流程 |
+| [HTTP 协议](protocols/http.md) | HTTP 请求在 Prism 内的调用流程 |
 | [SOCKS5 协议](protocols/socks5.md) | SOCKS5 协议握手、地址解析、连接建立 |
 | [Trojan 协议](protocols/trojan.md) | Trojan 协议 SSL 握手、凭据验证、隧道转发 |
 
@@ -86,7 +86,7 @@
 
 ## 项目概况
 
-ForwardEngine 是一个基于 Modern C++（C++23）的高性能代理引擎：
+Prism 是一个基于 Modern C++（C++23）的高性能代理引擎：
 
 - **协议支持**：HTTP/HTTPS、SOCKS5、Trojan
 - **技术栈**：Boost.Asio 协程、BoringSSL、PMR 内存管理

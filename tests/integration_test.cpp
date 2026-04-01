@@ -8,11 +8,11 @@
 #include <boost/asio.hpp>
 #include <boost/asio/awaitable.hpp>
 #include <boost/asio/co_spawn.hpp>
-#include <forward-engine/channel/transport/transmission.hpp>
-#include <forward-engine/channel/transport/reliable.hpp>
-#include <forward-engine/channel/transport/unreliable.hpp>
-#include <forward-engine/protocol/trojan/stream.hpp>
-#include <forward-engine/fault.hpp>
+#include <prism/channel/transport/transmission.hpp>
+#include <prism/channel/transport/reliable.hpp>
+#include <prism/channel/transport/unreliable.hpp>
+#include <prism/protocol/trojan/stream.hpp>
+#include <prism/fault.hpp>
 #include <memory>
 #include <array>
 #include <iostream>
@@ -36,7 +36,7 @@ net::awaitable<int> echo_server_coro(net::ip::tcp::acceptor& acceptor)
     {
         // 接受客户端连接
         net::ip::tcp::socket socket = co_await acceptor.async_accept(net::use_awaitable);
-        auto transport = ngx::channel::transport::make_reliable(std::move(socket));
+        auto transport = psm::channel::transport::make_reliable(std::move(socket));
         
         std::array<char, 4096> buffer{};
         
@@ -44,7 +44,7 @@ net::awaitable<int> echo_server_coro(net::ip::tcp::acceptor& acceptor)
         {
             // 读取客户端数据
             auto mutable_buf = net::buffer(buffer);
-            std::size_t n = co_await ngx::channel::transport::async_read_some(transport, mutable_buf, net::use_awaitable);
+            std::size_t n = co_await psm::channel::transport::async_read_some(transport, mutable_buf, net::use_awaitable);
 
             if (n == 0)
             {
@@ -54,7 +54,7 @@ net::awaitable<int> echo_server_coro(net::ip::tcp::acceptor& acceptor)
 
             // 将数据回写给客户端
             auto const_buf = net::buffer(buffer.data(), n);
-            std::size_t written = co_await ngx::channel::transport::async_write_some(transport, const_buf, net::use_awaitable);
+            std::size_t written = co_await psm::channel::transport::async_write_some(transport, const_buf, net::use_awaitable);
             
             assert(n == written);
         }
@@ -78,17 +78,17 @@ net::awaitable<int> echo_client_coro(net::ip::tcp::endpoint server_endpoint, con
         
         net::ip::tcp::socket socket(executor);
         co_await socket.async_connect(server_endpoint, net::use_awaitable);
-        auto transport = ngx::channel::transport::make_reliable(std::move(socket));
+        auto transport = psm::channel::transport::make_reliable(std::move(socket));
         
         // 发送测试消息
         auto send_buf = net::buffer(test_message);
-        std::size_t written = co_await ngx::channel::transport::async_write_some(transport, send_buf, net::use_awaitable);
+        std::size_t written = co_await psm::channel::transport::async_write_some(transport, send_buf, net::use_awaitable);
         assert(written == test_message.size());
 
         // 接收回显
         std::array<char, 4096> buffer{};
         auto recv_buf = net::buffer(buffer);
-        std::size_t n = co_await ngx::channel::transport::async_read_some(transport, recv_buf, net::use_awaitable);
+        std::size_t n = co_await psm::channel::transport::async_read_some(transport, recv_buf, net::use_awaitable);
 
         assert(n == test_message.size());
         assert(std::string_view(buffer.data(), n) == test_message);
@@ -96,11 +96,11 @@ net::awaitable<int> echo_client_coro(net::ip::tcp::endpoint server_endpoint, con
         // 发送第二条消息
         std::string second_message = "Second message";
         send_buf = net::buffer(second_message);
-        written = co_await ngx::channel::transport::async_write_some(transport, send_buf, net::use_awaitable);
+        written = co_await psm::channel::transport::async_write_some(transport, send_buf, net::use_awaitable);
         assert(written == second_message.size());
 
         // 接收第二条回显
-        n = co_await ngx::channel::transport::async_read_some(transport, recv_buf, net::use_awaitable);
+        n = co_await psm::channel::transport::async_read_some(transport, recv_buf, net::use_awaitable);
         assert(n == second_message.size());
         assert(std::string_view(buffer.data(), n) == second_message);
         
@@ -165,7 +165,7 @@ net::awaitable<int> trojan_echo_server_coro(net::ip::tcp::acceptor& acceptor, co
     {
         // 接受客户端连接
         net::ip::tcp::socket socket = co_await acceptor.async_accept(net::use_awaitable);
-        auto transport = ngx::channel::transport::make_reliable(std::move(socket));
+        auto transport = psm::channel::transport::make_reliable(std::move(socket));
         
         // 创建 Trojan 装饰器（无凭据验证）
         auto verifier = [&](std::string_view cred) -> bool
@@ -173,13 +173,13 @@ net::awaitable<int> trojan_echo_server_coro(net::ip::tcp::acceptor& acceptor, co
             return cred == expected_credential;
         };
         
-        auto trojan = ngx::protocol::trojan::make_relay(std::move(transport), {}, verifier);
+        auto trojan = psm::protocol::trojan::make_relay(std::move(transport), {}, verifier);
         
         // 执行 Trojan 握手
         auto [ec, request] = co_await trojan->handshake();
-        if (ngx::fault::failed(ec))
+        if (psm::fault::failed(ec))
         {
-            std::cerr << "Trojan handshake failed: " << ngx::fault::describe(ec) << std::endl;
+            std::cerr << "Trojan handshake failed: " << psm::fault::describe(ec) << std::endl;
             co_return 1;
         }
         
@@ -189,7 +189,7 @@ net::awaitable<int> trojan_echo_server_coro(net::ip::tcp::acceptor& acceptor, co
         {
             // 读取客户端数据
             auto mutable_buf = net::buffer(buffer);
-            std::size_t n = co_await ngx::channel::transport::async_read_some(trojan, mutable_buf, net::use_awaitable);
+            std::size_t n = co_await psm::channel::transport::async_read_some(trojan, mutable_buf, net::use_awaitable);
 
             if (n == 0)
             {
@@ -199,7 +199,7 @@ net::awaitable<int> trojan_echo_server_coro(net::ip::tcp::acceptor& acceptor, co
 
             // 将数据回写给客户端
             auto const_buf = net::buffer(buffer.data(), n);
-            std::size_t written = co_await ngx::channel::transport::async_write_some(trojan, const_buf, net::use_awaitable);
+            std::size_t written = co_await psm::channel::transport::async_write_some(trojan, const_buf, net::use_awaitable);
             
             assert(n == written);
         }
@@ -265,12 +265,12 @@ int test_factory_creation()
     auto executor = ioc.get_executor();
     
     // 测试创建可靠传输
-    auto reliable = ngx::channel::transport::make_reliable(executor);
+    auto reliable = psm::channel::transport::make_reliable(executor);
     TEST_ASSERT(reliable != nullptr);
     TEST_ASSERT(reliable->executor() == executor);
 
     // 测试创建不可靠传输（使用构造函数）
-    auto unreliable = std::make_shared<ngx::channel::transport::unreliable>(executor);
+    auto unreliable = std::make_shared<psm::channel::transport::unreliable>(executor);
     TEST_ASSERT(unreliable != nullptr);
     TEST_ASSERT(unreliable->executor() == executor);
     

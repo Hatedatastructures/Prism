@@ -1,10 +1,10 @@
 #include <benchmark/benchmark.h>
-#include <forward-engine/memory/container.hpp>
-#include <forward-engine/memory/pool.hpp>
+#include <prism/memory/container.hpp>
+#include <prism/memory/pool.hpp>
 #include <string>
 #include <vector>
 
-using namespace ngx;
+using namespace psm;
 
 static std::string make_payload(std::size_t size, char fill)
 {

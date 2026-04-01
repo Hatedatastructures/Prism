@@ -1,26 +1,26 @@
-# HTTP 请求在 ForwardEngine 内的调用流程
+# HTTP 请求在 Prism 内的调用流程
 
 本文说明 HTTP 请求进入代理后的完整调用链，以及不同类型 HTTP 请求（`CONNECT`、绝对 `URI`、相对路径）在项目内的分支与路由决策。所有流程均基于协程模型运行。
 
 ## 1. 总体入口链路
 
 1. **连接接收**：`worker` 监听端口并接收连接，创建 `session`  
-   入口位置：[worker.hpp](../../include/forward-engine/agent/worker/worker.hpp)，类 `ngx::agent::worker` 的 `do_accept`。
+   入口位置：[worker.hpp](../../include/prism/agent/worker/worker.hpp)，类 `ngx::agent::worker` 的 `do_accept`。
 
 2. **协议识别**：`session::diversion` 预读并识别协议，然后分流到 HTTP 处理器  
-   位置：[session.hpp](../../include/forward-engine/agent/session/session.hpp)，类 `ngx::agent::session` 的 `diversion`。通过检查请求行前几个字节判断是否为 HTTP 协议（`GET `、`POST `、`CONNECT ` 等）。
+   位置：[session.hpp](../../include/prism/agent/session/session.hpp)，类 `ngx::agent::session` 的 `diversion`。通过检查请求行前几个字节判断是否为 HTTP 协议（`GET `、`POST `、`CONNECT ` 等）。
 
 3. **HTTP 处理器调用**：`handler::http` 读取并解析 HTTP 请求，确定目标与路由方向  
-   位置：[handlers.hpp](../../include/forward-engine/agent/dispatch/handlers.hpp)，命名空间 `ngx::agent::handler` 的 `http` 模板函数。
+   位置：[handlers.hpp](../../include/prism/agent/dispatch/handlers.hpp)，命名空间 `ngx::agent::handler` 的 `http` 模板函数。
 
 4. **目标解析**：`protocol::analysis::resolve` 判断"正向/反向"并解析目标地址  
-   位置：[analysis.cpp](../../src/forward-engine/protocol/analysis.cpp)，类 `ngx::protocol::analysis` 的 `resolve`。
+   位置：[analysis.cpp](../../src/prism/protocol/analysis.cpp)，类 `ngx::protocol::analysis` 的 `resolve`。
 
 5. **上游连接建立**：`primitives::dial` 根据 `target.positive` 选择路由  
-   位置：[primitives.cpp](../../src/forward-engine/agent/pipeline/primitives.cpp)，命名空间 `ngx::agent::pipeline::primitives` 的 `dial`。
+   位置：[primitives.cpp](../../src/prism/agent/pipeline/primitives.cpp)，命名空间 `ngx::agent::pipeline::primitives` 的 `dial`。
 
 6. **路由决策与连接**：`router` 建立上游连接（直连或回退）  
-   位置：[router.cpp](../../src/forward-engine/resolve/router.cpp)，类 `ngx::resolve::router` 的 `async_forward` 与 `async_reverse`。
+   位置：[router.cpp](../../src/prism/resolve/router.cpp)，类 `ngx::resolve::router` 的 `async_forward` 与 `async_reverse`。
 
 7. **隧道转发**：根据请求类型进入隧道（`tunnel`）转发。
 
@@ -39,7 +39,7 @@ protocol_http::request req(mr);
 const auto ec = co_await protocol_http::async_read(ctx.client_socket, req, read_buffer, mr);
 ```
 
-**解析流程**（[deserialization.hpp](../../include/forward-engine/protocol/http/deserialization.hpp)）：
+**解析流程**（[deserialization.hpp](../../include/prism/protocol/http/deserialization.hpp)）：
 1. **创建解析器**：使用 `beast::http::request_parser<http_body>`，设置头部限制（16KB）和正文限制（10MB）。
 2. **异步读取**：调用 `beast::http::async_read` 读取完整 HTTP 请求。
 3. **数据提取**：从解析器提取方法、目标、版本、头部字段和正文。
@@ -62,7 +62,7 @@ const auto ec = co_await protocol_http::async_read(ctx.client_socket, req, read_
 - **相对路径请求**（其他情况）：  
   反向代理，目标从 `Host` 头解析，端口默认为 80。
 
-**关键代码位置**：[analysis.cpp](../../src/forward-engine/protocol/analysis.cpp) 第 118-147 行。
+**关键代码位置**：[analysis.cpp](../../src/prism/protocol/analysis.cpp) 第 118-147 行。
 
 ### 2.3 三种请求类型的处理分支
 
@@ -117,7 +117,7 @@ Host: myservice.com
 
 ### 3.1 正向路由 `async_forward`
 
-路由优先级（[router.cpp](../../src/forward-engine/resolve/router.cpp)）：
+路由优先级（[router.cpp](../../src/prism/resolve/router.cpp)）：
 1. **黑名单拦截**：检查目标地址是否在黑名单中（直接返回 `blocked`）。
 2. **DNS 解析并直连**：解析目标主机名，通过连接池 `acquire_tcp` 获取或创建连接。
 3. **直连失败回退**：如果直连失败，回退到配置的上游代理（通过 `CONNECT` 命令）。
@@ -125,7 +125,7 @@ Host: myservice.com
 ### 3.2 反向路由 `async_reverse`
 
 从 `reverse_map_` 取目标后端 `endpoint`，通过连接池复用连接。
-对应实现：[router.cpp](../../src/forward-engine/resolve/router.cpp) 的 `ngx::resolve::router::async_reverse`。
+对应实现：[router.cpp](../../src/prism/resolve/router.cpp) 的 `ngx::resolve::router::async_reverse`。
 
 ### 3.3 上游代理回退 `async_positive`
 
@@ -135,7 +135,7 @@ Host: myservice.com
 3. 发送 `CONNECT host:port` 请求。
 4. 解析响应行状态码（仅接受 `200`）。
 
-对应实现：[router.cpp](../../src/forward-engine/resolve/router.cpp) 的 `ngx::resolve::router::async_positive`。
+对应实现：[router.cpp](../../src/prism/resolve/router.cpp) 的 `ngx::resolve::router::async_positive`。
 
 ## 4. 隧道转发机制
 
@@ -186,16 +186,16 @@ if (read_buffer.size() != 0)
 以下日志有助于确认 HTTP 请求走向：
 
 - `[Session] Detected protocol: http.`
-  位置：[session.hpp](../../include/forward-engine/agent/session/session.hpp) 的 `ngx::agent::session::session::diversion`。
+  位置：[session.hpp](../../include/prism/agent/session/session.hpp) 的 `ngx::agent::session::session::diversion`。
 
 - `[Pipeline] HTTP request received: {method} {target}`
-  位置：[protocols.cpp](../../src/forward-engine/agent/pipeline/protocols.cpp) 的 `ngx::agent::pipeline::http`。
+  位置：[protocols.cpp](../../src/prism/agent/pipeline/protocols.cpp) 的 `ngx::agent::pipeline::http`。
 
 - `[Pipeline] HTTP analysis target = [host: {}, port: {}, positive: {}]`
-  位置：[protocols.cpp](../../src/forward-engine/agent/pipeline/protocols.cpp) 的 `ngx::agent::pipeline::http`。
+  位置：[protocols.cpp](../../src/prism/agent/pipeline/protocols.cpp) 的 `ngx::agent::pipeline::http`。
 
 - `[Pipeline] HTTP upstream connected`
-  位置：[primitives.cpp](../../src/forward-engine/agent/pipeline/primitives.cpp) 的 `ngx::agent::pipeline::primitives::dial`。
+  位置：[primitives.cpp](../../src/prism/agent/pipeline/primitives.cpp) 的 `ngx::agent::pipeline::primitives::dial`。
 
 ## 6. 简化调用图（文字版）
 
@@ -218,7 +218,7 @@ worker.accept -> session::diversion
 
 ## 7. 协议常量与枚举
 
-关键枚举定义在 [constants.hpp](../../include/forward-engine/protocol/http/constants.hpp)：
+关键枚举定义在 [constants.hpp](../../include/prism/protocol/http/constants.hpp)：
 
 ### 7.1 HTTP 请求方法（`verb`）
 - `connect`：建立隧道（HTTPS 代理）
