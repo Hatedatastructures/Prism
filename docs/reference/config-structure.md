@@ -441,7 +441,7 @@ std::uint32_t buffer_size;
 **源码位置**: [context.hpp](../../include/prism/agent/context.hpp)
 
 ```cpp
-ngx::channel::transport::transmission_pointer inbound;
+psm::channel::transport::transmission_pointer inbound;
 ```
 
 入站传输对象，处理来自客户端的数据。
@@ -459,7 +459,7 @@ using transmission_pointer = std::unique_ptr<transmission>;
 **源码位置**: [context.hpp](../../include/prism/agent/context.hpp)
 
 ```cpp
-ngx::channel::transport::transmission_pointer outbound;
+psm::channel::transport::transmission_pointer outbound;
 ```
 
 出站传输对象，处理发往目标服务器的数据。

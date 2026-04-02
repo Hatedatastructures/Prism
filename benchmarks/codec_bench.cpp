@@ -4,7 +4,7 @@
 #include <prism/protocol/http/request.hpp>
 #include <prism/protocol/http/response.hpp>
 #include <prism/protocol/socks5/wire.hpp>
-#include <prism/protocol/trojan/wire.hpp>
+#include <prism/protocol/trojan/format.hpp>
 #include <prism/memory/pool.hpp>
 #include <prism/fault.hpp>
 #include <array>
@@ -298,7 +298,7 @@ static void BM_TrojanDecodeCredential(benchmark::State &state)
 
     for (auto _ : state)
     {
-        auto [ec, credential] = protocol::trojan::wire::decode_credential(buffer);
+        auto [ec, credential] = protocol::trojan::format::parse_credential(buffer);
         if (fault::failed(ec))
         {
             state.SkipWithError("Trojan user credential parsing failed");
@@ -313,7 +313,7 @@ static void BM_TrojanDecodeCrlf(benchmark::State &state)
     static constexpr std::array<std::uint8_t, 2> buffer = {'\r', '\n'};
     for (auto _ : state)
     {
-        auto ec = protocol::trojan::wire::decode_crlf(buffer);
+        auto ec = protocol::trojan::format::parse_crlf(buffer);
         if (fault::failed(ec))
         {
             state.SkipWithError("Trojan CRLF parsing failed");
@@ -328,7 +328,7 @@ static void BM_TrojanDecodeCmdAtyp(benchmark::State &state)
     static constexpr std::array<std::uint8_t, 2> buffer = {0x01, 0x01}; // CONNECT + IPv4
     for (auto _ : state)
     {
-        auto [ec, header] = protocol::trojan::wire::decode_cmd_atyp(buffer);
+        auto [ec, header] = protocol::trojan::format::parse_cmd_atyp(buffer);
         if (fault::failed(ec))
         {
             state.SkipWithError("Trojan cmd/atyp parsing failed");
@@ -343,7 +343,7 @@ static void BM_TrojanDecodeIPv4(benchmark::State &state)
     static constexpr std::array<std::uint8_t, 4> buffer = {127, 0, 0, 1};
     for (auto _ : state)
     {
-        auto [ec, addr] = protocol::trojan::wire::parse_ipv4(buffer);
+        auto [ec, addr] = protocol::trojan::format::parse_ipv4(buffer);
         if (fault::failed(ec))
         {
             state.SkipWithError("Trojan ipv4 parsing failed");
@@ -362,7 +362,7 @@ static void BM_TrojanDecodeIPv6(benchmark::State &state)
     }
     for (auto _ : state)
     {
-        auto [ec, addr] = protocol::trojan::wire::parse_ipv6(buffer);
+        auto [ec, addr] = protocol::trojan::format::parse_ipv6(buffer);
         if (fault::failed(ec))
         {
             state.SkipWithError("Trojan ipv6 parsing failed");
@@ -385,7 +385,7 @@ static void BM_TrojanDecodeDomain_VarLen(benchmark::State &state)
     const auto view = std::span<const std::uint8_t>(buffer.data(), 1 + len);
     for (auto _ : state)
     {
-        auto [ec, addr] = protocol::trojan::wire::parse_domain(view);
+        auto [ec, addr] = protocol::trojan::format::parse_domain(view);
         if (fault::failed(ec))
         {
             state.SkipWithError("Trojan domain parsing failed");
@@ -400,7 +400,7 @@ static void BM_TrojanDecodePort(benchmark::State &state)
     static constexpr std::array<std::uint8_t, 2> buffer = {0x00, 0x50}; // 80
     for (auto _ : state)
     {
-        auto [ec, port] = protocol::trojan::wire::decode_port(buffer);
+        auto [ec, port] = protocol::trojan::format::parse_port(buffer);
         if (fault::failed(ec))
         {
             state.SkipWithError("Trojan port parsing failed");
@@ -417,7 +417,7 @@ static void BM_TrojanDecodeCredential_Invalid(benchmark::State &state)
     buffer[7] = 'g';
     for (auto _ : state)
     {
-        auto [ec, credential] = protocol::trojan::wire::decode_credential(buffer);
+        auto [ec, credential] = protocol::trojan::format::parse_credential(buffer);
         benchmark::DoNotOptimize(ec);
         benchmark::DoNotOptimize(credential);
     }

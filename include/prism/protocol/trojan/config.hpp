@@ -24,7 +24,7 @@ namespace psm::protocol::trojan
      * @struct config
      * @brief Trojan 协议配置
      * @details 控制 Trojan 协议的能力开关和 UDP 参数。配置结构由
-     * agent::config 持有，随服务启动时初始化，传递给 trojan_stream
+     * agent::config 持有，随服务启动时初始化，传递给 relay
      * 构造函数后在 stream 生命周期内保持不变。配置结构本身是只读的，
      * 可安全多线程读取，修改配置需要重启服务。
      *

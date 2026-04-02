@@ -209,7 +209,7 @@
 | 20 | `protocol::analysis::resolve()` | `src/prism/agent/pipeline/protocols.cpp` | 解析请求获取目标地址 |
 | 21 | `primitives::dial()` | `src/prism/agent/pipeline/primitives.cpp` | 建立上游连接 |
 | 22 | `router->async_reverse()` 或 `router->async_forward()` | `src/prism/resolve/router.cpp` | 路由选择 |
-| 23 | `ngx::channel::transport::make_reliable()` | `src/prism/agent/pipeline/primitives.cpp` | 包装为可靠传输 |
+| 23 | `psm::channel::transport::make_reliable()` | `src/prism/agent/pipeline/primitives.cpp` | 包装为可靠传输 |
 
 ### 3.8 双向转发阶段
 
@@ -300,8 +300,8 @@ const tcp::endpoint endpoint(tcp::v4(), cfg.addressable.port);
 | `server` | `server_context&` | 服务器配置上下文 |
 | `worker` | `worker_context&` | Worker 运行时上下文 |
 | `frame_arena` | `memory::frame_arena&` | 帧内存竞技场 |
-| `inbound` | `ngx::channel::transport::transmission_pointer` | 入站传输层 |
-| `outbound` | `ngx::channel::transport::transmission_pointer` | 出站传输层 |
+| `inbound` | `psm::channel::transport::transmission_pointer` | 入站传输层 |
+| `outbound` | `psm::channel::transport::transmission_pointer` | 出站传输层 |
 | `buffer_size` | `std::uint32_t` | 缓冲区大小 |
 
 详细说明请参阅 [上下文结构体](../reference/context.md)。

@@ -5,6 +5,11 @@
 #include <prism/agent/account/directory.hpp>
 #include <prism/memory/container.hpp>
 #include <boost/asio/experimental/awaitable_operators.hpp>
+#include <string_view>
+
+constexpr std::string_view HttpStr = "[Pipeline.Http]";
+constexpr std::string_view Socks5Str = "[Pipeline.Socks5]";
+constexpr std::string_view TrojanStr = "[Pipeline.Trojan]";
 
 namespace psm::agent::pipeline
 {
@@ -33,20 +38,20 @@ namespace psm::agent::pipeline
             // 读取并解析 HTTP 请求
             if (fault::failed(co_await protocol::http::async_read(stream, req, read_buffer, mr)))
             {
-                trace::warn("[Pipeline] HTTP read request failed");
+                trace::warn("{} read request failed", HttpStr);
                 co_return;
             }
 
             // 解析目标地址
             const auto target = protocol::analysis::resolve(req);
-            trace::info("[Pipeline] HTTP request: {} {} -> {}:{}", req.method_string(), req.target(), target.host, target.port);
+            trace::info("{} {} {} -> {}:{}", HttpStr, req.method_string(), req.target(), target.host, target.port);
 
             // 连接目标服务器
             std::shared_ptr<resolve::router> router_ptr(&ctx.worker.router, [](resolve::router *) {});
             auto [fst, snd] = co_await primitives::dial(router_ptr, "HTTP", target, true, false);
             if (fault::failed(fst) || !snd)
             {
-                trace::warn("[Pipeline] HTTP dial failed, target: {}:{}", target.host, target.port);
+                trace::warn("{} dial failed, target: {}:{}", HttpStr, target.host, target.port);
                 // 返回 502 Bad Gateway
                 constexpr std::string_view resp_502 = {"HTTP/1.1 502 Bad Gateway\r\nContent-Length: 0\r\n\r\n"};
 
@@ -100,7 +105,7 @@ namespace psm::agent::pipeline
         // 检查入站传输对象是否存在，SOCKS5 协议需要它来完成握手和数据转发
         if (!inbound)
         {
-            trace::warn("[Pipeline] SOCKS5 inbound transmission missing.");
+            trace::warn("{} inbound missing", Socks5Str);
             co_return;
         }
 
@@ -116,7 +121,7 @@ namespace psm::agent::pipeline
         // 协商失败，退出处理流程，agent 对象通过 RAII 自动清理
         if (fault::failed(ec))
         {
-            trace::error("[Pipeline] SOCKS5 handshake failed: {}", fault::cached_message(ec));
+            trace::error("{} handshake failed: {}", Socks5Str, fault::cached_message(ec));
             co_return;
         }
 
@@ -130,14 +135,14 @@ namespace psm::agent::pipeline
             target.host = protocol::socks5::to_string(request.destination_address, ctx.frame_arena.get());
             target.port = std::to_string(request.destination_port);
             target.positive = true;
-            trace::info("[Pipeline] SOCKS5 CONNECT -> {}:{}", target.host, target.port);
+            trace::info("{} CONNECT -> {}:{}", Socks5Str, target.host, target.port);
 
             // 通过路由器建立到目标的连接
             const auto router_ptr = std::shared_ptr<resolve::router>(&ctx.worker.router, [](resolve::router *) {});
             auto [conn_ec, outbound] = co_await primitives::dial(router_ptr, "SOCKS5", target, true, true);
             if (fault::failed(conn_ec) || !outbound)
             {
-                trace::warn("[Pipeline] SOCKS5 dial failed: {}, target: {}:{}", fault::describe(conn_ec), target.host, target.port);
+                trace::warn("{} failed: {}, target: {}:{}", Socks5Str, fault::describe(conn_ec), target.host, target.port);
                 // 连接失败，返回主机不可达错误
                 co_await agent->async_write_error(protocol::socks5::reply_code::host_unreachable);
                 co_return;
@@ -150,9 +155,9 @@ namespace psm::agent::pipeline
             }
             // 释放传输对象并进入双向隧道转发
             auto trans = agent->release();
-            trace::debug("[Pipeline] SOCKS5 CONNECT tunnel opened, target: {}:{}", target.host, target.port);
+            trace::debug("{} tunnel opened: {}:{}", Socks5Str, target.host, target.port);
             co_await primitives::tunnel(std::move(trans), std::move(outbound), ctx);
-            trace::debug("[Pipeline] SOCKS5 CONNECT tunnel closed, target: {}:{}", target.host, target.port);
+            trace::debug("{} tunnel closed: {}:{}", Socks5Str, target.host, target.port);
             break;
         }
         case protocol::socks5::command::udp_associate:
@@ -160,7 +165,7 @@ namespace psm::agent::pipeline
             // UDP 关联请求：解析目标地址并进入 UDP 转发模式
             const auto target_host = protocol::socks5::to_string(request.destination_address, ctx.frame_arena.get());
             const auto target_port = std::to_string(request.destination_port);
-            trace::info("[Pipeline] SOCKS5 UDP_ASSOCIATE -> {}:{}", target_host, target_port);
+            trace::info("{} UDP_ASSOCIATE -> {}:{}", Socks5Str, target_host, target_port);
 
             // 创建路由回调函数，用于解析 UDP 数据报目标地址
             const auto router_ptr = std::shared_ptr<resolve::router>(&ctx.worker.router, [](resolve::router *) {});
@@ -173,13 +178,13 @@ namespace psm::agent::pipeline
             const auto associate_ec = co_await agent->async_associate(request, std::move(route_callback));
             if (fault::failed(associate_ec))
             {
-                trace::warn("[Pipeline] SOCKS5 UDP_ASSOCIATE failed: {}", fault::describe(associate_ec));
+                trace::warn("{} UDP_ASSOCIATE failed: {}", Socks5Str, fault::describe(associate_ec));
             }
             break;
         }
         default:
             // BIND 命令不支持，返回错误响应
-            trace::warn("[Pipeline] SOCKS5 BIND command not supported");
+            trace::warn("{} BIND not supported", Socks5Str);
             co_await agent->async_write_error(protocol::socks5::reply_code::command_not_supported);
             break;
         }
@@ -192,7 +197,7 @@ namespace psm::agent::pipeline
         auto [handshake_ec, ssl_stream] = co_await primitives::ssl_handshake(ctx, data);
         if (fault::failed(handshake_ec) || !ssl_stream)
         {
-            trace::warn("[Pipeline] Trojan TLS handshake failed: {}", fault::describe(handshake_ec));
+            trace::warn("{} TLS handshake failed: {}", TrojanStr, fault::describe(handshake_ec));
             co_return;
         }
 
@@ -220,7 +225,7 @@ namespace psm::agent::pipeline
             const auto n = co_await ssl_stream->async_read_some(net::buffer(temp_buffer.data(), temp_buffer.size()), token);
             if (read_ec || n == 0)
             {
-                trace::warn("[Pipeline] Trojan preread failed: {}", read_ec.message());
+                trace::warn("{} preread failed: {}", TrojanStr, read_ec.message());
                 co_return;
             }
             preread_buffer.insert(preread_buffer.end(), temp_buffer.begin(), temp_buffer.begin() + n);
@@ -242,14 +247,14 @@ namespace psm::agent::pipeline
         {
             if (!ctx.account_directory_ptr)
             {
-                trace::warn("[Pipeline] Trojan account directory not configured");
+                trace::warn("{} account directory not configured", TrojanStr);
                 return false;
             }
             // 尝试获取账户租约，验证凭证并检查连接限制
             auto lease = account::try_acquire(*ctx.account_directory_ptr, credential);
             if (!lease)
             {
-                trace::warn("[Pipeline] Trojan credential verification failed or connection limit reached");
+                trace::warn("{} credential verification failed", TrojanStr);
                 return false;
             }
             ctx.account_lease = std::move(lease);
@@ -262,7 +267,7 @@ namespace psm::agent::pipeline
         auto [trojan_ec, req] = co_await agent->handshake();
         if (fault::failed(trojan_ec))
         {
-            trace::warn("[Pipeline] Trojan handshake failed: {}", fault::describe(trojan_ec));
+            trace::warn("{} handshake failed: {}", TrojanStr, fault::describe(trojan_ec));
             co_return;
         }
 
@@ -278,11 +283,9 @@ namespace psm::agent::pipeline
 
             // Mihomo smux 兼容：客户端用 CONNECT + 虚假地址标记 mux 连接
             // 检测 mux 标记地址，命中则走 smux 多路复用逻辑
-            if (ctx.server.cfg.mux.enabled &&
-                target.host.size() >= 18 &&
-                target.host.substr(target.host.size() - 18) == ".mux.sing-box.arpa")
+            if (ctx.server.cfg.mux.enabled && target.host.size() >= 18 && target.host.substr(target.host.size() - 18) == ".mux.sing-box.arpa")
             {
-                trace::info("[Pipeline] Trojan CONNECT with mux marker, creating sing-mux session");
+                trace::info("{} mux session started", TrojanStr);
                 // 清除 session 流关闭回调，transport 生命周期由 multiplexer 接管
                 ctx.active_stream_close = nullptr;
                 ctx.active_stream_cancel = nullptr;
@@ -293,7 +296,7 @@ namespace psm::agent::pipeline
             }
 
             target.positive = true;
-            trace::info("[Pipeline] Trojan CONNECT -> {}:{}", target.host, target.port);
+            trace::info("{} CONNECT -> {}:{}", TrojanStr, target.host, target.port);
 
             // 通过路由器建立到目标的连接
             const std::shared_ptr<resolve::router> router_ptr(&ctx.worker.router, [](resolve::router *) {});
@@ -303,11 +306,11 @@ namespace psm::agent::pipeline
                 // IPv6 被禁用是预期行为，使用 debug 级别
                 if (dial_ec == fault::code::ipv6_disabled)
                 {
-                    trace::debug("[Pipeline] Trojan IPv6 disabled, target: {}:{}", target.host, target.port);
+                    trace::debug("{} IPv6 disabled: {}:{}", TrojanStr, target.host, target.port);
                 }
                 else
                 {
-                    trace::warn("[Pipeline] Trojan dial failed: {}, target: {}:{}", fault::describe(dial_ec), target.host, target.port);
+                    trace::warn("{} dial failed: {}, target: {}:{}", TrojanStr, fault::describe(dial_ec), target.host, target.port);
                 }
                 co_return;
             }
@@ -318,12 +321,32 @@ namespace psm::agent::pipeline
             break;
         }
         case protocol::trojan::command::udp_associate:
-            // Trojan UDP_ASSOCIATE 尚未实现
-            trace::warn("[Pipeline] Trojan UDP_ASSOCIATE not implemented");
+        {
+            trace::info("{} UDP_ASSOCIATE started", TrojanStr);
+
+            // 创建路由回调函数，用于解析 UDP 数据报目标地址
+            const auto router_ptr = std::shared_ptr<resolve::router>(&ctx.worker.router, [](resolve::router *) {});
+            auto route_callback = [router_ptr](const std::string_view host, const std::string_view port)
+                -> net::awaitable<std::pair<fault::code, net::ip::udp::endpoint>>
+            {
+                co_return co_await router_ptr->resolve_datagram_target(host, port);
+            };
+
+            // 启动 UDP 关联处理
+            const auto associate_ec = co_await agent->async_associate(std::move(route_callback));
+            if (fault::failed(associate_ec))
+            {
+                trace::warn("{} UDP_ASSOCIATE failed: {}", TrojanStr, fault::describe(associate_ec));
+            }
+            else
+            {
+                trace::info("{} UDP_ASSOCIATE completed", TrojanStr);
+            }
             break;
+        }
         default:
             // 未知命令类型
-            trace::warn("[Pipeline] Trojan unknown command: {}", static_cast<int>(req.cmd));
+            trace::warn("{} unknown command: {}", TrojanStr, static_cast<int>(req.cmd));
             break;
         }
     }

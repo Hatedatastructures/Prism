@@ -9,6 +9,7 @@
  */
 
 #pragma once
+#include <cstdint>
 
 namespace psm::protocol::socks5
 {

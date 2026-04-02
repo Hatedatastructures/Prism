@@ -2,6 +2,11 @@
 #include <prism/channel/transport/reliable.hpp>
 #include <prism/channel/transport/encrypted.hpp>
 #include <chrono>
+#include <string_view>
+
+constexpr std::string_view SslStr = "[Primitives.SSL]";
+constexpr std::string_view DialStr = "[Primitives.Dial]";
+constexpr std::string_view TunnelStr = "[Primitives.Tunnel]";
 
 namespace psm::agent::pipeline::primitives
 {
@@ -11,13 +16,13 @@ namespace psm::agent::pipeline::primitives
 
         if (!ctx.server.ssl_ctx)
         {
-            trace::warn("[SSL] No SSL context configured");
+            trace::warn("{} No SSL context configured", SslStr);
             co_return std::make_pair(fault::code::not_supported, nullptr);
         }
 
         if (!ctx.inbound)
         {
-            trace::warn("[SSL] No inbound transmission for TLS handshake");
+            trace::warn("{} No inbound transmission for TLS handshake", SslStr);
             co_return std::make_pair(fault::code::io_error, nullptr);
         }
         // 原有可能是 tcp socket 派生的 reliable 类，用 ssl_connector 来模拟一个 boost 库的 网路 io 接口
@@ -32,11 +37,11 @@ namespace psm::agent::pipeline::primitives
         co_await stream->async_handshake(ssl::stream_base::server, token);
         if (ec)
         {
-            trace::warn("[SSL] TLS handshake failed: {} ({})", ec.message(), ec.value());
+            trace::warn("{} TLS handshake failed: {} ({})", SslStr, ec.message(), ec.value());
             co_return std::make_pair(fault::to_code(ec), nullptr);
         }
 
-        trace::debug("[SSL] TLS handshake succeeded");
+        trace::debug("{} TLS handshake succeeded", SslStr);
         co_return std::make_pair(fault::code::success, stream);
     }
 
@@ -55,7 +60,7 @@ namespace psm::agent::pipeline::primitives
         // 拒绝 IPv6 地址字面量（仅在禁用 IPv6 时）
         if (router->ipv6_disabled() && is_ipv6_literal(target.host))
         {
-            trace::debug("[Pipeline] {} rejecting IPv6 literal: {}:{}", label, target.host, target.port);
+            trace::debug("{} {} rejecting IPv6 literal: {}:{}", DialStr, label, target.host, target.port);
             co_return std::make_pair(fault::code::ipv6_disabled, nullptr);
         }
 
@@ -77,18 +82,18 @@ namespace psm::agent::pipeline::primitives
 
         if (fault::failed(ec))
         {
-            trace::warn("[Pipeline] {} route failed: {}, target: {}:{}", label,
+            trace::warn("{} {} route failed: {}, target: {}:{}", DialStr, label,
                         fault::describe(ec), target.host, target.port);
             co_return std::make_pair(ec, nullptr);
         }
 
         if (require_open && !conn.valid())
         {
-            trace::warn("[Pipeline] {} socket not open, target: {}:{}", label, target.host, target.port);
+            trace::warn("{} {} socket not open, target: {}:{}", DialStr, label, target.host, target.port);
             co_return std::make_pair(fault::code::connection_refused, nullptr);
         }
 
-        trace::info("[Pipeline] {} dial success, target: {}:{}", label, target.host, target.port);
+        trace::info("{} {} success, target: {}:{}", DialStr, label, target.host, target.port);
         co_return std::make_pair(ec, channel::transport::make_reliable(std::move(conn)));
     }
 
@@ -230,8 +235,8 @@ namespace psm::agent::pipeline::primitives
         // 输出传输统计
         if (const auto up = total_bytes[0], down = total_bytes[1]; up > 0 || down > 0)
         {
-            trace::info("[Tunnel] [{}] Transfer: Upload {} B, Download {} B, duration: {} ms",
-                        ctx.session_id, up, down, std::chrono::duration_cast<std::chrono::milliseconds>(end_time - start_time).count());
+            trace::info("{} [{}] Transfer: Upload {} B, Download {} B, duration: {} ms", TunnelStr, ctx.session_id, up,
+                        down, std::chrono::duration_cast<std::chrono::milliseconds>(end_time - start_time).count());
         }
 
         shut_close(inbound);

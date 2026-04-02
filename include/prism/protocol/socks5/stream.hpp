@@ -372,7 +372,7 @@ namespace psm::protocol::socks5
          * 返回 false，不应再调用读写方法。用于将底层连接转移给
          * 其他组件管理。
          */
-        psm::channel::transport::shared_transmission release()
+        channel::transport::shared_transmission release()
         {
             return std::move(next_layer_);
         }

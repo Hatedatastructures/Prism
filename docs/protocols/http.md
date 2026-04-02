@@ -5,22 +5,22 @@
 ## 1. 总体入口链路
 
 1. **连接接收**：`worker` 监听端口并接收连接，创建 `session`  
-   入口位置：[worker.hpp](../../include/prism/agent/worker/worker.hpp)，类 `ngx::agent::worker` 的 `do_accept`。
+   入口位置：[worker.hpp](../../include/prism/agent/worker/worker.hpp)，类 `psm::agent::worker` 的 `do_accept`。
 
 2. **协议识别**：`session::diversion` 预读并识别协议，然后分流到 HTTP 处理器  
-   位置：[session.hpp](../../include/prism/agent/session/session.hpp)，类 `ngx::agent::session` 的 `diversion`。通过检查请求行前几个字节判断是否为 HTTP 协议（`GET `、`POST `、`CONNECT ` 等）。
+   位置：[session.hpp](../../include/prism/agent/session/session.hpp)，类 `psm::agent::session` 的 `diversion`。通过检查请求行前几个字节判断是否为 HTTP 协议（`GET `、`POST `、`CONNECT ` 等）。
 
 3. **HTTP 处理器调用**：`handler::http` 读取并解析 HTTP 请求，确定目标与路由方向  
-   位置：[handlers.hpp](../../include/prism/agent/dispatch/handlers.hpp)，命名空间 `ngx::agent::handler` 的 `http` 模板函数。
+   位置：[handlers.hpp](../../include/prism/agent/dispatch/handlers.hpp)，命名空间 `psm::agent::handler` 的 `http` 模板函数。
 
 4. **目标解析**：`protocol::analysis::resolve` 判断"正向/反向"并解析目标地址  
-   位置：[analysis.cpp](../../src/prism/protocol/analysis.cpp)，类 `ngx::protocol::analysis` 的 `resolve`。
+   位置：[analysis.cpp](../../src/prism/protocol/analysis.cpp)，类 `psm::protocol::analysis` 的 `resolve`。
 
 5. **上游连接建立**：`primitives::dial` 根据 `target.positive` 选择路由  
-   位置：[primitives.cpp](../../src/prism/agent/pipeline/primitives.cpp)，命名空间 `ngx::agent::pipeline::primitives` 的 `dial`。
+   位置：[primitives.cpp](../../src/prism/agent/pipeline/primitives.cpp)，命名空间 `psm::agent::pipeline::primitives` 的 `dial`。
 
 6. **路由决策与连接**：`router` 建立上游连接（直连或回退）  
-   位置：[router.cpp](../../src/prism/resolve/router.cpp)，类 `ngx::resolve::router` 的 `async_forward` 与 `async_reverse`。
+   位置：[router.cpp](../../src/prism/resolve/router.cpp)，类 `psm::resolve::router` 的 `async_forward` 与 `async_reverse`。
 
 7. **隧道转发**：根据请求类型进入隧道（`tunnel`）转发。
 
@@ -125,7 +125,7 @@ Host: myservice.com
 ### 3.2 反向路由 `async_reverse`
 
 从 `reverse_map_` 取目标后端 `endpoint`，通过连接池复用连接。
-对应实现：[router.cpp](../../src/prism/resolve/router.cpp) 的 `ngx::resolve::router::async_reverse`。
+对应实现：[router.cpp](../../src/prism/resolve/router.cpp) 的 `psm::resolve::router::async_reverse`。
 
 ### 3.3 上游代理回退 `async_positive`
 
@@ -135,7 +135,7 @@ Host: myservice.com
 3. 发送 `CONNECT host:port` 请求。
 4. 解析响应行状态码（仅接受 `200`）。
 
-对应实现：[router.cpp](../../src/prism/resolve/router.cpp) 的 `ngx::resolve::router::async_positive`。
+对应实现：[router.cpp](../../src/prism/resolve/router.cpp) 的 `psm::resolve::router::async_positive`。
 
 ## 4. 隧道转发机制
 
@@ -165,13 +165,13 @@ auto tunnel(transmission_pointer inbound, transmission_pointer outbound,
 if (read_buffer.size() != 0)
 {
   trace::debug("[Handler] Forwarding {} bytes of prefetched data.", read_buffer.size());
-  co_await ngx::channel::loader::async_write(*ctx.server_socket, read_buffer.data(), redirect_error);
+  co_await psm::channel::loader::async_write(*ctx.server_socket, read_buffer.data(), redirect_error);
   read_buffer.consume(read_buffer.size());
 }
 ```
 
 **关键点**：
-- 使用 `ngx::channel::loader::async_write` 保证完整写入。
+- 使用 `psm::channel::loader::async_write` 保证完整写入。
 - 写入后调用 `consume` 清空缓冲区。
 
 ### 4.3 核心转发逻辑 `primitives::tunnel`
@@ -186,16 +186,16 @@ if (read_buffer.size() != 0)
 以下日志有助于确认 HTTP 请求走向：
 
 - `[Session] Detected protocol: http.`
-  位置：[session.hpp](../../include/prism/agent/session/session.hpp) 的 `ngx::agent::session::session::diversion`。
+  位置：[session.hpp](../../include/prism/agent/session/session.hpp) 的 `psm::agent::session::session::diversion`。
 
 - `[Pipeline] HTTP request received: {method} {target}`
-  位置：[protocols.cpp](../../src/prism/agent/pipeline/protocols.cpp) 的 `ngx::agent::pipeline::http`。
+  位置：[protocols.cpp](../../src/prism/agent/pipeline/protocols.cpp) 的 `psm::agent::pipeline::http`。
 
 - `[Pipeline] HTTP analysis target = [host: {}, port: {}, positive: {}]`
-  位置：[protocols.cpp](../../src/prism/agent/pipeline/protocols.cpp) 的 `ngx::agent::pipeline::http`。
+  位置：[protocols.cpp](../../src/prism/agent/pipeline/protocols.cpp) 的 `psm::agent::pipeline::http`。
 
 - `[Pipeline] HTTP upstream connected`
-  位置：[primitives.cpp](../../src/prism/agent/pipeline/primitives.cpp) 的 `ngx::agent::pipeline::primitives::dial`。
+  位置：[primitives.cpp](../../src/prism/agent/pipeline/primitives.cpp) 的 `psm::agent::pipeline::primitives::dial`。
 
 ## 6. 简化调用图（文字版）
 
@@ -211,7 +211,7 @@ worker.accept -> session::diversion
           -> primitives::tunnel (纯 TCP 透传)
       -> else:
           -> protocol::http::serialize (请求序列化)
-          -> ngx::channel::adapter::async_write (转发请求头与正文)
+          -> psm::channel::adapter::async_write (转发请求头与正文)
           -> forward prefetched buffer (read_buffer.data) (预读数据转发)
           -> primitives::tunnel (持续双向转发)
 ```

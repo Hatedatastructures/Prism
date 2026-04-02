@@ -5,8 +5,8 @@
  * Trojan 是一种基于 TLS 的加密代理协议，通过在应用层添加固定格式的
  * 头部来实现流量伪装和认证。模块组成包括 constants.hpp 定义 Trojan
  * 协议常量，包含命令和地址类型枚举。message.hpp 定义 Trojan 消息结构，
- * 定义地址结构和请求消息结构。wire.hpp 提供 Trojan 协议线级解析，提供
- * 凭据、头部、地址和端口的解码函数。stream.hpp 提供 Trojan 协议装饰器，
+ * 定义地址结构和请求消息结构。format.hpp 提供 Trojan 协议格式编解码，
+ * 提供凭据、头部、地址和端口的解码函数。relay.hpp 提供 Trojan 协议中继器，
  * 提供协议握手、凭据验证和数据转发功能。核心特性包括协议完整，实现
  * Trojan 协议完整握手流程，支持所有地址类型和命令。装饰器模式，包装
  * 底层传输层，透明添加协议头部，支持链式组合。凭据验证，支持可配置的
@@ -22,5 +22,5 @@
 
 #include <prism/protocol/trojan/constants.hpp>
 #include <prism/protocol/trojan/message.hpp>
-#include <prism/protocol/trojan/wire.hpp>
-#include <prism/protocol/trojan/stream.hpp>
+#include <prism/protocol/trojan/format.hpp>
+#include <prism/protocol/trojan/relay.hpp>

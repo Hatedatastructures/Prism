@@ -76,9 +76,9 @@ void start(server_context &server, worker_context &worker, stats::state &metrics
         active_sessions->fetch_sub(1U, std::memory_order_relaxed);
     };
 
-    auto inbound = ngx::channel::transport::make_reliable(std::move(socket));
+    auto inbound = psm::channel::transport::make_reliable(std::move(socket));
         session::session_params params{server, worker, std::move(inbound)};
-    const auto shared_session = ngx::agent::session::make_session(std::move(params));
+    const auto shared_session = psm::agent::session::make_session(std::move(params));
 
     metrics.session_open();
     try
@@ -218,7 +218,7 @@ auto session::diversion() -> net::awaitable<void>
 **源码位置**: [probe.hpp](../../include/prism/protocol/probe.hpp)
 
 ```cpp
-inline auto probe(ngx::channel::transport::transmission &trans, std::size_t max_peek_size = 24)
+inline auto probe(psm::channel::transport::transmission &trans, std::size_t max_peek_size = 24)
     -> net::awaitable<detection_result>
 {
     detection_result result;
@@ -316,8 +316,8 @@ auto create(const protocol::protocol_type type) const -> shared_handler
 auto http(session_context &ctx, std::span<const std::byte> data)
     -> net::awaitable<void>
 {
-    ngx::channel::connector stream(std::move(ctx.inbound));
-    ngx::channel::transport::transmission_pointer outbound;
+    psm::channel::connector stream(std::move(ctx.inbound));
+    psm::channel::transport::transmission_pointer outbound;
 
     ctx.frame_arena.reset();
     auto mr = ctx.frame_arena.get();
@@ -433,10 +433,10 @@ auto http(session_context &ctx, std::span<const std::byte> data)
 auto dial(std::shared_ptr<resolve::router> router, std::string_view label,
           const protocol::analysis::target &target, const bool allow_reverse,
           const bool require_open)
-    -> net::awaitable<std::pair<fault::code, ngx::channel::transport::transmission_pointer>>
+    -> net::awaitable<std::pair<fault::code, psm::channel::transport::transmission_pointer>>
 {
     auto ec = fault::code::success;
-    ngx::channel::unique_sock socket;
+    psm::channel::unique_sock socket;
 
     if (allow_reverse && !target.positive)
     {
@@ -464,7 +464,7 @@ auto dial(std::shared_ptr<resolve::router> router, std::string_view label,
     }
 
     trace::debug("[Pipeline] {} upstream connected.", label);
-    co_return std::make_pair(ec, ngx::channel::transport::make_reliable(std::move(*socket)));
+    co_return std::make_pair(ec, psm::channel::transport::make_reliable(std::move(*socket)));
 }
 ```
 

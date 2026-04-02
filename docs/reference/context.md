@@ -204,7 +204,7 @@ std::uint32_t buffer_size;
 #### inbound
 
 ```cpp
-ngx::channel::transport::transmission_pointer inbound;
+psm::channel::transport::transmission_pointer inbound;
 ```
 
 入站传输对象，处理来自客户端的数据。
@@ -220,7 +220,7 @@ using transmission_pointer = std::unique_ptr<transmission>;
 #### outbound
 
 ```cpp
-ngx::channel::transport::transmission_pointer outbound;
+psm::channel::transport::transmission_pointer outbound;
 ```
 
 出站传输对象，处理发往目标服务器的数据。
@@ -317,7 +317,7 @@ session_context ctx{
     .worker = worker_ctx,
     .frame_arena = frame_arena,
     .buffer_size = server_ctx.cfg.buffer.size,
-    .inbound = ngx::channel::transport::make_reliable(std::move(socket))
+    .inbound = psm::channel::transport::make_reliable(std::move(socket))
 };
 ```
 

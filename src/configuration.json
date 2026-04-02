@@ -54,7 +54,7 @@
         },
         "trojan": {
             "enable_tcp": true,
-            "enable_udp": false,
+            "enable_udp": true,
             "udp_idle_timeout": 60,
             "udp_max_datagram": 65535
         },

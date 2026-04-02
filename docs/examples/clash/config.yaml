@@ -138,13 +138,21 @@ proxies:
     # skip-cert-verify: true
     # sni: custom.com
 
-  - name: "Trojan"          
+  - name: "Trojan TCP"          
     type: trojan
     server: 192.168.137.1
     port: 8081
     password: "prism"
     udp: false
     skip-cert-verify: true               
+
+  - name: "Trojan UDP"          
+    type: trojan
+    server: 192.168.137.1
+    port: 8081
+    password: "prism"
+    udp: true
+    skip-cert-verify: true 
 
 
 # ---------- 策略组 ----------
@@ -162,7 +170,8 @@ proxy-groups:
       - "SOCKS5 UDP"
       - "Http"
       - "Https"
-      - "Trojan"
+      - "Trojan TCP"
+      - "Trojan UDP"
 
   - name: "自动选择"
     type: url-test
@@ -177,7 +186,9 @@ proxy-groups:
       - "SOCKS5 UDP"
       - "Http"
       - "Https"
-      - "Trojan"
+      - "Trojan TCP"
+      - "Trojan UDP"
+      
     url: "http://www.gstatic.com/generate_204"
     interval: 300
 

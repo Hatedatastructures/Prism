@@ -11,7 +11,7 @@
 #include <prism/channel/transport/transmission.hpp>
 #include <prism/channel/transport/reliable.hpp>
 #include <prism/channel/transport/unreliable.hpp>
-#include <prism/protocol/trojan/stream.hpp>
+#include <prism/protocol/trojan/relay.hpp>
 #include <prism/fault.hpp>
 #include <memory>
 #include <array>

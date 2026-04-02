@@ -2,7 +2,7 @@
 
 位置：`include/prism/multiplex/`、`src/prism/multiplex/`
 
-命名空间：`ngx::multiplex`
+命名空间：`psm::multiplex`
 
 ## 概述
 

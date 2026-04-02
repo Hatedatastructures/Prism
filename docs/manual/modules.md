@@ -30,7 +30,7 @@
 - 职责：工作线程核心，管理事件循环和资源
 - 内部资源组合：
   - `io_context`：单线程事件循环
-  - `ngx::channel::tcpool`：TCP 连接池
+  - `psm::channel::tcpool`：TCP 连接池
   - `resolve::router`：路由表（来自顶层 `resolve` 模块）
   - `ssl::context`：TLS 上下文（可选）
   - `stats::state`：负载统计
@@ -156,7 +156,7 @@
 ## 6. resolve 模块
 位置：`include/prism/resolve/`、`src/prism/resolve/`
 
-> **重要**：resolve 已从 `agent/resolve/` 提升为顶层独立模块，命名空间为 `ngx::resolve`。
+> **重要**：resolve 已从 `agent/resolve/` 提升为顶层独立模块，命名空间为 `psm::resolve`。
 > Agent 层通过 `worker` 持有 `resolve::router` 成员来使用该模块。
 
 ### 模块架构概览

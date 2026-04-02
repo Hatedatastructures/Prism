@@ -105,7 +105,7 @@ namespace psm::protocol::socks5
         address destination_address;
 
         // 传输形式（stream 或 datagram）
-        psm::protocol::form form = psm::protocol::form::stream;
+        form form = form::stream;
     };
 
     /**

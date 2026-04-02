@@ -1,6 +1,8 @@
 target_sources(${PROJECT_NAME}_static_library
         PRIVATE
         analysis.cpp
+        trojan/relay.cpp
+        trojan/format.cpp
 )
 
 target_sources(${PROJECT_NAME}_static_library
@@ -23,8 +25,8 @@ target_sources(${PROJECT_NAME}_static_library
             ${PROJECT_SOURCE_DIR}/include/prism/protocol/trojan/config.hpp
             ${PROJECT_SOURCE_DIR}/include/prism/protocol/trojan/constants.hpp
             ${PROJECT_SOURCE_DIR}/include/prism/protocol/trojan/message.hpp
-            ${PROJECT_SOURCE_DIR}/include/prism/protocol/trojan/stream.hpp
-            ${PROJECT_SOURCE_DIR}/include/prism/protocol/trojan/wire.hpp
+            ${PROJECT_SOURCE_DIR}/include/prism/protocol/trojan/relay.hpp
+            ${PROJECT_SOURCE_DIR}/include/prism/protocol/trojan/format.hpp
 )
 
 add_subdirectory(http)
