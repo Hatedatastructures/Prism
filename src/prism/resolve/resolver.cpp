@@ -24,7 +24,7 @@
 
 namespace psm::resolve
 {
-    // BoringSSL SNI 回调：设置 TLS ClientHello 中的 server_name 扩展
+    // SNI 回调：设置 TLS ClientHello 中的 server_name 扩展
     static int sni_callback(SSL *ssl, int *, void *arg)
     {
         SSL_set_tlsext_host_name(ssl, static_cast<const char *>(arg));

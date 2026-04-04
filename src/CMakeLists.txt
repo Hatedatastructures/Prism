@@ -1,31 +1,3 @@
-# =============================================================
-# BoringSSL setup
-# =============================================================
-set(BORINGSSL_ROOT "C:/bin/BoringSSL")
-
-if(NOT EXISTS "${BORINGSSL_ROOT}/include")
-    message(FATAL_ERROR "BoringSSL include directory not found at ${BORINGSSL_ROOT}/include")
-endif()
-
-find_library(LIB_SSL
-    NAMES ssl libssl
-    PATHS "${BORINGSSL_ROOT}/lib" "${BORINGSSL_ROOT}/lib64"
-    NO_DEFAULT_PATH
-)
-
-find_library(LIB_CRYPTO
-    NAMES crypto libcrypto
-    PATHS "${BORINGSSL_ROOT}/lib" "${BORINGSSL_ROOT}/lib64"
-    NO_DEFAULT_PATH
-)
-
-if(NOT LIB_SSL OR NOT LIB_CRYPTO)
-    message(FATAL_ERROR "Could not find ssl.lib or crypto.lib in ${BORINGSSL_ROOT}/lib")
-endif()
-
-message(STATUS "Found BoringSSL SSL: ${LIB_SSL}")
-message(STATUS "Found BoringSSL Crypto: ${LIB_CRYPTO}")
-
 add_library(${PROJECT_NAME}_static_library STATIC)
 
 target_include_directories(${PROJECT_NAME}_static_library
@@ -34,7 +6,6 @@ target_include_directories(${PROJECT_NAME}_static_library
         ${PROJECT_SOURCE_DIR}/include/prism
         ${boost_include_dir}
         ${Boost_INCLUDE_DIRS}
-        ${BORINGSSL_ROOT}/include
         PRIVATE
         ${CMAKE_CURRENT_SOURCE_DIR}
 )
@@ -44,8 +15,8 @@ target_link_libraries(${PROJECT_NAME}_static_library
         spdlog::spdlog
         glaze::glaze
         Boost::system
-        ${LIB_SSL}
-        ${LIB_CRYPTO}
+        OpenSSL::SSL
+        OpenSSL::Crypto
         ws2_32
         mswsock
         crypt32
@@ -63,8 +34,16 @@ target_compile_definitions(${PROJECT_NAME}_static_library
 
 add_subdirectory(prism)
 
+
 add_executable(${PROJECT_NAME}
         main.cpp
+)
+
+
+target_link_options(${PROJECT_NAME} PRIVATE
+        -static
+        -static-libgcc
+        -static-libstdc++
 )
 
 target_compile_options(${PROJECT_NAME} PRIVATE

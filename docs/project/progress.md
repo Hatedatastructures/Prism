@@ -6,11 +6,11 @@
 
 - **项目名称**：Prism
 - **项目类型**：高性能代理引擎
-- **核心技术**：C++23、Boost.Asio 协程、BoringSSL、PMR 内存管理
+- **核心技术**：C++23、Boost.Asio 协程、OpenSSL、PMR 内存管理
 - **开发状态**：**稳定可用**，核心功能已完成
 - **当前版本**：v0.8.0
 - **最后更新**：2026年3月24日
-- **主要依赖**：Boost(system)、BoringSSL、spdlog、glaze
+- **主要依赖**：Boost(system)、OpenSSL、spdlog、glaze
 
 ---
 

@@ -25,8 +25,8 @@ namespace psm::protocol::trojan
      * @param min_size 最小读取字节数
      * @return 错误码和实际读取字节数
      */
-    inline auto read_at_least(channel::transport::transmission &transport, std::span<std::byte> buffer,
-                              std::size_t min_size)
+    inline auto read_at_least(channel::transport::transmission &transport, const std::span<std::byte> buffer,
+                              const std::size_t min_size)
         -> net::awaitable<std::pair<fault::code, std::size_t>>
     {
         std::size_t total = 0;
@@ -55,8 +55,8 @@ namespace psm::protocol::trojan
      * @param target 目标字节数
      * @return 错误码和最终读取字节数
      */
-    inline auto read_remaining(channel::transport::transmission &transport, std::span<std::byte> buffer,
-                               std::size_t current, std::size_t target)
+    inline auto read_remaining(channel::transport::transmission &transport, const std::span<std::byte> buffer,
+                               std::size_t current, const std::size_t target)
         -> net::awaitable<std::pair<fault::code, std::size_t>>
     {
         while (current < target)
@@ -82,7 +82,7 @@ namespace psm::protocol::trojan
      * @param cfg 配置
      * @return 错误码和传输形式
      */
-    inline auto validate_command(command cmd, const config &cfg)
+    inline auto validate_command(const command cmd, const config &cfg)
         -> std::pair<fault::code, form>
     {
         switch (cmd)
@@ -113,7 +113,7 @@ namespace psm::protocol::trojan
      * @param atyp 地址类型
      * @return 错误码、地址、消耗字节数
      */
-    inline auto parse_address_from_buffer(std::span<const std::uint8_t> buffer, std::size_t offset, address_type atyp)
+    inline auto parse_address_from_buffer(const std::span<const std::uint8_t> buffer, const std::size_t offset, const address_type atyp)
         -> std::tuple<fault::code, address, std::size_t>
     {
         switch (atyp)
@@ -165,7 +165,7 @@ namespace psm::protocol::trojan
         memory::vector<std::byte> send;     ///< 发送缓冲区
         memory::vector<std::byte> response; ///< 响应缓冲区
 
-        explicit udp_buffers(std::size_t max_datagram)
+        explicit udp_buffers(const std::size_t max_datagram)
             : recv(max_datagram, memory::current_resource()),
               send(memory::current_resource()),
               response(max_datagram, memory::current_resource())
@@ -287,8 +287,8 @@ namespace psm::protocol::trojan
     {
         // 缓冲区足够容纳最大请求
         std::array<std::uint8_t, 320> buffer{};
-        auto byte_span = std::span(reinterpret_cast<std::byte *>(buffer.data()), buffer.size());
-        auto data_span = std::span<const std::uint8_t>(buffer.data(), buffer.size());
+        const auto byte_span = std::span(reinterpret_cast<std::byte *>(buffer.data()), buffer.size());
+        const auto data_span = std::span<const std::uint8_t>(buffer.data(), buffer.size());
 
         // 最小请求长度：56(凭据) + 2(CRLF) + 1(CMD) + 1(ATYP) + 4(IPv4) + 2(PORT) + 2(CRLF) = 68 字节
         static constexpr std::size_t k_min_request_size = 68;

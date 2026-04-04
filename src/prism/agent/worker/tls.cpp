@@ -28,9 +28,6 @@ namespace psm::agent::worker::tls
         // 获取原生 SSL_CTX 指针
         auto *native = ctx.native_handle();
 
-        // 启用 GREASE 扩展，增强 TLS 指纹随机性
-        SSL_CTX_set_grease_enabled(native, 1);
-
         // 设置 ALPN 协议列表，支持 HTTP/2 和 HTTP/1.1
         constexpr unsigned char alpn[] = "\x02h2\x08http/1.1";
         SSL_CTX_set_alpn_protos(native, alpn, sizeof(alpn) - 1);

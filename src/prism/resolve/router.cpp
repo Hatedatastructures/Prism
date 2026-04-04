@@ -147,10 +147,29 @@ namespace psm::resolve
     auto router::async_datagram(const std::string_view host, const std::string_view port)
         -> net::awaitable<std::pair<fault::code, net::ip::udp::socket>>
     {
-        const auto [resolve_ec, target] = co_await dns_.resolve_udp(host, port);
-        if (fault::failed(resolve_ec))
+        // 检测是否为 IP 字面量（IPv4 或 IPv6），直接构造 endpoint
+        net::ip::udp::endpoint target;
         {
-            co_return std::pair{resolve_ec, net::ip::udp::socket{executor_}};
+            boost::system::error_code ec;
+            const auto addr = net::ip::make_address(host, ec);
+            if (!ec)
+            {
+                if (addr.is_v6() && ipv6_disabled())
+                {
+                    co_return std::pair{fault::code::host_unreachable, net::ip::udp::socket{executor_}};
+                }
+                const auto port_num = static_cast<std::uint16_t>(std::stoi(std::string(port)));
+                target = net::ip::udp::endpoint(addr, port_num);
+            }
+            else
+            {
+                const auto [resolve_ec, resolved] = co_await dns_.resolve_udp(host, port);
+                if (fault::failed(resolve_ec))
+                {
+                    co_return std::pair{resolve_ec, net::ip::udp::socket{executor_}};
+                }
+                target = resolved;
+            }
         }
 
         co_return open_udp_socket(executor_, target);
@@ -159,6 +178,20 @@ namespace psm::resolve
     auto router::resolve_datagram_target(const std::string_view host, const std::string_view port)
         -> net::awaitable<std::pair<fault::code, net::ip::udp::endpoint>>
     {
+        // 检测是否为 IP 字面量（IPv4 或 IPv6），直接构造 endpoint
+        {
+            boost::system::error_code ec;
+            const auto addr = net::ip::make_address(host, ec);
+            if (!ec)
+            {
+                if (addr.is_v6() && ipv6_disabled())
+                {
+                    co_return std::make_pair(fault::code::host_unreachable, net::ip::udp::endpoint{});
+                }
+                const auto port_num = static_cast<std::uint16_t>(std::stoi(std::string(port)));
+                co_return std::make_pair(fault::code::success, net::ip::udp::endpoint(addr, port_num));
+            }
+        }
         co_return co_await dns_.resolve_udp(host, port);
     }
 

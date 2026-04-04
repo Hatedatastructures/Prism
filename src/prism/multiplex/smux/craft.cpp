@@ -18,10 +18,29 @@ constexpr std::string_view tag = "[Smux.Craft]";
 
 namespace psm::multiplex::smux
 {
+    namespace
+    {
+        // 构建帧头为字节数组（不包含 payload）
+        [[nodiscard]] std::array<std::byte, frame_header_size> build_header(
+            const command cmd, const std::uint32_t stream_id, const std::uint16_t length)
+        {
+            return {
+                std::byte{protocol_version},
+                static_cast<std::byte>(cmd),
+                static_cast<std::byte>(length & 0xFF),
+                static_cast<std::byte>(length >> 8),
+                static_cast<std::byte>(stream_id & 0xFF),
+                static_cast<std::byte>(stream_id >> 8),
+                static_cast<std::byte>(stream_id >> 16),
+                static_cast<std::byte>(stream_id >> 24),
+            };
+        }
+    } // namespace
+
     craft::craft(channel::transport::shared_transmission transport, resolve::router &router,
                  const config &cfg, const memory::resource_pointer mr)
         : core(std::move(transport), router, cfg, mr),
-          channel_(transport_->executor(), 128)
+          channel_(transport_->executor(), cfg.max_streams)
     {
         recv_buffer_ = memory::vector<std::byte>(mr_);
         recv_buffer_.resize(config_.buffer_size);
@@ -162,8 +181,7 @@ namespace psm::multiplex::smux
                 break;
 
             case command::push:
-                // PSH：数据帧，转发到对应的流
-                co_await handle_data(hdr.stream_id, payload);
+                dispatch_push(hdr.stream_id, std::move(payload));
                 break;
 
             case command::fin:
@@ -194,23 +212,19 @@ namespace psm::multiplex::smux
         trace::debug("{} stream {} pending, waiting for address", tag, stream_id);
     }
 
-    auto craft::handle_data(const std::uint32_t stream_id, std::span<const std::byte> payload)
-        -> net::awaitable<void>
+    void craft::dispatch_push(const std::uint32_t stream_id, memory::vector<std::byte> payload)
     {
-        // 检查是否为 pending 流（刚创建，等待地址数据）
+        // Pending 流：累积数据，可能触发连接
         if (const auto pit = pending_.find(stream_id); pit != pending_.end())
         {
             auto &entry = pit->second;
-            // 累积数据到缓冲区
             entry.buffer.insert(entry.buffer.end(), payload.begin(), payload.end());
 
-            // 数据足够时异步发起连接（至少 7 字节：ATYP + 地址 + 端口）
             if (!entry.connecting && entry.buffer.size() >= 7)
             {
                 entry.connecting = true;
                 auto self = std::static_pointer_cast<craft>(shared_from_this());
-                // 异常回调：记录连接激活失败
-                auto callback = [stream_id](const std::exception_ptr &ep)
+                auto callback = [self, stream_id](const std::exception_ptr &ep)
                 {
                     if (ep)
                     {
@@ -228,25 +242,35 @@ namespace psm::multiplex::smux
                         }
                     }
                 };
-                // 在 transport 执行器上启动连接协程
                 net::co_spawn(transport_->executor(), self->activate_stream(stream_id), callback);
             }
-            co_return;
+            return;
         }
 
-        // 已连接的 TCP 流：直接转发数据到 duct
+        // 已连接的 TCP 流：非阻塞 dispatch，避免慢速 duct 阻塞帧循环
         const auto sit = ducts_.find(stream_id);
         if (sit != ducts_.end() && sit->second)
         {
-            co_await sit->second->on_mux_data(payload);
-            co_return;
+            auto dp = sit->second;
+
+            auto async_push = [dp, p = std::move(payload)]() mutable -> net::awaitable<void>
+            { // dp->on_mux_data 可能涉及网络 I/O，异步调用避免阻塞帧循环
+                co_await dp->on_mux_data(std::move(p));
+            };
+            net::co_spawn(executor(), std::move(async_push), net::detached);
+            return;
         }
 
-        // UDP 流：转发数据报到 parcel
+        // UDP 流：非阻塞 dispatch
         const auto uit = parcels_.find(stream_id);
         if (uit != parcels_.end() && uit->second)
         {
-            co_await uit->second->on_mux_data(payload);
+            auto dp = uit->second;
+            auto async_push = [dp, p = std::move(payload)]() mutable -> net::awaitable<void>
+            {
+                co_await dp->on_mux_data(std::move(p));
+            };
+            net::co_spawn(executor(), std::move(async_push), net::detached);
         }
     }
 
@@ -293,8 +317,9 @@ namespace psm::multiplex::smux
             }
             // 地址解析失败，发送错误状态并关闭流
             trace::warn("{} stream {} address parse failed", tag, stream_id);
-            constexpr std::byte error_status{0x01};
-            co_await send_data(stream_id, std::span(&error_status, 1));
+            memory::vector<std::byte> error_buf(mr_);
+            error_buf.push_back(std::byte{0x01});
+            co_await send_data(stream_id, std::move(error_buf));
             pending_.erase(stream_id);
             send_fin(stream_id);
             co_return;
@@ -319,8 +344,9 @@ namespace psm::multiplex::smux
             trace::debug("{} stream {} creating UDP parcel", tag, stream_id);
 
             // 发送成功状态
-            constexpr std::byte success_status{0x00};
-            co_await send_data(stream_id, std::span(&success_status, 1));
+            memory::vector<std::byte> success_buf(mr_);
+            success_buf.push_back(std::byte{0x00});
+            co_await send_data(stream_id, std::move(success_buf));
 
             pending_.erase(stream_id);
 
@@ -358,16 +384,18 @@ namespace psm::multiplex::smux
         if (code != fault::code::success || !conn.valid())
         {
             trace::warn("{} stream {} connect to {}:{} failed", tag, stream_id, host, port);
-            constexpr std::byte error_status{0x01};
-            co_await send_data(stream_id, std::span(&error_status, 1));
+            memory::vector<std::byte> error_buf(mr_);
+            error_buf.push_back(std::byte{0x01});
+            co_await send_data(stream_id, std::move(error_buf));
             pending_.erase(stream_id);
             send_fin(stream_id);
             co_return;
         }
 
         // 发送成功状态
-        constexpr std::byte success_status{0x00};
-        co_await send_data(stream_id, std::span(&success_status, 1));
+        memory::vector<std::byte> success_buf(mr_);
+        success_buf.push_back(std::byte{0x00});
+        co_await send_data(stream_id, std::move(success_buf));
 
         pending_.erase(stream_id);
 
@@ -382,34 +410,26 @@ namespace psm::multiplex::smux
         // 转发剩余数据
         if (!remaining_data.empty())
         {
-            co_await p->on_mux_data(remaining_data);
+            co_await p->on_mux_data(std::move(remaining_data));
         }
 
         trace::debug("{} stream {} connected to {}:{}", tag, stream_id, host, port);
     }
 
-    auto craft::send_data(const std::uint32_t stream_id, const std::span<const std::byte> payload) const
+    auto craft::send_data(const std::uint32_t stream_id, memory::vector<std::byte> payload) const
         -> net::awaitable<void>
     {
-        frame_header hdr{};
-        hdr.cmd = command::push;
-        hdr.stream_id = stream_id;
-        hdr.length = static_cast<std::uint16_t>(payload.size());
-
-        co_await send_frame(hdr, payload);
+        co_await push_frame(command::push, stream_id, std::move(payload));
     }
 
     void craft::send_fin(const std::uint32_t stream_id)
     {
         // FIN 发送不阻塞调用者，异步执行
-        frame_header hdr{};
-        hdr.cmd = command::fin;
-        hdr.stream_id = stream_id;
-
         auto self = std::static_pointer_cast<craft>(shared_from_this());
-        auto send_frame_fn = [self, hdr]() -> net::awaitable<void>
+        auto send_fn = [self, stream_id]() -> net::awaitable<void>
         {
-            co_await self->send_frame(hdr, {});
+            memory::vector<std::byte> empty_payload(self->mr_);
+            co_await self->push_frame(command::fin, stream_id, std::move(empty_payload));
         };
         auto callback = [stream_id](const std::exception_ptr &ep)
         {
@@ -429,7 +449,7 @@ namespace psm::multiplex::smux
                 }
             }
         };
-        net::co_spawn(transport_->executor(), send_frame_fn, callback);
+        net::co_spawn(transport_->executor(), send_fn, callback);
     }
 
     auto craft::executor() const -> net::any_io_executor
@@ -437,25 +457,26 @@ namespace psm::multiplex::smux
         return transport_->executor();
     }
 
-    auto craft::send_frame(const frame_header &hdr, const std::span<const std::byte> payload) const
+    auto craft::push_frame(const command cmd, const std::uint32_t stream_id, memory::vector<std::byte> payload) const
         -> net::awaitable<void>
     {
-        auto frame = serialize(hdr, payload, mr_);
+        outbound_frame frame(mr_);
+        frame.header = build_header(cmd, stream_id, static_cast<std::uint16_t>(payload.size()));
+        frame.payload = std::move(payload);
 
         boost::system::error_code ec;
         auto token = net::redirect_error(net::use_awaitable, ec);
         co_await channel_.async_send(boost::system::error_code{}, std::move(frame), token);
-        if (ec) // 发送到一个队列里面，由 send_loop() 消费
+        if (ec)
         {
-            trace::debug("{} send frame to channel failed: {}", tag, ec.message());
+            trace::debug("{} push frame to channel failed: {}", tag, ec.message());
         }
     }
 
     /**
      * @brief 发送循环，将多路复用帧写入底层传输
-     * @details 该协程作为独立的发送线程运行，从 channel_ 队列中取出帧并写入
-     * transport_。channel_ 是一个有界通道，由 send_frame() 和 send_fin() 生产帧。
-     * 当 transport_ 写入失败时关闭整个会话，异常时仅记录日志并退出。
+     * @details scatter-gather 写入：先写 8 字节帧头，再写 payload。
+     * header 与 payload 分离传递，消除 serialize 的 payload 拷贝。
      */
     auto craft::send_loop() -> net::awaitable<void>
     {
@@ -472,13 +493,25 @@ namespace psm::multiplex::smux
                     break;
                 }
 
-                std::error_code transport_ec;   // 发送到客户端
-                co_await transport_->async_write(frame, transport_ec);
+                // Scatter-gather: 先写帧头，再写 payload（零拷贝）
+                std::error_code transport_ec;
+                co_await transport_->async_write(frame.header, transport_ec);
                 if (transport_ec)
                 {
-                    trace::debug("{} send frame failed: {}", tag, transport_ec.message());
-                    close(); // Notify core to close
+                    trace::debug("{} send header failed: {}", tag, transport_ec.message());
+                    close();
                     break;
+                }
+
+                if (!frame.payload.empty())
+                {
+                    co_await transport_->async_write(frame.payload, transport_ec);
+                    if (transport_ec)
+                    {
+                        trace::debug("{} send payload failed: {}", tag, transport_ec.message());
+                        close();
+                        break;
+                    }
                 }
             }
         }

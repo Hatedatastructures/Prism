@@ -173,7 +173,7 @@ namespace psm::multiplex
         auto payload = std::span<const std::byte>(recv_buffer_.data(), n);
         auto encoded = smux::build_udp_datagram(reply_host, reply_port, payload, mr_);
 
-        co_await owner_->send_data(id_, encoded);
+        co_await owner_->send_data(id_, std::move(encoded));
         trace::debug("{} stream {} UDP relay completed", tag, id_);
     }
 

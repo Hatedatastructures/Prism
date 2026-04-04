@@ -89,7 +89,7 @@
 Prism 是一个基于 Modern C++（C++23）的高性能代理引擎：
 
 - **协议支持**：HTTP/HTTPS、SOCKS5、Trojan
-- **技术栈**：Boost.Asio 协程、BoringSSL、PMR 内存管理
+- **技术栈**：Boost.Asio 协程、OpenSSL、PMR 内存管理
 - **特性**：负载均衡、连接池、DNS 缓存、账户认证
 
 详细开发进度请参阅 [开发进度](project/progress.md)。

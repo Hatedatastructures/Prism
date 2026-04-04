@@ -68,8 +68,7 @@
 - 职责：TLS 证书配置、SSL 上下文创建
 - 关键实现：
   - 加载证书链和私钥文件
-  - 启用 GREASE 扩展增加 TLS 指纹随机性
-  - 设置 ALPN 协议列表（h2、http/1.1）
+  - 启用 ALPN 协议协商（h2、http/1.1）
   - 若未配置证书则返回空指针，运行明文模式
 - 源码：[tls.hpp](../../include/prism/agent/worker/tls.hpp)、[tls.cpp](../../src/prism/agent/worker/tls.cpp)
 
@@ -220,7 +219,7 @@
 - 四种查询协议的实现：
   - **UDP**（`query_udp`）：512 字节缓冲区，检测 TC 标志自动回退 TCP（RFC 1035 §4.2.1）
   - **TCP**（`query_tcp`）：2 字节大端长度前缀 + DNS 报文帧格式
-  - **DoT**（`query_tls`）：TCP + TLS 层，支持 SNI 设置和证书验证控制（BoringSSL）
+  - **DoT**（`query_tls`）：TCP + TLS 层，支持 SNI 设置和证书验证控制（OpenSSL）
   - **DoH**（`query_https`）：TLS + HTTP/1.1 POST（RFC 8484），手动解析 HTTP 响应头提取 Content-Length
 - 查询调度策略（`resolve()` 方法）：
   - `fallback`：按顺序逐一尝试上游，首个成功即返回
