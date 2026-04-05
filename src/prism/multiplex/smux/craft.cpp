@@ -329,6 +329,7 @@ namespace psm::multiplex::smux
         const auto port = addr->port;
         const auto offset = addr->offset;
         const bool is_udp = addr->is_udp;
+        const bool packet_addr = addr->packet_addr;
 
         // 提取地址之后的数据，连接成功后需要转发
         memory::vector<std::byte> remaining_data(mr_);
@@ -351,7 +352,11 @@ namespace psm::multiplex::smux
             pending_.erase(stream_id);
 
             // 创建 UDP parcel 并启动
-            auto dp = std::make_shared<parcel>(stream_id, shared_from_this(), config_, router_, mr_);
+            auto dp = std::make_shared<parcel>(stream_id, shared_from_this(), config_, router_, mr_, packet_addr);
+            if (!packet_addr)
+            {
+                dp->set_destination(host, port);
+            }
             dp->start();
 
             // 转发剩余数据

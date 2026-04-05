@@ -139,9 +139,10 @@ namespace psm::multiplex::smux
             return std::nullopt;
         }
 
-        // Flags 高字节在前，bit0 标识 UDP 流
+        // Flags 高字节在前，bit0 标识 UDP 流，bit1 标识 PacketAddr
         const auto flags = static_cast<std::uint16_t>(data[0]) << 8 | static_cast<std::uint16_t>(data[1]);
-        const bool is_udp = (flags & 1) != 0;
+        const bool is_udp = (flags & 0x01) != 0;
+        const bool packet_addr = (flags & 0x02) != 0;
 
         const auto atype = static_cast<std::uint8_t>(data[2]);
         memory::string host(mr);
@@ -208,6 +209,7 @@ namespace psm::multiplex::smux
             .port = port,
             .offset = offset + 2,
             .is_udp = is_udp,
+            .packet_addr = packet_addr,
         };
     }
 
@@ -281,11 +283,49 @@ namespace psm::multiplex::smux
                                    static_cast<std::uint16_t>(data[offset + 1]);
         offset += 2;
 
-        const auto payload_size = data.size() > offset ? data.size() - offset : 0;
+        // sing-mux PacketAddr 格式: [SOCKS5 addr][Length 2B BE][Payload]
+        if (data.size() < offset + 2)
+        {
+            return std::nullopt;
+        }
+        const auto length = static_cast<std::uint16_t>(data[offset]) << 8 |
+                      static_cast<std::uint16_t>(data[offset + 1]);
+        offset += 2;
+
+        if (data.size() < offset + length)
+        {
+            return std::nullopt;
+        }
+
+        const auto payload_size = length;
         return udp_datagram{
             .host = std::move(host),
             .port = port,
             .payload = data.subspan(offset, payload_size),
+            .consumed = offset + payload_size,
+        };
+    }
+
+    auto parse_udp_length_prefixed(std::span<const std::byte> data)
+        -> std::optional<udp_length_prefixed>
+    {
+        if (data.size() < 2)
+        {
+            return std::nullopt;
+        }
+
+        // Length 2 字节大端序
+        const auto length = static_cast<std::uint16_t>(data[0]) << 8 |
+                            static_cast<std::uint16_t>(data[1]);
+
+        if (data.size() < static_cast<std::size_t>(2 + length))
+        {
+            return std::nullopt;
+        }
+
+        return udp_length_prefixed{
+            .payload = data.subspan(2, length),
+            .consumed = static_cast<std::size_t>(2) + length,
         };
     }
 
@@ -295,42 +335,48 @@ namespace psm::multiplex::smux
     {
         memory::vector<std::byte> buffer(mr);
 
-        // IPv4
+        // IPv4 - sing-mux PacketAddr: [ATYP][addr][port][Length 2B BE][Payload]
         std::array<uint8_t, 4> v4buf{};
         if (inet_pton(AF_INET, host.data(), v4buf.data()) == 1)
         {
-            buffer.resize(1 + 4 + 2 + payload.size());
+            buffer.resize(1 + 4 + 2 + 2 + payload.size());
             auto *p = buffer.data();
             p[0] = std::byte{0x01};
             std::memcpy(p + 1, v4buf.data(), 4);
             p[5] = static_cast<std::byte>(port >> 8);
             p[6] = static_cast<std::byte>(port & 0xFF);
+            // Length 2B BE
+            p[7] = static_cast<std::byte>(payload.size() >> 8);
+            p[8] = static_cast<std::byte>(payload.size() & 0xFF);
             if (!payload.empty())
             {
-                std::memcpy(p + 7, payload.data(), payload.size());
+                std::memcpy(p + 9, payload.data(), payload.size());
             }
             return buffer;
         }
 
-        // IPv6
+        // IPv6 - sing-mux PacketAddr: [ATYP][addr][port][Length 2B BE][Payload]
         std::array<uint8_t, 16> v6buf{};
         if (inet_pton(AF_INET6, host.data(), v6buf.data()) == 1)
         {
-            buffer.resize(1 + 16 + 2 + payload.size());
+            buffer.resize(1 + 16 + 2 + 2 + payload.size());
             auto *p = buffer.data();
             p[0] = std::byte{0x04};
             std::memcpy(p + 1, v6buf.data(), 16);
             p[17] = static_cast<std::byte>(port >> 8);
             p[18] = static_cast<std::byte>(port & 0xFF);
+            // Length 2B BE
+            p[19] = static_cast<std::byte>(payload.size() >> 8);
+            p[20] = static_cast<std::byte>(payload.size() & 0xFF);
             if (!payload.empty())
             {
-                std::memcpy(p + 19, payload.data(), payload.size());
+                std::memcpy(p + 21, payload.data(), payload.size());
             }
             return buffer;
         }
 
-        // 域名
-        buffer.resize(1 + 1 + host.size() + 2 + payload.size());
+        // 域名 - sing-mux PacketAddr: [ATYP][addr][port][Length 2B BE][Payload]
+        buffer.resize(1 + 1 + host.size() + 2 + 2 + payload.size());
         auto *p = buffer.data();
         p[0] = std::byte{0x03};
         p[1] = static_cast<std::byte>(host.size());
@@ -338,11 +384,30 @@ namespace psm::multiplex::smux
         const auto port_offset = 2 + host.size();
         p[port_offset] = static_cast<std::byte>(port >> 8);
         p[port_offset + 1] = static_cast<std::byte>(port & 0xFF);
+        // Length 2B BE
+        p[port_offset + 2] = static_cast<std::byte>(payload.size() >> 8);
+        p[port_offset + 3] = static_cast<std::byte>(payload.size() & 0xFF);
         if (!payload.empty())
         {
-            std::memcpy(p + port_offset + 2, payload.data(), payload.size());
+            std::memcpy(p + port_offset + 4, payload.data(), payload.size());
         }
 
+        return buffer;
+    }
+
+    auto build_udp_length_prefixed(const std::span<const std::byte> payload, const memory::resource_pointer mr)
+        -> memory::vector<std::byte>
+    {
+        memory::vector<std::byte> buffer(mr);
+        buffer.resize(2 + payload.size());
+        auto *p = buffer.data();
+        // Length 2 字节大端序
+        p[0] = static_cast<std::byte>(payload.size() >> 8);
+        p[1] = static_cast<std::byte>(payload.size() & 0xFF);
+        if (!payload.empty())
+        {
+            std::memcpy(p + 2, payload.data(), payload.size());
+        }
         return buffer;
     }
 

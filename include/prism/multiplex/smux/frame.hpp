@@ -64,7 +64,8 @@ namespace psm::multiplex::smux
      * @struct parsed_address
      * @brief 从 mux 首个 PSH 帧解析出的目标地址
      * @details sing-mux StreamRequest 格式：
-     * [Flags 2B][ATYP 1B][Addr(var)][Port 2B]。Flags bit0 标识 UDP 流。
+     * [Flags 2B][ATYP 1B][Addr(var)][Port 2B]。Flags bit0 标识 UDP 流，
+     * bit1 标识 PacketAddr 模式（每帧携带目标地址）。
      * 支持 IPv4 (ATYP=0x01)、域名 (ATYP=0x03)、IPv6 (ATYP=0x04)。
      * offset 指向地址之后的第一个数据字节，用于转发剩余负载。
      */
@@ -74,6 +75,7 @@ namespace psm::multiplex::smux
         std::uint16_t port = 0; // 目标端口
         std::size_t offset = 0; // 地址结束位置，相对于原始 buffer
         bool is_udp = false;    // 是否为 UDP 流（Flags bit0）
+        bool packet_addr = false; // 是否为 PacketAddr 模式（Flags bit1）
     };
 
     /**
@@ -86,16 +88,37 @@ namespace psm::multiplex::smux
         memory::string host;                // 目标主机
         std::uint16_t port = 0;             // 目标端口
         std::span<const std::byte> payload; // 数据部分（不含 UDP 头部）
+        std::size_t consumed = 0;           // 解析消耗的总字节数
     };
 
     /**
-     * @brief 解析 UDP 数据报
+     * @struct udp_length_prefixed
+     * @brief Length-prefixed UDP 数据报解析结果
+     * @details sing-mux 无 PacketAddr 模式格式：[Length 2B BE][Payload]
+     * 目标地址在 SYN 时已确定，不包含在数据帧中。
+     */
+    struct udp_length_prefixed
+    {
+        std::span<const std::byte> payload; // 数据部分
+        std::size_t consumed = 0;           // 解析消耗的总字节数
+    };
+
+    /**
+     * @brief 解析 UDP 数据报（SOCKS5 地址格式）
      * @param data 包含 [ATYP 1B][Addr][Port 2B][Data] 的字节序列
      * @param mr 内存资源
      * @return 解析结果，nullopt 表示数据不足或格式错误
      */
     [[nodiscard]] auto parse_udp_datagram(std::span<const std::byte> data, memory::resource_pointer mr)
         -> std::optional<udp_datagram>;
+
+    /**
+     * @brief 解析 length-prefixed UDP 数据报
+     * @param data 包含 [Length 2B BE][Payload] 的字节序列
+     * @return 解析结果，nullopt 表示数据不足或格式错误
+     */
+    [[nodiscard]] auto parse_udp_length_prefixed(std::span<const std::byte> data)
+        -> std::optional<udp_length_prefixed>;
 
     /**
      * @brief 构建 UDP 数据报
@@ -107,6 +130,15 @@ namespace psm::multiplex::smux
      */
     [[nodiscard]] auto build_udp_datagram(std::string_view host, std::uint16_t port,
                                           std::span<const std::byte> payload, memory::resource_pointer mr)
+        -> memory::vector<std::byte>;
+
+    /**
+     * @brief 构建 length-prefixed UDP 数据报（响应格式）
+     * @param payload 数据负载
+     * @param mr 内存资源
+     * @return 编码后的 [Length 2B BE][Payload]
+     */
+    [[nodiscard]] auto build_udp_length_prefixed(std::span<const std::byte> payload, memory::resource_pointer mr)
         -> memory::vector<std::byte>;
 
     /**

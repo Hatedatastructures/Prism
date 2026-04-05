@@ -1,8 +1,11 @@
 /**
  * @file parcel.cpp
  * @brief 多路复用 UDP 数据报管道实现
- * @details multiplex::parcel 的 UDP 中继实现。每个 PSH 帧承载
- * SOCKS5 UDP relay 格式数据报，解析目标地址后通过 UDP socket 中继。
+ * @details multiplex::parcel 的 UDP 中继实现。采用发送/接收分离模型：
+ * - do_send: 仅发送 UDP 数据报到目标（fire-and-forget）
+ * - downlink_loop: 独立协程持续读取响应并回传
+ * 因 sing-mux 客户端可能将一个 UDP 数据报拆成多个 PSH 帧发送
+ * （SOCKS5 地址、Length、Payload 各一帧），必须缓冲累积后再解析。
  */
 
 #include <prism/multiplex/parcel.hpp>
@@ -18,9 +21,10 @@ constexpr std::string_view tag = "[Mux.Parcel]";
 namespace psm::multiplex
 {
     parcel::parcel(const std::uint32_t stream_id, std::shared_ptr<core> owner,
-                   const config &cfg, resolve::router &router, const memory::resource_pointer mr)
+                   const config &cfg, resolve::router &router, const memory::resource_pointer mr, const bool packet_addr)
         : id_(stream_id), owner_(std::move(owner)), router_(router), config_(cfg), mr_(mr),
-          idle_timer_(owner_->executor()), recv_buffer_(mr)
+          idle_timer_(owner_->executor()), recv_buffer_(mr), packet_addr_(packet_addr),
+          mux_buffer_(mr)
     {
         recv_buffer_.resize(config_.udp_max_datagram);
     }
@@ -90,6 +94,7 @@ namespace psm::multiplex
         if (egress_socket_)
         {
             boost::system::error_code ec;
+            egress_socket_->cancel(ec);
             egress_socket_->close(ec);
             egress_socket_.reset();
         }
@@ -98,8 +103,10 @@ namespace psm::multiplex
         {
             auto executor = co_await net::this_coro::executor;
             egress_socket_.emplace(executor, protocol);
+            // 显式绑定到任意端口，确保 recv_from 在 Windows 上不会返回 WSAEINVAL
+            egress_socket_->bind(net::ip::udp::endpoint(protocol, 0));
             socket_protocol_ = protocol;
-            co_return egress_socket_->is_open();
+            co_return true;
         }
         catch (const std::exception &e)
         {
@@ -115,26 +122,89 @@ namespace psm::multiplex
             co_return;
         }
         touch_idle_timer();
-        co_await relay_datagram(data);
+
+        // 累积到缓冲区
+        mux_buffer_.insert(mux_buffer_.end(), data.begin(), data.end());
+
+        // 如果没有处理循环在运行，启动一个
+        if (!processing_.exchange(true))
+        {
+            auto self = shared_from_this();
+            net::co_spawn(owner_->executor(), self->process_buffer(), net::detached);
+        }
     }
 
-    auto parcel::relay_datagram(std::span<const std::byte> udp_packet) -> net::awaitable<void>
+    auto parcel::process_buffer() -> net::awaitable<void>
     {
-        // 解析 SOCKS5 UDP relay 格式的数据报
-        auto dgram = smux::parse_udp_datagram(udp_packet, mr_);
-        if (!dgram)
+        bool has_more;
+        do
         {
-            trace::warn("{} stream {} UDP datagram parse failed", tag, id_);
+            // 交换缓冲区：local_buf 数据不再被 on_mux_data 修改，span 指针稳定
+            // on_mux_data 新到达的数据进入 mux_buffer_（已清空）
+            memory::vector<std::byte> local_buf(mr_);
+            std::swap(local_buf, mux_buffer_);
+
+            std::size_t offset = 0;
+            while (!closed_ && offset < local_buf.size())
+            {
+                auto buf = std::span<const std::byte>(local_buf.data() + offset, local_buf.size() - offset);
+
+                if (packet_addr_)
+                {
+                    auto dgram = smux::parse_udp_datagram(buf, mr_);
+                    if (!dgram)
+                    {
+                        break;
+                    }
+                    co_await do_send(dgram->host, dgram->port, dgram->payload);
+                    offset += dgram->consumed;
+                }
+                else
+                {
+                    auto dgram = smux::parse_udp_length_prefixed(buf);
+                    if (!dgram)
+                    {
+                        break;
+                    }
+                    co_await do_send(destination_host_, destination_port_, dgram->payload);
+                    offset += dgram->consumed;
+                }
+            }
+
+            // 未消费数据移回 mux_buffer_ 前部（保证先于 co_await 期间新到达的数据）
+            if (offset < local_buf.size())
+            {
+                const auto remaining = std::span<const std::byte>(
+                    local_buf.data() + offset, local_buf.size() - offset);
+                mux_buffer_.insert(mux_buffer_.begin(), remaining.begin(), remaining.end());
+            }
+
+            processing_.store(false, std::memory_order_release);
+
+            // 检查处理期间是否有新数据到达
+            has_more = !mux_buffer_.empty() && !closed_;
+            if (has_more)
+            {
+                processing_.store(true, std::memory_order_release);
+            }
+        } while (has_more);
+    }
+
+    auto parcel::do_send(const memory::string &target_host, const std::uint16_t target_port,
+                         std::span<const std::byte> payload) -> net::awaitable<void>
+    {
+        // 通过路由器解析目标端点
+        const auto [code, target_ep] = co_await router_.resolve_datagram_target(
+            target_host, std::to_string(target_port));
+        if (code != fault::code::success)
+        {
             co_return;
         }
 
-        trace::debug("{} stream {} UDP relay to {}:{}", tag, id_, dgram->host, dgram->port);
-
-        // 通过路由器解析目标端点
-        const auto [code, target_ep] = co_await router_.resolve_datagram_target(dgram->host, std::to_string(dgram->port));
-        if (code != fault::code::success)
+        // 跳过不可路由地址（如 sing-mux PacketAddr 占位地址 0.0.0.1）
+        const auto &addr = target_ep.address();
+        if (addr.is_v4() && addr.to_v4().to_bytes()[0] == 0)
         {
-            trace::debug("{} stream {} UDP resolve {}:{} failed", tag, id_, dgram->host, dgram->port);
             co_return;
         }
 
@@ -144,37 +214,68 @@ namespace psm::multiplex
             co_return;
         }
 
-        // 发送请求到目标
+        // 首次发送时启动接收循环
+        if (!recv_running_.exchange(true))
+        {
+            auto self = shared_from_this();
+            net::co_spawn(owner_->executor(), self->downlink_loop(), net::detached);
+        }
+
+        // 发送数据报（不等待响应）
         boost::system::error_code ec;
         auto token = net::redirect_error(net::use_awaitable, ec);
-        auto bytes_sent = net::buffer(dgram->payload.data(), dgram->payload.size());
-        co_await egress_socket_->async_send_to(bytes_sent, target_ep, token);
+        co_await egress_socket_->async_send_to(net::buffer(payload.data(), payload.size()),
+                                               target_ep, token);
         if (ec)
         {
             trace::debug("{} stream {} UDP send to {}:{} failed: {}",
-                         tag, id_, dgram->host, dgram->port, ec.message());
-            co_return;
+                         tag, id_, target_host, target_port, ec.message());
         }
+    }
 
-        // 等待响应
-        net::ip::udp::endpoint sender_ep;
-        auto recv_buffer = net::buffer(recv_buffer_.data(), recv_buffer_.size());
-        const auto n = co_await egress_socket_->async_receive_from(recv_buffer, sender_ep, token);
-        if (ec)
+    auto parcel::downlink_loop() -> net::awaitable<void>
+    {
+        // 持续从 UDP socket 读取目标服务器的响应，编码后通过 mux 回传给客户端
+        while (!closed_ && egress_socket_ && egress_socket_->is_open())
         {
-            trace::debug("{} stream {} UDP recv failed: {}", tag, id_, ec.message());
-            co_return;
+            // 读取一个完整的 UDP 响应数据报
+            boost::system::error_code ec;
+            auto token = net::redirect_error(net::use_awaitable, ec);
+
+            net::ip::udp::endpoint sender_ep;
+            auto recv_buf = net::buffer(recv_buffer_.data(), recv_buffer_.size());
+            const auto n = co_await egress_socket_->async_receive_from(recv_buf, sender_ep, token);
+            if (ec)
+            {
+                if (ec != net::error::operation_aborted && ec != net::error::bad_descriptor)
+                {
+                    trace::debug("{} stream {} UDP recv error: {}", tag, id_, ec.message());
+                }
+                break;
+            }
+
+            // 提取响应来源地址和负载
+            memory::string reply_host(sender_ep.address().to_string().c_str(), mr_);
+            const auto reply_port = sender_ep.port();
+            const auto reply_payload = std::span<const std::byte>(recv_buffer_.data(), n);
+
+            // 按协议格式编码：PacketAddr 模式带完整地址，否则仅 length+payload
+            memory::vector<std::byte> encoded(mr_);
+            if (packet_addr_)
+            {
+                encoded = smux::build_udp_datagram(reply_host, reply_port, reply_payload, mr_);
+            }
+            else
+            {
+                encoded = smux::build_udp_length_prefixed(reply_payload, mr_);
+            }
+
+            // 通过 mux PSH 帧回传给客户端
+            co_await owner_->send_data(id_, std::move(encoded));
         }
 
-        // 编码响应数据报并回传给 mux 客户端
-        std::string reply_host;
-        reply_host = sender_ep.address().to_string();
-        auto reply_port = sender_ep.port();
-        auto payload = std::span<const std::byte>(recv_buffer_.data(), n);
-        auto encoded = smux::build_udp_datagram(reply_host, reply_port, payload, mr_);
-
-        co_await owner_->send_data(id_, std::move(encoded));
-        trace::debug("{} stream {} UDP relay completed", tag, id_);
+        // 循环退出（socket 关闭或错误），标记接收循环已停止
+        recv_running_.store(false, std::memory_order_release);
     }
 
     void parcel::close()

@@ -72,12 +72,16 @@ namespace psm::multiplex
          * @param cfg mux 配置参数，提供 UDP 空闲超时和数据报大小限制
          * @param router 路由器引用，用于 DNS 解析目标主机名
          * @param mr PMR 内存资源，用于分配缓冲区和编码数据
+         * @param packet_addr 是否为 PacketAddr 模式（每帧携带目标地址）
          * @details 构造后 parcel 处于就绪状态，需调用 start() 启动空闲超时监控。
          * egress_socket_ 延迟创建，首次发送数据报时按目标协议族（IPv4/IPv6）初始化。
+         * packet_addr=true 时每帧使用 SOCKS5 地址格式，packet_addr=false 时使用
+         * length-prefixed 格式（目标地址使用 SYN 时解析的地址）。
          * @note 方法定义在 parcel.cpp 中
          */
         parcel(std::uint32_t stream_id, std::shared_ptr<core> owner,
-               const config &cfg, resolve::router &router, memory::resource_pointer mr);
+               const config &cfg, resolve::router &router, memory::resource_pointer mr,
+               bool packet_addr = false);
 
         ~parcel();
 
@@ -120,6 +124,19 @@ namespace psm::multiplex
             return id_;
         }
 
+        /**
+         * @brief 设置无 PacketAddr 模式的固定目标地址
+         * @param host 目标主机名
+         * @param port 目标端口
+         * @details 仅在 packet_addr=false 模式下有效。目标地址在 SYN 阶段解析，
+         * 后续所有数据报发送到同一目标。
+         */
+        void set_destination(std::string_view host, std::uint16_t port)
+        {
+            destination_host_.assign(host.data(), host.size());
+            destination_port_ = port;
+        }
+
     private:
         /**
          * @brief 空闲超时监控循环
@@ -131,18 +148,35 @@ namespace psm::multiplex
         auto uplink_loop() -> net::awaitable<void>;
 
         /**
-         * @brief 中继单个 UDP 数据报
-         * @param udp_packet SOCKS5 UDP relay 格式数据报
-         * @details 完整的 UDP 请求-响应流程：
-         * 1. 通过 ensure_socket 按目标协议族初始化 egress_socket_
-         * 2. 通过 router_ 解析目标主机名的 IP 地址
-         * 3. 发送 UDP 数据报到目标端点
-         * 4. 等待响应（async_receive_from），超时由 config_.udp_idle_timeout_ms 控制
-         * 5. 编码响应为 SOCKS5 UDP relay 格式，通过 owner_->send_data 发回 mux 客户端
-         * 解析失败或发送失败时静默丢弃，不影响后续数据报处理。
+         * @brief 缓冲区处理循环
+         * @details 从 mux_buffer_ 中流式解析完整 UDP 数据报并逐个中继。
+         * sing-mux 客户端可能将一个 UDP 数据报拆成多个 PSH 帧发送
+         * （SOCKS5 地址、Length、Payload 各一帧），因此需要缓冲累积后
+         * 再解析完整数据报。processing_ 标志保证同一时刻只有一个处理循环运行。
          * @note 方法定义在 parcel.cpp 中
          */
-        auto relay_datagram(std::span<const std::byte> udp_packet) -> net::awaitable<void>;
+        auto process_buffer() -> net::awaitable<void>;
+
+        /**
+         * @brief 发送单个已解析的 UDP 数据报（不等待响应）
+         * @param target_host 目标主机
+         * @param target_port 目标端口
+         * @param payload UDP 负载数据
+         * @details 仅执行 DNS 解析 + async_send_to，不等待响应。
+         * 首次发送时启动 downlink_loop 协程异步读取响应并回传。
+         * @note 方法定义在 parcel.cpp 中
+         */
+        auto do_send(const memory::string &target_host, std::uint16_t target_port,
+                     std::span<const std::byte> payload) -> net::awaitable<void>;
+
+        /**
+         * @brief 下行中继循环
+         * @details 独立协程，持续从 egress_socket_ 读取 UDP 响应，
+         * 编码为 SOCKS5/length-prefixed 格式后通过 owner_->send_data 回传。
+         * 由 do_send 首次发送时启动，socket 重建或关闭时自动退出。
+         * @note 方法定义在 parcel.cpp 中
+         */
+        auto downlink_loop() -> net::awaitable<void>;
 
         /**
          * @brief 重置空闲计时器
@@ -163,17 +197,24 @@ namespace psm::multiplex
          */
         auto ensure_socket(net::ip::udp::endpoint::protocol_type protocol) -> net::awaitable<bool>;
 
-        std::uint32_t id_;            // 流标识符，由 mux SYN 帧分配
-        std::shared_ptr<core> owner_; // 所属 core，用于发送 mux 帧和管理流映射
-        resolve::router &router_;     // 路由器引用，用于 DNS 解析目标主机名
-        const config &config_;        // mux 配置参数，提供超时和大小限制
-        memory::resource_pointer mr_; // PMR 内存资源，用于缓冲区分配
-        bool closed_ = false;         // 关闭标志，close() 幂等性保证
+        std::uint32_t id_;                   // 流标识符，由 mux SYN 帧分配
+        std::shared_ptr<core> owner_;        // 所属 core，用于发送 mux 帧和管理流映射
+        resolve::router &router_;            // 路由器引用，用于 DNS 解析目标主机名
+        const config &config_;               // mux 配置参数，提供超时和大小限制
+        memory::resource_pointer mr_;        // PMR 内存资源，用于缓冲区分配
+        bool closed_ = false;                // 关闭标志，close() 幂等性保证
+        bool packet_addr_ = false;           // PacketAddr 模式标志，true=每帧带地址，false=仅 length+payload
+        memory::string destination_host_;    // 无 PacketAddr 模式时，SYN 阶段解析的目标主机
+        std::uint16_t destination_port_ = 0; // 无 PacketAddr 模式时，SYN 阶段解析的目标端口
 
         net::steady_timer idle_timer_;                                              // 空闲超时计时器，超时触发 close()
         std::optional<net::ip::udp::socket> egress_socket_;                         // 出站 UDP socket，延迟创建，按协议族初始化
         net::ip::udp::endpoint::protocol_type socket_protocol_{net::ip::udp::v4()}; // 当前 socket 协议族
         memory::vector<std::byte> recv_buffer_;                                     // UDP 响应接收缓冲区
+
+        memory::vector<std::byte> mux_buffer_;  // mux 数据累积缓冲区，处理跨 PSH 帧的 UDP 数据报
+        std::atomic<bool> processing_{false};   // 缓冲区处理标志，防止并发 process_buffer
+        std::atomic<bool> recv_running_{false}; // recv_loop 运行标志，防止并发接收循环
     }; // class parcel
 
 } // namespace psm::multiplex
