@@ -147,22 +147,55 @@
   "agent": {
     "mux": {
       "enabled": true,
-      "max_streams": 256,
-      "buffer_size": 65536,
-      "keepalive_interval_ms": 30000
+      "smux": {
+        "max_streams": 256,
+        "buffer_size": 65535,
+        "keepalive_interval_ms": 30000,
+        "udp_idle_timeout_ms": 60000,
+        "udp_max_datagram": 65535
+      },
+      "yamux": {
+        "max_streams": 32,
+        "buffer_size": 4096,
+        "initial_window": 262144,
+        "enable_ping": true,
+        "ping_interval_ms": 30000,
+        "stream_open_timeout_ms": 30000,
+        "stream_close_timeout_ms": 30000,
+        "udp_idle_timeout_ms": 60000,
+        "udp_max_datagram": 65535
+      }
     }
   }
 }
 ```
 
-### 参数详解
+smux 和 yamux 拥有各自独立的配置，互不影响。sing-mux 协商时客户端选择协议，
+服务端使用对应的配置参数。
+
+### smux 参数详解
 
 | 字段 | 默认值 | 说明 |
 |------|--------|------|
-| `enabled` | `true` | 是否启用多路复用 |
-| `max_streams` | `256` | 单个 mux 会话最大子流数 |
-| `buffer_size` | `65536` | 子流读写缓冲区大小（字节） |
-| `keepalive_interval_ms` | `30000` | 保活心跳间隔（毫秒） |
+| `max_streams` | `32` | 单个 mux 会话最大子流数 |
+| `buffer_size` | `4096` | 子流读写缓冲区大小（字节），实际限制 min(buffer_size, 65535) |
+| `keepalive_interval_ms` | `30000` | 保活心跳间隔（毫秒），0 表示禁用 |
+| `udp_idle_timeout_ms` | `60000` | UDP 管道空闲超时（毫秒） |
+| `udp_max_datagram` | `65535` | UDP 数据报最大长度（字节） |
+
+### yamux 参数详解
+
+| 字段 | 默认值 | 说明 |
+|------|--------|------|
+| `max_streams` | `32` | 单个 mux 会话最大子流数 |
+| `buffer_size` | `4096` | 子流读写缓冲区大小（字节） |
+| `initial_window` | `262144` | 初始流窗口大小（字节），控制单流吞吐量 |
+| `enable_ping` | `true` | 是否启用心跳 |
+| `ping_interval_ms` | `30000` | 心跳间隔（毫秒） |
+| `stream_open_timeout_ms` | `30000` | 流打开超时（毫秒） |
+| `stream_close_timeout_ms` | `30000` | 流关闭超时（毫秒） |
+| `udp_idle_timeout_ms` | `60000` | UDP 管道空闲超时（毫秒） |
+| `udp_max_datagram` | `65535` | UDP 数据报最大长度（字节） |
 
 ### 性能影响
 

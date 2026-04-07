@@ -302,30 +302,37 @@
 - 源码：[router.hpp](../../include/prism/resolve/router.hpp)、[router.cpp](../../src/prism/resolve/router.cpp)
 
 ## 7. multiplex 模块
-位置：`include/prism/multiplex/`、src/prism/multiplex/`
+位置：`include/prism/multiplex/`、`src/prism/multiplex/`
 
-> **重要**：multiplex 是多路复用模块，支持 smux 协议（兼容 Mihomo/xtaci/smux v1），
-> 通过 Trojan cmd=0x7F 触发。详细文档见 [multiplex.md](multiplex.md)。
+> **重要**：multiplex 是多路复用模块，支持 smux 和 yamux 两种协议
+> （通过 sing-mux 协商选择），通过 Trojan cmd=0x7F 触发。
+> 详细文档见 [multiplex.md](multiplex.md)。
 
 ### 模块架构概览
 
 ```
 ┌──────────────────────────────────────────────────────────────┐
-│                        craft (smux 协议实现)                   │
-├──────────────────────────────────────────────────────────────┤
-│                         core (抽象基类)                        │
+│             bootstrap (sing-mux 协商 + 协议分发)               │
+├──────────────────────────┬───────────────────────────────────┤
+│    smux::craft (smux)    │     yamux::craft (yamux)          │
+├──────────────────────────┴───────────────────────────────────┤
+│                        core (抽象基类)                        │
 ├────────────────────────┬─────────────────────────────────────┤
 │      duct (TCP 流)     │         parcel (UDP 数据报)          │
 ├────────────────────────┴─────────────────────────────────────┤
-│                       smux::frame                            │
+│              smux::frame / yamux::frame                      │
 └──────────────────────────────────────────────────────────────┘
 ```
 
 ### core
 - 职责：多路复用核心抽象基类，管理流生命周期和发送串行化
 - 流状态：pending（等待地址）、duct（TCP 流）、parcel（UDP 数据报）
-- 发送串行化：通过 `send_strand_` 确保帧不会交错写入
 - 源码：[core.hpp](../../include/prism/multiplex/core.hpp)、[core.cpp](../../src/prism/multiplex/core.cpp)
+
+### bootstrap
+- 职责：多路复用会话引导，执行 sing-mux 协商后根据协议类型创建 craft 实例
+- 协商流程：读取 [Version 1B][Protocol 1B]，Protocol 0=smux，1=yamux
+- 源码：[bootstrap.hpp](../../include/prism/multiplex/bootstrap.hpp)、[bootstrap.cpp](../../src/prism/multiplex/bootstrap.cpp)
 
 ### duct
 - 职责：TCP 流双向转发管道
@@ -348,7 +355,20 @@
 ### smux::frame
 - 职责：smux 帧编解码、地址解析、UDP 数据报构建
 - 命令类型：SYN(0x00)、FIN(0x01)、PSH(0x02)、NOP(0x03)
+- 帧格式：8 字节定长帧头 [Version][Cmd][Length LE][StreamID LE]
 - 源码：[frame.hpp](../../include/prism/multiplex/smux/frame.hpp)、[frame.cpp](../../src/prism/multiplex/smux/frame.cpp)
+
+### yamux::craft
+- 职责：yamux 多路复用会话服务端（兼容 Hashicorp/yamux + sing-mux 协商）
+- 帧格式：12 字节大端帧头，支持窗口流量控制和 Ping 心跳
+- 消息类型：Data、WindowUpdate、Ping、GoAway
+- 源码：[craft.hpp](../../include/prism/multiplex/yamux/craft.hpp)、[craft.cpp](../../src/prism/multiplex/yamux/craft.cpp)
+
+### yamux::frame
+- 职责：yamux 帧编解码
+- 帧格式：12 字节大端帧头 [Version][Type][Flags BE][StreamID BE][Length BE]
+- 标志位：SYN/ACK/FIN/RST
+- 源码：[frame.hpp](../../include/prism/multiplex/yamux/frame.hpp)、[frame.cpp](../../src/prism/multiplex/yamux/frame.cpp)
 
 ## 8. account 模块
 位置：`include/prism/agent/account/`、`src/prism/agent/account/`

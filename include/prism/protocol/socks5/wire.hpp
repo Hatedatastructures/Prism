@@ -14,8 +14,8 @@
 #include <utility>
 #include <span>
 #include <vector>
+#include <fault.hpp>
 
-#include <prism/fault.hpp>
 #include <prism/protocol/socks5/constants.hpp>
 #include <prism/protocol/socks5/message.hpp>
 #include <prism/memory/container.hpp>
@@ -154,7 +154,7 @@ namespace psm::protocol::socks5::wire
         {
             return {fault::code::bad_message, 0};
         }
-        uint16_t port = (static_cast<uint16_t>(buffer[0]) << 8) | static_cast<uint16_t>(buffer[1]);
+        uint16_t port = static_cast<uint16_t>(buffer[0]) << 8 | static_cast<uint16_t>(buffer[1]);
         return {fault::code::success, port};
     }
 
@@ -232,7 +232,7 @@ namespace psm::protocol::socks5::wire
 
         std::visit(encode_address, header.destination_address);
 
-        out.push_back(static_cast<std::uint8_t>((header.destination_port >> 8) & 0xFF));
+        out.push_back(static_cast<std::uint8_t>(header.destination_port >> 8 & 0xFF));
         out.push_back(static_cast<std::uint8_t>(header.destination_port & 0xFF));
 
         return fault::code::success;
@@ -260,7 +260,7 @@ namespace psm::protocol::socks5::wire
             return {fault::code::protocol_error, {}};
         }
 
-        std::uint8_t frag = buffer[2];
+        const std::uint8_t frag = buffer[2];
         if (frag != 0)
         {
             return {fault::code::not_supported, {}};
@@ -309,7 +309,7 @@ namespace psm::protocol::socks5::wire
             {
                 return {fault::code::bad_message, {}};
             }
-            std::uint8_t domain_len = buffer[offset];
+            const std::uint8_t domain_len = buffer[offset];
             if (buffer.size() < offset + 1 + domain_len + 2)
             {
                 return {fault::code::bad_message, {}};
@@ -362,5 +362,78 @@ namespace psm::protocol::socks5::wire
         }
         out.insert(out.end(), data.begin(), data.end());
         return fault::code::success;
+    }
+
+    /**
+     * @struct password_auth_request
+     * @brief RFC 1929 用户名/密码认证请求
+     * @details 存储解析后的认证请求信息。子协商版本固定为 0x01，
+     * 用户名和密码均为原始字节视图，指向调用者管理的缓冲区。
+     */
+    struct password_auth_request
+    {
+        std::uint8_t version;        ///< 子协商版本，固定 0x01
+        std::string_view username;   ///< 用户名（1-255 字节）
+        std::string_view password;   ///< 密码（1-255 字节）
+    };
+
+    /**
+     * @brief 解析 RFC 1929 用户名/密码认证请求
+     * @param data 输入数据（包含完整认证请求）
+     * @return 解析结果 (错误码, 请求结构)
+     * @details 解析格式为 VER(1) + ULEN(1) + UNAME(n) + PLEN(1) + PASSWD(n)
+     * 的认证请求。验证子协商版本为 0x01，用户名和密码长度在 1-255 范围内。
+     */
+    [[nodiscard]] inline auto parse_password_auth(const std::span<const std::uint8_t> data)
+        -> std::pair<fault::code, password_auth_request>
+    {
+        if (data.size() < 2)
+        {
+            return {fault::code::bad_message, {}};
+        }
+
+        if (data[0] != 0x01)
+        {
+            return {fault::code::protocol_error, {}};
+        }
+
+        const auto ulen = data[1];
+        if (ulen == 0 || data.size() < static_cast<std::size_t>(2 + ulen))
+        {
+            return {fault::code::bad_message, {}};
+        }
+
+        const auto username = std::string_view{
+            reinterpret_cast<const char *>(data.data() + 2), ulen};
+
+        const auto plen_offset = 2 + ulen;
+        if (data.size() < static_cast<std::size_t>(plen_offset + 1))
+        {
+            return {fault::code::bad_message, {}};
+        }
+
+        const auto plen = data[plen_offset];
+        if (plen == 0 || data.size() < static_cast<std::size_t>(plen_offset + 1 + plen))
+        {
+            return {fault::code::bad_message, {}};
+        }
+
+        const auto password = std::string_view{
+            reinterpret_cast<const char *>(data.data() + plen_offset + 1), plen};
+
+        return {fault::code::success, {data[0], username, password}};
+    }
+
+    /**
+     * @brief 构建 RFC 1929 认证响应
+     * @param success 认证是否成功
+     * @return 2 字节响应数据
+     * @details 构建格式为 VER(1) + STATUS(1) 的认证响应。
+     * STATUS 0x00 表示成功，0x01 表示失败。
+     */
+    [[nodiscard]] inline auto build_password_auth_response(const bool success)
+        -> std::array<std::uint8_t, 2>
+    {
+        return {0x01, static_cast<std::uint8_t>(success ? 0x00 : 0x01)};
     }
 }

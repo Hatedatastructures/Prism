@@ -25,7 +25,6 @@
 
 #include <boost/asio.hpp>
 
-#include <prism/multiplex/config.hpp>
 #include <prism/memory/container.hpp>
 
 // 前向声明
@@ -69,8 +68,9 @@ namespace psm::multiplex
          * @brief 构造 parcel
          * @param stream_id 流标识符，由 mux 协议在 SYN 帧中分配
          * @param owner 所属 core 的共享指针，用于调用 send_data 发送 mux 帧
-         * @param cfg mux 配置参数，提供 UDP 空闲超时和数据报大小限制
          * @param router 路由器引用，用于 DNS 解析目标主机名
+         * @param udp_idle_timeout UDP 管道空闲超时（毫秒），超时自动关闭
+         * @param udp_max_dg UDP 数据报最大长度（字节）
          * @param mr PMR 内存资源，用于分配缓冲区和编码数据
          * @param packet_addr 是否为 PacketAddr 模式（每帧携带目标地址）
          * @details 构造后 parcel 处于就绪状态，需调用 start() 启动空闲超时监控。
@@ -80,8 +80,9 @@ namespace psm::multiplex
          * @note 方法定义在 parcel.cpp 中
          */
         parcel(std::uint32_t stream_id, std::shared_ptr<core> owner,
-               const config &cfg, resolve::router &router, memory::resource_pointer mr,
-               bool packet_addr = false);
+               resolve::router &router,
+               std::uint32_t udp_idle_timeout, std::uint32_t udp_max_dg,
+               memory::resource_pointer mr, bool packet_addr = false);
 
         ~parcel();
 
@@ -200,7 +201,8 @@ namespace psm::multiplex
         std::uint32_t id_;                   // 流标识符，由 mux SYN 帧分配
         std::shared_ptr<core> owner_;        // 所属 core，用于发送 mux 帧和管理流映射
         resolve::router &router_;            // 路由器引用，用于 DNS 解析目标主机名
-        const config &config_;               // mux 配置参数，提供超时和大小限制
+        std::uint32_t udp_idle_timeout_ms_;  // UDP 管道空闲超时（毫秒）
+        std::uint32_t udp_max_datagram_;     // UDP 数据报最大长度（字节）
         memory::resource_pointer mr_;        // PMR 内存资源，用于缓冲区分配
         bool closed_ = false;                // 关闭标志，close() 幂等性保证
         bool packet_addr_ = false;           // PacketAddr 模式标志，true=每帧带地址，false=仅 length+payload
@@ -216,5 +218,26 @@ namespace psm::multiplex
         std::atomic<bool> processing_{false};   // 缓冲区处理标志，防止并发 process_buffer
         std::atomic<bool> recv_running_{false}; // recv_loop 运行标志，防止并发接收循环
     }; // class parcel
+
+    /**
+     * @brief 创建 parcel 共享指针
+     * @param stream_id 流标识符
+     * @param owner 所属 core 的共享指针
+     * @param router 路由器引用
+     * @param udp_idle_timeout UDP 管道空闲超时（毫秒）
+     * @param udp_max_dg UDP 数据报最大长度（字节）
+     * @param mr PMR 内存资源
+     * @param packet_addr 是否为 PacketAddr 模式
+     * @return parcel 的共享指针
+     */
+    [[nodiscard]] inline auto make_parcel(std::uint32_t stream_id, std::shared_ptr<core> owner,
+                                          resolve::router &router,
+                                          std::uint32_t udp_idle_timeout, std::uint32_t udp_max_dg,
+                                          memory::resource_pointer mr = {}, bool packet_addr = false)
+        -> std::shared_ptr<parcel>
+    {
+        return std::make_shared<parcel>(stream_id, std::move(owner), router,
+                                        udp_idle_timeout, udp_max_dg, mr, packet_addr);
+    }
 
 } // namespace psm::multiplex

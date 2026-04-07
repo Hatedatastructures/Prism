@@ -128,7 +128,7 @@ namespace psm::multiplex
          */
         [[nodiscard]] virtual net::any_io_executor executor() const = 0;
 
-    protected:
+    private:
         /**
          * @brief 协议主循环（纯虚，由子类实现）
          * @details 实现协议特定的帧读取、解析和分发逻辑。
@@ -136,6 +136,7 @@ namespace psm::multiplex
          */
         virtual auto run() -> net::awaitable<void> = 0;
 
+    protected:
         /**
          * @brief 从活跃管道映射中移除指定 TCP 管道
          * @param stream_id 要移除的流标识符

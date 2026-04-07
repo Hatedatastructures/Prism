@@ -3,8 +3,11 @@ target_sources(${PROJECT_NAME}_static_library
         core.cpp
         duct.cpp
         parcel.cpp
+        bootstrap.cpp
         smux/frame.cpp
         smux/craft.cpp
+        yamux/frame.cpp
+        yamux/craft.cpp
 )
 
 target_sources(${PROJECT_NAME}_static_library
@@ -16,6 +19,11 @@ target_sources(${PROJECT_NAME}_static_library
             ${PROJECT_SOURCE_DIR}/include/prism/multiplex/core.hpp
             ${PROJECT_SOURCE_DIR}/include/prism/multiplex/duct.hpp
             ${PROJECT_SOURCE_DIR}/include/prism/multiplex/parcel.hpp
+            ${PROJECT_SOURCE_DIR}/include/prism/multiplex/bootstrap.hpp
             ${PROJECT_SOURCE_DIR}/include/prism/multiplex/smux/frame.hpp
             ${PROJECT_SOURCE_DIR}/include/prism/multiplex/smux/craft.hpp
+            ${PROJECT_SOURCE_DIR}/include/prism/multiplex/smux/config.hpp
+            ${PROJECT_SOURCE_DIR}/include/prism/multiplex/yamux/frame.hpp
+            ${PROJECT_SOURCE_DIR}/include/prism/multiplex/yamux/craft.hpp
+            ${PROJECT_SOURCE_DIR}/include/prism/multiplex/yamux/config.hpp
 )

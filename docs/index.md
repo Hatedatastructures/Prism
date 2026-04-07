@@ -30,6 +30,16 @@
 | [API 参考](manual/api.md) | 公开 API 入口与头文件组织 |
 | [文档验真](manual/validation.md) | 文档验真规则与源码对应表 |
 
+### 多路复用协议
+
+smux/yamux 多路复用协议的设计与交互文档。
+
+| 文档 | 说明 |
+|------|------|
+| [多路复用设计](manual/multiplex.md) | 模块架构、core/duct/parcel 组件、配置结构 |
+| [smux 协议交互](protocols/smux.md) | smux v1 帧格式、sing-mux 握手、与 mihomo 客户端完整交互流程 |
+| [yamux 协议交互](protocols/yamux.md) | yamux 帧格式、窗口流量控制、流创建两种路径、与 mihomo 客户端完整交互流程 |
+
 ### 协议文档
 
 各协议的详细实现文档。
@@ -79,6 +89,7 @@
 ### 按主题查找
 
 - **协议实现**：[HTTP](protocols/http.md) | [SOCKS5](protocols/socks5.md) | [Trojan](protocols/trojan.md)
+- **多路复用**：[架构设计](manual/multiplex.md) | [smux 交互](protocols/smux.md) | [yamux 交互](protocols/yamux.md)
 - **核心流程**：[运行时流程](manual/runtime.md) | [路由与分发](manual/routing.md)
 - **配置参考**：[配置结构体](reference/config-structure.md) | [依赖关系](reference/dependencies.md)
 

@@ -1,7 +1,7 @@
 #include <prism/agent/pipeline/protocols.hpp>
 #include <protocol.hpp>
 #include <prism/channel/transport/encrypted.hpp>
-#include <prism/multiplex/smux/craft.hpp>
+#include <prism/multiplex/bootstrap.hpp>
 #include <prism/agent/account/directory.hpp>
 #include <prism/memory/container.hpp>
 #include <boost/asio/experimental/awaitable_operators.hpp>
@@ -10,6 +10,8 @@
 constexpr std::string_view HttpStr = "[Pipeline.Http]";
 constexpr std::string_view Socks5Str = "[Pipeline.Socks5]";
 constexpr std::string_view TrojanStr = "[Pipeline.Trojan]";
+
+
 
 namespace psm::agent::pipeline
 {
@@ -116,7 +118,8 @@ namespace psm::agent::pipeline
         }
 
         // 创建 SOCKS5 中继代理并执行握手
-        const auto agent = protocol::socks5::make_relay(std::move(inbound), ctx.server.cfg.socks5);
+        const auto agent = protocol::socks5::make_relay(
+            std::move(inbound), ctx.server.cfg.socks5, ctx.account_directory_ptr);
         auto [ec, request] = co_await agent->handshake();
         // 协商失败，退出处理流程，agent 对象通过 RAII 自动清理
         if (fault::failed(ec))
@@ -289,9 +292,12 @@ namespace psm::agent::pipeline
                 // 清除 session 流关闭回调，transport 生命周期由 multiplexer 接管
                 ctx.active_stream_close = nullptr;
                 ctx.active_stream_cancel = nullptr;
-                // 创建 smux 多路复用器并启动帧循环
-                auto smux_craft = std::make_shared<multiplex::smux::craft>(agent->release(), ctx.worker.router, ctx.server.cfg.mux);
-                smux_craft->start();
+                // 创建多路复用会话（内部执行 sing-mux 协商，根据客户端选择协议）
+                auto muxprotocol = co_await multiplex::bootstrap(agent->release(), ctx.worker.router, ctx.server.cfg.mux);
+                if (muxprotocol)
+                {
+                    muxprotocol->start();
+                }
                 co_return;
             }
 

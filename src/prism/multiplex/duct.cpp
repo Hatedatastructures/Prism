@@ -24,13 +24,14 @@ namespace psm::multiplex
     constexpr std::size_t max_frame_payload = 65535;
 
     duct::duct(const std::uint32_t stream_id, std::shared_ptr<core> owner,
-               channel::transport::shared_transmission target, const memory::resource_pointer mr)
+               channel::transport::shared_transmission target,
+               const std::uint32_t buffer_size, const memory::resource_pointer mr)
         : id_(stream_id), owner_(std::move(owner)), mr_(mr),
           target_(std::move(target)),
           write_channel_(target_->executor(), 32)
     {
         // 限制读取大小不超过帧载荷上限，防止 send_data 时 uint16_t 溢出
-        read_size_ = std::min(owner_->config_.buffer_size, static_cast<std::uint32_t>(max_frame_payload));
+        read_size_ = std::min(buffer_size, static_cast<std::uint32_t>(max_frame_payload));
     }
 
     duct::~duct()

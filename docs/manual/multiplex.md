@@ -6,7 +6,10 @@
 
 ## 概述
 
-多路复用模块实现 smux 协议服务端，兼容 xtaci/smux v1 帧协议和 sing-mux 协商层。通过在单个 TCP/TLS 连接上承载多个独立流，减少连接开销，提升传输效率。
+多路复用模块实现 smux 和 yamux 两种多路复用协议的服务端，通过 sing-mux 协商层
+在运行时选择具体协议。smux 兼容 xtaci/smux v1 帧协议，yamux 兼容 Hashicorp/yamux
+帧协议，均提供完整的流量控制能力。通过在单个 TCP/TLS 连接上承载多个独立流，
+减少连接开销，提升传输效率。
 
 ### 核心价值
 
@@ -14,17 +17,21 @@
 - **降低延迟**：避免重复 TCP/TLS 握手开销
 - **资源节约**：减少文件描述符和内核连接跟踪表占用
 - **协议无关**：core 层抽象，支持扩展其他 mux 协议
+- **多协议支持**：smux（轻量）和 yamux（流量控制），通过 sing-mux 协商选择
 
 ## 模块架构
 
 ```
 ┌──────────────────────────────────────────────────────────────────────┐
-│                        craft (smux 协议实现)                          │
-│  继承 core，实现 smux v1 帧协议 + sing-mux 协议协商                     │
-│  - negotiate_protocol(): sing-mux 协商层                              │
-│  - frame_loop(): 帧读取与三路分发                                      │
-│  - send_loop(): scatter-gather 发送协程                               │
-├──────────────────────────────────────────────────────────────────────┤
+│              bootstrap (sing-mux 协商 + 协议分发)                      │
+│  negotiate(): 读取协议头，选择 smux 或 yamux                          │
+│  根据协商结果创建对应的 craft 实例                                     │
+├───────────────────────────┬──────────────────────────────────────────┤
+│   smux::craft (smux 协议) │    yamux::craft (yamux 协议)             │
+│   8 字节小端帧头          │    12 字节大端帧头                        │
+│   SYN/PSH/FIN/NOP 命令    │    Data/WindowUpdate/Ping/GoAway 消息    │
+│   无流量控制              │    窗口流量控制 + Ping 心跳               │
+├───────────────────────────┴──────────────────────────────────────────┤
 │                         core (抽象基类)                               │
 │  流生命周期管理、发送串行化、pending/duct/parcel 状态跟踪               │
 │  - send_data()/send_fin(): 纯虚，由子类实现帧发送                      │
@@ -34,10 +41,9 @@
 │  target_write_loop: 上传方向  │  idle_timer: 空闲超时管理              │
 │  write_channel_: 反压解耦     │  egress_socket_: 按需创建             │
 ├───────────────────────────────┴──────────────────────────────────────┤
-│                       smux::frame                                    │
+│              smux::frame / yamux::frame                              │
 │  帧编解码、地址解析、UDP 数据报构建                                    │
-│  - build_header(): 8 字节帧头构建（零拷贝）                            │
-│  - outbound_frame: header + payload 分离结构                         │
+│  outbound_frame: header + payload 分离结构                           │
 └──────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -354,7 +360,177 @@ smux 帧协议编解码。
 | `parse_udp_datagram()` | 解析 SOCKS5 UDP relay 数据报 |
 | `build_udp_datagram()` | 构建 UDP 数据报响应 |
 
+## yamux 协议实现
+
+### craft
+
+位置：[craft.hpp](../../include/prism/multiplex/yamux/craft.hpp)、[craft.cpp](../../src/prism/multiplex/yamux/craft.cpp)
+
+yamux 多路复用会话服务端，兼容 Hashicorp/yamux 帧协议 + sing-mux 协商层。
+与 smux 相比，yamux 提供完整的流量控制（256KB 初始窗口）、标志位系统和 Ping 心跳。
+
+#### 协程入口
+
+```cpp
+auto craft::run() -> net::awaitable<void>
+{
+    // 1. 启动独立发送循环
+    const auto self = std::static_pointer_cast<craft>(shared_from_this());
+    net::co_spawn(executor(), self->send_loop(), net::detached);
+
+    // 2. 帧循环（协议协商由 bootstrap 在外部完成）
+    co_await frame_loop();
+    channel_.cancel();
+}
+```
+
+#### 帧循环与消息分发
+
+```cpp
+auto craft::frame_loop() -> net::awaitable<void>
+{
+    while (active_)
+    {
+        // 1. 读取 12 字节帧头
+        co_await transport_->async_read(recv_buffer_, ec);
+        auto hdr = parse_header(recv_buffer_);
+
+        // 2. Data 帧读取载荷，其他类型帧只有 12 字节头
+        if (hdr.type == message_type::data && hdr.length > 0)
+            co_await transport_->async_read(payload, ec);
+
+        // 3. 按消息类型分发
+        switch (hdr.type)
+        {
+        case message_type::data:           co_await handle_data(hdr, payload); break;
+        case message_type::window_update:  co_await handle_window_update(hdr); break;
+        case message_type::ping:           co_await handle_ping(hdr); break;
+        case message_type::go_away:        co_await handle_go_away(hdr); break;
+        }
+    }
+}
+```
+
+#### Data 帧标志位处理
+
+```cpp
+auto craft::handle_data(hdr, payload)
+{
+    if (has_flag(hdr.flag, flags::syn))    co_await handle_syn(stream_id, payload);  // 新建流
+    if (has_flag(hdr.flag, flags::rst))    handle_rst(stream_id);                    // 强制重置
+    if (has_flag(hdr.flag, flags::fin))    handle_fin(stream_id);                    // 半关闭
+    // 无标志：纯数据分发
+    co_await dispatch_data(stream_id, payload);
+}
+```
+
+#### 窗口管理
+
+- 每个流维护独立的 `stream_window`，包含 `send_window`、`recv_window`、`recv_consumed`
+- SYN 后回复 `WindowUpdate(ACK)` 携带服务端初始窗口大小（256KB）
+- 接收数据后累积 `recv_consumed`，达到窗口一半时发送 `WindowUpdate(none)`
+- 发送窗口由对端的 `WindowUpdate` 原子增加，支持并发访问
+
+#### Ping 心跳
+
+- 收到 `Ping(SYN)` 回复 `Ping(ACK)` 携带相同 ID
+- 收到 `Ping(ACK)` 记录日志，不做额外处理
+
+### frame
+
+位置：[frame.hpp](../../include/prism/multiplex/yamux/frame.hpp)、[frame.cpp](../../src/prism/multiplex/yamux/frame.cpp)
+
+yamux 帧协议编解码。
+
+#### 帧格式
+
+```
++----------+----------+----------+----------+----------+----------+
+| Version  |  Type    |  Flags   |  StreamID (4B BE)  |  Length (4B BE)  |
+| (1B)     |  (1B)    |  (2B BE) |                    |                  |
++----------+----------+----------+----------+----------+----------+
+|                    PAYLOAD (Length 字节)                        |
++---------------------------------------------------------------+
+```
+
+#### 消息类型
+
+| 类型 | 值 | 说明 |
+|------|-----|------|
+| Data | 0x00 | 数据传输，可携带 SYN/FIN/RST 标志 |
+| WindowUpdate | 0x01 | 窗口更新，Length 为增量值 |
+| Ping | 0x02 | 心跳探测，Length 为 Ping ID |
+| GoAway | 0x03 | 关闭会话，Length 为终止原因码 |
+
+#### 标志位
+
+| 标志 | 值 | 说明 |
+|------|-----|------|
+| none | 0x0000 | 无标志，普通数据帧 |
+| SYN | 0x0001 | 同步，用于新建流或发起 Ping |
+| ACK | 0x0002 | 确认，用于确认流创建或 Ping 响应 |
+| FIN | 0x0004 | 半关闭，通知对端不再发送 |
+| RST | 0x0008 | 重置，强制终止流 |
+
+#### GoAway 原因码
+
+| 原因码 | 值 | 说明 |
+|--------|-----|------|
+| normal | 0x00000000 | 正常关闭 |
+| protocol_error | 0x00000001 | 协议错误 |
+| internal_error | 0x00000002 | 内部错误 |
+
+#### 关键函数
+
+| 函数 | 说明 |
+|------|------|
+| `build_header()` | 构建 12 字节帧头为数组（零拷贝） |
+| `parse_header()` | 解析帧头，校验版本和类型有效性 |
+| `build_data_frame()` | 构建 Data 帧（12 字节头 + payload） |
+| `build_window_update_frame()` | 构建 WindowUpdate 帧 |
+| `build_ping_frame()` | 构建 Ping 帧 |
+| `build_go_away_frame()` | 构建 GoAway 帧 |
+
 ## 配置
+
+位置：[config.hpp](../../include/prism/multiplex/config.hpp)
+
+各协议拥有独立的配置结构，顶层 config 仅负责协议选择和全局开关：
+
+```cpp
+// 顶层配置
+struct config
+{
+    protocol_type protocol = protocol_type::smux; // 协议类型
+    bool enabled = false;                          // 是否启用
+    smux::config smux;                             // smux 协议配置
+    yamux::config yamux;                           // yamux 协议配置
+};
+
+// smux 协议配置（独立）
+struct smux::config
+{
+    std::uint32_t max_streams = 32;              // 单会话最大并发流数
+    std::uint32_t buffer_size = 4096;            // 每流读取缓冲区大小
+    std::uint32_t keepalive_interval_ms = 30000; // 心跳间隔（毫秒）
+    std::uint32_t udp_idle_timeout_ms = 60000;   // UDP 管道空闲超时（毫秒）
+    std::uint32_t udp_max_datagram = 65535;      // UDP 数据报最大长度
+};
+
+// yamux 协议配置（独立）
+struct yamux::config
+{
+    std::uint32_t max_streams = 32;                // 单会话最大并发流数
+    std::uint32_t buffer_size = 4096;              // 每流读取缓冲区大小
+    std::uint32_t initial_window = 256 * 1024;     // 初始流窗口大小
+    bool enable_ping = true;                       // 是否启用心跳
+    std::uint32_t ping_interval_ms = 30000;        // 心跳间隔（毫秒）
+    std::uint32_t stream_open_timeout_ms = 30000;  // 流打开超时（毫秒）
+    std::uint32_t stream_close_timeout_ms = 30000; // 流关闭超时（毫秒）
+    std::uint32_t udp_idle_timeout_ms = 60000;     // UDP 管道空闲超时（毫秒）
+    std::uint32_t udp_max_datagram = 65535;        // UDP 数据报最大长度
+};
+```
 
 位置：[config.hpp](../../include/prism/multiplex/config.hpp)
 
@@ -377,10 +553,24 @@ struct config
     "agent": {
         "mux": {
             "enabled": true,
-            "max_streams": 32,
-            "buffer_size": 65535,
-            "keepalive_interval_ms": 30000,
-            "udp_idle_timeout_ms": 60000
+            "smux": {
+                "max_streams": 512,
+                "buffer_size": 65535,
+                "keepalive_interval_ms": 30000,
+                "udp_idle_timeout_ms": 60000,
+                "udp_max_datagram": 65535
+            },
+            "yamux": {
+                "max_streams": 32,
+                "buffer_size": 4096,
+                "initial_window": 262144,
+                "enable_ping": true,
+                "ping_interval_ms": 30000,
+                "stream_open_timeout_ms": 30000,
+                "stream_close_timeout_ms": 30000,
+                "udp_idle_timeout_ms": 60000,
+                "udp_max_datagram": 65535
+            }
         }
     }
 }
@@ -388,7 +578,8 @@ struct config
 
 ## 与 Trojan 协议的集成
 
-Trojan 原生 mux 通过 cmd=0x7F 触发：
+Trojan 原生 mux 通过 cmd=0x7F 触发，由 bootstrap 完成 sing-mux 协商后
+根据客户端选择的协议创建对应的 craft 实例：
 
 ```
 +---------------------------------------------------------------------+
@@ -406,10 +597,12 @@ Trojan 原生 mux 通过 cmd=0x7F 触发：
 |   └─► 建立 UDP 中继                                                 |
 |                                                                     |
 | cmd = 0x7F (MUX)                                                    |
-|   └─► 创建 smux::craft 实例                                         |
-|       - sing-mux 协议协商                                           |
+|   └─► bootstrap 执行 sing-mux 协商                                  |
+|       - 读取协议头 [Version 1B][Protocol 1B]                       |
+|       - Protocol = 0 → smux::craft（smux v1 帧协议）               |
+|       - Protocol = 1 → yamux::craft（yamux 帧协议）                |
 |       - 帧循环处理多流                                               |
-|       - 每个 SYN 创建新流                                            |
+|       - 每个 SYN/WindowUpdate(SYN) 创建新流                         |
 +---------------------------------------------------------------------+
 ```
 
@@ -496,7 +689,10 @@ Trojan 原生 mux 通过 cmd=0x7F 触发：
 | 客户端 | 协议 | 兼容性 |
 |--------|------|--------|
 | mihomo-Meta | smux v1 + sing-mux | 完全兼容 |
+| mihomo-Meta | yamux + sing-mux | 完全兼容 |
 | sing-box | smux v1 + sing-mux | 完全兼容 |
+| sing-box | yamux + sing-mux | 完全兼容 |
 | Clash Meta | smux v1 + sing-mux | 完全兼容 |
-| v2ray-plugin | yamux | 不兼容 |
+| Clash Meta | yamux + sing-mux | 完全兼容 |
+| v2ray-plugin | yamux（无 sing-mux 协商） | 不兼容 |
 | xtaci/smux v2 | smux v2 (UPD) | 不兼容 |

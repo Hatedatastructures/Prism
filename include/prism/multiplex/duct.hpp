@@ -64,14 +64,16 @@ namespace psm::multiplex
          * @param stream_id 流标识符，由 mux 协议在 SYN 帧中分配
          * @param owner 所属 core 的共享指针，用于调用 send_data/send_fin 发送 mux 帧
          * @param target 已连接的目标传输层，生命周期转移给 duct
+         * @param buffer_size 每流读取缓冲区大小，与帧最大载荷取较小值
          * @param mr PMR 内存资源，用于分配读缓冲和写通道数据
          * @details 构造后 duct 处于就绪状态，需调用 start() 启动双向转发协程。
-         * read_size_ 根据 config_.buffer_size 和 max_frame_payload 取较小值，
+         * read_size_ 根据 buffer_size 和 max_frame_payload 取较小值，
          * 确保 target 读取的单次数据量不超过 mux 帧最大载荷。
          * @note 方法定义在 duct.cpp 中
          */
         duct(std::uint32_t stream_id, std::shared_ptr<core> owner,
-             channel::transport::shared_transmission target, memory::resource_pointer mr);
+             channel::transport::shared_transmission target,
+             std::uint32_t buffer_size, memory::resource_pointer mr);
 
         ~duct();
 
@@ -156,5 +158,21 @@ namespace psm::multiplex
 
         write_channel_type write_channel_; // 客户端上传方向写通道（mux → target），有界容量提供反压
     }; // class duct
+
+    /**
+     * @brief 创建 duct 共享指针
+     * @param stream_id 流标识符
+     * @param owner 所属 core 的共享指针
+     * @param target 已连接的目标传输层
+     * @param mr PMR 内存资源
+     * @return duct 的共享指针
+     */
+    [[nodiscard]] inline auto make_duct(std::uint32_t stream_id, std::shared_ptr<core> owner,
+                                        channel::transport::shared_transmission target,
+                                        std::uint32_t buffer_size, memory::resource_pointer mr = {})
+        -> std::shared_ptr<duct>
+    {
+        return std::make_shared<duct>(stream_id, std::move(owner), std::move(target), buffer_size, mr);
+    }
 
 } // namespace psm::multiplex

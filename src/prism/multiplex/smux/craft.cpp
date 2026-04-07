@@ -38,12 +38,12 @@ namespace psm::multiplex::smux
     } // namespace
 
     craft::craft(channel::transport::shared_transmission transport, resolve::router &router,
-                 const config &cfg, const memory::resource_pointer mr)
+                 const multiplex::config &cfg, const memory::resource_pointer mr)
         : core(std::move(transport), router, cfg, mr),
-          channel_(transport_->executor(), cfg.max_streams)
+          channel_(transport_->executor(), cfg.smux.max_streams)
     {
         recv_buffer_ = memory::vector<std::byte>(mr_);
-        recv_buffer_.resize(config_.buffer_size);
+        recv_buffer_.resize(config_.smux.buffer_size);
     }
 
     craft::~craft() = default;
@@ -54,68 +54,10 @@ namespace psm::multiplex::smux
         const auto self = std::static_pointer_cast<craft>(shared_from_this());
         net::co_spawn(executor(), self->send_loop(), net::detached);
 
-        // 执行协议协商，验证客户端兼容性
-        if (const auto ec = co_await negotiate_protocol())
-        {
-            trace::warn("{} protocol negotiate failed: {}", tag, ec.message());
-            channel_.cancel();
-            co_return;
-        }
-        trace::debug("{} protocol negotiated", tag);
-
         // 进入帧循环，处理客户端命令
         co_await frame_loop();
 
         channel_.cancel();
-    }
-
-    auto craft::negotiate_protocol() const -> net::awaitable<std::error_code>
-    {
-        std::error_code ec;
-
-        // 读取协议头：[Version 1B][Protocol 1B]
-        // Version > 0 时需要额外读取 padding 数据
-        std::array<std::byte, 2> header{};
-        const auto n = co_await transport_->async_read(header, ec);
-        if (ec)
-        {
-            co_return ec;
-        }
-        if (n < 2)
-        {
-            co_return std::make_error_code(std::errc::connection_reset);
-        }
-
-        // 处理协议版本，Version > 0 表示有 padding
-        if (const auto version = static_cast<std::uint8_t>(header[0]); version > 0)
-        {
-            // 读取 2 字节 padding 长度（大端序）
-            std::array<std::byte, 2> padding_len_buf{};
-            const auto pn = co_await transport_->async_read(padding_len_buf, ec);
-            if (ec)
-            {
-                co_return ec;
-            }
-            if (pn < 2)
-            {
-                co_return std::make_error_code(std::errc::connection_reset);
-            }
-
-            // 解析 padding 长度并读取 padding 数据
-            const auto padding_len = static_cast<std::uint16_t>(padding_len_buf[0]) << 8 | static_cast<std::uint16_t>(padding_len_buf[1]);
-            if (padding_len > 0)
-            {
-                memory::vector<std::byte> padding(mr_);
-                padding.resize(padding_len);
-                const auto padding_n = co_await transport_->async_read(padding, ec);
-                if (ec || padding_n < padding_len)
-                {
-                    co_return ec ? ec : std::make_error_code(std::errc::connection_reset);
-                }
-            }
-        }
-
-        co_return std::error_code{};
     }
 
     auto craft::frame_loop() -> net::awaitable<void>
@@ -202,7 +144,7 @@ namespace psm::multiplex::smux
     auto craft::handle_syn(const std::uint32_t stream_id)
         -> net::awaitable<void>
     {
-        if (pending_.size() + ducts_.size() + parcels_.size() >= config_.max_streams)
+        if (pending_.size() + ducts_.size() + parcels_.size() >= config_.smux.max_streams)
         {
             trace::warn("{} max streams reached, rejecting stream {}", tag, stream_id);
             co_return;
@@ -352,7 +294,9 @@ namespace psm::multiplex::smux
             pending_.erase(stream_id);
 
             // 创建 UDP parcel 并启动
-            auto dp = std::make_shared<parcel>(stream_id, shared_from_this(), config_, router_, mr_, packet_addr);
+            auto dp = make_parcel(stream_id, shared_from_this(), router_,
+                                   config_.smux.udp_idle_timeout_ms, config_.smux.udp_max_datagram,
+                                   mr_, packet_addr);
             if (!packet_addr)
             {
                 dp->set_destination(host, port);
@@ -406,7 +350,7 @@ namespace psm::multiplex::smux
 
         // 创建 TCP duct 进行双向转发
         auto target = channel::transport::make_reliable(std::move(conn));
-        const auto p = std::make_shared<duct>(stream_id, shared_from_this(), target, mr_);
+        const auto p = make_duct(stream_id, shared_from_this(), std::move(target), config_.smux.buffer_size, mr_);
         ducts_[stream_id] = p;
 
         // 启动上行循环

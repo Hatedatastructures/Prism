@@ -29,6 +29,14 @@
 #include <prism/protocol/socks5/message.hpp>
 #include <prism/protocol/socks5/wire.hpp>
 #include <prism/protocol/socks5/config.hpp>
+#include <prism/agent/account/entry.hpp>
+#include <prism/agent/account/directory.hpp>
+#include <prism/crypto/sha224.hpp>
+
+namespace psm::agent::account
+{
+    class directory;
+}
 
 namespace psm::protocol::socks5
 {
@@ -61,14 +69,17 @@ namespace psm::protocol::socks5
          * @brief 构造函数
          * @param next_layer 已经建立连接的底层传输层智能指针
          * @param cfg SOCKS5 协议配置
+         * @param account_dir 账户目录指针，用于认证验证（可为空）
          * @details 构造 SOCKS5 协议中继对象，接管底层传输层的所有权。
          * 构造后对象处于初始状态，等待客户端发起 SOCKS5 握手流程。
          * @warning 构造函数通过独占智能指针获取底层传输层的所有权，
          * 调用者不应再使用原指针
          * @note 底层传输层必须已建立连接，否则后续操作将失败
          */
-        explicit relay(psm::channel::transport::shared_transmission next_layer, const config &cfg = {})
-            : next_layer_(std::move(next_layer)), config_(cfg)
+        explicit relay(psm::channel::transport::shared_transmission next_layer,
+                       const config &cfg = {},
+                       psm::agent::account::directory *account_dir = nullptr)
+            : next_layer_(std::move(next_layer)), config_(cfg), account_directory_(account_dir)
         {
         }
 
@@ -587,12 +598,13 @@ namespace psm::protocol::socks5
          * @brief 协商 SOCKS5 认证方法
          * @return net::awaitable<std::pair<fault::code, auth_method>> 协商
          * 结果错误码与选定的认证方法
-         * @details 读取客户端发送的方法协商请求，验证协议版本，检查
-         * 客户端支持的方法列表中是否包含无认证方法（0x00）。若支持
-         * 则选择无认证方法并返回成功；否则返回无可接受方法错误。
-         * 当前实现仅支持无认证模式，后续可扩展用户名密码认证。
+         * @details 读取客户端发送的方法协商请求，验证协议版本，根据
+         * 配置和客户端支持的方法选择认证方式。当 enable_auth 为 true
+         * 且账户目录可用时，优先选择用户名/密码认证 (0x02)；否则
+         * 选择无认证 (0x00)。若启用认证但客户端不支持任何认证方法，
+         * 则拒绝连接。
          */
-        auto negotiated_authentication() const
+        auto negotiated_authentication()
             -> net::awaitable<std::pair<fault::code, auth_method>>
         {
             std::array<std::uint8_t, 258> methods_buffer{};
@@ -618,34 +630,129 @@ namespace psm::protocol::socks5
             }
 
             bool no_auth_supported = false;
+            bool password_supported = false;
             const std::span<const std::uint8_t> methods(methods_buffer.data() + 2, nmethods);
             for (const auto method : methods)
             {
-                if (method == 0x00)
+                if (method == static_cast<std::uint8_t>(auth_method::no_auth))
                 {
                     no_auth_supported = true;
-                    break;
+                }
+                else if (method == static_cast<std::uint8_t>(auth_method::password))
+                {
+                    password_supported = true;
                 }
             }
 
-            if (!no_auth_supported)
+            // 启用认证且有账户目录：优先选择密码认证
+            if (config_.enable_auth && account_directory_ && password_supported)
             {
-                constexpr std::uint8_t response[] = {0x05, 0xFF};
+                constexpr std::uint8_t response[] = {0x05, static_cast<std::uint8_t>(auth_method::password)};
                 co_await async_write_impl(std::span(reinterpret_cast<const std::byte *>(response), 2), ec);
                 if (ec)
                 {
                     co_return std::pair{fault::to_code(ec), auth_method::no_acceptable_methods};
                 }
-                co_return std::pair{fault::code::not_supported, auth_method::no_acceptable_methods};
+
+                auto [auth_ec, success] = co_await perform_password_auth();
+                if (fault::failed(auth_ec) || !success)
+                {
+                    co_return std::pair{auth_ec, auth_method::no_acceptable_methods};
+                }
+                co_return std::pair{fault::code::success, auth_method::password};
             }
 
-            constexpr std::uint8_t response[] = {0x05, 0x00};
+            // 未启用认证或客户端不支持密码认证：回退到无认证
+            if (no_auth_supported && !config_.enable_auth)
+            {
+                constexpr std::uint8_t response[] = {0x05, 0x00};
+                co_await async_write_impl(std::span(reinterpret_cast<const std::byte *>(response), 2), ec);
+                if (ec)
+                {
+                    co_return std::pair{fault::to_code(ec), auth_method::no_acceptable_methods};
+                }
+                co_return std::pair{fault::code::success, auth_method::no_auth};
+            }
+
+            // 启用了认证但客户端不支持，或无可用方法
+            constexpr std::uint8_t response[] = {0x05, 0xFF};
             co_await async_write_impl(std::span(reinterpret_cast<const std::byte *>(response), 2), ec);
             if (ec)
             {
                 co_return std::pair{fault::to_code(ec), auth_method::no_acceptable_methods};
             }
-            co_return std::pair{fault::code::success, auth_method::no_auth};
+            co_return std::pair{fault::code::not_supported, auth_method::no_acceptable_methods};
+        }
+
+        /**
+         * @brief 执行 RFC 1929 用户名/密码认证子协商
+         * @return net::awaitable<std::pair<fault::code, bool>> 错误码与认证结果
+         * @details 读取客户端发送的用户名/密码认证请求，解析后使用
+         * SHA224 对密码进行哈希，通过 account::directory 验证凭证
+         * 并获取连接租约。认证失败时不暴露具体原因，仅返回失败状态。
+         */
+        auto perform_password_auth()
+            -> net::awaitable<std::pair<fault::code, bool>>
+        {
+            // RFC 1929 最大请求长度: VER(1) + ULEN(1) + UNAME(255) + PLEN(1) + PASSWD(255) = 513
+            std::array<std::uint8_t, 513> auth_buffer{};
+
+            std::error_code ec;
+            co_await async_read_impl(std::span(reinterpret_cast<std::byte *>(auth_buffer.data()), 2), ec);
+            if (ec)
+            {
+                co_return std::pair{fault::to_code(ec), false};
+            }
+
+            const auto ulen = auth_buffer[1];
+            if (ulen == 0)
+            {
+                const auto response = wire::build_password_auth_response(false);
+                co_await async_write_impl(std::span(reinterpret_cast<const std::byte *>(response.data()), response.size()), ec);
+                co_return std::pair{fault::code::bad_message, false};
+            }
+
+            // 读取用户名 + PLEN + 密码
+            const auto remaining = static_cast<std::size_t>(ulen + 1 + 255);
+            co_await async_read_impl(std::span(reinterpret_cast<std::byte *>(auth_buffer.data() + 2), remaining), ec);
+            if (ec)
+            {
+                co_return std::pair{fault::to_code(ec), false};
+            }
+
+            // 解析认证请求
+            const auto total_len = static_cast<std::size_t>(2 + ulen + 1 + auth_buffer[2 + ulen]);
+            const auto [parse_ec, auth_req] = wire::parse_password_auth(
+                std::span<const std::uint8_t>(auth_buffer.data(), total_len));
+            if (fault::failed(parse_ec))
+            {
+                const auto response = wire::build_password_auth_response(false);
+                co_await async_write_impl(std::span(reinterpret_cast<const std::byte *>(response.data()), response.size()), ec);
+                co_return std::pair{parse_ec, false};
+            }
+
+            // 使用 SHA224 哈希密码后验证凭证
+            const auto credential = crypto::sha224(auth_req.password);
+            auto lease = psm::agent::account::try_acquire(*account_directory_, credential);
+
+            if (!lease)
+            {
+                const auto response = wire::build_password_auth_response(false);
+                co_await async_write_impl(std::span(reinterpret_cast<const std::byte *>(response.data()), response.size()), ec);
+                co_return std::pair{fault::code::success, false};
+            }
+
+            // 认证成功，保存租约
+            account_lease_ = std::move(lease);
+
+            const auto response = wire::build_password_auth_response(true);
+            co_await async_write_impl(std::span(reinterpret_cast<const std::byte *>(response.data()), response.size()), ec);
+            if (ec)
+            {
+                co_return std::pair{fault::to_code(ec), false};
+            }
+
+            co_return std::pair{fault::code::success, true};
         }
 
         /**
@@ -846,6 +953,12 @@ namespace psm::protocol::socks5
 
         // SOCKS5 协议配置，构造时传入，运行时只读
         config config_;
+
+        // 账户目录指针，用于认证验证，不持有所有权
+        psm::agent::account::directory *account_directory_;
+
+        // 账户连接租约，认证成功后持有，会话结束时自动释放
+        psm::agent::account::lease account_lease_;
     };
 
     /**
@@ -859,12 +972,15 @@ namespace psm::protocol::socks5
      * @brief 创建 SOCKS5 中继器对象
      * @param next_layer 底层传输层指针
      * @param cfg SOCKS5 协议配置
+     * @param account_dir 账户目录指针，用于认证验证（可为空）
      * @return shared_relay 中继器对象共享指针
      * @details 工厂函数，封装 std::make_shared 调用，简化对象创建。
      */
-    inline shared_relay make_relay(psm::channel::transport::shared_transmission next_layer, const config &cfg = {})
+    inline shared_relay make_relay(psm::channel::transport::shared_transmission next_layer,
+                                   const config &cfg = {},
+                                   psm::agent::account::directory *account_dir = nullptr)
     {
-        return std::make_shared<relay>(std::move(next_layer), cfg);
+        return std::make_shared<relay>(std::move(next_layer), cfg, account_dir);
     }
 
 }

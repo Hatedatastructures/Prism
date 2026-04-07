@@ -289,7 +289,7 @@ namespace psm::multiplex::smux
             return std::nullopt;
         }
         const auto length = static_cast<std::uint16_t>(data[offset]) << 8 |
-                      static_cast<std::uint16_t>(data[offset + 1]);
+                            static_cast<std::uint16_t>(data[offset + 1]);
         offset += 2;
 
         if (data.size() < offset + length)

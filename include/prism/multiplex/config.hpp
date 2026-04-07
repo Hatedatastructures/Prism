@@ -1,38 +1,45 @@
 /**
  * @file config.hpp
  * @brief 多路复用通用配置
- * @details 定义多路复用层的通用行为参数，所有 mux 协议实现
- * （smux、yamux、h2mux 等）共享此配置结构。
- * 包括最大流数、缓冲区大小、心跳间隔和 UDP 中继参数。
+ * @details 定义多路复用层的协议选择和全局开关，各协议的完整配置参数
+ * 分别定义在对应子目录的 config.hpp 中（smux::config、yamux::config）。
  *
  * @note 默认配置适用于大多数场景，可根据实际需求调整
- * @note 各协议实现可继承此结构添加协议特有的配置字段
  */
 #pragma once
 
 #include <cstdint>
 
+#include <prism/multiplex/smux/config.hpp>
+#include <prism/multiplex/yamux/config.hpp>
+
 namespace psm::multiplex
 {
     /**
+     * @enum protocol_type
+     * @brief 多路复用协议类型
+     * @details 定义支持的多路复用协议枚举，用于 sing-mux 协商后选择具体实现。
+     */
+    enum class protocol_type : std::uint8_t
+    {
+        smux = 0,  // xtaci/smux v1 + sing-mux 协商
+        yamux = 1  // Hashicorp/yamux + sing-mux 协商
+    }; // enum protocol_type
+
+    /**
      * @struct config
-     * @brief 多路复用通用配置
-     * @details 控制 mux 服务端的通用行为参数。mux 服务端管理多个并发流，
-     * 每个新流创建时检查 max_streams 限制，每流独立连接目标服务器，
-     * 流之间相互独立，互不影响。
+     * @brief 多路复用配置入口
+     * @details 聚合协议选择、全局开关和各协议独立配置。
+     * 协议特有参数见 smux::config 和 yamux::config。
      */
     struct config
     {
-        bool enabled = false;                   // 是否启用多路复用服务端
+        protocol_type protocol = protocol_type::smux; // 多路复用协议类型
 
-        std::uint32_t max_streams = 32;         // 单个 mux 会话最大并发流数
+        bool enabled = false; // 是否启用多路复用服务端
 
-        std::uint32_t buffer_size = 4096;       // 每流读取缓冲区大小（字节），实际限制为 min(buffer_size, 65535)
-
-        std::uint32_t keepalive_interval_ms = 30000; // 心跳间隔（毫秒），0 表示禁用心跳
-
-        std::uint32_t udp_idle_timeout_ms = 60000;   // UDP 管道空闲超时（毫秒），超时自动关闭
-
-        std::uint32_t udp_max_datagram = 65535;      // UDP 数据报最大长度（字节）
+        smux::config smux; // smux 协议配置
+        yamux::config yamux; // yamux 协议配置
     }; // struct config
+
 } // namespace psm::multiplex

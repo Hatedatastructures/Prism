@@ -26,7 +26,7 @@ dns:
 
 # ---------- 协议测试节点 ----------
 proxies:
-  - name: "Smux Unlimited Conn Unlimited Streams TCP"
+  - name: "Smux UCUS TCP"
     type: trojan
     server: 192.168.137.1
     port: 8081
@@ -38,7 +38,7 @@ proxies:
       protocol: smux
       only-tcp: true 
 
-  - name: "Smux Unlimited Conn Unlimited Streams UDP"
+  - name: "Smux UCUS UDP"
     type: trojan
     server: 192.168.137.1
     port: 8081
@@ -50,7 +50,7 @@ proxies:
       protocol: smux
       only-tcp: false 
 
-  - name: "Smux 4 Conn 64 Streams TCP"
+  - name: "Smux 4C64S TCP"
     type: trojan
     server: 192.168.137.1
     port: 8081
@@ -64,7 +64,7 @@ proxies:
       max-streams: 64             
       max-conn: 4
 
-  - name: "Smux 4 Conn 64 Streams UDP"
+  - name: "Smux 4C64S UDP"
     type: trojan
     server: 192.168.137.1
     port: 8081
@@ -78,7 +78,7 @@ proxies:
       max-streams: 64             
       max-conn: 4
 
-  - name: "Smux 1 Conn 256 Streams TCP"
+  - name: "Smux 1C256S TCP"
     type: trojan
     server: 192.168.137.1
     port: 8081
@@ -92,7 +92,7 @@ proxies:
       max-streams: 256             
       max-conn: 1   
 
-  - name: "Smux 1 Conn 256 Streams UDP"
+  - name: "Smux 1C256S UDP"
     type: trojan
     server: 192.168.137.1
     port: 8081
@@ -102,9 +102,89 @@ proxies:
     smux:
       enabled: true
       protocol: smux
-      only-tcp: false              
-      max-streams: 256             
-      max-conn: 1   
+      only-tcp: false
+      max-streams: 256
+      max-conn: 1
+
+  - name: "Yamux UCUS TCP"
+    type: trojan
+    server: 192.168.137.1
+    port: 8081
+    password: "prism"
+    udp: false
+    skip-cert-verify: true
+    smux:
+      enabled: true
+      protocol: yamux
+      only-tcp: true
+
+  - name: "Yamux UCUS UDP"
+    type: trojan
+    server: 192.168.137.1
+    port: 8081
+    password: "prism"
+    udp: false
+    skip-cert-verify: true
+    smux:
+      enabled: true
+      protocol: yamux
+      only-tcp: false
+
+  - name: "Yamux 4C64S TCP"
+    type: trojan
+    server: 192.168.137.1
+    port: 8081
+    password: "prism"
+    udp: false
+    skip-cert-verify: true
+    smux:
+      enabled: true
+      protocol: yamux
+      only-tcp: true
+      max-streams: 64
+      max-conn: 4
+
+  - name: "Yamux 4C64S UDP"
+    type: trojan
+    server: 192.168.137.1
+    port: 8081
+    password: "prism"
+    udp: false
+    skip-cert-verify: true
+    smux:
+      enabled: true
+      protocol: yamux
+      only-tcp: false
+      max-streams: 64
+      max-conn: 4
+
+  - name: "Yamux 1C256S TCP"
+    type: trojan
+    server: 192.168.137.1
+    port: 8081
+    password: "prism"
+    udp: false
+    skip-cert-verify: true
+    smux:
+      enabled: true
+      protocol: yamux
+      only-tcp: true
+      max-streams: 256
+      max-conn: 1
+
+  - name: "Yamux 1C256S UDP"
+    type: trojan
+    server: 192.168.137.1
+    port: 8081
+    password: "prism"
+    udp: false
+    skip-cert-verify: true
+    smux:
+      enabled: true
+      protocol: yamux
+      only-tcp: false
+      max-streams: 256
+      max-conn: 1
 
 
   # SOCKS5 代理
@@ -160,12 +240,18 @@ proxy-groups:
   - name: "Prism 协议测试"
     type: select
     proxies:
-      - "Smux Unlimited Conn Unlimited Streams TCP"
-      - "Smux Unlimited Conn Unlimited Streams UDP"
-      - "Smux 4 Conn 64 Streams TCP"
-      - "Smux 4 Conn 64 Streams UDP"
-      - "Smux 1 Conn 256 Streams TCP"
-      - "Smux 1 Conn 256 Streams UDP"
+      - "Smux UCUS TCP"
+      - "Smux UCUS UDP"
+      - "Smux 4C64S TCP"
+      - "Smux 4C64S UDP"
+      - "Smux 1C256S TCP"
+      - "Smux 1C256S UDP"
+      - "Yamux UCUS TCP"
+      - "Yamux UCUS UDP"
+      - "Yamux 4C64S TCP"
+      - "Yamux 4C64S UDP"
+      - "Yamux 1C256S TCP"
+      - "Yamux 1C256S UDP"
       - "SOCKS5 TCP"
       - "SOCKS5 UDP"
       - "Http"
@@ -176,12 +262,18 @@ proxy-groups:
   - name: "自动选择"
     type: url-test
     proxies:
-      - "Smux Unlimited Conn Unlimited Streams TCP"
-      - "Smux Unlimited Conn Unlimited Streams UDP"
-      - "Smux 4 Conn 64 Streams TCP"
-      - "Smux 4 Conn 64 Streams UDP"
-      - "Smux 1 Conn 256 Streams TCP"
-      - "Smux 1 Conn 256 Streams UDP"
+      - "Smux UCUS TCP"
+      - "Smux UCUS UDP"
+      - "Smux 4C64S TCP"
+      - "Smux 4C64S UDP"
+      - "Smux 1C256S TCP"
+      - "Smux 1C256S UDP"
+      - "Yamux UCUS TCP"
+      - "Yamux UCUS UDP"
+      - "Yamux 4C64S TCP"
+      - "Yamux 4C64S UDP"
+      - "Yamux 1C256S TCP"
+      - "Yamux 1C256S UDP"
       - "SOCKS5 TCP"
       - "SOCKS5 UDP"
       - "Http"
@@ -189,7 +281,7 @@ proxy-groups:
       - "Trojan TCP"
       - "Trojan UDP"
       
-    url: "http://www.gstatic.com/generate_204"
+    url: "http://connect.rom.miui.com/generate_204"
     interval: 300
 
 # ---------- 规则 ----------

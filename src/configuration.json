@@ -60,20 +60,35 @@
         },
         "mux": {
             "enabled": true,
-            "max_streams": 512,
-            "buffer_size": 65535,
-            "keepalive_interval_ms": 30000
+            "smux": {
+                "max_streams": 512,
+                "buffer_size": 65535,
+                "keepalive_interval_ms": 30000,
+                "udp_idle_timeout_ms": 60000,
+                "udp_max_datagram": 65535
+            },
+            "yamux": {
+                "max_streams": 32,
+                "buffer_size": 4096,
+                "initial_window": 262144,
+                "enable_ping": true,
+                "ping_interval_ms": 30000,
+                "stream_open_timeout_ms": 30000,
+                "stream_close_timeout_ms": 30000,
+                "udp_idle_timeout_ms": 60000,
+                "udp_max_datagram": 65535
+            }
         },
         "dns": {
             "servers": [
                 {
-                    "address": "114.114.114.114",
+                    "address": "223.5.5.5",
                     "port": 53,
                     "protocol": "udp",
                     "timeout_ms": 1500
                 },
                 {
-                    "address": "119.29.29.29",
+                    "address": "119.28.28.28",
                     "port": 53,
                     "protocol": "udp",
                     "timeout_ms": 1500

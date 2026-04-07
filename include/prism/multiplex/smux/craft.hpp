@@ -6,7 +6,7 @@
  * 最大帧载荷 65535 字节。
  *
  * 协议会话生命周期：
- * 1. negotiate_protocol() 读取 sing-mux 协议头完成握手
+ * 1. negotiate() 读取 sing-mux 协议头完成握手
  * 2. frame_loop() 循环读取帧，按命令分发
  * 3. SYN → 创建 pending_entry，累积首个 PSH 的地址数据
  * 4. 地址完整后 activate_stream() 连接目标，创建 duct（TCP）或 parcel（UDP）
@@ -43,8 +43,8 @@ namespace psm::multiplex::smux
      */
     struct outbound_frame
     {
-        std::array<std::byte, frame_header_size> header{};  // 编码后的帧头（8 字节）
-        memory::vector<std::byte> payload;                   // 帧载荷数据（所有权转移）
+        std::array<std::byte, frame_header_size> header{}; // 编码后的帧头（8 字节）
+        memory::vector<std::byte> payload;                 // 帧载荷数据（所有权转移）
 
         outbound_frame() = default;
         explicit outbound_frame(memory::resource_pointer mr) : payload(mr) {}
@@ -68,7 +68,7 @@ namespace psm::multiplex::smux
          * @param mr PMR 内存资源，为空时使用默认资源
          */
         craft(channel::transport::shared_transmission transport, resolve::router &router,
-              const config &cfg, memory::resource_pointer mr = {});
+              const multiplex::config &cfg, memory::resource_pointer mr = {});
 
         ~craft() override;
 
@@ -104,15 +104,6 @@ namespace psm::multiplex::smux
          * @details 依次执行协议协商和帧循环。
          */
         auto run() -> net::awaitable<void> override;
-
-        /**
-         * @brief sing-mux 协议协商
-         * @return std::error_code 协商结果错误码
-         * @details 读取 sing-mux 协议头：[Version 1B][Protocol 1B]。
-         * Version > 0 时额外读取 [PaddingLen 2B BE][Padding N bytes]。
-         * 协商失败时会话终止。
-         */
-        auto negotiate_protocol() const -> net::awaitable<std::error_code>;
 
         /**
          * @brief 帧循环主协程
@@ -176,7 +167,7 @@ namespace psm::multiplex::smux
 
         /// 发送通道类型，容量与 config::max_streams 对齐
         using channel_type = net::experimental::concurrent_channel<void(boost::system::error_code, outbound_frame)>;
-        mutable channel_type channel_;  ///< 有界发送通道，串行化多流写入
+        mutable channel_type channel_; ///< 有界发送通道，串行化多流写入
 
         /**
          * @brief 发送循环协程
@@ -186,7 +177,7 @@ namespace psm::multiplex::smux
          */
         auto send_loop() -> net::awaitable<void>;
 
-        memory::vector<std::byte> recv_buffer_;  ///< 帧头读取缓冲（8 字节）
+        memory::vector<std::byte> recv_buffer_; ///< 帧头读取缓冲（8 字节）
     }; // class craft
 
 } // namespace psm::multiplex::smux
