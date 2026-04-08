@@ -28,14 +28,15 @@
 #include <prism/channel/adapter/connector.hpp>
 
 /**
- * @namespace psm::agent::pipeline::primitives
+ * @namespace psm::pipeline::primitives
  * @brief 管道原语命名空间
  * @details 提供协议处理管道的基础原语实现，包括传输层资源管理、
  * 上游连接建立、预读数据回放以及全双工隧道转发等功能。这些原语
  * 被上层协议处理器直接调用，不应在协议检测阶段使用。
  */
-namespace psm::agent::pipeline::primitives
+namespace psm::pipeline::primitives
 {
+    using psm::agent::session_context;
     namespace net = boost::asio;
     namespace ssl = net::ssl;
 
@@ -208,4 +209,4 @@ namespace psm::agent::pipeline::primitives
     auto tunnel(shared_transmission inbound, shared_transmission outbound,
                 const session_context &ctx, bool complete_write = true)
         -> net::awaitable<void>;
-} // namespace psm::agent::pipeline::primitives
+} // namespace psm::pipeline::primitives

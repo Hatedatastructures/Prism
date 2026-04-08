@@ -7,7 +7,6 @@
  * @details - account/：账户管理模块，包含凭据验证和用户配额；
  * @details - dispatch/：协议分发模块，包含 handler 和 handlers；
  * @details - front/：前端监听模块，包含 balancer 和 listener；
- * @details - pipeline/：管道处理模块，包含 primitives 和 protocols；
  * @details - session/：会话管理模块，定义 session 类；
  * @details - worker/：工作线程模块，包含 worker、stats、tls、launch。
  *
@@ -39,8 +38,8 @@
 #include <prism/resolve/transparent.hpp>
 #include <prism/agent/front/balancer.hpp>
 #include <prism/agent/front/listener.hpp>
-#include <prism/agent/pipeline/primitives.hpp>
-#include <prism/agent/pipeline/protocols.hpp>
+#include <prism/pipeline/primitives.hpp>
+#include <prism/pipeline/protocols.hpp>
 #include <prism/agent/worker/launch.hpp>
 #include <prism/agent/worker/stats.hpp>
 #include <prism/agent/worker/tls.hpp>

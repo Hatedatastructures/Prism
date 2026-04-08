@@ -426,7 +426,7 @@ smux 是一个简单的多路复用协议，帧格式如下：
    入口：`include/prism/agent/session/session.hpp`，`session::diversion`
 
 3. **TLS 握手**：`primitives::ssl_handshake` 执行 TLS 握手
-   入口：`src/prism/agent/pipeline/primitives.cpp`
+   入口：`src/prism/pipeline/primitives.cpp`
 
 4. **Trojan 处理器**：创建 Trojan 中继器并执行握手
    入口：`include/prism/agent/dispatch/handler.hpp`
@@ -441,7 +441,7 @@ smux 是一个简单的多路复用协议，帧格式如下：
    入口：`src/prism/resolve/router.cpp`
 
 8. **隧道转发**：`primitives::tunnel` 双向透明转发
-   入口：`src/prism/agent/pipeline/primitives.cpp`
+   入口：`src/prism/pipeline/primitives.cpp`
 
 ### 12. TLS 握手实现
 
@@ -482,7 +482,7 @@ ctx.active_stream_close = [ssl_stream]() noexcept
     最小总计: 68 字节
 
 实际实现分两层：
-    1. protocols.cpp 预读 60 字节（凭据 56 + CRLF 2 + CMD 1 + ATYP 1）
+    1. trojan.cpp 预读 60 字节（凭据 56 + CRLF 2 + CMD 1 + ATYP 1）
     2. relay.cpp 读取至少 68 字节，根据 ATYP 计算完整长度后补读
 ```
 
@@ -545,7 +545,7 @@ class lease
 #### 14.2 验证流程
 
 ```cpp
-// protocols.cpp - trojan
+// trojan.cpp - trojan
 auto verifier = [&ctx](const std::string_view credential) -> bool
 {
     if (!ctx.account_directory_ptr)

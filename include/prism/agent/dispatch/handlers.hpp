@@ -19,8 +19,8 @@
 #pragma once
 
 #include <prism/agent/dispatch/handler.hpp>
-#include <prism/agent/pipeline/protocols.hpp>
-#include <prism/agent/pipeline/primitives.hpp>
+#include <prism/pipeline/protocols.hpp>
+#include <prism/pipeline/primitives.hpp>
 
 namespace psm::agent::dispatch
 {

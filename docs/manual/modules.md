@@ -118,15 +118,18 @@
 - 源码：[handlers.hpp](../../include/prism/agent/dispatch/handlers.hpp)
 
 ## 5. pipeline 模块
-位置：`include/prism/agent/pipeline/`、`src/prism/agent/pipeline/`
+位置：`include/prism/pipeline/`、`src/prism/pipeline/`
+
+> **重要**：pipeline 已从 `agent/pipeline/` 提升为顶层独立模块，命名空间为 `psm::pipeline`。
 
 ### protocols
 - HTTP 处理路径：
   1. 解析 HTTP 请求（使用 `beast::basic_flat_buffer` + 内存池分配器）
-  2. 通过 `protocol::analysis::resolve` 提取目标
-  3. 调用 `primitives::dial` 连接上游
-  4. CONNECT 方法：发送 `200 Connection Established` 后进入 `tunnel`
-  5. 普通请求：序列化请求转发后进入 `tunnel`
+  2. HTTP 代理认证：检查 Proxy-Authorization: Basic 头（Base64 解码使用 [base64.hpp](../../include/prism/crypto/base64.hpp)），未认证返回 407，认证失败返回 403
+  3. 通过 `protocol::analysis::resolve` 提取目标
+  4. 调用 `primitives::dial` 连接上游
+  5. CONNECT 方法：发送 `200 Connection Established` 后进入 `tunnel`
+  6. 普通请求：序列化请求转发后进入 `tunnel`
 - SOCKS5 处理路径：
   1. 握手协商（支持认证方法选择）
   2. 请求解析（支持 CONNECT、UDP_ASSOCIATE 命令）
@@ -137,7 +140,9 @@
   2. 解析 Trojan 协议头，验证凭据
   3. 提取目标地址，建立上游连接
   4. 进入 `tunnel` 双向转发
-- 源码：[protocols.hpp](../../include/prism/agent/pipeline/protocols.hpp)、[protocols.cpp](../../src/prism/agent/pipeline/protocols.cpp)
+- `protocols.hpp` 为聚合头文件，引入 `http.hpp`、`socks5.hpp`、`trojan.hpp`
+- 源码：[protocols.hpp](../../include/prism/pipeline/protocols.hpp)、[http.hpp](../../include/prism/pipeline/protocols/http.hpp)、[socks5.hpp](../../include/prism/pipeline/protocols/socks5.hpp)、[trojan.hpp](../../include/prism/pipeline/protocols/trojan.hpp)
+- 实现：[http.cpp](../../src/prism/pipeline/protocols/http.cpp)、[socks5.cpp](../../src/prism/pipeline/protocols/socks5.cpp)、[trojan.cpp](../../src/prism/pipeline/protocols/trojan.cpp)
 
 ### primitives
 - `dial()`：拨号连接上游
@@ -150,7 +155,7 @@
   - 模板函数，支持任意传输类型
   - 使用双缓冲区实现双向转发
   - 任一方向断开即终止隧道
-- 源码：[primitives.hpp](../../include/prism/agent/pipeline/primitives.hpp)、[primitives.cpp](../../src/prism/agent/pipeline/primitives.cpp)
+- 源码：[primitives.hpp](../../include/prism/pipeline/primitives.hpp)、[primitives.cpp](../../src/prism/pipeline/primitives.cpp)
 
 ## 6. resolve 模块
 位置：`include/prism/resolve/`、`src/prism/resolve/`

@@ -17,7 +17,7 @@
    位置：[analysis.cpp](../../src/prism/protocol/analysis.cpp)，类 `psm::protocol::analysis` 的 `resolve`。
 
 5. **上游连接建立**：`primitives::dial` 根据 `target.positive` 选择路由  
-   位置：[primitives.cpp](../../src/prism/agent/pipeline/primitives.cpp)，命名空间 `psm::agent::pipeline::primitives` 的 `dial`。
+   位置：[primitives.cpp](../../src/prism/pipeline/primitives.cpp)，命名空间 `psm::pipeline::primitives` 的 `dial`。
 
 6. **路由决策与连接**：`router` 建立上游连接（直连或回退）  
    位置：[router.cpp](../../src/prism/resolve/router.cpp)，类 `psm::resolve::router` 的 `async_forward` 与 `async_reverse`。
@@ -113,21 +113,48 @@ Host: myservice.com
 3. 请求序列化并转发给后端。
 4. 继续转发预读数据并进入隧道转发（`tunnel`）。
 
-## 3. 路由与连接建立的关键细节
+## 3. HTTP 代理认证
 
-### 3.1 正向路由 `async_forward`
+Prism 支持标准 HTTP 代理认证机制（RFC 7235），用于对正向代理请求进行身份验证。
+
+### 3.1 Proxy-Authorization 头解析
+
+当配置了认证凭据时，HTTP 处理器会检查请求中的 `Proxy-Authorization` 头部字段。当前支持 Basic 认证方案：
+
+```
+Proxy-Authorization: Basic <base64-encoded-credentials>
+```
+
+Base64 解码使用 [base64.hpp](../../include/prism/crypto/base64.hpp) 实现，解码后格式为 `username:password`。
+
+### 3.2 认证流程
+
+1. 检查配置中是否启用了认证（存在凭据列表）。
+2. 若未启用认证，直接放行请求。
+3. 若启用了认证，从请求头中提取 `Proxy-Authorization` 字段。
+4. 解码并验证凭据（SHA224 哈希比对）。
+5. 验证通过则继续处理请求，否则返回相应错误响应。
+
+### 3.3 认证失败响应
+
+- **407 Proxy Authentication Required**：请求缺少 `Proxy-Authorization` 头或凭据验证失败。
+- **403 Forbidden**：认证格式错误或解码失败。
+
+## 4. 路由与连接建立的关键细节
+
+### 4.1 正向路由 `async_forward`
 
 路由优先级（[router.cpp](../../src/prism/resolve/router.cpp)）：
 1. **黑名单拦截**：检查目标地址是否在黑名单中（直接返回 `blocked`）。
 2. **DNS 解析并直连**：解析目标主机名，通过连接池 `acquire_tcp` 获取或创建连接。
 3. **直连失败回退**：如果直连失败，回退到配置的上游代理（通过 `CONNECT` 命令）。
 
-### 3.2 反向路由 `async_reverse`
+### 4.2 反向路由 `async_reverse`
 
 从 `reverse_map_` 取目标后端 `endpoint`，通过连接池复用连接。
 对应实现：[router.cpp](../../src/prism/resolve/router.cpp) 的 `psm::resolve::router::async_reverse`。
 
-### 3.3 上游代理回退 `async_positive`
+### 4.3 上游代理回退 `async_positive`
 
 当直连失败时，走 `CONNECT` 回退路径：
 1. 解析上游代理地址。
@@ -137,9 +164,9 @@ Host: myservice.com
 
 对应实现：[router.cpp](../../src/prism/resolve/router.cpp) 的 `psm::resolve::router::async_positive`。
 
-## 4. 隧道转发机制
+## 5. 隧道转发机制
 
-### 4.1 双向隧道转发
+### 5.1 双向隧道转发
 
 `primitives::tunnel` 用于建立双向数据隧道：
 
@@ -157,7 +184,7 @@ auto tunnel(transmission_pointer inbound, transmission_pointer outbound,
 - 使用 PMR 内存资源分配缓冲区。
 - 转发完成后关闭两端连接。
 
-### 4.2 预读数据处理
+### 5.2 预读数据处理
 
 在 HTTP 请求解析过程中，可能已经预读了一些数据（如请求正文的开始部分）。这些数据需要转发给上游：
 
@@ -174,14 +201,14 @@ if (read_buffer.size() != 0)
 - 使用 `psm::channel::loader::async_write` 保证完整写入。
 - 写入后调用 `consume` 清空缓冲区。
 
-### 4.3 核心转发逻辑 `primitives::tunnel`
+### 5.3 核心转发逻辑 `primitives::tunnel`
 
 `primitives::tunnel` 是通用的双向转发函数：
 - 在客户端和上游连接之间建立双向数据流。
 - 使用协程实现高效的并发转发。
 - 处理连接关闭和错误情况。
 
-## 5. 关键日志与排查点
+## 6. 关键日志与排查点
 
 以下日志有助于确认 HTTP 请求走向：
 
@@ -189,15 +216,15 @@ if (read_buffer.size() != 0)
   位置：[session.hpp](../../include/prism/agent/session/session.hpp) 的 `psm::agent::session::session::diversion`。
 
 - `[Pipeline] HTTP request received: {method} {target}`
-  位置：[protocols.cpp](../../src/prism/agent/pipeline/protocols.cpp) 的 `psm::agent::pipeline::http`。
+  位置：[http.cpp](../../src/prism/pipeline/protocols/http.cpp) 的 `psm::pipeline::http`。
 
 - `[Pipeline] HTTP analysis target = [host: {}, port: {}, positive: {}]`
-  位置：[protocols.cpp](../../src/prism/agent/pipeline/protocols.cpp) 的 `psm::agent::pipeline::http`。
+  位置：[http.cpp](../../src/prism/pipeline/protocols/http.cpp) 的 `psm::pipeline::http`。
 
 - `[Pipeline] HTTP upstream connected`
-  位置：[primitives.cpp](../../src/prism/agent/pipeline/primitives.cpp) 的 `psm::agent::pipeline::primitives::dial`。
+  位置：[primitives.cpp](../../src/prism/pipeline/primitives.cpp) 的 `psm::pipeline::primitives::dial`。
 
-## 6. 简化调用图（文字版）
+## 7. 简化调用图（文字版）
 
 ```
 worker.accept -> session::diversion
@@ -216,11 +243,11 @@ worker.accept -> session::diversion
           -> primitives::tunnel (持续双向转发)
 ```
 
-## 7. 协议常量与枚举
+## 8. 协议常量与枚举
 
 关键枚举定义在 [constants.hpp](../../include/prism/protocol/http/constants.hpp)：
 
-### 7.1 HTTP 请求方法（`verb`）
+### 8.1 HTTP 请求方法（`verb`）
 - `connect`：建立隧道（HTTPS 代理）
 - `get`：获取资源
 - `post`：提交数据
@@ -230,7 +257,7 @@ worker.accept -> session::diversion
 - `options`：查询服务器能力
 - 以及其他 WebDAV、UPnP 等方法
 
-### 7.2 HTTP 状态码（`status`）
+### 8.2 HTTP 状态码（`status`）
 - `ok` (`200`)：请求成功
 - `bad_request` (`400`)：请求语法错误
 - `unauthorized` (`401`)：需要认证
@@ -239,7 +266,7 @@ worker.accept -> session::diversion
 - `internal_server_error` (`500`)：服务器内部错误
 - 以及其他标准状态码
 
-### 7.3 HTTP 头部字段（`field`）
+### 8.3 HTTP 头部字段（`field`）
 - `host`：请求目标主机
 - `content_length`：内容长度
 - `content_type`：内容类型
@@ -247,7 +274,7 @@ worker.accept -> session::diversion
 - `proxy_connection`：代理连接
 - 以及其他标准和非标准头部字段
 
-## 8. 错误处理与状态码映射
+## 9. 错误处理与状态码映射
 
 HTTP 协议错误到 `fault::code` 的映射：
 

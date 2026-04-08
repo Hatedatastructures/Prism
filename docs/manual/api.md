@@ -22,8 +22,8 @@
 #include <prism/resolve/transparent.hpp>
 #include <prism/agent/front/balancer.hpp>
 #include <prism/agent/front/listener.hpp>
-#include <prism/agent/pipeline/primitives.hpp>
-#include <prism/agent/pipeline/protocols.hpp>
+#include <prism/pipeline/primitives.hpp>
+#include <prism/pipeline/protocols.hpp>
 #include <prism/agent/worker/launch.hpp>
 #include <prism/agent/worker/stats.hpp>
 #include <prism/agent/worker/tls.hpp>
@@ -92,8 +92,11 @@
 ## 协议管道
 
 ```cpp
-#include <prism/agent/pipeline/primitives.hpp>  // dial(), preview, tunnel()
-#include <prism/agent/pipeline/protocols.hpp>   // http(), socks5(), trojan()
+#include <prism/pipeline/primitives.hpp>  // dial(), preview, tunnel()
+#include <prism/pipeline/protocols.hpp>   // 聚合头文件，引入 http.hpp, socks5.hpp, trojan.hpp
+#include <prism/pipeline/protocols/http.hpp>   // http()
+#include <prism/pipeline/protocols/socks5.hpp> // socks5()
+#include <prism/pipeline/protocols/trojan.hpp> // trojan()
 ```
 
 ---

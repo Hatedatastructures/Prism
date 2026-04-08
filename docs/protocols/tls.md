@@ -15,7 +15,7 @@
    位置：[handlers.hpp](../../include/prism/agent/dispatch/handlers.hpp)
 
 4. **TLS 握手**：执行服务器端 TLS 握手
-   位置：[protocols.cpp](../../src/prism/agent/pipeline/protocols.cpp)，函数 `pipeline::trojan`
+   位置：[protocols.cpp](../../src/prism/pipeline/protocols/trojan.cpp)，函数 `pipeline::trojan`
 
 5. **内部协议处理**：握手成功后，解析 Trojan 协议或 HTTP 请求
 
@@ -91,7 +91,7 @@ auto trojan(session_context &ctx, std::span<const std::byte> data)
 }
 ```
 
-**位置**：[protocols.cpp](../../src/prism/agent/pipeline/protocols.cpp)
+**位置**：[protocols.cpp](../../src/prism/pipeline/protocols/trojan.cpp)
 
 ## 4. 握手后处理
 
@@ -152,13 +152,13 @@ openssl req -x509 -newkey rsa:4096 \
 以下日志有助于确认 TLS 请求走向：
 
 - `[Trojan] TLS handshake started`
-  位置：[protocols.cpp](../../src/prism/agent/pipeline/protocols.cpp)
+  位置：[protocols.cpp](../../src/prism/pipeline/protocols/trojan.cpp)
 
 - `[Trojan] TLS handshake failed: {error}`
-  位置：[protocols.cpp](../../src/prism/agent/pipeline/protocols.cpp)
+  位置：[protocols.cpp](../../src/prism/pipeline/protocols/trojan.cpp)
 
 - `[Trojan] handshake completed, ALPN: {protocol}`
-  位置：[protocols.cpp](../../src/prism/agent/pipeline/protocols.cpp)
+  位置：[protocols.cpp](../../src/prism/pipeline/protocols/trojan.cpp)
 
 ## 7. 简化调用图
 

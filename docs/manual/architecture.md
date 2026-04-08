@@ -13,27 +13,32 @@
 #### HTTP/HTTPS 代理
 
 **CONNECT 方法（隧道代理）**：
-- 实现位置：[protocols.cpp](../../src/prism/agent/pipeline/protocols.cpp)
+- 实现位置：[http.cpp](../../src/prism/pipeline/protocols/http.cpp)
 - 处理流程：解析 HTTP 请求后，对 CONNECT 方法返回 `HTTP/1.1 200 Connection Established`，随后建立双向隧道
 
 **普通 HTTP 请求转发**：
-- 实现位置：[protocols.cpp](../../src/prism/agent/pipeline/protocols.cpp)
+- 实现位置：[http.cpp](../../src/prism/pipeline/protocols/http.cpp)
 - 处理流程：序列化请求并转发到上游，同时转发预读缓冲区中的剩余数据
+
+**HTTP 代理认证**：
+- 实现位置：[http.cpp](../../src/prism/pipeline/protocols/http.cpp)
+- 认证方式：Proxy-Authorization: Basic（Base64 解码使用 [base64.hpp](../../include/prism/crypto/base64.hpp)）
+- 未认证请求返回 `407 Proxy Authentication Required`，认证失败返回 `403 Forbidden`
 
 #### SOCKS5 代理
 
 **CONNECT 命令**：
-- 实现位置：[protocols.cpp](../../src/prism/agent/pipeline/protocols.cpp)
+- 实现位置：[socks5.cpp](../../src/prism/pipeline/protocols/socks5.cpp)
 - 处理流程：握手协商 → 目标解析 → 建立上游连接 → 返回成功响应 → 双向隧道
 
 **UDP_ASSOCIATE 命令**：
-- 实现位置：[protocols.cpp](../../src/prism/agent/pipeline/protocols.cpp)
+- 实现位置：[socks5.cpp](../../src/prism/pipeline/protocols/socks5.cpp)
 - 处理流程：调用 `async_associate()` 建立 UDP 中继
 
 #### TLS 终止
 
 **TLS 握手**：
-- 实现位置：[protocols.cpp](../../src/prism/agent/pipeline/protocols.cpp)
+- 实现位置：[trojan.cpp](../../src/prism/pipeline/protocols/trojan.cpp)
 - 握手后作为 HTTPS 处理，执行服务器端 TLS 握手
 
 #### 反向代理
@@ -197,27 +202,27 @@
 
 | 协议类型 | 处理器类 | 管道函数 | 源码位置 |
 |----------|----------|----------|----------|
-| HTTP | `dispatch::Http` | `pipeline::http()` | `include/prism/agent/dispatch/handlers.hpp` |
-| SOCKS5 | `dispatch::Socks5` | `pipeline::socks5()` | `include/prism/agent/dispatch/handlers.hpp` |
-| Trojan | `dispatch::Trojan` | `pipeline::trojan()` | `include/prism/agent/dispatch/handlers.hpp` |
+| HTTP | `dispatch::Http` | `psm::pipeline::http()` | `include/prism/agent/dispatch/handlers.hpp` |
+| SOCKS5 | `dispatch::Socks5` | `psm::pipeline::socks5()` | `include/prism/agent/dispatch/handlers.hpp` |
+| Trojan | `dispatch::Trojan` | `psm::pipeline::trojan()` | `include/prism/agent/dispatch/handlers.hpp` |
 | Unknown | `dispatch::Unknown` | `primitives::tunnel()` | `include/prism/agent/dispatch/handlers.hpp` |
 
 ### 3.7 上游连接阶段
 
 | 步骤 | 操作 | 源码位置 | 说明 |
 |------|------|----------|------|
-| 20 | `protocol::analysis::resolve()` | `src/prism/agent/pipeline/protocols.cpp` | 解析请求获取目标地址 |
-| 21 | `primitives::dial()` | `src/prism/agent/pipeline/primitives.cpp` | 建立上游连接 |
+| 20 | `protocol::analysis::resolve()` | `src/prism/pipeline/protocols/` | 解析请求获取目标地址 |
+| 21 | `primitives::dial()` | `src/prism/pipeline/primitives.cpp` | 建立上游连接 |
 | 22 | `router->async_reverse()` 或 `router->async_forward()` | `src/prism/resolve/router.cpp` | 路由选择 |
-| 23 | `psm::channel::transport::make_reliable()` | `src/prism/agent/pipeline/primitives.cpp` | 包装为可靠传输 |
+| 23 | `psm::channel::transport::make_reliable()` | `src/prism/pipeline/primitives.cpp` | 包装为可靠传输 |
 
 ### 3.8 双向转发阶段
 
 | 步骤 | 操作 | 源码位置 | 说明 |
 |------|------|----------|------|
-| 24 | `primitives::tunnel()` | `include/prism/agent/pipeline/primitives.hpp` | 建立全双工隧道 |
-| 25 | 双向数据转发 | `include/prism/agent/pipeline/primitives.hpp` | 并发转发双向数据流 |
-| 26 | 连接关闭 | `include/prism/agent/pipeline/primitives.hpp` | 任一方向断开后关闭两端 |
+| 24 | `primitives::tunnel()` | `include/prism/pipeline/primitives.hpp` | 建立全双工隧道 |
+| 25 | 双向数据转发 | `include/prism/pipeline/primitives.hpp` | 并发转发双向数据流 |
+| 26 | 连接关闭 | `include/prism/pipeline/primitives.hpp` | 任一方向断开后关闭两端 |
 
 ---
 

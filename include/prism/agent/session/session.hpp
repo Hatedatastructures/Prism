@@ -31,8 +31,8 @@
 #include <prism/protocol/probe.hpp>
 #include <prism/trace/spdlog.hpp>
 #include <prism/channel/transport/transmission.hpp>
-#include <prism/agent/pipeline/protocols.hpp>
-#include <prism/agent/pipeline/primitives.hpp>
+#include <prism/pipeline/protocols.hpp>
+#include <prism/pipeline/primitives.hpp>
 #include <atomic>
 
 /**

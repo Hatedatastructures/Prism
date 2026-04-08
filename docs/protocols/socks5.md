@@ -458,7 +458,7 @@ BIND 用于 FTP 被动模式等需要反向连接的场景：
    入口：`include/prism/protocol/socks5/stream.hpp`
 
 5. **上游连接建立**：`primitives::dial` 建立连接
-   入口：`src/prism/agent/pipeline/primitives.cpp`
+   入口：`src/prism/pipeline/primitives.cpp`
 
 6. **路由决策**：`router::async_forward` 直连或回退
    入口：`src/prism/resolve/router.cpp`

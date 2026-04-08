@@ -50,7 +50,8 @@
             "enable_bind": false,
             "udp_bind_port": 0,
             "udp_idle_timeout": 60,
-            "udp_max_datagram": 65535
+            "udp_max_datagram": 65535,
+            "enable_auth": true
         },
         "trojan": {
             "enable_tcp": true,

@@ -84,7 +84,7 @@ SOCKS5 握手逻辑见 src/protocol/socks5/stream.cpp
 | config.md | `include/prism/agent/config.hpp`, `include/prism/agent/context.hpp` |
 | architecture.md | 全局源码分析 |
 | modules.md | `src/prism/agent/` 下各子目录源码 (worker, session, resolve, etc.) |
-| runtime.md | `src/prism/agent/session/session.cpp`, `src/prism/agent/pipeline/protocols.cpp`, `src/prism/agent/pipeline/primitives.cpp` |
+| runtime.md | `src/prism/agent/session/session.cpp`, `src/prism/pipeline/protocols/http.cpp`, `src/prism/pipeline/protocols/socks5.cpp`, `src/prism/pipeline/protocols/trojan.cpp`, `src/prism/pipeline/primitives.cpp` |
 | routing.md | `include/prism/agent/dispatch/handler.hpp`, `include/prism/agent/dispatch/handlers.hpp`, `src/prism/resolve/router.cpp` |
 | dependencies.md | `CMakeLists.txt`, 目录结构 |
 | api.md | `include/prism/agent.hpp` |
@@ -99,8 +99,8 @@ SOCKS5 握手逻辑见 src/protocol/socks5/stream.cpp
 
 | 功能 | 源码位置 | 验证方式 |
 |-----|---------|---------|
-| HTTP/HTTPS 代理 | `src/protocol/http/`, `include/prism/protocol/http/` | handler 注册 + 测试 |
-| SOCKS5 代理 | `src/protocol/socks5/`, `include/prism/protocol/socks5/` | handler 注册 + `tests/socks5_test.cpp` |
+| HTTP/HTTPS 代理 | `src/prism/pipeline/protocols/http.cpp`, `include/prism/pipeline/protocols/http.hpp` | handler 注册 + 测试 |
+| SOCKS5 代理 | `src/prism/pipeline/protocols/socks5.cpp`, `include/prism/pipeline/protocols/socks5.hpp` | handler 注册 + `tests/socks5_test.cpp` |
 | TLS 终止 | `src/prism/agent/worker/tls.cpp`, `include/prism/agent/worker/tls.hpp` | 运行链接入 |
 | 反向代理 | `src/prism/resolve/router.cpp`, `include/prism/resolve/router.hpp` | 运行链接入 |
 | 负载均衡 | `src/prism/agent/front/balancer.cpp`, `include/prism/agent/front/balancer.hpp` | 运行链接入 |
@@ -122,7 +122,7 @@ SOCKS5 握手逻辑见 src/protocol/socks5/stream.cpp
 | 项目 | 预期行为 | 实际行为 | 源码位置 |
 |-----|---------|---------|---------|
 | listener 绑定地址 | 绑定 `addressable.host` | 绑定 IPv4 | `src/prism/agent/front/listener.cpp` |
-| async_forward 转发顺序 | 优先代理 | 先直连后 fallback | `src/prism/agent/pipeline/primitives.cpp` |
+| async_forward 转发顺序 | 优先代理 | 先直连后 fallback | `src/prism/pipeline/primitives.cpp` |
 | reverse_map 目标解析 | 域名优先 | IP literal 优先 | `src/prism/resolve/router.cpp` |
 
 ---

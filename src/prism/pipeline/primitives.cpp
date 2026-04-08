@@ -1,4 +1,4 @@
-#include <prism/agent/pipeline/primitives.hpp>
+#include <prism/pipeline/primitives.hpp>
 #include <prism/channel/transport/reliable.hpp>
 #include <prism/channel/transport/encrypted.hpp>
 #include <chrono>
@@ -8,8 +8,9 @@ constexpr std::string_view SslStr = "[Primitives.SSL]";
 constexpr std::string_view DialStr = "[Primitives.Dial]";
 constexpr std::string_view TunnelStr = "[Primitives.Tunnel]";
 
-namespace psm::agent::pipeline::primitives
+namespace psm::pipeline::primitives
 {
+    using psm::agent::session_context;
     auto ssl_handshake(session_context &ctx, const std::span<const std::byte> data)
         -> net::awaitable<std::pair<fault::code, shared_ssl_stream>>
     {
@@ -242,4 +243,4 @@ namespace psm::agent::pipeline::primitives
         shut_close(inbound);
         shut_close(outbound);
     }
-} // namespace psm::agent::pipeline::primitives
+} // namespace psm::pipeline::primitives

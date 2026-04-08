@@ -194,10 +194,26 @@ proxies:
     port: 8081
     udp: true
 
+  - name: "SOCKS5 UDP Cert"
+    type: socks5
+    server: 192.168.137.1
+    port: 8081
+    username: "admin"
+    password: "prism"
+    udp: true
+
   - name: "SOCKS5 TCP"         
     type: socks5
     server: 192.168.137.1
     port: 8081
+    udp: false
+
+  - name: "SOCKS5 TCP Cert"
+    type: socks5
+    server: 192.168.137.1
+    port: 8081
+    username: "admin"
+    password: "prism"
     udp: false
 
   # http
@@ -205,16 +221,18 @@ proxies:
     type: http
     server: 192.168.137.1
     port: 8081
+    # username: username          # HTTP 代理 Basic 认证用户名 (可选)
+    # password: prism             # HTTP 代理 Basic 认证密码 (可选)
 
 
-  # https
+  # https (注意: tls: true 尚未支持，TLS 内层协议检测待实现)
   - name: "Https"
     type: http
     server: 192.168.137.1
     port: 8081
-    # username: username
-    # password: password
-    tls: true 
+    username: username
+    password: prism
+    tls: true
     # skip-cert-verify: true
     # sni: custom.com
 
@@ -253,13 +271,15 @@ proxy-groups:
       - "Yamux 1C256S TCP"
       - "Yamux 1C256S UDP"
       - "SOCKS5 TCP"
+      - "SOCKS5 TCP Cert"
       - "SOCKS5 UDP"
+      - "SOCKS5 UDP Cert"
       - "Http"
       - "Https"
       - "Trojan TCP"
       - "Trojan UDP"
 
-  - name: "自动选择"
+  - name: "国内延迟测试(xiaomi)"
     type: url-test
     proxies:
       - "Smux UCUS TCP"
@@ -275,7 +295,9 @@ proxy-groups:
       - "Yamux 1C256S TCP"
       - "Yamux 1C256S UDP"
       - "SOCKS5 TCP"
+      - "SOCKS5 TCP Cert"
       - "SOCKS5 UDP"
+      - "SOCKS5 UDP Cert"
       - "Http"
       - "Https"
       - "Trojan TCP"
