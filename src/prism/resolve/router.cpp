@@ -2,10 +2,10 @@
 
 #include <prism/channel/transport/reliable.hpp>
 #include <prism/exception.hpp>
+#include <prism/resolve/utility.hpp>
 #include <prism/trace.hpp>
 
 #include <algorithm>
-#include <boost/asio/experimental/awaitable_operators.hpp>
 #include <memory>
 #include <string>
 
@@ -68,7 +68,7 @@ namespace psm::resolve
                     co_return std::make_pair(fault::code::host_unreachable, pooled_connection{});
                 }
                 // IP 字面量：直接构造 endpoint 连接，无需 DNS 解析
-                const auto port_num = static_cast<std::uint16_t>(std::stoi(std::string(port)));
+                const auto port_num = parse_port(port).value_or(0);
                 const tcp::endpoint ep(addr, port_num);
                 trace::debug("[Resolve] literal address, direct connect: {}", host);
                 auto [code, conn] = co_await pool_.async_acquire(ep);
@@ -101,17 +101,14 @@ namespace psm::resolve
     auto router::connect_with_retry(const std::span<const tcp::endpoint> endpoints)
         -> net::awaitable<pooled_connection>
     {
-        // TODO: 并发竞速连接（co_spawn(detached) 在 MinGW 上触发 0xC0000005，
-        // 待后续用 || 操作符或 asio::steady_timer 延迟方案重写）
-        for (const auto &ep : endpoints)
+        if (endpoints.empty())
         {
-            auto [code, conn] = co_await pool_.async_acquire(ep);
-            if (conn.valid())
-            {
-                co_return conn;
-            }
+            co_return pooled_connection{};
         }
-        co_return pooled_connection{};
+
+        // RFC 8305 Happy Eyeballs：staggered delay 竞速
+        channel::eyeball::address_racer racer(pool_);
+        co_return co_await racer.race(endpoints);
     }
 
     auto router::async_reverse(const std::string_view host) const
@@ -158,7 +155,7 @@ namespace psm::resolve
                 {
                     co_return std::pair{fault::code::host_unreachable, net::ip::udp::socket{executor_}};
                 }
-                const auto port_num = static_cast<std::uint16_t>(std::stoi(std::string(port)));
+                const auto port_num = parse_port(port).value_or(0);
                 target = net::ip::udp::endpoint(addr, port_num);
             }
             else
@@ -188,7 +185,7 @@ namespace psm::resolve
                 {
                     co_return std::make_pair(fault::code::host_unreachable, net::ip::udp::endpoint{});
                 }
-                const auto port_num = static_cast<std::uint16_t>(std::stoi(std::string(port)));
+                const auto port_num = parse_port(port).value_or(0);
                 co_return std::make_pair(fault::code::success, net::ip::udp::endpoint(addr, port_num));
             }
         }

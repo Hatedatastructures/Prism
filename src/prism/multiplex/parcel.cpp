@@ -21,12 +21,12 @@ constexpr std::string_view tag = "[Mux.Parcel]";
 namespace psm::multiplex
 {
     parcel::parcel(const std::uint32_t stream_id, std::shared_ptr<core> owner,
-                   resolve::router &router,
-                   const std::uint32_t udp_idle_timeout, const std::uint32_t udp_max_dg,
+                   resolve::router &router, const std::uint32_t udp_idle_timeout, const std::uint32_t udp_max_dg,
                    const memory::resource_pointer mr, const bool packet_addr)
-        : id_(stream_id), owner_(std::move(owner)), router_(router),
+        : id_(stream_id), owner_(owner), router_(router),
+          executor_(owner->executor()),
           udp_idle_timeout_ms_(udp_idle_timeout), udp_max_datagram_(udp_max_dg),
-          mr_(mr), idle_timer_(owner_->executor()), recv_buffer_(mr), packet_addr_(packet_addr),
+          mr_(mr), idle_timer_(executor_), recv_buffer_(mr), packet_addr_(packet_addr),
           mux_buffer_(mr)
     {
         recv_buffer_.resize(udp_max_datagram_);
@@ -61,7 +61,7 @@ namespace psm::multiplex
             }
             self->close();
         };
-        net::co_spawn(owner_->executor(), uplink_loop(), std::move(on_done));
+        net::co_spawn(executor_, uplink_loop(), std::move(on_done));
     }
 
     auto parcel::uplink_loop() -> net::awaitable<void>
@@ -133,7 +133,7 @@ namespace psm::multiplex
         if (!processing_.exchange(true))
         {
             auto self = shared_from_this();
-            net::co_spawn(owner_->executor(), self->process_buffer(), net::detached);
+            net::co_spawn(executor_, self->process_buffer(), net::detached);
         }
     }
 
@@ -232,7 +232,7 @@ namespace psm::multiplex
         if (!recv_running_.exchange(true))
         {
             auto self = shared_from_this();
-            net::co_spawn(owner_->executor(), self->downlink_loop(), net::detached);
+            net::co_spawn(executor_, self->downlink_loop(), net::detached);
         }
 
         // 发送数据报（不等待响应）
@@ -287,7 +287,14 @@ namespace psm::multiplex
                 }
 
                 // 通过 mux PSH 帧回传给客户端
-                co_await owner_->send_data(id_, std::move(encoded));
+                if (auto owner = owner_.lock())
+                {
+                    co_await owner->send_data(id_, std::move(encoded));
+                }
+                else
+                {
+                    break;
+                }
             }
         }
         catch (const std::exception &e)
@@ -318,7 +325,10 @@ namespace psm::multiplex
         }
 
         idle_timer_.cancel();
-        owner_->remove_parcel(id_);
+        if (auto owner = owner_.lock())
+        {
+            owner->remove_parcel(id_);
+        }
         trace::debug("{} stream {} UDP parcel closed", tag, id_);
     }
 

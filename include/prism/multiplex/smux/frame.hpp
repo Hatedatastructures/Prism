@@ -151,65 +151,11 @@ namespace psm::multiplex::smux
         -> std::optional<parsed_address>;
 
     /**
-     * @brief 序列化帧
-     * @param hdr 帧头结构
-     * @param payload 数据负载（可以为空）
-     * @param mr 内存资源
-     * @return 序列化后的字节向量（8 字节帧头 + 负载）
-     */
-    [[nodiscard]] auto serialize(const frame_header &hdr, std::span<const std::byte> payload,
-                                 memory::resource_pointer mr)
-        -> memory::vector<std::byte>;
-
-    /**
      * @brief 解析帧头
      * @param data 包含帧头的字节序列（至少 8 字节）
      * @return 解析成功的帧头，或 nullopt（校验失败）
      */
     [[nodiscard]] auto deserialization(std::span<const std::byte> data)
         -> std::optional<frame_header>;
-
-    /**
-     * @brief 创建 PSH（数据推送）帧
-     */
-    [[nodiscard]] inline auto make_push_frame(const std::uint32_t stream_id, const std::span<const std::byte> payload,
-                                              const memory::resource_pointer mr)
-        -> memory::vector<std::byte>
-    {
-        frame_header hdr{};
-        hdr.version = protocol_version;
-        hdr.cmd = command::push;
-        hdr.stream_id = stream_id;
-        hdr.length = static_cast<std::uint16_t>(payload.size());
-        return serialize(hdr, payload, mr);
-    }
-
-    /**
-     * @brief 创建 SYN 帧
-     */
-    [[nodiscard]] inline auto make_syn_frame(const std::uint32_t stream_id, const memory::resource_pointer mr)
-        -> memory::vector<std::byte>
-    {
-        frame_header hdr{};
-        hdr.version = protocol_version;
-        hdr.cmd = command::syn;
-        hdr.stream_id = stream_id;
-        hdr.length = 0;
-        return serialize(hdr, {}, mr);
-    }
-
-    /**
-     * @brief 创建 FIN 帧
-     */
-    [[nodiscard]] inline auto make_fin_frame(const std::uint32_t stream_id, const memory::resource_pointer mr)
-        -> memory::vector<std::byte>
-    {
-        frame_header hdr{};
-        hdr.version = protocol_version;
-        hdr.cmd = command::fin;
-        hdr.stream_id = stream_id;
-        hdr.length = 0;
-        return serialize(hdr, {}, mr);
-    }
 
 } // namespace psm::multiplex::smux

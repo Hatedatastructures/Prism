@@ -12,6 +12,7 @@
 #include <boost/asio/experimental/awaitable_operators.hpp>
 
 #include <prism/resolve/recursor.hpp>
+#include <prism/resolve/utility.hpp>
 
 namespace psm::resolve
 {
@@ -96,9 +97,12 @@ namespace psm::resolve
         if (ip.is_v4())
         {
             const auto v4 = ip.to_v4();
+            const auto addr_uint = v4.to_uint();
             for (const auto &network : config_.blacklist_v4)
             {
-                if (network.hosts().find(v4) != network.hosts().end())
+                const auto net_addr = network.address().to_uint();
+                const auto mask = network.netmask().to_uint();
+                if ((addr_uint & mask) == (net_addr & mask))
                 {
                     return true;
                 }
@@ -109,9 +113,22 @@ namespace psm::resolve
         if (ip.is_v6())
         {
             const auto v6 = ip.to_v6();
+            const auto &addr_bytes = v6.to_bytes();
             for (const auto &network : config_.blacklist_v6)
             {
-                if (network.hosts().find(v6) != network.hosts().end())
+                const auto &net_bytes = network.address().to_bytes();
+                const auto prefix_len = network.prefix_length();
+                bool match = true;
+                for (unsigned i = 0; i < 16 && i * 8 < prefix_len; ++i)
+                {
+                    const auto bits = (i * 8 + 8 <= prefix_len) ? 0xFF : static_cast<uint8_t>(0xFF << (8 - (prefix_len - i * 8)));
+                    if ((addr_bytes[i] & bits) != (net_bytes[i] & bits))
+                    {
+                        match = false;
+                        break;
+                    }
+                }
+                if (match)
                 {
                     return true;
                 }
@@ -309,7 +326,12 @@ namespace psm::resolve
     auto recursor::resolve_tcp(const std::string_view host, const std::string_view port)
         -> net::awaitable<std::pair<fault::code, memory::vector<tcp::endpoint>>>
     {
-        const auto port_num = static_cast<std::uint16_t>(std::stoi(std::string(port)));
+        const auto port_opt = parse_port(port);
+        if (!port_opt)
+        {
+            co_return std::make_pair(fault::code::invalid_argument, memory::vector<tcp::endpoint>(mr_));
+        }
+        const auto port_num = *port_opt;
 
         // 并行查询 A 和 AAAA（禁用 IPv6 时跳过 AAAA）
         using namespace boost::asio::experimental::awaitable_operators;
@@ -355,7 +377,12 @@ namespace psm::resolve
         // 先尝试 A 记录，再尝试 AAAA（禁用 IPv6 时跳过）
         auto [ec4, ips4] = co_await query_pipeline(host, qtype::a);
 
-        const auto port_num = static_cast<std::uint16_t>(std::stoi(std::string(port)));
+        const auto port_opt = parse_port(port);
+        if (!port_opt)
+        {
+            co_return std::make_pair(fault::code::invalid_argument, udp::endpoint{});
+        }
+        const auto port_num = *port_opt;
 
         if (!ips4.empty())
         {

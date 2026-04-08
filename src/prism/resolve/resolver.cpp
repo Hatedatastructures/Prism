@@ -13,6 +13,7 @@
 #include <prism/resolve/resolver.hpp>
 
 #include <algorithm>
+#include <atomic>
 #include <chrono>
 #include <cstdint>
 #include <cstring>
@@ -38,8 +39,39 @@ namespace psm::resolve
     }
 
     resolver::resolver(net::io_context &ioc, memory::resource_pointer mr)
-        : ioc_(ioc), mr_(mr ? mr : memory::current_resource()), servers_(mr_)
+        : ioc_(ioc), mr_(mr ? mr : memory::current_resource()), servers_(mr_), ssl_cache_(mr_)
     {
+    }
+
+    auto resolver::get_ssl_context(const dns_remote &server) -> std::shared_ptr<ssl::context>
+    {
+        const auto hostname = server.hostname.empty() ? server.address : server.hostname;
+        const bool verify_peer = !server.no_check_certificate;
+        ssl_cache_key key{memory::string(hostname, mr_), verify_peer};
+
+        if (auto it = ssl_cache_.find(key); it != ssl_cache_.end())
+        {
+            return it->second;
+        }
+
+        auto ctx = std::make_shared<ssl::context>(ssl::context::tls);
+        ctx->set_default_verify_paths();
+        ctx->set_verify_mode(verify_peer ? ssl::verify_peer : ssl::verify_none);
+
+        if (!hostname.empty())
+        {
+            // 注意：hostname 字符串必须比 context 长命
+            // 这里使用 server 引用（来自 servers_ 成员），生命周期由 resolver 管理
+            SSL_CTX_set_tlsext_servername_arg(
+                ctx->native_handle(),
+                const_cast<char *>(server.hostname.c_str()));
+            SSL_CTX_set_tlsext_servername_callback(
+                ctx->native_handle(),
+                sni_callback);
+        }
+
+        ssl_cache_[key] = ctx;
+        return ctx;
     }
 
     void resolver::set_servers(const memory::vector<dns_remote> servers)
@@ -124,12 +156,19 @@ namespace psm::resolve
             r = resolve_result(mr_);
         }
 
+        // 信号机制：替代零延时轮询，查询完成时主动唤醒主协程
+        auto completion_signal = std::make_shared<net::steady_timer>(ioc_);
+        completion_signal->expires_at(net::steady_timer::time_point::max());
+        auto completed_count = std::make_shared<std::atomic<std::size_t>>(0);
+        const auto total_count = servers_.size();
+
         // 为每个上游服务器启动独立的查询协程
         for (std::size_t i = 0; i < servers_.size(); ++i)
         {
             const auto &server = servers_[i];
 
-            auto task = [this, &server, query_shared, results_shared, i]() -> net::awaitable<void>
+            auto task = [this, &server, query_shared, results_shared, i,
+                         completion_signal, completed_count]() -> net::awaitable<void>
             {
                 auto &result = (*results_shared)[i];
                 switch (server.protocol)
@@ -150,6 +189,10 @@ namespace psm::resolve
 
                 trace::debug("[Resolve] query to {} completed: code={}, ips={}, rtt={}ms", server.address,
                              fault::describe(result.error), result.ips.size(), result.rtt_ms);
+
+                // 完成后递增计数器并唤醒主协程
+                completed_count->fetch_add(1);
+                completion_signal->cancel();
             };
             net::co_spawn(ioc_, std::move(task), net::detached);
         }
@@ -160,10 +203,19 @@ namespace psm::resolve
             return r.error == fault::code::success && r.ips.empty() && r.server_addr.empty();
         };
 
-        // 等待所有查询完成或找到第一个成功结果
-        net::steady_timer yield_timer(ioc_);
+        // 信号驱动等待：查询完成时通过 timer 取消唤醒，而非忙等待轮询
         while (true)
         {
+            boost::system::error_code wait_ec;
+            co_await completion_signal->async_wait(
+                net::redirect_error(net::use_awaitable, wait_ec));
+
+            // 被取消说明有查询完成，重置定时器用于下一次等待
+            if (wait_ec == net::error::operation_aborted)
+            {
+                completion_signal->expires_at(net::steady_timer::time_point::max());
+            }
+
             // first 模式：收到第一个成功响应即返回
             if (mode_ == resolve_mode::first)
             {
@@ -177,24 +229,10 @@ namespace psm::resolve
             }
 
             // 检查是否所有查询都已完成
-            bool all_done = true;
-            for (const auto &r : *results_shared)
-            {
-                if (is_pending(r))
-                {
-                    all_done = false;
-                    break;
-                }
-            }
-            if (all_done)
+            if (completed_count->load() >= total_count)
             {
                 break;
             }
-
-            // 让出执行权，等待其他协程完成
-            yield_timer.expires_after(std::chrono::milliseconds(0));
-            boost::system::error_code ignored;
-            co_await yield_timer.async_wait(net::redirect_error(net::use_awaitable, ignored));
         }
 
         // fastest 模式：选择 RTT 最低的成功响应
@@ -550,33 +588,11 @@ namespace psm::resolve
             co_return result;
         }
 
-        // 配置 TLS 上下文
-        ssl::context ssl_ctx(ssl::context::tls);
-        ssl_ctx.set_default_verify_paths();
-
-        // 根据配置决定是否验证证书
-        if (server.no_check_certificate)
-        {
-            ssl_ctx.set_verify_mode(ssl::verify_none);
-        }
-        else
-        {
-            ssl_ctx.set_verify_mode(ssl::verify_peer);
-        }
-
-        // 设置 SNI 主机名
-        if (!server.hostname.empty())
-        {
-            SSL_CTX_set_tlsext_servername_arg(
-                ssl_ctx.native_handle(),
-                const_cast<char *>(server.hostname.c_str()));
-            SSL_CTX_set_tlsext_servername_callback(
-                ssl_ctx.native_handle(),
-                sni_callback);
-        }
+        // 配置 TLS 上下文（使用缓存避免重复创建）
+        auto ssl_ctx = get_ssl_context(server);
 
         // 创建 SSL stream，shared_ptr 延长生命周期
-        auto ssl_sock = std::make_shared<ssl::stream<net::ip::tcp::socket>>(std::move(*sock), ssl_ctx);
+        auto ssl_sock = std::make_shared<ssl::stream<net::ip::tcp::socket>>(std::move(*sock), *ssl_ctx);
         auto &ssl = *ssl_sock;
 
         auto arm_ssl = [&]
@@ -749,34 +765,12 @@ namespace psm::resolve
             co_return result;
         }
 
-        // 配置 TLS 上下文
-        ssl::context ssl_ctx(ssl::context::tls);
-        ssl_ctx.set_default_verify_paths();
-
-        // 根据配置决定是否验证证书
-        if (server.no_check_certificate)
-        {
-            ssl_ctx.set_verify_mode(ssl::verify_none);
-        }
-        else
-        {
-            ssl_ctx.set_verify_mode(ssl::verify_peer);
-        }
-
-        // 设置 Host 头和 SNI
+        // 配置 TLS 上下文（使用缓存避免重复创建）
+        auto ssl_ctx = get_ssl_context(server);
         const auto host_header = server.hostname.empty() ? server.address : server.hostname;
-        if (!server.hostname.empty())
-        {
-            SSL_CTX_set_tlsext_servername_arg(
-                ssl_ctx.native_handle(),
-                const_cast<char *>(server.hostname.c_str()));
-            SSL_CTX_set_tlsext_servername_callback(
-                ssl_ctx.native_handle(),
-                sni_callback);
-        }
 
         // 创建 SSL stream 并进行 TLS 握手
-        auto ssl_sock = std::make_shared<ssl::stream<net::ip::tcp::socket>>(std::move(*sock), ssl_ctx);
+        auto ssl_sock = std::make_shared<ssl::stream<net::ip::tcp::socket>>(std::move(*sock), *ssl_ctx);
         auto &ssl = *ssl_sock;
 
         auto arm_ssl = [&]

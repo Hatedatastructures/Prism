@@ -68,7 +68,7 @@
                 "udp_max_datagram": 65535
             },
             "yamux": {
-                "max_streams": 32,
+                "max_streams": 256,
                 "buffer_size": 4096,
                 "initial_window": 262144,
                 "enable_ping": true,

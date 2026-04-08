@@ -54,7 +54,11 @@ namespace psm::multiplex
             self->close();
         };
 
-        net::co_spawn(transport_->executor(), run(), std::move(exception_functor));
+        auto run_wrapper = [self = shared_from_this()]() -> net::awaitable<void>
+        {
+            co_await self->run();
+        };
+        net::co_spawn(transport_->executor(), run_wrapper(), std::move(exception_functor));
     }
 
     void core::close()

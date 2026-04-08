@@ -63,12 +63,19 @@ namespace psm::multiplex::yamux
      * @details 跟踪单个流的发送和接收窗口，使用原子变量确保线程安全。
      * duct::target_read_loop 和 frame_loop 可能并发访问 send_window，
      * dispatch_data 和 update_recv_window 可能并发访问 recv_consumed。
+     * window_signal 用于在窗口不足时等待 WindowUpdate 帧唤醒发送方。
      */
     struct stream_window
     {
         std::atomic<std::uint32_t> send_window{initial_stream_window}; // 发送窗口（对端允许发送的数据量）
-        std::atomic<std::uint32_t> recv_window{initial_stream_window}; // 接收窗口（本地允许接收的数据量）
         std::atomic<std::uint32_t> recv_consumed{0};                   // 已消费的接收数据量（阈值触发 WindowUpdate）
+        std::shared_ptr<net::steady_timer> window_signal;              // 窗口更新信号定时器
+
+        explicit stream_window(net::any_io_executor ex)
+            : window_signal(std::make_shared<net::steady_timer>(ex))
+        {
+            window_signal->expires_at(net::steady_timer::time_point::max());
+        }
     }; // struct stream_window
 
     /**
@@ -118,6 +125,29 @@ namespace psm::multiplex::yamux
          * @note 用于 duct/parcel 协程调度和 co_spawn
          */
         [[nodiscard]] net::any_io_executor executor() const override;
+
+        /**
+         * @brief 移除 TCP 管道并清理窗口状态
+         * @param stream_id 要移除的流标识符
+         * @details override core::remove_duct，额外清理 windows_ 映射
+         */
+        void remove_duct(std::uint32_t stream_id) override;
+
+        /**
+         * @brief 移除 UDP 管道并清理窗口状态
+         * @param stream_id 要移除的流标识符
+         * @details override core::remove_parcel，额外清理 windows_ 映射
+         */
+        void remove_parcel(std::uint32_t stream_id) override;
+
+        /**
+         * @brief 关闭 yamux 会话（幂等）
+         * @details override core::close，额外取消 pending 超时定时器和清理窗口状态。
+         * 先取消 pending_timers_ 防止超时协程在 close 过程中运行，
+         * 然后调用 core::close() 清理 pending/ducts/parcels，
+         * 最后清理剩余的 windows_（pending 流的窗口不会被 remove_duct/remove_parcel 清理）。
+         */
+        void close() override;
 
     private:
         /**
@@ -188,11 +218,11 @@ namespace psm::multiplex::yamux
         /**
          * @brief 尝试激活 pending 流
          * @param stream_id 流标识符
-         * @param entry pending 条目引用
+         * @param entry pending 条目引用，避免二次查找
          * @details 当 buffer >= 7 字节且未连接时，通过 co_spawn 启动 activate_stream。
          * connecting 标志防止重复激活。
          */
-        void try_activate_pending(std::uint32_t stream_id, pending_entry &entry);
+        void try_activate_pending(std::uint32_t stream_id);
 
         /**
          * @brief 处理 WindowUpdate 帧
@@ -232,6 +262,14 @@ namespace psm::multiplex::yamux
          */
         auto activate_stream(std::uint32_t stream_id) -> net::awaitable<void>;
 
+        /**
+         * @brief 为 pending 流设置超时定时器
+         * @param stream_id 流标识符
+         * @details 当 stream_open_timeout_ms > 0 时创建定时器，超时后检查流是否仍在 pending 中，
+         * 若是则清理并发送 RST。activate_stream 成功后应取消定时器。
+         */
+        void start_pending_timeout(std::uint32_t stream_id);
+
         // --- 窗口管理 ---
 
         /**
@@ -240,6 +278,13 @@ namespace psm::multiplex::yamux
          * @return 流窗口指针，永不返回 nullptr
          */
         stream_window *get_or_create_window(std::uint32_t stream_id);
+
+        /**
+         * @brief 获取流窗口（不创建）
+         * @param stream_id 流标识符
+         * @return 流窗口指针，不存在时返回 nullptr
+         */
+        [[nodiscard]] stream_window *get_window(std::uint32_t stream_id) const;
 
         /**
          * @brief 检查并更新接收窗口，必要时发送 WindowUpdate
@@ -274,12 +319,22 @@ namespace psm::multiplex::yamux
          */
         auto send_loop() -> net::awaitable<void>;
 
+        /**
+         * @brief 主动 Ping 心跳循环
+         * @details 当 enable_ping 为 true 且 ping_interval_ms > 0 时运行，
+         * 按配置间隔发送 Ping(SYN) 帧，检测连接活性。
+         * 定时器等待期间会话关闭则退出。
+         */
+        auto ping_loop() -> net::awaitable<void>;
+
         /// 发送通道类型
         using channel_type = net::experimental::concurrent_channel<void(boost::system::error_code, outbound_frame)>;
         mutable channel_type channel_; // 有界发送通道，串行化多流写入，容量为 max_streams
 
-        memory::unordered_map<std::uint32_t, std::unique_ptr<stream_window>> windows_; // 流窗口映射
-        memory::vector<std::byte> recv_buffer_;                                        // 帧头读取缓冲（12 字节）
+        memory::unordered_map<std::uint32_t, std::unique_ptr<stream_window>> windows_;            // 流窗口映射
+        memory::unordered_map<std::uint32_t, std::shared_ptr<net::steady_timer>> pending_timers_; // pending 流超时定时器
+        std::atomic<std::uint32_t> ping_id_{0};                                                   // Ping 标识符计数器
+        memory::vector<std::byte> recv_buffer_;                                                   // 帧头读取缓冲（12 字节）
     }; // class craft
 
 } // namespace psm::multiplex::yamux

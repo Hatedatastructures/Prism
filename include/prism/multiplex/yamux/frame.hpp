@@ -75,12 +75,6 @@ namespace psm::multiplex::yamux
         rst = 0x0008   // RST - 重置标志，强制关闭流
     }; // enum flags
 
-    /// 标志位按位或运算
-    [[nodiscard]] constexpr flags operator|(flags a, flags b) noexcept
-    {
-        return static_cast<flags>(static_cast<std::uint16_t>(a) | static_cast<std::uint16_t>(b));
-    }
-
     /// 标志位按位与运算
     [[nodiscard]] constexpr flags operator&(flags a, flags b) noexcept
     {
@@ -104,32 +98,8 @@ namespace psm::multiplex::yamux
      */
     enum class go_away_code : std::uint32_t
     {
-        normal = 0,         // 正常终止，客户端主动关闭会话
-        protocol_error = 1, // 协议错误，收到无法识别的帧或非法状态转换
-        internal_error = 2  // 内部错误，服务端异常导致会话终止
+        protocol_error = 1 // 协议错误，收到无法识别的帧或非法状态转换
     }; // enum go_away_code
-
-    /**
-     * @brief 获取消息类型的可读名称，用于日志输出
-     * @param t 消息类型枚举值
-     * @return 类型名称字符串
-     */
-    [[nodiscard]] constexpr const char *message_type_name(message_type t) noexcept
-    {
-        switch (t)
-        {
-        case message_type::data:
-            return "Data";
-        case message_type::window_update:
-            return "WindowUpdate";
-        case message_type::ping:
-            return "Ping";
-        case message_type::go_away:
-            return "GoAway";
-        default:
-            return "Unknown";
-        }
-    }
 
     // === 帧结构 ===
 
@@ -173,19 +143,6 @@ namespace psm::multiplex::yamux
      * @return 解析结果，Version 或 Type 非法时返回 nullopt
      */
     [[nodiscard]] std::optional<frame_header> parse_header(std::span<const std::byte> buffer) noexcept;
-
-    /**
-     * @brief 构建 Data 帧（header + payload 拼接为连续 buffer）
-     * @param f 标志位，通常为 none，也可能携带 SYN/FIN/RST
-     * @param stream_id 流标识符
-     * @param payload 载荷数据
-     * @param mr PMR 内存资源
-     * @return 12 字节帧头 + 载荷的连续 buffer
-     */
-    [[nodiscard]] memory::vector<std::byte> build_data_frame(
-        flags f, std::uint32_t stream_id,
-        std::span<const std::byte> payload,
-        memory::resource_pointer mr = {});
 
     /**
      * @brief 构建 WindowUpdate 帧（仅 12 字节帧头，无载荷）

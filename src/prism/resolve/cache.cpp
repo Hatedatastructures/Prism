@@ -1,4 +1,6 @@
 #include <algorithm>
+#include <cstdio>
+#include <cstring>
 #include <string>
 
 #include <prism/resolve/cache.hpp>
@@ -31,12 +33,23 @@ namespace psm::resolve
         return key;
     }
 
+    auto cache::make_key_view(const std::string_view domain, const qtype qt,
+                              const std::span<char> buffer) -> std::string_view
+    {
+        const auto num = static_cast<std::uint16_t>(qt);
+        const auto num_len = std::snprintf(buffer.data() + domain.size() + 1, 6, "%u", num);
+        std::memcpy(buffer.data(), domain.data(), domain.size());
+        buffer[domain.size()] = ':';
+        return std::string_view(buffer.data(), domain.size() + 1 + num_len);
+    }
+
     auto cache::get(const std::string_view domain, const qtype qt)
         -> std::optional<memory::vector<net::ip::address>>
     {
-        // 构造完整的 PMR 键进行查找（transparent_equal 支持 string_view 与 memory::string 比较）
-        const auto key = make_key(domain, qt);
-        const auto it = entries_.find(std::string_view(key));
+        // 使用栈缓冲区构造查找 key，避免 PMR 分配
+        std::array<char, 260> buffer;
+        const auto key_view = make_key_view(domain, qt, buffer);
+        const auto it = entries_.find(key_view);
 
         // 未命中
         if (it == entries_.end())

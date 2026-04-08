@@ -91,7 +91,7 @@ namespace psm::multiplex
          * 多次调用无副作用。
          * @note 方法定义在 core.cpp 中
          */
-        void close();
+        virtual void close();
 
         /**
          * @brief 检查会话是否活跃
@@ -140,16 +140,18 @@ namespace psm::multiplex
         /**
          * @brief 从活跃管道映射中移除指定 TCP 管道
          * @param stream_id 要移除的流标识符
+         * @details 由 duct::close() 调用，子类可 override 清理协议特定资源（如 yamux 窗口）
          * @note 方法定义在 core.cpp 中
          */
-        void remove_duct(std::uint32_t stream_id);
+        virtual void remove_duct(std::uint32_t stream_id);
 
         /**
          * @brief 从活跃管道映射中移除指定 UDP 管道
          * @param stream_id 要移除的流标识符
+         * @details 由 parcel::close() 调用，子类可 override 清理协议特定资源（如 yamux 窗口）
          * @note 方法定义在 core.cpp 中
          */
-        void remove_parcel(std::uint32_t stream_id);
+        virtual void remove_parcel(std::uint32_t stream_id);
 
         channel::transport::shared_transmission transport_; // 底层传输连接
         resolve::router &router_;                           // 路由器引用

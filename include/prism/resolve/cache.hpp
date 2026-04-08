@@ -22,6 +22,7 @@
 #include <chrono>
 #include <cstddef>
 #include <optional>
+#include <span>
 #include <string_view>
 
 #include <boost/asio.hpp>
@@ -143,6 +144,8 @@ namespace psm::resolve
          * (A 记录) 或 "www.example.com:28" (AAAA 记录)。
          */
         [[nodiscard]] auto make_key(std::string_view domain, qtype qt) const -> memory::string;
+
+        [[nodiscard]] static auto make_key_view(std::string_view domain, qtype qt, std::span<char> buffer) -> std::string_view;
 
         memory::resource_pointer mr_;      // 内存资源
         std::chrono::seconds default_ttl_; // 默认 TTL

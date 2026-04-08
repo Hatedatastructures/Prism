@@ -61,31 +61,6 @@ namespace psm::multiplex::smux
         }
     } // namespace
 
-    auto serialize(const frame_header &hdr, std::span<const std::byte> payload,
-                   const memory::resource_pointer mr)
-        -> memory::vector<std::byte>
-    {
-        memory::vector<std::byte> buffer(mr);
-        buffer.resize(frame_header_size + payload.size());
-
-        auto *p = buffer.data();
-        p[0] = static_cast<std::byte>(hdr.version);
-        p[1] = static_cast<std::byte>(hdr.cmd);
-        p[2] = static_cast<std::byte>(hdr.length & 0xFF);
-        p[3] = static_cast<std::byte>(hdr.length >> 8);
-        p[4] = static_cast<std::byte>(hdr.stream_id & 0xFF);
-        p[5] = static_cast<std::byte>(hdr.stream_id >> 8);
-        p[6] = static_cast<std::byte>(hdr.stream_id >> 16);
-        p[7] = static_cast<std::byte>(hdr.stream_id >> 24);
-
-        if (!payload.empty())
-        {
-            std::memcpy(p + frame_header_size, payload.data(), payload.size());
-        }
-
-        return buffer;
-    }
-
     auto deserialization(std::span<const std::byte> data)
         -> std::optional<frame_header>
     {

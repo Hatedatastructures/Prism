@@ -306,6 +306,8 @@ namespace psm::channel
         struct config config_;
         // 后台清理定时器，start() 后有效
         std::optional<net::steady_timer> cleanup_timer_;
+        // 退出标志：与清理协程共享，clear() 设置后协程安全退出，避免析构时 UAF
+        std::shared_ptr<std::atomic<bool>> shutdown_flag_;
 
         // start() 是否已调用
         bool started_{false};

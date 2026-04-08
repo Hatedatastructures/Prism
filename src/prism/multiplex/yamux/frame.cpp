@@ -92,32 +92,6 @@ namespace psm::multiplex::yamux
 
     // === 构建特定帧类型 ===
 
-    auto build_data_frame(
-        const flags f, const std::uint32_t stream_id,
-        const std::span<const std::byte> payload,
-        const memory::resource_pointer mr)
-        -> memory::vector<std::byte>
-    {
-        memory::vector<std::byte> buffer(mr);
-        buffer.resize(frame_header_size + payload.size());
-
-        frame_header hdr{};
-        hdr.type = message_type::data;
-        hdr.flag = f;
-        hdr.stream_id = stream_id;
-        hdr.length = static_cast<std::uint32_t>(payload.size());
-
-        const auto header_bytes = build_header(hdr);
-        std::memcpy(buffer.data(), header_bytes.data(), frame_header_size);
-
-        if (!payload.empty())
-        {
-            std::memcpy(buffer.data() + frame_header_size, payload.data(), payload.size());
-        }
-
-        return buffer;
-    }
-
     auto build_window_update_frame(const flags f, const std::uint32_t stream_id, const std::uint32_t delta) noexcept
         -> std::array<std::byte, frame_header_size>
     {

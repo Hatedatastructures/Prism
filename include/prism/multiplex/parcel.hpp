@@ -12,8 +12,8 @@
  * @note 设计原则：parcel 是协议无关的，通过 core 虚函数接口发送帧，不依赖具体协议
  * @note 线程安全：单个实例非线程安全，应在 transport executor 上串行使用
  * @note 生命周期：通过 shared_from_this 保活，协程持有 self 防止提前析构
- * @warning owner_ 持有 core 的 shared_ptr，core 的 parcels_ 持有 parcel 的 shared_ptr，
- *          构成循环引用，依赖 core::close() 中 std::move(parcels_) 打破
+ * @warning owner_ 持有 core 的 weak_ptr，core 的 parcels_ 持有 parcel 的 shared_ptr，
+ *          不构成循环引用，core 销毁后 parcel 通过 lock() 检测并安全退出
  */
 #pragma once
 
@@ -59,7 +59,7 @@ namespace psm::multiplex
      * @note 生命周期：core::close() 通过 std::move(parcels_) 取出所有 parcel 后逐一 close
      * @warning on_mux_data 中的串行处理保证同一时刻只有一个数据报在处理中，
      *          避免多个 relay_datagram 并发写入同一 egress_socket_
-     * @warning owner_ (shared_ptr<core>) 与 core 的 parcels_ (shared_ptr<parcel>) 构成循环引用
+     * @warning owner_ (weak_ptr<core>) 不与 core 的 parcels_ (shared_ptr<parcel>) 构成循环引用
      */
     class parcel : public std::enable_shared_from_this<parcel>
     {
@@ -199,8 +199,9 @@ namespace psm::multiplex
         auto ensure_socket(net::ip::udp::endpoint::protocol_type protocol) -> net::awaitable<bool>;
 
         std::uint32_t id_;                   // 流标识符，由 mux SYN 帧分配
-        std::shared_ptr<core> owner_;        // 所属 core，用于发送 mux 帧和管理流映射
+        std::weak_ptr<core> owner_;          // 所属 core 的弱引用，不构成循环引用
         resolve::router &router_;            // 路由器引用，用于 DNS 解析目标主机名
+        net::any_io_executor executor_;      // 缓存的 executor，core 销毁后仍可用
         std::uint32_t udp_idle_timeout_ms_;  // UDP 管道空闲超时（毫秒）
         std::uint32_t udp_max_datagram_;     // UDP 数据报最大长度（字节）
         memory::resource_pointer mr_;        // PMR 内存资源，用于缓冲区分配
@@ -231,8 +232,7 @@ namespace psm::multiplex
      * @return parcel 的共享指针
      */
     [[nodiscard]] inline auto make_parcel(std::uint32_t stream_id, std::shared_ptr<core> owner,
-                                          resolve::router &router,
-                                          std::uint32_t udp_idle_timeout, std::uint32_t udp_max_dg,
+                                          resolve::router &router, std::uint32_t udp_idle_timeout, std::uint32_t udp_max_dg,
                                           memory::resource_pointer mr = {}, bool packet_addr = false)
         -> std::shared_ptr<parcel>
     {

@@ -42,17 +42,29 @@ namespace psm::multiplex::smux
         : core(std::move(transport), router, cfg, mr),
           channel_(transport_->executor(), cfg.smux.max_streams)
     {
-        recv_buffer_ = memory::vector<std::byte>(mr_);
-        recv_buffer_.resize(config_.smux.buffer_size);
     }
 
     craft::~craft() = default;
 
     auto craft::run() -> net::awaitable<void>
     {
-        // 启动发送循环
+        // 启动发送循环（lambda 捕获 self 保持 craft 生命周期）
         const auto self = std::static_pointer_cast<craft>(shared_from_this());
-        net::co_spawn(executor(), self->send_loop(), net::detached);
+         auto start_send_loop = [self]() -> net::awaitable<void>
+        {
+            co_await self->send_loop();
+        };
+        net::co_spawn(executor(), std::move(start_send_loop), net::detached);
+
+        // 启动 NOP 心跳（有间隔时）
+        if (config_.smux.keepalive_interval_ms > 0)
+        {
+            auto start_keepalive = [self]() -> net::awaitable<void>
+            {
+                co_await self->keepalive_loop();
+            };
+            net::co_spawn(executor(), std::move(start_keepalive), net::detached);
+        }
 
         // 进入帧循环，处理客户端命令
         co_await frame_loop();
@@ -473,6 +485,35 @@ namespace psm::multiplex::smux
             trace::debug("{} send loop unknown error", tag);
         }
         trace::debug("{} send loop ended", tag);
+    }
+
+    auto craft::keepalive_loop() -> net::awaitable<void>
+    {
+        trace::debug("{} keepalive loop started, interval={}ms", tag, config_.smux.keepalive_interval_ms);
+        net::steady_timer timer(executor());
+        try
+        {
+            while (is_active())
+            {
+                timer.expires_after(std::chrono::milliseconds(config_.smux.keepalive_interval_ms));
+                boost::system::error_code ec;
+                co_await timer.async_wait(net::redirect_error(net::use_awaitable, ec));
+                if (ec || !is_active())
+                {
+                    break;
+                }
+                co_await push_frame(command::nop, 0, memory::vector<std::byte>(mr_));
+                trace::debug("{} nop heartbeat sent", tag);
+            }
+        }
+        catch (const std::exception &e)
+        {
+            trace::debug("{} keepalive loop error: {}", tag, e.what());
+        }
+        catch (...)
+        {
+        }
+        trace::debug("{} keepalive loop ended", tag);
     }
 
 } // namespace psm::multiplex::smux

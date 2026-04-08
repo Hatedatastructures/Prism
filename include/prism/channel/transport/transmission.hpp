@@ -114,7 +114,7 @@ namespace psm::channel::transport
          * @warning 缓冲区必须有效，且在整个异步操作期间保持有效。
          * @throws std::bad_alloc 如果内存分配失败
          */
-        virtual auto async_read_some(std::span<std::byte> buffer, std::error_code& ec)
+        virtual auto async_read_some(std::span<std::byte> buffer, std::error_code &ec)
             -> net::awaitable<std::size_t> = 0;
 
         /**
@@ -133,7 +133,7 @@ namespace psm::channel::transport
          * @warning 缓冲区必须有效，且在整个异步操作期间保持有效。
          * @throws std::bad_alloc 如果内存分配失败
          */
-        virtual auto async_write_some(std::span<const std::byte> buffer, std::error_code& ec)
+        virtual auto async_write_some(std::span<const std::byte> buffer, std::error_code &ec)
             -> net::awaitable<std::size_t> = 0;
 
         /**
@@ -196,6 +196,31 @@ namespace psm::channel::transport
                 total_written += n;
             }
             co_return total_written;
+        }
+
+        /**
+         * @brief Scatter-gather 写入操作
+         * @details 将多个缓冲区按顺序完整写入，减少系统调用次数。
+         * 默认实现逐个写入每个缓冲区，子类可重写以使用原生 scatter-gather I/O。
+         * @param buffers 缓冲区数组
+         * @param count 缓冲区数量
+         * @param ec 错误码输出参数
+         * @return net::awaitable<std::size_t> 实际写入的总字节数
+         */
+        virtual auto async_write_scatter(const std::span<const std::byte> *buffers, std::size_t count, std::error_code &ec)
+            -> net::awaitable<std::size_t>
+        {
+            std::size_t total = 0;
+            for (std::size_t i = 0; i < count; ++i)
+            {
+                const auto n = co_await async_write(buffers[i], ec);
+                total += n;
+                if (ec)
+                {
+                    co_return total;
+                }
+            }
+            co_return total;
         }
 
         /**

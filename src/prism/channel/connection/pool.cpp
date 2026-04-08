@@ -293,18 +293,22 @@ namespace psm::channel
         }
 
         cleanup_timer_.emplace(ioc_);
+        shutdown_flag_ = std::make_shared<std::atomic<bool>>(false);
 
-        auto clean_function = [this]() -> net::awaitable<void>
+        auto flag = shutdown_flag_;
+        auto clean_function = [this, flag]() -> net::awaitable<void>
         {
             try
             {
-                while (cleanup_timer_.has_value())
+                while (cleanup_timer_.has_value() && !flag->load(std::memory_order_acquire))
                 {
                     cleanup_timer_->expires_after(std::chrono::seconds(config_.cleanup_interval_sec));
                     boost::system::error_code ec;
                     auto token = net::redirect_error(net::use_awaitable, ec);
                     co_await cleanup_timer_->async_wait(token);
                     if (ec)
+                        break;
+                    if (flag->load(std::memory_order_acquire))
                         break;
                     if (stat_acquires_.load(std::memory_order_relaxed) != 0)
                     {
@@ -392,12 +396,20 @@ namespace psm::channel
 
     void connection_pool::clear()
     {
+        // 先设置退出标志，让清理协程安全退出
+        if (shutdown_flag_)
+        {
+            shutdown_flag_->store(true, std::memory_order_release);
+        }
+
         // 取消清理定时器
         if (cleanup_timer_.has_value())
         {
             cleanup_timer_->cancel();
             cleanup_timer_.reset();
         }
+
+        shutdown_flag_.reset();
 
         for (auto &stack : cache_ | std::views::values)
         {

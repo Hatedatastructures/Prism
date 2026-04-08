@@ -177,7 +177,12 @@ namespace psm::multiplex::smux
          */
         auto send_loop() -> net::awaitable<void>;
 
-        memory::vector<std::byte> recv_buffer_; ///< 帧头读取缓冲（8 字节）
+        /**
+         * @brief NOP 心跳循环
+         * @details 当 keepalive_interval_ms > 0 时运行，按配置间隔发送 NOP 帧，
+         * 保持连接活性。定时器等待期间会话关闭则退出。
+         */
+        auto keepalive_loop() -> net::awaitable<void>;
     }; // class craft
 
 } // namespace psm::multiplex::smux

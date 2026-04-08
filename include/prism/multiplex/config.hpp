@@ -22,23 +22,22 @@ namespace psm::multiplex
      */
     enum class protocol_type : std::uint8_t
     {
-        smux = 0,  // xtaci/smux v1 + sing-mux 协商
-        yamux = 1  // Hashicorp/yamux + sing-mux 协商
+        smux = 0, // xtaci/smux v1 + sing-mux 协商
+        yamux = 1 // Hashicorp/yamux + sing-mux 协商
     }; // enum protocol_type
 
     /**
      * @struct config
      * @brief 多路复用配置入口
-     * @details 聚合协议选择、全局开关和各协议独立配置。
+     * @details 聚合全局开关和各协议独立配置。
      * 协议特有参数见 smux::config 和 yamux::config。
+     * 协议类型由 sing-mux 协商动态决定，无需配置。
      */
     struct config
     {
-        protocol_type protocol = protocol_type::smux; // 多路复用协议类型
-
         bool enabled = false; // 是否启用多路复用服务端
 
-        smux::config smux; // smux 协议配置
+        smux::config smux;   // smux 协议配置
         yamux::config yamux; // yamux 协议配置
     }; // struct config
 

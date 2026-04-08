@@ -155,16 +155,25 @@ namespace psm::channel::eyeball
             -> net::awaitable<pooled_connection>;
 
     private:
+        /// 竞速共享状态（定义在 racer.cpp）
+        struct race_context;
+
         /// 连接池引用，用于建立 TCP 连接
         connection_pool &pool_;
 
         /**
          * @brief 后续端点的延迟时间
          * @details RFC 8305 建议值为 250ms（推荐范围 100-500ms）
-         *          这个值需要在以下两个目标之间平衡：
-         *          - 太短：无法给 IPv6 足够的连接时间
-         *          - 太长：用户感知的延迟增加
          */
         static constexpr auto secondary_delay = std::chrono::milliseconds(250);
+
+        /**
+         * @brief 单端点竞速协程
+         * @param ep 目标端点
+         * @param delay 启动延迟（0ms 为立即，250ms*i 为后续端点）
+         * @param ctx 竞速共享状态
+         */
+        auto race_endpoint(tcp::endpoint ep, std::chrono::milliseconds delay, std::shared_ptr<race_context> ctx)
+            -> net::awaitable<void>;
     };
 }

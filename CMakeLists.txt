@@ -9,6 +9,12 @@ set(CMAKE_CXX_STANDARD 23)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
+# Release 模式优化选项
+if(CMAKE_BUILD_TYPE STREQUAL "Release")
+    add_compile_options(-O3 -ffunction-sections -fdata-sections)
+    add_link_options(-Wl,--gc-sections)
+endif()
+
 list(APPEND CMAKE_PREFIX_PATH "c:/bin")
 
 if(NOT DEFINED OPENSSL_ROOT_DIR)

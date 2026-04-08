@@ -13,8 +13,8 @@
  * @note 设计原则：duct 是协议无关的，通过 core 虚函数接口发送帧，不依赖具体协议
  * @note 线程安全：单个实例非线程安全，应在 transport executor 上串行使用
  * @note 生命周期：通过 shared_from_this 保活，协程持有 self 防止提前析构
- * @warning owner_ 持有 core 的 shared_ptr，core 的 ducts_ 持有 duct 的 shared_ptr，
- *          构成循环引用，依赖 core::close() 中 std::move(ducts_) 打破
+ * @warning owner_ 持有 core 的 weak_ptr，core 的 ducts_ 持有 duct 的 shared_ptr，
+ *          不构成循环引用，core 销毁后 duct 通过 lock() 检测并安全退出
  */
 #pragma once
 
@@ -52,7 +52,7 @@ namespace psm::multiplex
      *
      * @note 线程安全：单个实例非线程安全，应在同一 executor 上串行使用
      * @note 生命周期：core::close() 通过 std::move(ducts_) 取出所有 duct 后逐一 close
-     * @warning owner_ (shared_ptr<core>) 与 core 的 ducts_ (shared_ptr<duct>) 构成循环引用
+     * @warning owner_ (weak_ptr<core>) 不与 core 的 ducts_ (shared_ptr<duct>) 构成循环引用
      */
     class duct : public std::enable_shared_from_this<duct>
     {
@@ -148,7 +148,7 @@ namespace psm::multiplex
         auto target_write_loop() -> net::awaitable<void>;
 
         std::uint32_t id_;                               // 流标识符，由 mux SYN 帧分配
-        std::shared_ptr<core> owner_;                    // 所属 core，用于发送 mux 帧和管理流映射
+        std::weak_ptr<core> owner_;                      // 所属 core 的弱引用，不构成循环引用
         memory::resource_pointer mr_;                    // PMR 内存资源，用于读缓冲分配
         channel::transport::shared_transmission target_; // 已连接的目标传输层
         bool closed_ = false;                            // 关闭标志，close() 幂等性保证

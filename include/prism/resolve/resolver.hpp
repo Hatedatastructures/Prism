@@ -171,6 +171,32 @@ namespace psm::resolve
         memory::vector<dns_remote> servers_;       // 上游服务器列表
         resolve_mode mode_{resolve_mode::fastest}; // 解析策略
         uint32_t timeout_ms_{4000};                // 默认超时（毫秒）
+
+        // SSL 上下文缓存
+        struct ssl_cache_key
+        {
+            memory::string hostname;
+            bool verify_peer;
+
+            bool operator==(const ssl_cache_key &other) const noexcept
+            {
+                return hostname == other.hostname && verify_peer == other.verify_peer;
+            }
+        };
+
+        struct ssl_cache_key_hash
+        {
+            std::size_t operator()(const ssl_cache_key &k) const noexcept
+            {
+                auto h = std::hash<memory::string>{}(k.hostname);
+                h ^= std::hash<bool>{}(k.verify_peer) + 0x9e3779b9 + (h << 6) + (h >> 2);
+                return h;
+            }
+        };
+
+        memory::unordered_map<ssl_cache_key, std::shared_ptr<ssl::context>, ssl_cache_key_hash> ssl_cache_;
+
+        [[nodiscard]] auto get_ssl_context(const dns_remote &server) -> std::shared_ptr<ssl::context>;
     };
 
 } // namespace psm::resolve

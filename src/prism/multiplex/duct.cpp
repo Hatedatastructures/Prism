@@ -26,7 +26,7 @@ namespace psm::multiplex
     duct::duct(const std::uint32_t stream_id, std::shared_ptr<core> owner,
                channel::transport::shared_transmission target,
                const std::uint32_t buffer_size, const memory::resource_pointer mr)
-        : id_(stream_id), owner_(std::move(owner)), mr_(mr),
+        : id_(stream_id), owner_(owner), mr_(mr),
           target_(std::move(target)),
           write_channel_(target_->executor(), 32)
     {
@@ -143,7 +143,10 @@ namespace psm::multiplex
 
         try
         {
-            owner_->remove_duct(id_);
+            if (auto owner = owner_.lock())
+            {
+                owner->remove_duct(id_);
+            }
         }
         catch (...)
         {
@@ -164,6 +167,14 @@ namespace psm::multiplex
 
         while (!closed_)
         {
+            // mux 端已半关闭（客户端发送 FIN），停止发送数据
+            // yamux 协议：客户端 FIN 后不再发送 WindowUpdate，继续发送会窗口耗尽
+            if (mux_closed_.load(std::memory_order_acquire))
+            {
+                trace::debug("{} stream {} mux closed, stop sending", tag, id_);
+                break;
+            }
+
             // 直接读入 vector，PMR 池分配器复用同大小内存块，分配开销极低
             memory::vector<std::byte> data(mr_);
             data.resize(read_size_);
@@ -179,21 +190,25 @@ namespace psm::multiplex
             data.resize(n);
 
             // 检查 mux 会话是否仍活跃
-            if (!owner_->is_active())
+            auto owner = owner_.lock();
+            if (!owner || !owner->is_active())
             {
                 break;
             }
 
-            co_await owner_->send_data(id_, std::move(data));
+            co_await owner->send_data(id_, std::move(data));
         }
 
         // 标记 target 端已关闭
         target_closed_.store(true, std::memory_order_release);
 
         // 如果 mux 端未关闭且会话仍活跃，通知 mux 关闭
-        if (!mux_closed_.load(std::memory_order_acquire) && owner_->is_active())
+        if (!mux_closed_.load(std::memory_order_acquire))
         {
-            owner_->send_fin(id_);
+            if (auto owner = owner_.lock(); owner && owner->is_active())
+            {
+                owner->send_fin(id_);
+            }
         }
     }
 

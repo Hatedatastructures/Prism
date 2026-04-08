@@ -12,6 +12,13 @@
 #include <array>
 #include <variant>
 #include <string>
+
+#ifdef _WIN32
+    #include <ws2tcpip.h>
+#else
+    #include <arpa/inet.h>
+#endif
+
 #include <boost/asio/ip/address.hpp>
 #include <prism/protocol/trojan/constants.hpp>
 #include <prism/protocol/common/form.hpp>
@@ -128,13 +135,23 @@ namespace psm::protocol::trojan
             using type = std::decay_t<Address>;
             if constexpr (std::is_same_v<type, ipv4_address>)
             {
-                std::string str = boost::asio::ip::make_address_v4(arg.bytes).to_string();
-                return memory::string(str.begin(), str.end(), mr);
+                std::array<char, INET_ADDRSTRLEN> buffer;
+                const char *result = inet_ntop(AF_INET, arg.bytes.data(), buffer.data(), buffer.size());
+                if (result == nullptr)
+                {
+                    return memory::string(mr);
+                }
+                return memory::string(buffer.data(), mr);
             }
             else if constexpr (std::is_same_v<type, ipv6_address>)
             {
-                std::string str = boost::asio::ip::make_address_v6(arg.bytes).to_string();
-                return memory::string(str.begin(), str.end(), mr);
+                std::array<char, INET6_ADDRSTRLEN> buffer;
+                const char *result = inet_ntop(AF_INET6, arg.bytes.data(), buffer.data(), buffer.size());
+                if (result == nullptr)
+                {
+                    return memory::string(mr);
+                }
+                return memory::string(buffer.data(), mr);
             }
             else if constexpr (std::is_same_v<type, domain_address>)
             {

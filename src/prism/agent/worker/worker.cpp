@@ -35,6 +35,7 @@ namespace psm::agent::worker
     void worker::run()
     {
         pool_.start();
+        net::co_spawn(ioc_, metrics_.observe(ioc_), net::detached);
         ioc_.run();
     }
 
