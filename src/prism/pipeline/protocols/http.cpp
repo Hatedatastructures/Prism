@@ -150,6 +150,14 @@ namespace psm::pipeline
         }
 
         // 普通 HTTP 请求：转发请求到目标服务器
+        // 将绝对 URI（http://host/path）转换为相对路径（/path），源站不接受绝对 URI
+        if (const auto &t = req.target(); t.starts_with("http://") || t.starts_with("https://"))
+        {
+            const auto scheme_end = t.find("://");
+            const auto authority_end = t.find('/', scheme_end + 3);
+            req.target(authority_end != std::string_view::npos ? t.substr(authority_end) : "/");
+        }
+
         std::error_code ec;
         const auto req_data = protocol::http::serialize(req, mr);
         co_await outbound->async_write(std::span(reinterpret_cast<const std::byte *>(req_data.data()), req_data.size()), ec);

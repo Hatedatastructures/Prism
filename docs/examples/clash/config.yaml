@@ -194,6 +194,7 @@ proxies:
     port: 8081
     udp: true
 
+  # 启用认证后无认证不可用，所以不单独测试无认证的情况了
   - name: "SOCKS5 UDP Cert"
     type: socks5
     server: 192.168.137.1

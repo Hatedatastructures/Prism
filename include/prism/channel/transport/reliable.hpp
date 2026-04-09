@@ -143,7 +143,14 @@ namespace psm::channel::transport
         {
             if (pooled_.valid())
             {
-                pooled_ = pooled_connection{};
+                // 关闭底层 socket 但不释放 pooled_，确保 native_socket()
+                // 对已关闭 socket 仍返回有效引用（操作会返回错误）。
+                // pooled_ 在 reliable 析构时自动归还连接池。
+                boost::system::error_code ec;
+                if (auto *sock = pooled_.get())
+                {
+                    sock->close(ec);
+                }
                 return;
             }
             if (socket_)

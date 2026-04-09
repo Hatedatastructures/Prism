@@ -111,7 +111,7 @@
         "file_name": "forward.log",
         "path_name": "C:\\Users\\C1373\\Desktop\\code\\prism\\logs",
         "max_size": 67108864,
-        "max_files": 8,
+        "max_files": 64,
         "queue_size": 8192,
         "thread_count": 1,
         "enable_console": true,

@@ -12,8 +12,11 @@ target_link_libraries(pool_contention_stress PRIVATE ${PROJECT_NAME}_static_libr
 add_executable(arena_overflow_stress arena_overflow_stress.cpp)
 target_link_libraries(arena_overflow_stress PRIVATE ${PROJECT_NAME}_static_library)
 
+add_executable(mux_stress mux_stress.cpp)
+target_link_libraries(mux_stress PRIVATE ${PROJECT_NAME}_static_library)
+
 if(MINGW)
-    foreach(target_name IN ITEMS memory_stress pool_contention_stress arena_overflow_stress)
+    foreach(target_name IN ITEMS memory_stress pool_contention_stress arena_overflow_stress mux_stress)
         if(TARGET ${target_name})
             target_compile_options(${target_name} PRIVATE -Wa,-mbig-obj)
         endif()

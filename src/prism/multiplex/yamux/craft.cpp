@@ -269,15 +269,15 @@ namespace psm::multiplex::yamux
             co_return;
         }
 
-        // 已连接流：更新接收窗口
-        if (!payload.empty())
-        {
-            co_await update_recv_window(stream_id, static_cast<std::uint32_t>(payload.size()));
-        }
-
         // TCP 流：非阻塞分发到 duct
         if (const auto it = ducts_.find(stream_id); it != ducts_.end() && it->second)
         {
+            // 仅对流确实存在时更新接收窗口，避免为已关闭流创建幽灵 window
+            if (!payload.empty())
+            {
+                co_await update_recv_window(stream_id, static_cast<std::uint32_t>(payload.size()));
+            }
+
             auto dp = it->second;
             auto async_push = [dp, p = std::move(payload)]() mutable -> net::awaitable<void>
             {
@@ -308,6 +308,11 @@ namespace psm::multiplex::yamux
         // UDP 流：非阻塞分发到 parcel
         if (const auto it = parcels_.find(stream_id); it != parcels_.end() && it->second)
         {
+            if (!payload.empty())
+            {
+                co_await update_recv_window(stream_id, static_cast<std::uint32_t>(payload.size()));
+            }
+
             auto dp = it->second;
             auto async_push = [dp, p = std::move(payload)]() mutable -> net::awaitable<void>
             {
@@ -335,8 +340,8 @@ namespace psm::multiplex::yamux
             co_return;
         }
 
-        // 流不存在，回复 RST
-        trace::warn("{} data for unknown stream {}", tag, stream_id);
+        // 流不存在，回复 RST（不更新接收窗口，避免创建幽灵 window）
+        trace::debug("{} data for unknown stream {}", tag, stream_id);
         co_await push_frame(message_type::window_update, flags::rst, stream_id, 0, {});
     }
 
@@ -751,7 +756,7 @@ namespace psm::multiplex::yamux
         {
             auto window_acquired = false;
 
-            for (int attempt = 0; attempt < 4; ++attempt)
+            while (!window_acquired && is_active())
             {
                 auto old_val = window->send_window.load(std::memory_order_acquire);
                 while (old_val >= payload_size)
@@ -775,7 +780,12 @@ namespace psm::multiplex::yamux
                 co_await signal->async_wait(net::redirect_error(net::use_awaitable, wait_ec));
                 if (wait_ec != net::error::operation_aborted)
                 {
-                    break;
+                    // 定时器未被 WindowUpdate 取消，会话可能正在关闭
+                    if (!is_active())
+                    {
+                        co_return;
+                    }
+                    continue;
                 }
                 // 恢复后重新获取窗口指针（可能在等待期间被 remove_duct 销毁）
                 window = get_window(stream_id);
@@ -788,7 +798,6 @@ namespace psm::multiplex::yamux
 
             if (!window_acquired)
             {
-                trace::warn("{} stream {} window exhausted, discarding {} bytes", tag, stream_id, payload_size);
                 co_return;
             }
         }

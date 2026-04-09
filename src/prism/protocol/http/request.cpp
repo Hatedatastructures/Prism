@@ -99,6 +99,8 @@ namespace psm::protocol::http
                 return "Content-Type";
             case field::transfer_encoding:
                 return "Transfer-Encoding";
+            case field::proxy_authorization:
+                return "Proxy-Authorization";
             default:
                 return {};
             }

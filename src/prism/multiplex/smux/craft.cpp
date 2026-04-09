@@ -211,7 +211,25 @@ namespace psm::multiplex::smux
             { // dp->on_mux_data 可能涉及网络 I/O，异步调用避免阻塞帧循环
                 co_await dp->on_mux_data(std::move(p));
             };
-            net::co_spawn(executor(), std::move(async_push), net::detached);
+            auto on_error = [dp](const std::exception_ptr &ep)
+            {
+                if (ep)
+                {
+                    try
+                    {
+                        std::rethrow_exception(ep);
+                    }
+                    catch (const std::exception &e)
+                    {
+                        trace::debug("{} dispatch duct data error: {}", tag, e.what());
+                    }
+                    catch (...)
+                    {
+                    }
+                    dp->close();
+                }
+            };
+            net::co_spawn(executor(), std::move(async_push), std::move(on_error));
             return;
         }
 
@@ -224,7 +242,25 @@ namespace psm::multiplex::smux
             {
                 co_await dp->on_mux_data(std::move(p));
             };
-            net::co_spawn(executor(), std::move(async_push), net::detached);
+            auto on_error = [dp](const std::exception_ptr &ep)
+            {
+                if (ep)
+                {
+                    try
+                    {
+                        std::rethrow_exception(ep);
+                    }
+                    catch (const std::exception &e)
+                    {
+                        trace::debug("{} dispatch parcel data error: {}", tag, e.what());
+                    }
+                    catch (...)
+                    {
+                    }
+                    dp->close();
+                }
+            };
+            net::co_spawn(executor(), std::move(async_push), std::move(on_error));
         }
     }
 
@@ -305,7 +341,7 @@ namespace psm::multiplex::smux
 
             pending_.erase(stream_id);
 
-            // 创建 UDP parcel 并启动
+            // 创建 UDP parcel，先注册到 parcels_ 再启动，确保 FIN/RST 能正确找到并关闭
             auto dp = make_parcel(stream_id, shared_from_this(), router_,
                                    config_.smux.udp_idle_timeout_ms, config_.smux.udp_max_datagram,
                                    mr_, packet_addr);
@@ -313,18 +349,18 @@ namespace psm::multiplex::smux
             {
                 dp->set_destination(host, port);
             }
-            dp->start();
-
-            // 转发剩余数据
-            if (!remaining_data.empty())
-            {
-                co_await dp->on_mux_data(remaining_data);
-            }
 
             // 会话仍活跃则注册到 parcels 映射
             if (active_.load(std::memory_order_acquire))
             {
                 parcels_[stream_id] = dp;
+                dp->start();
+
+                // 转发地址之后的剩余数据
+                if (!remaining_data.empty())
+                {
+                    co_await dp->on_mux_data(std::move(remaining_data));
+                }
             }
             else
             {

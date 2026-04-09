@@ -135,10 +135,13 @@ namespace psm::multiplex
         // 关闭写通道，通知 target_write_loop 退出
         write_channel_.cancel();
 
+        // 先关闭 target socket（取消所有 pending 异步操作），但不立即释放对象。
+        // target_write_loop 可能正 co_await 在 async_write 上，completion handler 需要
+        // target 对象在 close() 返回后、handler 执行时仍然存活。
+        // target_ 将在 duct 析构时自然释放，此时所有协程已完成。
         if (target_)
         {
             target_->close();
-            target_.reset();
         }
 
         try

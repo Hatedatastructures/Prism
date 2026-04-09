@@ -178,7 +178,18 @@ namespace psm::protocol
         if (req.method() == http::verb::connect)
         {
             t.positive = true;
-            parse(req.target(), t.host, t.port);
+            const auto raw = req.target();
+            parse(raw, t.host, t.port);
+
+            // CONNECT 通常用于 HTTPS 隧道，无显式端口时默认 443
+            const bool has_explicit_port = (raw[0] == '[')
+                ? (raw.find("]:") != std::string_view::npos)   // IPv6: [addr]:port
+                : (raw.find(':') != std::string_view::npos &&  // IPv4/hostname: 有且仅有一个冒号
+                   raw.find(':') == raw.rfind(':'));
+            if (!has_explicit_port)
+            {
+                t.port.assign("443");
+            }
         }
         // B. 绝对 `URI`（`http://`/`https://`）只在正向代理里出现，请求行已包含完整目标
         else if (req.target().starts_with("http://") || req.target().starts_with("https://"))

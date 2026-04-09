@@ -318,10 +318,13 @@ namespace psm::multiplex
 
         if (egress_socket_)
         {
+            // 先关闭 socket（取消所有 pending 异步操作），但不立即释放对象。
+            // downlink_loop 可能正 co_await 在 async_receive_from 上，completion handler
+            // 需要 egress_socket_ 在 close() 返回后、handler 执行时仍然存活。
+            // egress_socket_ 将在 parcel 析构时自然释放，此时所有协程已完成。
             boost::system::error_code ec;
             egress_socket_->cancel(ec);
             egress_socket_->close(ec);
-            egress_socket_.reset();
         }
 
         idle_timer_.cancel();
