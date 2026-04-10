@@ -422,13 +422,13 @@ smux 是一个简单的多路复用协议，帧格式如下：
 1. **连接接收**：`worker` 监听端口并接收连接
    入口：`include/prism/agent/worker/worker.hpp`，`worker::do_accept`
 
-2. **协议识别**：`session::diversion` 识别为 Trojan 协议
-   入口：`include/prism/agent/session/session.hpp`，`session::diversion`
+2. **外层协议识别**：`session::diversion` 检测到 TLS（`0x16`），执行 TLS 握手
+   入口：`src/prism/agent/session/session.cpp`
 
-3. **TLS 握手**：`primitives::ssl_handshake` 执行 TLS 握手
-   入口：`src/prism/pipeline/primitives.cpp`
+3. **内层协议探测**：Session 层增量读取内层数据，调用 `analysis::detect_inner` 识别为 Trojan
+   入口：`src/prism/agent/session/session.cpp`
 
-4. **Trojan 处理器**：创建 Trojan 中继器并执行握手
+4. **Trojan 处理器**：创建 Trojan 中继器并执行握手（TLS 已在 Session 层剥离）
    入口：`include/prism/agent/dispatch/handler.hpp`
 
 5. **协议握手**：`protocol::trojan::relay::handshake` 解析协议头
@@ -443,26 +443,14 @@ smux 是一个简单的多路复用协议，帧格式如下：
 8. **隧道转发**：`primitives::tunnel` 双向透明转发
    入口：`src/prism/pipeline/primitives.cpp`
 
-### 12. TLS 握手实现
+### 12. Session 层 TLS 处理
+
+TLS 握手和内层协议探测已在 Session 层完成，Trojan handler 接收的是已解密的传输层：
 
 ```cpp
-// primitives.cpp - ssl_handshake
-auto [handshake_ec, ssl_stream] = co_await primitives::ssl_handshake(ctx, data);
-if (fault::failed(handshake_ec) || !ssl_stream)
-{
-    trace::warn("{} TLS handshake failed: {}", TrojanStr, fault::describe(handshake_ec));
-    co_return;
-}
-
-// 注册流关闭回调
-ctx.active_stream_cancel = [ssl_stream]() noexcept
-{
-    ssl_stream->lowest_layer().transmission().cancel();
-};
-ctx.active_stream_close = [ssl_stream]() noexcept
-{
-    ssl_stream->lowest_layer().transmission().close();
-};
+// session.cpp - TLS 剥离后分发
+ctx_.inbound = std::move(encrypted_trans);  // 已解密的传输层
+// 分发到 Trojan handler，data 为内层预读数据
 ```
 
 ### 13. Trojan 握手实现

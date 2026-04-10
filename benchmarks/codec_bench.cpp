@@ -1,21 +1,24 @@
 #include <benchmark/benchmark.h>
-#include <prism/protocol/http/deserialization.hpp>
-#include <prism/protocol/http/serialization.hpp>
-#include <prism/protocol/http/request.hpp>
-#include <prism/protocol/http/response.hpp>
+#include <prism/protocol/http/parser.hpp>
 #include <prism/protocol/socks5/wire.hpp>
 #include <prism/protocol/trojan/format.hpp>
+#include <prism/protocol/analysis.hpp>
+#include <prism/resolve/packet.hpp>
+#include <prism/resolve/rules.hpp>
+#include <prism/crypto/sha224.hpp>
+#include <prism/crypto/base64.hpp>
 #include <prism/memory/pool.hpp>
 #include <prism/fault.hpp>
 #include <array>
+#include <cstdint>
 #include <span>
 #include <string>
 #include <string_view>
 
 using namespace psm;
 
-// HTTP Benchmark（纯解析）
-static const std::string http_get_request = 
+// HTTP Benchmark
+static const std::string http_get_request =
     "GET /index.html HTTP/1.1\r\n"
     "Host: www.example.com\r\n"
     "User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/58.0.3029.110 Safari/537.3\r\n"
@@ -25,7 +28,13 @@ static const std::string http_get_request =
     "Connection: keep-alive\r\n"
     "\r\n";
 
-static std::string make_http_post_request_with_body(std::size_t body_size)
+static const std::string http_connect_request =
+    "CONNECT www.example.com:443 HTTP/1.1\r\n"
+    "Host: www.example.com:443\r\n"
+    "Proxy-Authorization: Basic dXNlcjpwYXNzd29yZA==\r\n"
+    "\r\n";
+
+static std::string make_http_post_request(std::size_t body_size)
 {
     std::string body(body_size, 'x');
     std::string request;
@@ -43,33 +52,12 @@ static std::string make_http_post_request_with_body(std::size_t body_size)
     return request;
 }
 
-static std::string make_http_response_with_body(std::size_t body_size)
+static void BM_HttpParseProxyRequest_Get(benchmark::State &state)
 {
-    std::string body(body_size, 'y');
-    std::string response;
-    response.reserve(256 + body.size());
-    response.append("HTTP/1.1 200 OK\r\n");
-    response.append("Server: ForwardEngine-Bench\r\n");
-    response.append("Content-Type: application/octet-stream\r\n");
-    response.append("Content-Length: ");
-    response.append(std::to_string(body.size()));
-    response.append("\r\n");
-    response.append("Connection: keep-alive\r\n");
-    response.append("\r\n");
-    response.append(body);
-    return response;
-}
-
-static void BM_HttpDeserialize(benchmark::State &state)
-{
-    memory::system::enable_global_pooling();
-    memory::frame_arena arena;
-    protocol::http::request req(arena.get());
-
+    protocol::http::proxy_request req;
     for (auto _ : state)
     {
-        req.clear();
-        fault::code ec = protocol::http::deserialize(http_get_request, req);
+        fault::code ec = protocol::http::parse_proxy_request(http_get_request, req);
         if (fault::failed(ec))
         {
             state.SkipWithError("HTTP Parsing failed");
@@ -79,17 +67,28 @@ static void BM_HttpDeserialize(benchmark::State &state)
     state.SetBytesProcessed(int64_t(state.iterations()) * int64_t(http_get_request.size()));
 }
 
-static void BM_HttpDeserialize_PostBody(benchmark::State &state)
+static void BM_HttpParseProxyRequest_Connect(benchmark::State &state)
 {
-    memory::system::enable_global_pooling();
-    memory::frame_arena arena;
-    protocol::http::request req(arena.get());
-    const auto payload = make_http_post_request_with_body(static_cast<std::size_t>(state.range(0)));
-
+    protocol::http::proxy_request req;
     for (auto _ : state)
     {
-        req.clear();
-        fault::code ec = protocol::http::deserialize(payload, req);
+        fault::code ec = protocol::http::parse_proxy_request(http_connect_request, req);
+        if (fault::failed(ec))
+        {
+            state.SkipWithError("HTTP Parsing failed");
+        }
+        benchmark::DoNotOptimize(req);
+    }
+    state.SetBytesProcessed(int64_t(state.iterations()) * int64_t(http_connect_request.size()));
+}
+
+static void BM_HttpParseProxyRequest_PostBody(benchmark::State &state)
+{
+    const auto payload = make_http_post_request(static_cast<std::size_t>(state.range(0)));
+    protocol::http::proxy_request req;
+    for (auto _ : state)
+    {
+        fault::code ec = protocol::http::parse_proxy_request(payload, req);
         if (fault::failed(ec))
         {
             state.SkipWithError("HTTP Parsing failed");
@@ -99,80 +98,18 @@ static void BM_HttpDeserialize_PostBody(benchmark::State &state)
     state.SetBytesProcessed(int64_t(state.iterations()) * int64_t(payload.size()));
 }
 
-static void BM_HttpDeserialize_Response(benchmark::State &state)
+static void BM_HttpExtractRelativePath(benchmark::State &state)
 {
-    memory::system::enable_global_pooling();
-    memory::frame_arena arena;
-    protocol::http::response resp(arena.get());
-    const auto payload = make_http_response_with_body(static_cast<std::size_t>(state.range(0)));
-
     for (auto _ : state)
     {
-        resp.clear();
-        fault::code ec = protocol::http::deserialize(payload, resp);
-        if (fault::failed(ec))
-        {
-            state.SkipWithError("HTTP Parsing failed");
-        }
-        benchmark::DoNotOptimize(resp);
+        auto result = protocol::http::extract_relative_path("http://www.example.com/path/to/resource?q=1#frag");
+        benchmark::DoNotOptimize(result);
     }
-    state.SetBytesProcessed(int64_t(state.iterations()) * int64_t(payload.size()));
-}
-
-static void BM_HttpSerialize_Request(benchmark::State &state)
-{
-    memory::system::enable_global_pooling();
-    memory::unsynchronized_pool pool;
-    auto mr = &pool;
-    protocol::http::request req(mr);
-    req.method(protocol::http::verb::get);
-    req.target("/index.html");
-    req.version(11);
-    req.set(protocol::http::field::host, "www.example.com");
-    req.set(protocol::http::field::user_agent, "ForwardEngine-Bench");
-    req.set(protocol::http::field::accept, "*/*");
-    req.keep_alive(true);
-
-    const auto sample = protocol::http::serialize(req, mr);
-    const auto bytes_per_iter = static_cast<std::int64_t>(sample.size());
-
-    for (auto _ : state)
-    {
-        auto out = protocol::http::serialize(req, mr);
-        benchmark::DoNotOptimize(out);
-    }
-    state.SetBytesProcessed(static_cast<std::int64_t>(state.iterations()) * bytes_per_iter);
-}
-
-static void BM_HttpSerialize_Response(benchmark::State &state)
-{
-    memory::system::enable_global_pooling();
-    memory::unsynchronized_pool pool;
-    auto mr = &pool;
-    protocol::http::response resp(mr);
-    resp.version(11);
-    resp.status(200);
-    resp.reason("OK");
-    resp.set(protocol::http::field::server, "ForwardEngine-Bench");
-    resp.set(protocol::http::field::content_type, "text/plain");
-    resp.body(std::string_view{"hello"});
-    resp.keep_alive(true);
-
-    const auto sample = protocol::http::serialize(resp, mr);
-    const auto bytes_per_iter = static_cast<std::int64_t>(sample.size());
-
-    for (auto _ : state)
-    {
-        auto out = protocol::http::serialize(resp, mr);
-        benchmark::DoNotOptimize(out);
-    }
-    state.SetBytesProcessed(static_cast<std::int64_t>(state.iterations()) * bytes_per_iter);
 }
 
 // SOCKS5 Benchmark（纯解析)
 static void BM_Socks5DecodeHeader(benchmark::State &state)
 {
-    // VER(1) | CMD(1) | RSV(1) | ATYP(1)
     static constexpr std::array<std::uint8_t, 4> buffer = {0x05, 0x01, 0x00, 0x01};
     for (auto _ : state)
     {
@@ -424,17 +361,281 @@ static void BM_TrojanDecodeCredential_Invalid(benchmark::State &state)
     state.SetBytesProcessed(static_cast<std::int64_t>(state.iterations()) * static_cast<std::int64_t>(buffer.size()));
 }
 
-BENCHMARK(BM_HttpDeserialize);
-BENCHMARK(BM_HttpDeserialize_PostBody)->Arg(0)->Arg(32)->Arg(128)->Arg(512)->Arg(4096);
-BENCHMARK(BM_HttpDeserialize_Response)->Arg(0)->Arg(32)->Arg(128)->Arg(512)->Arg(4096);
-BENCHMARK(BM_HttpSerialize_Request);
-BENCHMARK(BM_HttpSerialize_Response);
+// ============================================================
+// DNS Packet Benchmark
+// ============================================================
+
+static void BM_DnsMakeQuery(benchmark::State &state)
+{
+    for (auto _ : state)
+    {
+        auto msg = resolve::message::make_query("example.com", resolve::qtype::a);
+        benchmark::DoNotOptimize(msg);
+    }
+}
+
+static void BM_DnsPackMessage(benchmark::State &state)
+{
+    auto msg = resolve::message::make_query("example.com", resolve::qtype::a);
+    for (auto _ : state)
+    {
+        auto wire = msg.pack();
+        benchmark::DoNotOptimize(wire);
+    }
+    state.SetBytesProcessed(static_cast<std::int64_t>(state.iterations()) * 64);
+}
+
+static void BM_DnsUnpackMessage(benchmark::State &state)
+{
+    auto msg = resolve::message::make_query("example.com", resolve::qtype::a);
+    auto wire = msg.pack();
+    for (auto _ : state)
+    {
+        auto opt = resolve::message::unpack(std::span<const std::uint8_t>(wire.data(), wire.size()));
+        benchmark::DoNotOptimize(opt);
+    }
+    state.SetBytesProcessed(static_cast<std::int64_t>(state.iterations()) * static_cast<std::int64_t>(wire.size()));
+}
+
+static void BM_DnsExtractIps(benchmark::State &state)
+{
+    resolve::message msg;
+    {
+        resolve::record ans;
+        ans.type = resolve::qtype::a;
+        ans.ttl = 300;
+        ans.rdata = {8, 8, 8, 8};
+        msg.answers.push_back(std::move(ans));
+    }
+    {
+        resolve::record ans;
+        ans.type = resolve::qtype::aaaa;
+        ans.ttl = 300;
+        ans.rdata = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1};
+        msg.answers.push_back(std::move(ans));
+    }
+    for (auto _ : state)
+    {
+        auto ips = msg.extract_ips();
+        benchmark::DoNotOptimize(ips);
+    }
+}
+
+static void BM_DnsMinTtl(benchmark::State &state)
+{
+    resolve::message msg;
+    for (int i = 0; i < 10; ++i)
+    {
+        resolve::record r;
+        r.ttl = static_cast<std::uint32_t>(300 + i * 60);
+        msg.answers.push_back(std::move(r));
+    }
+    for (auto _ : state)
+    {
+        auto ttl = msg.min_ttl();
+        benchmark::DoNotOptimize(ttl);
+    }
+}
+
+// ============================================================
+// Crypto Benchmark
+// ============================================================
+
+static void BM_Sha224Short(benchmark::State &state)
+{
+    for (auto _ : state)
+    {
+        auto hash = crypto::sha224("abc");
+        benchmark::DoNotOptimize(hash);
+    }
+    state.SetBytesProcessed(static_cast<std::int64_t>(state.iterations()) * 3);
+}
+
+static void BM_Sha224Long(benchmark::State &state)
+{
+    std::string input(1024, 'x');
+    for (auto _ : state)
+    {
+        auto hash = crypto::sha224(input);
+        benchmark::DoNotOptimize(hash);
+    }
+    state.SetBytesProcessed(static_cast<std::int64_t>(state.iterations()) * static_cast<std::int64_t>(input.size()));
+}
+
+static void BM_Base64DecodeShort(benchmark::State &state)
+{
+    for (auto _ : state)
+    {
+        auto decoded = crypto::base64_decode("Zm9vYmFy");
+        benchmark::DoNotOptimize(decoded);
+    }
+    state.SetBytesProcessed(static_cast<std::int64_t>(state.iterations()) * 8);
+}
+
+static void BM_Base64DecodeLong(benchmark::State &state)
+{
+    // 构建 ~1KB base64 输入
+    std::string b64_input(1400, 'A');
+    for (auto _ : state)
+    {
+        auto decoded = crypto::base64_decode(b64_input);
+        benchmark::DoNotOptimize(decoded);
+    }
+    state.SetBytesProcessed(static_cast<std::int64_t>(state.iterations()) * static_cast<std::int64_t>(b64_input.size()));
+}
+
+static void BM_NormalizeCredential_Plain(benchmark::State &state)
+{
+    for (auto _ : state)
+    {
+        auto result = crypto::normalize_credential("my_password");
+        benchmark::DoNotOptimize(result);
+    }
+}
+
+static void BM_NormalizeCredential_Hashed(benchmark::State &state)
+{
+    std::string already_hashed(56, 'a');
+    for (auto _ : state)
+    {
+        auto result = crypto::normalize_credential(already_hashed);
+        benchmark::DoNotOptimize(result);
+    }
+}
+
+// ============================================================
+// Protocol Analysis Benchmark
+// ============================================================
+
+static void BM_AnalysisResolveIPv4(benchmark::State &state)
+{
+    for (auto _ : state)
+    {
+        auto t = protocol::analysis::resolve("192.168.1.1:443");
+        benchmark::DoNotOptimize(t);
+    }
+}
+
+static void BM_AnalysisResolveIPv6(benchmark::State &state)
+{
+    for (auto _ : state)
+    {
+        auto t = protocol::analysis::resolve("[::1]:443");
+        benchmark::DoNotOptimize(t);
+    }
+}
+
+static void BM_AnalysisDetectInnerHttp(benchmark::State &state)
+{
+    std::string http_request = "GET / HTTP/1.1\r\nHost: example.com\r\n\r\n";
+    for (auto _ : state)
+    {
+        auto result = protocol::analysis::detect_inner(http_request);
+        benchmark::DoNotOptimize(result);
+    }
+    state.SetBytesProcessed(static_cast<std::int64_t>(state.iterations()) * static_cast<std::int64_t>(http_request.size()));
+}
+
+static void BM_AnalysisDetectInnerTrojan(benchmark::State &state)
+{
+    std::string trojan_like(60, 'a');
+    trojan_like[56] = '\r';
+    trojan_like[57] = '\n';
+    trojan_like[58] = 0x01;
+    trojan_like[59] = 0x01;
+    for (auto _ : state)
+    {
+        auto result = protocol::analysis::detect_inner(trojan_like);
+        benchmark::DoNotOptimize(result);
+    }
+    state.SetBytesProcessed(static_cast<std::int64_t>(state.iterations()) * static_cast<std::int64_t>(trojan_like.size()));
+}
+
+static void BM_AnalysisDetectInnerUndetermined(benchmark::State &state)
+{
+    std::string short_data(30, 'a');
+    for (auto _ : state)
+    {
+        auto result = protocol::analysis::detect_inner(short_data);
+        benchmark::DoNotOptimize(result);
+    }
+    state.SetBytesProcessed(static_cast<std::int64_t>(state.iterations()) * static_cast<std::int64_t>(short_data.size()));
+}
+
+// ============================================================
+// DNS Rules Engine Benchmark
+// ============================================================
+
+static void BM_DomainTrieSearchHit(benchmark::State &state)
+{
+    resolve::domain_trie trie;
+    trie.insert("example.com", 42);
+    for (auto _ : state)
+    {
+        auto result = trie.search("example.com");
+        benchmark::DoNotOptimize(result);
+    }
+}
+
+static void BM_DomainTrieSearchWildcard(benchmark::State &state)
+{
+    resolve::domain_trie trie;
+    trie.insert("*.example.com", 100);
+    for (auto _ : state)
+    {
+        auto result = trie.search("www.example.com");
+        benchmark::DoNotOptimize(result);
+    }
+}
+
+static void BM_DomainTrieSearchMiss(benchmark::State &state)
+{
+    resolve::domain_trie trie;
+    trie.insert("example.com", 42);
+    for (auto _ : state)
+    {
+        auto result = trie.search("other.com");
+        benchmark::DoNotOptimize(result);
+    }
+}
+
+static void BM_RulesEngineMatch(benchmark::State &state)
+{
+    resolve::rules_engine engine;
+    {
+        namespace net = boost::asio;
+        memory::vector<net::ip::address> ips;
+        ips.push_back(net::ip::make_address("1.2.3.4"));
+        engine.add_address_rule("blocked.com", ips);
+    }
+    engine.add_cname_rule("alias.com", "real.com");
+    engine.add_negative_rule("evil.com");
+    for (auto _ : state)
+    {
+        auto result = engine.match("alias.com");
+        benchmark::DoNotOptimize(result);
+    }
+}
+
+// ============================================================
+// BENCHMARK 注册
+// ============================================================
+
+// HTTP
+BENCHMARK(BM_HttpParseProxyRequest_Get);
+BENCHMARK(BM_HttpParseProxyRequest_Connect);
+BENCHMARK(BM_HttpParseProxyRequest_PostBody)->Arg(0)->Arg(32)->Arg(128)->Arg(512)->Arg(4096);
+BENCHMARK(BM_HttpExtractRelativePath);
+
+// SOCKS5
 BENCHMARK(BM_Socks5DecodeHeader);
 BENCHMARK(BM_Socks5DecodeIPv4);
 BENCHMARK(BM_Socks5DecodeDomain);
 BENCHMARK(BM_Socks5DecodeIPv6);
 BENCHMARK(BM_Socks5DecodeDomain_VarLen)->Arg(4)->Arg(16)->Arg(64)->Arg(255);
 BENCHMARK(BM_Socks5DecodePort);
+
+// Trojan
 BENCHMARK(BM_TrojanDecodeCredential);
 BENCHMARK(BM_TrojanDecodeCredential_Invalid);
 BENCHMARK(BM_TrojanDecodeCrlf);
@@ -444,5 +645,32 @@ BENCHMARK(BM_TrojanDecodeIPv6);
 BENCHMARK(BM_TrojanDecodeDomain_VarLen)->Arg(4)->Arg(16)->Arg(64)->Arg(255);
 BENCHMARK(BM_TrojanDecodePort);
 
-BENCHMARK_MAIN();
+// DNS Packet
+BENCHMARK(BM_DnsMakeQuery);
+BENCHMARK(BM_DnsPackMessage);
+BENCHMARK(BM_DnsUnpackMessage);
+BENCHMARK(BM_DnsExtractIps);
+BENCHMARK(BM_DnsMinTtl);
 
+// Crypto
+BENCHMARK(BM_Sha224Short);
+BENCHMARK(BM_Sha224Long);
+BENCHMARK(BM_Base64DecodeShort);
+BENCHMARK(BM_Base64DecodeLong);
+BENCHMARK(BM_NormalizeCredential_Plain);
+BENCHMARK(BM_NormalizeCredential_Hashed);
+
+// Protocol Analysis
+BENCHMARK(BM_AnalysisResolveIPv4);
+BENCHMARK(BM_AnalysisResolveIPv6);
+BENCHMARK(BM_AnalysisDetectInnerHttp);
+BENCHMARK(BM_AnalysisDetectInnerTrojan);
+BENCHMARK(BM_AnalysisDetectInnerUndetermined);
+
+// DNS Rules
+BENCHMARK(BM_DomainTrieSearchHit);
+BENCHMARK(BM_DomainTrieSearchWildcard);
+BENCHMARK(BM_DomainTrieSearchMiss);
+BENCHMARK(BM_RulesEngineMatch);
+
+BENCHMARK_MAIN();

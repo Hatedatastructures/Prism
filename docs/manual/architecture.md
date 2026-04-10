@@ -38,8 +38,8 @@
 #### TLS 终止
 
 **TLS 握手**：
-- 实现位置：[trojan.cpp](../../src/prism/pipeline/protocols/trojan.cpp)
-- 握手后作为 HTTPS 处理，执行服务器端 TLS 握手
+- 实现位置：[session.cpp](../../src/prism/agent/session/session.cpp)
+- Session 层检测到 `protocol_type::tls` 后执行 TLS 握手，探测内层协议后分发到对应 handler
 
 #### 反向代理
 
@@ -325,55 +325,43 @@ Worker 绑定结构，用于负载均衡器与 Worker 通信：
 ## 七、时序图
 
 ```
-┌─────────┐     ┌──────────┐     ┌─────────┐     ┌─────────┐     ┌──────────┐
-│  main   │     │ listener │     │ balancer│     │ worker  │     │ session  │
-└────┬────┘     └────┬─────┘     └────┬────┘     └────┬────┘     └────┬─────┘
-     │               │                │               │               │
-     │ enable_global_pooling()        │               │               │
-     │──────────────────────────────────────────────────────────────────>
-     │               │                │               │               │
-     │ register_handlers()            │               │               │
-     │──────────────────────────────────────────────────────────────────>
-     │               │                │               │               │
-     │ load(config)  │                │               │               │
-     │──────────────────────────────────────────────────────────────────>
-     │               │                │               │               │
-     │ create workers│                │               │               │
-     │               │                │               │               │
-     │ create balancer                │               │               │
-     │               │                │               │               │
-     │ create listener                │               │               │
-     │               │                │               │               │
-     │ spawn threads │                │               │               │
-     │               │                │               │               │
-     │               │  accept_loop() │               │               │
-     │               │  async_accept()│               │               │
-     │               │       │        │               │               │
-     │               │       │ select(affinity)       │               │
-     │               │       │───────>│               │               │
-     │               │       │<───────│               │               │
-     │               │       │        │               │               │
-     │               │       │ dispatch(socket)       │               │
-     │               │       │───────>│               │               │
-     │               │       │        │               │               │
-     │               │       │        │ dispatch_socket()              │
-     │               │       │        │──────────────>│               │
-     │               │       │        │               │               │
-     │               │       │        │               │ launch::dispatch()
-     │               │       │        │               │──────────────>│
-     │               │       │        │               │               │
-     │               │       │        │               │  start()      │
-     │               │       │        │               │  diversion()  │
-     │               │       │        │               │  probe()      │
-     │               │       │        │               │  create()     │
-     │               │       │        │               │  process()    │
-     │               │       │        │               │  dial()       │
-     │               │       │        │               │  tunnel()     │
-     │               │       │        │               │       │       │
-     │               │       │        │               │<──────────────│
-     │               │       │        │<──────────────│               │
-     │               │       │<───────│               │               │
-     │               │<──────│        │               │               │
+  main              listener          balancer          worker            session
+    │                   │                 │                 │                 │
+    ├─ enable_global_pooling() ──────────────────────────────────────────────→
+    │                   │                 │                 │                 │
+    ├─ register_handlers() ──────────────────────────────────────────────────→
+    │                   │                 │                 │                 │
+    ├─ load(config) ─────────────────────────────────────────────────────────→
+    │                   │                 │                 │                 │
+    ├─ create workers   │                 │                 │                 │
+    ├─ create balancer  │                 │                 │                 │
+    ├─ create listener  │                 │                 │                 │
+    ├─ spawn threads    │                 │                 │                 │
+    │                   │                 │                 │                 │
+    │              accept_loop()          │                 │                 │
+    │              async_accept()         │                 │                 │
+    │                   │                 │                 │                 │
+    │              select(affinity) ──→   │                 │                 │
+    │                   │ ←─────────────  │                 │                 │
+    │                   │                 │                 │                 │
+    │              dispatch(socket) ──→   │                 │                 │
+    │                   │                 │                 │                 │
+    │                   │            dispatch_socket() ──→  │                 │
+    │                   │                 │                 │                 │
+    │                   │                 │            launch::dispatch() ──→│
+    │                   │                 │                 │                 │
+    │                   │                 │                 │  start()
+    │                   │                 │                 │  diversion()
+    │                   │                 │                 │  probe()
+    │                   │                 │                 │  create()
+    │                   │                 │                 │  process()
+    │                   │                 │                 │  dial()
+    │                   │                 │                 │  tunnel()
+    │                   │                 │                 │       │
+    │                   │                 │                 │ ←─────┘
+    │                   │                 │ ←───────────────┘
+    │                   │ ←───────────────┘
+    │ ←─────────────────┘
 ```
 
 ---

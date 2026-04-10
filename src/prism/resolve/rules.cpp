@@ -103,12 +103,6 @@ namespace psm::resolve
         {
             const auto &label = labels[i];
 
-            // 在指定深度标记 wildcard
-            if (is_wildcard && i == wildcard_depth)
-            {
-                current->wildcard = true;
-            }
-
             // 查找或创建子节点
             auto it = current->children.find(label);
             if (it == current->children.end())
@@ -118,6 +112,12 @@ namespace psm::resolve
                 it = inserted;
             }
             current = it->second.get();
+
+            // 在指定深度标记 wildcard（下降到目标节点之后）
+            if (is_wildcard && i == wildcard_depth)
+            {
+                current->wildcard = true;
+            }
         }
 
         // 最终节点设置值和结束标记

@@ -1,8 +1,11 @@
 {
+  "permissions": {},
+  "hooks": {},
+  "enabledPlugins": {
+    "superpowers@claude-plugins-official": true
+  },
   "skills": {
     "user-invocable": [],
     "automated": []
-  },
-  "hooks": {},
-  "permissions": {}
+  }
 }

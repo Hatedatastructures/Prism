@@ -225,7 +225,7 @@ Trojan 协议配置，控制能力开关和 UDP 参数。
 | `udp_idle_timeout` | `std::uint32_t` | `60` | UDP 会话空闲超时（秒） |
 | `udp_max_datagram` | `std::uint32_t` | `65535` | UDP 数据报最大长度 |
 
-**重要说明**: `config` 有此字段但 `dispatch` 未注册 Trojan handler。当前 Trojan 协议配置已定义但未集成到分发逻辑中。
+**说明**: Trojan 协议已集成到分发逻辑中，`register_handlers()` 注册了 `Trojan` handler。
 
 ---
 

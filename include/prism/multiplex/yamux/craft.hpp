@@ -334,7 +334,7 @@ namespace psm::multiplex::yamux
         memory::unordered_map<std::uint32_t, std::unique_ptr<stream_window>> windows_;            // 流窗口映射
         memory::unordered_map<std::uint32_t, std::shared_ptr<net::steady_timer>> pending_timers_; // pending 流超时定时器
         std::atomic<std::uint32_t> ping_id_{0};                                                   // Ping 标识符计数器
-        memory::vector<std::byte> recv_buffer_;                                                   // 帧头读取缓冲（12 字节）
+        std::array<std::byte, frame_header_size> recv_buffer_{};                                  // 帧头读取缓冲（固定 12 字节）
     }; // class craft
 
 } // namespace psm::multiplex::yamux

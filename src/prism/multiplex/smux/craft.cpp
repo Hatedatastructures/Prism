@@ -12,6 +12,7 @@
 #include <prism/resolve/router.hpp>
 #include <prism/trace.hpp>
 
+#include <array>
 #include <boost/asio/co_spawn.hpp>
 
 constexpr std::string_view tag = "[Smux.Craft]";
@@ -50,7 +51,7 @@ namespace psm::multiplex::smux
     {
         // 启动发送循环（lambda 捕获 self 保持 craft 生命周期）
         const auto self = std::static_pointer_cast<craft>(shared_from_this());
-         auto start_send_loop = [self]() -> net::awaitable<void>
+        auto start_send_loop = [self]() -> net::awaitable<void>
         {
             co_await self->send_loop();
         };
@@ -77,14 +78,14 @@ namespace psm::multiplex::smux
         trace::debug("{} frame loop started", tag);
 
         std::error_code ec;
-        memory::vector<std::byte> frame_buffer(mr_);
-        frame_buffer.resize(frame_header_size);
+        std::array<std::byte, frame_header_size> frame_buffer{};
 
         // 持续读取并处理帧，直到会话关闭或发生错误
         while (active_.load(std::memory_order_acquire))
         {
-            // 读取 8 字节帧头
-            const auto hdr_n = co_await transport_->async_read(frame_buffer, ec);
+            // 读取 8 字节帧头（std::array 转 span 传递）
+            const auto frame_span = std::span<std::byte>(frame_buffer);
+            const auto hdr_n = co_await transport_->async_read(frame_span, ec);
             if (ec || hdr_n < frame_header_size)
             {
                 if (ec != std::errc::operation_canceled)
@@ -343,8 +344,8 @@ namespace psm::multiplex::smux
 
             // 创建 UDP parcel，先注册到 parcels_ 再启动，确保 FIN/RST 能正确找到并关闭
             auto dp = make_parcel(stream_id, shared_from_this(), router_,
-                                   config_.smux.udp_idle_timeout_ms, config_.smux.udp_max_datagram,
-                                   mr_, packet_addr);
+                                  config_.smux.udp_idle_timeout_ms, config_.smux.udp_max_datagram,
+                                  mr_, packet_addr);
             if (!packet_addr)
             {
                 dp->set_destination(host, port);
@@ -490,25 +491,26 @@ namespace psm::multiplex::smux
                     break;
                 }
 
-                // Scatter-gather: 先写帧头，再写 payload（零拷贝）
+                // Scatter-gather: 合并帧头和 payload 为一次写入
                 std::error_code transport_ec;
-                co_await transport_->async_write(frame.header, transport_ec);
-                if (transport_ec)
-                {
-                    trace::debug("{} send header failed: {}", tag, transport_ec.message());
-                    close();
-                    break;
-                }
-
                 if (!frame.payload.empty())
                 {
-                    co_await transport_->async_write(frame.payload, transport_ec);
-                    if (transport_ec)
-                    {
-                        trace::debug("{} send payload failed: {}", tag, transport_ec.message());
-                        close();
-                        break;
-                    }
+                    const std::span<const std::byte> buffers[] = {
+                        std::span<const std::byte>(frame.header.data(), frame.header.size()),
+                        std::span<const std::byte>(frame.payload.data(), frame.payload.size())};
+                    co_await transport_->async_write_scatter(buffers, 2, transport_ec);
+                }
+                else
+                {
+                    co_await transport_->async_write(
+                        std::span<const std::byte>(frame.header.data(), frame.header.size()), transport_ec);
+                }
+
+                if (transport_ec)
+                {
+                    trace::debug("{} send frame failed: {}", tag, transport_ec.message());
+                    close();
+                    break;
                 }
             }
         }

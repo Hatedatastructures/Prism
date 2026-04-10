@@ -1,6 +1,5 @@
 #include <prism/pipeline/protocols/trojan.hpp>
 #include <protocol.hpp>
-#include <prism/channel/transport/encrypted.hpp>
 #include <prism/multiplex/bootstrap.hpp>
 #include <prism/agent/account/directory.hpp>
 #include <prism/memory/container.hpp>
@@ -15,53 +14,14 @@ namespace psm::pipeline
     auto trojan(session_context &ctx, const std::span<const std::byte> data)
         -> net::awaitable<void>
     {
-        // 执行 TLS 握手，获取加密流
-        auto [handshake_ec, ssl_stream] = co_await primitives::ssl_handshake(ctx, data);
-        if (fault::failed(handshake_ec) || !ssl_stream)
+        // 包装传输层（与 HTTP handler 相同模式：data 通过 preview 重放）
+        // TLS 已在 session 层剥离，ctx.inbound 可能是 encrypted transport 或原始 TCP
+        auto inbound = std::move(ctx.inbound);
+        if (!data.empty())
         {
-            trace::warn("{} TLS handshake failed: {}", TrojanStr, fault::describe(handshake_ec));
-            co_return;
-        }
-
-        // 注册活跃流清理回调，确保 session.close() 能关闭 TLS 流
-        ctx.active_stream_cancel = [ssl_stream]() noexcept
-        {
-            ssl_stream->lowest_layer().transmission().cancel();
-        };
-        ctx.active_stream_close = [ssl_stream]() noexcept
-        {
-            ssl_stream->lowest_layer().transmission().close();
-        };
-
-        // 读取 Trojan 握手数据，至少需要 56 字节凭据 + 4 字节协议头部
-        constexpr std::size_t min_detect_size = 60;
-        memory::vector<std::byte> preread_buffer(ctx.frame_arena.get());
-        preread_buffer.reserve(min_detect_size);
-
-        // 循环读取直到获得完整的握手数据
-        while (preread_buffer.size() < min_detect_size)
-        {
-            std::array<std::byte, 64> temp_buffer{};
-            boost::system::error_code read_ec;
-            auto token = net::redirect_error(net::use_awaitable, read_ec);
-            const auto n = co_await ssl_stream->async_read_some(net::buffer(temp_buffer.data(), temp_buffer.size()), token);
-            if (read_ec || n == 0)
-            {
-                trace::warn("{} preread failed: {}", TrojanStr, read_ec.message());
-                co_return;
-            }
-            preread_buffer.insert(preread_buffer.end(), temp_buffer.begin(), temp_buffer.begin() + n);
-        }
-
-        // 将 TLS 流包装为加密传输对象
-        channel::transport::shared_transmission trans = std::make_shared<channel::transport::encrypted>(ssl_stream);
-        if (!preread_buffer.empty())
-        {
-            const auto preread_span = std::span<const std::byte>(preread_buffer.data(), preread_buffer.size());
-            // 使用全局内存池(nullptr)替代 ctx.frame_arena.get()
-            // 在 mux 模式下 trans 会被移交给 smux_craft 并脱离当前 session 的生命周期
-            // 使用 session 局部池会导致 smux_craft 析构时触发 UAF
-            trans = std::make_shared<primitives::preview>(std::move(trans), preread_span, nullptr);
+            // mux 模式下 inbound 会被移交给 smux_craft 并脱离 session 生命周期
+            // 使用全局内存池(nullptr)避免 smux_craft 析构时 UAF
+            inbound = std::make_shared<primitives::preview>(std::move(inbound), data, nullptr);
         }
 
         // 创建凭证验证器，检查账户目录和连接限制
@@ -84,7 +44,7 @@ namespace psm::pipeline
         };
 
         // 创建 Trojan 中继代理并执行握手
-        const auto agent = protocol::trojan::make_relay(std::move(trans), ctx.server.cfg.trojan, std::move(verifier));
+        const auto agent = protocol::trojan::make_relay(std::move(inbound), ctx.server.cfg.trojan, std::move(verifier));
 
         auto [trojan_ec, req] = co_await agent->handshake();
         if (fault::failed(trojan_ec))

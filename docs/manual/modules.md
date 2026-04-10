@@ -91,6 +91,25 @@
 
 **重要：dispatch 是 header-only 层，无 .cpp 文件**
 
+### 模块架构概览
+
+```
+  Session
+  ├─ protocol::probe::probe() 检测协议类型
+  └─ registry::global().create() 获取处理器
+       │
+       ▼
+  Registry
+  ├─ protocol_type::http    → Http handler (singleton)
+  ├─ protocol_type::socks5  → Socks5 handler (singleton)
+  ├─ protocol_type::trojan  → Trojan handler (singleton)
+  └─ protocol_type::unknown → Unknown handler (singleton)
+       │
+       ▼
+  Handler.process()
+  └─ Http/Socks5/Trojan → 对应 pipeline 处理
+```
+
 ### handler
 - 职责：协议处理器抽象基类
 - 接口：
@@ -112,7 +131,7 @@
 - 当前已注册的处理器：
   - `Http`：处理 HTTP/1.1 请求，委托给 `pipeline::http`
   - `Socks5`：处理 SOCKS5 协议，委托给 `pipeline::socks5`
-  - `Trojan`：处理 Trojan over TLS，委托给 `pipeline::trojan`（内部完成 TLS 握手）
+  - `Trojan`：处理 Trojan over TLS（TLS 已在 Session 层剥离），委托给 `pipeline::trojan`
   - `Unknown`：原始 TCP 透传，调用 `primitives::tunnel`
 - 注册函数：`register_handlers()` 在程序启动时调用
 - 源码：[handlers.hpp](../../include/prism/agent/dispatch/handlers.hpp)
@@ -124,20 +143,19 @@
 
 ### protocols
 - HTTP 处理路径：
-  1. 解析 HTTP 请求（使用 `beast::basic_flat_buffer` + 内存池分配器）
+  1. 解析 HTTP 请求（使用 PMR 缓冲区手动读取 + 零分配轻量解析器）
   2. HTTP 代理认证：检查 Proxy-Authorization: Basic 头（Base64 解码使用 [base64.hpp](../../include/prism/crypto/base64.hpp)），未认证返回 407，认证失败返回 403
   3. 通过 `protocol::analysis::resolve` 提取目标
   4. 调用 `primitives::dial` 连接上游
   5. CONNECT 方法：发送 `200 Connection Established` 后进入 `tunnel`
-  6. 普通请求：序列化请求转发后进入 `tunnel`
+  6. 普通请求：重写 URI 后转发原始数据，然后进入 `tunnel`
 - SOCKS5 处理路径：
   1. 握手协商（支持认证方法选择）
   2. 请求解析（支持 CONNECT、UDP_ASSOCIATE 命令）
   3. CONNECT：连接上游后发送成功响应，进入 `tunnel`
   4. UDP_ASSOCIATE：创建 UDP 中继
-- Trojan 处理路径：
-  1. 执行 TLS 握手（服务器端）
-  2. 解析 Trojan 协议头，验证凭据
+- Trojan 处理路径（TLS 已在 Session 层剥离）：
+  1. 解析 Trojan 协议头，验证凭据
   3. 提取目标地址，建立上游连接
   4. 进入 `tunnel` 双向转发
 - `protocols.hpp` 为聚合头文件，引入 `http.hpp`、`socks5.hpp`、`trojan.hpp`
@@ -166,22 +184,26 @@
 ### 模块架构概览
 
 ```
-┌─────────────────────────────────────────────────────────┐
-│                      router                             │  ← 分发层门面（反向/正向/直连/数据报路由）
-│  整合 recursor + 反向路由表 + 连接池                      │
-├─────────────────────────────────────────────────────────┤
-│                     recursor                             │  ← 解析器门面（六阶段查询管道）
-│  规则匹配 → 缓存查找 → 请求合并 → 上游查询 → IP过滤 → 存储 │
-├──────────┬──────────┬──────────┬────────────────────────┤
-│ resolver │  cache   │  rules   │ coalescer              │
-│ 四协议查询 │ 正/负缓存 │ 域名规则   │ 请求合并               │
-├──────────┴──────────┴──────────┴────────────────────────┤
-│                      packet                             │  ← DNS 报文编解码（RFC 1035）
-├─────────────────────────────────────────────────────────┤
-│                    transparent                           │  ← 透明哈希与相等比较器（FNV-1a）
-├─────────────────────────────────────────────────────────┤
-│                      config                             │  ← 配置类型（header-only）
-└─────────────────────────────────────────────────────────┘
+  router ← 分发层门面（反向/正向/直连/数据报路由）
+  整合 recursor + 反向路由表 + 连接池
+       │
+       ▼
+  recursor ← 解析器门面（六阶段查询管道）
+  规则匹配 → 缓存查找 → 请求合并 → 上游查询 → IP过滤 → 存储
+       │
+       ├─ resolver ── 四协议查询
+       ├─ cache ────── 正/负缓存
+       ├─ rules ────── 域名规则
+       └─ coalescer ── 请求合并
+              │
+              ▼
+  packet ← DNS 报文编解码（RFC 1035）
+       │
+       ▼
+  transparent ← 透明哈希与相等比较器（FNV-1a）
+       │
+       ▼
+  config ← 配置类型（header-only）
 ```
 
 ### config
@@ -316,17 +338,21 @@
 ### 模块架构概览
 
 ```
-┌──────────────────────────────────────────────────────────────┐
-│             bootstrap (sing-mux 协商 + 协议分发)               │
-├──────────────────────────┬───────────────────────────────────┤
-│    smux::craft (smux)    │     yamux::craft (yamux)          │
-├──────────────────────────┴───────────────────────────────────┤
-│                        core (抽象基类)                        │
-├────────────────────────┬─────────────────────────────────────┤
-│      duct (TCP 流)     │         parcel (UDP 数据报)          │
-├────────────────────────┴─────────────────────────────────────┤
-│              smux::frame / yamux::frame                      │
-└──────────────────────────────────────────────────────────────┘
+  bootstrap (sing-mux 协商 + 协议分发)
+       │
+       ├─ smux::craft (smux) ──┐
+       │                       │
+       └─ yamux::craft (yamux) ┘
+              │
+              ▼
+       core (抽象基类)
+              │
+              ├─ duct (TCP 流) ──────┐
+              │                      │
+              └─ parcel (UDP 数据报) ┘
+                     │
+                     ▼
+       smux::frame / yamux::frame
 ```
 
 ### core

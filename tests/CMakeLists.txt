@@ -1,92 +1,46 @@
+set(TEST_COMPILE_OPTS -g1 -Os -fno-keep-inline-dllexport)
+
 function(forward_add_test test_name source_file)
     add_executable(${test_name} ${source_file})
+    target_compile_options(${test_name} PRIVATE ${TEST_COMPILE_OPTS})
     target_link_libraries(${test_name} PRIVATE ${PROJECT_NAME}_static_library)
     add_test(NAME ${test_name} COMMAND ${test_name})
 endfunction()
 
-forward_add_test(headers_test header.cpp)
+# ─── 基础设施 ────────────────────────────────────
+forward_add_test(Session        Session.cpp)
+forward_add_test(Connection     Connection.cpp)
+forward_add_test(Transmission   Transmission.cpp)
+forward_add_test(Trace          Trace.cpp)
 
-add_executable(main_test main_test.cpp)
-target_compile_options(main_test PRIVATE
-        -g1
-        -O1
-        -fno-keep-inline-dllexport
-        -fno-function-sections
-        -fno-data-sections
-)
-target_link_libraries(main_test PRIVATE ${PROJECT_NAME}_static_library)
-add_test(NAME main_test COMMAND main_test)
+# ─── 协议 ────────────────────────────────────────
+forward_add_test(Http           Http.cpp)
+forward_add_test(Socks5         Socks5.cpp)
+forward_add_test(Trojan         Trojan.cpp)
 
-forward_add_test(json_test json_test.cpp)
-forward_add_test(request_test request.cpp)
-forward_add_test(glaze_test glaze_test.cpp)
-forward_add_test(log_test log.cpp)
+# ─── 回归 ────────────────────────────────────────
+forward_add_test(Regression     Regression.cpp)
 
-add_executable(session_test session.cpp)
-target_compile_options(session_test PRIVATE
-        -g1
-        -O1
-        -fno-keep-inline-dllexport
-)
-target_link_libraries(session_test PRIVATE ${PROJECT_NAME}_static_library)
-add_test(NAME session_test COMMAND session_test)
-
-forward_add_test(connection_test connection_test.cpp)
-forward_add_test(spdlog_test spdlog_test.cpp)
-
-add_executable(socks5_test socks5_test.cpp)
-target_compile_options(socks5_test PRIVATE -g1 -Os -fno-keep-inline-dllexport)
-target_link_libraries(socks5_test PRIVATE ${PROJECT_NAME}_static_library)
-add_test(NAME socks5_test COMMAND socks5_test)
-
-add_executable(trojan_test trojan_test.cpp)
-target_compile_options(trojan_test PRIVATE -g1 -Os -fno-keep-inline-dllexport)
-target_link_libraries(trojan_test PRIVATE ${PROJECT_NAME}_static_library)
-add_test(NAME trojan_test COMMAND trojan_test)
-
-add_executable(trojan_client_test trojan_client_test.cpp)
-target_compile_options(trojan_client_test PRIVATE -g1 -Os -fno-keep-inline-dllexport)
-target_link_libraries(trojan_client_test PRIVATE ${PROJECT_NAME}_static_library)
-add_test(NAME trojan_client_test COMMAND trojan_client_test)
-
-add_executable(transmission_test transmission_test.cpp)
-target_compile_options(transmission_test PRIVATE -g1 -Os -fno-keep-inline-dllexport)
-target_link_libraries(transmission_test PRIVATE ${PROJECT_NAME}_static_library)
-add_test(NAME transmission_test COMMAND transmission_test)
-
-add_executable(integration_test integration_test.cpp)
-target_compile_options(integration_test PRIVATE -g1 -Os -fno-keep-inline-dllexport)
-target_link_libraries(integration_test PRIVATE ${PROJECT_NAME}_static_library)
-add_test(NAME integration_test COMMAND integration_test)
-
-add_executable(regression_test regression_test.cpp)
-target_compile_options(regression_test PRIVATE -g1 -Os -fno-keep-inline-dllexport)
-target_link_libraries(regression_test PRIVATE ${PROJECT_NAME}_static_library)
-add_test(NAME regression_test COMMAND regression_test)
+# ─── 单元测试 ────────────────────────────────────
+forward_add_test(HttpParser     HttpParser.cpp)
+forward_add_test(Smux           Smux.cpp)
+forward_add_test(Yamux          Yamux.cpp)
+forward_add_test(Crypto         Crypto.cpp)
+forward_add_test(DnsPacket      DnsPacket.cpp)
+forward_add_test(DnsRules       DnsRules.cpp)
+forward_add_test(Fault          Fault.cpp)
+forward_add_test(Exception      Exception.cpp)
 
 add_subdirectory(concurrency)
 
 if(MINGW)
-    foreach(target_name IN ITEMS
-            headers_test
-            main_test
-            json_test
-            request_test
-            glaze_test
-            log_test
-            session_test
-            connection_test
-            spdlog_test
-            socks5_test
-            trojan_test
-            trojan_client_test
-            transmission_test
-            integration_test
-            regression_test
-            concurrency_server
-            concurrency_client)
-        if(TARGET ${target_name})
-            target_compile_options(${target_name} PRIVATE -Wa,-mbig-obj)
+    foreach(t IN ITEMS
+        Session Connection Transmission Trace
+        Http Socks5 Trojan Regression
+        HttpParser Smux Yamux Crypto DnsPacket DnsRules Fault Exception
+        concurrency_server concurrency_client)
+        if(TARGET ${t})
+            target_compile_options(${t} PRIVATE -Wa,-mbig-obj)
         endif()
     endforeach()
 endif()

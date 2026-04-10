@@ -3,6 +3,8 @@
 #include <chrono>
 #include <boost/asio.hpp>
 #include <prism/memory.hpp>
+#include <prism/protocol/http/parser.hpp>
+#include <prism/trace.hpp>
 #include "handler.hpp"
 
 namespace srv
@@ -31,19 +33,43 @@ namespace srv
     private:
         boost::asio::awaitable<void> run()
         {
-            http::request req;
-            const auto read_result = co_await http::async_read(socket_, req, psm::memory::current_resource());
+            // 读取 HTTP 请求头
+            std::array<char, 8192> buf{};
+            boost::system::error_code ec;
+            std::size_t used = 0;
 
-            if (psm::fault::failed(read_result))
+            while (true)
             {
-                if (read_result != psm::fault::code::eof)
+                const auto sv = std::string_view(buf.data(), used);
+                if (sv.find("\r\n\r\n") != std::string_view::npos)
                 {
-                    psm::trace::error("initial read failed: {}", psm::fault::cached_message(read_result));
+                    break;
                 }
+
+                auto n = co_await socket_.async_read_some(
+                    net::buffer(buf.data() + used, buf.size() - used),
+                    net::redirect_error(net::use_awaitable, ec));
+                if (ec)
+                {
+                    if (ec != net::error::eof)
+                    {
+                        psm::trace::error("initial read failed: {}", ec.message());
+                    }
+                    co_return;
+                }
+                used += n;
+            }
+
+            // 解析请求
+            const auto raw = std::string_view(buf.data(), used);
+            psm::protocol::http::proxy_request req;
+            if (psm::fault::failed(psm::protocol::http::parse_proxy_request(raw, req)))
+            {
+                psm::trace::error("parse request failed");
                 co_return;
             }
 
-            const auto mode = detect_mode(req.target());
+            const auto mode = detect_mode(req.target);
 
             if (mode == srv::mode::stress)
             {
@@ -55,16 +81,14 @@ namespace srv
                 co_await handle_concurrent();
             }
 
-            boost::system::error_code ec;
             socket_.close(ec);
         }
 
         boost::asio::awaitable<void> handle_concurrent()
         {
-            const auto &preset = preset_ok;
-            const auto res = handler::make_response(preset, psm::memory::current_resource());
-
-            const auto response_data = http::serialize(res, psm::memory::current_resource());
+            const auto response_data = build_http_response(
+                200, "OK", JSON_CONTENT,
+                R"({"code":0,"message":"success"})");
             co_await net::async_write(socket_, net::buffer(response_data), net::use_awaitable);
         }
 

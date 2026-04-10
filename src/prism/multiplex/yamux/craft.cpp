@@ -13,6 +13,7 @@
 #include <prism/resolve/router.hpp>
 #include <prism/trace.hpp>
 
+#include <array>
 #include <boost/asio/co_spawn.hpp>
 
 constexpr std::string_view tag = "[Yamux.Craft]";
@@ -26,9 +27,8 @@ namespace psm::multiplex::yamux
                  const multiplex::config &cfg, const memory::resource_pointer mr)
         : core(std::move(transport), router, cfg, mr),
           channel_(transport_->executor(), cfg.yamux.max_streams),
-          windows_(mr_), recv_buffer_(mr_)
+          windows_(mr_)
     {
-        recv_buffer_.resize(frame_header_size);
         trace::debug("{} constructed", tag);
     }
 
@@ -36,7 +36,7 @@ namespace psm::multiplex::yamux
 
     auto craft::run() -> net::awaitable<void>
     {
-        // 启动发送循环（lambda 捕获 self 保持 craft 生命周期）
+        // 启动发送循环（lambda 捕获 self 保持 craft 生命周期，防止 run() 退出后 craft 被销毁）
         const auto self = std::static_pointer_cast<craft>(shared_from_this());
         auto start_send_loop = [self]() -> net::awaitable<void>
         {
@@ -70,8 +70,9 @@ namespace psm::multiplex::yamux
 
         while (active_.load(std::memory_order_acquire))
         {
-            // 读取 12 字节帧头
-            const auto hdr_n = co_await transport_->async_read(recv_buffer_, ec);
+            // 读取 12 字节帧头（std::array 转 span 传递）
+            const auto recv_span = std::span<std::byte>(recv_buffer_);
+            const auto hdr_n = co_await transport_->async_read(recv_span, ec);
             if (ec || hdr_n < frame_header_size)
             {
                 if (ec != std::errc::operation_canceled)
@@ -732,7 +733,7 @@ namespace psm::multiplex::yamux
         // 累积已消费量
         const std::uint32_t total_consumed = window->recv_consumed.fetch_add(consumed, std::memory_order_acq_rel) + consumed;
 
-        // 达到初始窗口一半时发送 WindowUpdate，避免客户端发送窗口耗尽
+        // 累积消费量达到阈值时发送 WindowUpdate，避免发送窗口耗尽导致停顿
         if (total_consumed >= config_.yamux.initial_window / 2)
         {
             window->recv_consumed.store(0, std::memory_order_release);

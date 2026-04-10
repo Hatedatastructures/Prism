@@ -8,6 +8,7 @@
 
 #pragma once
 
+#include <array>
 #include <memory>
 #include <span>
 #include <system_error>
@@ -98,6 +99,48 @@ namespace psm::channel::transport
                 net::buffer(buffer.data(), buffer.size()), token);
             ec = psm::fault::make_error_code(psm::fault::to_code(sys_ec));
             co_return n;
+        }
+
+        /**
+         * @brief Scatter-gather 写入（TLS 优化）
+         * @details 将多个缓冲区合并为单次 async_write 写入，底层 SSL_write 将
+         * 帧头和载荷合并为一条 TLS 记录，避免两次加密操作和额外的 TLS 帧头开销。
+         */
+        auto async_write_scatter(const std::span<const std::byte> *buffers, std::size_t count, std::error_code &ec)
+            -> net::awaitable<std::size_t> override
+        {
+            if (count == 0)
+            {
+                ec.clear();
+                co_return 0;
+            }
+
+            boost::system::error_code sys_ec;
+            auto token = net::redirect_error(net::use_awaitable, sys_ec);
+            std::size_t total = 0;
+
+            if (count == 2) [[likely]]
+            {
+                const std::array<net::const_buffer, 2> bufs{{net::const_buffer(buffers[0].data(), buffers[0].size()),
+                                                             net::const_buffer(buffers[1].data(), buffers[1].size())}};
+                total = co_await net::async_write(*ssl_stream_, bufs, token);
+            }
+            else
+            {
+                for (std::size_t i = 0; i < count; ++i)
+                {
+                    const auto n = co_await async_write(buffers[i], ec);
+                    total += n;
+                    if (ec)
+                    {
+                        co_return total;
+                    }
+                }
+                co_return total;
+            }
+
+            ec = psm::fault::make_error_code(psm::fault::to_code(sys_ec));
+            co_return total;
         }
 
         /**

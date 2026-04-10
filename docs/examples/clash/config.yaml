@@ -222,11 +222,11 @@ proxies:
     type: http
     server: 192.168.137.1
     port: 8081
-    # username: username          # HTTP 代理 Basic 认证用户名 (可选)
-    # password: prism             # HTTP 代理 Basic 认证密码 (可选)
+    username: username         
+    password: prism            
 
 
-  # https (注意: tls: true 尚未支持，TLS 内层协议检测待实现)
+  # https (TLS 内层协议检测已由 session 层自动完成)
   - name: "Https"
     type: http
     server: 192.168.137.1
@@ -234,7 +234,7 @@ proxies:
     username: username
     password: prism
     tls: true
-    # skip-cert-verify: true
+    skip-cert-verify: true # 跳过证书验证，避免测试环境自签证书不受信任导致连接失败
     # sni: custom.com
 
   - name: "Trojan TCP"          

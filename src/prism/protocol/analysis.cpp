@@ -7,18 +7,13 @@ namespace psm::protocol
     {
         /**
          * @brief 获取内存资源
-         * @param req HTTP 请求
          * @param mr 提供的内存资源指针
-         * @return 优先使用 mr，否则使用 req 的内存资源
+         * @return 优先使用 mr，否则使用默认内存资源
          */
-        [[nodiscard]] auto resolve_mr(const http::request &req, const memory::resource_pointer mr) noexcept
+        [[nodiscard]] auto resolve_mr(const memory::resource_pointer mr) noexcept
             -> memory::resource_pointer
         {
-            if (mr)
-            {
-                return mr;
-            }
-            return req.target().get_allocator().resource();
+            return mr ? mr : memory::current_resource();
         }
 
         /**
@@ -96,10 +91,10 @@ namespace psm::protocol
             return protocol_type::socks5;
         }
 
-        // 2. 检查 TLS/Trojan (0x16)
+        // 2. 检查 TLS (0x16)
         if (peek_data[0] == 0x16)
         {
-            return protocol_type::trojan;
+            return protocol_type::tls;
         }
 
         // 3. 检查 HTTP
@@ -116,7 +111,7 @@ namespace psm::protocol
     }
 
     auto analysis::detect_inner(const std::string_view peek_data)
-        -> inner_protocol
+        -> protocol_type
     {
         static constexpr std::array<std::string_view, 9> http_methods = {
             "GET ", "POST ", "HEAD ", "PUT ", "DELETE ",
@@ -127,14 +122,14 @@ namespace psm::protocol
             if (peek_data.size() >= method.size() &&
                 peek_data.substr(0, method.size()) == method)
             {
-                return inner_protocol::http;
+                return protocol_type::http;
             }
         }
 
         constexpr std::size_t trojan_min_length = 60;
         if (peek_data.size() < trojan_min_length)
         {
-            return inner_protocol::undetermined;
+            return protocol_type::unknown;
         }
 
         for (std::size_t i = 0; i < 56; ++i)
@@ -145,64 +140,64 @@ namespace psm::protocol
                                       (c >= 'A' && c <= 'F');
             if (!is_hex_digit)
             {
-                return inner_protocol::http;
+                return protocol_type::http;
             }
         }
 
         if (peek_data[56] != '\r' || peek_data[57] != '\n')
         {
-            return inner_protocol::http;
+            return protocol_type::http;
         }
 
         const auto cmd = static_cast<unsigned char>(peek_data[58]);
         if (cmd != 0x01 && cmd != 0x03)
         {
-            return inner_protocol::http;
+            return protocol_type::http;
         }
 
         const auto atyp = static_cast<unsigned char>(peek_data[59]);
         if (atyp != 0x01 && atyp != 0x03 && atyp != 0x04)
         {
-            return inner_protocol::http;
+            return protocol_type::http;
         }
 
-        return inner_protocol::trojan;
+        return protocol_type::trojan;
     }
 
-    auto analysis::resolve(const http::request &req, const memory::resource_pointer mr)
+    auto analysis::resolve(const http::proxy_request &req, const memory::resource_pointer mr)
         -> analysis::target
     {
-        target t(resolve_mr(req, mr));
+        target t(resolve_mr(mr));
 
         // A. `CONNECT` 只会出现在正向代理请求中，请求行已明确给出目标 `host:port`
-        if (req.method() == http::verb::connect)
+        if (req.method == "CONNECT")
         {
             t.positive = true;
-            const auto raw = req.target();
+            const auto raw = req.target;
             parse(raw, t.host, t.port);
 
             // CONNECT 通常用于 HTTPS 隧道，无显式端口时默认 443
             const bool has_explicit_port = (raw[0] == '[')
-                ? (raw.find("]:") != std::string_view::npos)   // IPv6: [addr]:port
-                : (raw.find(':') != std::string_view::npos &&  // IPv4/hostname: 有且仅有一个冒号
-                   raw.find(':') == raw.rfind(':'));
+                                               ? (raw.find("]:") != std::string_view::npos)  // IPv6: [addr]:port
+                                               : (raw.find(':') != std::string_view::npos && // IPv4/hostname: 有且仅有一个冒号
+                                                  raw.find(':') == raw.rfind(':'));
             if (!has_explicit_port)
             {
                 t.port.assign("443");
             }
         }
         // B. 绝对 `URI`（`http://`/`https://`）只在正向代理里出现，请求行已包含完整目标
-        else if (req.target().starts_with("http://") || req.target().starts_with("https://"))
+        else if (req.target.starts_with("http://") || req.target.starts_with("https://"))
         {
             t.positive = true;
             memory::string path(t.host.get_allocator().resource());
-            parse_absolute_uri(req.target(), t.host, t.port, path);
+            parse_absolute_uri(req.target, t.host, t.port, path);
         }
         // C. 相对路径请求通常是反向代理场景，真实目标由 `Host` 头和路由表决定
         else
         {
             t.positive = false;
-            auto host_val = req.at(http::field::host);
+            auto host_val = req.host;
             parse(host_val, t.host, t.port);
         }
 

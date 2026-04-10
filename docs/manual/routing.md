@@ -98,7 +98,7 @@ inline void register_handlers()
     auto &factory = registry::global();
     factory.register_handler<Http>(protocol::protocol_type::http);
     factory.register_handler<Socks5>(protocol::protocol_type::socks5);
-    factory.register_handler<Tls>(protocol::protocol_type::tls);
+    factory.register_handler<Trojan>(protocol::protocol_type::trojan);
     factory.register_handler<Unknown>(protocol::protocol_type::unknown);
 }
 ```
@@ -109,10 +109,11 @@ inline void register_handlers()
 |----------|----------|----------|
 | `http` | `Http` | 处理 HTTP/1.1 协议，包括 GET、POST、CONNECT 等方法 |
 | `socks5` | `Socks5` | 处理 SOCKS5 协议认证和连接命令 |
-| `tls` | `Tls` | 处理 TLS 握手和加密代理协议 |
+| `trojan` | `Trojan` | 处理 Trojan over TLS（TLS 由 Session 层剥离后分发） |
 | `unknown` | `Unknown` | 原始 TCP 双向透传，作为默认回退处理器 |
 
-**重要**: 当前仅注册了上述四种处理器，其他协议类型无法被正确处理。
+**注意**: `protocol_type::tls` 不会分发到 handler。Session 层检测到 TLS 后执行握手和内层协议探测，
+将已解密的传输层分发给内层协议对应的 handler（HTTP 或 Trojan）。
 
 ## Unknown 回退路径
 
@@ -164,27 +165,19 @@ auto process(session_context &ctx, [[maybe_unused]] std::span<const std::byte> /
 ## 架构总结
 
 ```
-┌─────────────────────────────────────────────────────────────┐
-│                        Session                               │
-│  1. protocol::probe::probe() 检测协议类型                    │
-│  2. registry::global().create() 获取处理器                   │
-└─────────────────────────────────────────────────────────────┘
-                              │
-                              ▼
-┌─────────────────────────────────────────────────────────────┐
-│                       Registry                               │
-│  ┌─────────────────────────────────────────────────────┐    │
-│  │ protocol_type::http   -> Http handler (singleton)    │    │
-│  │ protocol_type::socks5 -> Socks5 handler (singleton)  │    │
-│  │ protocol_type::trojan -> Trojan handler (singleton)  │    │
-│  │ protocol_type::unknown-> Unknown handler (singleton) │    │
-│  └─────────────────────────────────────────────────────┘    │
-└─────────────────────────────────────────────────────────────┘
-                              │
-                              ▼
-┌─────────────────────────────────────────────────────────────┐
-│                    Handler.process()                         │
-│  Http/Socks5/Trojan -> 对应 pipeline 处理                    │
-│  Unknown -> tunnel 原始 TCP 双向透传                         │
-└─────────────────────────────────────────────────────────────┘
+  Session
+  1. protocol::probe::probe() 检测协议类型
+  2. registry::global().create() 获取处理器
+       │
+       ▼
+  Registry
+  ├─ protocol_type::http   -> Http handler (singleton)
+  ├─ protocol_type::socks5 -> Socks5 handler (singleton)
+  ├─ protocol_type::trojan -> Trojan handler (singleton)
+  └─ protocol_type::unknown-> Unknown handler (singleton)
+       │
+       ▼
+  Handler.process()
+  Http/Socks5/Trojan -> 对应 pipeline 处理
+  Unknown -> tunnel 原始 TCP 双向透传
 ```

@@ -36,11 +36,15 @@ SOCKS5 握手逻辑见 src/protocol/socks5/stream.cpp
 
 | 测试文件 | 验证范围 |
 |---------|---------|
-| `tests/session.cpp` | 会话生命周期、连接管理 |
-| `tests/connection_test.cpp` | 连接建立、数据传输 |
-| `tests/socks5_test.cpp` | SOCKS5 协议行为 |
-| `tests/trojan_test.cpp` | Trojan 协议实现 |
-| `tests/integration_test.cpp` | 端到端集成行为 |
+| `tests/Session.cpp` | 会话生命周期、连接管理 |
+| `tests/Connection.cpp` | 连接建立、数据传输 |
+| `tests/Http.cpp` | HTTP relay 握手、认证 |
+| `tests/HttpParser.cpp` | HTTP 请求解析、路径提取 |
+| `tests/Socks5.cpp` | SOCKS5 协议行为 |
+| `tests/Trojan.cpp` | Trojan 协议实现 |
+| `tests/Smux.cpp` | smux 帧编解码、地址解析 |
+| `tests/Yamux.cpp` | yamux 帧编解码、窗口管理 |
+| `tests/Regression.cpp` | 回归测试 |
 
 ### 规则 4：区分三类能力
 
@@ -100,20 +104,14 @@ SOCKS5 握手逻辑见 src/protocol/socks5/stream.cpp
 | 功能 | 源码位置 | 验证方式 |
 |-----|---------|---------|
 | HTTP/HTTPS 代理 | `src/prism/pipeline/protocols/http.cpp`, `include/prism/pipeline/protocols/http.hpp` | handler 注册 + 测试 |
-| SOCKS5 代理 | `src/prism/pipeline/protocols/socks5.cpp`, `include/prism/pipeline/protocols/socks5.hpp` | handler 注册 + `tests/socks5_test.cpp` |
+| SOCKS5 代理 | `src/prism/pipeline/protocols/socks5.cpp`, `include/prism/pipeline/protocols/socks5.hpp` | handler 注册 + `tests/Socks5.cpp` |
 | TLS 终止 | `src/prism/agent/worker/tls.cpp`, `include/prism/agent/worker/tls.hpp` | 运行链接入 |
 | 反向代理 | `src/prism/resolve/router.cpp`, `include/prism/resolve/router.hpp` | 运行链接入 |
 | 负载均衡 | `src/prism/agent/front/balancer.cpp`, `include/prism/agent/front/balancer.hpp` | 运行链接入 |
 
 ### 已确认未接入
 
-以下功能配置字段存在但运行链未接入：
-
-| 功能 | 配置位置 | 未接入原因 |
-|-----|---------|-----------|
-| Trojan 协议 | `include/prism/protocol/trojan/config.hpp` | `dispatch::register_handlers()` 未注册 handler |
-
-**说明**：Trojan 协议源码实现存在于 `src/protocol/trojan/` 目录，测试文件 `tests/trojan_test.cpp` 也存在，但 dispatch 未将其接入运行链。
+当前所有已实现协议均已接入运行链，无仅配置声明的未接入功能。
 
 ### 已确认行为差异
 

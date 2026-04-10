@@ -291,23 +291,22 @@ auto create(const protocol::protocol_type type) const -> shared_handler
 
 ### HTTP 路径
 
-**源码位置**: [protocols.cpp](../../src/prism/agent/pipeline/protocols.cpp)
+**源码位置**: [http.cpp](../../src/prism/pipeline/protocols/http.cpp)
 
 #### 流程步骤
 
 ```
-┌─────────────────────────────────────────────────────────────────┐
-│                        HTTP 处理流程                             │
-├─────────────────────────────────────────────────────────────────┤
-│  1. 创建 connector 包装 inbound                                        │
-│  2. 将预读数据写入 read_buffer                                   │
-│  3. 调用 http::async_read() 解析 HTTP 请求                       │
-│  4. 调用 analysis::resolve() 提取目标地址                        │
-│  5. 调用 primitives::dial() 建立上游连接                         │
-│  6. 判断请求类型:                                                │
-│     ├─ CONNECT: 返回 200 → tunnel                      │
-│     └─ 其他: 序列化请求转发 → tunnel                    │
-└─────────────────────────────────────────────────────────────────┘
+  HTTP 处理流程
+       │
+       ├─ 1. 创建 connector 包装 inbound
+       ├─ 2. 将预读数据写入 PMR 缓冲区
+       ├─ 3. 循环读取原始字节直到 \r\n\r\n（头部结束）
+       ├─ 4. 调用 parse_proxy_request() 零分配解析
+       ├─ 5. 调用 analysis::resolve() 提取目标地址
+       ├─ 6. 调用 primitives::dial() 建立上游连接
+       └─ 7. 判断请求类型
+            ├─ CONNECT: 返回 200 → tunnel
+            └─ 其他: 重写 URI 分段转发 → tunnel
 ```
 
 **关键代码**:
@@ -317,64 +316,52 @@ auto http(session_context &ctx, std::span<const std::byte> data)
     -> net::awaitable<void>
 {
     psm::channel::connector stream(std::move(ctx.inbound));
-    psm::channel::transport::transmission_pointer outbound;
+    psm::channel::transport::shared_transmission outbound;
 
     ctx.frame_arena.reset();
     auto mr = ctx.frame_arena.get();
-    beast::basic_flat_buffer read_buffer(protocol::http::network_allocator{mr});
 
-    // 写入预读数据
+    // 使用 PMR 缓冲区读取 HTTP 头部
+    memory::vector<char> buffer(mr);
+    buffer.resize(4096);
+    std::size_t used = 0;
+
+    // 预读数据填入缓冲区
     if (!data.empty())
     {
-        auto dest = read_buffer.prepare(data.size());
-        std::memcpy(dest.data(), data.data(), data.size());
-        read_buffer.commit(data.size());
+        std::memcpy(buffer.data(), data.data(), std::min(data.size(), buffer.size()));
+        used = data.size();
     }
 
-    protocol::http::request req(mr);
+    // 循环读取直到找到 \r\n\r\n
+    while (true)
     {
-        const auto ec = co_await protocol::http::async_read(stream, req, read_buffer, mr);
-        if (fault::failed(ec))
-            co_return;
-
-        const auto target = protocol::analysis::resolve(req);
-        trace::info("[Pipeline] Http analysis target = [host: {}, port: {}, positive: {}]",
-                    target.host, target.port, target.positive);
-
-        std::shared_ptr<resolve::router> router_ptr(&ctx.worker.router, [](resolve::router *) {});
-        auto [fst, snd] = co_await primitives::dial(router_ptr, "HTTP", target, true, false);
-        if (fault::failed(fst) || !snd)
-            co_return;
-        outbound = std::move(snd);
+        if (std::string_view(buffer.data(), used).find("\r\n\r\n") != std::string_view::npos)
+            break;
+        auto bytes_read = co_await stream.async_read_some(...);
+        used += bytes_read;
     }
+
+    // 零分配解析（结果为 string_view 指向原始缓冲区）
+    protocol::http::proxy_request req;
+    protocol::http::parse_proxy_request(raw, req);
+
+    // 认证、解析目标、拨号...
 
     // CONNECT 方法处理
-    if (req.method() == protocol::http::verb::connect)
+    if (req.method == "CONNECT")
     {
-        boost::system::error_code ec;
-        constexpr std::string_view resp = {"HTTP/1.1 200 Connection Established\r\n\r\n"};
-        co_await stream.async_write_some(net::buffer(resp), net::redirect_error(net::use_awaitable, ec));
-        if (!ec)
-        {
-            co_await primitives::tunnel(stream.release(), std::move(outbound), mr, ctx.buffer_size);
-        }
+        co_await net::async_write(stream, net::buffer(Resp200), token);
+        co_await primitives::tunnel(stream.release(), std::move(outbound), ctx);
         co_return;
     }
 
-    // 普通请求处理
-    std::error_code ec;
-    const auto req_data = protocol::http::serialize(req, mr);
-    co_await outbound->async_write_some(
-        std::span(reinterpret_cast<const std::byte *>(req_data.data()), req_data.size()), ec);
-    
-    if (read_buffer.size() > 0)
-    {
-        auto buf = read_buffer.data();
-        std::span span(static_cast<const std::byte *>(buf.data()), buf.size());
-        co_await outbound->async_write_some(span, ec);
-    }
-
-    co_await primitives::tunnel(stream.release(), std::move(outbound), mr, ctx.buffer_size);
+    // 普通请求：重写 URI 后分段转发
+    const auto relative = protocol::http::extract_relative_path(req.target);
+    // 写入新请求行 + 原始剩余数据
+    co_await outbound->async_write(new_request_line, ec);
+    co_await outbound->async_write(remaining_data, ec);
+    co_await primitives::tunnel(stream.release(), std::move(outbound), ctx);
 }
 ```
 
@@ -385,42 +372,38 @@ auto http(session_context &ctx, std::span<const std::byte> data)
 #### 流程步骤
 
 ```
-┌─────────────────────────────────────────────────────────────────┐
-│                       SOCKS5 处理流程                            │
-├─────────────────────────────────────────────────────────────────┤
-│  1. 创建 preview 包装器（如有预读数据）                           │
-│  2. 创建 socks5::stream 并调用 handshake()                       │
-│  3. 解析命令类型:                                                │
-│     ├─ CONNECT:                                                 │
-│     │   ├─ 提取目标地址                                         │
-│     │   ├─ dial() 建立上游连接                                  │
-│     │   ├─ 返回成功响应                                         │
-│     │   └─ tunnel 双向转发                             │
-│     ├─ UDP_ASSOCIATE:                                           │
-│     │   └─ 调用 async_associate() 建立 UDP 转发                 │
-│     └─ BIND: 返回命令不支持错误                                 │
-└─────────────────────────────────────────────────────────────────┘
+  SOCKS5 处理流程
+       │
+       ├─ 1. 创建 preview 包装器（如有预读数据）
+       ├─ 2. 创建 socks5::stream 并调用 handshake()
+       └─ 3. 解析命令类型
+            ├─ CONNECT:
+            │   ├─ 提取目标地址
+            │   ├─ dial() 建立上游连接
+            │   ├─ 返回成功响应
+            │   └─ tunnel 双向转发
+            ├─ UDP_ASSOCIATE:
+            │   └─ 调用 async_associate() 建立 UDP 转发
+            └─ BIND: 返回命令不支持错误
 ```
 
 ### TLS 路径
 
-**源码位置**: [protocols.cpp](../../src/prism/agent/pipeline/protocols.cpp)
+**源码位置**: [session.cpp](../../src/prism/agent/session/session.cpp)
+
+TLS 握手在 Session 层完成，不在 Pipeline 层。Session 检测到 `protocol_type::tls` 后执行握手，探测内层协议后分发到对应 handler。
 
 #### 流程步骤
 
 ```
-┌─────────────────────────────────────────────────────────────────┐
-│                        TLS 处理流程                              │
-├─────────────────────────────────────────────────────────────────┤
-│  1. 创建 connector 包装 inbound                                        │
-│  2. 创建 ssl::stream 并执行 TLS 握手                             │
-│  3. 调用 http::async_read() 解析内部 HTTP 请求                   │
-│  4. 调用 analysis::resolve() 提取目标地址                        │
-│  5. 调用 primitives::dial() 建立上游连接                         │
-│  6. 判断请求类型:                                                │
-│     ├─ CONNECT: 返回 200 → tunnel                      │
-│     └─ 其他: 序列化请求转发 → tunnel                    │
-└─────────────────────────────────────────────────────────────────┘
+  TLS 处理流程
+       │
+       ├─ 1. Session 层探测到 protocol_type::tls
+       ├─ 2. 调用 ssl_handshake() 执行 TLS 握手
+       ├─ 3. 创建 encrypted 传输层包装已握手的 SSL 流
+       ├─ 4. 增量读取内层数据，调用 detect_inner() 探测内层协议
+       ├─ 5. 更新 ctx_.inbound 为 encrypted 传输层
+       └─ 6. 分发到内层协议 handler（Http/Trojan）并传入预读数据
 ```
 
 ### 原语函数
@@ -521,26 +504,24 @@ void session::close()
 ### 关闭流程图
 
 ```
-┌─────────────────────────────────────────────────────────────────┐
-│                       连接关闭流程                               │
-├─────────────────────────────────────────────────────────────────┤
-│  1. session::close() 幂等关闭                                    │
-│     ├─ 检查 closed_ 标志，若已关闭则直接返回                     │
-│     └─ 设置 closed_ = true                                      │
-│                                                                 │
-│  2. 关闭 inbound transmission                                   │
-│     ├─ 调用 ptr->close()                                        │
-│     └─ 调用 ptr.reset() 释放所有权                              │
-│                                                                 │
-│  3. 关闭 outbound transmission                                  │
-│     ├─ 调用 ptr->close()                                        │
-│     └─ 调用 ptr.reset() 释放所有权                              │
-│                                                                 │
-│  4. 触发 on_closed 回调                                         │
-│     ├─ 移动回调到局部变量                                       │
-│     ├─ 清空 on_closed_ 成员                                     │
-│     └─ 执行回调（递减 active_sessions 计数）                    │
-└─────────────────────────────────────────────────────────────────┘
+  连接关闭流程
+       │
+       ├─ 1. session::close() 幂等关闭
+       │   ├─ 检查 closed_ 标志，若已关闭则直接返回
+       │   └─ 设置 closed_ = true
+       │
+       ├─ 2. 关闭 inbound transmission
+       │   ├─ 调用 ptr->close()
+       │   └─ 调用 ptr.reset() 释放所有权
+       │
+       ├─ 3. 关闭 outbound transmission
+       │   ├─ 调用 ptr->close()
+       │   └─ 调用 ptr.reset() 释放所有权
+       │
+       └─ 4. 触发 on_closed 回调
+           ├─ 移动回调到局部变量
+           ├─ 清空 on_closed_ 成员
+           └─ 执行回调（递减 active_sessions 计数）
 ```
 
 ### 回调链
@@ -563,41 +544,40 @@ auto on_closed = [active_sessions]() noexcept
 ## 流程总览
 
 ```
-┌─────────────────────────────────────────────────────────────────────────────┐
-│                           prism 运行时总览                          │
-├─────────────────────────────────────────────────────────────────────────────┤
-│                                                                             │
-│  ┌──────────────┐    ┌──────────────┐    ┌──────────────┐    ┌───────────┐ │
-│  │   Accept     │───▶│   Dispatch   │───▶│    Prime     │───▶│   Start   │ │
-│  │  (主线程)    │    │  (投递到IO)  │    │ (配置Socket) │    │(创建会话) │ │
-│  └──────────────┘    └──────────────┘    └──────────────┘    └───────────┘ │
-│                                                                     │       │
-│                                                                     ▼       │
-│  ┌──────────────────────────────────────────────────────────────────────┐  │
-│  │                        Session 生命周期                               │  │
-│  │  ┌────────────┐    ┌─────────────┐    ┌───────────────────────────┐ │  │
-│  │  │   Start    │───▶│  Diversion  │───▶│    Protocol Handler       │ │  │
-│  │  │ (启动协程) │    │ (协议检测)  │    │  ┌─────────┬─────────┐    │ │  │
-│  │  └────────────┘    └─────────────┘    │  │   HTTP  │ SOCKS5  │    │ │  │
-│  │                                        │  ├─────────┼─────────┤    │ │  │
-│  │                                        │  │   TLS   │ Unknown │    │ │  │
-│  │                                        │  └─────────┴─────────┘    │ │  │
-│  │                                        └───────────────────────────┘ │  │
-│  │                                                     │                │  │
-│  │                                                     ▼                │  │
-│  │                                        ┌───────────────────────────┐ │  │
-│  │                                        │    tunnel()      │ │  │
-│  │                                        │    (双向隧道转发)         │ │  │
-│  │                                        └───────────────────────────┘ │  │
-│  │                                                     │                │  │
-│  │                                                     ▼                │  │
-│  │                                        ┌───────────────────────────┐ │  │
-│  │                                        │       Close               │ │  │
-│  │                                        │   (资源释放+回调)         │ │  │
-│  │                                        └───────────────────────────┘ │  │
-│  └──────────────────────────────────────────────────────────────────────┘  │
-│                                                                             │
-└─────────────────────────────────────────────────────────────────────────────┘
+  Prism 运行时总览
+       │
+       ▼
+  Accept (主线程)
+       │
+       ▼
+  Dispatch (投递到 IO)
+       │
+       ▼
+  Prime (配置 Socket)
+       │
+       ▼
+  Start (创建会话)
+       │
+       ▼
+  Session 生命周期
+       │
+       ├─ Start (启动协程)
+       │     │
+       │     ▼
+       │   Diversion (协议检测)
+       │     │
+       │     ▼
+       │   Protocol Handler
+       │     ├─ HTTP
+       │     ├─ SOCKS5
+       │     ├─ TLS
+       │     └─ Unknown
+       │           │
+       │           ▼
+       │     tunnel() 双向隧道转发
+       │           │
+       │           ▼
+       │     Close (资源释放+回调)
 ```
 
 ---

@@ -10,7 +10,6 @@
 #include <boost/asio.hpp>
 #include <boost/beast/core/flat_buffer.hpp>
 
-#include <prism/protocol.hpp>
 #include <prism/memory.hpp>
 #include <prism/transformer.hpp>
 #include <prism/trace.hpp>
@@ -25,7 +24,6 @@
 #include <windows.h>
 
 namespace net = boost::asio;
-namespace http = psm::protocol::http;
 namespace memory = psm::memory;
 using tcp = net::ip::tcp;
 
@@ -372,22 +370,21 @@ private:
      */
     memory::string build_request(memory::resource_pointer mr)
     {
-        http::request req(mr);
-        req.method(http::verb::get);
-
-        memory::string full_target(mr);
-        full_target += "http://";
-        full_target += config_.backend_host;
-        full_target += ":";
-        full_target += std::to_string(config_.backend_port);
-        full_target += config_.request_path;
-        req.target(full_target);
-
-        req.version(11);
-        req.set(http::field::host, config_.backend_host + ":" + std::to_string(config_.backend_port));
-        req.keep_alive(true);
-
-        return http::serialize(req, mr);
+        memory::string req(mr);
+        req.append("GET http://");
+        req.append(config_.backend_host);
+        req.append(":");
+        req.append(std::to_string(config_.backend_port));
+        req.append(config_.request_path);
+        req.append(" HTTP/1.1\r\n");
+        req.append("Host: ");
+        req.append(config_.backend_host);
+        req.append(":");
+        req.append(std::to_string(config_.backend_port));
+        req.append("\r\n");
+        req.append("Connection: keep-alive\r\n");
+        req.append("\r\n");
+        return req;
     }
 
     /**
@@ -401,24 +398,59 @@ private:
     net::awaitable<void> handle_stress_mode(tcp::socket &socket, bool &is_connected,
                                             memory::resource_pointer mr, std::chrono::steady_clock::time_point request_start)
     {
-        boost::beast::flat_buffer buffer;
+        std::array<char, 8192> buf{};
 
         for (;;)
         {
-            http::response resp(mr);
-            auto result = co_await http::async_read(socket, resp, buffer, mr);
+            std::size_t used = 0;
+            boost::system::error_code ec;
 
-            if (result != psm::fault::code::success)
+            // 读取响应头
+            while (true)
             {
-                if (result == psm::fault::code::eof && config_.debug_output)
+                const auto sv = std::string_view(buf.data(), used);
+                if (sv.find("\r\n\r\n") != std::string_view::npos)
                 {
-                    psm::trace::debug("stress mode: server closed connection");
+                    break;
                 }
-                handle_disconnect(socket, is_connected);
-                co_return;
+
+                auto n = co_await socket.async_read_some(
+                    net::buffer(buf.data() + used, buf.size() - used),
+                    net::redirect_error(net::use_awaitable, ec));
+                if (ec)
+                {
+                    if (ec == net::error::eof && config_.debug_output)
+                    {
+                        psm::trace::debug("stress mode: server closed connection");
+                    }
+                    handle_disconnect(socket, is_connected);
+                    co_return;
+                }
+                used += n;
             }
 
-            auto body_size = resp.body().size();
+            // 解析 Content-Length
+            std::size_t body_size = 0;
+            {
+                const auto raw = std::string_view(buf.data(), used);
+                auto pos = raw.find("Content-Length:");
+                if (pos != std::string_view::npos)
+                {
+                    auto val_start = pos + 15;
+                    while (val_start < raw.size() && raw[val_start] == ' ')
+                        ++val_start;
+                    auto val_end = raw.find("\r\n", val_start);
+                    auto len_str = raw.substr(val_start, val_end == std::string_view::npos ? std::string_view::npos : val_end - val_start);
+                    for (char c : len_str)
+                    {
+                        if (c >= '0' && c <= '9')
+                        {
+                            body_size = body_size * 10 + (c - '0');
+                        }
+                    }
+                }
+            }
+
             stats_.total_requests.fetch_add(1, std::memory_order_relaxed);
             stats_.success_requests.fetch_add(1, std::memory_order_relaxed);
             stats_.bytes_received.fetch_add(body_size, std::memory_order_relaxed);
@@ -439,7 +471,6 @@ private:
             }
 
             memory::string ack_data("ACK", mr);
-            boost::system::error_code ec;
             auto token = net::redirect_error(net::use_awaitable, ec);
             co_await net::async_write(socket, net::buffer(ack_data), token);
             if (ec)
@@ -467,43 +498,107 @@ private:
     net::awaitable<void> handle_normal_mode(tcp::socket &socket, bool &is_connected,
                                             memory::resource_pointer mr, std::chrono::steady_clock::time_point request_start)
     {
-        boost::beast::flat_buffer buffer;
-        http::response resp(mr);
-        auto result = co_await http::async_read(socket, resp, buffer, mr);
+        // 读取 HTTP 响应头
+        std::array<char, 8192> buf{};
+        std::size_t used = 0;
+        boost::system::error_code ec;
 
-        if (result != psm::fault::code::success)
+        while (true)
         {
-            psm::trace::error("[错误] 读取响应失败");
-            boost::system::error_code ec;
-            if (result == psm::fault::code::eof)
+            const auto sv = std::string_view(buf.data(), used);
+            if (sv.find("\r\n\r\n") != std::string_view::npos)
             {
-                ec = net::error::eof;
+                break;
             }
-            else
+
+            auto n = co_await socket.async_read_some(
+                net::buffer(buf.data() + used, buf.size() - used),
+                net::redirect_error(net::use_awaitable, ec));
+            if (ec)
             {
-                ec = net::error::connection_reset;
+                psm::trace::error("[错误] 读取响应失败");
+                handle_error(socket, is_connected, ec);
+                co_return;
             }
-            handle_error(socket, is_connected, ec);
-            co_return;
+            used += n;
         }
 
         auto request_end = std::chrono::steady_clock::now();
         auto latency_ms = static_cast<std::uint64_t>(
             std::chrono::duration_cast<std::chrono::milliseconds>(request_end - request_start).count());
 
-        auto body_size = resp.body().size();
+        // 解析状态行: HTTP/1.1 200 OK
+        const auto raw = std::string_view(buf.data(), used);
+        const auto line_end = raw.find("\r\n");
+        const auto first_space = raw.find(' ');
+        const auto second_space = (line_end != std::string_view::npos && first_space != std::string_view::npos)
+                                      ? raw.find(' ', first_space + 1)
+                                      : std::string_view::npos;
+
+        int status_code = 0;
+        if (first_space != std::string_view::npos && second_space != std::string_view::npos && second_space < line_end)
+        {
+            const auto status_str = raw.substr(first_space + 1, second_space - first_space - 1);
+            for (char c : status_str)
+            {
+                if (c >= '0' && c <= '9')
+                {
+                    status_code = status_code * 10 + (c - '0');
+                }
+            }
+        }
+
+        // 解析 Content-Length 和 Connection
+        std::size_t body_size = 0;
+        bool keep_alive = false;
+        {
+            const auto headers_end = raw.find("\r\n\r\n");
+            if (headers_end != std::string_view::npos)
+            {
+                auto headers = raw.substr(0, headers_end);
+                auto pos = headers.find("Content-Length:");
+                if (pos != std::string_view::npos)
+                {
+                    auto val_start = pos + 15;
+                    while (val_start < headers.size() && headers[val_start] == ' ')
+                        ++val_start;
+                    auto val_end = headers.find("\r\n", val_start);
+                    auto len_str = headers.substr(val_start, val_end == std::string_view::npos ? std::string_view::npos : val_end - val_start);
+                    for (char c : len_str)
+                    {
+                        if (c >= '0' && c <= '9')
+                        {
+                            body_size = body_size * 10 + (c - '0');
+                        }
+                    }
+                }
+                // 简单检查 Connection 头
+                pos = headers.find("Connection:");
+                if (pos != std::string_view::npos)
+                {
+                    auto val_start = pos + 11;
+                    while (val_start < headers.size() && headers[val_start] == ' ')
+                        ++val_start;
+                    if (headers.substr(val_start).starts_with("keep-alive"))
+                    {
+                        keep_alive = true;
+                    }
+                }
+            }
+        }
+
         if (config_.debug_output)
         {
             static std::atomic<int> debug_counter{0};
             if (debug_counter.fetch_add(1, std::memory_order_relaxed) % 100 == 0)
             {
                 psm::trace::debug("[调试] 响应状态: {}, body大小: {} bytes, 延迟: {} ms",
-                                  static_cast<int>(resp.status()), body_size, latency_ms);
+                                  status_code, body_size, latency_ms);
             }
         }
 
         stats_.total_requests.fetch_add(1, std::memory_order_relaxed);
-        if (resp.status() == http::status::ok)
+        if (status_code == 200)
         {
             stats_.success_requests.fetch_add(1, std::memory_order_relaxed);
             stats_.bytes_received.fetch_add(body_size, std::memory_order_relaxed);
@@ -515,7 +610,7 @@ private:
             stats_.protocol_errors.fetch_add(1, std::memory_order_relaxed);
         }
 
-        if (resp.at(http::field::connection) != "keep-alive")
+        if (!keep_alive)
         {
             handle_disconnect(socket, is_connected);
         }

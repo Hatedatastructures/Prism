@@ -20,6 +20,7 @@
 #include <boost/asio.hpp>
 
 #include <prism/fault/code.hpp>
+#include <prism/fault/handling.hpp>
 #include <prism/protocol/analysis.hpp>
 #include <prism/channel/transport/transmission.hpp>
 

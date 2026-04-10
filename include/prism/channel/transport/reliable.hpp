@@ -16,6 +16,7 @@
 #include <prism/channel/transport/transmission.hpp>
 #include <prism/channel/connection/pool.hpp>
 #include <prism/fault/handling.hpp>
+#include <array>
 #include <memory>
 #include <optional>
 #include <utility>
@@ -89,7 +90,7 @@ namespace psm::channel::transport
          */
         executor_type executor() const override
         {
-            return const_cast<socket_type&>(native_socket()).get_executor();
+            return const_cast<socket_type &>(native_socket()).get_executor();
         }
 
         /**
@@ -101,7 +102,7 @@ namespace psm::channel::transport
          * @param ec 错误码输出参数
          * @return net::awaitable<std::size_t> 异步操作，完成后返回读取的字节数
          */
-        auto async_read_some(std::span<std::byte> buffer, std::error_code& ec) 
+        auto async_read_some(std::span<std::byte> buffer, std::error_code &ec)
             -> net::awaitable<std::size_t> override
         {
             boost::system::error_code sys_ec;
@@ -121,7 +122,7 @@ namespace psm::channel::transport
          * @param ec 错误码输出参数
          * @return net::awaitable<std::size_t> 异步操作，完成后返回写入的字节数
          */
-        auto async_write_some(std::span<const std::byte> buffer, std::error_code& ec) 
+        auto async_write_some(std::span<const std::byte> buffer, std::error_code &ec)
             -> net::awaitable<std::size_t> override
         {
             boost::system::error_code sys_ec;
@@ -130,6 +131,49 @@ namespace psm::channel::transport
                 net::buffer(buffer.data(), buffer.size()), token);
             ec = psm::fault::make_error_code(psm::fault::to_code(sys_ec));
             co_return n;
+        }
+
+        /**
+         * @brief Scatter-gather 写入（TCP 原生优化）
+         * @details 将多个缓冲区通过一次 async_write 写入，底层 async_write_some 携带
+         * 完整 ConstBufferSequence 可映射为单次 WSASend/writev 系统调用，
+         * 避免帧头与载荷分两次写入导致的额外系统调用和 TLS 记录开销。
+         */
+        auto async_write_scatter(const std::span<const std::byte> *buffers, std::size_t count, std::error_code &ec)
+            -> net::awaitable<std::size_t> override
+        {
+            if (count == 0)
+            {
+                ec.clear();
+                co_return 0;
+            }
+
+            boost::system::error_code sys_ec;
+            auto token = net::redirect_error(net::use_awaitable, sys_ec);
+            std::size_t total = 0;
+
+            if (count == 2) [[likely]]
+            {
+                const std::array<net::const_buffer, 2> bufs{{net::const_buffer(buffers[0].data(), buffers[0].size()),
+                                                             net::const_buffer(buffers[1].data(), buffers[1].size())}};
+                total = co_await net::async_write(native_socket(), bufs, token);
+            }
+            else
+            {
+                for (std::size_t i = 0; i < count; ++i)
+                {
+                    const auto n = co_await async_write(buffers[i], ec);
+                    total += n;
+                    if (ec)
+                    {
+                        co_return total;
+                    }
+                }
+                co_return total;
+            }
+
+            ec = psm::fault::make_error_code(psm::fault::to_code(sys_ec));
+            co_return total;
         }
 
         /**
@@ -222,8 +266,8 @@ namespace psm::channel::transport
         }
 
     private:
-        std::optional<socket_type> socket_;       ///< 非池连接的 socket 存储
-        psm::channel::pooled_connection pooled_;  ///< 池连接，RAII 包装器
+        std::optional<socket_type> socket_;      ///< 非池连接的 socket 存储
+        psm::channel::pooled_connection pooled_; ///< 池连接，RAII 包装器
     };
 
     /**

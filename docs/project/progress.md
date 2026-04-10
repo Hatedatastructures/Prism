@@ -188,9 +188,9 @@
 ctest --test-dir build_release --output-on-failure
 
 # 关键测试用例
-./build_release/test/session_test      # 会话生命周期
-./build_release/test/socks5_test       # SOCKS5 协议
-./build_release/test/connection_test   # 连接池复用
+./build_release/tests/Session       # 会话生命周期
+./build_release/tests/Socks5        # SOCKS5 协议
+./build_release/tests/Connection    # 连接池复用
 ```
 
 ### 端到端验证

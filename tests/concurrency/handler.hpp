@@ -6,50 +6,43 @@
 #include <cstring>
 
 #include <boost/asio.hpp>
-#include <prism/protocol.hpp>
+#include <prism/protocol/http/parser.hpp>
 #include <prism/trace.hpp>
 
 namespace srv
 {
-    namespace http = psm::protocol::http;
     namespace net = boost::asio;
 
     constexpr std::string_view JSON_CONTENT = "application/json; charset=utf-8";
 
-    struct response_preset final
+    inline auto build_http_response(const unsigned int status_code, const std::string_view reason,
+                                    const std::string_view content_type, const std::string_view body)
+        -> std::string
     {
-        http::status status_code;
-        std::string_view content_type;
-        std::string_view body;
-    };
+        std::string res;
+        res.reserve(256 + body.size());
+        res.append("HTTP/1.1 ");
+        res.append(std::to_string(status_code));
+        res.push_back(' ');
+        res.append(reason);
+        res.append("\r\n");
+        res.append("Content-Type: ");
+        res.append(content_type);
+        res.append("\r\n");
+        res.append("Content-Length: ");
+        res.append(std::to_string(body.size()));
+        res.append("\r\n");
+        res.append("Connection: close\r\n");
+        res.append("\r\n");
+        res.append(body);
+        return res;
+    }
 
-    inline constexpr response_preset preset_ok{
-        http::status::ok,
-        JSON_CONTENT,
-        R"({"code":0,"message":"success"})"};
-
-    class handler final
+    inline auto build_stress_response(const std::string_view chunk_data)
+        -> std::string
     {
-    public:
-        static auto make_response(const response_preset &preset, psm::memory::resource_pointer mr = nullptr)
-            -> http::response
-        {
-            if (!mr)
-            {
-                mr = psm::memory::current_resource();
-            }
-
-            http::response res;
-            res.status(preset.status_code);
-            res.set(http::field::content_type, preset.content_type);
-            res.set(http::field::connection, "close");
-
-            psm::memory::string body(preset.body.begin(), preset.body.end(), mr);
-            res.body(std::move(body));
-
-            return res;
-        }
-    };
+        return build_http_response(200, "OK", JSON_CONTENT, chunk_data);
+    }
 
     enum class mode
     {
@@ -75,27 +68,15 @@ namespace srv
     inline auto handle_stress(net::ip::tcp::socket &socket, psm::memory::resource_pointer mr = nullptr)
         -> net::awaitable<void>
     {
-        if (!mr)
-        {
-            mr = psm::memory::current_resource();
-        }
-
         constexpr std::size_t chunk_size = 4 * 1024;
 
-        psm::memory::string chunk_data(chunk_size, '\0', mr);
+        std::string chunk_data(chunk_size, '\0');
         for (std::size_t i = 0; i < chunk_size; ++i)
         {
             chunk_data[i] = static_cast<char>('A' + (i % 26));
         }
 
-        http::response resp;
-        resp.version(11);
-        resp.status(http::status::ok);
-        resp.set(http::field::content_type, JSON_CONTENT);
-        resp.set(http::field::connection, "keep-alive");
-        resp.body(psm::memory::string(chunk_data, mr));
-
-        const auto response_data = http::serialize(resp, mr);
+        auto response_data = build_stress_response(chunk_data);
 
         std::array<char, 256> recv_buf{};
 

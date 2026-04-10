@@ -41,7 +41,7 @@
             "cache_ipv6": false
         },
         "buffer": {
-            "size": 65536
+            "size": 262144
         },
         "clash": true,
         "socks5": {
@@ -70,8 +70,8 @@
             },
             "yamux": {
                 "max_streams": 256,
-                "buffer_size": 4096,
-                "initial_window": 262144,
+                "buffer_size": 65535,
+                "initial_window": 4194304,
                 "enable_ping": true,
                 "ping_interval_ms": 30000,
                 "stream_open_timeout_ms": 30000,
