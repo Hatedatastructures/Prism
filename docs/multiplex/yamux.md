@@ -100,9 +100,7 @@ mihomo 客户端配置 `protocol: yamux` 时发送 `[0x00][0x01]`。
 
 | 原因码 | 值 | 说明 |
 |--------|-----|------|
-| normal | `0x00000000` | 正常关闭 |
-| protocol_error | `0x00000001` | 协议错误 |
-| internal_error | `0x00000002` | 内部错误 |
+| protocol_error | `0x00000001` | 协议错误（收到无法识别的帧或非法状态转换） |
 
 ## TCP 流完整生命周期
 
@@ -217,13 +215,12 @@ mihomo 客户端                                Prism 服务端              目
 
 ### 窗口管理详解
 
-每个流维护三个原子变量（`stream_window` 结构）：
+每个流维护两个原子变量（`stream_window` 结构），接收窗口阈值由 `config_.yamux.initial_window` 动态计算：
 
 | 变量 | 初始值 | 作用 |
 |------|--------|------|
 | `send_window` | 256 KB | 对端允许本端发送的剩余字节数 |
-| `recv_window` | 256 KB | 本端允许对端发送的剩余字节数 |
-| `recv_consumed` | 0 | 已消费的接收数据累计量 |
+| `recv_consumed` | 0 | 已消费的接收数据累计量（达到 `initial_window/2` 时触发 WindowUpdate） |
 
 **接收窗口更新策略**：
 1. 每次收到 Data 帧并消费 `N` 字节后，`recv_consumed += N`
@@ -342,12 +339,12 @@ Prism 收到 GoAway 后调用 `close()` 关闭所有流和传输层连接。
 **2. Data(SYN) 打开流 + 携带 StreamRequest**
 
 ```
-00 00 00 01 00 00 00 01 00 00 00 0F
+00 00 00 01 00 00 00 01 00 00 00 11
 │  │  └──┬──┘ └────┬────┘ └────┬────┘
-│  Type  Flags=SYN StreamID=1  Length=15
+│  Type  Flags=SYN StreamID=1  Length=17
 Version  (BE)      (BE)        (BE)
 
-Payload (15 字节):
+Payload (17 字节):
 00 00 03 0B 65 78 61 6D 70 6C 65 2E 63 6F 6D 01 BB
 │     │  │  └──────────────────────────────────┘ └──┘
 Flags=0  ATYP=3  "example.com" (11字节)           Port=443

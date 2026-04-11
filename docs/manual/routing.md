@@ -166,7 +166,7 @@ auto process(session_context &ctx, [[maybe_unused]] std::span<const std::byte> /
 
 ```
   Session
-  1. protocol::probe::probe() 检测协议类型
+  1. protocol::probe() 检测协议类型
   2. registry::global().create() 获取处理器
        │
        ▼

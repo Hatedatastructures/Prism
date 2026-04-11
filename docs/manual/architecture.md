@@ -82,40 +82,22 @@
 
 ### 1.2 运行链完整度
 
-| 能力 | 配置 | 实现 | 接入 | 状态 |
-|------|------|------|------|------|
-| HTTP 代理 | ✅ | ✅ | ✅ | 完整 |
-| HTTPS 代理 | ✅ | ✅ | ✅ | 完整 |
-| SOCKS5 TCP | ✅ | ✅ | ✅ | 完整 |
-| SOCKS5 UDP | ✅ | ✅ | ✅ | 完整 |
-| TLS 终止 | ✅ | ✅ | ✅ | 完整 |
-| 反向代理 | ✅ | ✅ | ✅ | 完整 |
-| 正向 Fallback | ✅ | ✅ | ✅ | 完整 |
-| 负载均衡 | ✅ | ✅ | ✅ | 完整 |
-| 连接池 | ✅ | ✅ | ✅ | 完整 |
-| DNS 缓存 | ✅ | ✅ | ✅ | 完整 |
-| 账户认证 | ✅ | ✅ | ✅ | 完整 |
-| Trojan 协议 | ✅ | ✅ | ✅ | 完整 |
+当前所有核心功能（HTTP/HTTPS 代理、SOCKS5 TCP/UDP、TLS 终止、Trojan 协议、smux/yamux 多路复用、反向代理、连接池、DNS 缓存、账户认证）均已完成实现。
 
 ---
 
 ## 二、进程启动流程
 
-### 2.1 初始化阶段
+### 2.1 初始化与配置加载
 
 | 步骤 | 操作 | 源码位置 | 说明 |
 |------|------|----------|------|
 | 1 | `enable_global_pooling()` | `src/main.cpp` | 初始化全局内存池 |
-| 2 | `register_handlers()` | `src/main.cpp` | 注册协议处理器到全局工厂 |
+| 2 | `loader::load(configuration_path)` | `src/main.cpp` | 从配置文件加载 agent 配置和日志配置 |
+| 3 | `trace::init(trace)` | `src/main.cpp` | 初始化日志追踪系统 |
+| 4 | `register_handlers()` | `src/main.cpp` | 注册协议处理器（HTTP/SOCKS5/Trojan/Unknown）到全局工厂 |
 
-### 2.2 配置加载阶段
-
-| 步骤 | 操作 | 源码位置 | 说明 |
-|------|------|----------|------|
-| 3 | `loader::load(configuration_path)` | `src/main.cpp` | 从配置文件加载 agent 配置 |
-| 4 | `trace::init(trace)` | `src/main.cpp` | 初始化日志追踪系统 |
-
-### 2.3 账户存储初始化
+### 2.2 账户存储初始化
 
 | 步骤 | 操作 | 源码位置 | 说明 |
 |------|------|----------|------|
@@ -123,14 +105,14 @@
 | 6 | 填充 `credentials` | `src/main.cpp` | 遍历并插入凭据数据 |
 | 7 | 填充 `users` | `src/main.cpp` | 遍历并插入用户数据（含连接数限制） |
 
-### 2.4 Worker 创建阶段
+### 2.3 Worker 创建阶段
 
 | 步骤 | 操作 | 源码位置 | 说明 |
 |------|------|----------|------|
 | 8 | 计算 `workers_count` | `src/main.cpp` | 根据 CPU 核心数计算工作线程数 |
 | 9 | 创建 `workers` 向量 | `src/main.cpp` | 创建并填充 worker 实例 |
 
-### 2.5 负载均衡器绑定
+### 2.4 负载均衡器绑定
 
 | 步骤 | 操作 | 源码位置 | 说明 |
 |------|------|----------|------|
@@ -138,7 +120,7 @@
 | 11 | 创建 `balancer` | `src/main.cpp` | 使用绑定列表创建负载均衡器 |
 | 12 | 创建 `listener` | `src/main.cpp` | 创建监听器实例 |
 
-### 2.6 线程启动阶段
+### 2.5 线程启动阶段
 
 | 步骤 | 操作 | 源码位置 | 说明 |
 |------|------|----------|------|
@@ -188,7 +170,7 @@
 | 步骤 | 操作 | 源码位置 | 说明 |
 |------|------|----------|------|
 | 15 | `session.diversion()` | `src/prism/agent/session/session.cpp` | 协议分流入口 |
-| 16 | `protocol::probe::probe()` | `src/prism/agent/session/session.cpp` | 嗅探检测协议类型（预读 24 字节） |
+| 16 | `protocol::probe()` | `src/prism/agent/session/session.cpp` | 嗅探检测协议类型（预读 24 字节） |
 | 17 | `registry::global().create()` | `src/prism/agent/session/session.cpp` | 根据协议类型获取处理器 |
 
 ### 3.6 协议处理阶段
@@ -237,20 +219,7 @@
 | Trojan | `protocol_type::trojan` | `dispatch::Trojan` | `include/prism/agent/dispatch/handlers.hpp` |
 | Unknown | `protocol_type::unknown` | `dispatch::Unknown` | `include/prism/agent/dispatch/handlers.hpp` |
 
-**注册函数定义：**
-
-```cpp
-inline void register_handlers()
-{
-    auto &factory = registry::global();
-    factory.register_handler<Http>(protocol::protocol_type::http);
-    factory.register_handler<Socks5>(protocol::protocol_type::socks5);
-    factory.register_handler<Trojan>(protocol::protocol_type::trojan);
-    factory.register_handler<Unknown>(protocol::protocol_type::unknown);
-}
-```
-
-源码位置：`include/prism/agent/dispatch/handlers.hpp`
+**注册函数定义**见 [路由与分发文档](routing.md)。
 
 ---
 
@@ -302,14 +271,14 @@ const tcp::endpoint endpoint(tcp::v4(), cfg.addressable.port);
 
 | 字段 | 类型 | 说明 |
 |------|------|------|
-| `server` | `server_context&` | 服务器配置上下文 |
+| `server` | `const server_context&` | 服务器配置上下文 |
 | `worker` | `worker_context&` | Worker 运行时上下文 |
 | `frame_arena` | `memory::frame_arena&` | 帧内存竞技场 |
-| `inbound` | `psm::channel::transport::transmission_pointer` | 入站传输层 |
-| `outbound` | `psm::channel::transport::transmission_pointer` | 出站传输层 |
+| `inbound` | `psm::channel::transport::shared_transmission` | 入站传输层 |
+| `outbound` | `psm::channel::transport::shared_transmission` | 出站传输层 |
 | `buffer_size` | `std::uint32_t` | 缓冲区大小 |
 
-详细说明请参阅 [上下文结构体](../reference/context.md)。
+详细说明请参阅 [配置与上下文结构体](../reference/config-structure.md)。
 
 ### 6.2 worker_binding
 
@@ -378,7 +347,7 @@ Worker 绑定结构，用于负载均衡器与 Worker 通信：
 |------|------|------|
 | Listener 绑定优化 | 支持 `addressable.host` 绑定和 IPv6 | 📋 计划中 |
 | reverse_map 域名支持 | 增加 DNS 解析逻辑支持域名目标 | 📋 计划中 |
-| SOCKS5 认证 | 支持用户名密码认证 | 📋 计划中 |
+| SOCKS5 认证 | 支持用户名密码认证 (RFC 1929) | ✅ 已完成 |
 
 ### 低优先级
 

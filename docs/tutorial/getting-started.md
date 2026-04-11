@@ -8,7 +8,7 @@
 
 1. 从项目的 [Release 页面](https://github.com/Hatedatastructures/prism/releases) 下载对应系统的二进制文件
 2. 解压到任意目录
-3. 双击 `Prism.exe`（Windows）或 `./Prism`（Linux）运行
+3. 双击 `Prism.exe` 运行
 
 ### 方法二：从源码编译（开发者）
 

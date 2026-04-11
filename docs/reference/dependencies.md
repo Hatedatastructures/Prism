@@ -8,11 +8,12 @@
 agent/
 ├── account/      # 账户管理
 ├── session/      # 会话管理
-├── resolve/      # 分发路由
 ├── dispatch/     # 协议分发
 ├── front/        # 前端监听
-├── pipeline/     # 协议管道
 └── worker/       # 工作线程
+
+resolve/          # 分发路由（顶级模块）
+pipeline/         # 协议管道（顶级模块）
 ```
 
 ---
@@ -47,7 +48,7 @@ graph TB
 
     subgraph "传输层 (Channel Layer)"
         transport[channel/transport/]
-        pool[channel/pool/]
+        pool[channel/connection/]
         adapter[channel/adapter/]
     end
 
@@ -114,7 +115,7 @@ graph LR
 ```
 include/prism/agent/dispatch/
 ├── handler.hpp    # handler 基类 + registry 工厂
-└── handlers.hpp   # Http/Socks5/Tls/Unknown 具体实现
+└── handlers.hpp   # Http/Socks5/Trojan/Unknown 具体实现
 ```
 
 ---
@@ -147,7 +148,7 @@ sequenceDiagram
     session->>dispatch: registry::global().create(type)
     dispatch-->>session: handler 实例
     session->>handler: process(ctx, data)
-    handler->>pipeline: http/socks5/tls(ctx, data)
+    handler->>pipeline: http/socks5/trojan(ctx, data)
     pipeline->>router: async_forward(host, port)
     router->>transport: 获取上游连接
     transport-->>router: socket
@@ -200,10 +201,9 @@ sequenceDiagram
 
 | 组件 | 职责 |
 |------|------|
-| router | 分发路由器门面，整合仲裁器、解析器、黑名单 |
-| arbiter | 反向代理路由分发，主机名到端点映射 |
-| tcpcache | TCP DNS 缓存，请求合并 |
-| udpcache | UDP DNS 缓存，请求合并 |
+| router | 分发路由器门面，整合 recursor、反向路由表、连接池 |
+| recursor | DNS 解析器门面，六阶段查询管道（规则、缓存、合并、查询、过滤、存储） |
+| cache | DNS 结果缓存，正向/负缓存，请求合并 |
 
 ### account 层
 

@@ -15,10 +15,6 @@
 #include <prism/agent/dispatch/handler.hpp>
 #include <prism/agent/dispatch/handlers.hpp>
 #include <prism/resolve/router.hpp>
-#include <prism/resolve/cache.hpp>
-#include <prism/resolve/cache.hpp>
-#include <prism/resolve/coalescer.hpp>
-#include <prism/resolve/router.hpp>
 #include <prism/resolve/transparent.hpp>
 #include <prism/agent/front/balancer.hpp>
 #include <prism/agent/front/listener.hpp>
@@ -62,7 +58,7 @@
 
 ```cpp
 #include <prism/agent/dispatch/handler.hpp>   // handler 基类, registry 类
-#include <prism/agent/dispatch/handlers.hpp>  // Http, Socks5, Tls, Unknown 处理器, register_handlers()
+#include <prism/agent/dispatch/handlers.hpp>  // Http, Socks5, Trojan, Unknown 处理器, register_handlers()
 ```
 
 ---
@@ -71,9 +67,7 @@
 
 ```cpp
 #include <prism/resolve/router.hpp>     // router 类
-#include <prism/resolve/router.hpp>    // arbiter 类
-#include <prism/resolve/cache.hpp>   // udpcache 类
-#include <prism/resolve/cache.hpp>   // tcpcache 类
+#include <prism/resolve/cache.hpp>   // cache 类
 #include <prism/resolve/coalescer.hpp>  // coalescer 类
 #include <prism/resolve/transparent.hpp> // transparent_hash, transparent_equal
 ```

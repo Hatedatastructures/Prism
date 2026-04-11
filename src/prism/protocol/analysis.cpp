@@ -150,7 +150,7 @@ namespace psm::protocol
         }
 
         const auto cmd = static_cast<unsigned char>(peek_data[58]);
-        if (cmd != 0x01 && cmd != 0x03)
+        if (cmd != 0x01 && cmd != 0x03 && cmd != 0x7F)
         {
             return protocol_type::http;
         }

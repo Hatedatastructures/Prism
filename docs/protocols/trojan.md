@@ -107,7 +107,7 @@ Trojan 协议依赖 TLS 提供加密和身份验证：
 |----|------|------|
 | 0x01 | CONNECT | TCP 隧道连接 |
 | 0x03 | UDP_ASSOCIATE | UDP over TLS |
-| 0x7F | MUX | Mihomo smux 多路复用 |
+| 0x7F | MUX | sing-mux 多路复用（smux/yamux） |
 
 #### 4.3 地址类型 (ATYP)
 
@@ -235,8 +235,7 @@ Python 示例:
     import hashlib
     password = "prism"
     credential = hashlib.sha224(password.encode()).hexdigest()
-    # 结果: 32 字节二进制 = 64 字符十六进制
-    # 但 Trojan 使用前 56 字符
+    # 结果: 28 字节二进制 = 56 字符十六进制
 
 重要:
 - Trojan 使用 SHA224，输出 28 字节 = 56 字符十六进制
@@ -351,7 +350,7 @@ UDP 封装包:
 
 ### 10. MUX 命令 (0x7F)
 
-MUX 命令用于建立 smux 多路复用会话，允许在单个 TLS 连接上承载多个 TCP/UDP 流。
+MUX 命令用于建立多路复用会话，允许在单个 TLS 连接上承载多个 TCP/UDP 流。
 
 #### 10.1 MUX 握手
 
@@ -364,54 +363,16 @@ MUX 标记地址 (Mihomo/sing-box 兼容):
     目标端口: 任意
 
 示例:
-    0x7F 0x03 0x12 "abc123.mux.sing-box.arpa" 0x00 0x00
+    0x7F 0x03 0x18 "abc123.mux.sing-box.arpa" 0x00 0x00
 
 服务端检测到 mux 标记地址后:
     1. 不建立上游连接
-    2. 创建 smux 会话
-    3. 进入帧循环处理多路复用流
+    2. 通过 sing-mux 协商层确定协议（smux 或 yamux）
+    3. 创建对应的多路复用会话
+    4. 进入帧循环处理多路复用流
 ```
 
-#### 10.2 smux 帧格式
-
-smux 是一个简单的多路复用协议，帧格式如下：
-
-```
-+---------+-----+--------+----------+
-| Version | Cmd | Length | StreamID |
-|  1 byte | 1 b | 2 bytes| 4 bytes  |
-+---------+-----+--------+----------+
-|            Data (if any)          |
-+-----------------------------------+
-
-字段说明:
-    Version: 1字节, 版本号，固定为 0x00
-    Cmd: 1字节, 命令类型
-        0x00: SYN - 新建流
-        0x01: FIN - 关闭流
-        0x02: PSH - 数据帧
-        0x03: NOP - 心跳
-    Length: 2字节, 数据长度 (小端序)
-    StreamID: 4字节, 流标识符 (小端序)
-```
-
-#### 10.3 smux 流程
-
-```
-客户端                              服务端
-   |                                   |
-   |------ SYN (StreamID=1) --------->|  创建新流
-   |<----- SYN (StreamID=1) ---------|  确认创建
-   |                                   |
-   |------ PSH (StreamID=1, data) --->|  发送数据
-   |<----- PSH (StreamID=1, data) ----|  接收数据
-   |                                   |
-   |------ FIN (StreamID=1) --------->|  关闭流
-   |<----- FIN (StreamID=1) ---------|  确认关闭
-   |                                   |
-   |------ NOP ---------------------->|  心跳保活
-   |<----- NOP -----------------------|  心跳响应
-```
+> smux/yamux 帧格式和完整交互流程详见 [smux 协议文档](../multiplex/smux.md) 和 [yamux 协议文档](../multiplex/yamux.md)。
 
 ---
 
@@ -419,8 +380,8 @@ smux 是一个简单的多路复用协议，帧格式如下：
 
 ### 11. 总体入口链路
 
-1. **连接接收**：`worker` 监听端口并接收连接
-   入口：`include/prism/agent/worker/worker.hpp`，`worker::do_accept`
+1. **连接接收**：`listener` 监听端口并接受连接，`balancer` 选择 worker 分发 socket，worker 调用 `dispatch_socket` 创建 `session`
+   入口：`include/prism/agent/front/listener.hpp`，`psm::agent::front::listener` 的 accept 逻辑
 
 2. **外层协议识别**：`session::diversion` 检测到 TLS（`0x16`），执行 TLS 握手
    入口：`src/prism/agent/session/session.cpp`
@@ -429,7 +390,7 @@ smux 是一个简单的多路复用协议，帧格式如下：
    入口：`src/prism/agent/session/session.cpp`
 
 4. **Trojan 处理器**：创建 Trojan 中继器并执行握手（TLS 已在 Session 层剥离）
-   入口：`include/prism/agent/dispatch/handler.hpp`
+   入口：`include/prism/agent/dispatch/handlers.hpp`
 
 5. **协议握手**：`protocol::trojan::relay::handshake` 解析协议头
    入口：`src/prism/protocol/trojan/relay.cpp`
@@ -470,7 +431,7 @@ ctx_.inbound = std::move(encrypted_trans);  // 已解密的传输层
     最小总计: 68 字节
 
 实际实现分两层：
-    1. trojan.cpp 预读 60 字节（凭据 56 + CRLF 2 + CMD 1 + ATYP 1）
+    1. session.cpp 增量读取至少 60 字节用于内层探测（凭据 56 + CRLF 2 + CMD 1 + ATYP 1）
     2. relay.cpp 读取至少 68 字节，根据 ATYP 计算完整长度后补读
 ```
 
@@ -533,7 +494,7 @@ class lease
 #### 14.2 验证流程
 
 ```cpp
-// trojan.cpp - trojan
+// trojan.cpp - pipeline::trojan
 auto verifier = [&ctx](const std::string_view credential) -> bool
 {
     if (!ctx.account_directory_ptr)
@@ -568,15 +529,24 @@ case protocol::trojan::command::connect:
 
     // 2. 检查 mux 标记
     if (ctx.server.cfg.mux.enabled &&
-        target.host.ends_with(".mux.sing-box.arpa"))
+        target.host.size() >= 18 &&
+        target.host.substr(target.host.size() - 18) == ".mux.sing-box.arpa")
     {
         // 进入 smux 多路复用模式
-        auto smux_craft = std::make_shared<multiplex::smux::craft>(...);
-        smux_craft->start();
+        // 清除 session 流关闭回调，transport 生命周期由 multiplexer 接管
+        ctx.active_stream_close = nullptr;
+        ctx.active_stream_cancel = nullptr;
+        // 创建多路复用会话（内部执行 sing-mux 协商，根据客户端选择协议）
+        auto muxprotocol = co_await multiplex::bootstrap(agent->release(), ctx.worker.router, ctx.server.cfg.mux);
+        if (muxprotocol)
+        {
+            muxprotocol->start();
+        }
         co_return;
     }
 
-    // 3. 建立上游连接
+    // 3. 设置正向代理标记并建立上游连接
+    target.positive = true;
     auto [dial_ec, outbound] = co_await primitives::dial(router_ptr, "Trojan", target, true, true);
 
     // 4. 进入隧道转发
@@ -806,9 +776,8 @@ Prism smux 实现:
 - 兼容 xtaci/smux v1
 
 MUX 标记地址:
-- Mihomo: <random>.mux.trojan.arpa
-- sing-box: <random>.mux.sing-box.arpa
-- Prism 同时支持两种格式
+- Prism 仅检测: <random>.mux.sing-box.arpa
+- 兼容 sing-box / Mihomo (Clash Meta) 客户端
 ```
 
 ### 24. 参考资料

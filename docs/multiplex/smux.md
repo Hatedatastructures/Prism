@@ -293,9 +293,9 @@ Version
 **3. PSH 帧（stream_id=1，携带 StreamRequest）**
 
 ```
-01 02 0F 00 01 00 00 00   00 00 03 0B 65 78 61 6D
+01 02 11 00 01 00 00 00   00 00 03 0B 65 78 61 6D
 │  │  └──┘  └──────────┘   └─────────────────────...
-│  │  Len=15 StreamID=1    Flags=0x0000 ATYP=0x03
+│  │  Len=17 StreamID=1    Flags=0x0000 ATYP=0x03
 │  Cmd=PSH                 域名长度=11 "example.com"
 Version                    Port=0x01BB (443)
 ```
@@ -334,6 +334,6 @@ Version
 | TCP 双向转发 | `duct::target_read_loop()` + `duct::target_write_loop()` |
 | UDP 中继 | `parcel::on_mux_data()` → `relay_datagram()` |
 | FIN 处理 | `smux::craft::handle_fin()` |
-| 帧编码 | `smux::build_header()` in `frame.cpp` |
+| 帧编码 | `smux::build_header()` in `craft.cpp` |
 | 帧解码 | `smux::deserialization()` in `frame.cpp` |
 | 发送串行化 | `smux::craft::send_loop()` via `concurrent_channel` |

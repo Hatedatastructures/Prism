@@ -36,9 +36,9 @@ smux/yamux 多路复用协议的设计与交互文档。
 
 | 文档 | 说明 |
 |------|------|
-| [多路复用设计](manual/multiplex.md) | 模块架构、core/duct/parcel 组件、配置结构 |
-| [smux 协议交互](protocols/smux.md) | smux v1 帧格式、sing-mux 握手、与 mihomo 客户端完整交互流程 |
-| [yamux 协议交互](protocols/yamux.md) | yamux 帧格式、窗口流量控制、流创建两种路径、与 mihomo 客户端完整交互流程 |
+| [多路复用设计](multiplex/overview.md) | 模块架构、core/duct/parcel 组件、配置结构 |
+| [smux 协议交互](multiplex/smux.md) | smux v1 帧格式、sing-mux 握手、与 mihomo 客户端完整交互流程 |
+| [yamux 协议交互](multiplex/yamux.md) | yamux 帧格式、窗口流量控制、流创建两种路径、与 mihomo 客户端完整交互流程 |
 
 ### 协议文档
 
@@ -49,6 +49,7 @@ smux/yamux 多路复用协议的设计与交互文档。
 | [HTTP 协议](protocols/http.md) | HTTP 请求在 Prism 内的调用流程 |
 | [SOCKS5 协议](protocols/socks5.md) | SOCKS5 协议握手、地址解析、连接建立 |
 | [Trojan 协议](protocols/trojan.md) | Trojan 协议 SSL 握手、凭据验证、隧道转发 |
+| [TLS 协议](protocols/tls.md) | TLS 握手、内层协议探测、证书配置 |
 
 ### 参考资料
 
@@ -89,7 +90,7 @@ smux/yamux 多路复用协议的设计与交互文档。
 ### 按主题查找
 
 - **协议实现**：[HTTP](protocols/http.md) | [SOCKS5](protocols/socks5.md) | [Trojan](protocols/trojan.md)
-- **多路复用**：[架构设计](manual/multiplex.md) | [smux 交互](protocols/smux.md) | [yamux 交互](protocols/yamux.md)
+- **多路复用**：[架构设计](multiplex/overview.md) | [smux 交互](multiplex/smux.md) | [yamux 交互](multiplex/yamux.md)
 - **核心流程**：[运行时流程](manual/runtime.md) | [路由与分发](manual/routing.md)
 - **配置参考**：[配置结构体](reference/config-structure.md) | [依赖关系](reference/dependencies.md)
 

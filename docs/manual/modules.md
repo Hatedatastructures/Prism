@@ -30,7 +30,7 @@
 - 职责：工作线程核心，管理事件循环和资源
 - 内部资源组合：
   - `io_context`：单线程事件循环
-  - `psm::channel::tcpool`：TCP 连接池
+  - `psm::channel::connection_pool`：TCP 连接池
   - `resolve::router`：路由表（来自顶层 `resolve` 模块）
   - `ssl::context`：TLS 上下文（可选）
   - `stats::state`：负载统计
@@ -79,7 +79,7 @@
 - 职责：单个连接的完整生命周期管理
 - 关键实现：
   - 持有 `inbound`/`outbound` transmission
-  - 通过 `protocol::probe::probe` 检测协议（预读 24 字节）
+  - 通过 `protocol::probe` 检测协议（预读 24 字节）
   - 从 `dispatch::registry` 获取 handler
   - 通过 `shared_from_this` 实现异步生命周期保活
   - 支持设置凭证验证器和账户目录
@@ -95,7 +95,7 @@
 
 ```
   Session
-  ├─ protocol::probe::probe() 检测协议类型
+  ├─ protocol::probe() 检测协议类型
   └─ registry::global().create() 获取处理器
        │
        ▼
@@ -222,7 +222,7 @@
 ### packet
 - 职责：DNS 报文编解码，完全不依赖系统 resolver（RFC 1035）
 - 核心类型：
-  - `qtype` 枚举：A(1)、NS(2)、CNAME(5)、SOA(6)、MX(15)、TXT(16)、AAAA(28)、OPT(41)
+  - `qtype` 枚举：A(1)、NS(2)、CNAME(5)、SOA(6)、MX(15)、TXT(16)、AAAA(28)、opt(41)
   - `question` 结构体：DNS 查询段（域名 + 查询类型 + 类别）
   - `record` 结构体：DNS 资源记录（域名 + 类型 + 类别 + TTL + RDATA）
   - `message` 类：完整的 DNS 报文
@@ -277,7 +277,7 @@
   - 缓存键格式：`"domain:qtype_num"`（如 `example.com:1`）
   - `get()` 多级判断：未过期正向缓存 → 未过期负缓存 → 过期 + serve-stale → 过期删除
   - `put()` 写入正向缓存，FIFO 淘汰（超过 `max_entries` 时删除最早插入的条目）
-  - `put_negative()` 写入负缓存（独立 negative_ttl，默认 30 秒）
+  - `put_negative()` 写入负缓存（独立 negative_ttl，默认 300 秒）
   - `evict_expired()` 清理所有过期条目
   - 使用 `transparent_hash` / `transparent_equal` 实现异构键查找
 - 非线程安全，设计为 per-worker 实例
@@ -310,7 +310,7 @@
 - 核心类型：
   - `transparent_hash`：FNV-1a 哈希算法
   - `transparent_equal`：四种混合比较重载（view↔view、string↔view、view↔string、string↔string）
-- 被 `cache`、`coalescer`、`router` 广泛复用
+- 被 `cache`、`coalescer` 广泛复用；`router` 使用独立的 `string_hash` / `string_equal`
 - 源码：[transparent.hpp](../../include/prism/resolve/transparent.hpp)
 
 ### router
@@ -325,7 +325,7 @@
   - 内部持有 `recursor dns_` 成员进行 DNS 解析
   - `reverse_map` 类型：`unordered_map<string, tcp::endpoint>` 支持透明异构查找
   - IPv6 过滤：由 DNS 层统一处理，配置 `dns.disable_ipv6` 后跳过 AAAA 查询
-  - `connect_with_retry()`：遍历端点列表最多尝试 3 次，通过连接池获取已建立的 socket
+  - `connect_with_retry()`：通过 `channel::eyeball::address_racer` 实现 RFC 8305 Happy Eyeballs 竞速连接，对候选端点进行交错延迟并发尝试
 - 源码：[router.hpp](../../include/prism/resolve/router.hpp)、[router.cpp](../../src/prism/resolve/router.cpp)
 
 ## 7. multiplex 模块
@@ -333,7 +333,7 @@
 
 > **重要**：multiplex 是多路复用模块，支持 smux 和 yamux 两种协议
 > （通过 sing-mux 协商选择），通过 Trojan cmd=0x7F 触发。
-> 详细文档见 [multiplex.md](multiplex.md)。
+> 详细文档见 [multiplex/overview.md](../multiplex/overview.md)。
 
 ### 模块架构概览
 
@@ -367,7 +367,7 @@
 
 ### duct
 - 职责：TCP 流双向转发管道
-- 上行：独立协程 `uplink_loop()` 读 target → mux
+- 上行：独立协程 `target_read_loop()` 读 target → mux
 - 下行：帧循环直接 `co_await` 写 target，天然反压
 - 源码：[duct.hpp](../../include/prism/multiplex/duct.hpp)、[duct.cpp](../../src/prism/multiplex/duct.cpp)
 

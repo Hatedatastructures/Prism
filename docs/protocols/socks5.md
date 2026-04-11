@@ -445,14 +445,14 @@ BIND 用于 FTP 被动模式等需要反向连接的场景：
 
 ### 12. 总体入口链路
 
-1. **连接接收**：`worker` 监听端口并接收连接，创建 `session`
-   入口：`include/prism/agent/worker/worker.hpp`，`psm::agent::worker::worker::do_accept`
+1. **连接接收**：`listener` 监听端口并接受连接，`balancer` 选择 worker 分发 socket，worker 调用 `dispatch_socket` 创建 `session`
+   入口：`include/prism/agent/front/listener.hpp`，`psm::agent::front::listener` 的 accept 逻辑
 
 2. **协议识别**：`session::diversion` 预读并识别协议（检查版本号 `0x05`）
    入口：`include/prism/agent/session/session.hpp`，`psm::agent::session::session::diversion`
 
 3. **SOCKS5 处理器调用**：创建 SOCKS5 流对象并执行握手
-   入口：`include/prism/agent/dispatch/handler.hpp`，`psm::agent::dispatch::socks5`
+   入口：`include/prism/agent/dispatch/handlers.hpp`，`psm::agent::dispatch::Socks5` handler 类
 
 4. **协议握手执行**：`protocol::socks5::relay::handshake`
    入口：`include/prism/protocol/socks5/stream.hpp`
@@ -469,11 +469,11 @@ Prism 的 SOCKS5 握手分两个阶段：
 
 #### 13.1 方法协商阶段
 
-`negotiate_method` 处理认证协商：
+`negotiated_authentication()` 处理认证协商：
 
 1. **读取客户端请求**：异步读取 VER + NMETHODS + METHODS
 2. **协议版本验证**：检查 VER 是否为 0x05
-3. **方法检查**：查找支持的认证方法（当前仅支持 `0x00`）
+3. **方法检查**：查找支持的认证方法，根据 `socks5.enable_auth` 配置项决定：启用时优先匹配 `0x02`（用户名/密码认证，RFC 1929），未启用时匹配 `0x00`（无认证）
 4. **响应发送**：支持则发送 `[0x05, 0x00]`，否则 `[0x05, 0xFF]`
 
 #### 13.2 请求读取阶段
@@ -573,7 +573,7 @@ target.positive = true;  // SOCKS5 始终是正向代理
 |------|-----|------|-----------|
 | no_auth | 0x00 | 无认证 | ✓ |
 | gssapi | 0x01 | GSSAPI | ✗ |
-| password | 0x02 | 用户名/密码 | ✗ |
+| password | 0x02 | 用户名/密码 | ✓ |
 | no_acceptable_methods | 0xFF | 拒绝 | - |
 
 ### 21. 回复码

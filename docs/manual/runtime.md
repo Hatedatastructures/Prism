@@ -18,23 +18,29 @@ Session 创建流程负责接收新连接并初始化会话上下文。该流程
 void dispatch(net::io_context &ioc, server_context &server, worker_context &worker, stats::state &metrics, tcp::socket socket)
 {
     metrics.handoff_push();
-    net::post(ioc, [&server, &worker, &metrics, sock = std::move(socket)]() mutable
-              {
+
+    auto start_session = [&server, &worker, &metrics, sock = std::move(socket), &ioc]() mutable
+    {
         metrics.handoff_pop();
-        if (!sock.is_open())
+
+        // 将 socket 从 listener 的 io_context 迁移到 worker 的 io_context
+        auto migrated = migrate_executor(sock, ioc);
+        if (!migrated)
         {
             return;
         }
 
-        prime(sock, server.cfg.buffer.size);
+        prime(*migrated, server.cfg.buffer.size);
         try
         {
-            start(server, worker, metrics, std::move(sock));
+            start(server, worker, metrics, std::move(*migrated));
         }
         catch (const std::exception &e)
         {
             trace::error("session launch failed: {}", e.what());
-        } });
+        }
+    };
+    net::post(ioc, std::move(start_session));
 }
 ```
 
@@ -42,7 +48,8 @@ void dispatch(net::io_context &ioc, server_context &server, worker_context &work
 - 调用 `metrics.handoff_push()` 记录连接移交开始
 - 使用 `net::post()` 将连接投递到 worker 的 `io_context`
 - 在 worker 线程中调用 `metrics.handoff_pop()` 记录移交完成
-- 检查 socket 是否仍然打开
+- 调用 `migrate_executor()` 将 socket 从 listener 的 `io_context` 迁移到 worker 的 `io_context`
+- 迁移失败时直接返回，不创建会话
 
 #### 2. launch::prime() 预配置 socket 参数
 
@@ -77,7 +84,7 @@ void start(server_context &server, worker_context &worker, stats::state &metrics
     };
 
     auto inbound = psm::channel::transport::make_reliable(std::move(socket));
-        session::session_params params{server, worker, std::move(inbound)};
+    session::session_params params{server, worker, std::move(inbound)};
     const auto shared_session = psm::agent::session::make_session(std::move(params));
 
     metrics.session_open();
@@ -138,15 +145,31 @@ void start(server_context &server, worker_context &worker, stats::state &metrics
 ```cpp
 void session::start()
 {
-    trace::debug("[Session] Session started.");
+    trace::debug("[Session] [{}] Session started.", id_);
 
+    // 主处理协程：执行协议分流和数据转发
     auto process = [self = this->shared_from_this()]() -> net::awaitable<void>
     {
-        co_await self->diversion();
+        try
+        {
+            co_await self->diversion();
+        }
+        catch (const std::exception &e)
+        {
+            trace::error("[Session] [{}] Unhandled exception in diversion: {}", self->id_, e.what());
+        }
+        catch (...)
+        {
+            trace::error("[Session] [{}] Unknown exception in diversion", self->id_);
+        }
+
+        // 处理完成后释放资源
+        self->release_resources();
     };
 
+    // 异常完成回调：捕获并记录协程异常
     auto completion = [self = this->shared_from_this()](const std::exception_ptr &ep) noexcept
-    {  
+    {
         if (!ep)
         {
             return;
@@ -156,26 +179,35 @@ void session::start()
         {
             std::rethrow_exception(ep);
         }
-        catch (const exception::deviant &e)
+        catch (const ::psm::exception::deviant &e)
         {
-            trace::error(e.dump());
+            // 项目自定义异常，输出完整诊断信息
+            trace::error("[Session] [{}] Abnormal exception: {}", self->id_, e.dump());
         }
         catch (const std::exception &e)
         {
-            trace::error(e.what());
+            // 标准异常，输出 what() 消息
+            trace::error("[Session] [{}] Standard exception: {}", self->id_, e.what());
+        }
+        catch (...)
+        {
+            // 未知异常类型
+            trace::error("[Session] [{}] Unknown exception type", self->id_);
         }
 
-        self->close();
+        self->release_resources();
     };
 
+    // 在 worker 的 io_context 上启动协程
     net::co_spawn(ctx_.worker.io_context, std::move(process), std::move(completion));
 }
 ```
 
 **关键操作**:
 - 使用 `shared_from_this()` 保活 session
-- 创建 `diversion()` 协程处理协议分流
-- 设置异常处理完成回调
+- process lambda 包含 try/catch 和 `release_resources()` 调用
+- completion 回调区分 `exception::deviant` / `std::exception` / 未知异常
+- completion 回调中同样调用 `release_resources()` 确保异常路径也释放资源
 
 #### 2. session::diversion() 协程
 
@@ -184,36 +216,106 @@ void session::start()
 ```cpp
 auto session::diversion() -> net::awaitable<void>
 {
+    // 检查入站传输层是否有效
     if (!ctx_.inbound)
-    {   //检测入站指针是否有效
-        trace::warn("[Session] diversion aborted: missing inbound transmission.");
-        co_return;
-    }
-    // 预读检测协议类型
-    auto detect_result = co_await protocol::probe::probe(*ctx_.inbound, 24);
-    if (fault::failed(detect_result.ec))
     {
-        trace::warn("[Session] Protocol detection failed: {}.", fault::describe(detect_result.ec));
+        trace::warn("[Session] [{}] diversion aborted: missing inbound transmission.", id_);
         co_return;
     }
 
+    // 1：外层探测
+    auto detect_result = co_await protocol::probe(*ctx_.inbound, 24);
+    if (fault::failed(detect_result.ec))
+    {
+        trace::warn("[Session] [{}] Protocol detection failed: {}.", id_, fault::describe(detect_result.ec));
+        co_return;
+    }
+
+    auto span = std::span<const std::byte>(detect_result.pre_read_data.data(), detect_result.pre_read_size);
+
+    // 2：TLS 剥离（如果外层是 TLS）
+    if (detect_result.type == protocol::protocol_type::tls)
+    {
+        // TLS 握手（复用 ssl_handshake，它会 move ctx_.inbound）
+        auto [ssl_ec, ssl_stream] = co_await pipeline::primitives::ssl_handshake(ctx_, span);
+        if (fault::failed(ssl_ec) || !ssl_stream)
+        {
+            trace::warn("[Session] [{}] TLS handshake failed: {}", id_, fault::describe(ssl_ec));
+            co_return;
+        }
+
+        // 创建加密传输层
+        auto encrypted_trans = std::make_shared<channel::transport::encrypted>(ssl_stream);
+
+        // 注册 TLS 流清理回调
+        ctx_.active_stream_cancel = [ssl_stream]() noexcept
+        {
+            ssl_stream->lowest_layer().transmission().cancel();
+        };
+        ctx_.active_stream_close = [ssl_stream]() noexcept
+        {
+            ssl_stream->lowest_layer().transmission().close();
+        };
+
+        // 增量读取内层数据并逐次探测协议
+        constexpr std::size_t trojan_min = 60;
+        std::array<std::byte, 64> inner_buf{};
+        std::size_t inner_n = 0;
+
+        while (inner_n < trojan_min)
+        {
+            std::error_code ec;
+            auto buf_span = std::span<std::byte>(inner_buf.data() + inner_n, inner_buf.size() - inner_n);
+            const auto n = co_await encrypted_trans->async_read_some(std::move(buf_span), ec);
+            if (ec)
+            {
+                trace::warn("[Session] [{}] Inner probe read failed: {}", id_, ec.message());
+                co_return;
+            }
+            inner_n += n;
+
+            const auto inner_view = std::string_view(reinterpret_cast<const char *>(inner_buf.data()), inner_n);
+            detect_result.type = protocol::analysis::detect_inner(inner_view);
+            if (detect_result.type != protocol::protocol_type::unknown)
+            {
+                break;
+            }
+        }
+
+        if (detect_result.type == protocol::protocol_type::unknown)
+        {
+            trace::warn("[Session] [{}] Cannot determine inner protocol", id_);
+            co_return;
+        }
+
+        trace::debug("[Session] [{}] TLS inner protocol: {}", id_, protocol::to_string_view(detect_result.type));
+
+        // 更新 ctx_.inbound 为加密传输层
+        ctx_.inbound = std::move(encrypted_trans);
+
+        // 更新 span 为内层预读数据
+        span = std::span<const std::byte>(inner_buf.data(), inner_n);
+    }
+
+    // 3：分发到 handler
     auto handler = dispatch::registry::global().create(detect_result.type);
     if (!handler)
     {
         handler = dispatch::registry::global().create(protocol::protocol_type::unknown);
         if (!handler)
         {
-            trace::warn("[Session] No handler available for protocol.");
+            trace::warn("[Session] [{}] No handler available for protocol.", id_);
             co_return;
         }
     }
-    // 预读的24字节数据
-    auto span = std::span<const std::byte>(detect_result.pre_read_data.data(), detect_result.pre_read_size);
+
+    trace::debug("[Session] [{}] Dispatching to handler: {}", id_, handler->name());
     co_await handler->process(ctx_, span);
+    trace::debug("[Session] [{}] Handler {} completed.", id_, handler->name());
 }
 ```
 
-#### 3. protocol::probe::probe() 预读 24 字节
+#### 3. protocol::probe() 预读 24 字节
 
 **源码位置**: [probe.hpp](../../include/prism/protocol/probe.hpp)
 
@@ -298,13 +400,12 @@ auto create(const protocol::protocol_type type) const -> shared_handler
 ```
   HTTP 处理流程
        │
-       ├─ 1. 创建 connector 包装 inbound
-       ├─ 2. 将预读数据写入 PMR 缓冲区
-       ├─ 3. 循环读取原始字节直到 \r\n\r\n（头部结束）
-       ├─ 4. 调用 parse_proxy_request() 零分配解析
-       ├─ 5. 调用 analysis::resolve() 提取目标地址
-       ├─ 6. 调用 primitives::dial() 建立上游连接
-       └─ 7. 判断请求类型
+       ├─ 1. 重置帧内存池 (frame_arena)
+       ├─ 2. 使用 preview 装饰器包装 inbound（如有预读数据则重放）
+       ├─ 3. 创建 http::relay 并调用 handshake()（读取+解析+认证）
+       ├─ 4. 调用 analysis::resolve() 提取目标地址
+       ├─ 5. 调用 primitives::dial() 建立上游连接
+       └─ 6. 判断请求类型
             ├─ CONNECT: 返回 200 → tunnel
             └─ 其他: 重写 URI 分段转发 → tunnel
 ```
@@ -315,59 +416,49 @@ auto create(const protocol::protocol_type type) const -> shared_handler
 auto http(session_context &ctx, std::span<const std::byte> data)
     -> net::awaitable<void>
 {
-    psm::channel::connector stream(std::move(ctx.inbound));
-    psm::channel::transport::shared_transmission outbound;
-
     ctx.frame_arena.reset();
-    auto mr = ctx.frame_arena.get();
 
-    // 使用 PMR 缓冲区读取 HTTP 头部
-    memory::vector<char> buffer(mr);
-    buffer.resize(4096);
-    std::size_t used = 0;
-
-    // 预读数据填入缓冲区
+    // 包装入站传输（如有预读数据则用 preview 装饰器重放）
+    auto inbound = std::move(ctx.inbound);
     if (!data.empty())
     {
-        std::memcpy(buffer.data(), data.data(), std::min(data.size(), buffer.size()));
-        used = data.size();
+        inbound = std::make_shared<primitives::preview>(std::move(inbound), data, ctx.frame_arena.get());
     }
 
-    // 循环读取直到找到 \r\n\r\n
-    while (true)
+    // 创建 HTTP 中继并握手（读取请求头 + 解析 + 认证）
+    auto relay = protocol::http::make_relay(std::move(inbound), ctx.account_directory_ptr);
+    auto [ec, req] = co_await relay->handshake();
+    if (fault::failed(ec))
     {
-        if (std::string_view(buffer.data(), used).find("\r\n\r\n") != std::string_view::npos)
-            break;
-        auto bytes_read = co_await stream.async_read_some(...);
-        used += bytes_read;
-    }
-
-    // 零分配解析（结果为 string_view 指向原始缓冲区）
-    protocol::http::proxy_request req;
-    protocol::http::parse_proxy_request(raw, req);
-
-    // 认证、解析目标、拨号...
-
-    // CONNECT 方法处理
-    if (req.method == "CONNECT")
-    {
-        co_await net::async_write(stream, net::buffer(Resp200), token);
-        co_await primitives::tunnel(stream.release(), std::move(outbound), ctx);
         co_return;
     }
 
-    // 普通请求：重写 URI 后分段转发
-    const auto relative = protocol::http::extract_relative_path(req.target);
-    // 写入新请求行 + 原始剩余数据
-    co_await outbound->async_write(new_request_line, ec);
-    co_await outbound->async_write(remaining_data, ec);
-    co_await primitives::tunnel(stream.release(), std::move(outbound), ctx);
+    // 解析目标地址并拨号
+    const auto target = protocol::analysis::resolve(req);
+    auto [fst, snd] = co_await primitives::dial(router_ptr, "HTTP", target, true, false);
+    if (fault::failed(fst) || !snd)
+    {
+        co_await relay->write_bad_gateway();
+        co_return;
+    }
+
+    // 按方法分发
+    if (req.method == "CONNECT")
+    {
+        co_await relay->write_connect_success();
+        co_await primitives::tunnel(relay->release(), std::move(snd), ctx);
+    }
+    else
+    {
+        co_await relay->forward(req, snd, ctx.frame_arena.get());
+        co_await primitives::tunnel(relay->release(), std::move(snd), ctx);
+    }
 }
 ```
 
 ### SOCKS5 路径
 
-**源码位置**: [protocols.cpp](../../src/prism/agent/pipeline/protocols.cpp)
+**源码位置**: [socks5.cpp](../../src/prism/pipeline/protocols/socks5.cpp)
 
 #### 流程步骤
 
@@ -410,50 +501,52 @@ TLS 握手在 Session 层完成，不在 Pipeline 层。Session 检测到 `proto
 
 #### primitives::dial() - 建立上游连接
 
-**源码位置**: [primitives.cpp](../../src/prism/agent/pipeline/primitives.cpp)
+**源码位置**: [primitives.cpp](../../src/prism/pipeline/primitives.cpp)
 
 ```cpp
 auto dial(std::shared_ptr<resolve::router> router, std::string_view label,
-          const protocol::analysis::target &target, const bool allow_reverse,
-          const bool require_open)
-    -> net::awaitable<std::pair<fault::code, psm::channel::transport::transmission_pointer>>
+          const protocol::analysis::target &target, const bool allow_reverse, const bool require_open)
+    -> net::awaitable<std::pair<fault::code, shared_transmission>>
 {
-    auto ec = fault::code::success;
-    psm::channel::unique_sock socket;
+    // 拒绝 IPv6 地址字面量（仅在禁用 IPv6 时）
+    if (router->ipv6_disabled() && is_ipv6_literal(target.host))
+    {
+        co_return std::make_pair(fault::code::ipv6_disabled, nullptr);
+    }
 
+    // 路由到目标
+    fault::code ec;
+    channel::pooled_connection conn;
     if (allow_reverse && !target.positive)
     {
-        auto [route_ec, routed] = co_await router->async_reverse(target.host);
-        ec = route_ec;
-        socket = std::move(routed);
+        auto result = co_await router->async_reverse(target.host);
+        ec = result.first;
+        conn = std::move(result.second);
     }
     else
     {
-        auto [route_ec, routed] = co_await router->async_forward(target.host, target.port);
-        ec = route_ec;
-        socket = std::move(routed);
+        auto result = co_await router->async_forward(target.host, target.port);
+        ec = result.first;
+        conn = std::move(result.second);
     }
 
     if (fault::failed(ec))
     {
-        trace::warn("[Pipeline] {} route failed: {}", label, fault::describe(ec));
         co_return std::make_pair(ec, nullptr);
     }
 
-    if (require_open && (!socket || !socket->is_open()))
+    if (require_open && !conn.valid())
     {
-        trace::error("[Pipeline] {} route to upstream failed (connection invalid).", label);
         co_return std::make_pair(fault::code::connection_refused, nullptr);
     }
 
-    trace::debug("[Pipeline] {} upstream connected.", label);
-    co_return std::make_pair(ec, psm::channel::transport::make_reliable(std::move(*socket)));
+    co_return std::make_pair(ec, channel::transport::make_reliable(std::move(conn)));
 }
 ```
 
 #### primitives::tunnel() - 双向隧道转发
 
-**源码位置**: [primitives.hpp](../../include/prism/agent/pipeline/primitives.hpp)
+**源码位置**: [primitives.hpp](../../include/prism/pipeline/primitives.hpp)
 
 **设计要点**:
 - 使用单个缓冲区分割为两个半缓冲区
@@ -474,29 +567,25 @@ auto dial(std::shared_ptr<resolve::router> router, std::string_view label,
 ```cpp
 void session::close()
 {
-    auto close_and_reset = [](auto &ptr) noexcept
-    {   // 关闭并重置指针
-        if (ptr)
-        {
-            ptr->close();
-            ptr.reset();
-        }
-    };
-
-    if (closed_)
+    if (state_ != state::active)
     {
         return;
     }
-    closed_ = true;
-    trace::debug("[Session] Session closing.");
-    
-    close_and_reset(ctx_.inbound);
-    close_and_reset(ctx_.outbound);
-    if (on_closed_)
+    state_ = state::closing;
+    trace::debug("[Session] [{}] Session closing.", id_);
+
+    // 先取消活跃流（TLS 等），因为 ctx_.inbound 可能已被 move
+    if (ctx_.active_stream_cancel)
     {
-        auto callback = std::move(on_closed_);
-        on_closed_ = nullptr;
-        callback();
+        ctx_.active_stream_cancel();
+    }
+    if (ctx_.inbound)
+    {
+        ctx_.inbound->cancel();
+    }
+    if (ctx_.outbound)
+    {
+        ctx_.outbound->cancel();
     }
 }
 ```
@@ -507,21 +596,24 @@ void session::close()
   连接关闭流程
        │
        ├─ 1. session::close() 幂等关闭
-       │   ├─ 检查 closed_ 标志，若已关闭则直接返回
-       │   └─ 设置 closed_ = true
+       │   ├─ 检查 state_ != active，若非活跃则直接返回
+       │   ├─ 设置 state_ = closing
+       │   └─ 取消 active_stream_cancel（TLS 流等）
        │
-       ├─ 2. 关闭 inbound transmission
-       │   ├─ 调用 ptr->close()
-       │   └─ 调用 ptr.reset() 释放所有权
+       ├─ 2. 取消 inbound transmission
+       │   └─ 调用 ctx_.inbound->cancel()
        │
-       ├─ 3. 关闭 outbound transmission
-       │   ├─ 调用 ptr->close()
-       │   └─ 调用 ptr.reset() 释放所有权
+       ├─ 3. 取消 outbound transmission
+       │   └─ 调用 ctx_.outbound->cancel()
        │
-       └─ 4. 触发 on_closed 回调
-           ├─ 移动回调到局部变量
-           ├─ 清空 on_closed_ 成员
-           └─ 执行回调（递减 active_sessions 计数）
+       ├─ 4. release_resources() 由协程退出或析构触发
+       │   ├─ 设置 state_ = closed
+       │   ├─ 关闭 active_stream_close（TLS 流等）
+       │   ├─ 关闭并 reset inbound/outbound
+       │   └─ 触发 on_closed 回调（递减 active_sessions 计数）
+       │
+       └─ 5. 析构函数调用 release_resources()（兜底）
+           └─ 确保资源最终释放
 ```
 
 ### 回调链
@@ -570,7 +662,7 @@ auto on_closed = [active_sessions]() noexcept
        │   Protocol Handler
        │     ├─ HTTP
        │     ├─ SOCKS5
-       │     ├─ TLS
+       │     ├─ Trojan
        │     └─ Unknown
        │           │
        │           ▼
@@ -592,4 +684,4 @@ auto on_closed = [active_sessions]() noexcept
 | **内存池** | 使用 `frame_arena` 和 PMR 分配隧道缓冲区 |
 | **协程保活** | 使用 `shared_from_this()` 延长 session 生命周期 |
 | **原子操作** | `active_sessions` 使用 `fetch_sub` 无锁递减 |
-| **幂等关闭** | `closed_` 标志确保资源仅释放一次 |
+| **幂等关闭** | `state_` 状态机确保资源仅释放一次 |

@@ -6,15 +6,15 @@
 
 - **项目名称**：Prism
 - **项目类型**：高性能代理引擎
-- **核心技术**：C++23、Boost.Asio 协程、OpenSSL、PMR 内存管理
+- **核心技术**：C++23、Boost.Asio 协程、BoringSSL、PMR 内存管理
 - **开发状态**：**稳定可用**，核心功能已完成
-- **当前版本**：v0.8.0
-- **最后更新**：2026年3月24日
-- **主要依赖**：Boost(system)、OpenSSL、spdlog、glaze
+- **当前版本**：v0.9.0
+- **最后更新**：2026年4月11日
+- **主要依赖**：Boost(system)、BoringSSL、spdlog、glaze
 
 ---
 
-## 当前版本状态（v0.8.0）
+## 当前版本状态（v0.9.0）
 
 ### 已完成的核心功能
 
@@ -25,7 +25,7 @@
 | **HTTP/HTTPS** | 100% | ✅ 完成 | HTTP 正向代理与 HTTPS `CONNECT` 隧道 |
 | **SOCKS5 TCP** | 100% | ✅ 完成 | RFC 1928，支持 CONNECT 命令 |
 | **SOCKS5 UDP** | 100% | ✅ 完成 | 支持 UDP ASSOCIATE 命令 |
-| **TLS 终止** | 100% | ✅ 完成 | 服务端 TLS 握手，解密后按 HTTP 处理 |
+| **TLS 透明剥离** | 100% | ✅ 完成 | Session 层 TLS 握手 + 内层协议探测，Handler 无感 TLS |
 | **Trojan 协议** | 100% | ✅ 完成 | Trojan over TLS 协议已接入运行链 |
 
 #### 2. 核心架构模块
@@ -34,7 +34,7 @@
 |------|--------|------|
 | **协程驱动架构** | 100% | 基于 `net::awaitable` 的异步模型，无回调地狱 |
 | **智能连接池** | 100% | TCP 连接复用，支持僵尸检测、空闲超时、端点缓存上限 |
-| **协议自动识别** | 100% | 动态检测 HTTP / SOCKS5 / TLS 协议 |
+| **协议自动识别** | 100% | 动态检测 HTTP/SOCKS5/TLS，TLS 剥离后二次探测内层协议 |
 | **路由分发系统** | 100% | 支持正向代理、反向代理、直连三种模式 |
 | **双向隧道转发** | 100% | 优化的数据转发算法，支持优雅退出 |
 | **负载均衡** | 100% | 基于评分的 Worker 选择，过载检测与滞后机制 |
@@ -67,13 +67,13 @@
 | **session** | session | ✅ 100% | 会话生命周期管理，协议检测分发 |
 | **dispatch** | handler | ✅ 100% | 协议处理器抽象基类 |
 | **dispatch** | registry | ✅ 100% | 处理器注册表，工厂模式 |
-| **dispatch** | handlers | ✅ 100% | HTTP/SOCKS5/TLS/Unknown 处理器实现 |
-| **pipeline** | protocols | ✅ 100% | HTTP/SOCKS5/TLS 协议处理管道 |
+| **dispatch** | handlers | ✅ 100% | HTTP/SOCKS5/Trojan/Unknown 处理器实现 |
+| **pipeline** | protocols | ✅ 100% | HTTP/SOCKS5/Trojan 协议处理管道 |
 | **pipeline** | primitives | ✅ 100% | dial、preview、tunnel 原语 |
-| **resolve** | router | ✅ 100% | 统一路由入口，整合仲裁器、解析器 |
-| **resolve** | arbiter | ✅ 100% | 反向路由、直连路由、数据报路由 |
-| **resolve** | tcpcache | ✅ 100% | TCP DNS 解析，缓存，请求合并 |
-| **resolve** | udpcache | ✅ 100% | UDP DNS 解析，缓存 |
+| **resolve** | router | ✅ 100% | 统一路由入口，整合解析器、连接池 |
+| **resolve** | recursor | ✅ 100% | DNS 解析门面，六阶段查询管道 |
+| **resolve** | cache | ✅ 100% | DNS 正向/负向缓存，serve-stale |
+| **resolve** | rules | ✅ 100% | 域名规则匹配，静态 IP/CNAME |
 | **resolve** | coalescer | ✅ 100% | DNS 请求合并机制 |
 | **account** | directory | ✅ 100% | 账户目录，写时复制，无锁读取 |
 | **account** | entry | ✅ 100% | 账户运行时状态，连接数限制 |
@@ -83,10 +83,10 @@
 
 | 协议 | 完成度 | 说明 |
 |------|--------|------|
-| **HTTP** | ✅ 100% | HTTP/1.1 请求/响应解析和序列化 |
+| **HTTP** | ✅ 100% | HTTP/1.1 请求解析 (parser) + 协议处理 (relay)，零分配 |
 | **SOCKS5** | ✅ 100% | RFC 1928 完整实现，支持 CONNECT、UDP ASSOCIATE |
 | **Trojan** | ✅ 100% | Trojan over TLS 协议，密码验证 + 流量伪装 |
-| **协议探测** | ✅ 100% | 动态检测 HTTP/SOCKS5/TLS 协议类型 |
+| **协议探测** | ✅ 100% | 外层 detect() + 内层 detect_inner() 双阶段探测 |
 
 ### Channel 模块 (`include/prism/channel/`)
 
@@ -99,11 +99,11 @@
 | **unreliable** | ✅ 100% | UDP 不可靠传输实现 |
 | **encrypted** | ✅ 100% | TLS 加密传输 |
 
-#### pool 子模块
+#### connection 子模块
 
 | 组件 | 完成度 | 说明 |
 |------|--------|------|
-| **tcpool** | ✅ 100% | TCP 连接池，栈式缓存 + 僵尸检测 |
+| **pool** | ✅ 100% | TCP 连接池，栈式缓存 + 僵尸检测 |
 
 #### adapter 子模块
 
@@ -128,7 +128,7 @@
 
 | 限制 | 状态 | 说明 |
 |------|------|------|
-| SOCKS5 认证 | ⚠️ 待完成 | 仅支持无认证模式，用户名密码认证待实现 |
+| SOCKS5 认证 | ✅ 已完成 | 支持用户名密码认证 (RFC 1929)，需配置 `socks5.enable_auth` 开启 |
 
 ### 配置相关
 
@@ -151,13 +151,13 @@
 
 ## 路线图规划
 
-### 短期目标（v0.9.0）
+### 短期目标（v0.9.x）
 
 | 任务 | 优先级 | 状态 |
 |------|--------|------|
-| SOCKS5 用户名密码认证 | 中 | 计划中 |
+| HTTP 协议模块重构（parser + relay） | - | ✅ 已完成 |
+| TLS 传输层剥离架构 | - | ✅ 已完成 |
 | Listener 支持 IPv6 和 host 绑定 | 中 | 计划中 |
-| JSON 序列化接口完善 | 低 | 80% 完成 |
 
 ### 中期目标（v1.0.0）
 
@@ -175,7 +175,7 @@
 | 插件生态系统 | 支持第三方插件扩展 |
 | 集群部署 | 多节点负载均衡和故障转移 |
 | Web 管理界面 | 可视化配置和监控 |
-| 协议扩展 | VMess、Shadowsocks 等协议支持 |
+| 协议扩展 | Shadowsocks 2022、VLESS、Reality、Hysteria2 等协议支持 |
 
 ---
 
@@ -189,8 +189,13 @@ ctest --test-dir build_release --output-on-failure
 
 # 关键测试用例
 ./build_release/tests/Session       # 会话生命周期
+./build_release/tests/Http          # HTTP 代理协议
 ./build_release/tests/Socks5        # SOCKS5 协议
+./build_release/tests/Trojan        # Trojan 协议
 ./build_release/tests/Connection    # 连接池复用
+./build_release/tests/HttpParser    # HTTP 解析器
+./build_release/tests/Smux          # Smux 多路复用
+./build_release/tests/Yamux         # Yamux 多路复用
 ```
 
 ### 端到端验证
@@ -210,7 +215,7 @@ curl -v -x socks5://127.0.0.1:8081 http://www.baidu.com
 
 ### 代码质量
 
-- **编译警告**：零警告策略（`-Wall -Wextra -Werror`）
+- **编译警告**：持续优化中，逐步消除编译警告
 - **静态分析**：定期运行 Clang-Tidy 检查
 - **代码审查**：所有更改必须通过 Pull Request 审查
 
@@ -233,75 +238,28 @@ curl -v -x socks5://127.0.0.1:8081 http://www.baidu.com
 
 ## 更新日志
 
-### 2026年3月24日
-
-**架构优化：**
-- `disable_ipv6` 配置从 `agent::config` 下沉到 `resolve::config`，消除多层传参
-- DNS 解析层（recursor）在 `disable_ipv6` 启用时跳过 AAAA 查询，DNS 查询量减半
-- 移除 router 层冗余的 IPv6 过滤逻辑（DNS 结果过滤、connect_with_retry 跳过）
-- router 通过 `recursor::ipv6_disabled()` 统一访问 IPv6 禁用状态，不再持有独立副本
-
-**文档同步：**
-- 更新 README.md：配置默认值与代码一致、`dns.disable_ipv6` 字段位置
-- 更新 architecture.md：async_forward 处理流程描述
-- 更新 modules.md：IPv6 过滤归 DNS 层统一处理
-- 更新 config-structure.md、configuration.md：`max_idle_seconds` 默认值 60 → 30
-- 更新 progress.md：去掉 emoji，更新日期和日志
-
-### 2026年3月21日
+### 2026年4月11日
 
 **架构变更：**
-- 移除独立的 `pipeline::tls` 函数，TLS 处理整合到 `pipeline::trojan` 中
-- `dispatch::Tls` 处理器移除，由 `dispatch::Trojan` 统一处理 TLS 流量
-- `primitives::original_tunnel` 重命名为 `primitives::tunnel`
+- TLS 处理从 Trojan handler 上移到 Session 层，实现传输层剥离
+- `protocol_type` 新增 `tls` 枚举值，`detect()` 不再将 0x16 绑定为 trojan
+- 新增 `detect_inner()` 内层协议探测函数
+- Trojan handler 瘦身约 40 行，移除 TLS 握手代码
 
-**模块重命名：**
-- `secure` → `encrypted`：TLS 传输层模块重命名为更准确的加密传输语义
-- `loader` → `adapter`：Channel 子模块重命名，更准确反映适配器职责
+**HTTP 协议重构：**
+- 合并 header/request/response/deserialization/serialization 为 parser + relay
+- 新增 HTTP parser 零分配解析和 relay 协议处理
+- 支持明文 HTTP 和 TLS 内层 HTTP 双模式代理
 
-**文档同步：**
-- 更新 `progress.md`：transport 子模块表格（secure → encrypted）
-- 更新 `dependencies.md`：loader → adapter 路径引用
-- 更新 `CLAUDE.md`：模块描述更新
-
-### 2026年3月17日（下午）
-
-**代码改进（Codex 审查问题修复）：**
-- 修复 TLS 活跃流管理问题，添加 `active_stream_cancel/close` 回调
-- 修复 HTTP/HTTPS 单次写入问题，添加 `async_write`/`async_read` 虚函数
-- 修复协议配置未连接问题，SOCKS5/Trojan 现使用 `ctx.server.cfg` 配置
-- UDP 传输层特化 `async_write`，避免不必要的循环
-
-**架构优化：**
-- `transmission` 类添加 `async_write`/`async_read` 虚函数，子类可特化
-- `original_tunnel` 参数简化，使用 `session_context` 替代分散参数
-- `original_tunnel` 添加 `complete_write` 开关，支持精细化控制
+**测试重构：**
+- 测试文件统一重命名为 PascalCase
+- 新增 HttpParser/DnsPacket/DnsRules/Crypto/Exception 等专项测试
 
 **文档更新：**
-- 更新 `context.md`，添加新增字段文档
+- 全部文档流程图改为无框 ASCII 风格
+- README 重写：快速开始、协议路线图、依赖项说明
+- 多篇文档修正过时引用，同步代码库变更
 
-### 2026年3月17日
-
-- 重构文档结构，按受众分离用户指南和开发者指南
-- 新增 TLS 协议文档和上下文结构体文档
-- 修正 trojan.md 文件名拼写错误
-- 更新 README.md 文档链接
-
-### 2026年2月14日
-
-- 更新 README.md，简化目录结构
-- 删除 Obscura 协议相关内容
-
-### 2026年2月9日
-
-- 优化协议流程文档，完善 HTTP、SOCKS5、Trojan 协议调用流程
-- 更新配置示例，使用相对路径
-
-### 2026年1月27日
-
-- 解耦 `distributor` 模块，移除 JSON 依赖
-- 完善反向代理配置加载逻辑
-- 标准化错误码返回机制
 
 ---
 

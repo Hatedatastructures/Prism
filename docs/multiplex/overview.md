@@ -197,15 +197,21 @@ smux 多路复用会话服务端，兼容 xtaci/smux v1 帧协议 + sing-mux 协
 ```cpp
 auto craft::run() -> net::awaitable<void>
 {
-    // 1. 启动独立发送循环
-    net::co_spawn(executor(), send_loop(), net::detached);
+    // 1. 启动独立发送循环（lambda 捕获 self 保持 craft 生命周期）
+    const auto self = std::static_pointer_cast<craft>(shared_from_this());
+    net::co_spawn(executor(), [self]() -> net::awaitable<void>
+    { co_await self->send_loop(); }, net::detached);
 
-    // 2. 协议协商
-    if (const auto ec = co_await negotiate_protocol())
-        co_return;
+    // 2. 启动 NOP 心跳（有间隔时）
+    if (config_.smux.keepalive_interval_ms > 0)
+    {
+        net::co_spawn(executor(), [self]() -> net::awaitable<void>
+        { co_await self->keepalive_loop(); }, net::detached);
+    }
 
-    // 3. 帧循环
+    // 3. 进入帧循环（协议协商由 bootstrap 在外部完成）
     co_await frame_loop();
+    channel_.cancel();
 }
 ```
 
@@ -307,9 +313,21 @@ auto craft::send_loop() -> net::awaitable<void>
     {
         auto frame = co_await channel_.async_receive();
 
-        co_await transport_->async_write(frame.header);   // 写帧头
+        std::error_code transport_ec;
         if (!frame.payload.empty())
-            co_await transport_->async_write(frame.payload); // 写载荷
+        {
+            // scatter-gather: 帧头+载荷合并为一次写入
+            const std::span<const std::byte> buffers[] = {
+                std::span<const std::byte>(frame.header.data(), frame.header.size()),
+                std::span<const std::byte>(frame.payload.data(), frame.payload.size())
+            };
+            co_await transport_->async_write_scatter(buffers, 2, transport_ec);
+        }
+        else
+        {
+            co_await transport_->async_write(
+                std::span<const std::byte>(frame.header.data(), frame.header.size()), transport_ec);
+        }
     }
 }
 ```
@@ -318,57 +336,9 @@ auto craft::send_loop() -> net::awaitable<void>
 
 位置：[frame.hpp](../../include/prism/multiplex/smux/frame.hpp)、[frame.cpp](../../src/prism/multiplex/smux/frame.cpp)
 
-smux 帧协议编解码。
+smux 帧协议编解码。8 字节小端帧头（Version + Cmd + Length + StreamID），支持 SYN/FIN/PSH/NOP 四种命令。
 
-#### 帧格式
-
-```
-+----------------+----------------+----------------+------------------+
-| VERSION (1B)   | CMD (1B)       | LENGTH (2B LE) | STREAMID (4B LE) |
-+----------------+----------------+----------------+------------------+
-|                     PAYLOAD (最大 65535 字节)                       |
-+---------------------------------------------------------------------+
-```
-
-#### 命令类型
-
-| 命令 | 值 | 说明 |
-|------|-----|------|
-| SYN | 0x00 | 新建流，服务端创建 pending_entry |
-| FIN | 0x01 | 半关闭流，通知对端不再发送 |
-| PSH | 0x02 | 数据推送，携带负载数据 |
-| NOP | 0x03 | 心跳，服务端不回复 |
-
-#### 地址格式
-
-**sing-mux StreamRequest（首 PSH 帧）**：
-
-```
-+----------------+----------------+----------------+------------------+
-| FLAGS (2B BE)  | ATYP (1B)      | Addr Variable  | PORT (2B BE)     |
-+----------------+----------------+----------------+------------------+
-```
-
-- FLAGS bit0：标识 UDP 流
-- ATYP：0x01 IPv4、0x03 域名、0x04 IPv6
-
-**SOCKS5 UDP Relay**：
-
-```
-+----------------+----------------+----------------+------------------+
-| ATYP (1B)      | Addr Variable  | PORT (2B BE)   | Payload          |
-+----------------+----------------+----------------+------------------+
-```
-
-#### 关键函数
-
-| 函数 | 说明 |
-|------|------|
-| `build_header()` | 构建 8 字节帧头为数组（零拷贝） |
-| `deserialization()` | 解析帧头，校验版本和命令有效性 |
-| `parse_mux_address()` | 解析 sing-mux StreamRequest 地址 |
-| `parse_udp_datagram()` | 解析 SOCKS5 UDP relay 数据报 |
-| `build_udp_datagram()` | 构建 UDP 数据报响应 |
+> 详细的帧格式、命令类型、地址格式和关键函数见 [smux 协议文档](smux.md)。
 
 ## yamux 协议实现
 
@@ -384,11 +354,19 @@ yamux 多路复用会话服务端，兼容 Hashicorp/yamux 帧协议 + sing-mux 
 ```cpp
 auto craft::run() -> net::awaitable<void>
 {
-    // 1. 启动独立发送循环
+    // 1. 启动独立发送循环（lambda 捕获 self 保持 craft 生命周期）
     const auto self = std::static_pointer_cast<craft>(shared_from_this());
-    net::co_spawn(executor(), self->send_loop(), net::detached);
+    net::co_spawn(executor(), [self]() -> net::awaitable<void>
+    { co_await self->send_loop(); }, net::detached);
 
-    // 2. 帧循环（协议协商由 bootstrap 在外部完成）
+    // 2. 启动主动 Ping 心跳（启用且有间隔时）
+    if (config_.yamux.enable_ping && config_.yamux.ping_interval_ms > 0)
+    {
+        net::co_spawn(executor(), [self]() -> net::awaitable<void>
+        { co_await self->ping_loop(); }, net::detached);
+    }
+
+    // 3. 进入帧循环（协议协商由 bootstrap 在外部完成）
     co_await frame_loop();
     channel_.cancel();
 }
@@ -411,7 +389,8 @@ auto craft::frame_loop() -> net::awaitable<void>
             // 载荷长度校验，防止恶意大帧导致 OOM
             if (hdr.length > 65535)
             {
-                co_await push_frame(GoAway, protocol_error);
+                co_await push_frame(message_type::go_away, flags::none, 0,
+                                    static_cast<std::uint32_t>(go_away_code::protocol_error), {});
                 break;
             }
             co_await transport_->async_read(payload, ec);
@@ -448,7 +427,7 @@ auto craft::handle_data(hdr, payload)
 - SYN 后回复 `WindowUpdate(ACK)` 携带服务端初始窗口大小（256KB）
 - 接收数据后累积 `recv_consumed`，达到窗口一半时发送 `WindowUpdate(none)`
 - 发送窗口由对端的 `WindowUpdate` 原子增加，支持并发访问
-- `send_data()` 窗口不足时等待重试（最多 4 次，每次 30ms），超时后丢弃并记录警告
+- `send_data()` 窗口不足时通过 `window_signal` 定时器无限等待，直到对端 `WindowUpdate` 唤醒或会话关闭
 - 普通窗口更新仅查找已有窗口（`get_window`），不为未知流创建窗口对象
 - 窗口状态随 duct/parcel 关闭自动清理（通过 override `remove_duct`/`remove_parcel`）
 
@@ -461,56 +440,9 @@ auto craft::handle_data(hdr, payload)
 
 位置：[frame.hpp](../../include/prism/multiplex/yamux/frame.hpp)、[frame.cpp](../../src/prism/multiplex/yamux/frame.cpp)
 
-yamux 帧协议编解码。
+yamux 帧协议编解码。12 字节大端帧头（Version + Type + Flags + StreamID + Length），支持 Data/WindowUpdate/Ping/GoAway 四种消息类型，通过 WindowUpdate 实现流量控制。
 
-#### 帧格式
-
-```
-+----------+----------+----------+----------+----------+----------+
-| Version  |  Type    |  Flags   |  StreamID (4B BE)  |  Length (4B BE)  |
-| (1B)     |  (1B)    |  (2B BE) |                    |                  |
-+----------+----------+----------+----------+----------+----------+
-|                    PAYLOAD (Length 字节)                        |
-+---------------------------------------------------------------+
-```
-
-#### 消息类型
-
-| 类型 | 值 | 说明 |
-|------|-----|------|
-| Data | 0x00 | 数据传输，可携带 SYN/FIN/RST 标志 |
-| WindowUpdate | 0x01 | 窗口更新，Length 为增量值 |
-| Ping | 0x02 | 心跳探测，Length 为 Ping ID |
-| GoAway | 0x03 | 关闭会话，Length 为终止原因码 |
-
-#### 标志位
-
-| 标志 | 值 | 说明 |
-|------|-----|------|
-| none | 0x0000 | 无标志，普通数据帧 |
-| SYN | 0x0001 | 同步，用于新建流或发起 Ping |
-| ACK | 0x0002 | 确认，用于确认流创建或 Ping 响应 |
-| FIN | 0x0004 | 半关闭，通知对端不再发送 |
-| RST | 0x0008 | 重置，强制终止流 |
-
-#### GoAway 原因码
-
-| 原因码 | 值 | 说明 |
-|--------|-----|------|
-| normal | 0x00000000 | 正常关闭 |
-| protocol_error | 0x00000001 | 协议错误 |
-| internal_error | 0x00000002 | 内部错误 |
-
-#### 关键函数
-
-| 函数 | 说明 |
-|------|------|
-| `build_header()` | 构建 12 字节帧头为数组（零拷贝） |
-| `parse_header()` | 解析帧头，校验版本和类型有效性 |
-| `build_data_frame()` | 构建 Data 帧（12 字节头 + payload） |
-| `build_window_update_frame()` | 构建 WindowUpdate 帧 |
-| `build_ping_frame()` | 构建 Ping 帧 |
-| `build_go_away_frame()` | 构建 GoAway 帧 |
+> 详细的帧格式、消息类型、标志位和关键函数见 [yamux 协议文档](yamux.md)。
 
 ## 配置
 
@@ -518,84 +450,7 @@ yamux 帧协议编解码。
 
 各协议拥有独立的配置结构，顶层 config 仅负责协议选择和全局开关：
 
-```cpp
-// 顶层配置
-struct config
-{
-    protocol_type protocol = protocol_type::smux; // 协议类型
-    bool enabled = false;                          // 是否启用
-    smux::config smux;                             // smux 协议配置
-    yamux::config yamux;                           // yamux 协议配置
-};
-
-// smux 协议配置（独立）
-struct smux::config
-{
-    std::uint32_t max_streams = 32;              // 单会话最大并发流数
-    std::uint32_t buffer_size = 4096;            // 每流读取缓冲区大小
-    std::uint32_t keepalive_interval_ms = 30000; // 心跳间隔（毫秒）
-    std::uint32_t udp_idle_timeout_ms = 60000;   // UDP 管道空闲超时（毫秒）
-    std::uint32_t udp_max_datagram = 65535;      // UDP 数据报最大长度
-};
-
-// yamux 协议配置（独立）
-struct yamux::config
-{
-    std::uint32_t max_streams = 32;                // 单会话最大并发流数
-    std::uint32_t buffer_size = 4096;              // 每流读取缓冲区大小
-    std::uint32_t initial_window = 256 * 1024;     // 初始流窗口大小
-    bool enable_ping = true;                       // 是否启用心跳
-    std::uint32_t ping_interval_ms = 30000;        // 心跳间隔（毫秒）
-    std::uint32_t stream_open_timeout_ms = 30000;  // 流打开超时（毫秒）
-    std::uint32_t stream_close_timeout_ms = 30000; // 流关闭超时（毫秒）
-    std::uint32_t udp_idle_timeout_ms = 60000;     // UDP 管道空闲超时（毫秒）
-    std::uint32_t udp_max_datagram = 65535;        // UDP 数据报最大长度
-};
-```
-
-位置：[config.hpp](../../include/prism/multiplex/config.hpp)
-
-```cpp
-struct config
-{
-    bool enabled = false;                   // 是否启用多路复用
-    std::uint32_t max_streams = 32;         // 单会话最大并发流数
-    std::uint32_t buffer_size = 4096;       // 每流读取缓冲区大小，实际限制 min(buffer_size, 65535)
-    std::uint32_t keepalive_interval_ms = 30000; // 心跳间隔（毫秒），0 表示禁用
-    std::uint32_t udp_idle_timeout_ms = 60000;   // UDP 管道空闲超时（毫秒）
-    std::uint32_t udp_max_datagram = 65535;      // UDP 数据报最大长度
-};
-```
-
-### 配置示例
-
-```json
-{
-    "agent": {
-        "mux": {
-            "enabled": true,
-            "smux": {
-                "max_streams": 512,
-                "buffer_size": 65535,
-                "keepalive_interval_ms": 30000,
-                "udp_idle_timeout_ms": 60000,
-                "udp_max_datagram": 65535
-            },
-            "yamux": {
-                "max_streams": 32,
-                "buffer_size": 4096,
-                "initial_window": 262144,
-                "enable_ping": true,
-                "ping_interval_ms": 30000,
-                "stream_open_timeout_ms": 30000,
-                "stream_close_timeout_ms": 30000,
-                "udp_idle_timeout_ms": 60000,
-                "udp_max_datagram": 65535
-            }
-        }
-    }
-}
-```
+> 详细的配置参数、默认值和配置示例见 [配置结构体](../reference/config-structure.md) 和 [配置指南](../tutorial/configuration.md)。
 
 ## 与 Trojan 协议的集成
 
