@@ -46,6 +46,7 @@ namespace psm::protocol
         http,
         socks5,
         trojan,
+        vless,
         tls
     };
 
@@ -76,6 +77,8 @@ namespace psm::protocol
             return "socks5";
         case protocol_type::trojan:
             return "trojan";
+        case protocol_type::vless:
+            return "vless";
         case protocol_type::tls:
             return "tls";
         default:
@@ -211,7 +214,7 @@ namespace psm::protocol
          * @note 数据不足 60 字节时返回 protocol_type::unknown。
          * @warning 探测结果基于有限数据，存在极小概率误判。
          */
-        static auto detect_inner(std::string_view peek_data)
+        static auto detect_tls(std::string_view peek_data)
             -> protocol_type;
 
     private:

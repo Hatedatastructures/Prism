@@ -3,7 +3,7 @@
  * @brief 回归测试：验证关键修复点
  * @details 测试以下关键修复：
  * 1. IPv6 host:port 解析 (analysis::resolve)
- * 2. TLS 内层协议探测 (analysis::detect_inner)
+ * 2. TLS 内层协议探测 (analysis::detect_tls)
  * 3. Trojan lease 持有和释放 (account::directory)
  */
 
@@ -132,7 +132,7 @@ void TestInnerProtocolDetection()
     // 完整 HTTP 请求应被识别为 HTTP 协议
     {
         std::string http_request = "GET / HTTP/1.1\r\nHost: example.com\r\n\r\n";
-        auto result = psm::protocol::analysis::detect_inner(http_request);
+        auto result = psm::protocol::analysis::detect_tls(http_request);
         if (result != psm::protocol::protocol_type::http)
         {
             log_fail("HTTP detection");
@@ -143,7 +143,7 @@ void TestInnerProtocolDetection()
     // 部分数据也能通过前缀 "GET " 识别为 HTTP
     {
         std::string partial_data = "GET ";
-        auto result = psm::protocol::analysis::detect_inner(partial_data);
+        auto result = psm::protocol::analysis::detect_tls(partial_data);
         if (result != psm::protocol::protocol_type::http)
         {
             log_fail("partial HTTP detection");
@@ -154,7 +154,7 @@ void TestInnerProtocolDetection()
     // 数据过短且无已知前缀，应返回 unknown
     {
         std::string short_data(30, 'a');
-        auto result = psm::protocol::analysis::detect_inner(short_data);
+        auto result = psm::protocol::analysis::detect_tls(short_data);
         if (result != psm::protocol::protocol_type::unknown)
         {
             log_fail("short data should be unknown");
@@ -169,7 +169,7 @@ void TestInnerProtocolDetection()
         trojan_like[57] = '\n';
         trojan_like[58] = 0x01;
         trojan_like[59] = 0x01;
-        auto result = psm::protocol::analysis::detect_inner(trojan_like);
+        auto result = psm::protocol::analysis::detect_tls(trojan_like);
         if (result != psm::protocol::protocol_type::trojan)
         {
             log_fail("Trojan detection");
@@ -181,7 +181,7 @@ void TestInnerProtocolDetection()
     {
         std::string invalid_trojan(60, 'a');
         invalid_trojan[56] = 'x';
-        auto result = psm::protocol::analysis::detect_inner(invalid_trojan);
+        auto result = psm::protocol::analysis::detect_tls(invalid_trojan);
         if (result != psm::protocol::protocol_type::http)
         {
             log_fail("invalid Trojan should be HTTP");

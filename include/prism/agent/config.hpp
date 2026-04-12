@@ -11,6 +11,7 @@
 #include <prism/memory/container.hpp>
 #include <prism/protocol/socks5/config.hpp>
 #include <prism/protocol/trojan/config.hpp>
+#include <prism/protocol/vless/config.hpp>
 #include <prism/channel/connection/pool.hpp>
 #include <prism/multiplex/config.hpp>
 
@@ -182,6 +183,9 @@ namespace psm::agent
 
         // Trojan 协议配置，控制能力开关和 UDP 参数
         protocol::trojan::config trojan;
+
+        // VLESS 协议配置，控制用户认证
+        protocol::vless::config vless;
 
         // 多路复用配置，控制 mux 服务端行为
         multiplex::config mux;

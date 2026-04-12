@@ -3,6 +3,8 @@ target_sources(${PROJECT_NAME}_static_library
         analysis.cpp
         trojan/relay.cpp
         trojan/format.cpp
+        vless/relay.cpp
+        vless/format.cpp
 )
 
 target_sources(${PROJECT_NAME}_static_library
@@ -27,6 +29,12 @@ target_sources(${PROJECT_NAME}_static_library
             ${PROJECT_SOURCE_DIR}/include/prism/protocol/trojan/message.hpp
             ${PROJECT_SOURCE_DIR}/include/prism/protocol/trojan/relay.hpp
             ${PROJECT_SOURCE_DIR}/include/prism/protocol/trojan/format.hpp
+            ${PROJECT_SOURCE_DIR}/include/prism/protocol/vless.hpp
+            ${PROJECT_SOURCE_DIR}/include/prism/protocol/vless/config.hpp
+            ${PROJECT_SOURCE_DIR}/include/prism/protocol/vless/constants.hpp
+            ${PROJECT_SOURCE_DIR}/include/prism/protocol/vless/message.hpp
+            ${PROJECT_SOURCE_DIR}/include/prism/protocol/vless/relay.hpp
+            ${PROJECT_SOURCE_DIR}/include/prism/protocol/vless/format.hpp
 )
 
 add_subdirectory(http)

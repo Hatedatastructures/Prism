@@ -110,7 +110,7 @@ namespace psm::protocol
         return protocol_type::unknown;
     }
 
-    auto analysis::detect_inner(const std::string_view peek_data)
+    auto analysis::detect_tls(const std::string_view peek_data)
         -> protocol_type
     {
         static constexpr std::array<std::string_view, 9> http_methods = {
@@ -126,6 +126,24 @@ namespace psm::protocol
             }
         }
 
+        // VLESS 检测（最小 22 字节）
+        // byte[0] = 0x00 (version), byte[17] = 0x00 (no additional info)
+        // byte[18] in {0x01, 0x02, 0x7F} (valid command)
+        // byte[21] in {0x01, 0x02, 0x03} (valid address type)
+        if (peek_data.size() >= 22)
+        {
+            const auto b0 = static_cast<unsigned char>(peek_data[0]);
+            const auto b17 = static_cast<unsigned char>(peek_data[17]);
+            const auto b18 = static_cast<unsigned char>(peek_data[18]);
+            const auto b21 = static_cast<unsigned char>(peek_data[21]);
+
+            if (b0 == 0x00 && b17 == 0x00 && (b18 == 0x01 || b18 == 0x02 || b18 == 0x7F) &&
+                (b21 == 0x01 || b21 == 0x02 || b21 == 0x03))
+            {
+                return protocol_type::vless;
+            }
+        }
+
         constexpr std::size_t trojan_min_length = 60;
         if (peek_data.size() < trojan_min_length)
         {
@@ -135,8 +153,7 @@ namespace psm::protocol
         for (std::size_t i = 0; i < 56; ++i)
         {
             const auto c = static_cast<unsigned char>(peek_data[i]);
-            const bool is_hex_digit = (c >= '0' && c <= '9') ||
-                                      (c >= 'a' && c <= 'f') ||
+            const bool is_hex_digit = (c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') ||
                                       (c >= 'A' && c <= 'F');
             if (!is_hex_digit)
             {

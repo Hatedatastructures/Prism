@@ -59,6 +59,11 @@
             "udp_idle_timeout": 60,
             "udp_max_datagram": 65535
         },
+        "vless": {
+            "users": [
+                "123e4567-e89b-12d3-a456-426614174000"
+            ]
+        },
         "mux": {
             "enabled": true,
             "smux": {

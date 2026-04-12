@@ -202,7 +202,7 @@ namespace psm::agent::session
 
                 // 每次读到数据后尝试探测，HTTP 方法最短前缀仅 4 字节即可识别
                 const auto inner_view = std::string_view(reinterpret_cast<const char *>(inner_buf.data()), inner_n);
-                detect_result.type = protocol::analysis::detect_inner(inner_view);
+                detect_result.type = protocol::analysis::detect_tls(inner_view);
                 if (detect_result.type != protocol::protocol_type::unknown)
                 {
                     break;

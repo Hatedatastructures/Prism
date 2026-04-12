@@ -245,13 +245,70 @@ proxies:
     udp: false
     skip-cert-verify: true               
 
-  - name: "Trojan UDP"          
+  - name: "Trojan UDP"
     type: trojan
     server: 192.168.137.1
     port: 8081
     password: "prism"
     udp: true
-    skip-cert-verify: true 
+    skip-cert-verify: true
+
+  # VLESS
+  - name: "VLESS TCP"
+    type: vless
+    server: 192.168.137.1
+    port: 8081
+    uuid: "123e4567-e89b-12d3-a456-426614174000"
+    tls: true
+    skip-cert-verify: true
+
+  - name: "VLESS Smux TCP"
+    type: vless
+    server: 192.168.137.1
+    port: 8081
+    uuid: "123e4567-e89b-12d3-a456-426614174000"
+    tls: true
+    skip-cert-verify: true
+    smux:
+      enabled: true
+      protocol: smux
+      only-tcp: true
+
+  - name: "VLESS Smux UDP"
+    type: vless
+    server: 192.168.137.1
+    port: 8081
+    uuid: "123e4567-e89b-12d3-a456-426614174000"
+    tls: true
+    skip-cert-verify: true
+    smux:
+      enabled: true
+      protocol: smux
+      only-tcp: false
+
+  - name: "VLESS Yamux TCP"
+    type: vless
+    server: 192.168.137.1
+    port: 8081
+    uuid: "123e4567-e89b-12d3-a456-426614174000"
+    tls: true
+    skip-cert-verify: true
+    smux:
+      enabled: true
+      protocol: yamux
+      only-tcp: true
+
+  - name: "VLESS Yamux UDP"
+    type: vless
+    server: 192.168.137.1
+    port: 8081
+    uuid: "123e4567-e89b-12d3-a456-426614174000"
+    tls: true
+    skip-cert-verify: true
+    smux:
+      enabled: true
+      protocol: yamux
+      only-tcp: false
 
 
 # ---------- 策略组 ----------
@@ -279,6 +336,11 @@ proxy-groups:
       - "Https"
       - "Trojan TCP"
       - "Trojan UDP"
+      - "VLESS TCP"
+      - "VLESS Smux TCP"
+      - "VLESS Smux UDP"
+      - "VLESS Yamux TCP"
+      - "VLESS Yamux UDP"
 
   - name: "国内延迟测试(xiaomi)"
     type: url-test
@@ -303,6 +365,11 @@ proxy-groups:
       - "Https"
       - "Trojan TCP"
       - "Trojan UDP"
+      - "VLESS TCP"
+      - "VLESS Smux TCP"
+      - "VLESS Smux UDP"
+      - "VLESS Yamux TCP"
+      - "VLESS Yamux UDP"
       
     url: "http://connect.rom.miui.com/generate_204"
     interval: 300

@@ -204,6 +204,35 @@ namespace psm::agent::dispatch
     };
 
     /**
+     * @class Vless
+     * @brief VLESS 协议处理器
+     * @details 实现 VLESS 协议的处理逻辑，将检测到的 VLESS 数据流转发到
+     * pipeline::vless 处理流水线。VLESS 协议运行在 TLS 内层，通过 UUID
+     * 进行用户认证。该处理器为无状态单例。
+     */
+    class Vless : public handler
+    {
+    public:
+        Vless() = default;
+
+        [[nodiscard]] protocol::protocol_type type() const override
+        {
+            return protocol::protocol_type::vless;
+        }
+
+        [[nodiscard]] std::string_view name() const override
+        {
+            return "vless";
+        }
+
+        auto process(session_context &ctx, const std::span<const std::byte> data)
+            -> net::awaitable<void> override
+        {
+            co_await pipeline::vless(ctx, data);
+        }
+    };
+
+    /**
      * @class Unknown
      * @brief Unknown 协议处理器
      * @details 实现未知协议的处理逻辑，执行原始 TCP 双向透传。该处理器作为默认
@@ -290,6 +319,7 @@ namespace psm::agent::dispatch
         factory.register_handler<Http>(protocol::protocol_type::http);
         factory.register_handler<Socks5>(protocol::protocol_type::socks5);
         factory.register_handler<Trojan>(protocol::protocol_type::trojan);
+        factory.register_handler<Vless>(protocol::protocol_type::vless);
         factory.register_handler<Unknown>(protocol::protocol_type::unknown);
     }
 

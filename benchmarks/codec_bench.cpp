@@ -530,7 +530,7 @@ static void BM_AnalysisDetectInnerHttp(benchmark::State &state)
     std::string http_request = "GET / HTTP/1.1\r\nHost: example.com\r\n\r\n";
     for (auto _ : state)
     {
-        auto result = protocol::analysis::detect_inner(http_request);
+        auto result = protocol::analysis::detect_tls(http_request);
         benchmark::DoNotOptimize(result);
     }
     state.SetBytesProcessed(static_cast<std::int64_t>(state.iterations()) * static_cast<std::int64_t>(http_request.size()));
@@ -545,7 +545,7 @@ static void BM_AnalysisDetectInnerTrojan(benchmark::State &state)
     trojan_like[59] = 0x01;
     for (auto _ : state)
     {
-        auto result = protocol::analysis::detect_inner(trojan_like);
+        auto result = protocol::analysis::detect_tls(trojan_like);
         benchmark::DoNotOptimize(result);
     }
     state.SetBytesProcessed(static_cast<std::int64_t>(state.iterations()) * static_cast<std::int64_t>(trojan_like.size()));
@@ -556,7 +556,7 @@ static void BM_AnalysisDetectInnerUndetermined(benchmark::State &state)
     std::string short_data(30, 'a');
     for (auto _ : state)
     {
-        auto result = protocol::analysis::detect_inner(short_data);
+        auto result = protocol::analysis::detect_tls(short_data);
         benchmark::DoNotOptimize(result);
     }
     state.SetBytesProcessed(static_cast<std::int64_t>(state.iterations()) * static_cast<std::int64_t>(short_data.size()));
