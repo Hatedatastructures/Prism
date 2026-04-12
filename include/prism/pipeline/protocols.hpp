@@ -10,3 +10,4 @@
 #include <prism/pipeline/protocols/socks5.hpp>
 #include <prism/pipeline/protocols/trojan.hpp>
 #include <prism/pipeline/protocols/vless.hpp>
+#include <prism/pipeline/protocols/shadowsocks.hpp>

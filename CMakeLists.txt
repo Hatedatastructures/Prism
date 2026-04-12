@@ -81,6 +81,30 @@ FetchContent_Declare(
 )
 FetchContent_MakeAvailable(boringssl)
 
+# --- BLAKE3 ---
+# BLAKE3 哈希和密钥派生函数，用于 SS2022 (SIP022) 密钥派生。
+# BLAKE3 是 Rust crate，C API 在 c/ 子目录中，需要手动集成。
+FetchContent_Declare(
+    blake3
+    URL https://github.com/BLAKE3-team/BLAKE3/archive/refs/tags/1.8.1.tar.gz
+    DOWNLOAD_EXTRACT_TIMESTAMP TRUE
+)
+FetchContent_MakeAvailable(blake3)
+
+# BLAKE3 C 库（手动构建，不使用 Rust/Cargo）
+set(BLAKE3_C_DIR "${blake3_SOURCE_DIR}/c")
+add_library(blake3_c STATIC
+    ${BLAKE3_C_DIR}/blake3.c
+    ${BLAKE3_C_DIR}/blake3_dispatch.c
+    ${BLAKE3_C_DIR}/blake3_portable.c
+)
+target_include_directories(blake3_c PUBLIC ${BLAKE3_C_DIR})
+# 禁用 BLAKE3 汇编（MinGW 兼容性）
+target_compile_definitions(blake3_c PRIVATE BLAKE3_NO_SSE2 BLAKE3_NO_SSE41 BLAKE3_NO_AVX2 BLAKE3_NO_AVX512)
+if(OPENSSL_NO_ASM)
+    target_compile_definitions(blake3_c PRIVATE BLAKE3_USE_NEON=0)
+endif()
+
 # BoringSSL 的 bssl/decrepit 等目标无条件编译，排除出默认构建避免 MinGW 编译错误
 set_target_properties(bssl PROPERTIES EXCLUDE_FROM_ALL TRUE)
 if(TARGET decrepit)

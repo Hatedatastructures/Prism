@@ -12,6 +12,7 @@
 #include <prism/protocol/socks5/config.hpp>
 #include <prism/protocol/trojan/config.hpp>
 #include <prism/protocol/vless/config.hpp>
+#include <prism/protocol/shadowsocks/config.hpp>
 #include <prism/channel/connection/pool.hpp>
 #include <prism/multiplex/config.hpp>
 
@@ -187,6 +188,9 @@ namespace psm::agent
 
         // VLESS 协议配置，控制用户认证
         protocol::vless::config vless;
+
+        // Shadowsocks 协议配置，控制 PSK 和 AEAD 参数
+        protocol::shadowsocks::config shadowsocks;
 
         // 多路复用配置，控制 mux 服务端行为
         multiplex::config mux;

@@ -69,7 +69,7 @@ enum class protocol_type
     socks5,
     trojan,
     // 新增协议
-    ss2022,
+    shadowsocks,
 };
 ```
 

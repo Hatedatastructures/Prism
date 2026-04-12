@@ -106,8 +106,11 @@ namespace psm::protocol
             }
         }
 
-        // 4. 未知
-        return protocol_type::unknown;
+        // 4. SS2022 fallback
+        // SS2022 数据全是 AEAD 加密随机字节（salt + 加密头），无特征可识别。
+        // 排除 SOCKS5(0x05)、TLS(0x16)、HTTP 后，尝试 SS2022。
+        // relay 的 handshake() 会通过 AEAD 解密验证来确认。
+        return protocol_type::shadowsocks;
     }
 
     auto analysis::detect_tls(const std::string_view peek_data)
@@ -145,40 +148,39 @@ namespace psm::protocol
         }
 
         constexpr std::size_t trojan_min_length = 60;
-        if (peek_data.size() < trojan_min_length)
+        if (peek_data.size() >= trojan_min_length)
         {
-            return protocol_type::unknown;
-        }
-
-        for (std::size_t i = 0; i < 56; ++i)
-        {
-            const auto c = static_cast<unsigned char>(peek_data[i]);
-            const bool is_hex_digit = (c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') ||
-                                      (c >= 'A' && c <= 'F');
-            if (!is_hex_digit)
+            bool is_trojan = true;
+            for (std::size_t i = 0; i < 56; ++i)
             {
-                return protocol_type::http;
+                const auto c = static_cast<unsigned char>(peek_data[i]);
+                const bool is_hex_digit = (c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') ||
+                                          (c >= 'A' && c <= 'F');
+                if (!is_hex_digit)
+                {
+                    is_trojan = false;
+                    break;
+                }
+            }
+
+            if (is_trojan && peek_data[56] == '\r' && peek_data[57] == '\n')
+            {
+                const auto cmd = static_cast<unsigned char>(peek_data[58]);
+                if (cmd == 0x01 || cmd == 0x03 || cmd == 0x7F)
+                {
+                    const auto atyp = static_cast<unsigned char>(peek_data[59]);
+                    if (atyp == 0x01 || atyp == 0x03 || atyp == 0x04)
+                    {
+                        return protocol_type::trojan;
+                    }
+                }
             }
         }
 
-        if (peek_data[56] != '\r' || peek_data[57] != '\n')
-        {
-            return protocol_type::http;
-        }
-
-        const auto cmd = static_cast<unsigned char>(peek_data[58]);
-        if (cmd != 0x01 && cmd != 0x03 && cmd != 0x7F)
-        {
-            return protocol_type::http;
-        }
-
-        const auto atyp = static_cast<unsigned char>(peek_data[59]);
-        if (atyp != 0x01 && atyp != 0x03 && atyp != 0x04)
-        {
-            return protocol_type::http;
-        }
-
-        return protocol_type::trojan;
+        // SS2022 fallback：TLS 内层排除 HTTP/VLESS/Trojan 后，尝试 SS2022。
+        // SS2022 数据全是 AEAD 加密随机字节，无法通过特征检测，只能排除法。
+        // relay 的 handshake() 会通过 AEAD 解密验证来确认。
+        return protocol_type::shadowsocks;
     }
 
     auto analysis::resolve(const http::proxy_request &req, const memory::resource_pointer mr)

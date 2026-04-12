@@ -58,6 +58,10 @@
             "udp_max_datagram": 65535
         },
         "vless": {},
+        "shadowsocks": {
+            "psk": "5n5ESu953i/pjIp02oZvHA==",
+            "enable_tcp": true
+        },
         "mux": {
             "enabled": true,
             "smux": {

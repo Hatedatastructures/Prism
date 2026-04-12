@@ -234,6 +234,35 @@ namespace psm::agent::dispatch
     };
 
     /**
+     * @class Shadowsocks
+     * @brief SS2022 (Shadowsocks 2022) 协议处理器
+     * @details 实现 SS2022 协议的处理逻辑，将检测到的 SS2022 数据流转发到
+     * pipeline::shadowsocks 处理流水线。SS2022 使用 BLAKE3 密钥派生和 AES-GCM AEAD
+     * 加密，运行在 TLS 内层。该处理器为无状态单例。
+     */
+    class Shadowsocks : public handler
+    {
+    public:
+        Shadowsocks() = default;
+
+        [[nodiscard]] protocol::protocol_type type() const override
+        {
+            return protocol::protocol_type::shadowsocks;
+        }
+
+        [[nodiscard]] std::string_view name() const override
+        {
+            return "shadowsocks";
+        }
+
+        auto process(session_context &ctx, const std::span<const std::byte> data)
+            -> net::awaitable<void> override
+        {
+            co_await pipeline::shadowsocks(ctx, data);
+        }
+    };
+
+    /**
      * @class Unknown
      * @brief Unknown 协议处理器
      * @details 实现未知协议的处理逻辑，执行原始 TCP 双向透传。该处理器作为默认
@@ -322,6 +351,7 @@ namespace psm::agent::dispatch
         factory.register_handler<Socks5>(protocol::protocol_type::socks5);
         factory.register_handler<Trojan>(protocol::protocol_type::trojan);
         factory.register_handler<Vless>(protocol::protocol_type::vless);
+        factory.register_handler<Shadowsocks>(protocol::protocol_type::shadowsocks);
         factory.register_handler<Unknown>(protocol::protocol_type::unknown);
     }
 

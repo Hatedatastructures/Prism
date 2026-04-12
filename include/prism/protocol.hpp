@@ -54,4 +54,5 @@
 #include <prism/protocol/http.hpp>
 #include <prism/protocol/trojan.hpp>
 #include <prism/protocol/vless.hpp>
+#include <prism/protocol/shadowsocks.hpp>
 #include <prism/protocol/socks5.hpp>

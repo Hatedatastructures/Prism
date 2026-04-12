@@ -253,6 +253,18 @@ proxies:
     udp: true
     skip-cert-verify: true
 
+  # SS2022 (Shadowsocks 2022 / SIP022)
+  # SS2022 直接走裸 TCP（mihomo 不支持 SS2022 + tls: true）
+  # 要套 TLS 需使用 plugin: shadow-tls 或 plugin: restls
+  # cipher 必须使用 2022-blake3-aes-128-gcm 或 2022-blake3-aes-256-gcm
+  # password 为 base64 编码的随机密钥（16 字节对应 AES-128，32 字节对应 AES-256）
+  - name: "SS2022 TCP"
+    type: ss
+    server: 192.168.137.1
+    port: 8081
+    cipher: 2022-blake3-aes-128-gcm
+    password: "5n5ESu953i/pjIp02oZvHA=="
+
   # VLESS
   - name: "VLESS TCP"
     type: vless
@@ -341,6 +353,7 @@ proxy-groups:
       - "VLESS Smux UDP"
       - "VLESS Yamux TCP"
       - "VLESS Yamux UDP"
+      - "SS2022 TCP"
 
   - name: "国内延迟测试(xiaomi)"
     type: url-test
@@ -370,7 +383,8 @@ proxy-groups:
       - "VLESS Smux UDP"
       - "VLESS Yamux TCP"
       - "VLESS Yamux UDP"
-      
+      - "SS2022 TCP"
+
     url: "http://connect.rom.miui.com/generate_204"
     interval: 300
 

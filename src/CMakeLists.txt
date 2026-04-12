@@ -17,6 +17,7 @@ target_link_libraries(${PROJECT_NAME}_static_library
         Boost::system
         OpenSSL::SSL
         OpenSSL::Crypto
+        blake3_c
         ws2_32
         mswsock
         crypt32

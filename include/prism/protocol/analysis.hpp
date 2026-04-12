@@ -47,6 +47,7 @@ namespace psm::protocol
         socks5,
         trojan,
         vless,
+        shadowsocks,
         tls
     };
 
@@ -79,6 +80,8 @@ namespace psm::protocol
             return "trojan";
         case protocol_type::vless:
             return "vless";
+        case protocol_type::shadowsocks:
+            return "shadowsocks";
         case protocol_type::tls:
             return "tls";
         default:

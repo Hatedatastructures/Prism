@@ -92,7 +92,13 @@ namespace psm::fault
         mux_connection_limit = 43,                    // Mux 连接数限制
         mux_stream_limit = 44,                        // Mux 流数限制
 
-        _count = 45                                   // 错误码总数（内部使用）
+        // SS2022 相关错误码
+        crypto_error = 45,                            // AEAD 加密/解密失败
+        invalid_psk = 46,                             // PSK 长度或 base64 无效
+        timestamp_expired = 47,                       // 客户端时间戳超出有效窗口
+        replay_detected = 48,                         // Salt 重放检测
+
+        _count = 49                                   // 错误码总数（内部使用）
     };
 
     /**
@@ -200,6 +206,14 @@ namespace psm::fault
             return "mux_connection_limit";
         case code::mux_stream_limit:
             return "mux_stream_limit";
+        case code::crypto_error:
+            return "crypto_error";
+        case code::invalid_psk:
+            return "invalid_psk";
+        case code::timestamp_expired:
+            return "timestamp_expired";
+        case code::replay_detected:
+            return "replay_detected";
         default:
             return "unknown";
         }

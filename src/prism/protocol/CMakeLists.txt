@@ -5,6 +5,8 @@ target_sources(${PROJECT_NAME}_static_library
         trojan/format.cpp
         vless/relay.cpp
         vless/format.cpp
+        shadowsocks/relay.cpp
+        shadowsocks/format.cpp
 )
 
 target_sources(${PROJECT_NAME}_static_library
@@ -35,6 +37,13 @@ target_sources(${PROJECT_NAME}_static_library
             ${PROJECT_SOURCE_DIR}/include/prism/protocol/vless/message.hpp
             ${PROJECT_SOURCE_DIR}/include/prism/protocol/vless/relay.hpp
             ${PROJECT_SOURCE_DIR}/include/prism/protocol/vless/format.hpp
+            ${PROJECT_SOURCE_DIR}/include/prism/protocol/shadowsocks.hpp
+            ${PROJECT_SOURCE_DIR}/include/prism/protocol/shadowsocks/config.hpp
+            ${PROJECT_SOURCE_DIR}/include/prism/protocol/shadowsocks/constants.hpp
+            ${PROJECT_SOURCE_DIR}/include/prism/protocol/shadowsocks/message.hpp
+            ${PROJECT_SOURCE_DIR}/include/prism/protocol/shadowsocks/salt_pool.hpp
+            ${PROJECT_SOURCE_DIR}/include/prism/protocol/shadowsocks/format.hpp
+            ${PROJECT_SOURCE_DIR}/include/prism/protocol/shadowsocks/relay.hpp
 )
 
 add_subdirectory(http)

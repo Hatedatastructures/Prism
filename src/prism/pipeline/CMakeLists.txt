@@ -5,6 +5,7 @@ target_sources(${PROJECT_NAME}_static_library
         protocols/socks5.cpp
         protocols/trojan.cpp
         protocols/vless.cpp
+        protocols/shadowsocks.cpp
 )
 
 target_sources(${PROJECT_NAME}_static_library
@@ -17,5 +18,6 @@ target_sources(${PROJECT_NAME}_static_library
             ${PROJECT_SOURCE_DIR}/include/prism/pipeline/protocols/socks5.hpp
             ${PROJECT_SOURCE_DIR}/include/prism/pipeline/protocols/trojan.hpp
             ${PROJECT_SOURCE_DIR}/include/prism/pipeline/protocols/vless.hpp
+            ${PROJECT_SOURCE_DIR}/include/prism/pipeline/protocols/shadowsocks.hpp
             ${PROJECT_SOURCE_DIR}/include/prism/pipeline/protocols.hpp
 )
