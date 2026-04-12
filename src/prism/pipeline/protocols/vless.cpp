@@ -8,6 +8,7 @@
 #include <prism/pipeline/protocols/vless.hpp>
 #include <protocol.hpp>
 #include <prism/multiplex/bootstrap.hpp>
+#include <prism/agent/account/directory.hpp>
 #include <prism/memory/container.hpp>
 #include <string_view>
 
@@ -15,6 +16,8 @@ constexpr std::string_view VlessStr = "[Pipeline.Vless]";
 
 namespace psm::pipeline
 {
+    namespace account = psm::agent::account;
+
     auto vless(session_context &ctx, const std::span<const std::byte> data)
         -> net::awaitable<void>
     {
@@ -25,8 +28,26 @@ namespace psm::pipeline
             inbound = std::make_shared<primitives::preview>(std::move(inbound), data, nullptr);
         }
 
+        // 创建 UUID 验证回调，通过 account::directory 统一认证和连接数限制
+        auto verifier = [&ctx](const std::string_view credential) -> bool
+        {
+            if (!ctx.account_directory_ptr)
+            {
+                trace::warn("{} account directory not configured", VlessStr);
+                return false;
+            }
+            auto lease = account::try_acquire(*ctx.account_directory_ptr, credential);
+            if (!lease)
+            {
+                trace::warn("{} credential verification failed", VlessStr);
+                return false;
+            }
+            ctx.account_lease = std::move(lease);
+            return true;
+        };
+
         // 创建 VLESS 中继代理并执行握手
-        const auto agent = protocol::vless::make_relay(std::move(inbound), ctx.server.cfg.vless);
+        const auto agent = protocol::vless::make_relay(std::move(inbound), ctx.server.cfg.vless, std::move(verifier));
 
         auto [vless_ec, req] = co_await agent->handshake();
         if (fault::failed(vless_ec))

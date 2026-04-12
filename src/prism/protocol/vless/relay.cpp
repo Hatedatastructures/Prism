@@ -3,8 +3,8 @@
  * @brief VLESS 协议中继器实现
  * @details 该文件实现了 relay 类的所有成员方法，包括构造函数、
  * 传输层操作和握手流程。握手流程从传输层读取数据、解析 VLESS 请求头、
- * 验证 UUID、发送响应字节。关键：数据从 preview transport 读取，
- * 读取即消费，避免残留数据泄漏到 mux。
+ * 通过 verifier 回调验证 UUID、发送响应字节。关键：数据从 preview
+ * transport 读取，读取即消费，避免残留数据泄漏到 mux。
  */
 
 #include <prism/protocol/vless/relay.hpp>
@@ -41,16 +41,6 @@ namespace psm::protocol::vless
         }
         buf[36] = '\0';
         return std::string(buf.data());
-    }
-
-    static auto verify_uuid(const std::array<uint8_t, 16> &uuid, const std::vector<std::string> &users) -> bool
-    {
-        if (users.empty())
-        {
-            return true;
-        }
-        const auto uuid_str = uuid_to_string(uuid);
-        return std::find(users.begin(), users.end(), uuid_str) != users.end();
     }
 
     /**
@@ -102,8 +92,9 @@ namespace psm::protocol::vless
         co_return std::pair{fault::code::success, current};
     }
 
-    relay::relay(channel::transport::shared_transmission next_layer, const config &cfg)
-        : next_layer_(std::move(next_layer)), config_(cfg)
+    relay::relay(channel::transport::shared_transmission next_layer, const config &cfg,
+                 std::function<bool(std::string_view)> verifier)
+        : next_layer_(std::move(next_layer)), config_(cfg), verifier_(std::move(verifier))
     {
     }
 
@@ -267,11 +258,15 @@ namespace psm::protocol::vless
             co_return std::pair{fault::code::unsupported_address, request{}};
         }
 
-        // 验证 UUID
-        if (!verify_uuid(uuid, config_.users))
+        // 通过 verifier 回调验证 UUID
+        if (verifier_)
         {
-            trace::warn("[Vless] UUID verification failed");
-            co_return std::pair{fault::code::auth_failed, request{}};
+            const auto uuid_str = uuid_to_string(uuid);
+            if (!verifier_(uuid_str))
+            {
+                trace::warn("[Vless] UUID verification failed");
+                co_return std::pair{fault::code::auth_failed, request{}};
+            }
         }
 
         // 发送响应 [0x00]

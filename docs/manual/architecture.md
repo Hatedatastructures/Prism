@@ -82,7 +82,7 @@
 
 ### 1.2 运行链完整度
 
-当前所有核心功能（HTTP/HTTPS 代理、SOCKS5 TCP/UDP、TLS 终止、Trojan 协议、smux/yamux 多路复用、反向代理、连接池、DNS 缓存、账户认证）均已完成实现。
+当前所有核心功能（HTTP/HTTPS 代理、SOCKS5 TCP/UDP、TLS 终止、Trojan 协议、VLESS 协议、smux/yamux 多路复用、反向代理、连接池、DNS 缓存、账户认证）均已完成实现。
 
 ---
 
@@ -95,37 +95,35 @@
 | 1 | `enable_global_pooling()` | `src/main.cpp` | 初始化全局内存池 |
 | 2 | `loader::load(configuration_path)` | `src/main.cpp` | 从配置文件加载 agent 配置和日志配置 |
 | 3 | `trace::init(trace)` | `src/main.cpp` | 初始化日志追踪系统 |
-| 4 | `register_handlers()` | `src/main.cpp` | 注册协议处理器（HTTP/SOCKS5/Trojan/Unknown）到全局工厂 |
+| 4 | `register_handlers()` | `src/main.cpp` | 注册协议处理器（HTTP/SOCKS5/Trojan/VLESS/Unknown）到全局工厂 |
 
 ### 2.2 账户存储初始化
 
 | 步骤 | 操作 | 源码位置 | 说明 |
 |------|------|----------|------|
-| 5 | 创建 `account_store` | `src/main.cpp` | 使用全局内存池创建账户目录 |
-| 6 | 填充 `credentials` | `src/main.cpp` | 遍历并插入凭据数据 |
-| 7 | 填充 `users` | `src/main.cpp` | 遍历并插入用户数据（含连接数限制） |
+| 5 | 构建账户目录 | `loader/load.hpp` | `loader::build_account_directory()` 将统一用户表（password/uuid）注册到 `account::directory`，password 经 SHA224 规范化，uuid 直接注册，两种凭证共享同一个 entry |
 
 ### 2.3 Worker 创建阶段
 
 | 步骤 | 操作 | 源码位置 | 说明 |
 |------|------|----------|------|
-| 8 | 计算 `workers_count` | `src/main.cpp` | 根据 CPU 核心数计算工作线程数 |
-| 9 | 创建 `workers` 向量 | `src/main.cpp` | 创建并填充 worker 实例 |
+| 6 | 计算 `workers_count` | `src/main.cpp` | 根据 CPU 核心数计算工作线程数 |
+| 7 | 创建 `workers` 向量 | `src/main.cpp` | 创建并填充 worker 实例 |
 
 ### 2.4 负载均衡器绑定
 
 | 步骤 | 操作 | 源码位置 | 说明 |
 |------|------|----------|------|
-| 10 | 创建 `bindings` 列表 | `src/main.cpp` | 为每个 worker 创建分发函数和快照函数 |
-| 11 | 创建 `balancer` | `src/main.cpp` | 使用绑定列表创建负载均衡器 |
-| 12 | 创建 `listener` | `src/main.cpp` | 创建监听器实例 |
+| 8 | 创建 `bindings` 列表 | `src/main.cpp` | 为每个 worker 创建分发函数和快照函数 |
+| 9 | 创建 `balancer` | `src/main.cpp` | 使用绑定列表创建负载均衡器 |
+| 10 | 创建 `listener` | `src/main.cpp` | 创建监听器实例 |
 
 ### 2.5 线程启动阶段
 
 | 步骤 | 操作 | 源码位置 | 说明 |
 |------|------|----------|------|
-| 13 | 启动 worker 线程 | `src/main.cpp` | 为每个 worker 启动独立线程运行 `worker.run()` |
-| 14 | 启动监听线程 | `src/main.cpp` | 启动独立线程运行 `listener.listen()` |
+| 11 | 启动 worker 线程 | `src/main.cpp` | 为每个 worker 启动独立线程运行 `worker.run()` |
+| 12 | 启动监听线程 | `src/main.cpp` | 启动独立线程运行 `listener.listen()` |
 
 ---
 
@@ -187,6 +185,7 @@
 | HTTP | `dispatch::Http` | `psm::pipeline::http()` | `include/prism/agent/dispatch/handlers.hpp` |
 | SOCKS5 | `dispatch::Socks5` | `psm::pipeline::socks5()` | `include/prism/agent/dispatch/handlers.hpp` |
 | Trojan | `dispatch::Trojan` | `psm::pipeline::trojan()` | `include/prism/agent/dispatch/handlers.hpp` |
+| VLESS | `dispatch::Vless` | `psm::pipeline::vless()` | `include/prism/agent/dispatch/handlers.hpp` |
 | Unknown | `dispatch::Unknown` | `primitives::tunnel()` | `include/prism/agent/dispatch/handlers.hpp` |
 
 ### 3.7 上游连接阶段
@@ -210,13 +209,14 @@
 
 ## 四、协议处理器注册
 
-当前 `register_handlers()` 函数注册以下四种协议处理器：
+当前 `register_handlers()` 函数注册以下五种协议处理器：
 
 | 协议类型 | 枚举值 | 处理器类 | 注册位置 |
 |----------|--------|----------|----------|
 | HTTP | `protocol_type::http` | `dispatch::Http` | `include/prism/agent/dispatch/handlers.hpp` |
 | SOCKS5 | `protocol_type::socks5` | `dispatch::Socks5` | `include/prism/agent/dispatch/handlers.hpp` |
 | Trojan | `protocol_type::trojan` | `dispatch::Trojan` | `include/prism/agent/dispatch/handlers.hpp` |
+| VLESS | `protocol_type::vless` | `dispatch::Vless` | `include/prism/agent/dispatch/handlers.hpp` |
 | Unknown | `protocol_type::unknown` | `dispatch::Unknown` | `include/prism/agent/dispatch/handlers.hpp` |
 
 **注册函数定义**见 [路由与分发文档](routing.md)。

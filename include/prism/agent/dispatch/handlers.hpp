@@ -1,17 +1,18 @@
 /**
  * @file handlers.hpp
  * @brief 协议处理器分发器
- * @details 定义具体协议处理器实现如 Http、SOCKS5、Trojan、Unknown 及其全局注册函数。
+ * @details 定义具体协议处理器实现如 Http、SOCKS5、Trojan、VLESS、Unknown 及其全局注册函数。
  * 这些处理器将检测到的协议数据流转发到相应的协议处理流水线。架构说明方面，
  * 处理器类是具体的协议处理器类继承自 handler 基类，实现 process 方法。处理器
  * 注册通过 registry::global 工厂注册所有协议处理器。单例设计，每个协议处理器类
  * 为单例，避免每个连接重复创建。流水线委托，处理逻辑委托给 pipeline 命名空间
  * 的具体处理函数。协议支持包括 Http 支持 Http/1.1，包括 GET、POST、CONNECT
  * 等方法。SOCKS5 支持 SOCKS5 协议标准定义的认证和连接命令。Trojan 支持
- * Trojan over TLS 代理协议。Unknown 支持原始 TCP 透传。设计特性包括
- * 工厂模式，通过 registry::global 工厂创建处理器实例。单例优化，每个协议处理器
- * 类为单例，减少内存分配。类型安全，使用模板参数和 protocol_type 枚举确保类型
- * 正确性。协程支持，所有 process 方法都是协程，支持异步处理。
+ * Trojan over TLS 代理协议。VLESS 支持 VLESS 协议，通过 UUID 认证。
+ * Unknown 支持原始 TCP 透传。设计特性包括工厂模式，通过 registry::global
+ * 工厂创建处理器实例。单例优化，每个协议处理器类为单例，减少内存分配。
+ * 类型安全，使用模板参数和 protocol_type 枚举确保类型正确性。协程支持，
+ * 所有 process 方法都是协程，支持异步处理。
  * @note 所有处理器继承自 handler 基类，通过 registry::global 工厂注册。
  * @warning 处理器应为单例实例，避免每个连接重复创建。
  */
@@ -301,12 +302,13 @@ namespace psm::agent::dispatch
 
     /**
      * @brief 注册所有协议处理器到全局工厂
-     * @details 将 Http、SOCKS5、Trojan、Unknown 协议处理器注册到全局处理器工厂
+     * @details 将 Http、SOCKS5、Trojan、VLESS、Unknown 协议处理器注册到全局处理器工厂
      * registry::global。该函数应在程序初始化阶段调用，确保所有协议处理器在
      * 检测阶段可用。注册流程为获取全局工厂单例引用。为每种协议类型注册对应的
      * 处理器类模板。工厂内部将创建处理器单例实例。注册协议包括 Http 协议，
      * 注册 Http 到 protocol_type::http。SOCKS5 协议，注册 Socks5
      * 到 protocol_type::socks5。Trojan 协议，注册 Trojan 到 protocol_type::trojan。
+     * VLESS 协议，注册 Vless 到 protocol_type::vless。
      * Unknown 协议，注册 Unknown 到 protocol_type::unknown。
      * @note 该函数是幂等的，多次调用不会重复注册相同处理器。
      * @warning 必须在所有工作线程启动前调用，避免线程竞争。

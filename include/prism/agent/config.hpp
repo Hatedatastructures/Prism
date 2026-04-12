@@ -94,26 +94,27 @@ namespace psm::agent
     {
         /**
          * @struct user
-         * @brief 用户配置
-         * @details 表示一个独立用户，包含凭据和可选的连接数限制。
-         * 用于精细化的连接控制和配额管理。用户凭据在 account::directory
-         * 中用于查找和配额控制。
-         * @note 用户凭据在 account::directory 中用于查找和配额控制。
+         * @brief 统一用户配置
+         * @details 表示一个独立用户，可同时配置密码和 UUID 两种认证方式。
+         * password 用于 Trojan/HTTP/SOCKS5 协议，启动时自动转换为 SHA224
+         * 哈希注册到 account::directory。uuid 用于 VLESS 协议，直接注册到
+         * account::directory。两种凭证共享同一个 entry，从而共享连接数配额。
+         * 两个字段均为可选，但至少一个非空才有效。
          * @warning 如果 max_connections 设为 0，该用户不受并发数限制。
          */
         struct user
         {
-            // 用户凭据，SHA224 哈希字符串
-            memory::string credential;
+            // 密码认证（明文或 56 字符 SHA224 hex），用于 Trojan/HTTP/SOCKS5
+            memory::string password;
+
+            // VLESS UUID 字符串，标准格式 xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx
+            memory::string uuid;
 
             // 最大并发连接数，0 表示无限制
             std::uint32_t max_connections = 0;
         };
 
-        // 凭据列表，存储允许通过验证的 SHA224 密码哈希
-        memory::vector<memory::string> credentials;
-
-        // 用户列表，支持为单个用户配置独立限制
+        // 统一用户列表，支持为每个用户配置密码/UUID 和独立连接数限制
         memory::vector<user> users;
     };
 

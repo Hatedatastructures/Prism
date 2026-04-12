@@ -108,6 +108,17 @@ namespace psm::agent::account
         void upsert(std::string_view credential, std::uint32_t max_connections = 0);
 
         /**
+         * @brief 插入已有条目到指定凭证键下
+         * @param credential 账户凭证字符串
+         * @param existing_entry 已有的账户条目共享指针
+         * @details 将已有 entry 以新的凭证键注册到目录中，实现多协议凭证
+         *（如 SHA224 哈希和 UUID）共享同一个 entry，从而共享连接数配额。
+         * 操作会触发写时复制。
+         * @note 调用方需确保 existing_entry 非 nullptr
+         */
+        void insert(std::string_view credential, std::shared_ptr<entry> existing_entry);
+
+        /**
          * @brief 查找账户条目
          * @param credential 账户凭证字符串
          * @return 账户条目共享指针，未找到返回 nullptr

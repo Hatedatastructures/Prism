@@ -92,7 +92,7 @@ void start(server_context &server, worker_context &worker, stats::state &metrics
     {
         shared_session->set_on_closed(std::move(on_closed));
 
-        const bool auth_enabled = !server.cfg.authentication.credentials.empty() || !server.cfg.authentication.users.empty();
+        const bool auth_enabled = !server.cfg.authentication.users.empty();
         auto account_store = server.account_store;
         shared_session->set_account_directory(auth_enabled ? account_store.get() : nullptr);
         shared_session->set_credential_verifier(

@@ -27,6 +27,7 @@
 | **SOCKS5 UDP** | 100% | ✅ 完成 | 支持 UDP ASSOCIATE 命令 |
 | **TLS 透明剥离** | 100% | ✅ 完成 | Session 层 TLS 握手 + 内层协议探测，Handler 无感 TLS |
 | **Trojan 协议** | 100% | ✅ 完成 | Trojan over TLS 协议已接入运行链 |
+| **VLESS 协议** | 90% | ✅ 完成 | VLESS 协议已接入，TCP/mux 可用，UDP 待实现 |
 
 #### 2. 核心架构模块
 
@@ -34,12 +35,12 @@
 |------|--------|------|
 | **协程驱动架构** | 100% | 基于 `net::awaitable` 的异步模型，无回调地狱 |
 | **智能连接池** | 100% | TCP 连接复用，支持僵尸检测、空闲超时、端点缓存上限 |
-| **协议自动识别** | 100% | 动态检测 HTTP/SOCKS5/TLS，TLS 剥离后二次探测内层协议 |
+| **协议自动识别** | 100% | 动态检测 HTTP/SOCKS5/TLS，TLS 剥离后二次探测内层协议（HTTP/Trojan/VLESS） |
 | **路由分发系统** | 100% | 支持正向代理、反向代理、直连三种模式 |
 | **双向隧道转发** | 100% | 优化的数据转发算法，支持优雅退出 |
 | **负载均衡** | 100% | 基于评分的 Worker 选择，过载检测与滞后机制 |
 | **DNS 缓存** | 100% | TCP/UDP 双模式解析，请求合并，TTL 管理 |
-| **账户认证** | 100% | 写时复制、无锁读取、连接数限制、流量统计 |
+| **账户认证** | 100% | 统一用户模型，password + UUID 共享 entry，写时复制、无锁读取、连接数限制 |
 
 #### 3. 基础设施
 
@@ -67,8 +68,8 @@
 | **session** | session | ✅ 100% | 会话生命周期管理，协议检测分发 |
 | **dispatch** | handler | ✅ 100% | 协议处理器抽象基类 |
 | **dispatch** | registry | ✅ 100% | 处理器注册表，工厂模式 |
-| **dispatch** | handlers | ✅ 100% | HTTP/SOCKS5/Trojan/Unknown 处理器实现 |
-| **pipeline** | protocols | ✅ 100% | HTTP/SOCKS5/Trojan 协议处理管道 |
+| **dispatch** | handlers | ✅ 100% | HTTP/SOCKS5/Trojan/VLESS/Unknown 处理器实现 |
+| **pipeline** | protocols | ✅ 100% | HTTP/SOCKS5/Trojan/VLESS 协议处理管道 |
 | **pipeline** | primitives | ✅ 100% | dial、preview、tunnel 原语 |
 | **resolve** | router | ✅ 100% | 统一路由入口，整合解析器、连接池 |
 | **resolve** | recursor | ✅ 100% | DNS 解析门面，六阶段查询管道 |
@@ -86,6 +87,7 @@
 | **HTTP** | ✅ 100% | HTTP/1.1 请求解析 (parser) + 协议处理 (relay)，零分配 |
 | **SOCKS5** | ✅ 100% | RFC 1928 完整实现，支持 CONNECT、UDP ASSOCIATE |
 | **Trojan** | ✅ 100% | Trojan over TLS 协议，密码验证 + 流量伪装 |
+| **VLESS** | ✅ 90% | VLESS 协议，UUID 认证 + mux 多路复用，UDP 待实现 |
 | **协议探测** | ✅ 100% | 外层 detect() + 内层 detect_inner() 双阶段探测 |
 
 ### Channel 模块 (`include/prism/channel/`)
@@ -175,7 +177,7 @@
 | 插件生态系统 | 支持第三方插件扩展 |
 | 集群部署 | 多节点负载均衡和故障转移 |
 | Web 管理界面 | 可视化配置和监控 |
-| 协议扩展 | Shadowsocks 2022、VLESS、Reality、Hysteria2 等协议支持 |
+| 协议扩展 | Shadowsocks 2022、Reality、Hysteria2 等协议支持（VLESS 已完成） |
 
 ---
 
@@ -237,6 +239,24 @@ curl -v -x socks5://127.0.0.1:8081 http://www.baidu.com
 ---
 
 ## 更新日志
+
+### 2026年4月12日
+
+**VLESS 协议接入：**
+- 新增 VLESS 协议完整实现：relay（UUID 认证 + 握手）、format（请求解析）、pipeline 会话处理
+- 协议检测支持 VLESS（22 字节最小嗅探）
+- 支持 TCP 隧道和 smux/yamux 多路复用
+
+**统一认证体系重构：**
+- 合并 `authentication.credentials` 和 `vless.users` 为统一 `authentication.users` 用户模型
+- 每个用户可同时配置 `password`（Trojan/HTTP/SOCKS5）和 `uuid`（VLESS），共享 `max_connections` 配额
+- VLESS relay 接入 verifier 回调模式，通过 `account::directory` 统一认证
+- `account::directory` 新增 `insert()` 方法，支持多凭证指向同一 entry
+- 账户目录构建逻辑封装为 `loader::build_account_directory()`
+
+**文档更新：**
+- 新增 `docs/protocols/vless.md` VLESS 协议完整文档
+- 全量更新架构文档、模块文档、配置参考、TLS 文档、CLAUDE.md
 
 ### 2026年4月11日
 

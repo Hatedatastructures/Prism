@@ -24,7 +24,6 @@
 #include <prism/exception.hpp>
 #include <prism/config.hpp>
 #include <prism/loader/load.hpp>
-#include <prism/crypto/sha224.hpp>
 
 namespace agent = psm::agent;
 
@@ -56,23 +55,11 @@ int main()
         auto [agent, trace] = psm::loader::load(configuration_path);
         psm::trace::init(trace);
 
-        // 注册协议检测与处理函数（Trojan、SOCKS5、HTTP）
+        // 注册协议检测与处理函数（Trojan、SOCKS5、HTTP、VLESS）
         psm::agent::dispatch::register_handlers();
 
-        // 构建共享账户目录，将配置中的凭据规范化后写入
-        const auto account_store = std::make_shared<agent::account::directory>(psm::memory::system::global_pool());
-        const auto &[credentials, users] = agent.authentication;
-        account_store->reserve(credentials.size() + users.size());
-        for (const auto &cred : credentials)
-        {
-            const auto normalized = psm::crypto::normalize_credential(std::string_view(cred.data(), cred.size()));
-            account_store->upsert(normalized);
-        }
-        for (const auto &[credential, max_connections] : users)
-        {
-            const auto normalized = psm::crypto::normalize_credential(std::string_view(credential.data(), credential.size()));
-            account_store->upsert(normalized, max_connections);
-        }
+        // 从认证配置构建共享账户目录
+        const auto account_store = psm::loader::build_account_directory(agent.authentication);
 
         // worker 线程数 = CPU 核心数 - 1（保留一个核心给监听线程），至少 1 个
         const std::uint32_t workers_count = threads_count > 1U ? threads_count - 1U : 1U;

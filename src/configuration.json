@@ -17,12 +17,10 @@
             "cert": "C:\\Users\\C1373\\Desktop\\code\\prism\\cert.pem"
         },
         "authentication": {
-            "credentials": [
-                "prism"
-            ],
             "users": [
                 {
-                    "credential": "prism",
+                    "password": "prism",
+                    "uuid": "123e4567-e89b-12d3-a456-426614174000",
                     "max_connections": 0
                 }
             ]
@@ -59,11 +57,7 @@
             "udp_idle_timeout": 60,
             "udp_max_datagram": 65535
         },
-        "vless": {
-            "users": [
-                "123e4567-e89b-12d3-a456-426614174000"
-            ]
-        },
+        "vless": {},
         "mux": {
             "enabled": true,
             "smux": {

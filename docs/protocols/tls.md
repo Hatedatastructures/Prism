@@ -1,7 +1,7 @@
 # TLS 协议在 Prism 内的调用流程
 
 本文说明 TLS 连接在 Prism 内的处理流程。Session 层负责 TLS 握手和内层协议探测，
-之后将已解密的传输层分发给对应的 handler（HTTP 或 Trojan）。
+之后将已解密的传输层分发给对应的 handler（HTTP、Trojan 或 VLESS）。
 
 核心思想：**handler 不感知 TLS，只看到解密后的 transport + 预读数据。**
 
@@ -37,11 +37,12 @@ probe(24B) → detect() → protocol_type::tls
               增量读取内层数据，detect_inner() 探测协议
                 - HTTP：最早 4 字节可识别（匹配方法前缀）
                 - Trojan：至少 60 字节（56 凭据 + CRLF + CMD + ATYP）
+                - VLESS：至少 22 字节（Version + UUID + AddnlLen + CMD + Port + ATYP + 最小地址）
                           ↓
               分发到对应 handler（handler 收到解密 transport）
 ```
 
-> Trojan 协议格式详见 [Trojan 协议文档](trojan.md)。
+> Trojan 协议格式详见 [Trojan 协议文档](trojan.md)，VLESS 协议格式详见 [VLESS 协议文档](vless.md)。
 
 ## 3. 证书配置
 

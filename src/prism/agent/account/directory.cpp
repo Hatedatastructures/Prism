@@ -36,6 +36,15 @@ namespace psm::agent::account
         update_entries(update_function);
     }
 
+    void directory::insert(std::string_view credential, std::shared_ptr<entry> existing_entry)
+    {
+        auto update_function = [credential, e = std::move(existing_entry)](unordered_map &ref) mutable
+        {   // 将已有 entry 以新凭证键插入，实现多凭证共享同一 entry
+            ref[memory::string(credential, ref.get_allocator().resource())] = std::move(e);
+        };
+        update_entries(update_function);
+    }
+
     auto directory::find(const std::string_view credential) const noexcept -> std::shared_ptr<entry>
     {   // 先获取当前映射表的快照，确保读取的是最新数据
         const auto snapshot = entries_ptr_.load(std::memory_order_acquire);

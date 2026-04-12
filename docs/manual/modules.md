@@ -103,11 +103,12 @@
   ├─ protocol_type::http    → Http handler (singleton)
   ├─ protocol_type::socks5  → Socks5 handler (singleton)
   ├─ protocol_type::trojan  → Trojan handler (singleton)
+  ├─ protocol_type::vless   → Vless handler (singleton)
   └─ protocol_type::unknown → Unknown handler (singleton)
        │
        ▼
   Handler.process()
-  └─ Http/Socks5/Trojan → 对应 pipeline 处理
+  └─ Http/Socks5/Trojan/Vless → 对应 pipeline 处理
 ```
 
 ### handler
@@ -132,6 +133,7 @@
   - `Http`：处理 HTTP/1.1 请求，委托给 `pipeline::http`
   - `Socks5`：处理 SOCKS5 协议，委托给 `pipeline::socks5`
   - `Trojan`：处理 Trojan over TLS（TLS 已在 Session 层剥离），委托给 `pipeline::trojan`
+  - `Vless`：处理 VLESS 协议（支持裸跑或 TLS 内层），委托给 `pipeline::vless`
   - `Unknown`：原始 TCP 透传，调用 `primitives::tunnel`
 - 注册函数：`register_handlers()` 在程序启动时调用
 - 源码：[handlers.hpp](../../include/prism/agent/dispatch/handlers.hpp)
@@ -158,9 +160,14 @@
   1. 解析 Trojan 协议头，验证凭据
   3. 提取目标地址，建立上游连接
   4. 进入 `tunnel` 双向转发
-- `protocols.hpp` 为聚合头文件，引入 `http.hpp`、`socks5.hpp`、`trojan.hpp`
-- 源码：[protocols.hpp](../../include/prism/pipeline/protocols.hpp)、[http.hpp](../../include/prism/pipeline/protocols/http.hpp)、[socks5.hpp](../../include/prism/pipeline/protocols/socks5.hpp)、[trojan.hpp](../../include/prism/pipeline/protocols/trojan.hpp)
-- 实现：[http.cpp](../../src/prism/pipeline/protocols/http.cpp)、[socks5.cpp](../../src/prism/pipeline/protocols/socks5.cpp)、[trojan.cpp](../../src/prism/pipeline/protocols/trojan.cpp)
+- VLESS 处理路径（可裸跑或 TLS 内层）：
+  1. 解析 VLESS 协议头，通过 UUID 验证用户身份
+  2. 提取目标地址，建立上游连接
+  3. 进入 `tunnel` 双向转发
+  4. 支持 mux 多路复用（命令 0x7F 或 `.mux.sing-box.arpa` 地址标记）
+- `protocols.hpp` 为聚合头文件，引入 `http.hpp`、`socks5.hpp`、`trojan.hpp`、`vless.hpp`
+- 源码：[protocols.hpp](../../include/prism/pipeline/protocols.hpp)、[http.hpp](../../include/prism/pipeline/protocols/http.hpp)、[socks5.hpp](../../include/prism/pipeline/protocols/socks5.hpp)、[trojan.hpp](../../include/prism/pipeline/protocols/trojan.hpp)、[vless.hpp](../../include/prism/pipeline/protocols/vless.hpp)
+- 实现：[http.cpp](../../src/prism/pipeline/protocols/http.cpp)、[socks5.cpp](../../src/prism/pipeline/protocols/socks5.cpp)、[trojan.cpp](../../src/prism/pipeline/protocols/trojan.cpp)、[vless.cpp](../../src/prism/pipeline/protocols/vless.cpp)
 
 ### primitives
 - `dial()`：拨号连接上游
@@ -413,8 +420,10 @@
   - 适用于读多写少的账户配置场景
 - 关键函数：
   - `upsert()`：插入或更新账户条目
+  - `insert()`：将已有 entry 以新凭证键插入（用于多凭证共享同一 entry）
   - `find()`：无锁查找，返回 `shared_ptr<entry>`
   - `try_acquire()`：尝试获取连接租约
+- 统一认证：SHA224 密码哈希和 UUID 均作为 key 注册到同一目录，指向同一个 entry
 - 源码：[directory.hpp](../../include/prism/agent/account/directory.hpp)、[directory.cpp](../../src/prism/agent/account/directory.cpp)
 
 ### entry
