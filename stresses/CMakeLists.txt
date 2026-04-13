@@ -3,16 +3,16 @@ if(NOT PRISM_ENABLE_STRESS)
     return()
 endif()
 
-add_executable(memory_stress memory_stress.cpp)
+add_executable(memory_stress MemoryStress.cpp)
 target_link_libraries(memory_stress PRIVATE ${PROJECT_NAME}_static_library)
 
-add_executable(pool_contention_stress pool_contention_stress.cpp)
+add_executable(pool_contention_stress PoolContentionStress.cpp)
 target_link_libraries(pool_contention_stress PRIVATE ${PROJECT_NAME}_static_library)
 
-add_executable(arena_overflow_stress arena_overflow_stress.cpp)
+add_executable(arena_overflow_stress ArenaOverflowStress.cpp)
 target_link_libraries(arena_overflow_stress PRIVATE ${PROJECT_NAME}_static_library)
 
-add_executable(mux_stress mux_stress.cpp)
+add_executable(mux_stress MuxStress.cpp)
 target_link_libraries(mux_stress PRIVATE ${PROJECT_NAME}_static_library)
 
 if(MINGW)

@@ -55,7 +55,7 @@ int main()
         auto [agent, trace] = psm::loader::load(configuration_path);
         psm::trace::init(trace);
 
-        // 注册协议检测与处理函数（Trojan、SOCKS5、HTTP、VLESS）
+        // 注册协议检测与处理函数（Trojan、SOCKS5、HTTP、VLESS、Shadowsocks）
         psm::agent::dispatch::register_handlers();
 
         // 从认证配置构建共享账户目录

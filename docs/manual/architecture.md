@@ -82,7 +82,7 @@
 
 ### 1.2 运行链完整度
 
-当前所有核心功能（HTTP/HTTPS 代理、SOCKS5 TCP/UDP、TLS 终止、Trojan 协议、VLESS 协议、smux/yamux 多路复用、反向代理、连接池、DNS 缓存、账户认证）均已完成实现。
+当前所有核心功能（HTTP/HTTPS 代理、SOCKS5 TCP/UDP、TLS 终止、Trojan 协议、VLESS 协议、Shadowsocks 2022 协议、smux/yamux 多路复用、反向代理、连接池、DNS 缓存、账户认证）均已完成实现。
 
 ---
 
@@ -95,7 +95,7 @@
 | 1 | `enable_global_pooling()` | `src/main.cpp` | 初始化全局内存池 |
 | 2 | `loader::load(configuration_path)` | `src/main.cpp` | 从配置文件加载 agent 配置和日志配置 |
 | 3 | `trace::init(trace)` | `src/main.cpp` | 初始化日志追踪系统 |
-| 4 | `register_handlers()` | `src/main.cpp` | 注册协议处理器（HTTP/SOCKS5/Trojan/VLESS/Unknown）到全局工厂 |
+| 4 | `register_handlers()` | `src/main.cpp` | 注册协议处理器（HTTP/SOCKS5/Trojan/VLESS/Shadowsocks/Unknown）到全局工厂 |
 
 ### 2.2 账户存储初始化
 
@@ -186,6 +186,7 @@
 | SOCKS5 | `dispatch::Socks5` | `psm::pipeline::socks5()` | `include/prism/agent/dispatch/handlers.hpp` |
 | Trojan | `dispatch::Trojan` | `psm::pipeline::trojan()` | `include/prism/agent/dispatch/handlers.hpp` |
 | VLESS | `dispatch::Vless` | `psm::pipeline::vless()` | `include/prism/agent/dispatch/handlers.hpp` |
+| Shadowsocks | `dispatch::Shadowsocks` | `psm::pipeline::shadowsocks()` | `include/prism/agent/dispatch/handlers.hpp` |
 | Unknown | `dispatch::Unknown` | `primitives::tunnel()` | `include/prism/agent/dispatch/handlers.hpp` |
 
 ### 3.7 上游连接阶段
@@ -209,7 +210,7 @@
 
 ## 四、协议处理器注册
 
-当前 `register_handlers()` 函数注册以下五种协议处理器：
+当前 `register_handlers()` 函数注册以下六种协议处理器：
 
 | 协议类型 | 枚举值 | 处理器类 | 注册位置 |
 |----------|--------|----------|----------|
@@ -217,6 +218,7 @@
 | SOCKS5 | `protocol_type::socks5` | `dispatch::Socks5` | `include/prism/agent/dispatch/handlers.hpp` |
 | Trojan | `protocol_type::trojan` | `dispatch::Trojan` | `include/prism/agent/dispatch/handlers.hpp` |
 | VLESS | `protocol_type::vless` | `dispatch::Vless` | `include/prism/agent/dispatch/handlers.hpp` |
+| Shadowsocks | `protocol_type::shadowsocks` | `dispatch::Shadowsocks` | `include/prism/agent/dispatch/handlers.hpp` |
 | Unknown | `protocol_type::unknown` | `dispatch::Unknown` | `include/prism/agent/dispatch/handlers.hpp` |
 
 **注册函数定义**见 [路由与分发文档](routing.md)。

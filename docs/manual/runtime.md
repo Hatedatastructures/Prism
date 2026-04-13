@@ -379,6 +379,8 @@ auto create(const protocol::protocol_type type) const -> shared_handler
 | `http` | `dispatch::Http` | `pipeline::http()` |
 | `socks5` | `dispatch::Socks5` | `pipeline::socks5()` |
 | `trojan` | `dispatch::Trojan` | `pipeline::trojan()` |
+| `vless` | `dispatch::Vless` | `pipeline::vless()` |
+| `shadowsocks` | `dispatch::Shadowsocks` | `pipeline::shadowsocks()` |
 | `unknown` | `dispatch::Unknown` | `primitives::tunnel()` |
 
 #### 5. 调用 handler->process(ctx, pre_read_data)
@@ -663,6 +665,8 @@ auto on_closed = [active_sessions]() noexcept
        │     ├─ HTTP
        │     ├─ SOCKS5
        │     ├─ Trojan
+       │     ├─ VLESS
+       │     ├─ Shadowsocks
        │     └─ Unknown
        │           │
        │           ▼

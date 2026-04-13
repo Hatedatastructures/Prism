@@ -17,6 +17,8 @@ forward_add_test(Trace          Trace.cpp)
 forward_add_test(Http           Http.cpp)
 forward_add_test(Socks5         Socks5.cpp)
 forward_add_test(Trojan         Trojan.cpp)
+forward_add_test(Vless          Vless.cpp)
+forward_add_test(Shadowsocks    Shadowsocks.cpp)
 
 # ─── 回归 ────────────────────────────────────────
 forward_add_test(Regression     Regression.cpp)
@@ -26,6 +28,8 @@ forward_add_test(HttpParser     HttpParser.cpp)
 forward_add_test(Smux           Smux.cpp)
 forward_add_test(Yamux          Yamux.cpp)
 forward_add_test(Crypto         Crypto.cpp)
+forward_add_test(Aead           Aead.cpp)
+forward_add_test(Blake3         Blake3.cpp)
 forward_add_test(DnsPacket      DnsPacket.cpp)
 forward_add_test(DnsRules       DnsRules.cpp)
 forward_add_test(Fault          Fault.cpp)
@@ -36,8 +40,8 @@ add_subdirectory(concurrency)
 if(MINGW)
     foreach(t IN ITEMS
         Session Connection Transmission Trace
-        Http Socks5 Trojan Regression
-        HttpParser Smux Yamux Crypto DnsPacket DnsRules Fault Exception
+        Http Socks5 Trojan Vless Shadowsocks Regression
+        HttpParser Smux Yamux Crypto Aead Blake3 DnsPacket DnsRules Fault Exception
         concurrency_server concurrency_client)
         if(TARGET ${t})
             target_compile_options(${t} PRIVATE -Wa,-mbig-obj)

@@ -49,6 +49,8 @@ smux/yamux 多路复用协议的设计与交互文档。
 | [HTTP 协议](protocols/http.md) | HTTP 请求在 Prism 内的调用流程 |
 | [SOCKS5 协议](protocols/socks5.md) | SOCKS5 协议握手、地址解析、连接建立 |
 | [Trojan 协议](protocols/trojan.md) | Trojan 协议 SSL 握手、凭据验证、隧道转发 |
+| [VLESS 协议](protocols/vless.md) | VLESS 二进制头部、UUID 认证、多路复用 |
+| [Shadowsocks 2022](protocols/shadowsocks.md) | SS2022 AEAD 加密、BLAKE3 密钥派生、抗重放 |
 | [TLS 协议](protocols/tls.md) | TLS 握手、内层协议探测、证书配置 |
 
 ### 参考资料
@@ -89,7 +91,7 @@ smux/yamux 多路复用协议的设计与交互文档。
 
 ### 按主题查找
 
-- **协议实现**：[HTTP](protocols/http.md) | [SOCKS5](protocols/socks5.md) | [Trojan](protocols/trojan.md)
+- **协议实现**：[HTTP](protocols/http.md) | [SOCKS5](protocols/socks5.md) | [Trojan](protocols/trojan.md) | [VLESS](protocols/vless.md) | [Shadowsocks 2022](protocols/shadowsocks.md)
 - **多路复用**：[架构设计](multiplex/overview.md) | [smux 交互](multiplex/smux.md) | [yamux 交互](multiplex/yamux.md)
 - **核心流程**：[运行时流程](manual/runtime.md) | [路由与分发](manual/routing.md)
 - **配置参考**：[配置结构体](reference/config-structure.md) | [依赖关系](reference/dependencies.md)
@@ -100,7 +102,7 @@ smux/yamux 多路复用协议的设计与交互文档。
 
 Prism 是一个基于 Modern C++（C++23）的高性能代理引擎：
 
-- **协议支持**：HTTP/HTTPS、SOCKS5、Trojan
+- **协议支持**：HTTP/HTTPS、SOCKS5、Trojan、VLESS、Shadowsocks 2022
 - **技术栈**：Boost.Asio 协程、OpenSSL、PMR 内存管理
 - **特性**：负载均衡、连接池、DNS 缓存、账户认证
 

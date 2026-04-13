@@ -7,6 +7,13 @@ target_sources(${PROJECT_NAME}_static_library
         vless/format.cpp
         shadowsocks/relay.cpp
         shadowsocks/format.cpp
+        shadowsocks/datagram.cpp
+        reality/request.cpp
+        reality/auth.cpp
+        reality/keygen.cpp
+        reality/response.cpp
+        reality/session.cpp
+        reality/handshake.cpp
 )
 
 target_sources(${PROJECT_NAME}_static_library
@@ -19,7 +26,6 @@ target_sources(${PROJECT_NAME}_static_library
             ${PROJECT_SOURCE_DIR}/include/prism/protocol/http.hpp
             ${PROJECT_SOURCE_DIR}/include/prism/protocol/probe.hpp
             ${PROJECT_SOURCE_DIR}/include/prism/protocol/socks5.hpp
-            ${PROJECT_SOURCE_DIR}/include/prism/protocol/trojan.hpp
             ${PROJECT_SOURCE_DIR}/include/prism/protocol/common/form.hpp
             ${PROJECT_SOURCE_DIR}/include/prism/protocol/socks5/config.hpp
             ${PROJECT_SOURCE_DIR}/include/prism/protocol/socks5/constants.hpp
@@ -41,9 +47,21 @@ target_sources(${PROJECT_NAME}_static_library
             ${PROJECT_SOURCE_DIR}/include/prism/protocol/shadowsocks/config.hpp
             ${PROJECT_SOURCE_DIR}/include/prism/protocol/shadowsocks/constants.hpp
             ${PROJECT_SOURCE_DIR}/include/prism/protocol/shadowsocks/message.hpp
-            ${PROJECT_SOURCE_DIR}/include/prism/protocol/shadowsocks/salt_pool.hpp
+            ${PROJECT_SOURCE_DIR}/include/prism/protocol/shadowsocks/salts.hpp
             ${PROJECT_SOURCE_DIR}/include/prism/protocol/shadowsocks/format.hpp
             ${PROJECT_SOURCE_DIR}/include/prism/protocol/shadowsocks/relay.hpp
+            ${PROJECT_SOURCE_DIR}/include/prism/protocol/shadowsocks/replay.hpp
+            ${PROJECT_SOURCE_DIR}/include/prism/protocol/shadowsocks/tracker.hpp
+            ${PROJECT_SOURCE_DIR}/include/prism/protocol/shadowsocks/datagram.hpp
+            ${PROJECT_SOURCE_DIR}/include/prism/protocol/reality.hpp
+            ${PROJECT_SOURCE_DIR}/include/prism/protocol/reality/config.hpp
+            ${PROJECT_SOURCE_DIR}/include/prism/protocol/reality/constants.hpp
+            ${PROJECT_SOURCE_DIR}/include/prism/protocol/reality/request.hpp
+            ${PROJECT_SOURCE_DIR}/include/prism/protocol/reality/auth.hpp
+            ${PROJECT_SOURCE_DIR}/include/prism/protocol/reality/keygen.hpp
+            ${PROJECT_SOURCE_DIR}/include/prism/protocol/reality/response.hpp
+            ${PROJECT_SOURCE_DIR}/include/prism/protocol/reality/session.hpp
+            ${PROJECT_SOURCE_DIR}/include/prism/protocol/reality/handshake.hpp
 )
 
 add_subdirectory(http)

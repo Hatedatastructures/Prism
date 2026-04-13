@@ -52,16 +52,8 @@ namespace psm::protocol::shadowsocks
         }
         psk_ = std::move(psk_bytes);
 
-        if (psk_.size() == 16)
-        {
-            method_ = cipher_method::aes_128_gcm;
-            key_salt_length_ = 16;
-        }
-        else
-        {
-            method_ = cipher_method::aes_256_gcm;
-            key_salt_length_ = 32;
-        }
+        method_ = format::resolve_cipher_method(config_.method, psk_.size());
+        key_salt_length_ = format::key_salt_length(method_);
     }
 
     auto relay::executor() const -> executor_type
@@ -95,12 +87,23 @@ namespace psm::protocol::shadowsocks
         std::memcpy(material.data(), psk_.data(), psk_.size());
         std::memcpy(material.data() + psk_.size(), salt.data(), salt.size());
 
+        constexpr auto ctx = kdf_context; // SIP022: "shadowsocks 2022 session subkey"
         const auto key = crypto::derive_key(
-            kdf_context, std::span<const std::uint8_t>(material), key_salt_length_);
+            ctx, std::span<const std::uint8_t>(material), key_salt_length_);
 
-        const auto cipher = method_ == cipher_method::aes_128_gcm
-                                ? crypto::aead_cipher::aes_128_gcm
-                                : crypto::aead_cipher::aes_256_gcm;
+        crypto::aead_cipher cipher;
+        switch (method_)
+        {
+        case cipher_method::aes_128_gcm:
+            cipher = crypto::aead_cipher::aes_128_gcm;
+            break;
+        case cipher_method::aes_256_gcm:
+            cipher = crypto::aead_cipher::aes_256_gcm;
+            break;
+        case cipher_method::chacha20_poly1305:
+            cipher = crypto::aead_cipher::chacha20_poly1305;
+            break;
+        }
 
         return std::make_unique<crypto::aead_context>(cipher, std::span(key));
     }

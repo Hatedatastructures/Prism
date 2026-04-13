@@ -1,5 +1,5 @@
 /**
- * @file salt_pool.hpp
+ * @file salts.hpp
  * @brief SS2022 Salt 重放保护池
  * @details SIP022 规范要求精确匹配的 salt 重放检测，禁止使用 Bloom filter。
  * 每个 salt 在 TTL 内只能出现一次。该池可跨会话共享（线程安全）。

@@ -105,6 +105,7 @@ SOCKS5 握手逻辑见 src/protocol/socks5/stream.cpp
 |-----|---------|---------|
 | HTTP/HTTPS 代理 | `src/prism/pipeline/protocols/http.cpp`, `include/prism/pipeline/protocols/http.hpp` | handler 注册 + 测试 |
 | SOCKS5 代理 | `src/prism/pipeline/protocols/socks5.cpp`, `include/prism/pipeline/protocols/socks5.hpp` | handler 注册 + `tests/Socks5.cpp` |
+| Shadowsocks 2022 | `src/prism/protocol/shadowsocks/relay.cpp`, `include/prism/protocol/shadowsocks/relay.hpp` | handler 注册 + AEAD 实现 |
 | TLS 终止 | `src/prism/agent/worker/tls.cpp`, `include/prism/agent/worker/tls.hpp` | 运行链接入 |
 | 反向代理 | `src/prism/resolve/router.cpp`, `include/prism/resolve/router.hpp` | 运行链接入 |
 | 负载均衡 | `src/prism/agent/front/balancer.cpp`, `include/prism/agent/front/balancer.hpp` | 运行链接入 |

@@ -1,3 +1,9 @@
+/**
+ * @file ArenaOverflowStress.cpp
+ * @brief Frame Arena 重置延迟压力测试
+ * @details 测试 frame_arena 在大量分配/重置循环下的延迟稳定性和吞吐量。
+ */
+
 #include <prism/memory/pool.hpp>
 #include <prism/memory/container.hpp>
 
@@ -18,22 +24,22 @@ using namespace psm;
 namespace
 {
     // 配置结构体
-    struct stress_config
+    struct StressConfig
     {
         std::size_t iterations = 20000;
-        std::size_t alloc_per_reset = 64; // 每次重置前分配多少个对象
-        std::size_t object_size = 1024;   // 每个对象多大
+        std::size_t alloc_per_reset = 64;
+        std::size_t object_size = 1024;
     };
 
     // 默认配置
-    const stress_config DEFAULT_CONFIG = {
+    const StressConfig DEFAULT_STRESS_CONFIG = {
         .iterations = 50000,
         .alloc_per_reset = 128,
         .object_size = 256,
     };
 
     // 统计结果
-    struct latency_stats
+    struct LatencyStats
     {
         std::uint64_t total_ns = 0;
         std::uint64_t min_ns = std::numeric_limits<std::uint64_t>::max();
@@ -41,13 +47,13 @@ namespace
         std::uint64_t count = 0;
     };
 
-    void run_test(const stress_config &config)
+    void RunTest(const StressConfig &config)
     {
         memory::frame_arena arena;
         std::pmr::memory_resource *mr = arena.get();
         std::string payload(config.object_size, 'x');
 
-        latency_stats stats;
+        LatencyStats stats;
 
         // 预热
         for (int i = 0; i < 100; ++i)
@@ -75,15 +81,12 @@ namespace
 
             auto t0 = std::chrono::steady_clock::now();
 
-            // 1. 重置 Arena (极快)
             arena.reset();
 
-            // 2. 执行一组分配
             for (std::size_t k = 0; k < config.alloc_per_reset; ++k)
             {
                 memory::string s(mr);
                 s.assign(payload);
-                // 模拟使用
                 volatile char c = s[0];
                 (void)c;
             }
@@ -118,9 +121,9 @@ int main(int argc, char **argv)
     (void)argc;
     (void)argv;
 
-    std::cout << ">>> ForwardEngine Arena Overflow Stress Tool (Refactored) <<<" << std::endl;
+    std::cout << ">>> Prism Arena Overflow Stress Tool <<<" << std::endl;
 
-    run_test(DEFAULT_CONFIG);
+    RunTest(DEFAULT_STRESS_CONFIG);
 
     return 0;
 }

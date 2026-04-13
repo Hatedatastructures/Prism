@@ -115,7 +115,7 @@ graph LR
 ```
 include/prism/agent/dispatch/
 ├── handler.hpp    # handler 基类 + registry 工厂
-└── handlers.hpp   # Http/Socks5/Trojan/Unknown 具体实现
+└── handlers.hpp   # Http/Socks5/Trojan/Vless/Shadowsocks/Unknown 具体实现
 ```
 
 ---
@@ -188,13 +188,13 @@ sequenceDiagram
 |------|------|
 | handler | 协议处理器抽象基类，定义 process/type/name 接口 |
 | registry | 协议处理器工厂，支持动态注册和单例创建 |
-| handlers | 具体协议处理器实现（Http、Socks5、Trojan、Unknown） |
+| handlers | 具体协议处理器实现（Http、Socks5、Trojan、Vless、Shadowsocks、Unknown） |
 
 ### pipeline 层
 
 | 组件 | 职责 |
 |------|------|
-| protocols | 协议处理类（http、socks5、trojan） |
+| protocols | 协议处理类（http、socks5、trojan、vless、shadowsocks） |
 | primitives | 基础传输，隧道转发（tunnel、dial、preview） |
 
 ### resolve 层

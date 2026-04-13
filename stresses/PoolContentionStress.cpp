@@ -1,7 +1,13 @@
+/**
+ * @file PoolContentionStress.cpp
+ * @brief 内存池锁竞争压力测试
+ * @details 多线程高频率分配/释放，专门测试全局内存池在极端竞争下的表现。
+ */
+
 #include <prism/memory/pool.hpp>
 #include <prism/memory/container.hpp>
 
-#include "counting_resource.hpp"
+#include "CountingResource.hpp"
 
 #include <atomic>
 #include <chrono>
@@ -21,7 +27,7 @@ using namespace psm;
 namespace
 {
     // 配置结构体
-    struct stress_config
+    struct StressConfig
     {
         std::size_t threads = std::max<std::size_t>(1, std::thread::hardware_concurrency());
         std::size_t duration_sec = 5;
@@ -29,14 +35,14 @@ namespace
     };
 
     // 默认配置
-    constexpr stress_config DEFAULT_CONFIG = {
+    constexpr StressConfig DEFAULT_STRESS_CONFIG = {
         .threads = 4,
         .duration_sec = 10,
         .alloc_size = 128,
     };
 
     // 线程统计结果
-    struct thread_stats
+    struct ThreadStats
     {
         std::uint64_t ops = 0;
         std::uint64_t bytes_allocated = 0;
@@ -44,35 +50,28 @@ namespace
     };
 
     // 模拟竞争工作线程
-    void worker_thread(const std::size_t thread_id,
-                       const stress_config &config,
-                       std::latch &start_latch,
-                       const std::atomic<bool> &stop_flag,
-                       thread_stats &stats)
+    void WorkerThread(const std::size_t thread_id,
+                      const StressConfig &config,
+                      std::latch &start_latch,
+                      const std::atomic<bool> &stop_flag,
+                      ThreadStats &stats)
     {
         (void)thread_id;
 
-        // 使用全局内存池来制造最大的锁竞争压力
         std::pmr::memory_resource *upstream = memory::system::global_pool();
         stress::counting_resource counter(upstream);
         std::pmr::memory_resource *mr = &counter;
 
-        // 预分配载荷
         std::string payload_data(config.alloc_size, 'x');
 
-        // 等待所有线程就绪
         start_latch.arrive_and_wait();
 
         while (!stop_flag.load(std::memory_order_relaxed))
         {
-            // 紧凑循环：分配 -> 写入 -> 释放
-            // 这会给分配器的锁机制带来最大压力
             for (int i = 0; i < 1000; ++i)
             {
                 memory::string s(mr);
-                s.assign(payload_data); // 触发分配和写入
-                // s 析构触发释放
-
+                s.assign(payload_data);
                 stats.ops++;
             }
         }
@@ -90,9 +89,9 @@ int main(const int argc, char **argv)
     SetConsoleOutputCP(CP_UTF8);
 #endif
 
-    std::cout << ">>> ForwardEngine 内存池竞争压力测试工具 <<<" << std::endl;
+    std::cout << ">>> Prism 内存池竞争压力测试工具 <<<" << std::endl;
 
-    stress_config config = DEFAULT_CONFIG;
+    StressConfig config = DEFAULT_STRESS_CONFIG;
 
     std::cout << "------------------------------------------------" << std::endl;
     std::cout << std::format("{:<24}{}\n", "配置:", "值");
@@ -103,7 +102,7 @@ int main(const int argc, char **argv)
     std::cout << "------------------------------------------------" << std::endl;
 
     std::vector<std::thread> threads;
-    std::vector<thread_stats> all_stats(config.threads);
+    std::vector<ThreadStats> all_stats(config.threads);
     std::latch start_latch(config.threads + 1);
     std::atomic<bool> stop_flag{false};
 
@@ -111,7 +110,7 @@ int main(const int argc, char **argv)
 
     for (std::size_t i = 0; i < config.threads; ++i)
     {
-        threads.emplace_back(worker_thread,
+        threads.emplace_back(WorkerThread,
                              i,
                              std::cref(config),
                              std::ref(start_latch),
@@ -138,7 +137,7 @@ int main(const int argc, char **argv)
             t.join();
     }
 
-    thread_stats total_stats{};
+    ThreadStats total_stats{};
     for (const auto &s : all_stats)
     {
         total_stats.ops += s.ops;

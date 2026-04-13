@@ -322,6 +322,93 @@ proxies:
       protocol: yamux
       only-tcp: false
 
+  # VLESS + Reality（无需自签证书，使用目标网站真实证书）
+  - name: "VLESS Reality TCP"
+    type: vless
+    server: 192.168.137.1
+    port: 8081
+    uuid: "123e4567-e89b-12d3-a456-426614174000"
+    network: tcp
+    tls: true
+    udp: false
+    skip-cert-verify: true
+    servername: www.microsoft.com
+    reality-opts:
+      public-key: "BkKPzEJtz8Qv1yR_cTydzm5mmfiui8OL2Zqd9dV--To"
+      short-id: "45587ac66ce007e4"
+
+  - name: "VLESS Reality Smux TCP"
+    type: vless
+    server: 192.168.137.1
+    port: 8081
+    uuid: "123e4567-e89b-12d3-a456-426614174000"
+    network: tcp
+    tls: true
+    udp: false
+    skip-cert-verify: true
+    servername: www.microsoft.com
+    reality-opts:
+      public-key: "BkKPzEJtz8Qv1yR_cTydzm5mmfiui8OL2Zqd9dV--To"
+      short-id: "45587ac66ce007e4"
+    smux:
+      enabled: true
+      protocol: smux
+      only-tcp: true
+
+  - name: "VLESS Reality Smux UDP"
+    type: vless
+    server: 192.168.137.1
+    port: 8081
+    uuid: "123e4567-e89b-12d3-a456-426614174000"
+    network: tcp
+    tls: true
+    udp: false
+    skip-cert-verify: true
+    servername: www.microsoft.com
+    reality-opts:
+      public-key: "BkKPzEJtz8Qv1yR_cTydzm5mmfiui8OL2Zqd9dV--To"
+      short-id: "45587ac66ce007e4"
+    smux:
+      enabled: true
+      protocol: smux
+      only-tcp: false
+
+  - name: "VLESS Reality Yamux TCP"
+    type: vless
+    server: 192.168.137.1
+    port: 8081
+    uuid: "123e4567-e89b-12d3-a456-426614174000"
+    network: tcp
+    tls: true
+    udp: false
+    skip-cert-verify: true
+    servername: www.microsoft.com
+    reality-opts:
+      public-key: "BkKPzEJtz8Qv1yR_cTydzm5mmfiui8OL2Zqd9dV--To"
+      short-id: "45587ac66ce007e4"
+    smux:
+      enabled: true
+      protocol: yamux
+      only-tcp: true
+
+  - name: "VLESS Reality Yamux UDP"
+    type: vless
+    server: 192.168.137.1
+    port: 8081
+    uuid: "123e4567-e89b-12d3-a456-426614174000"
+    network: tcp
+    tls: true
+    udp: false
+    skip-cert-verify: true
+    servername: www.microsoft.com
+    reality-opts:
+      public-key: "BkKPzEJtz8Qv1yR_cTydzm5mmfiui8OL2Zqd9dV--To"
+      short-id: "45587ac66ce007e4"
+    smux:
+      enabled: true
+      protocol: yamux
+      only-tcp: false
+
 
 # ---------- 策略组 ----------
 proxy-groups:
@@ -353,6 +440,11 @@ proxy-groups:
       - "VLESS Smux UDP"
       - "VLESS Yamux TCP"
       - "VLESS Yamux UDP"
+      - "VLESS Reality TCP"
+      - "VLESS Reality Smux TCP"
+      - "VLESS Reality Smux UDP"
+      - "VLESS Reality Yamux TCP"
+      - "VLESS Reality Yamux UDP"
       - "SS2022 TCP"
 
   - name: "国内延迟测试(xiaomi)"
@@ -383,6 +475,11 @@ proxy-groups:
       - "VLESS Smux UDP"
       - "VLESS Yamux TCP"
       - "VLESS Yamux UDP"
+      - "VLESS Reality TCP"
+      - "VLESS Reality Smux TCP"
+      - "VLESS Reality Smux UDP"
+      - "VLESS Reality Yamux TCP"
+      - "VLESS Reality Yamux UDP"
       - "SS2022 TCP"
 
     url: "http://connect.rom.miui.com/generate_204"

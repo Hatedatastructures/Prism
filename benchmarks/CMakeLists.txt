@@ -22,17 +22,20 @@ if(NOT benchmark_FOUND)
     FetchContent_MakeAvailable(benchmark)
 endif()
 
-add_executable(codec_bench codec_bench.cpp)
+add_executable(codec_bench CodecBench.cpp)
 target_link_libraries(codec_bench PRIVATE ${PROJECT_NAME}_static_library benchmark::benchmark)
 
-add_executable(memory_bench memory_bench.cpp)
+add_executable(memory_bench MemoryBench.cpp)
 target_link_libraries(memory_bench PRIVATE ${PROJECT_NAME}_static_library benchmark::benchmark)
 
-add_executable(mux_bench mux_bench.cpp)
+add_executable(mux_bench MuxBench.cpp)
 target_link_libraries(mux_bench PRIVATE ${PROJECT_NAME}_static_library benchmark::benchmark)
 
+add_executable(crypto_bench CryptoBench.cpp)
+target_link_libraries(crypto_bench PRIVATE ${PROJECT_NAME}_static_library benchmark::benchmark)
+
 if(MINGW)
-    foreach(target_name IN ITEMS codec_bench memory_bench mux_bench)
+    foreach(target_name IN ITEMS codec_bench memory_bench mux_bench crypto_bench)
         if(TARGET ${target_name})
             target_compile_options(${target_name} PRIVATE -Wa,-mbig-obj)
         endif()

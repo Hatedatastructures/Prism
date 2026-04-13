@@ -271,6 +271,28 @@ VLESS 协议配置。当前配置结构为空，用户认证已统一到 `authen
 
 ---
 
+#### shadowsocks
+
+**源码位置**: [config.hpp](../../include/prism/agent/config.hpp)
+
+**协议配置定义**: [protocol/shadowsocks/config.hpp](../../include/prism/protocol/shadowsocks/config.hpp)
+
+```cpp
+protocol::shadowsocks::config shadowsocks;
+```
+
+Shadowsocks 2022 (SIP022) 协议配置，控制 AEAD 加密参数。
+
+| 子字段 | 类型 | 默认值 | 说明 |
+|--------|------|--------|------|
+| `psk` | `memory::string` | `""` | Base64 编码的预共享密钥（16 字节 = AES-128-GCM，32 字节 = AES-256-GCM） |
+| `enable_tcp` | `bool` | `true` | 是否允许 TCP 代理 |
+| `timestamp_window` | `std::int64_t` | `30` | 时间戳验证窗口（秒），用于防重放 |
+
+**说明**: Shadowsocks 2022 协议已集成到分发逻辑中，`register_handlers()` 注册了 `Shadowsocks` handler。协议检测采用排除法：不匹配其他协议时 fallback 到 `protocol_type::shadowsocks`。
+
+---
+
 #### mux
 
 **源码位置**: [config.hpp](../../include/prism/agent/config.hpp)

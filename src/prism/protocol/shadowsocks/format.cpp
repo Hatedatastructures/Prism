@@ -102,4 +102,27 @@ namespace psm::protocol::shadowsocks::format
         std::memcpy(psk.data(), decoded.data(), decoded.size());
         return {fault::code::success, std::move(psk)};
     }
+
+    auto resolve_cipher_method(const std::string_view method_str, const std::size_t psk_len) noexcept
+        -> cipher_method
+    {
+        if (!method_str.empty())
+        {
+            if (method_str == method_aes_128)
+            {
+                return cipher_method::aes_128_gcm;
+            }
+            if (method_str == method_aes_256)
+            {
+                return cipher_method::aes_256_gcm;
+            }
+            if (method_str == method_chacha20)
+            {
+                return cipher_method::chacha20_poly1305;
+            }
+        }
+
+        // 自动推断：16B → aes-128, 32B → aes-256
+        return psk_len == 16 ? cipher_method::aes_128_gcm : cipher_method::aes_256_gcm;
+    }
 } // namespace psm::protocol::shadowsocks::format

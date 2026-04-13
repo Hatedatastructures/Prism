@@ -651,7 +651,7 @@ int main()
         psm::memory::system::enable_global_pooling();
         // 初始化日志系统，使用默认配置
         psm::trace::init({});
-        // 注册所有协议处理器（HTTP/SOCKS5/Trojan/Unknown）
+        // 注册所有协议处理器（HTTP/SOCKS5/Trojan/VLESS/Shadowsocks/Unknown）
         psm::agent::dispatch::register_handlers();
 
         // 创建单线程 io_context 驱动所有测试协程

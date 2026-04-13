@@ -58,7 +58,7 @@
 
 ```cpp
 #include <prism/agent/dispatch/handler.hpp>   // handler 基类, registry 类
-#include <prism/agent/dispatch/handlers.hpp>  // Http, Socks5, Trojan, Unknown 处理器, register_handlers()
+#include <prism/agent/dispatch/handlers.hpp>  // Http, Socks5, Trojan, Vless, Shadowsocks, Unknown 处理器, register_handlers()
 ```
 
 ---
@@ -87,10 +87,12 @@
 
 ```cpp
 #include <prism/pipeline/primitives.hpp>  // dial(), preview, tunnel()
-#include <prism/pipeline/protocols.hpp>   // 聚合头文件，引入 http.hpp, socks5.hpp, trojan.hpp
+#include <prism/pipeline/protocols.hpp>   // 聚合头文件，引入 http.hpp, socks5.hpp, trojan.hpp, vless.hpp, shadowsocks.hpp
 #include <prism/pipeline/protocols/http.hpp>   // http()
 #include <prism/pipeline/protocols/socks5.hpp> // socks5()
 #include <prism/pipeline/protocols/trojan.hpp> // trojan()
+#include <prism/pipeline/protocols/vless.hpp>  // vless()
+#include <prism/pipeline/protocols/shadowsocks.hpp> // shadowsocks()
 ```
 
 ---

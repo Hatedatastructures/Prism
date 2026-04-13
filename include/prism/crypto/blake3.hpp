@@ -37,4 +37,18 @@ namespace psm::crypto
     [[nodiscard]] auto derive_key(std::string_view context, std::span<const std::uint8_t> material,
                                   std::size_t out_len)
         -> std::vector<std::uint8_t>;
+
+    /**
+     * @brief BLAKE3 keyed hash 模式
+     * @param key 32 字节密钥
+     * @param data 输入数据
+     * @param out_len 输出长度
+     * @return 指定长度的 keyed hash 输出
+     * @details 使用 BLAKE3 的 keyed hash 模式（blake3_hasher_init_keyed），
+     * 用于 Reality 协议的认证密钥计算。密钥固定为 32 字节。
+     */
+    [[nodiscard]] auto keyed_hash(std::span<const std::uint8_t> key,
+                                  std::span<const std::uint8_t> data,
+                                  std::size_t out_len)
+        -> std::vector<std::uint8_t>;
 } // namespace psm::crypto

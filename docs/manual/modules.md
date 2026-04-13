@@ -104,11 +104,12 @@
   ├─ protocol_type::socks5  → Socks5 handler (singleton)
   ├─ protocol_type::trojan  → Trojan handler (singleton)
   ├─ protocol_type::vless   → Vless handler (singleton)
+  ├─ protocol_type::shadowsocks → Shadowsocks handler (singleton)
   └─ protocol_type::unknown → Unknown handler (singleton)
        │
        ▼
   Handler.process()
-  └─ Http/Socks5/Trojan/Vless → 对应 pipeline 处理
+  └─ Http/Socks5/Trojan/Vless/Shadowsocks → 对应 pipeline 处理
 ```
 
 ### handler
@@ -134,6 +135,7 @@
   - `Socks5`：处理 SOCKS5 协议，委托给 `pipeline::socks5`
   - `Trojan`：处理 Trojan over TLS（TLS 已在 Session 层剥离），委托给 `pipeline::trojan`
   - `Vless`：处理 VLESS 协议（支持裸跑或 TLS 内层），委托给 `pipeline::vless`
+  - `Shadowsocks`：处理 Shadowsocks 2022 (SIP022) AEAD 协议，委托给 `pipeline::shadowsocks`
   - `Unknown`：原始 TCP 透传，调用 `primitives::tunnel`
 - 注册函数：`register_handlers()` 在程序启动时调用
 - 源码：[handlers.hpp](../../include/prism/agent/dispatch/handlers.hpp)
@@ -165,9 +167,14 @@
   2. 提取目标地址，建立上游连接
   3. 进入 `tunnel` 双向转发
   4. 支持 mux 多路复用（命令 0x7F 或 `.mux.sing-box.arpa` 地址标记）
-- `protocols.hpp` 为聚合头文件，引入 `http.hpp`、`socks5.hpp`、`trojan.hpp`、`vless.hpp`
-- 源码：[protocols.hpp](../../include/prism/pipeline/protocols.hpp)、[http.hpp](../../include/prism/pipeline/protocols/http.hpp)、[socks5.hpp](../../include/prism/pipeline/protocols/socks5.hpp)、[trojan.hpp](../../include/prism/pipeline/protocols/trojan.hpp)、[vless.hpp](../../include/prism/pipeline/protocols/vless.hpp)
-- 实现：[http.cpp](../../src/prism/pipeline/protocols/http.cpp)、[socks5.cpp](../../src/prism/pipeline/protocols/socks5.cpp)、[trojan.cpp](../../src/prism/pipeline/protocols/trojan.cpp)、[vless.cpp](../../src/prism/pipeline/protocols/vless.cpp)
+- Shadowsocks 2022 处理路径（排除法检测 fallback）：
+  1. 创建 SS2022 AEAD 中继器并执行握手（读取 salt → 解密固定头 → 验证时间戳 → 解密变长头 → 发送响应）
+  2. 中继器作为 transmission 持续提供 AEAD 分帧加解密
+  3. 通过中继器建立上游连接，进入 `tunnel` 双向转发
+  4. 不支持 mux（SS2022 自身是加密传输层装饰器）
+- `protocols.hpp` 为聚合头文件，引入 `http.hpp`、`socks5.hpp`、`trojan.hpp`、`vless.hpp`、`shadowsocks.hpp`
+- 源码：[protocols.hpp](../../include/prism/pipeline/protocols.hpp)、[http.hpp](../../include/prism/pipeline/protocols/http.hpp)、[socks5.hpp](../../include/prism/pipeline/protocols/socks5.hpp)、[trojan.hpp](../../include/prism/pipeline/protocols/trojan.hpp)、[vless.hpp](../../include/prism/pipeline/protocols/vless.hpp)、[shadowsocks.hpp](../../include/prism/pipeline/protocols/shadowsocks.hpp)
+- 实现：[http.cpp](../../src/prism/pipeline/protocols/http.cpp)、[socks5.cpp](../../src/prism/pipeline/protocols/socks5.cpp)、[trojan.cpp](../../src/prism/pipeline/protocols/trojan.cpp)、[vless.cpp](../../src/prism/pipeline/protocols/vless.cpp)、[shadowsocks.cpp](../../src/prism/pipeline/protocols/shadowsocks.cpp)
 
 ### primitives
 - `dial()`：拨号连接上游

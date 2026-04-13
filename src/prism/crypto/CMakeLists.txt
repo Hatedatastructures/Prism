@@ -2,6 +2,9 @@ target_sources(${PROJECT_NAME}_static_library
         PRIVATE
         blake3.cpp
         aead.cpp
+        block.cpp
+        x25519.cpp
+        hkdf.cpp
 )
 
 target_sources(${PROJECT_NAME}_static_library
@@ -13,4 +16,7 @@ target_sources(${PROJECT_NAME}_static_library
             ${PROJECT_SOURCE_DIR}/include/prism/crypto/base64.hpp
             ${PROJECT_SOURCE_DIR}/include/prism/crypto/blake3.hpp
             ${PROJECT_SOURCE_DIR}/include/prism/crypto/aead.hpp
+            ${PROJECT_SOURCE_DIR}/include/prism/crypto/block.hpp
+            ${PROJECT_SOURCE_DIR}/include/prism/crypto/x25519.hpp
+            ${PROJECT_SOURCE_DIR}/include/prism/crypto/hkdf.hpp
 )

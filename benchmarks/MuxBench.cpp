@@ -45,8 +45,8 @@ namespace
     // Version=0, Type=Data(0), Flags=SYN(1), StreamID=1, Length=512
     constexpr std::array<std::byte, 12> yamux_data_syn_frame = {
         std::byte{0x00}, std::byte{0x00},
-        std::byte{0x00}, std::byte{0x01}, // flags=SYN BE
-        std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x01}, // stream_id=1 BE
+        std::byte{0x00}, std::byte{0x01},                                    // flags=SYN BE
+        std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x01},  // stream_id=1 BE
         std::byte{0x00}, std::byte{0x00}, std::byte{0x02}, std::byte{0x00}}; // length=512 BE
 
     // yamux WindowUpdate 帧
@@ -59,15 +59,15 @@ namespace
     // smux mux address: IPv4 [Flags 2B][ATYP=0x01][127.0.0.1][Port 8080]
     constexpr std::array<std::byte, 9> smux_addr_ipv4 = {
         std::byte{0x00}, std::byte{0x00}, // flags
-        std::byte{0x01},                   // atype=IPv4
+        std::byte{0x01},                  // atype=IPv4
         std::byte{127}, std::byte{0}, std::byte{0}, std::byte{1},
         std::byte{0x1F}, std::byte{0x90}}; // port=8080 BE
 
     // smux mux address: domain [Flags 2B][ATYP=0x03][len=11][example.com][Port 443]
     constexpr std::array<std::byte, 18> smux_addr_domain = {
         std::byte{0x00}, std::byte{0x00}, // flags
-        std::byte{0x03},                   // atype=domain
-        std::byte{11},                     // domain length
+        std::byte{0x03},                  // atype=domain
+        std::byte{11},                    // domain length
         std::byte{'e'}, std::byte{'x'}, std::byte{'a'}, std::byte{'m'}, std::byte{'p'},
         std::byte{'l'}, std::byte{'e'}, std::byte{'.'}, std::byte{'c'}, std::byte{'o'}, std::byte{'m'},
         std::byte{0x01}, std::byte{0xBB}}; // port=443 BE
@@ -76,16 +76,16 @@ namespace
     std::array<std::byte, 13> make_udp_ipv4_datagram()
     {
         std::array<std::byte, 13> buf{};
-        buf[0] = std::byte{0x01};                        // atype=IPv4
-        buf[1] = std::byte{127};                          // 127.0.0.1
+        buf[0] = std::byte{0x01}; // atype=IPv4
+        buf[1] = std::byte{127};  // 127.0.0.1
         buf[2] = std::byte{0};
         buf[3] = std::byte{0};
         buf[4] = std::byte{1};
-        buf[5] = std::byte{0x00};                         // port=53 BE
+        buf[5] = std::byte{0x00}; // port=53 BE
         buf[6] = std::byte{0x35};
-        buf[7] = std::byte{0x00};                         // length=4 BE
+        buf[7] = std::byte{0x00}; // length=4 BE
         buf[8] = std::byte{0x04};
-        buf[9] = std::byte{0xDE};                         // payload
+        buf[9] = std::byte{0xDE}; // payload
         buf[10] = std::byte{0xAD};
         buf[11] = std::byte{0xBE};
         buf[12] = std::byte{0xEF};
@@ -116,7 +116,7 @@ namespace
         for (std::size_t i = 0; i < domain_len; ++i)
             buf[4 + i] = static_cast<std::byte>('a' + (i % 26));
         const auto port_offset = 4 + domain_len;
-        buf[port_offset] = std::byte{0x01};     // port=443 BE
+        buf[port_offset] = std::byte{0x01}; // port=443 BE
         buf[port_offset + 1] = std::byte{0xBB};
         return buf;
     }

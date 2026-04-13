@@ -2,6 +2,8 @@
 #include <prism/protocol/http/parser.hpp>
 #include <prism/protocol/socks5/wire.hpp>
 #include <prism/protocol/trojan/format.hpp>
+#include <prism/protocol/vless/format.hpp>
+#include <prism/protocol/shadowsocks/format.hpp>
 #include <prism/protocol/analysis.hpp>
 #include <prism/resolve/packet.hpp>
 #include <prism/resolve/rules.hpp>
@@ -618,6 +620,53 @@ static void BM_RulesEngineMatch(benchmark::State &state)
 }
 
 // ============================================================
+// VLESS Benchmark
+// ============================================================
+
+static void BM_VlessParseRequest(benchmark::State &state)
+{
+    std::array<std::uint8_t, 26> buf{};
+    buf[0] = 0x00;                    // version
+    // UUID 全零 (16 bytes, already zero)
+    buf[17] = 0x00;                   // addnl_len
+    buf[18] = 0x01;                   // cmd = TCP
+    buf[19] = 0x00; buf[20] = 0x50;   // port = 80
+    buf[21] = 0x01;                   // atyp = IPv4
+    buf[22] = 127; buf[23] = 0; buf[24] = 0; buf[25] = 1;
+
+    for (auto _ : state)
+    {
+        auto result = protocol::vless::format::parse_request(buf);
+        benchmark::DoNotOptimize(result);
+    }
+    state.SetBytesProcessed(static_cast<std::int64_t>(state.iterations()) * static_cast<std::int64_t>(buf.size()));
+}
+
+// ============================================================
+// Shadowsocks Benchmark
+// ============================================================
+
+static void BM_ShadowsocksParseAddressPort(benchmark::State &state)
+{
+    std::array<std::uint8_t, 7> buf = {0x01, 127, 0, 0, 1, 0x1F, 0x90};
+    for (auto _ : state)
+    {
+        auto [ec, result] = protocol::shadowsocks::format::parse_address_port(buf);
+        benchmark::DoNotOptimize(result);
+    }
+    state.SetBytesProcessed(static_cast<std::int64_t>(state.iterations()) * static_cast<std::int64_t>(buf.size()));
+}
+
+static void BM_ShadowsocksDecodePsk(benchmark::State &state)
+{
+    for (auto _ : state)
+    {
+        auto [ec, psk] = protocol::shadowsocks::format::decode_psk("AAAAAAAAAAAAAAAAAAAAAA==");
+        benchmark::DoNotOptimize(psk);
+    }
+}
+
+// ============================================================
 // BENCHMARK 注册
 // ============================================================
 
@@ -672,5 +721,12 @@ BENCHMARK(BM_DomainTrieSearchHit);
 BENCHMARK(BM_DomainTrieSearchWildcard);
 BENCHMARK(BM_DomainTrieSearchMiss);
 BENCHMARK(BM_RulesEngineMatch);
+
+// VLESS
+BENCHMARK(BM_VlessParseRequest);
+
+// Shadowsocks
+BENCHMARK(BM_ShadowsocksParseAddressPort);
+BENCHMARK(BM_ShadowsocksDecodePsk);
 
 BENCHMARK_MAIN();

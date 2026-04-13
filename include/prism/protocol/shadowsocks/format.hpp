@@ -50,4 +50,22 @@ namespace psm::protocol::shadowsocks::format
     {
         return method == cipher_method::aes_128_gcm ? 16 : 32;
     }
+
+    /**
+     * @brief 根据加密方法获取 KDF 上下文字符串
+     * @note SIP022 规范要求所有方法统一使用 "shadowsocks 2022 session subkey"
+     */
+    [[nodiscard]] constexpr auto kdf_context_for(cipher_method /*method*/) noexcept -> std::string_view
+    {
+        return kdf_context;
+    }
+
+    /**
+     * @brief 从配置方法字符串解析加密方法
+     * @param method_str 方法名字符串（可为空，自动推断）
+     * @param psk_len PSK 字节长度（用于自动推断）
+     * @return 加密方法枚举
+     */
+    [[nodiscard]] auto resolve_cipher_method(std::string_view method_str, std::size_t psk_len) noexcept
+        -> cipher_method;
 } // namespace psm::protocol::shadowsocks::format

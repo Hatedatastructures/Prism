@@ -3,6 +3,8 @@
 #include <prism/pipeline/primitives.hpp>
 #include <prism/channel/transport/encrypted.hpp>
 #include <prism/protocol/analysis.hpp>
+#include <prism/protocol/reality/handshake.hpp>
+#include <prism/protocol/reality/config.hpp>
 
 namespace dispatch = psm::agent::dispatch;
 
@@ -158,88 +160,120 @@ namespace psm::agent::session
 
         auto span = std::span<const std::byte>(detect_result.pre_read_data.data(), detect_result.pre_read_size);
 
-        // 2：TLS 剥离（如果外层是 TLS
+        // 2：TLS 处理（如果外层是 TLS）
         if (detect_result.type == protocol::protocol_type::tls)
         {
-            // TLS 握手（复用 ssl_handshake，它会 move ctx_.inbound）
-            auto [ssl_ec, ssl_stream] = co_await pipeline::primitives::ssl_handshake(ctx_, span);
-            if (fault::failed(ssl_ec) || !ssl_stream)
+            // 检查 Reality 是否配置
+            if (ctx_.server.cfg.reality.enabled())
             {
-                trace::warn("[Session] [{}] TLS handshake failed: {}", id_, fault::describe(ssl_ec));
-                co_return;
-            }
-
-            // 创建加密传输层
-            auto encrypted_trans = std::make_shared<channel::transport::encrypted>(ssl_stream);
-
-            // 注册 TLS 流清理回调
-            ctx_.active_stream_cancel = [ssl_stream]() noexcept
-            {
-                ssl_stream->lowest_layer().transmission().cancel();
-            };
-            ctx_.active_stream_close = [ssl_stream]() noexcept
-            {
-                ssl_stream->lowest_layer().transmission().close();
-            };
-
-            // 增量读取内层数据并逐次探测协议，避免短请求死锁
-            // HTTP 方法前缀最短 4 字节（GET/PUT），Trojan 需 60 字节
-            constexpr std::size_t trojan_min = 60;
-            std::array<std::byte, 64> inner_buf{};
-            std::size_t inner_n = 0;
-
-            while (inner_n < trojan_min)
-            {
-                std::error_code ec;
-                auto buf_span = std::span<std::byte>(inner_buf.data() + inner_n, inner_buf.size() - inner_n);
-                const auto n = co_await encrypted_trans->async_read_some(std::move(buf_span), ec);
-                if (ec)
+                // Reality 路径
+                auto result = co_await protocol::reality::handshake(ctx_, span);
+                switch (result.type)
                 {
-                    trace::warn("[Session] [{}] Inner probe read failed: {}", id_, ec.message());
+                case protocol::reality::handshake_result_type::fallback:
+                    // 已完成透明代理到 dest，会话结束
                     co_return;
-                }
-                inner_n += n;
 
-                // 每次读到数据后尝试探测，HTTP 方法最短前缀仅 4 字节即可识别
-                const auto inner_view = std::string_view(reinterpret_cast<const char *>(inner_buf.data()), inner_n);
-                detect_result.type = protocol::analysis::detect_tls(inner_view);
-
-                // 调试：打印前 16 字节的 hex，辅助排查 SS2022 协议检测
+                case protocol::reality::handshake_result_type::authenticated:
                 {
-                    constexpr std::size_t hex_len = 16;
-                    const auto dump_len = std::min(inner_n, hex_len);
-                    std::string hex_dump;
-                    hex_dump.reserve(dump_len * 3);
-                    for (std::size_t i = 0; i < dump_len; ++i)
-                    {
-                        const auto b = static_cast<unsigned char>(inner_buf[i]);
-                        char buf[4];
-                        std::snprintf(buf, sizeof(buf), "%02x ", b);
-                        hex_dump += buf;
-                    }
-                    trace::debug("[Session] [{}] TLS inner probe: {} bytes [{}] -> {}",
-                                 id_, inner_n, hex_dump, protocol::to_string_view(detect_result.type));
-                }
-
-                if (detect_result.type != protocol::protocol_type::unknown)
-                {
+                    // Reality 握手成功，设置加密传输层
+                    ctx_.inbound = std::move(result.encrypted_transport);
+                    span = std::span<const std::byte>(result.inner_preread.data(),
+                                                       result.inner_preread.size());
+                    // Reality 内层固定为 VLESS
+                    detect_result.type = protocol::protocol_type::vless;
+                    trace::debug("[Session] [{}] Reality authenticated, dispatching to VLESS", id_);
                     break;
                 }
+                case protocol::reality::handshake_result_type::failed:
+                    trace::warn("[Session] [{}] Reality handshake failed: {}",
+                                id_, fault::describe(result.error));
+                    co_return;
+                }
             }
-
-            if (detect_result.type == protocol::protocol_type::unknown)
+            else
             {
-                trace::warn("[Session] [{}] Cannot determine inner protocol", id_);
-                co_return;
+                // 标准 TLS 剥离路径
+                // TLS 握手（复用 ssl_handshake，它会 move ctx_.inbound）
+                auto [ssl_ec, ssl_stream] = co_await pipeline::primitives::ssl_handshake(ctx_, span);
+                if (fault::failed(ssl_ec) || !ssl_stream)
+                {
+                    trace::warn("[Session] [{}] TLS handshake failed: {}", id_, fault::describe(ssl_ec));
+                    co_return;
+                }
+
+                // 创建加密传输层
+                auto encrypted_trans = std::make_shared<channel::transport::encrypted>(ssl_stream);
+
+                // 注册 TLS 流清理回调
+                ctx_.active_stream_cancel = [ssl_stream]() noexcept
+                {
+                    ssl_stream->lowest_layer().transmission().cancel();
+                };
+                ctx_.active_stream_close = [ssl_stream]() noexcept
+                {
+                    ssl_stream->lowest_layer().transmission().close();
+                };
+
+                // 增量读取内层数据并逐次探测协议，避免短请求死锁
+                // HTTP 方法前缀最短 4 字节（GET/PUT），Trojan 需 60 字节
+                constexpr std::size_t trojan_min = 60;
+                std::array<std::byte, 64> inner_buf{};
+                std::size_t inner_n = 0;
+
+                while (inner_n < trojan_min)
+                {
+                    std::error_code ec;
+                    auto buf_span = std::span<std::byte>(inner_buf.data() + inner_n, inner_buf.size() - inner_n);
+                    const auto n = co_await encrypted_trans->async_read_some(std::move(buf_span), ec);
+                    if (ec)
+                    {
+                        trace::warn("[Session] [{}] Inner probe read failed: {}", id_, ec.message());
+                        co_return;
+                    }
+                    inner_n += n;
+
+                    // 每次读到数据后尝试探测，HTTP 方法最短前缀仅 4 字节即可识别
+                    const auto inner_view = std::string_view(reinterpret_cast<const char *>(inner_buf.data()), inner_n);
+                    detect_result.type = protocol::analysis::detect_tls(inner_view);
+
+                    // 调试：打印前 16 字节的 hex，辅助排查 SS2022 协议检测
+                    {
+                        constexpr std::size_t hex_len = 16;
+                        const auto dump_len = std::min(inner_n, hex_len);
+                        std::string hex_dump;
+                        hex_dump.reserve(dump_len * 3);
+                        for (std::size_t i = 0; i < dump_len; ++i)
+                        {
+                            const auto b = static_cast<unsigned char>(inner_buf[i]);
+                            char buf[4];
+                            std::snprintf(buf, sizeof(buf), "%02x ", b);
+                            hex_dump += buf;
+                        }
+                        trace::debug("[Session] [{}] TLS inner probe: {} bytes [{}] -> {}",
+                                     id_, inner_n, hex_dump, protocol::to_string_view(detect_result.type));
+                    }
+
+                    if (detect_result.type != protocol::protocol_type::unknown)
+                    {
+                        break;
+                    }
+                }
+
+                if (detect_result.type == protocol::protocol_type::unknown)
+                {
+                    trace::warn("[Session] [{}] Cannot determine inner protocol", id_);
+                    co_return;
+                }
+
+                trace::debug("[Session] [{}] TLS inner protocol: {}", id_, protocol::to_string_view(detect_result.type));
+
+                // 更新 ctx_.inbound 为加密传输层（不含 preview，留给 handler 做）
+                ctx_.inbound = std::move(encrypted_trans);
+
+                // 更新 span 为内层预读数据
+                span = std::span<const std::byte>(inner_buf.data(), inner_n);
             }
-
-            trace::debug("[Session] [{}] TLS inner protocol: {}", id_, protocol::to_string_view(detect_result.type));
-
-            // 更新 ctx_.inbound 为加密传输层（不含 preview，留给 handler 做）
-            ctx_.inbound = std::move(encrypted_trans);
-
-            // 更新 span 为内层预读数据
-            span = std::span<const std::byte>(inner_buf.data(), inner_n);
         }
 
         // 3：分发到 handler

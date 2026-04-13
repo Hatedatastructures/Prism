@@ -14,7 +14,7 @@
 #include <prism/protocol/shadowsocks/constants.hpp>
 #include <prism/protocol/shadowsocks/message.hpp>
 #include <prism/protocol/shadowsocks/config.hpp>
-#include <prism/protocol/shadowsocks/salt_pool.hpp>
+#include <prism/protocol/shadowsocks/salts.hpp>
 #include <prism/protocol/shadowsocks/format.hpp>
 #include <prism/protocol/analysis.hpp>
 #include <prism/crypto/aead.hpp>

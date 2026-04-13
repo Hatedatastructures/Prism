@@ -100,6 +100,8 @@ inline void register_handlers()
     factory.register_handler<Socks5>(protocol::protocol_type::socks5);
     factory.register_handler<Trojan>(protocol::protocol_type::trojan);
     factory.register_handler<Unknown>(protocol::protocol_type::unknown);
+    factory.register_handler<Vless>(protocol::protocol_type::vless);
+    factory.register_handler<Shadowsocks>(protocol::protocol_type::shadowsocks);
 }
 ```
 
@@ -110,10 +112,12 @@ inline void register_handlers()
 | `http` | `Http` | 处理 HTTP/1.1 协议，包括 GET、POST、CONNECT 等方法 |
 | `socks5` | `Socks5` | 处理 SOCKS5 协议认证和连接命令 |
 | `trojan` | `Trojan` | 处理 Trojan over TLS（TLS 由 Session 层剥离后分发） |
+| `vless` | `Vless` | 处理 VLESS 协议（UUID 认证，支持裸跑或 TLS 内层） |
+| `shadowsocks` | `Shadowsocks` | 处理 Shadowsocks 2022 (SIP022) AEAD 协议 |
 | `unknown` | `Unknown` | 原始 TCP 双向透传，作为默认回退处理器 |
 
 **注意**: `protocol_type::tls` 不会分发到 handler。Session 层检测到 TLS 后执行握手和内层协议探测，
-将已解密的传输层分发给内层协议对应的 handler（HTTP 或 Trojan）。
+将已解密的传输层分发给内层协议对应的 handler（HTTP、Trojan 或 VLESS）。
 
 ## Unknown 回退路径
 
@@ -171,13 +175,15 @@ auto process(session_context &ctx, [[maybe_unused]] std::span<const std::byte> /
        │
        ▼
   Registry
-  ├─ protocol_type::http   -> Http handler (singleton)
-  ├─ protocol_type::socks5 -> Socks5 handler (singleton)
-  ├─ protocol_type::trojan -> Trojan handler (singleton)
-  └─ protocol_type::unknown-> Unknown handler (singleton)
+  ├─ protocol_type::http        -> Http handler (singleton)
+  ├─ protocol_type::socks5      -> Socks5 handler (singleton)
+  ├─ protocol_type::trojan      -> Trojan handler (singleton)
+  ├─ protocol_type::vless       -> Vless handler (singleton)
+  ├─ protocol_type::shadowsocks -> Shadowsocks handler (singleton)
+  └─ protocol_type::unknown     -> Unknown handler (singleton)
        │
        ▼
   Handler.process()
-  Http/Socks5/Trojan -> 对应 pipeline 处理
+  Http/Socks5/Trojan/Vless/Shadowsocks -> 对应 pipeline 处理
   Unknown -> tunnel 原始 TCP 双向透传
 ```

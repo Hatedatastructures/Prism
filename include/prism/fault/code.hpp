@@ -98,7 +98,22 @@ namespace psm::fault
         timestamp_expired = 47,                       // 客户端时间戳超出有效窗口
         replay_detected = 48,                         // Salt 重放检测
 
-        _count = 49                                   // 错误码总数（内部使用）
+        // Reality 相关错误码
+        reality_not_configured = 49,          // Reality 未配置
+        reality_auth_failed = 50,             // Reality 认证失败
+        reality_sni_mismatch = 51,            // SNI 不在 server_names 中
+        reality_key_exchange_failed = 52,     // X25519 密钥交换失败
+        reality_handshake_failed = 53,        // Reality TLS 握手失败
+        reality_dest_unreachable = 54,        // 回退目标服务器不可达
+        reality_certificate_error = 55,       // 证书获取/处理失败
+        reality_tls_record_error = 56,        // TLS 记录解析/生成错误
+        reality_key_schedule_error = 57,      // TLS 1.3 密钥调度错误
+
+        // SS2022 UDP 相关错误码
+        udp_session_expired = 58,                   // UDP 会话已过期
+        packet_replay_detected = 59,                // UDP PacketID 重放检测
+
+        _count = 60                                   // 错误码总数（内部使用）
     };
 
     /**
@@ -214,6 +229,28 @@ namespace psm::fault
             return "timestamp_expired";
         case code::replay_detected:
             return "replay_detected";
+        case code::reality_not_configured:
+            return "reality_not_configured";
+        case code::reality_auth_failed:
+            return "reality_auth_failed";
+        case code::reality_sni_mismatch:
+            return "reality_sni_mismatch";
+        case code::reality_key_exchange_failed:
+            return "reality_key_exchange_failed";
+        case code::reality_handshake_failed:
+            return "reality_handshake_failed";
+        case code::reality_dest_unreachable:
+            return "reality_dest_unreachable";
+        case code::reality_certificate_error:
+            return "reality_certificate_error";
+        case code::reality_tls_record_error:
+            return "reality_tls_record_error";
+        case code::reality_key_schedule_error:
+            return "reality_key_schedule_error";
+        case code::udp_session_expired:
+            return "udp_session_expired";
+        case code::packet_replay_detected:
+            return "packet_replay_detected";
         default:
             return "unknown";
         }

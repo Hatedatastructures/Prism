@@ -9,7 +9,7 @@
 - **核心技术**：C++23、Boost.Asio 协程、BoringSSL、PMR 内存管理
 - **开发状态**：**稳定可用**，核心功能已完成
 - **当前版本**：v0.9.0
-- **最后更新**：2026年4月11日
+- **最后更新**：2026年4月13日
 - **主要依赖**：Boost(system)、BoringSSL、spdlog、glaze
 
 ---
@@ -28,6 +28,7 @@
 | **TLS 透明剥离** | 100% | ✅ 完成 | Session 层 TLS 握手 + 内层协议探测，Handler 无感 TLS |
 | **Trojan 协议** | 100% | ✅ 完成 | Trojan over TLS 协议已接入运行链 |
 | **VLESS 协议** | 90% | ✅ 完成 | VLESS 协议已接入，TCP/mux 可用，UDP 待实现 |
+| **Shadowsocks 2022** | 100% | ✅ 完成 | SIP022 AEAD 协议，AES-128/256-GCM + BLAKE3 密钥派生 |
 
 #### 2. 核心架构模块
 
@@ -35,7 +36,7 @@
 |------|--------|------|
 | **协程驱动架构** | 100% | 基于 `net::awaitable` 的异步模型，无回调地狱 |
 | **智能连接池** | 100% | TCP 连接复用，支持僵尸检测、空闲超时、端点缓存上限 |
-| **协议自动识别** | 100% | 动态检测 HTTP/SOCKS5/TLS，TLS 剥离后二次探测内层协议（HTTP/Trojan/VLESS） |
+| **协议自动识别** | 100% | 动态检测 HTTP/SOCKS5/TLS，TLS 剥离后二次探测内层协议（HTTP/Trojan/VLESS），排除法 fallback 到 Shadowsocks |
 | **路由分发系统** | 100% | 支持正向代理、反向代理、直连三种模式 |
 | **双向隧道转发** | 100% | 优化的数据转发算法，支持优雅退出 |
 | **负载均衡** | 100% | 基于评分的 Worker 选择，过载检测与滞后机制 |
@@ -68,8 +69,8 @@
 | **session** | session | ✅ 100% | 会话生命周期管理，协议检测分发 |
 | **dispatch** | handler | ✅ 100% | 协议处理器抽象基类 |
 | **dispatch** | registry | ✅ 100% | 处理器注册表，工厂模式 |
-| **dispatch** | handlers | ✅ 100% | HTTP/SOCKS5/Trojan/VLESS/Unknown 处理器实现 |
-| **pipeline** | protocols | ✅ 100% | HTTP/SOCKS5/Trojan/VLESS 协议处理管道 |
+| **dispatch** | handlers | ✅ 100% | HTTP/SOCKS5/Trojan/VLESS/Shadowsocks/Unknown 处理器实现 |
+| **pipeline** | protocols | ✅ 100% | HTTP/SOCKS5/Trojan/VLESS/Shadowsocks 协议处理管道 |
 | **pipeline** | primitives | ✅ 100% | dial、preview、tunnel 原语 |
 | **resolve** | router | ✅ 100% | 统一路由入口，整合解析器、连接池 |
 | **resolve** | recursor | ✅ 100% | DNS 解析门面，六阶段查询管道 |
@@ -88,7 +89,8 @@
 | **SOCKS5** | ✅ 100% | RFC 1928 完整实现，支持 CONNECT、UDP ASSOCIATE |
 | **Trojan** | ✅ 100% | Trojan over TLS 协议，密码验证 + 流量伪装 |
 | **VLESS** | ✅ 90% | VLESS 协议，UUID 认证 + mux 多路复用，UDP 待实现 |
-| **协议探测** | ✅ 100% | 外层 detect() + 内层 detect_inner() 双阶段探测 |
+| **Shadowsocks 2022** | ✅ 100% | SIP022 AEAD 协议，AES-128/256-GCM + BLAKE3 + 抗重放 |
+| **协议探测** | ✅ 100% | 外层 detect() + 内层 detect_inner() 双阶段探测 + 排除法 fallback |
 
 ### Channel 模块 (`include/prism/channel/`)
 
@@ -177,7 +179,7 @@
 | 插件生态系统 | 支持第三方插件扩展 |
 | 集群部署 | 多节点负载均衡和故障转移 |
 | Web 管理界面 | 可视化配置和监控 |
-| 协议扩展 | Shadowsocks 2022、Reality、Hysteria2 等协议支持（VLESS 已完成） |
+| 协议扩展 | Reality、Hysteria2 等协议支持（SS2022/VLESS 已完成） |
 
 ---
 
@@ -194,6 +196,10 @@ ctest --test-dir build_release --output-on-failure
 ./build_release/tests/Http          # HTTP 代理协议
 ./build_release/tests/Socks5        # SOCKS5 协议
 ./build_release/tests/Trojan        # Trojan 协议
+./build_release/tests/Vless         # VLESS 协议
+./build_release/tests/Shadowsocks   # Shadowsocks 2022 协议
+./build_release/tests/Aead          # AEAD 加密解密
+./build_release/tests/Blake3        # BLAKE3 密钥派生
 ./build_release/tests/Connection    # 连接池复用
 ./build_release/tests/HttpParser    # HTTP 解析器
 ./build_release/tests/Smux          # Smux 多路复用
@@ -239,6 +245,28 @@ curl -v -x socks5://127.0.0.1:8081 http://www.baidu.com
 ---
 
 ## 更新日志
+
+### 2026年4月13日（第二轮更新）
+
+**全面测试/基准/压测补充：**
+- 新增测试：`Vless`（VLESS 协议单元+集成测试）、`Shadowsocks`（SS2022 salt_pool/format/PSK 测试）、`Aead`（AES-128/256-GCM seal/open 往返测试）、`Blake3`（密钥派生测试）
+- 新增基准：`CryptoBench`（AEAD seal/open、BLAKE3 derive_key、salt_pool）+ CodecBench 追加 VLESS/SS2022 解析基准
+- 压力测试/基准测试文件名和内部函数名统一为 PascalCase
+- CMakeLists.txt 全量更新，文档引用同步更新
+
+### 2026年4月13日
+
+**Shadowsocks 2022 协议接入：**
+- 新增 Shadowsocks 2022 (SIP022) AEAD 协议完整实现：relay（AEAD 加解密 + 握手）、format（PSK 解码 + 地址解析）、salt_pool（重放检测）
+- 新增 crypto 模块：AEAD 抽象层（BoringSSL EVP_AEAD 封装）、BLAKE3 密钥派生
+- 支持 AES-128-GCM（16 字节 PSK）和 AES-256-GCM（32 字节 PSK）
+- 内置安全机制：时间戳窗口验证、salt 池重放检测、BLAKE3 密钥派生
+- 协议检测采用排除法：不匹配 SOCKS5/TLS/HTTP/VLESS/Trojan 时 fallback 到 Shadowsocks
+- relay 作为 transmission 装饰器，在整个会话生命周期内保持活跃，提供 AEAD 分帧加解密
+
+**文档全量更新：**
+- 新增 `docs/protocols/shadowsocks.md` SS2022 协议完整文档（六段式）
+- 全量更新 README、CLAUDE.md、架构文档、模块文档、配置参考等 15+ 文件
 
 ### 2026年4月12日
 

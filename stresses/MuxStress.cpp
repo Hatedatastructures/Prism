@@ -1,5 +1,5 @@
 /**
- * @file mux_stress.cpp
+ * @file MuxStress.cpp
  * @brief 多路复用协议压力测试
  * @details 测试 smux/yamux 帧编解码在高并发和大量数据下的稳定性，
  * 包括帧解码风暴、并发编解码、地址解析覆盖和 UDP 数据报往返验证。
@@ -10,7 +10,7 @@
 #include <prism/memory/pool.hpp>
 #include <prism/memory/container.hpp>
 
-#include "counting_resource.hpp"
+#include "CountingResource.hpp"
 
 #include <algorithm>
 #include <array>
@@ -36,7 +36,7 @@ using namespace psm;
 
 namespace
 {
-    struct stress_config
+    struct StressConfig
     {
         std::size_t threads = 4;
         std::size_t duration_sec = 5;
@@ -44,7 +44,7 @@ namespace
         std::size_t max_payload = 4096;          // 最大 payload 大小
     };
 
-    struct thread_stats
+    struct ThreadStats
     {
         std::uint64_t ops = 0;
         std::uint64_t errors = 0;
@@ -57,7 +57,7 @@ namespace
     // ============================================================
 
     // 构造 smux 帧头（小端序）
-    std::array<std::byte, 8> make_smux_frame(multiplex::smux::command cmd,
+    std::array<std::byte, 8> MakeSmuxFrame(multiplex::smux::command cmd,
                                              std::uint16_t length, std::uint32_t stream_id)
     {
         return {
@@ -73,7 +73,7 @@ namespace
     }
 
     // 构造 yamux 帧头（大端序）
-    std::array<std::byte, 12> make_yamux_frame(multiplex::yamux::message_type type,
+    std::array<std::byte, 12> MakeYamuxFrame(multiplex::yamux::message_type type,
                                                multiplex::yamux::flags flag,
                                                std::uint32_t stream_id, std::uint32_t length)
     {
@@ -94,7 +94,7 @@ namespace
     }
 
     // 构造 mux address IPv4
-    std::vector<std::byte> make_mux_addr_ipv4(std::uint16_t port)
+    std::vector<std::byte> MakeMuxAddrIPv4(std::uint16_t port)
     {
         std::vector<std::byte> buf(9);
         buf[0] = std::byte{0x00}; // flags high
@@ -110,7 +110,7 @@ namespace
     }
 
     // 构造 mux address 域名
-    std::vector<std::byte> make_mux_addr_domain(std::string_view domain, std::uint16_t port)
+    std::vector<std::byte> MakeMuxAddrDomain(std::string_view domain, std::uint16_t port)
     {
         std::vector<std::byte> buf(3 + 1 + domain.size() + 2);
         buf[0] = std::byte{0x00};
@@ -125,7 +125,7 @@ namespace
     }
 
     // 构造 mux address IPv6
-    std::vector<std::byte> make_mux_addr_ipv6(std::uint16_t port)
+    std::vector<std::byte> MakeMuxAddrIPv6(std::uint16_t port)
     {
         std::vector<std::byte> buf(3 + 16 + 2);
         buf[0] = std::byte{0x00};
@@ -141,7 +141,7 @@ namespace
     }
 
     // 生成随机 payload
-    std::vector<std::byte> make_random_payload(std::size_t size, std::mt19937 &rng)
+    std::vector<std::byte> MakeRandomPayload(std::size_t size, std::mt19937 &rng)
     {
         std::vector<std::byte> payload(size);
         for (std::size_t i = 0; i < size; ++i)
@@ -153,7 +153,7 @@ namespace
     // 场景 1：帧解码风暴（单线程）
     // ============================================================
 
-    void run_frame_decode_storm(const stress_config &config)
+    void RunFrameDecodeStorm(const StressConfig &config)
     {
         std::cout << std::format("\n--- 场景 1: 帧解码风暴 (单线程, {} 轮) ---\n", config.iterations);
 
@@ -177,7 +177,7 @@ namespace
         {
             auto cmd = smux_cmds[i % 4];
             std::uint16_t len = static_cast<std::uint16_t>(rng() % 65536);
-            smux_frames.push_back(make_smux_frame(cmd, len, static_cast<std::uint32_t>(i + 1)));
+            smux_frames.push_back(MakeSmuxFrame(cmd, len, static_cast<std::uint32_t>(i + 1)));
         }
 
         const multiplex::yamux::message_type yamux_types[] = {
@@ -191,7 +191,7 @@ namespace
         {
             auto type = yamux_types[i % 4];
             auto flag = static_cast<multiplex::yamux::flags>(rng() % 16);
-            yamux_frames.push_back(make_yamux_frame(type, flag, static_cast<std::uint32_t>(i + 1), rng()));
+            yamux_frames.push_back(MakeYamuxFrame(type, flag, static_cast<std::uint32_t>(i + 1), rng()));
         }
 
         stress::counting_resource counter(memory::system::global_pool());
@@ -221,7 +221,7 @@ namespace
             // 周期性解析地址（每 10 次迭代）
             if (iter % 10 == 0)
             {
-                auto ipv4_data = make_mux_addr_ipv4(443);
+                auto ipv4_data = MakeMuxAddrIPv4(443);
                 auto addr = multiplex::smux::parse_mux_address(
                     std::span<const std::byte>(ipv4_data.data(), ipv4_data.size()), mr);
                 if (!addr)
@@ -243,9 +243,9 @@ namespace
     // 场景 2：并发编解码
     // ============================================================
 
-    void concurrent_worker(std::size_t thread_id, const stress_config &config,
+    void ConcurrentWorker(std::size_t thread_id, const StressConfig &config,
                            std::latch &start_latch, const std::atomic<bool> &stop_flag,
-                           thread_stats &stats)
+                           ThreadStats &stats)
     {
         memory::resource_pointer upstream = memory::system::thread_local_pool();
         stress::counting_resource counter(upstream);
@@ -262,7 +262,7 @@ namespace
 
             // smux 帧解码
             const auto cmd = static_cast<multiplex::smux::command>(rng() % 4);
-            auto sf = make_smux_frame(cmd, static_cast<std::uint16_t>(rng() % 1024), static_cast<std::uint32_t>(rng()));
+            auto sf = MakeSmuxFrame(cmd, static_cast<std::uint16_t>(rng() % 1024), static_cast<std::uint32_t>(rng()));
             auto shdr = multiplex::smux::deserialization(sf);
             if (shdr)
                 stats.ops++;
@@ -271,7 +271,7 @@ namespace
 
             // yamux 帧解码
             const auto type = static_cast<multiplex::yamux::message_type>(rng() % 4);
-            auto yf = make_yamux_frame(type, multiplex::yamux::flags::none, static_cast<std::uint32_t>(rng()), rng() % 65536);
+            auto yf = MakeYamuxFrame(type, multiplex::yamux::flags::none, static_cast<std::uint32_t>(rng()), rng() % 65536);
             auto yhdr = multiplex::yamux::parse_header(yf);
             if (yhdr)
                 stats.ops++;
@@ -281,7 +281,7 @@ namespace
             // 地址解析
             if (rng() % 3 == 0)
             {
-                auto addr_data = make_mux_addr_ipv4(static_cast<std::uint16_t>(rng() % 65536));
+                auto addr_data = MakeMuxAddrIPv4(static_cast<std::uint16_t>(rng() % 65536));
                 auto addr = multiplex::smux::parse_mux_address(
                     std::span<const std::byte>(addr_data.data(), addr_data.size()), mr);
                 if (addr)
@@ -294,7 +294,7 @@ namespace
             if (rng() % 5 == 0)
             {
                 const auto payload_size = rng() % config.max_payload;
-                auto payload = make_random_payload(payload_size, rng);
+                auto payload = MakeRandomPayload(payload_size, rng);
                 auto built = multiplex::smux::build_udp_datagram(
                     "127.0.0.1", 53,
                     std::span<const std::byte>(payload.data(), payload.size()), mr);
@@ -315,19 +315,19 @@ namespace
         stats.peak_memory = counter.peak_bytes_in_use();
     }
 
-    void run_concurrent_decode(const stress_config &config)
+    void RunConcurrentDecode(const StressConfig &config)
     {
         std::cout << std::format("\n--- 场景 2: 并发编解码 ({} 线程, {} 秒) ---\n",
                                  config.threads, config.duration_sec);
 
         std::vector<std::jthread> threads;
-        std::vector<thread_stats> all_stats(config.threads);
+        std::vector<ThreadStats> all_stats(config.threads);
         std::latch start_latch(config.threads + 1);
         std::atomic<bool> stop_flag{false};
 
         for (std::size_t i = 0; i < config.threads; ++i)
         {
-            threads.emplace_back(concurrent_worker, i, std::cref(config),
+            threads.emplace_back(ConcurrentWorker, i, std::cref(config),
                                  std::ref(start_latch), std::ref(stop_flag), std::ref(all_stats[i]));
         }
 
@@ -346,7 +346,7 @@ namespace
         auto end = std::chrono::steady_clock::now();
         double elapsed = std::chrono::duration<double>(end - start).count();
 
-        thread_stats total{};
+        ThreadStats total{};
         for (const auto &s : all_stats)
         {
             total.ops += s.ops;
@@ -365,7 +365,7 @@ namespace
     // 场景 3：地址解析覆盖
     // ============================================================
 
-    void run_address_parse_coverage(const stress_config &config)
+    void RunAddressParseCoverage(const StressConfig &config)
     {
         std::cout << std::format("\n--- 场景 3: 地址解析覆盖 ({} 轮) ---\n", config.iterations);
 
@@ -384,7 +384,7 @@ namespace
 
             // IPv4
             {
-                auto data = make_mux_addr_ipv4(static_cast<std::uint16_t>(iter % 65536));
+                auto data = MakeMuxAddrIPv4(static_cast<std::uint16_t>(iter % 65536));
                 auto addr = multiplex::smux::parse_mux_address(
                     std::span<const std::byte>(data.data(), data.size()), mr);
                 if (!addr || addr->host != "127.0.0.1" || addr->port != static_cast<std::uint16_t>(iter % 65536))
@@ -394,7 +394,7 @@ namespace
 
             // 域名（短）
             {
-                auto data = make_mux_addr_domain("example.com", 443);
+                auto data = MakeMuxAddrDomain("example.com", 443);
                 auto addr = multiplex::smux::parse_mux_address(
                     std::span<const std::byte>(data.data(), data.size()), mr);
                 if (!addr || addr->host != "example.com" || addr->port != 443)
@@ -407,7 +407,7 @@ namespace
             {
                 std::string long_domain(200, 'a');
                 long_domain += ".com";
-                auto data = make_mux_addr_domain(long_domain, 8080);
+                auto data = MakeMuxAddrDomain(long_domain, 8080);
                 auto addr = multiplex::smux::parse_mux_address(
                     std::span<const std::byte>(data.data(), data.size()), mr);
                 if (!addr || addr->port != 8080)
@@ -418,7 +418,7 @@ namespace
             // IPv6
             if (iter % 10 == 0)
             {
-                auto data = make_mux_addr_ipv6(8443);
+                auto data = MakeMuxAddrIPv6(8443);
                 auto addr = multiplex::smux::parse_mux_address(
                     std::span<const std::byte>(data.data(), data.size()), mr);
                 if (!addr || addr->port != 8443)
@@ -438,7 +438,7 @@ namespace
     // 场景 4：UDP 数据报编解码往返
     // ============================================================
 
-    void run_udp_roundtrip(const stress_config &config)
+    void RunUdpRoundtrip(const StressConfig &config)
     {
         std::cout << std::format("\n--- 场景 4: UDP 数据报往返验证 ({} 轮) ---\n", config.iterations);
 
@@ -456,7 +456,7 @@ namespace
         {
             arena.reset();
             const auto payload_size = rng() % config.max_payload;
-            auto payload = make_random_payload(payload_size, rng);
+            auto payload = MakeRandomPayload(payload_size, rng);
 
             // IPv4 往返
             {
@@ -527,7 +527,7 @@ int main(const int argc, char **argv)
 
     memory::system::enable_global_pooling();
 
-    stress_config config;
+    StressConfig config;
     config.threads = 4;
     config.duration_sec = 5;
     config.iterations = 1000000;
@@ -540,10 +540,10 @@ int main(const int argc, char **argv)
     std::cout << std::format("  持续时间: {}s\n", config.duration_sec);
     std::cout << std::format("  单线程迭代: {}\n", config.iterations);
 
-    run_frame_decode_storm(config);
-    run_concurrent_decode(config);
-    run_address_parse_coverage(config);
-    run_udp_roundtrip(config);
+    RunFrameDecodeStorm(config);
+    RunConcurrentDecode(config);
+    RunAddressParseCoverage(config);
+    RunUdpRoundtrip(config);
 
     std::cout << "\n======================================\n";
     std::cout << "  所有压力测试完成\n";

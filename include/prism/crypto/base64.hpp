@@ -8,6 +8,7 @@
 
 #include <string>
 #include <cstdint>
+#include <span>
 #include <string_view>
 #include <array>
 #include <cctype>
@@ -161,6 +162,74 @@ namespace psm::crypto
 
         // 无 padding 的剩余组：按 RFC 4648 规范不应出现
         // 因为 Base64 要求输入按 3 字节分组，不足时必须补 padding
+        return result;
+    }
+
+    namespace detail
+    {
+        /**
+         * @brief Base64 编码查找表
+         */
+        constexpr char base64_encode_table[] =
+            "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
+            "abcdefghijklmnopqrstuvwxyz"
+            "0123456789+/";
+    } // namespace detail
+
+    /**
+     * @brief Base64 编码
+     * @param input 原始字节数据
+     * @return Base64 编码后的字符串
+     * @details 将原始字节编码为标准 Base64 字符串（含 padding）。
+     * 遵循 RFC 4648 标准 Base64 编码规则。
+     */
+    [[nodiscard]] inline auto base64_encode(std::span<const std::uint8_t> input) -> std::string
+    {
+        if (input.empty())
+        {
+            return {};
+        }
+
+        std::string result;
+        result.reserve(((input.size() + 2) / 3) * 4);
+
+        std::size_t i = 0;
+        const std::size_t full_groups = input.size() / 3;
+
+        // 处理完整的 3 字节组
+        for (std::size_t g = 0; g < full_groups; ++g)
+        {
+            const auto b0 = input[i];
+            const auto b1 = input[i + 1];
+            const auto b2 = input[i + 2];
+            i += 3;
+
+            result.push_back(detail::base64_encode_table[b0 >> 2]);
+            result.push_back(detail::base64_encode_table[((b0 & 0x03) << 4) | (b1 >> 4)]);
+            result.push_back(detail::base64_encode_table[((b1 & 0x0F) << 2) | (b2 >> 6)]);
+            result.push_back(detail::base64_encode_table[b2 & 0x3F]);
+        }
+
+        // 处理剩余字节
+        const std::size_t remaining = input.size() % 3;
+        if (remaining == 1)
+        {
+            const auto b0 = input[i];
+            result.push_back(detail::base64_encode_table[b0 >> 2]);
+            result.push_back(detail::base64_encode_table[(b0 & 0x03) << 4]);
+            result.push_back('=');
+            result.push_back('=');
+        }
+        else if (remaining == 2)
+        {
+            const auto b0 = input[i];
+            const auto b1 = input[i + 1];
+            result.push_back(detail::base64_encode_table[b0 >> 2]);
+            result.push_back(detail::base64_encode_table[((b0 & 0x03) << 4) | (b1 >> 4)]);
+            result.push_back(detail::base64_encode_table[(b1 & 0x0F) << 2]);
+            result.push_back('=');
+        }
+
         return result;
     }
 } // namespace psm::crypto

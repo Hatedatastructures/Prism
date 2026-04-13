@@ -1,7 +1,14 @@
+/**
+ * @file MemoryStress.cpp
+ * @brief 多线程内存分配压力测试
+ * @details 测试 PMR 内存分配器在高并发、大容量分配/释放场景下的稳定性，
+ * 模拟随机大小的内存分配与释放，验证 OOM 处理和内存回收机制。
+ */
+
 #include <prism/memory/pool.hpp>
 #include <prism/memory/container.hpp>
 
-#include "counting_resource.hpp"
+#include "CountingResource.hpp"
 
 #include <atomic>
 #include <chrono>
@@ -22,18 +29,18 @@ using namespace psm;
 namespace
 {
     // 配置结构体
-    struct stress_config
+    struct StressConfig
     {
         std::size_t threads = std::max<std::size_t>(1, std::thread::hardware_concurrency());
         std::size_t duration_sec = 10;
         std::size_t max_memory_gb = 32;
-        std::size_t allocation_batch = 1000; // 每个线程每次分配的对象数量
+        std::size_t allocation_batch = 1000;
         std::size_t min_alloc_size = 64;
         std::size_t max_alloc_size = 65536;
     };
 
     // 线程统计结果
-    struct thread_stats
+    struct ThreadStats
     {
         std::uint64_t ops = 0;
         std::uint64_t bytes_allocated = 0;
@@ -42,15 +49,15 @@ namespace
         bool oom_error = false;
     };
 
-    struct stress_context
+    struct StressContext
     {
-        stress_config config;
+        StressConfig config;
         std::size_t effective_memory_limit = 0;
         std::size_t memory_limit_per_thread = 0;
     };
 
     // 获取系统可用内存限制
-    std::size_t get_system_memory_limit(std::size_t requested_gb)
+    std::size_t GetSystemMemoryLimit(std::size_t requested_gb)
     {
         const std::size_t requested_bytes = requested_gb * 1024ULL * 1024ULL * 1024ULL;
 #if defined(_WIN32)
@@ -58,7 +65,6 @@ namespace
         status.dwLength = sizeof(status);
         if (GlobalMemoryStatusEx(&status))
         {
-            // 限制为物理内存的 85%，防止系统卡死
             const std::size_t safe_limit = static_cast<std::size_t>(status.ullAvailPhys * 0.85);
             if (safe_limit > 0 && safe_limit < requested_bytes)
             {
@@ -69,37 +75,29 @@ namespace
         return requested_bytes;
     }
 
-    stress_context build_stress_context(const stress_config &config)
+    StressContext BuildStressContext(const StressConfig &config)
     {
-        stress_context context{};
+        StressContext context{};
         context.config = config;
-        context.effective_memory_limit = get_system_memory_limit(config.max_memory_gb);
+        context.effective_memory_limit = GetSystemMemoryLimit(config.max_memory_gb);
         context.memory_limit_per_thread = context.effective_memory_limit / config.threads;
         return context;
     }
 
     /**
      * @brief 模拟负载工作线程
-     * @param thread_id 线程ID
-     * @param context 压力测试上下文
-     * @param start_latch 启动门闩，用于同步所有线程
-     * @param stop_flag 停止标志，用于控制线程退出
-     * @param stats 线程统计结果引用
      */
-    void worker_thread(const std::size_t thread_id, const stress_context &context,
-                       std::latch &start_latch, const std::atomic<bool> &stop_flag, thread_stats &stats)
+    void WorkerThread(const std::size_t thread_id, const StressContext &context,
+                      std::latch &start_latch, const std::atomic<bool> &stop_flag, ThreadStats &stats)
     {
-        // 1. 初始化内存资源
         memory::resource_pointer upstream = memory::system::thread_local_pool();
         psm::stress::counting_resource counter(upstream);
 
-        // 2. 等待所有线程就绪
         start_latch.arrive_and_wait();
 
         std::mt19937_64 rng(thread_id * 1234567 + std::random_device{}());
         std::uniform_int_distribution<std::size_t> size_dist(context.config.min_alloc_size, context.config.max_alloc_size);
 
-        // 使用 vector 存储分配的对象，模拟实际持有内存
         std::vector<memory::string> keep_alive_objects;
         keep_alive_objects.reserve(context.config.allocation_batch);
 
@@ -107,29 +105,22 @@ namespace
         {
             while (!stop_flag.load(std::memory_order_relaxed))
             {
-                // 检查当前内存使用是否超限
                 if (counter.bytes_in_use() >= context.memory_limit_per_thread)
                 {
-                    // 内存满了，清理一半
                     keep_alive_objects.resize(keep_alive_objects.size() / 2);
-                    // 稍微休眠一下，避免疯狂自旋
                     std::this_thread::yield();
                     continue;
                 }
 
-                // 执行一批分配
                 for (std::size_t i = 0; i < 100; ++i)
                 {
                     const std::size_t size = size_dist(rng);
                     memory::string s(&counter);
-                    // 写入数据确保内存被实际 commit
                     s.resize(size, static_cast<char>(rng()));
                     keep_alive_objects.push_back(std::move(s));
-
                     stats.ops++;
                 }
 
-                // 随机释放一些对象，模拟真实的内存波动
                 if (keep_alive_objects.size() > context.config.allocation_batch)
                 {
                     std::size_t remove_count = keep_alive_objects.size() / 3;
@@ -142,42 +133,31 @@ namespace
             stats.oom_error = true;
         }
 
-        // 收集最终统计数据
         stats.bytes_allocated = counter.bytes_allocated();
         stats.bytes_deallocated = counter.bytes_deallocated();
         stats.peak_memory = counter.peak_bytes_in_use();
-
-        // 对象会在 vector 析构时自动释放
     }
 
     /**
      * @brief 运行内存压力测试
-     * @param context 压力测试上下文
      */
-    void stress_test(const stress_context &context)
+    void StressTest(const StressContext &context)
     {
-        std::cout << std::format(">>> ForwardEngine 内存压力测试工具 <<<\n");
+        std::cout << std::format(">>> Prism 内存压力测试工具 <<<\n");
 
         std::cout << "------------------------------------------------" << std::endl;
-
         std::cout << std::format("{:<24}{}\n", "配置:", "值");
-
         std::cout << std::format("{:<24}{}\n", "  线程数:", context.config.threads);
-
         std::cout << std::format("{:<24}{} 秒\n", "  持续时间:", context.config.duration_sec);
-
         std::cout << std::format("{:<24}{} GB (系统限制后: {} MB)\n",
                                  "  最大内存:", context.config.max_memory_gb, (context.effective_memory_limit / 1024 / 1024));
-
         std::cout << std::format("{:<24}{}\n", "  每个线程每次分配的对象数量:", context.config.allocation_batch);
-
         std::cout << std::format("{:<24}{} - {} bytes\n", "  每个线程每次分配的对象大小范围:", context.config.min_alloc_size,
                                  context.config.max_alloc_size);
-
         std::cout << "------------------------------------------------" << std::endl;
 
         std::vector<std::jthread> threads;
-        std::vector<thread_stats> all_stats(context.config.threads);
+        std::vector<ThreadStats> all_stats(context.config.threads);
         std::latch start_latch(context.config.threads + 1);
         std::atomic<bool> stop_flag{false};
 
@@ -185,13 +165,12 @@ namespace
 
         for (std::size_t i = 0; i < context.config.threads; ++i)
         {
-            threads.emplace_back(worker_thread, i,
+            threads.emplace_back(WorkerThread, i,
                                  std::cref(context), std::ref(start_latch),
                                  std::ref(stop_flag), std::ref(all_stats[i]));
         }
 
         std::cout << std::format("  {} 线程初始化完成...\n", context.config.threads);
-
         std::cout << std::format("  正在启动压力测试...\n");
         start_latch.arrive_and_wait();
 
@@ -212,7 +191,7 @@ namespace
             }
         }
 
-        thread_stats total_stats{};
+        ThreadStats total_stats{};
         for (const auto &s : all_stats)
         {
             total_stats.ops += s.ops;
@@ -226,8 +205,6 @@ namespace
         auto end_time = std::chrono::steady_clock::now();
         std::chrono::duration<double> duration = end_time - start_time;
         double actual_duration = duration.count();
-
-
 
         std::cout << "\n================================================" << std::endl;
         std::cout << "                最终报告                        " << std::endl;
@@ -250,14 +227,12 @@ int main(const int argc, char **argv)
 #if defined(_WIN32)
     SetConsoleOutputCP(CP_UTF8);
 #endif
-    // 1. 配置加载
-    stress_config config;
+    StressConfig config;
     config.threads = 4;
     config.duration_sec = 10;
     config.max_memory_gb = 2;
-    // config.allocation_batch = 1000; // 每个线程每次分配的对象数量
 
-    stress_context context = build_stress_context(config);
-    stress_test(context);
+    StressContext context = BuildStressContext(config);
+    StressTest(context);
     return 0;
 }

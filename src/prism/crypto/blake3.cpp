@@ -29,4 +29,16 @@ namespace psm::crypto
         derive_key(context, material, out_len, out);
         return out;
     }
+
+    auto keyed_hash(const std::span<const std::uint8_t> key, const std::span<const std::uint8_t> data,
+                    const std::size_t out_len)
+        -> std::vector<std::uint8_t>
+    {
+        std::vector<std::uint8_t> out(out_len);
+        blake3_hasher hasher;
+        blake3_hasher_init_keyed(&hasher, key.data());
+        blake3_hasher_update(&hasher, data.data(), data.size());
+        blake3_hasher_finalize(&hasher, out.data(), out_len);
+        return out;
+    }
 } // namespace psm::crypto

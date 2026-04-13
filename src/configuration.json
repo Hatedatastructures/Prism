@@ -58,9 +58,18 @@
             "udp_max_datagram": 65535
         },
         "vless": {},
+        "reality": {
+            "dest": "www.microsoft.com:443",
+            "server_names": ["www.microsoft.com"],
+            "private_key": "cGAv/vuH9mRJmvo4lqOwMZgR56mL4vMjBAwmVMS69Fw=",
+            "short_ids": ["45587ac66ce007e4"]
+        },
         "shadowsocks": {
             "psk": "5n5ESu953i/pjIp02oZvHA==",
-            "enable_tcp": true
+            "method": "2022-blake3-aes-128-gcm",
+            "enable_tcp": true,
+            "enable_udp": false,
+            "udp_idle_timeout": 60
         },
         "mux": {
             "enabled": true,
