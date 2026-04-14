@@ -1,11 +1,3 @@
-/**
- * @file datagram.cpp
- * @brief SS2022 UDP 无状态加解密器实现
- * @details 实现 SS2022 UDP 数据包的逐包 AEAD 加解密。
- * AES-GCM 变体采用双层加密（AES-ECB SeparateHeader + AES-GCM body），
- * ChaCha20 变体采用单层 XChaCha20-Poly1305 加密（明文 header + 加密 body）。
- */
-
 #include <prism/protocol/shadowsocks/datagram.hpp>
 #include <prism/trace/spdlog.hpp>
 #include <prism/crypto/block.hpp>
@@ -92,8 +84,6 @@ namespace psm::protocol::shadowsocks
         }
     } // namespace
 
-    // === 公共调度 ===
-
     auto udp_relay::decrypt_inbound(std::span<const std::byte> packet, const net::ip::udp::endpoint &sender)
         -> std::pair<fault::code, udp_decrypted_packet>
     {
@@ -114,8 +104,6 @@ namespace psm::protocol::shadowsocks
         }
         return encrypt_aes_gcm(payload, session_id, std::move(entry));
     }
-
-    // === AES-GCM 变体 ===
 
     auto udp_relay::decrypt_aes_gcm(std::span<const std::byte> packet, const net::ip::udp::endpoint &sender)
         -> std::pair<fault::code, udp_decrypted_packet>
@@ -251,8 +239,6 @@ namespace psm::protocol::shadowsocks
         return {fault::code::success, result};
     }
 
-    // === ChaCha20 变体 ===
-
     auto udp_relay::decrypt_chacha20(std::span<const std::byte> packet, const net::ip::udp::endpoint &sender)
         -> std::pair<fault::code, udp_decrypted_packet>
     {
@@ -377,8 +363,6 @@ namespace psm::protocol::shadowsocks
 
         return {fault::code::success, result};
     }
-
-    // === 工具函数 ===
 
     auto udp_relay::construct_nonce_aes(
         const std::array<std::uint8_t, session_id_len> &session_id,

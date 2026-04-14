@@ -30,6 +30,16 @@ namespace psm::crypto
     constexpr std::size_t X25519_SHARED_LEN = 32;
 
     /**
+     * @brief Ed25519 公钥长度（字节）
+     */
+    constexpr std::size_t ED25519_KEY_LEN = 32;
+
+    /**
+     * @brief Ed25519 私钥长度（字节，含种子+公钥的完整格式）
+     */
+    constexpr std::size_t ED25519_PRIVATE_KEY_LEN = 64;
+
+    /**
      * @struct x25519_keypair
      * @brief X25519 密钥对
      * @details 包含 X25519 的私钥和对应的公钥，各 32 字节。
@@ -71,4 +81,16 @@ namespace psm::crypto
     auto x25519(std::span<const std::uint8_t> private_key,
                 std::span<const std::uint8_t> peer_public_key)
         -> std::pair<fault::code, std::array<std::uint8_t, X25519_SHARED_LEN>>;
+
+    /**
+     * @struct ed25519_keypair
+     * @brief Ed25519 密钥对
+     * @details 包含 Ed25519 的完整私钥（64字节：种子+公钥）和公钥（32字节）。
+     * 用于 Reality 协议的服务端自签名证书生成和 CertificateVerify 签名。
+     */
+    struct ed25519_keypair
+    {
+        std::array<std::uint8_t, ED25519_PRIVATE_KEY_LEN> private_key{};
+        std::array<std::uint8_t, ED25519_KEY_LEN> public_key{};
+    };
 } // namespace psm::crypto

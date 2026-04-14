@@ -11,6 +11,17 @@ constexpr std::string_view TunnelStr = "[Primitives.Tunnel]";
 namespace psm::pipeline::primitives
 {
     using psm::agent::session_context;
+
+    // TLS 服务端握手。将自定义传输层包装成 ssl_stream，完成标准 TLS 握手。
+    //
+    // 这里的关键设计是 ssl_connector 适配器：
+    // Boost.Beast 的 ssl_stream 需要一个符合 Boost.Asio AsyncReadStream/AsyncWriteStream
+    // 概念的对象。但我们的传输层是自定义的 transmission 接口。
+    // ssl_connector 把 transmission 适配成 Boost.Asio 能理解的流式接口。
+    //
+    // data 参数：握手前已经读走的预读数据（如协议探测时读的前 N 字节），
+    // ssl_connector 会把这些数据缓存起来，ssl_stream 先消费预读数据，
+    // 预读消费完后再从底层传输层读取新数据。
     auto ssl_handshake(session_context &ctx, const std::span<const std::byte> data)
         -> net::awaitable<std::pair<fault::code, shared_ssl_stream>>
     {
@@ -26,11 +37,9 @@ namespace psm::pipeline::primitives
             trace::warn("{} No inbound transmission for TLS handshake", SslStr);
             co_return std::make_pair(fault::code::io_error, nullptr);
         }
-        // 原有可能是 tcp socket 派生的 reliable 类，用 ssl_connector 来模拟一个 boost 库的 网路 io 接口
-        ssl_connector connector(std::move(ctx.inbound), data); // 套用适配器抹平差异
-        // 从 boost 库架构来看就是 tcp 上加一层 ssl
-        // 从我的架构来看就是封装底层 socket 的 tcp(继承 transmission 的 reliable 需要来抹平 tcp 与 udp 差别）
-        // 在套上一层适配器接口层来模拟 boost 库的网络 io 接口(connector),然后在套上 ssl 层，在创建共享智能指针
+
+        // 层叠包装：transmission → ssl_connector(适配器) → ssl_stream(TLS 层)
+        ssl_connector connector(std::move(ctx.inbound), data);
         auto stream = std::make_shared<ssl_stream>(std::move(connector), *ctx.server.ssl_ctx);
 
         boost::system::error_code ec;
@@ -46,7 +55,8 @@ namespace psm::pipeline::primitives
         co_return std::make_pair(fault::code::success, stream);
     }
 
-    // 检查目标地址是否为 IPv6 字面量
+    // 检查目标地址是否为 IPv6 字面量（如 "::1"、"fe80::1"）
+    // 用于在禁用 IPv6 时拦截到 IPv6 地址的连接请求
     inline bool is_ipv6_literal(const std::string_view host) noexcept
     {
         boost::system::error_code ec;
@@ -54,6 +64,13 @@ namespace psm::pipeline::primitives
         return !ec && addr.is_v6();
     }
 
+    // 建立到目标的出站连接（TCP），返回一个可靠的传输层。
+    //
+    // 路由策略：
+    // - allow_reverse=true 且 target 不是正向代理 → 反向路由（按域名查找预配置的后端）
+    // - 否则 → 正向路由（DNS 解析 + TCP 连接，可能通过上游代理）
+    //
+    // require_open=true 时会验证连接确实已打开，防止返回无效连接。
     auto dial(std::shared_ptr<resolve::router> router, std::string_view label,
               const protocol::analysis::target &target, const bool allow_reverse, const bool require_open)
         -> net::awaitable<std::pair<fault::code, shared_transmission>>
@@ -70,12 +87,14 @@ namespace psm::pipeline::primitives
         channel::pooled_connection conn;
         if (allow_reverse && !target.positive)
         {
+            // 反向代理：域名 → 预配置的后端地址
             auto result = co_await router->async_reverse(target.host);
             ec = result.first;
             conn = std::move(result.second);
         }
         else
         {
+            // 正向代理：域名 → DNS 解析 → TCP 连接（可能通过上游代理）
             auto result = co_await router->async_forward(target.host, target.port);
             ec = result.first;
             conn = std::move(result.second);
@@ -95,6 +114,7 @@ namespace psm::pipeline::primitives
         }
 
         trace::info("{} {} success, target: {}:{}", DialStr, label, target.host, target.port);
+        // 将连接池连接包装为可靠的传输层
         co_return std::make_pair(ec, channel::transport::make_reliable(std::move(conn)));
     }
 
@@ -118,9 +138,11 @@ namespace psm::pipeline::primitives
         return inner_->executor();
     }
 
+    // 读取数据：先消费预读缓冲区，消耗完了再委托给底层传输层。
     auto preview::async_read_some(std::span<std::byte> buffer, std::error_code &ec)
         -> net::awaitable<std::size_t>
     {
+        // 预读缓冲区还有剩余数据，直接拷贝给调用方
         if (offset_ < preread_buffer_.size())
         {
             const auto remaining = preread_buffer_.size() - offset_;
@@ -134,6 +156,7 @@ namespace psm::pipeline::primitives
             co_return to_copy;
         }
 
+        // 预读缓冲区已耗尽，从底层传输层读取
         if (!inner_)
         {
             ec = std::make_error_code(std::errc::bad_file_descriptor);
@@ -174,21 +197,20 @@ namespace psm::pipeline::primitives
         -> net::awaitable<void>
     {
         using trans = shared_transmission;
-        // 记录开始时间
         const auto start_time = std::chrono::steady_clock::now();
 
-        // 分配缓冲区
+        // 从帧竞技场分配一块连续缓冲区，切成两半
         auto *mr = ctx.frame_arena.get();
         const auto array_size = (std::max)(ctx.buffer_size, 2U);
         memory::vector<std::byte> buffer(array_size, mr ? mr : memory::current_resource());
-        // 切割缓冲区为两半，分别用于两个方向的转发
         const auto half = buffer.size() / 2;
         const auto left = std::span(buffer).first(half);
         const auto right = std::span(buffer).last(half);
 
-        // 传输统计：[0] = 上行, [1] = 下行
+        // 传输统计：[0] = 上行（客户端→服务器）, [1] = 下行（服务器→客户端）
         std::array<std::size_t, 2> total_bytes{0, 0};
 
+        // 单向转发的上下文：从 from 读取数据，写入 to
         struct forward_context
         {
             const trans &from;
@@ -197,7 +219,7 @@ namespace psm::pipeline::primitives
             const std::size_t idx;
         };
 
-        // 单向转发协程
+        // 单向转发协程：循环读取 → 写入，直到任一端失败
         auto forward = [complete_write, &total_bytes](forward_context context)
             -> net::awaitable<void>
         {
@@ -226,20 +248,20 @@ namespace psm::pipeline::primitives
             }
         };
 
-        // 并行双向转发，任一方向完成时取消另一方向
+        // 并行双向转发：|| 操作符让两个方向同时跑，
+        // 任一方向结束（读 EOF 或写失败）时自动取消另一个。
         using namespace boost::asio::experimental::awaitable_operators;
         co_await (forward({inbound, outbound, left, 0}) || forward({outbound, inbound, right, 1}));
 
-        // 计算耗时
-        const auto end_time = std::chrono::steady_clock::now();
-
         // 输出传输统计
+        const auto end_time = std::chrono::steady_clock::now();
         if (const auto up = total_bytes[0], down = total_bytes[1]; up > 0 || down > 0)
         {
             trace::info("{} [{}] Transfer: Upload {} B, Download {} B, duration: {} ms", TunnelStr, ctx.session_id, up,
                         down, std::chrono::duration_cast<std::chrono::milliseconds>(end_time - start_time).count());
         }
 
+        // 关闭两个方向的传输层
         shut_close(inbound);
         shut_close(outbound);
     }

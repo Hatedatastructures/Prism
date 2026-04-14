@@ -29,6 +29,7 @@ namespace psm::protocol::reality
     enum class handshake_result_type
     {
         authenticated, ///< Reality 认证成功，返回加密传输层
+        not_reality,   ///< 非 Reality 客户端（SNI 不匹配），应走标准 TLS
         fallback,      ///< 回退到 dest 服务器，透明代理已完成
         failed         ///< 错误
     };
@@ -46,6 +47,9 @@ namespace psm::protocol::reality
 
         /// type == authenticated: 内层预读数据
         memory::vector<std::byte> inner_preread;
+
+        /// type == not_reality: 原始 ClientHello TLS record，供标准 TLS 路径使用
+        memory::vector<std::byte> raw_tls_record;
 
         /// 错误码
         fault::code error = fault::code::success;

@@ -1,10 +1,3 @@
-/**
- * @file aead.cpp
- * @brief AEAD 加密解密实现
- * @details 包装 BoringSSL EVP_AEAD API，支持 AES-128-GCM、AES-256-GCM、
- * ChaCha20-Poly1305、XChaCha20-Poly1305。
- */
-
 #include <prism/crypto/aead.hpp>
 #include <prism/trace/spdlog.hpp>
 #include <openssl/evp.h>
@@ -12,6 +5,9 @@
 
 namespace psm::crypto
 {
+    // 构造时根据算法类型选择对应的 BoringSSL AEAD 实现，并用密钥初始化上下文。
+    // AES-GCM 和 ChaCha20 的 nonce 都是 12 字节，XChaCha20 扩展到 24 字节。
+    // EVP_AEAD_CTX 是 BoringSSL 的不透明结构，需要手动 new/delete 管理。
     aead_context::aead_context(const aead_cipher cipher, const std::span<const std::uint8_t> key)
         : key_length_(key.size())
     {
@@ -41,6 +37,7 @@ namespace psm::crypto
         EVP_AEAD_CTX_init(ctx_, aead, key.data(), key.size(), EVP_AEAD_DEFAULT_TAG_LENGTH, nullptr);
     }
 
+    // 析构时先清理 BoringSSL 内部资源（密钥等敏感数据），再释放内存。
     aead_context::~aead_context()
     {
         if (ctx_)
@@ -50,6 +47,8 @@ namespace psm::crypto
         }
     }
 
+    // 移动构造：转移 ctx_ 所有权后，将源对象置为安全状态（nullptr + 零 nonce），
+    // 防止析构时双重释放。
     aead_context::aead_context(aead_context &&other) noexcept
         : ctx_(other.ctx_), nonce_(other.nonce_), key_length_(other.key_length_), nonce_len_(other.nonce_len_)
     {
@@ -57,6 +56,7 @@ namespace psm::crypto
         other.nonce_.fill(0);
     }
 
+    // 移动赋值：先清理自己的资源，再接管对方的，最后将对方置为安全状态。
     auto aead_context::operator=(aead_context &&other) noexcept -> aead_context &
     {
         if (this != &other)
@@ -76,8 +76,8 @@ namespace psm::crypto
         return *this;
     }
 
-    // === 自动递增 nonce 版本 ===
-
+    // 加密：明文 → 密文 + 认证标签。输出 buffer 大小 = 明文长度 + 标签长度（通常 16 字节）。
+    // 加密成功后 nonce 自动 +1。
     auto aead_context::seal(const std::span<std::uint8_t> out, const std::span<const std::uint8_t> plaintext,
                             const std::span<const std::uint8_t> ad)
         -> fault::code
@@ -98,6 +98,8 @@ namespace psm::crypto
         return fault::code::success;
     }
 
+    // 解密：密文 + 认证标签 → 明文。如果密文被篡改或标签不匹配，解密失败。
+    // 解密成功后 nonce 自动 +1（必须和加密时的 nonce 递增顺序一致）。
     auto aead_context::open(const std::span<std::uint8_t> out, const std::span<const std::uint8_t> ciphertext,
                             const std::span<const std::uint8_t> ad)
         -> fault::code
@@ -117,8 +119,6 @@ namespace psm::crypto
         increment_nonce();
         return fault::code::success;
     }
-
-    // === 显式 nonce 版本（不修改内部状态） ===
 
     auto aead_context::seal(const std::span<std::uint8_t> out, const std::span<const std::uint8_t> plaintext,
                             const std::span<const std::uint8_t> nonce, const std::span<const std::uint8_t> ad)
@@ -158,9 +158,10 @@ namespace psm::crypto
         return fault::code::success;
     }
 
+    // Nonce 小端序递增：从 byte[0] 开始加 1，溢出则进位到 byte[1]，以此类推。
+    // 这是 SS2022 (SIP022) 规范要求的 nonce 递增方式。
     void aead_context::increment_nonce()
     {
-        // SS2022 SIP022：nonce 小端序递增（从 byte[0] 开始进位）
         for (std::size_t i = 0; i < nonce_len_; ++i)
         {
             nonce_[i]++;

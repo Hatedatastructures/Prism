@@ -1,17 +1,9 @@
-/**
- * @file frame.cpp
- * @brief yamux 协议帧编解码实现
- * @details 实现 yamux 帧头的编码和解码函数。所有多字节字段使用大端序（网络字节序）。
- */
-
 #include <prism/multiplex/yamux/frame.hpp>
 
 #include <cstring>
 
 namespace psm::multiplex::yamux
 {
-    // === 帧头编码 ===
-
     auto build_header(const frame_header &hdr) noexcept
         -> std::array<std::byte, frame_header_size>
     {
@@ -35,8 +27,6 @@ namespace psm::multiplex::yamux
             static_cast<std::byte>(hdr.length & 0xFF),
         };
     }
-
-    // === 帧头解码 ===
 
     auto parse_header(const std::span<const std::byte> buffer) noexcept
         -> std::optional<frame_header>
@@ -89,8 +79,6 @@ namespace psm::multiplex::yamux
 
         return hdr;
     }
-
-    // === 构建特定帧类型 ===
 
     auto build_window_update_frame(const flags f, const std::uint32_t stream_id, const std::uint32_t delta) noexcept
         -> std::array<std::byte, frame_header_size>

@@ -1,10 +1,3 @@
-/**
- * @file frame.cpp
- * @brief smux 帧协议实现（兼容 Mihomo/xtaci/smux v1）
- * @details 实现帧的序列化、反序列化和 mux 地址解析。
- * 帧格式为 8 字节定长帧头 + 变长负载，Length 和 StreamID 采用小端字节序。
- */
-
 #include <prism/multiplex/smux/frame.hpp>
 #include <prism/trace.hpp>
 

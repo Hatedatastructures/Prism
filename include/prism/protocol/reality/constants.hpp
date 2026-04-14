@@ -61,6 +61,7 @@ namespace psm::protocol::reality::tls
     constexpr std::uint16_t NAMED_GROUP_SECP256R1 = 0x0017;
     constexpr std::uint16_t NAMED_GROUP_SECP384R1 = 0x0018;
     constexpr std::uint16_t NAMED_GROUP_X25519 = 0x001D;
+    constexpr std::uint16_t NAMED_GROUP_X25519_MLKEM768 = 0x11EC;
 
     // ========================================================================
     // TLS Version
@@ -105,4 +106,11 @@ namespace psm::protocol::reality::tls
 
     /// AES-128-GCM 密钥长度
     constexpr std::size_t AES_128_KEY_LEN = 16;
+
+    // ========================================================================
+    // Signature Scheme (TLS 1.3)
+    // ========================================================================
+
+    /// Ed25519 签名算法
+    constexpr std::uint16_t SIGNATURE_SCHEME_ED25519 = 0x0807;
 } // namespace psm::protocol::reality::tls

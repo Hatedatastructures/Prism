@@ -32,10 +32,6 @@ namespace psm::agent::worker::tls
         constexpr unsigned char alpn[] = "\x02h2\x08http/1.1";
         SSL_CTX_set_alpn_protos(native, alpn, sizeof(alpn) - 1);
 
-        // ====================================================================
-        // TLS 性能优化
-        // ====================================================================
-
         // 设置协议版本范围：TLS 1.2 ~ TLS 1.3
         SSL_CTX_set_min_proto_version(native, TLS1_2_VERSION);
         SSL_CTX_set_max_proto_version(native, TLS1_3_VERSION);

@@ -1,11 +1,3 @@
-/**
- * @file relay.cpp
- * @brief Trojan 协议中继器实现
- * @details 该文件实现了 relay 类的所有成员方法，包括构造函数、
- * 传输层操作、握手流程和辅助方法。从 relay.hpp 分离出来，
- * 使头文件只保留声明，提高代码组织清晰度。
- */
-
 #include <prism/protocol/trojan/relay.hpp>
 #include <prism/memory/container.hpp>
 #include <prism/trace.hpp>

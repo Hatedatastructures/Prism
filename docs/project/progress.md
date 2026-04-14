@@ -9,7 +9,7 @@
 - **核心技术**：C++23、Boost.Asio 协程、BoringSSL、PMR 内存管理
 - **开发状态**：**稳定可用**，核心功能已完成
 - **当前版本**：v0.9.0
-- **最后更新**：2026年4月13日
+- **最后更新**：2026年4月15日
 - **主要依赖**：Boost(system)、BoringSSL、spdlog、glaze
 
 ---
@@ -29,6 +29,7 @@
 | **Trojan 协议** | 100% | ✅ 完成 | Trojan over TLS 协议已接入运行链 |
 | **VLESS 协议** | 90% | ✅ 完成 | VLESS 协议已接入，TCP/mux 可用，UDP 待实现 |
 | **Shadowsocks 2022** | 100% | ✅ 完成 | SIP022 AEAD 协议，AES-128/256-GCM + BLAKE3 密钥派生 |
+| **Reality 协议** | 100% | ✅ 完成 | Reality over TLS 1.3，X25519/X25519MLKEM768 混合密钥交换，Ed25519 证书 |
 
 #### 2. 核心架构模块
 
@@ -90,6 +91,7 @@
 | **Trojan** | ✅ 100% | Trojan over TLS 协议，密码验证 + 流量伪装 |
 | **VLESS** | ✅ 90% | VLESS 协议，UUID 认证 + mux 多路复用，UDP 待实现 |
 | **Shadowsocks 2022** | ✅ 100% | SIP022 AEAD 协议，AES-128/256-GCM + BLAKE3 + 抗重放 |
+| **Reality** | ✅ 100% | Reality over TLS 1.3，X25519/X25519MLKEM768 混合密钥交换 |
 | **协议探测** | ✅ 100% | 外层 detect() + 内层 detect_inner() 双阶段探测 + 排除法 fallback |
 
 ### Channel 模块 (`include/prism/channel/`)
@@ -179,7 +181,7 @@
 | 插件生态系统 | 支持第三方插件扩展 |
 | 集群部署 | 多节点负载均衡和故障转移 |
 | Web 管理界面 | 可视化配置和监控 |
-| 协议扩展 | Reality、Hysteria2 等协议支持（SS2022/VLESS 已完成） |
+| 协议扩展 | Hysteria2 等协议支持（SS2022/VLESS/Reality 已完成） |
 
 ---
 
@@ -245,6 +247,18 @@ curl -v -x socks5://127.0.0.1:8081 http://www.baidu.com
 ---
 
 ## 更新日志
+
+### 2026年4月15日
+
+**Reality 协议实现：**
+- 新增 Reality 协议完整实现：ClientHello 解析、Reality 认证、TLS 1.3 握手密钥调度、ServerHello 生成、Ed25519 证书签名、CertificateVerify、Finished
+- 支持 X25519 和 X25519MLKEM768 混合密钥交换（自动提取 X25519 公钥）
+- HMAC-SHA512(authKey, ed25519_pubkey) 作为 Reality 证书签名，兼容 Go/mihomo 客户端验证
+- 已验证与 mihomo (Go TLS 1.3) 客户端互通
+
+**修复：**
+- 修复 TLS 1.3 key schedule 中 `Derive-Secret("derived")` 的 context 参数错误：空 context (0 字节) 改为 `SHA-256("")` (32 字节)，与 RFC 8446 一致
+- 修复 ClientHello 解析器不支持 X25519MLKEM768 hybrid key_share 的问题
 
 ### 2026年4月13日（第二轮更新）
 

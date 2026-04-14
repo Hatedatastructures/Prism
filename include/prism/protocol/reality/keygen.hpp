@@ -70,34 +70,11 @@ namespace psm::protocol::reality
         // Handshake traffic secrets（用于 Finished 计算）
         // ================================================================
 
-        /// 服务端握手流量 secret
-        std::array<std::uint8_t, crypto::SHA256_LEN> server_hs_traffic_secret{};
         /// 服务端 Finished 密钥
         std::array<std::uint8_t, crypto::SHA256_LEN> server_finished_key{};
         /// 主密钥（用于派生 application traffic secrets）
         std::array<std::uint8_t, crypto::SHA256_LEN> master_secret{};
     };
-
-    /**
-     * @brief 执行 TLS 1.3 密钥调度
-     * @param shared_secret X25519 共享密钥（32 字节）
-     * @param client_hello_msg 原始 ClientHello handshake 消息
-     * @param server_hello_msg 生成的 ServerHello handshake 消息
-     * @param server_finished_transcript 服务端 Finished 之前的 transcript（含 Finished）
-     * @return 错误码和密钥材料的配对
-     * @details 按照 RFC 8446 Section 7 的完整密钥调度流程：
-     * 1. early_secret = HKDF-Extract(0^32, 0^32)
-     * 2. derived_secret = Expand-Label(early_secret, "derived", "")
-     * 3. handshake_secret = HKDF-Extract(derived_secret, shared_secret)
-     * 4. hello_hash = SHA-256(CH || SH)
-     * 5. c/s_hs_traffic = Expand-Label(handshake_secret, "c/s hs traffic", hello_hash)
-     * 6. handshake keys = Expand-Label(traffic_secret, "key"/"iv", "")
-     * 7. master_secret = HKDF-Extract(Expand-Label(handshake_secret, "derived", ""), 0^32)
-     * 8. application keys from master_secret + finished transcript hash
-     */
-    [[nodiscard]] auto derive_key_material(constspan shared_secret, constspan client_hello_msg, constspan server_hello_msg,
-                                           constspan server_finished_transcript)
-        -> std::pair<fault::code, key_material>;
 
     /**
      * @brief 仅派生握手阶段密钥（不含 application keys）

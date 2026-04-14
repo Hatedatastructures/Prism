@@ -1,26 +1,3 @@
-/**
- * @file racer.cpp
- * @brief Happy Eyeballs (RFC 8305) 并发竞速连接器实现
- * @details 实现 RFC 8305 的核心算法，通过协程实现真正的并发连接竞速。
- *
- * @section impl 实现架构
- *
- * race_context 封装所有子协程的共享可变状态：
- * - winner: 原子标志，标识是否已有成功连接
- * - result: 保存成功连接（pooled_connection）
- * - pending: 跟踪未完成的连接尝试数量
- * - signal: 完成信号定时器，唤醒主协程
- *
- * 协程模型：
- * - 主协程（race）：创建共享状态，启动子协程，等待完成
- * - 子协程（race_endpoint）：各自负责一个端点的延迟和连接
- *
- * @section thread_safety 线程安全
- *
- * 单线程 io_context 上协程交错仅发生在 co_await 挂起点。
- * winner 写入结果与 cancel timer 之间无挂起点，因此不需要互斥锁。
- */
-
 #include <prism/channel/eyeball/racer.hpp>
 
 #include <prism/trace.hpp>
@@ -31,10 +8,6 @@ namespace psm::channel::eyeball
 {
     namespace net = boost::asio;
     using tcp = boost::asio::ip::tcp;
-
-    // ─────────────────────────────────────────────────────────────────────
-    // 竞速共享状态
-    // ─────────────────────────────────────────────────────────────────────
 
     struct address_racer::race_context
     {
@@ -58,10 +31,6 @@ namespace psm::channel::eyeball
             }
         }
     };
-
-    // ─────────────────────────────────────────────────────────────────────
-    // 核心竞速算法
-    // ─────────────────────────────────────────────────────────────────────
 
     address_racer::address_racer(connection_pool &pool)
         : pool_(pool)
@@ -102,10 +71,6 @@ namespace psm::channel::eyeball
         co_await ctx->signal.async_wait(net::redirect_error(net::use_awaitable, ec));
         co_return std::move(ctx->result);
     }
-
-    // ─────────────────────────────────────────────────────────────────────
-    // 单端点竞速协程
-    // ─────────────────────────────────────────────────────────────────────
 
     auto address_racer::race_endpoint(tcp::endpoint ep, std::chrono::milliseconds delay, std::shared_ptr<race_context> ctx)
         -> net::awaitable<void>

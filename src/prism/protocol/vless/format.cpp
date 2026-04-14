@@ -1,9 +1,3 @@
-/**
- * @file format.cpp
- * @brief VLESS 协议格式编解码实现
- * @details 提供 VLESS 协议报文的底层解析函数实现，包括请求解析。
- */
-
 #include <prism/protocol/vless/format.hpp>
 #include <cstring>
 

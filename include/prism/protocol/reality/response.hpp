@@ -43,9 +43,6 @@ namespace psm::protocol::reality
 
         /// 完整的加密握手消息明文（用于 transcript hash）
         memory::vector<std::uint8_t> encrypted_handshake_plaintext;
-
-        /// 服务端临时 X25519 公钥
-        std::array<std::uint8_t, tls::REALITY_KEY_LEN> server_ephemeral_public{};
     };
 
     /**
@@ -53,8 +50,9 @@ namespace psm::protocol::reality
      * @param client_hello 客户端 ClientHello 信息
      * @param server_ephemeral_public 服务端临时 X25519 公钥
      * @param handshake_keys 握手阶段密钥
-     * @param dest_certificate dest 服务器的 DER 编码证书链
+     * @param dest_certificate dest 服务器的 DER 编码证书链（fallback 使用）
      * @param client_hello_msg 原始 ClientHello handshake 消息（用于 transcript hash）
+     * @param auth_key 可选的 Reality 认证密钥（非空时生成 Ed25519 自签名证书）
      * @return 错误码和生成结果
      */
     [[nodiscard]] auto generate_server_hello(
@@ -62,7 +60,8 @@ namespace psm::protocol::reality
         std::span<const std::uint8_t> server_ephemeral_public,
         const key_material &handshake_keys,
         std::span<const std::uint8_t> dest_certificate,
-        std::span<const std::uint8_t> client_hello_msg)
+        std::span<const std::uint8_t> client_hello_msg,
+        std::span<const std::uint8_t> auth_key = {})
         -> std::pair<fault::code, server_hello_result>;
 
     /**

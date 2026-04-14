@@ -13,8 +13,6 @@
 namespace psm::resolve
 {
 
-    // 辅助：大端读写
-
     namespace
     {
         /**
@@ -84,8 +82,6 @@ namespace psm::resolve
             }
             return result;
         }
-
-        // 域名编码（压缩指针）
 
         /**
          * @brief 编码单个域名到缓冲区，使用压缩指针优化
@@ -289,8 +285,6 @@ namespace psm::resolve
 
     } // anonymous namespace
 
-    // 工具函数实现
-
     auto extract_ipv4(const record &rec) -> std::optional<net::ip::address_v4>
     {
         if (rec.type != qtype::a || rec.rdata.size() != 4)
@@ -319,8 +313,6 @@ namespace psm::resolve
         return net::ip::address_v6{bytes};
     }
 
-    // message 实现
-
     message::message(const memory::resource_pointer mr)
         : questions(mr), answers(mr), authority(mr), additional(mr), mr_(mr ? mr : memory::current_resource())
     {
@@ -335,7 +327,6 @@ namespace psm::resolve
         // 构建压缩表（使用 string_view 键，指向 message 内的 name 字符串）
         std::unordered_map<std::string_view, std::uint16_t> compression;
 
-        // ---- 编码 Header ----
         // 位移布局：ID(0-1) FLAGS(2-3) QD(4-5) AN(6-7) NS(8-9) AR(10-11)
         write_u16_be(buf, 0, id);
 
@@ -353,7 +344,6 @@ namespace psm::resolve
         write_u16_be(buf, 8, static_cast<std::uint16_t>(authority.size()));
         write_u16_be(buf, 10, static_cast<std::uint16_t>(additional.size()));
 
-        // ---- 编码 Question 段 ----
         for (const auto &q : questions)
         {
             (void)encode_name(q.name, buf, buf.size(), compression);
@@ -363,7 +353,6 @@ namespace psm::resolve
             buf.push_back(static_cast<std::uint8_t>(q.qclass & 0xFF));
         }
 
-        // ---- 编码 Record 段（Answer / Authority / Additional 共用逻辑） ----
         const auto encode_records = [&](const memory::vector<record> &records)
         {
             for (const auto &r : records)
@@ -411,7 +400,6 @@ namespace psm::resolve
 
         message msg(mr ? mr : memory::current_resource());
 
-        // ---- 解析 Header ----
         msg.id = read_u16_be(data, 0);
         const auto flags = read_u16_be(data, 2);
         msg.qr = (flags & 0x8000u) != 0;
@@ -430,7 +418,6 @@ namespace psm::resolve
         std::size_t offset = 12;
         std::size_t jumps = 0;
 
-        // ---- 解析 Question 段 ----
         for (std::uint16_t i = 0; i < qdcount; ++i)
         {
             question q(msg.mr_);
@@ -455,7 +442,6 @@ namespace psm::resolve
             msg.questions.push_back(std::move(q));
         }
 
-        // ---- 解析 Record 段的通用 lambda ----
         const auto parse_records = [&](const std::uint16_t count, memory::vector<record> &records) -> bool
         {
             for (std::uint16_t i = 0; i < count; ++i)

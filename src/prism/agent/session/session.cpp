@@ -163,17 +163,15 @@ namespace psm::agent::session
         // 2：TLS 处理（如果外层是 TLS）
         if (detect_result.type == protocol::protocol_type::tls)
         {
-            // 检查 Reality 是否配置
+            // 判断是否需要走标准 TLS 剥离路径
+            bool need_standard_tls = !ctx_.server.cfg.reality.enabled();
+
+            // Reality 路径（如果配置了 Reality）
             if (ctx_.server.cfg.reality.enabled())
             {
-                // Reality 路径
                 auto result = co_await protocol::reality::handshake(ctx_, span);
                 switch (result.type)
                 {
-                case protocol::reality::handshake_result_type::fallback:
-                    // 已完成透明代理到 dest，会话结束
-                    co_return;
-
                 case protocol::reality::handshake_result_type::authenticated:
                 {
                     // Reality 握手成功，设置加密传输层
@@ -185,15 +183,29 @@ namespace psm::agent::session
                     trace::debug("[Session] [{}] Reality authenticated, dispatching to VLESS", id_);
                     break;
                 }
+
+                case protocol::reality::handshake_result_type::not_reality:
+                    // 非 Reality TLS 客户端（SNI 不匹配），fall through 到标准 TLS
+                    span = std::span<const std::byte>(result.raw_tls_record.data(),
+                                                       result.raw_tls_record.size());
+                    need_standard_tls = true;
+                    trace::debug("[Session] [{}] Not Reality client, using standard TLS", id_);
+                    break;
+
+                case protocol::reality::handshake_result_type::fallback:
+                    // 已完成透明代理到 dest，会话结束
+                    co_return;
+
                 case protocol::reality::handshake_result_type::failed:
                     trace::warn("[Session] [{}] Reality handshake failed: {}",
                                 id_, fault::describe(result.error));
                     co_return;
                 }
             }
-            else
+
+            // 标准 TLS 剥离路径（非 Reality 或 not_reality fallthrough）
+            if (need_standard_tls)
             {
-                // 标准 TLS 剥离路径
                 // TLS 握手（复用 ssl_handshake，它会 move ctx_.inbound）
                 auto [ssl_ec, ssl_stream] = co_await pipeline::primitives::ssl_handshake(ctx_, span);
                 if (fault::failed(ssl_ec) || !ssl_stream)

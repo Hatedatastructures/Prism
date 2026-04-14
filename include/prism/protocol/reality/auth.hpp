@@ -37,6 +37,9 @@ namespace psm::protocol::reality
 
         /// 服务端临时 X25519 密钥对（用于 ServerHello 的 key_share）
         crypto::x25519_keypair server_ephemeral_key;
+
+        /// HKDF 派生的认证密钥（用于 Ed25519 证书签名）
+        std::array<std::uint8_t, tls::REALITY_KEY_LEN> auth_key{};
     };
 
     /**
@@ -64,18 +67,6 @@ namespace psm::protocol::reality
      */
     [[nodiscard]] auto match_server_name(std::string_view sni,
                                          const memory::vector<memory::string> &server_names) -> bool;
-
-    /**
-     * @brief 从 session_id 提取 short_id
-     * @param session_id 客户端的 session_id
-     * @return 提取的 short_id 字节
-     * @details Reality session_id 格式：
-     * [padding(0-N bytes)][short_id(up to 16 bytes)]
-     * 提取方式：从 session_id 末尾提取 short_id 部分。
-     * 如果配置中有空字符串 short_id（表示接受任意），直接返回空。
-     */
-    [[nodiscard]] auto extract_short_id(std::span<const std::uint8_t> session_id)
-        -> memory::vector<std::uint8_t>;
 
     /**
      * @brief 匹配 short_id

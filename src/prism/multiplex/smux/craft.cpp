@@ -1,10 +1,3 @@
-/**
- * @file craft.cpp
- * @brief smux 多路复用会话服务端实现（兼容 Mihomo/xtaci/smux v1）
- * @details smux::craft 实现 smux v1 帧协议，包括帧循环、协议协商、
- * 地址解析和流连接。继承 core 的通用流管理能力。
- */
-
 #include <prism/multiplex/smux/craft.hpp>
 #include <prism/multiplex/duct.hpp>
 #include <prism/multiplex/parcel.hpp>

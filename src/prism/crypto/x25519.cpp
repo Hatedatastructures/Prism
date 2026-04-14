@@ -1,14 +1,7 @@
-/**
- * @file x25519.cpp
- * @brief X25519 椭圆曲线密钥交换实现
- * @details 使用 BoringSSL 的 EVP_PKEY API 实现 X25519 密钥交换。
- * EVP_PKEY_new_raw_private_key 从原始字节创建 EVP_PKEY，
- * EVP_PKEY_derive 计算共享密钥。
- */
-
 #include <prism/crypto/x25519.hpp>
 #include <openssl/evp.h>
 #include <openssl/rand.h>
+#include <openssl/curve25519.h>
 #include <cstring>
 #include <prism/trace.hpp>
 

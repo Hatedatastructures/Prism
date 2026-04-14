@@ -1,12 +1,3 @@
-/**
- * @file relay.cpp
- * @brief VLESS 协议中继器实现
- * @details 该文件实现了 relay 类的所有成员方法，包括构造函数、
- * 传输层操作和握手流程。握手流程从传输层读取数据、解析 VLESS 请求头、
- * 通过 verifier 回调验证 UUID、发送响应字节。关键：数据从 preview
- * transport 读取，读取即消费，避免残留数据泄漏到 mux。
- */
-
 #include <prism/protocol/vless/relay.hpp>
 #include <prism/protocol/vless/format.hpp>
 #include <prism/trace.hpp>

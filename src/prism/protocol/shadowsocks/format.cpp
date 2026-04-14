@@ -1,9 +1,3 @@
-/**
- * @file format.cpp
- * @brief SS2022 协议格式编解码实现
- * @details 实现 SOCKS5 风格地址解析和 PSK base64 解码。
- */
-
 #include <prism/protocol/shadowsocks/format.hpp>
 #include <prism/crypto/base64.hpp>
 #include <cstring>

@@ -1,10 +1,3 @@
-/**
- * @file recursor.cpp
- * @brief 高性能 DNS 解析器门面实现
- * @details 实现完整的查询管道：规则匹配 → 缓存查找 → 请求合并 →
- * 上游查询 → IP 过滤 → TTL 钳制 + 缓存存储。
- */
-
 #include <algorithm>
 #include <cctype>
 #include <numeric>

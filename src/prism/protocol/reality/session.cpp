@@ -1,11 +1,3 @@
-/**
- * @file session.cpp
- * @brief Reality 加密传输层实现
- * @details 实现 TLS 1.3 应用数据记录的加密/解密。
- * 读操作：读取 TLS 记录 → 解密 → 缓冲 → 按需返回
- * 写操作：加密为 TLS 记录 → 写入底层传输
- */
-
 #include <prism/protocol/reality/session.hpp>
 #include <prism/trace.hpp>
 #include <cstring>
@@ -15,6 +7,9 @@ namespace psm::protocol::reality
 {
     constexpr std::string_view SessTag = "[Reality.Session]";
 
+    // 构造加密传输层会话。持有底层传输层和所有 TLS 1.3 应用数据密钥。
+    // 服务端加密（seal）和客户端解密（open）各用一个独立的 AEAD 上下文，
+    // 因为 TLS 1.3 的服务器和客户端使用不同的密钥（不像 TLS 1.2 的对称密钥）。
     session::session(channel::transport::shared_transmission transport, key_material keys)
         : transport_(std::move(transport)),
           keys_(std::move(keys)),
@@ -38,12 +33,16 @@ namespace psm::protocol::reality
         return transport_->executor();
     }
 
+    // 读取解密后的明文数据。实现了内部缓冲机制：
+    // - 一个 TLS 记录可能包含很多数据，调用方可能一次只要一小块
+    // - 先把解密后的数据存入 plaintext_buffer_，然后按需切片返回
+    // - 缓冲区消耗完了，才去读取下一个加密记录
     auto session::async_read_some(std::span<std::byte> buffer, std::error_code &ec)
         -> net::awaitable<std::size_t>
     {
         ec.clear();
 
-        // 如果缓冲区有剩余数据，直接返回
+        // 缓冲区还有剩余数据，直接切片返回
         if (plaintext_offset_ < plaintext_buffer_.size())
         {
             const auto remaining = plaintext_buffer_.size() - plaintext_offset_;
@@ -51,7 +50,7 @@ namespace psm::protocol::reality
             std::memcpy(buffer.data(), plaintext_buffer_.data() + plaintext_offset_, to_copy);
             plaintext_offset_ += to_copy;
 
-            // 如果全部消费完，清空缓冲区
+            // 全部消费完，清空缓冲区释放内存
             if (plaintext_offset_ >= plaintext_buffer_.size())
             {
                 plaintext_buffer_.clear();
@@ -60,14 +59,14 @@ namespace psm::protocol::reality
             co_return to_copy;
         }
 
-        // 缓冲区为空，读取新的加密记录
+        // 缓冲区空了，从底层读取一个新的加密 TLS 记录并解密
         const auto n = co_await read_encrypted_record(ec);
         if (ec || n == 0)
         {
             co_return 0;
         }
 
-        // 重新尝试从缓冲区返回数据
+        // 解密后数据已填入缓冲区，再次尝试返回
         if (plaintext_offset_ < plaintext_buffer_.size())
         {
             const auto remaining = plaintext_buffer_.size() - plaintext_offset_;
@@ -110,17 +109,16 @@ namespace psm::protocol::reality
         }
     }
 
-    // ========================================================================
-    // TLS 记录加密/解密
-    // ========================================================================
-
+    // 计算 TLS 1.3 AEAD nonce：nonce = iv XOR sequence_number（大端序）。
+    // 每条记录的 sequence_number 递增，保证每条记录使用不同的 nonce。
+    // 这是 RFC 8446 Section 5.3 规定的 nonce 构造方式。
     auto session::make_nonce(const std::span<const std::uint8_t> iv, const std::uint64_t sequence) const
         -> std::array<std::uint8_t, tls::AEAD_NONCE_LEN>
     {
         std::array<std::uint8_t, tls::AEAD_NONCE_LEN> nonce{};
         std::memcpy(nonce.data(), iv.data(), tls::AEAD_NONCE_LEN);
 
-        // XOR sequence 的大端表示
+        // 从 nonce 末尾开始 XOR sequence 的大端字节
         for (int i = 0; i < 8; ++i)
         {
             nonce[tls::AEAD_NONCE_LEN - 1 - i] ^= static_cast<std::uint8_t>((sequence >> (8 * i)) & 0xFF);
@@ -128,10 +126,19 @@ namespace psm::protocol::reality
         return nonce;
     }
 
+    // 读取并解密一个完整的 TLS 1.3 应用数据记录。
+    //
+    // 流程：
+    // 1. 读取 5 字节 TLS 记录头 → 获取 content_type 和 record_len
+    // 2. 读取 record_len 字节的密文体
+    // 3. 处理非应用数据记录（Alert = 连接关闭，其他 = 协议错误）
+    // 4. 用客户端应用密钥解密密文 → 得到 TLS 1.3 内部明文
+    // 5. 去掉末尾的 content_type 字节和零填充
+    // 6. 将纯数据存入 plaintext_buffer_ 供 async_read_some 消费
     auto session::read_encrypted_record(std::error_code &ec)
         -> net::awaitable<std::size_t>
     {
-        // 读取 TLS record header (5 bytes)
+        // 1. 读取 TLS 记录头（5 字节：type + version + length）
         std::array<std::byte, tls::RECORD_HEADER_LEN> header{};
         std::size_t header_read = 0;
         while (header_read < tls::RECORD_HEADER_LEN)
@@ -145,12 +152,12 @@ namespace psm::protocol::reality
             header_read += n;
         }
 
-        // 解析 record header
+        // 解析记录头
         const auto *raw = reinterpret_cast<const std::uint8_t *>(header.data());
         const auto content_type = raw[0];
         const auto record_len = (static_cast<std::size_t>(raw[3]) << 8) | static_cast<std::size_t>(raw[4]);
 
-        // 读取 record body
+        // 2. 读取记录体（密文）
         memory::vector<std::byte> record_body(record_len);
         std::size_t body_read = 0;
         while (body_read < record_len)
@@ -164,10 +171,10 @@ namespace psm::protocol::reality
             body_read += n;
         }
 
-        // 处理不同 content_type
+        // 3. 按内容类型处理
         if (content_type == tls::CONTENT_TYPE_ALERT)
         {
-            // Alert 记录，可能是 close_notify
+            // TLS Alert：对端发来的告警，通常是 close_notify（正常关闭）
             trace::debug("{} received TLS alert record", SessTag);
             ec = std::make_error_code(std::errc::connection_reset);
             co_return 0;
@@ -175,12 +182,13 @@ namespace psm::protocol::reality
 
         if (content_type != tls::CONTENT_TYPE_APPLICATION_DATA)
         {
+            // 握手完成后只应该收到应用数据记录（0x17）
             trace::warn("{} unexpected content type: 0x{:02x}", SessTag, content_type);
             ec = std::make_error_code(std::errc::protocol_error);
             co_return 0;
         }
 
-        // 解密
+        // 4. 密文太短，放不下 AEAD 认证标签（16 字节）
         if (record_len < tls::AEAD_TAG_LEN)
         {
             trace::error("{} record too short for AEAD tag", SessTag);
@@ -188,11 +196,11 @@ namespace psm::protocol::reality
             co_return 0;
         }
 
-        // 构造 nonce
+        // 5. 构造 nonce = client_iv XOR read_sequence_（每次递增）
         const auto nonce = make_nonce(keys_.client_app_iv, read_sequence_);
         ++read_sequence_;
 
-        // additional_data = record header
+        // 6. 构造 additional_data = 记录头（TLS 1.3 用记录头作为 AEAD 的 AAD）
         std::array<std::uint8_t, tls::RECORD_HEADER_LEN> ad{};
         ad[0] = tls::CONTENT_TYPE_APPLICATION_DATA;
         ad[1] = 0x03;
@@ -200,7 +208,7 @@ namespace psm::protocol::reality
         ad[3] = raw[3];
         ad[4] = raw[4];
 
-        // 解密（显式 nonce）
+        // 7. AEAD 解密：密文 → 明文（去掉 16 字节认证标签）
         const auto ciphertext = std::span<const std::uint8_t>(
             reinterpret_cast<const std::uint8_t *>(record_body.data()), record_len);
         const auto plaintext_len = record_len - tls::AEAD_TAG_LEN;
@@ -211,14 +219,15 @@ namespace psm::protocol::reality
         const auto dec_ec = client_decryptor_.open(decrypted, ciphertext, nonce_span, ad_span);
         if (fault::failed(dec_ec))
         {
+            // 解密失败 = 密文被篡改或密钥不匹配
             trace::error("{} AEAD decrypt failed", SessTag);
             ec = std::make_error_code(std::errc::protocol_error);
             co_return 0;
         }
 
-        // 去掉末尾的 content_type 和 padding
-        // TLS 1.3: plaintext = [data][content_type][zeros...]
-        // 从末尾找 content_type（最后一个非零字节）
+        // 8. TLS 1.3 内部明文格式: [实际数据][content_type(1字节)][零填充...]
+        // 从末尾向前扫描，跳过零填充，找到 content_type 字节，
+        // content_type 之前的才是真正的应用数据。
         std::size_t data_end = decrypted.size();
         while (data_end > 0 && decrypted[data_end - 1] == 0x00)
         {
@@ -226,10 +235,10 @@ namespace psm::protocol::reality
         }
         if (data_end > 0)
         {
-            --data_end; // 去掉 content_type 字节本身
+            --data_end; // 跳过 content_type 字节本身
         }
 
-        // 存入明文缓冲区
+        // 9. 将纯应用数据存入缓冲区，等待 async_read_some 消费
         plaintext_buffer_.clear();
         plaintext_offset_ = 0;
         plaintext_buffer_.reserve(data_end);
@@ -241,6 +250,14 @@ namespace psm::protocol::reality
         co_return plaintext_buffer_.size();
     }
 
+    // 加密并写入一个 TLS 1.3 应用数据记录。
+    //
+    // 流程：
+    // 1. 构造 TLS 1.3 内部明文: 数据 + content_type(0x17)
+    // 2. 计算 nonce = server_iv XOR write_sequence_
+    // 3. 构造 additional_data = 记录头（类型=0x17, 版本=0x0303, 长度）
+    // 4. AEAD 加密 → 密文（含 16 字节认证标签）
+    // 5. 组装完整 TLS 记录（5 字节头 + 密文）并写入底层传输层
     auto session::write_encrypted_record(const std::span<const std::byte> data, std::error_code &ec)
         -> net::awaitable<std::size_t>
     {
@@ -250,7 +267,7 @@ namespace psm::protocol::reality
             co_return 0;
         }
 
-        // 构造 TLS 1.3 内部明文: data + content_type(0x17)
+        // 1. TLS 1.3 内部明文: 数据 + content_type(0x17) 表示应用数据
         memory::vector<std::uint8_t> inner;
         inner.reserve(data.size() + 1);
         inner.insert(inner.end(),
@@ -258,11 +275,11 @@ namespace psm::protocol::reality
                      reinterpret_cast<const std::uint8_t *>(data.data()) + data.size());
         inner.push_back(tls::CONTENT_TYPE_APPLICATION_DATA);
 
-        // 构造 nonce
+        // 2. nonce = server_iv XOR write_sequence_（每次递增）
         const auto nonce = make_nonce(keys_.server_app_iv, write_sequence_);
         ++write_sequence_;
 
-        // additional_data = record header (预计算长度)
+        // 3. additional_data = 记录头（长度需要预计算：明文 + 16 字节认证标签）
         const auto encrypted_len = inner.size() + tls::AEAD_TAG_LEN;
         std::array<std::uint8_t, tls::RECORD_HEADER_LEN> ad{};
         ad[0] = tls::CONTENT_TYPE_APPLICATION_DATA;
@@ -271,7 +288,7 @@ namespace psm::protocol::reality
         ad[3] = static_cast<std::uint8_t>((encrypted_len >> 8) & 0xFF);
         ad[4] = static_cast<std::uint8_t>(encrypted_len & 0xFF);
 
-        // 加密（显式 nonce）
+        // 4. AEAD 加密
         memory::vector<std::uint8_t> ciphertext(encrypted_len);
         const auto nonce_span = std::span<const std::uint8_t>{nonce.data(), nonce.size()};
         const auto ad_span = std::span<const std::uint8_t>{ad.data(), ad.size()};
@@ -283,21 +300,21 @@ namespace psm::protocol::reality
             co_return 0;
         }
 
-        // 构造 TLS 记录
+        // 5. 组装完整 TLS 记录: 记录头（5 字节）+ 密文
         memory::vector<std::byte> record;
         record.reserve(tls::RECORD_HEADER_LEN + encrypted_len);
-        // Record header
+        // 记录头：content_type=0x17, version=0x0303, length=encrypted_len
         record.push_back(static_cast<std::byte>(tls::CONTENT_TYPE_APPLICATION_DATA));
         record.push_back(static_cast<std::byte>(0x03));
         record.push_back(static_cast<std::byte>(0x03));
         record.push_back(static_cast<std::byte>((encrypted_len >> 8) & 0xFF));
         record.push_back(static_cast<std::byte>(encrypted_len & 0xFF));
-        // Record body
+        // 记录体：密文（包含数据和认证标签）
         record.insert(record.end(),
                       reinterpret_cast<const std::byte *>(ciphertext.data()),
                       reinterpret_cast<const std::byte *>(ciphertext.data() + ciphertext.size()));
 
-        // 写入
+        // 6. 写入底层传输层
         const auto written = co_await transport_->async_write(record, ec);
         if (ec)
         {

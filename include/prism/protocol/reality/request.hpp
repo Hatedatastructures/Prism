@@ -53,8 +53,6 @@ namespace psm::protocol::reality
         /// 客户端支持的 TLS 版本列表
         memory::vector<std::uint16_t> supported_versions;
 
-        /// 客户端支持的密码套件列表
-        memory::vector<std::uint16_t> cipher_suites;
     };
 
     /**

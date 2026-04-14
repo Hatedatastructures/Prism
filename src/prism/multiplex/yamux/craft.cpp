@@ -1,10 +1,3 @@
-/**
- * @file craft.cpp
- * @brief yamux 多路复用会话服务端实现
- * @details yamux::craft 实现 yamux 协议服务端逻辑，包括帧循环、窗口管理、
- * 流生命周期管理。继承 core 的通用流管理能力。
- */
-
 #include <prism/multiplex/yamux/craft.hpp>
 #include <prism/multiplex/duct.hpp>
 #include <prism/multiplex/parcel.hpp>
@@ -59,8 +52,6 @@ namespace psm::multiplex::yamux
 
         channel_.cancel();
     }
-
-    // === 帧循环 ===
 
     auto craft::frame_loop() -> net::awaitable<void>
     {
@@ -136,8 +127,6 @@ namespace psm::multiplex::yamux
 
         trace::debug("{} frame loop ended", tag);
     }
-
-    // === Data 帧处理 ===
 
     auto craft::handle_data(const frame_header &hdr, memory::vector<std::byte> payload)
         -> net::awaitable<void>
@@ -384,8 +373,6 @@ namespace psm::multiplex::yamux
         net::co_spawn(transport_->executor(), self->activate_stream(stream_id), callback);
     }
 
-    // === WindowUpdate 帧处理 ===
-
     auto craft::handle_window_update(const frame_header &hdr) -> net::awaitable<void>
     {
         const auto stream_id = hdr.stream_id;
@@ -498,8 +485,6 @@ namespace psm::multiplex::yamux
         co_return;
     }
 
-    // === Ping 帧处理 ===
-
     auto craft::handle_ping(const frame_header &hdr) const -> net::awaitable<void>
     {
         // SYN 标志：Ping 请求，仅在启用心跳时回复 ACK
@@ -519,8 +504,6 @@ namespace psm::multiplex::yamux
         co_return;
     }
 
-    // === GoAway 帧处理 ===
-
     auto craft::handle_go_away(const frame_header &hdr) -> net::awaitable<void>
     {
         const auto code = static_cast<go_away_code>(hdr.length);
@@ -528,8 +511,6 @@ namespace psm::multiplex::yamux
         close();
         co_return;
     }
-
-    // === 流激活 ===
 
     auto craft::activate_stream(const std::uint32_t stream_id) -> net::awaitable<void>
     {
@@ -664,8 +645,6 @@ namespace psm::multiplex::yamux
         trace::debug("{} stream {} connected to {}:{}", tag, stream_id, host, port);
     }
 
-    // === 流超时 ===
-
     void craft::start_pending_timeout(const std::uint32_t stream_id)
     {
         if (config_.yamux.stream_open_timeout_ms == 0)
@@ -698,8 +677,6 @@ namespace psm::multiplex::yamux
         };
         net::co_spawn(executor(), std::move(timeout_inspection), net::detached);
     }
-
-    // === 窗口管理 ===
 
     stream_window *craft::get_or_create_window(const std::uint32_t stream_id)
     {
@@ -744,8 +721,6 @@ namespace psm::multiplex::yamux
             trace::debug("{} stream {} window update sent, delta={}", tag, stream_id, delta);
         }
     }
-
-    // === 发送接口 ===
 
     auto craft::send_data(const std::uint32_t stream_id, memory::vector<std::byte> payload) const
         -> net::awaitable<void>
@@ -881,8 +856,6 @@ namespace psm::multiplex::yamux
         windows_.erase(stream_id);
         core::remove_parcel(stream_id);
     }
-
-    // === 发送通道 ===
 
     auto craft::push_frame(const message_type type, const flags f, const std::uint32_t stream_id,
                            const std::uint32_t length, memory::vector<std::byte> payload) const

@@ -1,12 +1,3 @@
-/**
- * @file duct.cpp
- * @brief 多路复用 TCP 流管道实现
- * @details multiplex::duct 的双向转发实现。
- * target_read_loop：从 target 读取数据发送到 mux（客户端下行/下载）；
- * target_write_loop：从写通道取数据写入 target（客户端上行/上传）。
- * 写通道解耦帧循环与 target 写入，消除队头阻塞。
- */
-
 #include <prism/multiplex/duct.hpp>
 #include <prism/multiplex/core.hpp>
 #include <prism/fault/handling.hpp>

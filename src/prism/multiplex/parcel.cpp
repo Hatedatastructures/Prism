@@ -1,13 +1,3 @@
-/**
- * @file parcel.cpp
- * @brief 多路复用 UDP 数据报管道实现
- * @details multiplex::parcel 的 UDP 中继实现。采用发送/接收分离模型：
- * - do_send: 仅发送 UDP 数据报到目标（fire-and-forget）
- * - downlink_loop: 独立协程持续读取响应并回传
- * 因 sing-mux 客户端可能将一个 UDP 数据报拆成多个 PSH 帧发送
- * （SOCKS5 地址、Length、Payload 各一帧），必须缓冲累积后再解析。
- */
-
 #include <prism/multiplex/parcel.hpp>
 #include <prism/multiplex/core.hpp>
 #include <prism/multiplex/smux/frame.hpp>

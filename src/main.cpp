@@ -1,12 +1,3 @@
-/**
- * @file main.cpp
- * @brief Prism 服务端入口
- * @details 程序主入口，负责初始化全局资源、加载配置、构建工作线程池
- * 和监听线程。启动流程为：启用全局内存池 → 加载 JSON 配置 →
- * 初始化日志 → 注册协议处理器 → 构建账户目录 → 创建 worker 线程池
- * → 绑定负载均衡器 → 启动监听线程接受外部连接。
- */
-
 #include <exception>
 #include <memory>
 #include <thread>
@@ -30,14 +21,7 @@ namespace agent = psm::agent;
 // 配置文件路径（开发环境用绝对路径，生产环境应改为相对路径或启动参数传入）
 constexpr std::string_view configuration_path = {R"(C:\Users\C1373\Desktop\code\prism\src\configuration.json)"};
 
-/**
- * @brief 程序主入口
- * @details 启动流程：启用全局内存池 → 加载配置并初始化日志 →
- * 注册协议处理器 → 构建账户目录（凭据哈希化）→ 按 CPU 核心数创建
- * worker 线程池 → 绑定到负载均衡器 → 启动监听线程。worker 数量为
- * CPU 核心数减一，至少一个；监听线程独立运行，负责接收新连接并
- * 通过均衡器分发到负载最低的 worker。
- */
+// 启动流程：启用全局内存池 → 加载配置 → 注册处理器 → 构建 worker 线程池 → 绑定均衡器 → 启动监听
 int main()
 {
     psm::memory::system::enable_global_pooling();

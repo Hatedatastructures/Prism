@@ -1,10 +1,3 @@
-/**
- * @file format.cpp
- * @brief Trojan 协议格式编解码实现
- * @details 提供 Trojan 协议报文的底层解析函数实现，包括凭据解码、CRLF 验证、
- * 命令和地址类型解析、地址解析、端口解码以及 UDP 帧编解码。
- */
-
 #include <prism/protocol/trojan/format.hpp>
 #include <cstring>
 #include <cctype>

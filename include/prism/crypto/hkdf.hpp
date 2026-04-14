@@ -27,6 +27,11 @@ namespace psm::crypto
     constexpr std::size_t SHA256_LEN = 32;
 
     /**
+     * @brief SHA-512 输出长度（字节）
+     */
+    constexpr std::size_t SHA512_LEN = 64;
+
+    /**
      * @brief HMAC-SHA256
      * @param key HMAC 密钥
      * @param data 输入数据
@@ -37,6 +42,16 @@ namespace psm::crypto
     [[nodiscard]] auto hmac_sha256(std::span<const std::uint8_t> key,
                                    std::span<const std::uint8_t> data)
         -> std::array<std::uint8_t, SHA256_LEN>;
+
+    /**
+     * @brief HMAC-SHA512
+     * @param key HMAC 密钥
+     * @param data 输入数据
+     * @return 64 字节 HMAC-SHA512 结果
+     */
+    [[nodiscard]] auto hmac_sha512(std::span<const std::uint8_t> key,
+                                   std::span<const std::uint8_t> data)
+        -> std::array<std::uint8_t, SHA512_LEN>;
 
     /**
      * @brief HKDF-Extract

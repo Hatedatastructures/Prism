@@ -1,10 +1,3 @@
-/**
- * @file keygen.cpp
- * @brief TLS 1.3 密钥调度实现
- * @details 严格遵循 RFC 8446 Section 7 实现 TLS 1.3 密钥调度。
- * 使用 HKDF-SHA256 进行密钥派生，支持 AES-128-GCM-SHA256 密码套件。
- */
-
 #include <prism/protocol/reality/keygen.hpp>
 #include <prism/trace.hpp>
 #include <cstring>
@@ -12,10 +5,6 @@
 namespace psm::protocol::reality
 {
     constexpr std::string_view KsTag = "[Reality.KeySchedule]";
-
-    // ========================================================================
-    // 辅助函数
-    // ========================================================================
 
     /**
      * @brief 从 HKDF-Expand-Label 结果复制到固定大小数组
@@ -25,21 +14,21 @@ namespace psm::protocol::reality
         std::memcpy(dst.data(), src.data(), std::min(src.size(), dst.size()));
     }
 
-    // ========================================================================
-    // 握手阶段密钥派生
-    // ========================================================================
-
     auto derive_handshake_keys(constspan shared_secret, constspan client_hello_msg, constspan server_hello_msg)
         -> std::pair<fault::code, key_material>
     {
         key_material keys{};
 
         // Step 1: early_secret = HKDF-Extract(salt=0^32, IKM=0^32)
+        // RFC 8446 Section 7.1: 无 PSK 时 IKM = Hash.length 字节全零，不是空串
         std::array<std::uint8_t, crypto::SHA256_LEN> zero_salt{};
-        const auto early_secret = crypto::hkdf_extract(zero_salt, {});
+        std::array<std::uint8_t, crypto::SHA256_LEN> zero_ikm{};
+        const auto early_secret = crypto::hkdf_extract(zero_salt, zero_ikm);
 
-        // Step 2: derived_secret = HKDF-Expand-Label(early_secret, "derived", "", 32)
-        auto [ec1, derived_secret] = crypto::hkdf_expand_label(early_secret, "derived", {}, crypto::SHA256_LEN);
+        // Step 2: derived_secret = Derive-Secret(early_secret, "derived", nil)
+        // RFC 8446: Derive-Secret 对 nil transcript 使用 Hash("") 作为 context
+        const auto empty_hash = crypto::sha256(std::span<const std::uint8_t>{});
+        auto [ec1, derived_secret] = crypto::hkdf_expand_label(early_secret, "derived", empty_hash, crypto::SHA256_LEN);
         if (fault::failed(ec1))
         {
             trace::error("{} failed to derive 'derived' secret", KsTag);
@@ -99,21 +88,21 @@ namespace psm::protocol::reality
         }
 
         // Step 11-12: master secret
+        // 同样使用 Hash("") 作为 context（Derive-Secret 语义）
         auto [ec8, derived_master] = crypto::hkdf_expand_label(
-            handshake_secret, "derived", {}, crypto::SHA256_LEN);
+            handshake_secret, "derived", empty_hash, crypto::SHA256_LEN);
         if (fault::failed(ec8))
         {
             trace::error("{} failed to derive master 'derived' secret", KsTag);
             return {fault::code::reality_key_schedule_error, keys};
         }
-        keys.master_secret = crypto::hkdf_extract(derived_master, {});
+        keys.master_secret = crypto::hkdf_extract(derived_master, zero_ikm);
 
         // 填充结果
         copy_key(s_hs_key, keys.server_handshake_key);
         copy_key(s_hs_iv, keys.server_handshake_iv);
         copy_key(c_hs_key, keys.client_handshake_key);
         copy_key(c_hs_iv, keys.client_handshake_iv);
-        std::memcpy(keys.server_hs_traffic_secret.data(), s_hs_traffic.data(), crypto::SHA256_LEN);
 
         // server finished_key = Expand-Label(s_hs_traffic, "finished", "", 32)
         auto [ec9, finished_key] = crypto::hkdf_expand_label(
@@ -127,10 +116,6 @@ namespace psm::protocol::reality
 
         return {fault::code::success, std::move(keys)};
     }
-
-    // ========================================================================
-    // 应用数据密钥派生
-    // ========================================================================
 
     auto derive_application_keys(const std::span<const std::uint8_t> master_secret,
                                  const std::span<const std::uint8_t> server_finished_hash,
@@ -189,40 +174,6 @@ namespace psm::protocol::reality
 
         return fault::code::success;
     }
-
-    // ========================================================================
-    // 完整密钥调度
-    // ========================================================================
-
-    auto derive_key_material(const std::span<const std::uint8_t> shared_secret,
-                             const std::span<const std::uint8_t> client_hello_msg,
-                             const std::span<const std::uint8_t> server_hello_msg,
-                             const std::span<const std::uint8_t> server_finished_transcript)
-        -> std::pair<fault::code, key_material>
-    {
-        // 先派生握手密钥
-        auto [ec, keys] = derive_handshake_keys(shared_secret, client_hello_msg, server_hello_msg);
-        if (fault::failed(ec))
-        {
-            return {ec, keys};
-        }
-
-        // 计算 server Finished 后的 transcript hash
-        const auto finished_hash = crypto::sha256(server_finished_transcript);
-
-        // 派生应用数据密钥
-        const auto app_ec = derive_application_keys(keys.master_secret, finished_hash, keys);
-        if (fault::failed(app_ec))
-        {
-            return {app_ec, keys};
-        }
-
-        return {fault::code::success, std::move(keys)};
-    }
-
-    // ========================================================================
-    // Finished verify_data
-    // ========================================================================
 
     auto compute_finished_verify_data(const std::span<const std::uint8_t> finished_key,
                                       const std::span<const std::uint8_t> transcript_hash)

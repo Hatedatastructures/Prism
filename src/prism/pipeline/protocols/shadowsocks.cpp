@@ -1,11 +1,3 @@
-/**
- * @file shadowsocks.cpp
- * @brief SS2022 Pipeline 处理器实现
- * @details SS2022 协议会话处理入口。与 Trojan/VLESS 的关键区别：
- * relay 在整个会话生命周期内保持活跃（因为 AEAD 加解密持续进行），
- * 不调用 release()，而是将 relay 本身作为 inbound 传给 tunnel()。
- */
-
 #include <prism/pipeline/protocols/shadowsocks.hpp>
 #include <prism/pipeline/primitives.hpp>
 #include <prism/protocol/shadowsocks.hpp>

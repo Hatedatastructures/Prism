@@ -29,6 +29,7 @@ forward_add_test(Smux           Smux.cpp)
 forward_add_test(Yamux          Yamux.cpp)
 forward_add_test(Crypto         Crypto.cpp)
 forward_add_test(Aead           Aead.cpp)
+forward_add_test(Reality        Reality.cpp)
 forward_add_test(Blake3         Blake3.cpp)
 forward_add_test(DnsPacket      DnsPacket.cpp)
 forward_add_test(DnsRules       DnsRules.cpp)
@@ -41,7 +42,7 @@ if(MINGW)
     foreach(t IN ITEMS
         Session Connection Transmission Trace
         Http Socks5 Trojan Vless Shadowsocks Regression
-        HttpParser Smux Yamux Crypto Aead Blake3 DnsPacket DnsRules Fault Exception
+        HttpParser Smux Yamux Crypto Aead Reality Blake3 DnsPacket DnsRules Fault Exception
         concurrency_server concurrency_client)
         if(TARGET ${t})
             target_compile_options(${t} PRIVATE -Wa,-mbig-obj)

@@ -1,12 +1,3 @@
-/**
- * @file request.cpp
- * @brief TLS ClientHello 解析器实现
- * @details 解析 TLS 记录和 ClientHello handshake 消息。
- * TLS 记录格式：ContentType(1) + Version(2) + Length(2) + Fragment(N)
- * ClientHello 格式：Version(2) + Random(32) + SessionID(variable) +
- * CipherSuites(variable) + CompressionMethods(variable) + Extensions(variable)
- */
-
 #include <prism/protocol/reality/request.hpp>
 #include <prism/protocol/reality/constants.hpp>
 #include <prism/fault/handling.hpp>
@@ -16,10 +7,6 @@
 namespace psm::protocol::reality
 {
     constexpr std::string_view ChTag = "[Reality.ClientHello]";
-
-    // ========================================================================
-    // TLS 记录读取辅助
-    // ========================================================================
 
     /**
      * @brief 从字节流中读取大端序 uint16
@@ -99,10 +86,6 @@ namespace psm::protocol::reality
         co_return std::pair{fault::code::success, std::move(record)};
     }
 
-    // ========================================================================
-    // Extension 解析
-    // ========================================================================
-
     /**
      * @brief 解析 SNI 扩展
      * @details SNI 扩展格式：ServerNameListLen(2) + ServerNameType(1) + NameLen(2) + Name(N)
@@ -159,7 +142,9 @@ namespace psm::protocol::reality
      * @brief 解析 key_share 扩展
      * @details key_share 扩展格式（ClientHello）：
      * KeyShareListLen(2) + [NamedGroup(2) + KeyExchangeLen(2) + KeyExchange(N)]*
-     * 只提取 X25519 的公钥。
+     * 兼容两种 Reality 客户端 key_share：
+     * - 纯 X25519：KeyExchange 为 32 字节公钥
+     * - X25519MLKEM768 hybrid：KeyExchange 很长，末尾 32 字节是 X25519 公钥
      */
     static auto parse_key_share(std::span<const std::uint8_t> ext_data, client_hello_info &info) -> void
     {
@@ -172,15 +157,15 @@ namespace psm::protocol::reality
         const auto list_len = read_u16(ext_data, offset);
         offset += 2;
 
-        const std::size_t end = offset + list_len;
-        while (offset + 4 <= end && offset + 4 <= ext_data.size())
+        const std::size_t end = std::min(offset + list_len, ext_data.size());
+        while (offset + 4 <= end)
         {
             const auto named_group = read_u16(ext_data, offset);
             offset += 2;
             const auto key_len = read_u16(ext_data, offset);
             offset += 2;
 
-            if (offset + key_len > ext_data.size())
+            if (offset + key_len > end)
             {
                 break;
             }
@@ -189,8 +174,19 @@ namespace psm::protocol::reality
             {
                 std::memcpy(info.client_public_key.data(), ext_data.data() + offset, tls::REALITY_KEY_LEN);
                 info.has_client_public_key = true;
+                trace::debug("{} using pure X25519 key_share", ChTag);
                 return;
             }
+
+            if (named_group == tls::NAMED_GROUP_X25519_MLKEM768 && key_len >= tls::REALITY_KEY_LEN)
+            {
+                const auto x25519_offset = offset + key_len - tls::REALITY_KEY_LEN;
+                std::memcpy(info.client_public_key.data(), ext_data.data() + x25519_offset, tls::REALITY_KEY_LEN);
+                info.has_client_public_key = true;
+                trace::debug("{} using X25519MLKEM768 hybrid key_share, extracted trailing X25519 pubkey", ChTag);
+                return;
+            }
+
             offset += key_len;
         }
     }
@@ -224,13 +220,13 @@ namespace psm::protocol::reality
     {
         if (ext_data.size() < 2)
         {
+            trace::debug("{} extensions data too short: {}", ChTag, ext_data.size());
             return;
         }
 
         std::size_t offset = 0;
         const auto ext_total_len = read_u16(ext_data, offset);
         offset += 2;
-
         const std::size_t ext_end = offset + ext_total_len;
         while (offset + 4 <= ext_end && offset + 4 <= ext_data.size())
         {
@@ -264,10 +260,6 @@ namespace psm::protocol::reality
             offset += ext_len;
         }
     }
-
-    // ========================================================================
-    // ClientHello 解析主函数
-    // ========================================================================
 
     auto parse_client_hello(const std::span<const std::uint8_t> raw_tls_record)
         -> std::pair<fault::code, client_hello_info>
@@ -363,10 +355,6 @@ namespace psm::protocol::reality
             trace::error("{} cipher_suites length invalid: {}", ChTag, cipher_len);
             return {fault::code::reality_tls_record_error, std::move(info)};
         }
-        for (std::size_t i = 0; i < cipher_len; i += 2)
-        {
-            info.cipher_suites.push_back(read_u16(raw_tls_record, offset + i));
-        }
         offset += cipher_len;
 
         // CompressionMethods (1 字节长度 + 变长数据)
@@ -388,6 +376,8 @@ namespace psm::protocol::reality
             const auto ext_data = raw_tls_record.subspan(offset);
             parse_extensions(ext_data, info);
         }
+        trace::debug("{} parsed result: SNI='{}', has_key={}, versions={}",
+                     ChTag, info.server_name, info.has_client_public_key, info.supported_versions.size());
 
         return {fault::code::success, std::move(info)};
     }

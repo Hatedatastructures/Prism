@@ -1,10 +1,3 @@
-/**
- * @file vless.cpp
- * @brief VLESS 协议处理管道实现
- * @details 实现 VLESS 协议的会话处理，包括握手解析、UUID 验证、
- * 命令分发和多路复用引导。参考 trojan.cpp 的完整结构。
- */
-
 #include <prism/pipeline/protocols/vless.hpp>
 #include <protocol.hpp>
 #include <prism/multiplex/bootstrap.hpp>

@@ -1,10 +1,3 @@
-/**
- * @file core.cpp
- * @brief 多路复用核心基类实现
- * @details core 的非虚方法实现：start、close、remove_duct、
- * remove_parcel。这些方法对所有 mux 协议通用。
- */
-
 #include <prism/multiplex/core.hpp>
 #include <prism/multiplex/duct.hpp>
 #include <prism/multiplex/parcel.hpp>

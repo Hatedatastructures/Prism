@@ -1,10 +1,3 @@
-/**
- * @file bootstrap.cpp
- * @brief 多路复用会话引导实现
- * @details 执行 sing-mux 协商后，根据客户端选择的协议类型
- * 创建对应的 mux 协议实例。
- */
-
 #include <prism/multiplex/bootstrap.hpp>
 #include <prism/multiplex/smux/craft.hpp>
 #include <prism/multiplex/yamux/craft.hpp>

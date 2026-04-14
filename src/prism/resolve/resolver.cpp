@@ -1,15 +1,3 @@
-/**
- * @file resolver.cpp
- * @brief DNS 查询客户端实现
- * @details 实现 resolver 类的全部异步查询方法，包括 UDP、TCP、DoT 和 DoH
- * 四种传输协议。每种协议均包含超时控制、错误处理和响应解析逻辑。
- * resolve() 方法负责协调多上游查询，根据策略选择最优响应。
- *
- * 超时机制：使用 timer 回调取消 socket 实现超时控制。
- * socket 通过 shared_ptr 管理，确保 timer 回调在函数返回后仍安全访问。
- * timer 回调仅在被自然触发时（e != operation_aborted）才取消 socket，
- * 被 timer.cancel() 或析构取消时不操作，避免干扰后续 I/O。
- */
 #include <prism/resolve/resolver.hpp>
 
 #include <algorithm>
@@ -263,8 +251,6 @@ namespace psm::resolve
         co_return fallback;
     }
 
-    // query_udp — UDP DNS 查询
-
     auto resolver::query_udp(const dns_remote &server, const message &query)
         -> net::awaitable<resolve_result>
     {
@@ -389,8 +375,6 @@ namespace psm::resolve
         result.error = fault::code::success;
         co_return result;
     }
-
-    // query_tcp — TCP DNS 查询
 
     auto resolver::query_tcp(const dns_remote &server, const message &query)
         -> net::awaitable<resolve_result>
@@ -537,8 +521,6 @@ namespace psm::resolve
         result.error = fault::code::success;
         co_return result;
     }
-
-    // query_tls — DNS over TLS 查询
 
     auto resolver::query_tls(const dns_remote &server, const message &query)
         -> net::awaitable<resolve_result>
@@ -714,8 +696,6 @@ namespace psm::resolve
         result.error = fault::code::success;
         co_return result;
     }
-
-    // query_https — DNS over HTTPS 查询
 
     auto resolver::query_https(const dns_remote &server, const message &query)
         -> net::awaitable<resolve_result>

@@ -333,6 +333,7 @@ proxies:
     udp: false
     skip-cert-verify: true
     servername: www.microsoft.com
+    client-fingerprint: chrome
     reality-opts:
       public-key: "BkKPzEJtz8Qv1yR_cTydzm5mmfiui8OL2Zqd9dV--To"
       short-id: "45587ac66ce007e4"
@@ -347,6 +348,7 @@ proxies:
     udp: false
     skip-cert-verify: true
     servername: www.microsoft.com
+    client-fingerprint: chrome
     reality-opts:
       public-key: "BkKPzEJtz8Qv1yR_cTydzm5mmfiui8OL2Zqd9dV--To"
       short-id: "45587ac66ce007e4"
@@ -365,6 +367,7 @@ proxies:
     udp: false
     skip-cert-verify: true
     servername: www.microsoft.com
+    client-fingerprint: chrome
     reality-opts:
       public-key: "BkKPzEJtz8Qv1yR_cTydzm5mmfiui8OL2Zqd9dV--To"
       short-id: "45587ac66ce007e4"
@@ -383,6 +386,7 @@ proxies:
     udp: false
     skip-cert-verify: true
     servername: www.microsoft.com
+    client-fingerprint: chrome
     reality-opts:
       public-key: "BkKPzEJtz8Qv1yR_cTydzm5mmfiui8OL2Zqd9dV--To"
       short-id: "45587ac66ce007e4"
@@ -401,6 +405,7 @@ proxies:
     udp: false
     skip-cert-verify: true
     servername: www.microsoft.com
+    client-fingerprint: chrome
     reality-opts:
       public-key: "BkKPzEJtz8Qv1yR_cTydzm5mmfiui8OL2Zqd9dV--To"
       short-id: "45587ac66ce007e4"

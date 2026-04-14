@@ -1,12 +1,5 @@
-/**
- * @file relay.cpp
- * @brief SS2022 (SIP022) AEAD 流加密中继器实现
- * @details 实现 SS2022 协议的完整握手流程和 AEAD 分帧加解密。
- * 这是 SS2022 实现中最核心的组件——relay 在整个会话生命周期内
- * 保持活跃，处理所有数据的 AEAD 加解密。
- */
-
 #include <prism/protocol/shadowsocks/relay.hpp>
+#include <prism/fault/code.hpp>
 #include <prism/trace/spdlog.hpp>
 #include <cstring>
 #include <chrono>
@@ -37,8 +30,6 @@ namespace psm::protocol::shadowsocks
             return std::as_bytes(std::span{c});
         }
     } // namespace
-
-    // === 构造 / 控制 ===
 
     relay::relay(channel::transport::shared_transmission next_layer, const config &cfg,
                  std::shared_ptr<salt_pool> salts)
@@ -77,8 +68,6 @@ namespace psm::protocol::shadowsocks
         }
     }
 
-    // === 密钥派生 ===
-
     auto relay::derive_aead_context(const std::vector<std::uint8_t> &salt) const
         -> std::unique_ptr<crypto::aead_context>
     {
@@ -107,8 +96,6 @@ namespace psm::protocol::shadowsocks
 
         return std::make_unique<crypto::aead_context>(cipher, std::span(key));
     }
-
-    // === 握手子步骤 ===
 
     auto relay::read_fixed_header() const
         -> net::awaitable<std::tuple<fault::code, std::uint16_t, std::int64_t>>
@@ -293,8 +280,6 @@ namespace psm::protocol::shadowsocks
         co_return fault::code::success;
     }
 
-    // === 握手 ===
-
     auto relay::handshake() -> net::awaitable<std::pair<fault::code, request>>
     {
         request req;
@@ -351,8 +336,6 @@ namespace psm::protocol::shadowsocks
         co_return std::pair{fault::code::success, req};
     }
 
-    // === 读取 ===
-
     auto relay::async_read_some(std::span<std::byte> buffer, std::error_code &ec)
         -> net::awaitable<std::size_t>
     {
@@ -388,7 +371,10 @@ namespace psm::protocol::shadowsocks
         co_await fetch_chunk(ec);
         if (ec)
         {
-            trace::warn("{} async_read_some: fetch_chunk failed: {}", tag, ec.message());
+            if (ec == fault::code::eof || ec == fault::code::canceled)
+                trace::debug("{} async_read_some: client disconnected", tag);
+            else
+                trace::warn("{} async_read_some: fetch_chunk failed: {}", tag, ec.message());
             co_return 0;
         }
 
@@ -456,8 +442,6 @@ namespace psm::protocol::shadowsocks
             co_return;
         }
     }
-
-    // === 写入 ===
 
     auto relay::async_write_some(const std::span<const std::byte> buffer, std::error_code &ec)
         -> net::awaitable<std::size_t>

@@ -1,10 +1,3 @@
-/**
- * @file block.cpp
- * @brief AES-ECB 单块加解密实现
- * @details 使用 BoringSSL EVP 接口实现 AES-ECB 单块加密/解密。
- * 无填充，固定 16 字节输入输出。
- */
-
 #include <prism/crypto/block.hpp>
 #include <openssl/evp.h>
 #include <cstring>
