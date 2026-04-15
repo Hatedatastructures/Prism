@@ -34,8 +34,8 @@
 
 ### Shadowsocks 2022
 
-- 功能：SIP022 AEAD 加密代理协议，自带加密层
-- 要求：配置 Base64 编码的 PSK（16 字节对应 AES-128-GCM，32 字节对应 AES-256-GCM）
+- 功能：SIP022 AEAD 加密代理协议，自带加密层，支持 TCP/UDP 双协议
+- 要求：配置 Base64 编码的 PSK（16B 对应 AES-128-GCM，32B 对应 AES-256-GCM 或 ChaCha20-Poly1305，通过 `method` 字段区分）
 - 优势：BLAKE3 密钥派生，时间戳 + salt 重放保护，抗主动探测
 - 协议检测：无正特征，采用排除法（不匹配其他协议时 fallback 到 Shadowsocks）
 

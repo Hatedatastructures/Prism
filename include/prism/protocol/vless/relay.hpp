@@ -24,6 +24,7 @@
 namespace psm::protocol::vless
 {
     namespace net = boost::asio;
+    using shared_transmission = psm::channel::transport::shared_transmission;
 
     /**
      * @class relay
@@ -44,7 +45,7 @@ namespace psm::protocol::vless
          * @param verifier UUID 验证回调，接收 UUID 字符串返回是否认证通过。
          * 为 nullptr 时跳过认证（允许所有连接）
          */
-        explicit relay(psm::channel::transport::shared_transmission next_layer, const config &cfg = {},
+        explicit relay(shared_transmission next_layer, const config &cfg = {},
                        std::function<bool(std::string_view)> verifier = nullptr);
 
         executor_type executor() const override;
@@ -72,10 +73,10 @@ namespace psm::protocol::vless
         const psm::channel::transport::transmission &next_layer() const noexcept;
 
         /// 释放底层传输层所有权
-        psm::channel::transport::shared_transmission release();
+        shared_transmission release();
 
     private:
-        psm::channel::transport::shared_transmission next_layer_;
+        shared_transmission next_layer_;
         config config_;
         std::function<bool(std::string_view)> verifier_;
     };
@@ -88,7 +89,7 @@ namespace psm::protocol::vless
      * @param cfg VLESS 协议配置
      * @param verifier UUID 验证回调，为 nullptr 时跳过认证
      */
-    inline shared_relay make_relay(psm::channel::transport::shared_transmission next_layer, const config &cfg = {},
+    inline shared_relay make_relay(shared_transmission next_layer, const config &cfg = {},
                                    std::function<bool(std::string_view)> verifier = nullptr)
     {
         return std::make_shared<relay>(std::move(next_layer), cfg, std::move(verifier));

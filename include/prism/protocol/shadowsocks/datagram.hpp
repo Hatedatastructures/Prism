@@ -15,6 +15,7 @@
 #include <prism/protocol/shadowsocks/tracker.hpp>
 #include <prism/crypto/aead.hpp>
 #include <prism/crypto/block.hpp>
+#include <prism/memory.hpp>
 #include <boost/asio.hpp>
 #include <array>
 #include <cstdint>
@@ -30,6 +31,8 @@ namespace psm::protocol::shadowsocks
     /**
      * @struct udp_decrypted_packet
      * @brief 解密后的 UDP 数据包
+     * @details payload 以 span 零拷贝指向 buffer 内的子区间，
+     *          buffer 使用 PMR vector 持有解密后的明文数据。
      */
     struct udp_decrypted_packet
     {
@@ -42,8 +45,11 @@ namespace psm::protocol::shadowsocks
         /// 目标端口
         std::uint16_t destination_port{0};
 
-        /// 载荷数据
-        std::vector<std::uint8_t> payload;
+        /// 解密明文缓冲区（PMR），payload span 指向其子区间
+        memory::vector<std::uint8_t> buffer{memory::current_resource()};
+
+        /// 载荷数据（零拷贝，指向 buffer 内偏移）
+        std::span<const std::uint8_t> payload;
 
         /// 发送者端点
         net::ip::udp::endpoint sender_endpoint;

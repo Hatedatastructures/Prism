@@ -105,34 +105,20 @@ namespace psm::protocol::reality
 
         trace::info("{} falling back to {}:{}", HsTag, dest_host, dest_port);
 
-        // 异步解析 dest 地址
-
-        // TODO 还未接入解析层默认使用boost::asio的解析，后续需要改为解析层接口
-        net::ip::tcp::socket dest_socket(ctx.worker.io_context);
-        auto resolver = net::ip::tcp::resolver(ctx.worker.io_context);
-        boost::system::error_code resolve_ec;
-        auto endpoints = co_await resolver.async_resolve(
-            dest_host, std::to_string(dest_port),
-            net::redirect_error(net::use_awaitable, resolve_ec));
-        if (resolve_ec)
+        // 通过解析层路由器连接 dest 服务器
+        auto [connect_ec, dest_conn] = co_await ctx.worker.router.async_forward(dest_host, std::to_string(dest_port));
+        if (fault::failed(connect_ec) || !dest_conn.valid())
         {
-            trace::warn("{} resolve dest failed: {}", HsTag, resolve_ec.message());
+            trace::warn("{} connect to dest failed: {}", HsTag, fault::describe(connect_ec));
             co_return fault::code::reality_dest_unreachable;
         }
 
-        // 异步连接到 dest 服务器
-        boost::system::error_code connect_ec;
-        co_await net::async_connect(dest_socket, endpoints,
-                                    net::redirect_error(net::use_awaitable, connect_ec));
-        if (connect_ec)
-        {
-            trace::warn("{} connect to dest failed: {}", HsTag, connect_ec.message());
-            co_return fault::code::reality_dest_unreachable;
-        }
+        // 从连接池接管 socket 所有权
+        auto *dest_socket_raw = dest_conn.release();
 
         // 将已读取的 ClientHello 完整数据异步写入 dest
         boost::system::error_code write_ec;
-        co_await net::async_write(dest_socket, net::buffer(raw_record.data(), raw_record.size()),
+        co_await net::async_write(*dest_socket_raw, net::buffer(raw_record.data(), raw_record.size()),
                                   net::redirect_error(net::use_awaitable, write_ec));
         if (write_ec)
         {
@@ -141,7 +127,7 @@ namespace psm::protocol::reality
         }
 
         // 创建 dest 传输层
-        auto dest_trans = channel::transport::make_reliable(std::move(dest_socket));
+        auto dest_trans = channel::transport::make_reliable(std::move(*dest_socket_raw));
 
         // 进入双向隧道
         co_await pipeline::primitives::tunnel(ctx.inbound, std::move(dest_trans), ctx);
@@ -150,34 +136,23 @@ namespace psm::protocol::reality
         co_return fault::code::success;
     }
 
-    auto fetch_dest_certificate(const std::string_view host, const std::uint16_t port, const net::any_io_executor executor)
+    auto fetch_dest_certificate(const std::string_view host, const std::uint16_t port, resolve::router &router)
         -> net::awaitable<std::pair<fault::code, memory::vector<std::uint8_t>>>
     {
         memory::vector<std::uint8_t> empty_cert;
 
         try
         {
-            // 异步解析地址
-            net::ip::tcp::socket socket(executor);
-            auto resolver = net::ip::tcp::resolver(executor);
-            boost::system::error_code ec;
-            auto endpoints = co_await resolver.async_resolve(
-                std::string(host), std::to_string(port),
-                net::redirect_error(net::use_awaitable, ec));
-            if (ec)
+            // 通过解析层路由器连接 dest 服务器
+            auto [connect_ec, conn] = co_await router.async_forward(host, std::to_string(port));
+            if (fault::failed(connect_ec) || !conn.valid())
             {
-                trace::warn("{} resolve dest for cert failed: {}", HsTag, ec.message());
+                trace::warn("{} connect to dest for cert failed: {}", HsTag, fault::describe(connect_ec));
                 co_return std::pair{fault::code::reality_certificate_error, empty_cert};
             }
 
-            // 异步连接
-            auto token = net::redirect_error(net::use_awaitable, ec);
-            co_await net::async_connect(socket, endpoints, token);
-            if (ec)
-            {
-                trace::warn("{} connect to dest for cert failed: {}", HsTag, ec.message());
-                co_return std::pair{fault::code::reality_certificate_error, empty_cert};
-            }
+            // 从连接池接管 socket 所有权
+            auto *socket_raw = conn.release();
 
             // TLS 握手（仅获取证书）
             namespace ssl_local = net::ssl;
@@ -185,8 +160,10 @@ namespace psm::protocol::reality
             // 不验证证书（我们只需要获取它）
             ssl_ctx.set_verify_mode(ssl_local::verify_none);
 
-            ssl_local::stream<net::ip::tcp::socket> ssl_stream(std::move(socket), ssl_ctx);
+            ssl_local::stream<net::ip::tcp::socket> ssl_stream(std::move(*socket_raw), ssl_ctx);
             SSL_set_tlsext_host_name(ssl_stream.native_handle(), std::string(host).c_str());
+
+            boost::system::error_code ec;
 
             co_await ssl_stream.async_handshake(ssl_local::stream_base::client,
                                                 net::redirect_error(net::use_awaitable, ec));
@@ -321,7 +298,7 @@ namespace psm::protocol::reality
         parse_dest(std::string_view(reality_cfg.dest.data(), reality_cfg.dest.size()), dest_host, dest_port);
 
         auto [cert_ec, dest_cert] = co_await fetch_dest_certificate(
-            dest_host, dest_port, ctx.inbound->executor());
+            dest_host, dest_port, ctx.worker.router);
         if (fault::failed(cert_ec))
         {
             trace::warn("{} failed to fetch dest certificate", HsTag);
@@ -433,44 +410,24 @@ namespace psm::protocol::reality
             sh_result.encrypted_handshake_record = std::move(encrypted_record);
         }
 
-        // 6e. 发送所有握手记录到客户端
+        // 6e. 发送所有握手记录到客户端（scatter-gather 一次写入，减少 syscall）
         std::error_code write_ec;
 
-        // ServerHello 记录
-        co_await ctx.inbound->async_write(
+        const std::span<const std::byte> handshake_parts[] = {
             std::span<const std::byte>(
                 reinterpret_cast<const std::byte *>(sh_result.server_hello_record.data()),
                 sh_result.server_hello_record.size()),
-            write_ec);
-        if (write_ec)
-        {
-            trace::warn("{} failed to send ServerHello: {}", HsTag, write_ec.message());
-            result.error = fault::to_code(write_ec);
-            co_return result;
-        }
-
-        // ChangeCipherSpec 记录
-        co_await ctx.inbound->async_write(
             std::span<const std::byte>(
                 reinterpret_cast<const std::byte *>(sh_result.change_cipher_spec_record.data()),
                 sh_result.change_cipher_spec_record.size()),
-            write_ec);
-        if (write_ec)
-        {
-            trace::warn("{} failed to send ChangeCipherSpec: {}", HsTag, write_ec.message());
-            result.error = fault::to_code(write_ec);
-            co_return result;
-        }
-
-        // 加密握手记录（用正确的密钥加密的版本）
-        co_await ctx.inbound->async_write(
             std::span<const std::byte>(
                 reinterpret_cast<const std::byte *>(sh_result.encrypted_handshake_record.data()),
                 sh_result.encrypted_handshake_record.size()),
-            write_ec);
+        };
+        co_await ctx.inbound->async_write_scatter(handshake_parts, 3, write_ec);
         if (write_ec)
         {
-            trace::warn("{} failed to send encrypted handshake: {}", HsTag, write_ec.message());
+            trace::warn("{} failed to send handshake records: {}", HsTag, write_ec.message());
             result.error = fault::to_code(write_ec);
             co_return result;
         }

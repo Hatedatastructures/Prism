@@ -216,6 +216,7 @@ namespace psm::multiplex
         memory::vector<std::byte> recv_buffer_;                                     // UDP 响应接收缓冲区
 
         memory::vector<std::byte> mux_buffer_;  // mux 数据累积缓冲区，处理跨 PSH 帧的 UDP 数据报
+        std::size_t mux_offset_ = 0;            // mux_buffer_ 中未消费数据的起始偏移量
         std::atomic<bool> processing_{false};   // 缓冲区处理标志，防止并发 process_buffer
         std::atomic<bool> recv_running_{false}; // recv_loop 运行标志，防止并发接收循环
     }; // class parcel

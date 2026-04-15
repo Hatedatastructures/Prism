@@ -83,99 +83,16 @@ openssl req -x509 -newkey rsa:4096 \
 
 ## 6. Reality 协议
 
-Reality 是一种基于 TLS 1.3 的协议伪装方案，通过在标准 TLS 握手中嵌入认证信息，
-使代理流量看起来像访问正常网站的 TLS 连接。Prism 实现了完整的 Reality 服务端。
+Reality 是基于 TLS 1.3 的协议伪装方案，在 Session 层独立处理，不经过标准 TLS 路径（BoringSSL SSL_accept）。
 
-### 6.1 握手流程
+完整的 Reality 协议规范和实现细节请参阅 [Reality 协议文档](reality.md)。
 
-```
-客户端                                    Prism 服务端
-  |                                          |
-  |  TLS ClientHello (含加密 session_id)     |
-  |  ──────────────────────────────────────> |
-  |                                          |  解析 ClientHello
-  |                                          |  X25519/X25519MLKEM768 key_share 提取
-  |                                          |  Reality 认证（解密 session_id）
-  |                                          |
-  |                        ┌─ 认证失败 ──> 透传到 dest（伪装真实站点）
-  |                        │
-  |                        └─ 认证成功 ──> TLS 1.3 握手
-  |                                          |
-  |  <────────────────────────────────────── |
-  |  ServerHello + CCS + 加密握手消息         |
-  |      (EncryptedExtensions                |
-  |     + Certificate (Ed25519 自签名)       |
-  |     + CertificateVerify (Ed25519 签名)   |
-  |     + Finished)                          |
-  |                                          |
-  |  CCS + 加密 ClientFinished               |
-  |  ──────────────────────────────────────> |
-  |                                          |  验证 ClientFinished
-  |                                          |  切换到应用密钥
-  |  <────────── 双向数据传输 ──────────────> |
-```
+### Reality 与标准 TLS 的分流
 
-### 6.2 认证机制
+Session 层（[session.cpp](../../src/prism/agent/session/session.cpp)）的分流逻辑：
+- Reality 配置启用 + TLS 记录头检测 → `reality::handshake()` → 自定义 TLS 1.3 握手
+- 未启用 Reality 或非 TLS 流量 → 标准 TLS 路径（BoringSSL SSL_accept）或直接协议探测
 
-Reality 认证通过 ClientHello 的 session_id 字段传递：
+认证成功后，Session 将 `ctx.inbound` 替换为 Reality 加密传输层（`reality::session`），并将协议类型强制设为 `protocol_type::vless`（Reality 内层协议固定为 VLESS）。
 
-- 客户端用服务端长期公钥 + X25519 ECDH 共享密钥派生 auth_key
-- auth_key 用于加密包含 short_id 和时间戳的 session_id
-- 服务端用长期私钥还原 auth_key 并解密验证
-
-### 6.3 密钥交换
-
-支持两种 key_share 类型：
-
-| 类型 | Named Group | 说明 |
-|------|-------------|------|
-| X25519 | `0x001D` | 纯 X25519，32 字节公钥 |
-| X25519MLKEM768 | `0x11EC` | 混合密钥交换，提取末尾 32 字节 X25519 公钥 |
-
-### 6.4 TLS 1.3 密钥调度
-
-严格遵循 RFC 8446 Section 7 实现：
-
-```
-early_secret = HKDF-Extract(0^32, 0^32)
-derived_secret = Derive-Secret(early_secret, "derived", "")
-handshake_secret = HKDF-Extract(derived_secret, shared_secret)
-hello_hash = SHA-256(ClientHello || ServerHello)
-c_hs_traffic = Derive-Secret(handshake_secret, "c hs traffic", hello_hash)
-s_hs_traffic = Derive-Secret(handshake_secret, "s hs traffic", hello_hash)
-```
-
-### 6.5 证书与签名
-
-Reality 不使用真实 CA 证书，而是生成临时 Ed25519 自签名证书：
-
-- 密钥对：每次握手随机生成 Ed25519 密钥对
-- 证书签名：`HMAC-SHA512(auth_key, ed25519_public_key)`
-- CertificateVerify：使用 Ed25519 私钥对 transcript hash 签名
-- 签名算法：`ed25519 (0x0807)`
-
-### 6.6 配置
-
-```json
-{
-  "agent": {
-    "reality": {
-      "private_key": "Base64 编码的 X25519 私钥",
-      "short_id": ["Base64 编码的 short ID"],
-      "dest": "www.microsoft.com:443",
-      "server_names": ["www.microsoft.com"]
-    }
-  }
-}
-```
-
-### 6.7 相关源码
-
-| 文件 | 职责 |
-|------|------|
-| [request.cpp](../../src/prism/protocol/reality/request.cpp) | ClientHello 解析 |
-| [auth.cpp](../../src/prism/protocol/reality/auth.cpp) | Reality 认证 |
-| [response.cpp](../../src/prism/protocol/reality/response.cpp) | ServerHello + 加密握手生成 |
-| [handshake.cpp](../../src/prism/protocol/reality/handshake.cpp) | 握手状态机 |
-| [keygen.cpp](../../src/prism/protocol/reality/keygen.cpp) | TLS 1.3 密钥调度 |
-| [session.cpp](../../src/prism/protocol/reality/session.cpp) | Reality 会话处理 |
+认证失败时，Prism 作为透明代理将连接转发到预配置的伪装目标站点（fallback），对客户端而言等同于访问真实网站。

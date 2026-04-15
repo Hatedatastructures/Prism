@@ -137,8 +137,11 @@ namespace psm::multiplex
                 // 交换缓冲区：local_buf 数据不再被 on_mux_data 修改，span 指针稳定
                 memory::vector<std::byte> local_buf(mr_);
                 std::swap(local_buf, mux_buffer_);
+                // 保存并重置偏移量：快路径 swap 回去后 mux_offset_ 标记了未消费数据的起始位置
+                const auto start_offset = mux_offset_;
+                mux_offset_ = 0;
 
-                std::size_t offset = 0;
+                std::size_t offset = start_offset;
                 while (!closed_ && offset < local_buf.size())
                 {
                     auto buf = std::span<const std::byte>(local_buf.data() + offset, local_buf.size() - offset);
@@ -165,12 +168,26 @@ namespace psm::multiplex
                     }
                 }
 
-                // 未消费数据移回 mux_buffer_ 前部
+                // 未消费数据移回 mux_buffer_
                 if (offset < local_buf.size())
                 {
-                    const auto remaining = std::span<const std::byte>(
-                        local_buf.data() + offset, local_buf.size() - offset);
-                    mux_buffer_.insert(mux_buffer_.begin(), remaining.begin(), remaining.end());
+                    const auto remaining_size = local_buf.size() - offset;
+
+                    if (mux_buffer_.empty())
+                    {
+                        // 快路径：处理期间无新数据到达，直接 swap 回去并记录偏移量
+                        // 避免前端插入的 O(N) 移动
+                        mux_buffer_.swap(local_buf);
+                        mux_offset_ = offset;
+                    }
+                    else
+                    {
+                        // 慢路径：新数据已追加到 mux_buffer_，需要将 remaining 放到新数据之前
+                        mux_buffer_.reserve(mux_buffer_.size() + remaining_size);
+                        mux_buffer_.insert(mux_buffer_.begin(),
+                                           local_buf.data() + offset,
+                                           local_buf.data() + local_buf.size());
+                    }
                 }
 
                 has_progress = offset > 0;

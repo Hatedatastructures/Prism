@@ -1,6 +1,7 @@
 #include <prism/protocol/shadowsocks/relay.hpp>
 #include <prism/fault/code.hpp>
 #include <prism/trace/spdlog.hpp>
+#include <prism/memory/container.hpp>
 #include <cstring>
 #include <chrono>
 
@@ -19,6 +20,13 @@ namespace psm::protocol::shadowsocks
 
         /// byte vector → uint8_t 可写 span，用于 AEAD 解密输出
         [[nodiscard]] auto as_u8_mut(std::vector<std::byte> &v) noexcept
+            -> std::span<std::uint8_t>
+        {
+            return {reinterpret_cast<std::uint8_t *>(v.data()), v.size()};
+        }
+
+        /// PMR byte vector → uint8_t 可写 span，用于 AEAD 解密输出
+        [[nodiscard]] auto as_u8_mut(memory::vector<std::byte> &v) noexcept
             -> std::span<std::uint8_t>
         {
             return {reinterpret_cast<std::uint8_t *>(v.data()), v.size()};
@@ -68,17 +76,18 @@ namespace psm::protocol::shadowsocks
         }
     }
 
-    auto relay::derive_aead_context(const std::vector<std::uint8_t> &salt) const
+    auto relay::derive_aead_context(const std::span<const std::uint8_t> salt) const
         -> std::unique_ptr<crypto::aead_context>
     {
-        // 拼接 PSK + salt 作为密钥材料
-        std::vector<std::uint8_t> material(psk_.size() + salt.size());
-        std::memcpy(material.data(), psk_.data(), psk_.size());
-        std::memcpy(material.data() + psk_.size(), salt.data(), salt.size());
+        // 拼接 PSK + salt 作为密钥材料（栈缓冲，PSK+salt 最大 32+32=64 字节）
+        std::array<std::uint8_t, 64> material_buf{};
+        const auto material_len = psk_.size() + salt.size();
+        std::memcpy(material_buf.data(), psk_.data(), psk_.size());
+        std::memcpy(material_buf.data() + psk_.size(), salt.data(), salt.size());
 
         constexpr auto ctx = kdf_context; // SIP022: "shadowsocks 2022 session subkey"
         const auto key = crypto::derive_key(
-            ctx, std::span<const std::uint8_t>(material), key_salt_length_);
+            ctx, std::span<const std::uint8_t>(material_buf.data(), material_len), key_salt_length_);
 
         crypto::aead_cipher cipher;
         switch (method_)
@@ -164,7 +173,7 @@ namespace psm::protocol::shadowsocks
         std::error_code ec;
 
         // 读取加密变长头
-        std::vector<std::byte> var_header_enc(var_header_len + aead_tag_len);
+        memory::vector<std::byte> var_header_enc(var_header_len + aead_tag_len);
         co_await next_layer_->async_read(var_header_enc, ec);
         if (ec)
         {
@@ -173,7 +182,7 @@ namespace psm::protocol::shadowsocks
         }
 
         // AEAD 解密
-        std::vector<std::uint8_t> var_header_plain(var_header_len);
+        memory::vector<std::uint8_t> var_header_plain(var_header_len);
         if (const auto r = decrypt_ctx_->open(var_header_plain, as_u8(var_header_enc));
             r != fault::code::success)
         {
@@ -216,13 +225,13 @@ namespace psm::protocol::shadowsocks
         co_return fault::code::success;
     }
 
-    auto relay::send_response(const std::vector<std::uint8_t> &client_salt, const std::int64_t server_ts)
+    auto relay::send_response(const std::span<const std::uint8_t> client_salt, const std::int64_t server_ts)
         -> net::awaitable<fault::code>
     {
         std::error_code ec;
 
         // 生成随机 server salt
-        std::vector<std::uint8_t> server_salt(key_salt_length_);
+        memory::vector<std::uint8_t> server_salt(key_salt_length_);
         std::uniform_int_distribution<std::uint32_t> dist(0, 255);
         for (auto &b : server_salt)
         {
@@ -233,7 +242,7 @@ namespace psm::protocol::shadowsocks
 
         // 构建响应固定头明文：type(1) + timestamp(8) + requestSalt + paddingLen(2)
         const std::size_t resp_fixed_plain_len = 1 + 8 + key_salt_length_ + 2;
-        std::vector<std::uint8_t> resp_fixed_plain(resp_fixed_plain_len);
+        memory::vector<std::uint8_t> resp_fixed_plain(resp_fixed_plain_len);
         resp_fixed_plain[0] = response_type;
 
         // 服务端时间戳（大端序）
@@ -249,7 +258,7 @@ namespace psm::protocol::shadowsocks
         resp_fixed_plain[9 + key_salt_length_ + 1] = 0;
 
         // AEAD 加密响应固定头
-        std::vector<std::uint8_t> resp_fixed_enc(
+        memory::vector<std::uint8_t> resp_fixed_enc(
             crypto::aead_context::seal_output_size(resp_fixed_plain_len));
         if (const auto r = encrypt_ctx_->seal(resp_fixed_enc, resp_fixed_plain);
             r != fault::code::success)
@@ -294,7 +303,7 @@ namespace psm::protocol::shadowsocks
         std::error_code ec;
 
         // 1. 读取 client salt
-        std::vector<std::uint8_t> client_salt(key_salt_length_);
+        memory::vector<std::uint8_t> client_salt(key_salt_length_);
         co_await next_layer_->async_read(std::as_writable_bytes(std::span(client_salt)), ec);
         if (ec)
         {
@@ -449,7 +458,7 @@ namespace psm::protocol::shadowsocks
         co_return co_await send_chunk(buffer, ec);
     }
 
-    auto relay::send_chunk(const std::span<const std::byte> data, std::error_code &ec) const
+    auto relay::send_chunk(const std::span<const std::byte> data, std::error_code &ec)
         -> net::awaitable<std::size_t>
     {
         ec.clear();
@@ -469,9 +478,9 @@ namespace psm::protocol::shadowsocks
             co_return 0;
         }
 
-        // 加密 payload
-        std::vector<std::uint8_t> payload_enc(crypto::aead_context::seal_output_size(chunk_len));
-        if (const auto r = encrypt_ctx_->seal(payload_enc, as_u8(data.first(chunk_len)));
+        // 加密 payload（复用成员缓冲区，避免每次堆分配）
+        payload_enc_buf_.resize(crypto::aead_context::seal_output_size(chunk_len));
+        if (const auto r = encrypt_ctx_->seal(payload_enc_buf_, as_u8(data.first(chunk_len)));
             r != fault::code::success)
         {
             trace::warn("{} encrypt payload block failed", tag);
@@ -480,7 +489,7 @@ namespace psm::protocol::shadowsocks
         }
 
         // scatter-gather 写入
-        const std::span<const std::byte> parts[] = {to_bytes(len_enc), to_bytes(payload_enc)};
+        const std::span<const std::byte> parts[] = {to_bytes(len_enc), to_bytes(payload_enc_buf_)};
         co_await next_layer_->async_write_scatter(parts, 2, ec);
 
         co_return ec ? 0 : chunk_len;

@@ -31,13 +31,6 @@ namespace
         std::size_t object_size = 1024;
     };
 
-    // 默认配置
-    const StressConfig DEFAULT_STRESS_CONFIG = {
-        .iterations = 50000,
-        .alloc_per_reset = 128,
-        .object_size = 256,
-    };
-
     // 统计结果
     struct LatencyStats
     {
@@ -123,7 +116,7 @@ int main(int argc, char **argv)
 
     std::cout << ">>> Prism Arena Overflow Stress Tool <<<" << std::endl;
 
-    RunTest(DEFAULT_STRESS_CONFIG);
+    RunTest(StressConfig{});
 
     return 0;
 }

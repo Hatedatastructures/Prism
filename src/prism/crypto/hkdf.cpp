@@ -87,21 +87,28 @@ namespace psm::crypto
 
         // T(0) = empty
         // T(i) = HMAC-SHA256(PRK, T(i-1) || info || i)
-        std::vector<std::uint8_t> t;
+        std::array<std::uint8_t, SHA256_LEN> t{};
+        std::size_t t_size = 0;
         std::size_t offset = 0;
         std::uint8_t counter = 1;
 
         while (offset < length)
         {
-            // 构造 HMAC 输入: T(i-1) || info || counter
-            std::vector<std::uint8_t> hmac_input;
-            hmac_input.reserve(t.size() + info.size() + 1);
-            hmac_input.insert(hmac_input.end(), t.begin(), t.end());
-            hmac_input.insert(hmac_input.end(), info.begin(), info.end());
-            hmac_input.push_back(counter);
+            // 构造 HMAC 输入: T(i-1) || info || counter（栈缓冲，最大 ~289 字节）
+            constexpr std::size_t max_hmac_input_size = SHA256_LEN + 256 + 1;
+            std::array<std::uint8_t, max_hmac_input_size> hmac_buf{};
+            const auto hmac_size = t_size + info.size() + 1;
+            if (t_size > 0)
+            {
+                std::memcpy(hmac_buf.data(), t.data(), t_size);
+            }
+            if (!info.empty())
+            {
+                std::memcpy(hmac_buf.data() + t_size, info.data(), info.size());
+            }
+            hmac_buf[hmac_size - 1] = counter;
 
-            t.clear();
-            const auto block = hmac_sha256(prk.first(SHA256_LEN), hmac_input);
+            const auto block = hmac_sha256(prk.first(SHA256_LEN), {hmac_buf.data(), hmac_size});
 
             // 截取本轮输出中需要的部分
             const auto to_copy = std::min(SHA256_LEN, length - offset);
@@ -109,7 +116,8 @@ namespace psm::crypto
             offset += to_copy;
 
             // T(i) = 完整的 block（不是截断后的），作为下一轮的输入
-            t.assign(block.begin(), block.end());
+            t = block;
+            t_size = SHA256_LEN;
             ++counter;
         }
 
@@ -133,11 +141,11 @@ namespace psm::crypto
     {
         // "tls13 " 前缀 + 用户 label（如 "tls13 key"、"tls13 iv"、"tls13 derived"）
         static constexpr std::string_view tls13_prefix = "tls13 ";
-        const std::string full_label = std::string(tls13_prefix) + std::string(label);
+        const auto full_label_len = tls13_prefix.size() + label.size();
 
-        if (full_label.size() > 255)
+        if (full_label_len > 255)
         {
-            trace::error("{} HKDF-Expand-Label label too long: {}", HkdfTag, full_label.size());
+            trace::error("{} HKDF-Expand-Label label too long: {}", HkdfTag, full_label_len);
             return {fault::code::invalid_argument, {}};
         }
 
@@ -147,24 +155,32 @@ namespace psm::crypto
             return {fault::code::invalid_argument, {}};
         }
 
-        // 组装 HkdfLabel 结构体：
+        // 组装 HkdfLabel 结构体（栈缓冲）：
         // Length(2) || LabelLen(1) || Label(N) || ContextLen(1) || Context(N)
-        std::vector<std::uint8_t> hkdf_label;
-        hkdf_label.reserve(2 + 1 + full_label.size() + 1 + context.size());
+        constexpr std::size_t max_hkdf_label_size = 2 + 1 + 255 + 1 + 255;
+        std::array<std::uint8_t, max_hkdf_label_size> label_buf{};
+        std::size_t pos = 0;
 
         // Length: 2 字节大端序
-        hkdf_label.push_back(static_cast<std::uint8_t>((length >> 8) & 0xFF));
-        hkdf_label.push_back(static_cast<std::uint8_t>(length & 0xFF));
+        label_buf[pos++] = static_cast<std::uint8_t>((length >> 8) & 0xFF);
+        label_buf[pos++] = static_cast<std::uint8_t>(length & 0xFF);
 
-        // Label: 1 字节长度前缀 + 内容
-        hkdf_label.push_back(static_cast<std::uint8_t>(full_label.size()));
-        hkdf_label.insert(hkdf_label.end(), full_label.begin(), full_label.end());
+        // Label: 1 字节长度前缀 + "tls13 " + 用户 label
+        label_buf[pos++] = static_cast<std::uint8_t>(full_label_len);
+        std::memcpy(label_buf.data() + pos, tls13_prefix.data(), tls13_prefix.size());
+        pos += tls13_prefix.size();
+        std::memcpy(label_buf.data() + pos, label.data(), label.size());
+        pos += label.size();
 
         // Context: 1 字节长度前缀 + 内容
-        hkdf_label.push_back(static_cast<std::uint8_t>(context.size()));
-        hkdf_label.insert(hkdf_label.end(), context.begin(), context.end());
+        label_buf[pos++] = static_cast<std::uint8_t>(context.size());
+        if (!context.empty())
+        {
+            std::memcpy(label_buf.data() + pos, context.data(), context.size());
+            pos += context.size();
+        }
 
-        return hkdf_expand(secret, hkdf_label, length);
+        return hkdf_expand(secret, {label_buf.data(), pos}, length);
     }
 
     // SHA-256 单数据块哈希。直接调用 BoringSSL 的 SHA256。

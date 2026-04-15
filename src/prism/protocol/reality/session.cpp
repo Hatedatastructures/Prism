@@ -158,7 +158,8 @@ namespace psm::protocol::reality
         const auto record_len = (static_cast<std::size_t>(raw[3]) << 8) | static_cast<std::size_t>(raw[4]);
 
         // 2. 读取记录体（密文）
-        memory::vector<std::byte> record_body(record_len);
+        record_body_buf_.resize(record_len);
+        auto &record_body = record_body_buf_;
         std::size_t body_read = 0;
         while (body_read < record_len)
         {
@@ -213,7 +214,8 @@ namespace psm::protocol::reality
             reinterpret_cast<const std::uint8_t *>(record_body.data()), record_len);
         const auto plaintext_len = record_len - tls::AEAD_TAG_LEN;
 
-        memory::vector<std::uint8_t> decrypted(plaintext_len);
+        decrypted_buf_.resize(plaintext_len);
+        auto &decrypted = decrypted_buf_;
         const auto nonce_span = std::span<const std::uint8_t>{nonce.data(), nonce.size()};
         const auto ad_span = std::span<const std::uint8_t>{ad.data(), ad.size()};
         const auto dec_ec = client_decryptor_.open(decrypted, ciphertext, nonce_span, ad_span);
@@ -241,10 +243,10 @@ namespace psm::protocol::reality
         // 9. 将纯应用数据存入缓冲区，等待 async_read_some 消费
         plaintext_buffer_.clear();
         plaintext_offset_ = 0;
-        plaintext_buffer_.reserve(data_end);
-        for (std::size_t i = 0; i < data_end; ++i)
+        plaintext_buffer_.resize(data_end);
+        if (data_end > 0)
         {
-            plaintext_buffer_.push_back(static_cast<std::byte>(decrypted[i]));
+            std::memcpy(plaintext_buffer_.data(), decrypted.data(), data_end);
         }
 
         co_return plaintext_buffer_.size();
@@ -268,12 +270,13 @@ namespace psm::protocol::reality
         }
 
         // 1. TLS 1.3 内部明文: 数据 + content_type(0x17) 表示应用数据
-        memory::vector<std::uint8_t> inner;
-        inner.reserve(data.size() + 1);
-        inner.insert(inner.end(),
-                     reinterpret_cast<const std::uint8_t *>(data.data()),
-                     reinterpret_cast<const std::uint8_t *>(data.data()) + data.size());
-        inner.push_back(tls::CONTENT_TYPE_APPLICATION_DATA);
+        write_plain_buf_.resize(data.size() + 1);
+        if (!data.empty())
+        {
+            std::memcpy(write_plain_buf_.data(), data.data(), data.size());
+        }
+        write_plain_buf_[data.size()] = tls::CONTENT_TYPE_APPLICATION_DATA;
+        auto &inner = write_plain_buf_;
 
         // 2. nonce = server_iv XOR write_sequence_（每次递增）
         const auto nonce = make_nonce(keys_.server_app_iv, write_sequence_);
@@ -289,7 +292,8 @@ namespace psm::protocol::reality
         ad[4] = static_cast<std::uint8_t>(encrypted_len & 0xFF);
 
         // 4. AEAD 加密
-        memory::vector<std::uint8_t> ciphertext(encrypted_len);
+        write_ciphertext_buf_.resize(encrypted_len);
+        auto &ciphertext = write_ciphertext_buf_;
         const auto nonce_span = std::span<const std::uint8_t>{nonce.data(), nonce.size()};
         const auto ad_span = std::span<const std::uint8_t>{ad.data(), ad.size()};
         const auto enc_ec = server_encryptor_.seal(ciphertext, inner, nonce_span, ad_span);
@@ -300,22 +304,20 @@ namespace psm::protocol::reality
             co_return 0;
         }
 
-        // 5. 组装完整 TLS 记录: 记录头（5 字节）+ 密文
-        memory::vector<std::byte> record;
-        record.reserve(tls::RECORD_HEADER_LEN + encrypted_len);
-        // 记录头：content_type=0x17, version=0x0303, length=encrypted_len
-        record.push_back(static_cast<std::byte>(tls::CONTENT_TYPE_APPLICATION_DATA));
-        record.push_back(static_cast<std::byte>(0x03));
-        record.push_back(static_cast<std::byte>(0x03));
-        record.push_back(static_cast<std::byte>((encrypted_len >> 8) & 0xFF));
-        record.push_back(static_cast<std::byte>(encrypted_len & 0xFF));
-        // 记录体：密文（包含数据和认证标签）
-        record.insert(record.end(),
-                      reinterpret_cast<const std::byte *>(ciphertext.data()),
-                      reinterpret_cast<const std::byte *>(ciphertext.data() + ciphertext.size()));
+        // 5. scatter-gather 写入：栈上记录头 + 成员密文缓冲区
+        std::array<std::byte, tls::RECORD_HEADER_LEN> record_header{};
+        record_header[0] = static_cast<std::byte>(tls::CONTENT_TYPE_APPLICATION_DATA);
+        record_header[1] = static_cast<std::byte>(0x03);
+        record_header[2] = static_cast<std::byte>(0x03);
+        record_header[3] = static_cast<std::byte>((encrypted_len >> 8) & 0xFF);
+        record_header[4] = static_cast<std::byte>(encrypted_len & 0xFF);
 
-        // 6. 写入底层传输层
-        const auto written = co_await transport_->async_write(record, ec);
+        const std::span<const std::byte> scatter_parts[] = {
+            record_header,
+            std::span<const std::byte>(
+                reinterpret_cast<const std::byte *>(ciphertext.data()),
+                ciphertext.size())};
+        co_await transport_->async_write_scatter(scatter_parts, 2, ec);
         if (ec)
         {
             co_return 0;

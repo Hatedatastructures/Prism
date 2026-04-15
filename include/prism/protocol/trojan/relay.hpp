@@ -34,6 +34,7 @@
 namespace psm::protocol::trojan
 {
     namespace net = boost::asio;
+    using shared_transmission = psm::channel::transport::shared_transmission;
 
     /**
      * @class relay
@@ -66,7 +67,7 @@ namespace psm::protocol::trojan
          * @note 方法定义在 relay.cpp 中
          * @note 底层传输层必须已建立连接，否则后续操作将失败
          */
-        explicit relay(psm::channel::transport::shared_transmission next_layer, const config &cfg = {},
+        explicit relay(shared_transmission next_layer, const config &cfg = {},
                        std::function<bool(std::string_view)> credential_verifier = nullptr);
 
         /**
@@ -140,7 +141,7 @@ namespace psm::protocol::trojan
          * 适用于需要将底层传输层转移给其他组件的场景。
          * @note 方法定义在 relay.cpp 中
          */
-        psm::channel::transport::shared_transmission release();
+        shared_transmission release();
 
         /**
          * @brief 路由回调函数类型
@@ -165,7 +166,7 @@ namespace psm::protocol::trojan
 
     private:
         // 底层传输层，构造时通过 unique_ptr 转移所有权
-        psm::channel::transport::shared_transmission next_layer_;
+        shared_transmission next_layer_;
         // 协议配置
         config config_;
         // 凭据验证回调函数
@@ -199,7 +200,7 @@ namespace psm::protocol::trojan
      * @return shared_relay 中继器对象共享指针
      * @details 工厂函数，封装 std::make_shared 调用，简化对象创建。
      */
-    inline shared_relay make_relay(psm::channel::transport::shared_transmission next_layer, const config &cfg = {},
+    inline shared_relay make_relay(shared_transmission next_layer, const config &cfg = {},
                                    std::function<bool(std::string_view)> credential_verifier = nullptr)
     {
         return std::make_shared<relay>(std::move(next_layer), cfg, std::move(credential_verifier));

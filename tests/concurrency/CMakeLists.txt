@@ -1,17 +1,16 @@
-add_executable(concurrency_server
+add_executable(ConcurrencyServer
     server.cpp
     server.hpp
     conversation.hpp
     handler.hpp
 )
 
-target_include_directories(concurrency_server PRIVATE
+target_include_directories(ConcurrencyServer PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}
     ${PROJECT_SOURCE_DIR}/include
-    "c:/bin/include"
 )
 
-target_link_libraries(concurrency_server PRIVATE
+target_link_libraries(ConcurrencyServer PRIVATE
     ${PROJECT_NAME}_static_library
     Boost::system
     glaze::glaze
@@ -22,20 +21,20 @@ target_link_libraries(concurrency_server PRIVATE
 )
 
 if(MSVC)
-    target_compile_options(concurrency_server PRIVATE /W4 /O2 /DNDEBUG)
+    target_compile_options(ConcurrencyServer PRIVATE /W4 /O2 /DNDEBUG)
 else()
-    target_compile_options(concurrency_server PRIVATE -Wall -Wextra -O2 -DNDEBUG)
+    target_compile_options(ConcurrencyServer PRIVATE -Wall -Wextra -O2)
+    target_compile_definitions(ConcurrencyServer PRIVATE NDEBUG)
 endif()
 
-add_executable(concurrency_client client.cpp)
+add_executable(ConcurrencyClient client.cpp)
 
-target_include_directories(concurrency_client PRIVATE
+target_include_directories(ConcurrencyClient PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}
     ${PROJECT_SOURCE_DIR}/include
-    "c:/bin/include"
 )
 
-target_link_libraries(concurrency_client PRIVATE
+target_link_libraries(ConcurrencyClient PRIVATE
     ${PROJECT_NAME}_static_library
     Boost::system
     glaze::glaze
@@ -46,7 +45,8 @@ target_link_libraries(concurrency_client PRIVATE
 )
 
 if(MSVC)
-    target_compile_options(concurrency_client PRIVATE /W4 /O2 /DNDEBUG)
+    target_compile_options(ConcurrencyClient PRIVATE /W4 /O2 /DNDEBUG)
 else()
-    target_compile_options(concurrency_client PRIVATE -Wall -Wextra -O2 -DNDEBUG)
+    target_compile_options(ConcurrencyClient PRIVATE -Wall -Wextra -O2)
+    target_compile_definitions(ConcurrencyClient PRIVATE NDEBUG)
 endif()

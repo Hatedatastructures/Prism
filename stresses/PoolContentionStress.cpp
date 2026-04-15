@@ -34,13 +34,6 @@ namespace
         std::size_t alloc_size = 128;
     };
 
-    // 默认配置
-    constexpr StressConfig DEFAULT_STRESS_CONFIG = {
-        .threads = 4,
-        .duration_sec = 10,
-        .alloc_size = 128,
-    };
-
     // 线程统计结果
     struct ThreadStats
     {
@@ -91,7 +84,7 @@ int main(const int argc, char **argv)
 
     std::cout << ">>> Prism 内存池竞争压力测试工具 <<<" << std::endl;
 
-    StressConfig config = DEFAULT_STRESS_CONFIG;
+    StressConfig config{};
 
     std::cout << "------------------------------------------------" << std::endl;
     std::cout << std::format("{:<24}{}\n", "配置:", "值");

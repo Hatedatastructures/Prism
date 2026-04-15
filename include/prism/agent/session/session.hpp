@@ -70,7 +70,7 @@ namespace psm::agent::session
     {
         server_context &server;                  // 服务器全局上下文引用
         worker_context &worker;                  // 工作线程上下文引用
-        psm::channel::transport::shared_transmission inbound; // 入站传输层所有权
+        shared_transmission inbound; // 入站传输层所有权
     };
 
     /**

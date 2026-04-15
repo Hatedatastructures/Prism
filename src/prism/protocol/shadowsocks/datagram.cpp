@@ -19,7 +19,8 @@ namespace psm::protocol::shadowsocks
         }
 
         /// 解析 MainHeader 公共部分后的数据（地址 + padding + payload）
-        auto parse_body_after_timestamp(const std::vector<std::uint8_t> &body_plain, udp_decrypted_packet &result)
+        /// @param body_plain 解密后的明文缓冲区，result.payload span 将指向其子区间
+        auto parse_body_after_timestamp(const memory::vector<std::uint8_t> &body_plain, udp_decrypted_packet &result)
             -> fault::code
         {
             // Type(1) + Timestamp(8) + 至少 1 字节 ATYP
@@ -70,14 +71,13 @@ namespace psm::protocol::shadowsocks
                 offset += 2 + padding_len;
             }
 
-            // 提取 payload
+            // 提取 payload（零拷贝：span 指向 body_plain 子区间）
             result.destination_address = addr_result.addr;
             result.destination_port = addr_result.port;
             if (offset < body_plain.size())
             {
-                const auto payload_size = body_plain.size() - offset;
-                result.payload.resize(payload_size);
-                std::memcpy(result.payload.data(), body_plain.data() + offset, payload_size);
+                result.payload = std::span<const std::uint8_t>(
+                    body_plain.data() + offset, body_plain.size() - offset);
             }
 
             return fault::code::success;
@@ -146,9 +146,10 @@ namespace psm::protocol::shadowsocks
         const auto nonce = construct_nonce_aes(session_id, packet_id);
         const auto nonce_span = std::span<const std::uint8_t>(nonce.data(), nonce.size());
 
-        // AEAD 解密 body
+        // AEAD 解密 body（PMR vector，零拷贝 payload 指向此缓冲区）
         const auto body_enc = packet.subspan(separate_header_len);
-        std::vector<std::uint8_t> body_plain(body_enc.size() - aead_tag_len);
+        memory::vector<std::uint8_t> body_plain(body_enc.size() - aead_tag_len,
+                                                  memory::current_resource());
 
         if (const auto r = entry->aead_ctx->open(body_plain, as_u8(body_enc), nonce_span);
             r != fault::code::success)
@@ -164,13 +165,15 @@ namespace psm::protocol::shadowsocks
             return {fault::code::replay_detected, result};
         }
 
-        // 解析 MainHeader + payload
+        // 解析 MainHeader + payload（payload span 指向 body_plain 子区间）
         const auto parse_ec = parse_body_after_timestamp(body_plain, result);
         if (parse_ec != fault::code::success)
         {
             return {parse_ec, result};
         }
 
+        // 转移缓冲区所有权到 result，保持 payload span 有效
+        result.buffer = std::move(body_plain);
         result.session_id = session_id;
         return {fault::code::success, result};
     }
@@ -189,13 +192,14 @@ namespace psm::protocol::shadowsocks
         std::array<std::uint8_t, packet_id_len> packet_id{};
         write_u64_be(packet_id.data(), server_packet_id);
 
-        // 构造明文：Type(1) + Timestamp(8) + PaddingLen(2) + Payload
+        // 构造明文：Type(1) + Timestamp(8) + PaddingLen(2) + Payload（PMR vector）
         const auto now = std::chrono::duration_cast<std::chrono::seconds>(
                              std::chrono::system_clock::now().time_since_epoch())
                              .count();
         const auto ts = static_cast<std::uint64_t>(now);
 
-        std::vector<std::uint8_t> plain(1 + 8 + 2 + payload.size());
+        const auto plain_len = 1 + 8 + 2 + payload.size();
+        memory::vector<std::uint8_t> plain(plain_len, memory::current_resource());
         plain[0] = response_type;
         for (int i = 0; i < 8; ++i)
         {
@@ -213,14 +217,8 @@ namespace psm::protocol::shadowsocks
         const auto nonce = construct_nonce_aes(session_id, packet_id);
         const auto nonce_span = std::span<const std::uint8_t>(nonce.data(), nonce.size());
 
-        // AEAD 加密 body
-        std::vector<std::uint8_t> body_enc(crypto::aead_context::seal_output_size(plain.size()));
-        if (const auto r = entry->aead_ctx->seal(body_enc, plain, nonce_span);
-            r != fault::code::success)
-        {
-            trace::warn("{} AES-GCM encrypt body failed", tag);
-            return {fault::code::crypto_error, {}};
-        }
+        // AEAD 加密 body，直接写入输出缓冲区的 body 区间
+        const auto body_enc_len = crypto::aead_context::seal_output_size(plain_len);
 
         // AES-ECB 加密 SeparateHeader：SessionID + PacketID
         std::array<std::uint8_t, separate_header_len> separate_plain{};
@@ -231,10 +229,19 @@ namespace psm::protocol::shadowsocks
         const auto header_enc = crypto::aes_ecb_encrypt(
             std::span<const std::uint8_t, 16>{separate_plain.data(), 16}, key_span);
 
-        // 拼接：encrypted_header(16) || encrypted_body
-        std::vector<std::byte> result(separate_header_len + body_enc.size());
+        // 直接在输出缓冲区中构造，消除中间 body_enc vector
+        std::vector<std::byte> result(separate_header_len + body_enc_len);
         std::memcpy(result.data(), header_enc.data(), separate_header_len);
-        std::memcpy(result.data() + separate_header_len, body_enc.data(), body_enc.size());
+
+        // 将 body 密文直接写入 result 的 body 区间
+        const auto body_out = std::span<std::uint8_t>(
+            reinterpret_cast<std::uint8_t *>(result.data() + separate_header_len), body_enc_len);
+        if (const auto r = entry->aead_ctx->seal(body_out, plain, nonce_span);
+            r != fault::code::success)
+        {
+            trace::warn("{} AES-GCM encrypt body failed", tag);
+            return {fault::code::crypto_error, {}};
+        }
 
         return {fault::code::success, result};
     }
@@ -271,9 +278,10 @@ namespace psm::protocol::shadowsocks
         crypto::aead_context ctx(crypto::aead_cipher::xchacha20_poly1305,
                                  std::span<const std::uint8_t>(psk_.data(), psk_.size()));
 
-        // 解密 body（跳过 16 字节明文 header）
+        // 解密 body（跳过 16 字节明文 header，PMR vector）
         const auto body_enc = packet.subspan(session_id_len + packet_id_len);
-        std::vector<std::uint8_t> body_plain(body_enc.size() - aead_tag_len);
+        memory::vector<std::uint8_t> body_plain(body_enc.size() - aead_tag_len,
+                                                  memory::current_resource());
         const auto nonce_span = std::span<const std::uint8_t>(nonce.data(), nonce.size());
 
         if (const auto r = ctx.open(body_plain, as_u8(body_enc), nonce_span);
@@ -291,13 +299,15 @@ namespace psm::protocol::shadowsocks
             return {fault::code::replay_detected, result};
         }
 
-        // 解析 MainHeader + payload
+        // 解析 MainHeader + payload（payload span 指向 body_plain 子区间）
         const auto parse_ec = parse_body_after_timestamp(body_plain, result);
         if (parse_ec != fault::code::success)
         {
             return {parse_ec, result};
         }
 
+        // 转移缓冲区所有权到 result，保持 payload span 有效
+        result.buffer = std::move(body_plain);
         result.session_id = session_id;
         return {fault::code::success, result};
     }
@@ -322,13 +332,14 @@ namespace psm::protocol::shadowsocks
         std::memcpy(nonce.data(), session_id.data(), session_id_len);
         std::memcpy(nonce.data() + session_id_len, packet_id.data(), packet_id_len);
 
-        // 构造明文：Type(1) + Timestamp(8) + PaddingLen(2) + Payload
+        // 构造明文：Type(1) + Timestamp(8) + PaddingLen(2) + Payload（PMR vector）
         const auto now = std::chrono::duration_cast<std::chrono::seconds>(
                              std::chrono::system_clock::now().time_since_epoch())
                              .count();
         const auto ts = static_cast<std::uint64_t>(now);
 
-        std::vector<std::uint8_t> plain(1 + 8 + 2 + payload.size());
+        const auto plain_len = 1 + 8 + 2 + payload.size();
+        memory::vector<std::uint8_t> plain(plain_len, memory::current_resource());
         plain[0] = response_type;
         for (int i = 0; i < 8; ++i)
         {
@@ -345,21 +356,24 @@ namespace psm::protocol::shadowsocks
         crypto::aead_context ctx(crypto::aead_cipher::xchacha20_poly1305,
                                  std::span<const std::uint8_t>(psk_.data(), psk_.size()));
 
-        std::vector<std::uint8_t> body_enc(crypto::aead_context::seal_output_size(plain.size()));
+        const auto body_enc_len = crypto::aead_context::seal_output_size(plain_len);
         const auto nonce_span = std::span<const std::uint8_t>(nonce.data(), nonce.size());
 
-        if (const auto r = ctx.seal(body_enc, plain, nonce_span);
+        // 直接在输出缓冲区中构造，消除中间 body_enc vector
+        std::vector<std::byte> result(session_id_len + packet_id_len + body_enc_len);
+        std::memcpy(result.data(), session_id.data(), session_id_len);
+        std::memcpy(result.data() + session_id_len, packet_id.data(), packet_id_len);
+
+        // 将加密 body 直接写入 result 的 body 区间
+        const auto body_out = std::span<std::uint8_t>(
+            reinterpret_cast<std::uint8_t *>(result.data() + session_id_len + packet_id_len),
+            body_enc_len);
+        if (const auto r = ctx.seal(body_out, plain, nonce_span);
             r != fault::code::success)
         {
             trace::warn("{} chacha20 encrypt body failed", tag);
             return {fault::code::crypto_error, {}};
         }
-
-        // 拼接：SessionID(8) + PacketID(8) + EncryptedBody
-        std::vector<std::byte> result(session_id_len + packet_id_len + body_enc.size());
-        std::memcpy(result.data(), session_id.data(), session_id_len);
-        std::memcpy(result.data() + session_id_len, packet_id.data(), packet_id_len);
-        std::memcpy(result.data() + session_id_len + packet_id_len, body_enc.data(), body_enc.size());
 
         return {fault::code::success, result};
     }

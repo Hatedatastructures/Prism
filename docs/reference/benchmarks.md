@@ -40,10 +40,10 @@ build_release/benchmarks/mux_bench.exe      # smux/yamux 帧编解码、UDP 数�
 ### 运行压力测试
 
 ```bash
-build_release/stresses/memory_stress.exe         # 多线程内存分配
-build_release/stresses/pool_contention_stress.exe # 内存池锁竞争
-build_release/stresses/arena_overflow_stress.exe  # Frame Arena 重置延迟
-build_release/stresses/mux_stress.exe             # 多路复用协议
+build_release/stresses/MemoryStress.exe         # 多线程内存分配
+build_release/stresses/PoolContentionStress.exe # 内存池锁竞争
+build_release/stresses/ArenaOverflowStress.exe  # Frame Arena 重置延迟
+build_release/stresses/MuxStress.exe             # 多路复用协议
 ```
 
 ### 常用 Google Benchmark 参数

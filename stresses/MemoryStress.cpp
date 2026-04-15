@@ -98,7 +98,7 @@ namespace
         std::mt19937_64 rng(thread_id * 1234567 + std::random_device{}());
         std::uniform_int_distribution<std::size_t> size_dist(context.config.min_alloc_size, context.config.max_alloc_size);
 
-        std::vector<memory::string> keep_alive_objects;
+        memory::vector<memory::string> keep_alive_objects(&counter);
         keep_alive_objects.reserve(context.config.allocation_batch);
 
         try
@@ -124,7 +124,11 @@ namespace
                 if (keep_alive_objects.size() > context.config.allocation_batch)
                 {
                     std::size_t remove_count = keep_alive_objects.size() / 3;
-                    keep_alive_objects.erase(keep_alive_objects.begin(), keep_alive_objects.begin() + remove_count);
+                    for (std::size_t i = 0; i < remove_count; ++i)
+                    {
+                        keep_alive_objects[i] = std::move(keep_alive_objects.back());
+                        keep_alive_objects.pop_back();
+                    }
                 }
             }
         }

@@ -41,6 +41,7 @@ namespace psm::agent::account
 namespace psm::protocol::socks5
 {
     namespace net = boost::asio;
+    using shared_transmission = psm::channel::transport::shared_transmission;
 
     /**
      * @class relay
@@ -76,7 +77,7 @@ namespace psm::protocol::socks5
          * 调用者不应再使用原指针
          * @note 底层传输层必须已建立连接，否则后续操作将失败
          */
-        explicit relay(psm::channel::transport::shared_transmission next_layer,
+        explicit relay(shared_transmission next_layer,
                        const config &cfg = {},
                        psm::agent::account::directory *account_dir = nullptr)
             : next_layer_(std::move(next_layer)), config_(cfg), account_directory_(account_dir)
@@ -383,7 +384,7 @@ namespace psm::protocol::socks5
          * 返回 false，不应再调用读写方法。用于将底层连接转移给
          * 其他组件管理。
          */
-        channel::transport::shared_transmission release()
+        shared_transmission release()
         {
             return std::move(next_layer_);
         }
@@ -949,7 +950,7 @@ namespace psm::protocol::socks5
         // 底层传输层指针，所有权通过 unique_ptr 管理
         // 构造时转移所有权，生命周期与 stream 对象绑定
         // close() 后仍有效，析构时自动释放
-        psm::channel::transport::shared_transmission next_layer_;
+        shared_transmission next_layer_;
 
         // SOCKS5 协议配置，构造时传入，运行时只读
         config config_;
@@ -976,7 +977,7 @@ namespace psm::protocol::socks5
      * @return shared_relay 中继器对象共享指针
      * @details 工厂函数，封装 std::make_shared 调用，简化对象创建。
      */
-    inline shared_relay make_relay(psm::channel::transport::shared_transmission next_layer,
+    inline shared_relay make_relay(shared_transmission next_layer,
                                    const config &cfg = {},
                                    psm::agent::account::directory *account_dir = nullptr)
     {

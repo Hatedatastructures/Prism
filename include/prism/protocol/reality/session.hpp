@@ -90,5 +90,11 @@ namespace psm::protocol::reality
         // 解密后的明文缓冲区
         memory::vector<std::byte> plaintext_buffer_;
         std::size_t plaintext_offset_ = 0;
+
+        // 复用缓冲区（避免每次读/写记录时的堆分配）
+        memory::vector<std::byte> record_body_buf_;
+        memory::vector<std::uint8_t> decrypted_buf_;
+        memory::vector<std::uint8_t> write_plain_buf_;
+        memory::vector<std::uint8_t> write_ciphertext_buf_;
     };
 } // namespace psm::protocol::reality

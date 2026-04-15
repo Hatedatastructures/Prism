@@ -186,6 +186,7 @@ namespace psm::agent::session
 
                 case protocol::reality::handshake_result_type::not_reality:
                     // 非 Reality TLS 客户端（SNI 不匹配），fall through 到标准 TLS
+                    // ssl_handshake 会通过 span 参数正确缓存预读的 raw_tls_record 数据
                     span = std::span<const std::byte>(result.raw_tls_record.data(),
                                                        result.raw_tls_record.size());
                     need_standard_tls = true;
@@ -248,24 +249,6 @@ namespace psm::agent::session
                     // 每次读到数据后尝试探测，HTTP 方法最短前缀仅 4 字节即可识别
                     const auto inner_view = std::string_view(reinterpret_cast<const char *>(inner_buf.data()), inner_n);
                     detect_result.type = protocol::analysis::detect_tls(inner_view);
-
-                    // 调试：打印前 16 字节的 hex，辅助排查 SS2022 协议检测
-                    {
-                        constexpr std::size_t hex_len = 16;
-                        const auto dump_len = std::min(inner_n, hex_len);
-                        std::string hex_dump;
-                        hex_dump.reserve(dump_len * 3);
-                        for (std::size_t i = 0; i < dump_len; ++i)
-                        {
-                            const auto b = static_cast<unsigned char>(inner_buf[i]);
-                            char buf[4];
-                            std::snprintf(buf, sizeof(buf), "%02x ", b);
-                            hex_dump += buf;
-                        }
-                        trace::debug("[Session] [{}] TLS inner probe: {} bytes [{}] -> {}",
-                                     id_, inner_n, hex_dump, protocol::to_string_view(detect_result.type));
-                    }
-
                     if (detect_result.type != protocol::protocol_type::unknown)
                     {
                         break;

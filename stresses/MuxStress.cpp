@@ -94,9 +94,9 @@ namespace
     }
 
     // 构造 mux address IPv4
-    std::vector<std::byte> MakeMuxAddrIPv4(std::uint16_t port)
+    memory::vector<std::byte> MakeMuxAddrIPv4(std::uint16_t port, std::pmr::memory_resource *mr)
     {
-        std::vector<std::byte> buf(9);
+        memory::vector<std::byte> buf(9, mr);
         buf[0] = std::byte{0x00}; // flags high
         buf[1] = std::byte{0x00}; // flags low
         buf[2] = std::byte{0x01}; // atype=IPv4
@@ -110,9 +110,9 @@ namespace
     }
 
     // 构造 mux address 域名
-    std::vector<std::byte> MakeMuxAddrDomain(std::string_view domain, std::uint16_t port)
+    memory::vector<std::byte> MakeMuxAddrDomain(std::string_view domain, std::uint16_t port, std::pmr::memory_resource *mr)
     {
-        std::vector<std::byte> buf(3 + 1 + domain.size() + 2);
+        memory::vector<std::byte> buf(3 + 1 + domain.size() + 2, mr);
         buf[0] = std::byte{0x00};
         buf[1] = std::byte{0x00};
         buf[2] = std::byte{0x03};
@@ -125,9 +125,9 @@ namespace
     }
 
     // 构造 mux address IPv6
-    std::vector<std::byte> MakeMuxAddrIPv6(std::uint16_t port)
+    memory::vector<std::byte> MakeMuxAddrIPv6(std::uint16_t port, std::pmr::memory_resource *mr)
     {
-        std::vector<std::byte> buf(3 + 16 + 2);
+        memory::vector<std::byte> buf(3 + 16 + 2, mr);
         buf[0] = std::byte{0x00};
         buf[1] = std::byte{0x00};
         buf[2] = std::byte{0x04};
@@ -141,9 +141,9 @@ namespace
     }
 
     // 生成随机 payload
-    std::vector<std::byte> MakeRandomPayload(std::size_t size, std::mt19937 &rng)
+    memory::vector<std::byte> MakeRandomPayload(std::size_t size, std::mt19937 &rng, std::pmr::memory_resource *mr)
     {
-        std::vector<std::byte> payload(size);
+        memory::vector<std::byte> payload(size, mr);
         for (std::size_t i = 0; i < size; ++i)
             payload[i] = static_cast<std::byte>(rng() & 0xFF);
         return payload;
@@ -221,7 +221,7 @@ namespace
             // 周期性解析地址（每 10 次迭代）
             if (iter % 10 == 0)
             {
-                auto ipv4_data = MakeMuxAddrIPv4(443);
+                auto ipv4_data = MakeMuxAddrIPv4(443, mr);
                 auto addr = multiplex::smux::parse_mux_address(
                     std::span<const std::byte>(ipv4_data.data(), ipv4_data.size()), mr);
                 if (!addr)
@@ -281,7 +281,7 @@ namespace
             // 地址解析
             if (rng() % 3 == 0)
             {
-                auto addr_data = MakeMuxAddrIPv4(static_cast<std::uint16_t>(rng() % 65536));
+                auto addr_data = MakeMuxAddrIPv4(static_cast<std::uint16_t>(rng() % 65536), mr);
                 auto addr = multiplex::smux::parse_mux_address(
                     std::span<const std::byte>(addr_data.data(), addr_data.size()), mr);
                 if (addr)
@@ -294,7 +294,7 @@ namespace
             if (rng() % 5 == 0)
             {
                 const auto payload_size = rng() % config.max_payload;
-                auto payload = MakeRandomPayload(payload_size, rng);
+                auto payload = MakeRandomPayload(payload_size, rng, mr);
                 auto built = multiplex::smux::build_udp_datagram(
                     "127.0.0.1", 53,
                     std::span<const std::byte>(payload.data(), payload.size()), mr);
@@ -384,7 +384,7 @@ namespace
 
             // IPv4
             {
-                auto data = MakeMuxAddrIPv4(static_cast<std::uint16_t>(iter % 65536));
+                auto data = MakeMuxAddrIPv4(static_cast<std::uint16_t>(iter % 65536), mr);
                 auto addr = multiplex::smux::parse_mux_address(
                     std::span<const std::byte>(data.data(), data.size()), mr);
                 if (!addr || addr->host != "127.0.0.1" || addr->port != static_cast<std::uint16_t>(iter % 65536))
@@ -394,7 +394,7 @@ namespace
 
             // 域名（短）
             {
-                auto data = MakeMuxAddrDomain("example.com", 443);
+                auto data = MakeMuxAddrDomain("example.com", 443, mr);
                 auto addr = multiplex::smux::parse_mux_address(
                     std::span<const std::byte>(data.data(), data.size()), mr);
                 if (!addr || addr->host != "example.com" || addr->port != 443)
@@ -407,7 +407,7 @@ namespace
             {
                 std::string long_domain(200, 'a');
                 long_domain += ".com";
-                auto data = MakeMuxAddrDomain(long_domain, 8080);
+                auto data = MakeMuxAddrDomain(long_domain, 8080, mr);
                 auto addr = multiplex::smux::parse_mux_address(
                     std::span<const std::byte>(data.data(), data.size()), mr);
                 if (!addr || addr->port != 8080)
@@ -418,7 +418,7 @@ namespace
             // IPv6
             if (iter % 10 == 0)
             {
-                auto data = MakeMuxAddrIPv6(8443);
+                auto data = MakeMuxAddrIPv6(8443, mr);
                 auto addr = multiplex::smux::parse_mux_address(
                     std::span<const std::byte>(data.data(), data.size()), mr);
                 if (!addr || addr->port != 8443)
@@ -456,7 +456,7 @@ namespace
         {
             arena.reset();
             const auto payload_size = rng() % config.max_payload;
-            auto payload = MakeRandomPayload(payload_size, rng);
+            auto payload = MakeRandomPayload(payload_size, rng, mr);
 
             // IPv4 往返
             {

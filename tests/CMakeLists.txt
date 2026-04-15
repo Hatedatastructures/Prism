@@ -43,7 +43,7 @@ if(MINGW)
         Session Connection Transmission Trace
         Http Socks5 Trojan Vless Shadowsocks Regression
         HttpParser Smux Yamux Crypto Aead Reality Blake3 DnsPacket DnsRules Fault Exception
-        concurrency_server concurrency_client)
+        ConcurrencyServer ConcurrencyClient)
         if(TARGET ${t})
             target_compile_options(${t} PRIVATE -Wa,-mbig-obj)
         endif()

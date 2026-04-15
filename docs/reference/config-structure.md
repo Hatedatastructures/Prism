@@ -285,11 +285,37 @@ Shadowsocks 2022 (SIP022) 协议配置，控制 AEAD 加密参数。
 
 | 子字段 | 类型 | 默认值 | 说明 |
 |--------|------|--------|------|
-| `psk` | `memory::string` | `""` | Base64 编码的预共享密钥（16 字节 = AES-128-GCM，32 字节 = AES-256-GCM） |
+| `psk` | `memory::string` | `""` | Base64 编码的预共享密钥（16B = AES-128-GCM，32B = AES-256-GCM 或 ChaCha20-Poly1305） |
+| `method` | `memory::string` | `""` | 加密方法名（可选，32B PSK 时用于区分 AES-256-GCM 与 ChaCha20-Poly1305） |
 | `enable_tcp` | `bool` | `true` | 是否允许 TCP 代理 |
+| `enable_udp` | `bool` | `false` | 是否允许 UDP 代理 |
 | `timestamp_window` | `std::int64_t` | `30` | 时间戳验证窗口（秒），用于防重放 |
+| `udp_idle_timeout` | `std::uint32_t` | `60` | UDP 会话空闲超时（秒） |
 
 **说明**: Shadowsocks 2022 协议已集成到分发逻辑中，`register_handlers()` 注册了 `Shadowsocks` handler。协议检测采用排除法：不匹配其他协议时 fallback 到 `protocol_type::shadowsocks`。
+
+---
+
+#### reality
+
+**源码位置**: [config.hpp](../../include/prism/agent/config.hpp)
+
+**协议配置定义**: [protocol/reality/config.hpp](../../include/prism/protocol/reality/config.hpp)
+
+```cpp
+protocol::reality::config reality;
+```
+
+Reality 协议配置，控制 TLS 1.3 伪装和认证参数。
+
+| 子字段 | 类型 | 默认值 | 说明 |
+|--------|------|--------|------|
+| `dest` | `memory::string` | `""` | 伪装目标站点（host:port），用于认证失败时的 fallback |
+| `server_names` | `memory::vector<memory::string>` | `{}` | 允许的 SNI 列表 |
+| `private_key` | `memory::string` | `""` | Base64 编码的 X25519 长期私钥（32 字节） |
+| `short_ids` | `memory::vector<memory::string>` | `{}` | hex 编码的 short ID 列表，用于客户端认证 |
+
+**说明**: Reality 在 Session 层独立处理，认证成功后内层协议固定为 VLESS。
 
 ---
 

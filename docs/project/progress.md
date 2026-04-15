@@ -27,8 +27,8 @@
 | **SOCKS5 UDP** | 100% | ✅ 完成 | 支持 UDP ASSOCIATE 命令 |
 | **TLS 透明剥离** | 100% | ✅ 完成 | Session 层 TLS 握手 + 内层协议探测，Handler 无感 TLS |
 | **Trojan 协议** | 100% | ✅ 完成 | Trojan over TLS 协议已接入运行链 |
-| **VLESS 协议** | 90% | ✅ 完成 | VLESS 协议已接入，TCP/mux 可用，UDP 待实现 |
-| **Shadowsocks 2022** | 100% | ✅ 完成 | SIP022 AEAD 协议，AES-128/256-GCM + BLAKE3 密钥派生 |
+| **VLESS 协议** | 95% | ✅ 完成 | VLESS TCP/mux 完整实现，UDP 命令已解析但中继未实现 |
+| **Shadowsocks 2022** | 100% | ✅ 完成 | SIP022 AEAD 协议，AES-128/256-GCM + ChaCha20-Poly1305 + BLAKE3 密钥派生，TCP/UDP 双协议支持 |
 | **Reality 协议** | 100% | ✅ 完成 | Reality over TLS 1.3，X25519/X25519MLKEM768 混合密钥交换，Ed25519 证书 |
 
 #### 2. 核心架构模块
@@ -89,7 +89,7 @@
 | **HTTP** | ✅ 100% | HTTP/1.1 请求解析 (parser) + 协议处理 (relay)，零分配 |
 | **SOCKS5** | ✅ 100% | RFC 1928 完整实现，支持 CONNECT、UDP ASSOCIATE |
 | **Trojan** | ✅ 100% | Trojan over TLS 协议，密码验证 + 流量伪装 |
-| **VLESS** | ✅ 90% | VLESS 协议，UUID 认证 + mux 多路复用，UDP 待实现 |
+| **VLESS** | ✅ 95% | VLESS 协议，UUID 认证 + mux 多路复用，UDP 命令已解析但中继未实现 |
 | **Shadowsocks 2022** | ✅ 100% | SIP022 AEAD 协议，AES-128/256-GCM + BLAKE3 + 抗重放 |
 | **Reality** | ✅ 100% | Reality over TLS 1.3，X25519/X25519MLKEM768 混合密钥交换 |
 | **协议探测** | ✅ 100% | 外层 detect() + 内层 detect_inner() 双阶段探测 + 排除法 fallback |

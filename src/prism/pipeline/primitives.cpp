@@ -200,7 +200,7 @@ namespace psm::pipeline::primitives
         const auto start_time = std::chrono::steady_clock::now();
 
         // 从帧竞技场分配一块连续缓冲区，切成两半
-        auto *mr = ctx.frame_arena.get();
+        auto *mr = memory::system::thread_local_pool();
         const auto array_size = (std::max)(ctx.buffer_size, 2U);
         memory::vector<std::byte> buffer(array_size, mr ? mr : memory::current_resource());
         const auto half = buffer.size() / 2;

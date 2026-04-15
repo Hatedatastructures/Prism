@@ -16,6 +16,7 @@
 #include <prism/fault/code.hpp>
 #include <prism/memory/container.hpp>
 #include <prism/protocol/reality/constants.hpp>
+#include <prism/resolve/router.hpp>
 #include <boost/asio.hpp>
 
 namespace psm::protocol::reality
@@ -96,6 +97,6 @@ namespace psm::protocol::reality
      * 提取证书链后断开连接。此操作是阻塞的，但仅在握手期间执行一次。
      * @note 使用协程异步连接。
      */
-    auto fetch_dest_certificate(std::string_view host, std::uint16_t port, net::any_io_executor executor)
+    auto fetch_dest_certificate(std::string_view host, std::uint16_t port, resolve::router &router)
         -> net::awaitable<std::pair<fault::code, memory::vector<std::uint8_t>>>;
 } // namespace psm::protocol::reality

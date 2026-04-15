@@ -44,76 +44,76 @@ namespace psm::fault
      */
     enum class code : int
     {
-        success = 0,                                  // 操作成功
-        generic_error = 1,                            // 通用错误
-        parse_error = 2,                              // 解析错误
-        eof = 3,                                      // 到达文件末尾
-        would_block = 4,                              // 操作将阻塞
-        protocol_error = 5,                           // 协议错误
-        bad_message = 6,                              // 消息格式错误
-        invalid_argument = 7,                         // 无效参数
-        not_supported = 8,                            // 不支持的操作
-        message_too_large = 9,                        // 消息过大
-        io_error = 10,                                // I/O 错误
-        timeout = 11,                                 // 操作超时
-        canceled = 12,                                // 操作被取消
-        tls_handshake_failed = 13,                    // TLS 握手失败
-        tls_shutdown_failed = 14,                     // TLS 关闭失败
-        auth_failed = 15,                             // 认证失败
-        dns_failed = 16,                              // DNS 解析失败
-        upstream_unreachable = 17,                    // 上游服务器不可达
-        connection_refused = 18,                      // 连接被拒绝
-        unsupported_command = 19,                     // 不支持的命令
-        unsupported_address = 20,                     // 不支持的地址类型
-        blocked = 21,                                 // 请求被阻止
-        bad_gateway = 22,                             // 网关错误
-        host_unreachable = 23,                        // 主机不可达
-        connection_reset = 24,                        // 连接被重置
-        network_unreachable = 25,                     // 网络不可达
-        ssl_cert_load_failed = 26,                    // SSL 证书加载失败
-        ssl_key_load_failed = 27,                     // SSL 密钥加载失败
-        socks5_auth_negotiation_failed = 28,           // SOCKS5 认证协商失败
-        file_open_failed = 29,                        // 文件打开失败
-        config_parse_error = 30,                      // 配置解析错误
-        port_already_in_use = 31,                     // 端口已被占用
-        certificate_verification_failed = 32,         // 证书验证失败
-        connection_aborted = 33,                      // 连接被中止
-        resource_unavailable = 34,                    // 资源不可用
-        ttl_expired = 35,                             // TTL 已过期
-        forbidden = 36,                               // 禁止访问
-        ipv6_disabled = 37,                           // IPv6 被禁用
+        success = 0,                          // 操作成功
+        generic_error = 1,                    // 通用错误
+        parse_error = 2,                      // 解析错误
+        eof = 3,                              // 到达文件末尾
+        would_block = 4,                      // 操作将阻塞
+        protocol_error = 5,                   // 协议错误
+        bad_message = 6,                      // 消息格式错误
+        invalid_argument = 7,                 // 无效参数
+        not_supported = 8,                    // 不支持的操作
+        message_too_large = 9,                // 消息过大
+        io_error = 10,                        // I/O 错误
+        timeout = 11,                         // 操作超时
+        canceled = 12,                        // 操作被取消
+        tls_handshake_failed = 13,            // TLS 握手失败
+        tls_shutdown_failed = 14,             // TLS 关闭失败
+        auth_failed = 15,                     // 认证失败
+        dns_failed = 16,                      // DNS 解析失败
+        upstream_unreachable = 17,            // 上游服务器不可达
+        connection_refused = 18,              // 连接被拒绝
+        unsupported_command = 19,             // 不支持的命令
+        unsupported_address = 20,             // 不支持的地址类型
+        blocked = 21,                         // 请求被阻止
+        bad_gateway = 22,                     // 网关错误
+        host_unreachable = 23,                // 主机不可达
+        connection_reset = 24,                // 连接被重置
+        network_unreachable = 25,             // 网络不可达
+        ssl_cert_load_failed = 26,            // SSL 证书加载失败
+        ssl_key_load_failed = 27,             // SSL 密钥加载失败
+        socks5_auth_negotiation_failed = 28,  // SOCKS5 认证协商失败
+        file_open_failed = 29,                // 文件打开失败
+        config_parse_error = 30,              // 配置解析错误
+        port_already_in_use = 31,             // 端口已被占用
+        certificate_verification_failed = 32, // 证书验证失败
+        connection_aborted = 33,              // 连接被中止
+        resource_unavailable = 34,            // 资源不可用
+        ttl_expired = 35,                     // TTL 已过期
+        forbidden = 36,                       // 禁止访问
+        ipv6_disabled = 37,                   // IPv6 被禁用
 
         // Mux 相关错误码
-        mux_not_enabled = 38,                         // Mux 未启用
-        mux_session_error = 39,                       // Mux 会话错误
-        mux_stream_error = 40,                        // Mux 流错误
-        mux_window_exceeded = 41,                     // Mux 窗口超限
-        mux_protocol_error = 42,                      // Mux 协议错误
-        mux_connection_limit = 43,                    // Mux 连接数限制
-        mux_stream_limit = 44,                        // Mux 流数限制
+        mux_not_enabled = 38,      // Mux 未启用
+        mux_session_error = 39,    // Mux 会话错误
+        mux_stream_error = 40,     // Mux 流错误
+        mux_window_exceeded = 41,  // Mux 窗口超限
+        mux_protocol_error = 42,   // Mux 协议错误
+        mux_connection_limit = 43, // Mux 连接数限制
+        mux_stream_limit = 44,     // Mux 流数限制
 
         // SS2022 相关错误码
-        crypto_error = 45,                            // AEAD 加密/解密失败
-        invalid_psk = 46,                             // PSK 长度或 base64 无效
-        timestamp_expired = 47,                       // 客户端时间戳超出有效窗口
-        replay_detected = 48,                         // Salt 重放检测
+        crypto_error = 45,      // AEAD 加密/解密失败
+        invalid_psk = 46,       // PSK 长度或 base64 无效
+        timestamp_expired = 47, // 客户端时间戳超出有效窗口
+        replay_detected = 48,   // Salt 重放检测
 
         // Reality 相关错误码
-        reality_not_configured = 49,          // Reality 未配置
-        reality_auth_failed = 50,             // Reality 认证失败
-        reality_sni_mismatch = 51,            // SNI 不在 server_names 中
-        reality_key_exchange_failed = 52,     // X25519 密钥交换失败
-        reality_handshake_failed = 53,        // Reality TLS 握手失败
-        reality_dest_unreachable = 54,        // 回退目标服务器不可达
-        reality_certificate_error = 55,       // 证书获取/处理失败
-        reality_tls_record_error = 56,        // TLS 记录解析/生成错误
-        reality_key_schedule_error = 57,      // TLS 1.3 密钥调度错误
+        reality_not_configured = 49,      // Reality 未配置
+        reality_auth_failed = 50,         // Reality 认证失败
+        reality_sni_mismatch = 51,        // SNI 不在 server_names 中
+        reality_key_exchange_failed = 52, // X25519 密钥交换失败
+        reality_handshake_failed = 53,    // Reality TLS 握手失败
+        reality_dest_unreachable = 54,    // 回退目标服务器不可达
+        reality_certificate_error = 55,   // 证书获取/处理失败
+        reality_tls_record_error = 56,    // TLS 记录解析/生成错误
+        reality_key_schedule_error = 57,  // TLS 1.3 密钥调度错误
 
         // SS2022 UDP 相关错误码
-        udp_session_expired = 58,                   // UDP 会话已过期
-        packet_replay_detected = 59,                // UDP PacketID 重放检测
+        udp_session_expired = 58,    // UDP 会话已过期
+        packet_replay_detected = 59, // UDP PacketID 重放检测
 
-        _count = 60                                   // 错误码总数（内部使用）
+        _count = 60 // 错误码总数（内部使用）
     };
 
     /**

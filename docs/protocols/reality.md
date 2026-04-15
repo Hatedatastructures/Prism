@@ -471,6 +471,8 @@ struct config
 
 - 每次 Reality 握手都重新获取 dest 证书（临时 TCP 连接 dest:443 → TLS 到 Certificate 阶段 → 提取 DER → 断开），潜在优化为缓存
 - 加密传输层开销：读取 +5B header + AES-128-GCM open，写入 +5B header + 16B tag + AES-128-GCM seal
+- 握手响应和 TLS 记录写入使用 scatter-gather (`async_write_scatter`)，多个缓冲区合并为一次系统调用，减少 syscall 开销和 Nagle 延迟
+- 加密传输层使用成员缓冲区复用（`record_body_buf_`、`decrypted_buf_`、`write_ciphertext_buf_`），避免每次记录读写时分配临时堆缓冲区
 
 ### 18. 兼容性
 
