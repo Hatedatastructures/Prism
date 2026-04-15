@@ -95,7 +95,7 @@ namespace psm::protocol::shadowsocks
     }
 
     auto udp_relay::encrypt_outbound(std::span<const std::byte> payload, const std::array<std::uint8_t, session_id_len> &session_id,
-                                     std::shared_ptr<udp_session_entry> entry)
+                                     const std::shared_ptr<udp_session_entry> &entry)
         -> std::pair<fault::code, std::vector<std::byte>>
     {
         if (method_ == cipher_method::chacha20_poly1305)
@@ -179,7 +179,7 @@ namespace psm::protocol::shadowsocks
     }
 
     auto udp_relay::encrypt_aes_gcm(std::span<const std::byte> payload, const std::array<std::uint8_t, session_id_len> &session_id,
-                                    std::shared_ptr<udp_session_entry> entry)
+                                    const std::shared_ptr<udp_session_entry> &entry)
         -> std::pair<fault::code, std::vector<std::byte>>
     {
         if (!entry || !entry->aead_ctx)
@@ -274,9 +274,17 @@ namespace psm::protocol::shadowsocks
         std::memcpy(nonce.data() + session_id_len, packet_id.data(), packet_id_len);
         // 剩余 8 字节已由 zero-initialization 填充
 
-        // 使用 PSK 直接构造 XChaCha20 上下文
-        crypto::aead_context ctx(crypto::aead_cipher::xchacha20_poly1305,
-                                 std::span<const std::uint8_t>(psk_.data(), psk_.size()));
+        // 获取或创建会话条目（ChaCha20 需要缓存 AEAD context）
+        auto entry = session_tracker_->get_or_create(session_id, sender, psk_, method_);
+
+        // 延迟初始化 ChaCha20 上下文（首次使用时创建并缓存到 entry）
+        if (!entry->chacha20_ctx)
+        {
+            entry->chacha20_ctx = std::make_unique<crypto::aead_context>(
+                crypto::aead_cipher::xchacha20_poly1305,
+                std::span<const std::uint8_t>(psk_.data(), psk_.size()));
+        }
+        auto &ctx = *entry->chacha20_ctx;
 
         // 解密 body（跳过 16 字节明文 header，PMR vector）
         const auto body_enc = packet.subspan(session_id_len + packet_id_len);
@@ -292,7 +300,6 @@ namespace psm::protocol::shadowsocks
         }
 
         // 验证 PacketID 滑动窗口
-        auto entry = session_tracker_->get_or_create(session_id, sender, psk_, method_);
         if (!entry->packet_ids.check_and_update(packet_id_val))
         {
             trace::warn("{} chacha20 packet replay detected: packet_id={}", tag, packet_id_val);
@@ -314,7 +321,7 @@ namespace psm::protocol::shadowsocks
 
     auto udp_relay::encrypt_chacha20(std::span<const std::byte> payload,
                                      const std::array<std::uint8_t, session_id_len> &session_id,
-                                     std::shared_ptr<udp_session_entry> entry)
+                                     const std::shared_ptr<udp_session_entry> &entry)
         -> std::pair<fault::code, std::vector<std::byte>>
     {
         if (!entry)
@@ -352,9 +359,14 @@ namespace psm::protocol::shadowsocks
             std::memcpy(plain.data() + 11, payload.data(), payload.size());
         }
 
-        // XChaCha20-Poly1305 加密
-        crypto::aead_context ctx(crypto::aead_cipher::xchacha20_poly1305,
-                                 std::span<const std::uint8_t>(psk_.data(), psk_.size()));
+        // XChaCha20-Poly1305 加密（使用缓存的 AEAD context 避免逐包 key schedule）
+        if (!entry->chacha20_ctx)
+        {
+            entry->chacha20_ctx = std::make_unique<crypto::aead_context>(
+                crypto::aead_cipher::xchacha20_poly1305,
+                std::span<const std::uint8_t>(psk_.data(), psk_.size()));
+        }
+        auto &ctx = *entry->chacha20_ctx;
 
         const auto body_enc_len = crypto::aead_context::seal_output_size(plain_len);
         const auto nonce_span = std::span<const std::uint8_t>(nonce.data(), nonce.size());

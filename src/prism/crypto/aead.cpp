@@ -30,11 +30,26 @@ namespace psm::crypto
             aead = EVP_aead_xchacha20_poly1305();
             nonce_len_ = 24;
             break;
+        default:
+            trace::error("[Crypto.AEAD] unknown cipher type: {}", static_cast<int>(cipher));
+            return;
+        }
+
+        if (!aead)
+        {
+            trace::error("[Crypto.AEAD] failed to get AEAD algorithm");
+            return;
         }
 
         ctx_ = new EVP_AEAD_CTX;
         EVP_AEAD_CTX_zero(ctx_);
-        EVP_AEAD_CTX_init(ctx_, aead, key.data(), key.size(), EVP_AEAD_DEFAULT_TAG_LENGTH, nullptr);
+        if (!EVP_AEAD_CTX_init(ctx_, aead, key.data(), key.size(), EVP_AEAD_DEFAULT_TAG_LENGTH, nullptr))
+        {
+            trace::error("[Crypto.AEAD] EVP_AEAD_CTX_init failed");
+            EVP_AEAD_CTX_cleanup(ctx_);
+            delete ctx_;
+            ctx_ = nullptr;
+        }
     }
 
     // 析构时先清理 BoringSSL 内部资源（密钥等敏感数据），再释放内存。
@@ -82,6 +97,11 @@ namespace psm::crypto
                             const std::span<const std::uint8_t> ad)
         -> fault::code
     {
+        if (!ctx_)
+        {
+            return fault::code::crypto_error;
+        }
+
         std::size_t out_len = 0;
         const auto result = EVP_AEAD_CTX_seal(
             ctx_, out.data(), &out_len, out.size(),
@@ -104,6 +124,11 @@ namespace psm::crypto
                             const std::span<const std::uint8_t> ad)
         -> fault::code
     {
+        if (!ctx_)
+        {
+            return fault::code::crypto_error;
+        }
+
         std::size_t out_len = 0;
         const auto result = EVP_AEAD_CTX_open(
             ctx_, out.data(), &out_len, out.size(),
@@ -124,6 +149,11 @@ namespace psm::crypto
                             const std::span<const std::uint8_t> nonce, const std::span<const std::uint8_t> ad)
         -> fault::code
     {
+        if (!ctx_)
+        {
+            return fault::code::crypto_error;
+        }
+
         std::size_t out_len = 0;
         const auto result = EVP_AEAD_CTX_seal(
             ctx_, out.data(), &out_len, out.size(),
@@ -143,6 +173,11 @@ namespace psm::crypto
                             const std::span<const std::uint8_t> nonce, const std::span<const std::uint8_t> ad)
         -> fault::code
     {
+        if (!ctx_)
+        {
+            return fault::code::crypto_error;
+        }
+
         std::size_t out_len = 0;
         const auto result = EVP_AEAD_CTX_open(
             ctx_, out.data(), &out_len, out.size(),

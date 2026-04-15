@@ -40,7 +40,7 @@ namespace
         std::uint64_t count = 0;
     };
 
-    void RunTest(const StressConfig &config)
+    auto RunTest(const StressConfig &config) -> LatencyStats
     {
         memory::frame_arena arena;
         std::pmr::memory_resource *mr = arena.get();
@@ -106,6 +106,8 @@ namespace
         std::cout << "Max Latency:    " << stats.max_ns << " ns" << std::endl;
         std::cout << "Throughput:     " << static_cast<std::uint64_t>(stats.count / total_sec) << " batches/sec" << std::endl;
         std::cout << "================================================" << std::endl;
+
+        return stats;
     }
 }
 
@@ -116,7 +118,20 @@ int main(int argc, char **argv)
 
     std::cout << ">>> Prism Arena Overflow Stress Tool <<<" << std::endl;
 
-    RunTest(StressConfig{});
+    auto stats = RunTest(StressConfig{});
+
+    // 阈值检查：平均延迟不应超过 100us/batch (100000 ns)
+    double avg_ns = static_cast<double>(stats.total_ns) / stats.count;
+    if (stats.count == 0)
+    {
+        std::cerr << "FAIL: no batches completed\n";
+        return 1;
+    }
+    if (avg_ns > 100000.0)
+    {
+        std::cerr << "FAIL: avg latency (" << avg_ns << " ns/batch) above threshold (100000 ns/batch)\n";
+        return 1;
+    }
 
     return 0;
 }

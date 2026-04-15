@@ -159,6 +159,9 @@ namespace psm::multiplex
     {
         std::error_code ec;
 
+        // 将 data 提到循环外，每次迭代仅 resize 复用已分配内存，避免重复分配
+        memory::vector<std::byte> data(mr_);
+
         while (!closed_)
         {
             // mux 端已半关闭（客户端发送 FIN），停止发送数据
@@ -169,8 +172,7 @@ namespace psm::multiplex
                 break;
             }
 
-            // 直接读入 vector，PMR 池分配器复用同大小内存块，分配开销极低
-            memory::vector<std::byte> data(mr_);
+            // 复用已分配的 vector 内存，仅 resize 调整大小
             data.resize(read_size_);
             const auto n = co_await target_->async_read_some(data, ec);
             if (ec || n == 0)

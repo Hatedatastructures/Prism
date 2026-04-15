@@ -206,6 +206,9 @@ namespace psm::protocol::socks5::wire
     inline auto encode_udp_header(const udp_header &header, memory::vector<std::uint8_t> &out)
         -> fault::code
     {
+        // 预分配：RSV(2) + FRAG(1) + ATYP(1) + max(域名255+1, IPv4 4, IPv6 16) + PORT(2) = 最大 262
+        out.reserve(out.size() + 262);
+
         out.push_back(0x00);
         out.push_back(0x00);
         out.push_back(header.frag);

@@ -168,7 +168,7 @@ void TestVlessParseRequestIPv6()
     buf.insert(buf.end(), 16, 0x00);                             // UUID
     buf.push_back(0x00);                                         // addnl_len = 0
     buf.push_back(0x01);                                         // cmd = tcp
-    buf.push_back(0x21); buf.push_back(0x93);                    // port = 8443 (big-endian)
+    buf.push_back(0x20); buf.push_back(0xFB);                    // port = 8443 (big-endian)
     buf.push_back(0x03);                                         // atyp = IPv6
     // ::1 — 15 个零 + 1
     buf.insert(buf.end(), 15, 0x00);

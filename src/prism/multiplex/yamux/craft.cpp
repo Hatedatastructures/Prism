@@ -7,6 +7,7 @@
 #include <prism/trace.hpp>
 
 #include <array>
+#include <charconv>
 #include <boost/asio/co_spawn.hpp>
 
 constexpr std::string_view tag = "[Yamux.Craft]";
@@ -609,7 +610,9 @@ namespace psm::multiplex::yamux
         // TCP 流处理：连接目标
         trace::debug("{} stream {} connecting to {}:{}", tag, stream_id, host, port);
 
-        auto [code, conn] = co_await router_.async_forward(host, std::to_string(port));
+        char port_buf[8];
+        const auto [port_end, port_ec] = std::to_chars(port_buf, port_buf + sizeof(port_buf), port);
+        auto [code, conn] = co_await router_.async_forward(host, std::string_view(port_buf, std::distance(port_buf, port_end)));
 
         if (code != fault::code::success || !conn.valid())
         {

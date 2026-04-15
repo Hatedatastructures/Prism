@@ -1,14 +1,11 @@
-#include <prism/protocol/reality/keygen.hpp>
+#include <prism/stealth/reality/keygen.hpp>
 #include <prism/trace.hpp>
 #include <cstring>
 
-namespace psm::protocol::reality
+namespace psm::stealth
 {
-    constexpr std::string_view KsTag = "[Reality.KeySchedule]";
+    constexpr std::string_view KsTag = "[Stealth.KeySchedule]";
 
-    /**
-     * @brief 从 HKDF-Expand-Label 结果复制到固定大小数组
-     */
     static auto copy_key(std::span<const std::uint8_t> src, auto &dst) -> void
     {
         std::memcpy(dst.data(), src.data(), std::min(src.size(), dst.size()));
@@ -20,13 +17,11 @@ namespace psm::protocol::reality
         key_material keys{};
 
         // Step 1: early_secret = HKDF-Extract(salt=0^32, IKM=0^32)
-        // RFC 8446 Section 7.1: 无 PSK 时 IKM = Hash.length 字节全零，不是空串
         std::array<std::uint8_t, crypto::SHA256_LEN> zero_salt{};
         std::array<std::uint8_t, crypto::SHA256_LEN> zero_ikm{};
         const auto early_secret = crypto::hkdf_extract(zero_salt, zero_ikm);
 
-        // Step 2: derived_secret = Derive-Secret(early_secret, "derived", nil)
-        // RFC 8446: Derive-Secret 对 nil transcript 使用 Hash("") 作为 context
+        // Step 2: derived_secret
         const auto empty_hash = crypto::sha256(std::span<const std::uint8_t>{});
         auto [ec1, derived_secret] = crypto::hkdf_expand_label(early_secret, "derived", empty_hash, crypto::SHA256_LEN);
         if (fault::failed(ec1))
@@ -35,13 +30,13 @@ namespace psm::protocol::reality
             return {fault::code::reality_key_schedule_error, keys};
         }
 
-        // Step 3: handshake_secret = HKDF-Extract(salt=derived_secret, IKM=shared_secret)
+        // Step 3: handshake_secret
         const auto handshake_secret = crypto::hkdf_extract(derived_secret, shared_secret);
 
-        // Step 4: hello_hash = SHA-256(ClientHello || ServerHello)
+        // Step 4: hello_hash
         const auto hello_hash = crypto::sha256(client_hello_msg, server_hello_msg);
 
-        // Step 5: client handshake traffic secret
+        // Step 5-6: client/server handshake traffic secrets
         auto [ec2, c_hs_traffic] = crypto::hkdf_expand_label(
             handshake_secret, "c hs traffic", hello_hash, crypto::SHA256_LEN);
         if (fault::failed(ec2))
@@ -50,7 +45,6 @@ namespace psm::protocol::reality
             return {fault::code::reality_key_schedule_error, keys};
         }
 
-        // Step 6: server handshake traffic secret
         auto [ec3, s_hs_traffic] = crypto::hkdf_expand_label(
             handshake_secret, "s hs traffic", hello_hash, crypto::SHA256_LEN);
         if (fault::failed(ec3))
@@ -59,7 +53,7 @@ namespace psm::protocol::reality
             return {fault::code::reality_key_schedule_error, keys};
         }
 
-        // Step 7-8: server handshake key + iv
+        // Step 7-10: server/client handshake key + iv
         auto [ec4, s_hs_key] = crypto::hkdf_expand_label(s_hs_traffic, "key", {}, tls::AES_128_KEY_LEN);
         if (fault::failed(ec4))
         {
@@ -73,7 +67,6 @@ namespace psm::protocol::reality
             return {fault::code::reality_key_schedule_error, keys};
         }
 
-        // Step 9-10: client handshake key + iv
         auto [ec6, c_hs_key] = crypto::hkdf_expand_label(c_hs_traffic, "key", {}, tls::AES_128_KEY_LEN);
         if (fault::failed(ec6))
         {
@@ -88,7 +81,6 @@ namespace psm::protocol::reality
         }
 
         // Step 11-12: master secret
-        // 同样使用 Hash("") 作为 context（Derive-Secret 语义）
         auto [ec8, derived_master] = crypto::hkdf_expand_label(
             handshake_secret, "derived", empty_hash, crypto::SHA256_LEN);
         if (fault::failed(ec8))
@@ -98,13 +90,12 @@ namespace psm::protocol::reality
         }
         keys.master_secret = crypto::hkdf_extract(derived_master, zero_ikm);
 
-        // 填充结果
         copy_key(s_hs_key, keys.server_handshake_key);
         copy_key(s_hs_iv, keys.server_handshake_iv);
         copy_key(c_hs_key, keys.client_handshake_key);
         copy_key(c_hs_iv, keys.client_handshake_iv);
 
-        // server finished_key = Expand-Label(s_hs_traffic, "finished", "", 32)
+        // server finished_key
         auto [ec9, finished_key] = crypto::hkdf_expand_label(
             s_hs_traffic, "finished", {}, crypto::SHA256_LEN);
         if (fault::failed(ec9))
@@ -121,7 +112,6 @@ namespace psm::protocol::reality
                                  const std::span<const std::uint8_t> server_finished_hash,
                                  key_material &keys) -> fault::code
     {
-        // server application traffic secret
         auto [ec1, s_ap_traffic] = crypto::hkdf_expand_label(
             master_secret, "s ap traffic", server_finished_hash, crypto::SHA256_LEN);
         if (fault::failed(ec1))
@@ -130,7 +120,6 @@ namespace psm::protocol::reality
             return fault::code::reality_key_schedule_error;
         }
 
-        // client application traffic secret
         auto [ec2, c_ap_traffic] = crypto::hkdf_expand_label(
             master_secret, "c ap traffic", server_finished_hash, crypto::SHA256_LEN);
         if (fault::failed(ec2))
@@ -139,7 +128,6 @@ namespace psm::protocol::reality
             return fault::code::reality_key_schedule_error;
         }
 
-        // server app key + iv
         auto [ec3, s_app_key] = crypto::hkdf_expand_label(s_ap_traffic, "key", {}, tls::AES_128_KEY_LEN);
         if (fault::failed(ec3))
         {
@@ -153,7 +141,6 @@ namespace psm::protocol::reality
             return fault::code::reality_key_schedule_error;
         }
 
-        // client app key + iv
         auto [ec5, c_app_key] = crypto::hkdf_expand_label(c_ap_traffic, "key", {}, tls::AES_128_KEY_LEN);
         if (fault::failed(ec5))
         {
@@ -181,4 +168,4 @@ namespace psm::protocol::reality
     {
         return crypto::hmac_sha256(finished_key, transcript_hash);
     }
-} // namespace psm::protocol::reality
+} // namespace psm::stealth

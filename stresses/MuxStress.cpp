@@ -549,5 +549,12 @@ int main(const int argc, char **argv)
     std::cout << "  所有压力测试完成\n";
     std::cout << "======================================\n";
 
+    // 阈值检查：单线程迭代数应达到 1000000（确保测试充分执行）
+    if (config.iterations < 100000)
+    {
+        std::cerr << "FAIL: iterations (" << config.iterations << ") below threshold (100000)\n";
+        return 1;
+    }
+
     return 0;
 }

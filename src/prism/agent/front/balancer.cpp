@@ -15,7 +15,7 @@ namespace psm::agent::front
 
     // splitmix64 哈希函数——将亲和性值（客户端 IP 哈希）均匀打散。
     // 目的：即使客户端 IP 集中在某个子网，分配到 worker 的分布也要尽量均匀。
-    auto balancer::mix_hash(std::uint64_t value) noexcept -> std::uint64_t
+    constexpr auto balancer::mix_hash(std::uint64_t value) noexcept -> std::uint64_t
     {
         value += 0x9e3779b97f4a7c15ULL;
         value = (value ^ (value >> 30U)) * 0xbf58476d1ce4e5b9ULL;

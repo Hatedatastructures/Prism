@@ -3,6 +3,7 @@
 #include <prism/multiplex/bootstrap.hpp>
 #include <prism/agent/account/directory.hpp>
 #include <prism/memory/container.hpp>
+#include <charconv>
 #include <boost/asio/experimental/awaitable_operators.hpp>
 #include <string_view>
 
@@ -14,15 +15,10 @@ namespace psm::pipeline
     auto trojan(session_context &ctx, const std::span<const std::byte> data)
         -> net::awaitable<void>
     {
-        // 包装传输层（与 HTTP handler 相同模式：data 通过 preview 重放）
-        // TLS 已在 session 层剥离，ctx.inbound 可能是 encrypted transport 或原始 TCP
-        auto inbound = std::move(ctx.inbound);
-        if (!data.empty())
-        {
-            // mux 模式下 inbound 会被移交给 smux_craft 并脱离 session 生命周期
-            // 使用全局内存池(nullptr)避免 smux_craft 析构时 UAF
-            inbound = std::make_shared<primitives::preview>(std::move(inbound), data, nullptr);
-        }
+        // 包装传输层（data 通过 preview 重放）
+        // mux 模式下 inbound 会被移交给 smux_craft 并脱离 session 生命周期
+        // 使用全局内存池避免 smux_craft 析构时 UAF
+        auto inbound = primitives::wrap_with_preview(ctx, data, true);
 
         // 创建凭证验证器，检查账户目录和连接限制
         auto verifier = [&ctx](const std::string_view credential) -> bool
@@ -61,7 +57,9 @@ namespace psm::pipeline
             // 解析目标地址
             protocol::analysis::target target(ctx.frame_arena.get());
             target.host = protocol::trojan::to_string(req.destination_address, ctx.frame_arena.get());
-            target.port = std::to_string(req.port);
+            char port_buf[8];
+            const auto [pe, pec] = std::to_chars(port_buf, port_buf + sizeof(port_buf), req.port);
+            target.port.assign(port_buf, std::distance(port_buf, pe));
 
             // Mihomo smux 兼容：客户端用 CONNECT + 虚假地址标记 mux 连接
             // 检测 mux 标记地址，命中则走 smux 多路复用逻辑
@@ -84,8 +82,7 @@ namespace psm::pipeline
             trace::info("{} CONNECT -> {}:{}", TrojanStr, target.host, target.port);
 
             // 通过路由器建立到目标的连接
-            const std::shared_ptr<resolve::router> router_ptr(&ctx.worker.router, [](resolve::router *) {});
-            auto [dial_ec, outbound] = co_await primitives::dial(router_ptr, "Trojan", target, true, true);
+            auto [dial_ec, outbound] = co_await primitives::dial(ctx.worker.router, "Trojan", target, true, true);
             if (fault::failed(dial_ec) || !outbound)
             {
                 // IPv6 被禁用是预期行为，使用 debug 级别

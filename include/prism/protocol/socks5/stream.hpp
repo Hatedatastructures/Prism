@@ -15,6 +15,7 @@
 #pragma once
 
 #include <array>
+#include <charconv>
 #include <functional>
 #include <string>
 
@@ -507,7 +508,9 @@ namespace psm::protocol::socks5
             }
 
             const auto target_host = to_string(parsed.header.destination_address, memory::current_resource());
-            const auto target_port = std::to_string(parsed.header.destination_port);
+            char port_buf[8];
+            const auto [port_end, port_ec] = std::to_chars(port_buf, port_buf + sizeof(port_buf), parsed.header.destination_port);
+            const std::string_view target_port(port_buf, std::distance(port_buf, port_end));
             auto [route_ec, target_endpoint] = co_await route_callback(target_host, target_port);
             if (fault::failed(route_ec))
             {

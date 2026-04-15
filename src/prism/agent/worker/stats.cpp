@@ -1,4 +1,5 @@
 #include <prism/agent/worker/stats.hpp>
+#include <prism/trace.hpp>
 
 namespace psm::agent::worker::stats
 {
@@ -69,6 +70,10 @@ namespace psm::agent::worker::stats
             co_await timer.async_wait(net::redirect_error(net::use_awaitable, ec));
             if (ec)
             {
+                if (ec != net::error::operation_aborted)
+                {
+                    trace::debug("[Stats] observe timer error: {}", ec.message());
+                }
                 co_return;
             }
 

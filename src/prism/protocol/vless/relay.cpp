@@ -1,5 +1,6 @@
 #include <prism/protocol/vless/relay.hpp>
 #include <prism/protocol/vless/format.hpp>
+#include <prism/protocol/common/read.hpp>
 #include <prism/trace.hpp>
 #include <array>
 #include <string>
@@ -8,6 +9,10 @@
 
 namespace psm::protocol::vless
 {
+    // 引用共享读取工具函数
+    using protocol::common::read_at_least;
+    using protocol::common::read_remaining;
+
     /**
      * @brief 将 UUID 字节数组转换为标准字符串格式
      */
@@ -32,55 +37,6 @@ namespace psm::protocol::vless
         }
         buf[36] = '\0';
         return std::string(buf.data());
-    }
-
-    /**
-     * @brief 批量读取至少指定数量的字节
-     */
-    inline auto read_at_least(channel::transport::transmission &transport, const std::span<std::byte> buffer,
-                              const std::size_t min_size)
-        -> net::awaitable<std::pair<fault::code, std::size_t>>
-    {
-        std::size_t total = 0;
-        while (total < min_size)
-        {
-            std::error_code ec;
-            const auto n = co_await transport.async_read_some(buffer.subspan(total), ec);
-            if (ec)
-            {
-                co_return std::pair{fault::to_code(ec), total};
-            }
-            if (n == 0)
-            {
-                co_return std::pair{fault::code::eof, total};
-            }
-            total += n;
-        }
-        co_return std::pair{fault::code::success, total};
-    }
-
-    /**
-     * @brief 精确补读剩余字节
-     */
-    inline auto read_remaining(channel::transport::transmission &transport, const std::span<std::byte> buffer,
-                               std::size_t current, const std::size_t target)
-        -> net::awaitable<std::pair<fault::code, std::size_t>>
-    {
-        while (current < target)
-        {
-            std::error_code ec;
-            const auto n = co_await transport.async_read_some(buffer.subspan(current), ec);
-            if (ec)
-            {
-                co_return std::pair{fault::to_code(ec), current};
-            }
-            if (n == 0)
-            {
-                co_return std::pair{fault::code::eof, current};
-            }
-            current += n;
-        }
-        co_return std::pair{fault::code::success, current};
     }
 
     relay::relay(channel::transport::shared_transmission next_layer, const config &cfg,

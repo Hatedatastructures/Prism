@@ -96,7 +96,7 @@ namespace psm::protocol::shadowsocks
          */
         auto encrypt_outbound(std::span<const std::byte> payload,
                               const std::array<std::uint8_t, session_id_len> &session_id,
-                              std::shared_ptr<udp_session_entry> entry)
+                              const std::shared_ptr<udp_session_entry> &entry)
             -> std::pair<fault::code, std::vector<std::byte>>;
 
         /**
@@ -118,7 +118,7 @@ namespace psm::protocol::shadowsocks
 
         auto encrypt_aes_gcm(std::span<const std::byte> payload,
                              const std::array<std::uint8_t, session_id_len> &session_id,
-                             std::shared_ptr<udp_session_entry> entry)
+                             const std::shared_ptr<udp_session_entry> &entry)
             -> std::pair<fault::code, std::vector<std::byte>>;
 
         // === ChaCha20 变体 ===
@@ -129,7 +129,7 @@ namespace psm::protocol::shadowsocks
 
         auto encrypt_chacha20(std::span<const std::byte> payload,
                               const std::array<std::uint8_t, session_id_len> &session_id,
-                              std::shared_ptr<udp_session_entry> entry)
+                              const std::shared_ptr<udp_session_entry> &entry)
             -> std::pair<fault::code, std::vector<std::byte>>;
 
         // === 工具函数 ===

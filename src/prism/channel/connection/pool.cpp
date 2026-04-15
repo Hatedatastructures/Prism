@@ -88,10 +88,23 @@ namespace psm::channel
         h *= 1099511628211ULL;
         h ^= key.family;
         h *= 1099511628211ULL;
-        for (const auto b : key.address)
+        // 按 8 字节块处理 16 字节 address 数组
+        if constexpr (sizeof(std::size_t) >= 8)
         {
-            h ^= b;
-            h *= 1099511628211ULL;
+            const auto *ptr = reinterpret_cast<const std::uint64_t *>(key.address.data());
+            for (std::size_t i = 0; i < key.address.size() / 8; ++i)
+            {
+                h ^= ptr[i];
+                h *= 1099511628211ULL;
+            }
+        }
+        else
+        {
+            for (const auto b : key.address)
+            {
+                h ^= b;
+                h *= 1099511628211ULL;
+            }
         }
         return h;
     }
@@ -111,7 +124,7 @@ namespace psm::channel
     auto connection_pool::async_acquire(tcp::endpoint endpoint)
         -> net::awaitable<std::pair<fault::code, pooled_connection>>
     {
-        stat_acquires_.fetch_add(1, std::memory_order_relaxed);
+        stat_acquires_ += 1;
 
         // 检查连接池是否已启动，未启动时后台清理功能禁用
         if (!started_)
@@ -138,16 +151,16 @@ namespace psm::channel
                 if (now - last_used > idle_timeout)
                 {
                     delete_socket(socket);
-                    stat_evictions_.fetch_add(1, std::memory_order_relaxed);
-                    stat_idle_.fetch_sub(1, std::memory_order_relaxed);
+                    stat_evictions_ += 1;
+                    stat_idle_ -= 1;
                     continue;
                 }
 
                 // 快速健康检测：验证 socket 可安全复用
                 if (healthy_fast(*socket))
                 {
-                    stat_idle_.fetch_sub(1, std::memory_order_relaxed);
-                    stat_hits_.fetch_add(1, std::memory_order_relaxed);
+                    stat_idle_ -= 1;
+                    stat_hits_ += 1;
                     trace::debug("[Pool] reused {}:{} (idle {}ms)", endpoint.address().to_string(), endpoint.port(),
                                  std::chrono::duration_cast<std::chrono::milliseconds>(now - last_used).count());
                     co_return std::make_pair(fault::code::success, pooled_connection(this, socket, endpoint));
@@ -155,15 +168,15 @@ namespace psm::channel
 
                 // 健康检测失败，丢弃连接
                 delete_socket(socket);
-                stat_evictions_.fetch_add(1, std::memory_order_relaxed);
-                stat_idle_.fetch_sub(1, std::memory_order_relaxed);
+                stat_evictions_ += 1;
+                stat_idle_ -= 1;
             }
 
             // 栈已清空，移除该端点的缓存条目
             if (stack.empty())
             {
                 cache_.erase(it);
-                stat_endpoints_.fetch_sub(1, std::memory_order_relaxed);
+                stat_endpoints_ -= 1;
             }
         }
 
@@ -230,7 +243,7 @@ namespace psm::channel
             }
         }
 
-        stat_creates_.fetch_add(1, std::memory_order_relaxed);
+        stat_creates_ += 1;
 
         trace::debug("[Pool] new connection to {}:{}", endpoint.address().to_string(), endpoint.port());
         co_return std::make_pair(fault::code::success, pooled_connection(this, sock, endpoint));
@@ -245,14 +258,14 @@ namespace psm::channel
             return;
         }
 
-        stat_recycles_.fetch_add(1, std::memory_order_relaxed);
+        stat_recycles_ += 1;
 
         // IPv6 连接默认不缓存，受配置控制
         if (!config_.cache_ipv6 && endpoint.address().is_v6())
         {
             trace::debug("[Pool] IPv6 connection not cached");
             delete_socket(s);
-            stat_evictions_.fetch_add(1, std::memory_order_relaxed);
+            stat_evictions_ += 1;
             return;
         }
 
@@ -260,7 +273,7 @@ namespace psm::channel
         if (!healthy_fast(*s))
         {
             delete_socket(s);
-            stat_evictions_.fetch_add(1, std::memory_order_relaxed);
+            stat_evictions_ += 1;
             return;
         }
 
@@ -270,18 +283,18 @@ namespace psm::channel
         auto &stack = it->second;
         if (inserted)
         {
-            stat_endpoints_.fetch_add(1, std::memory_order_relaxed);
+            stat_endpoints_ += 1;
         }
         if (stack.size() >= config_.max_cache_per_endpoint)
         {
             delete_socket(s);
-            stat_evictions_.fetch_add(1, std::memory_order_relaxed);
+            stat_evictions_ += 1;
             return;
         }
 
         // 归还到缓存栈，记录最后使用时间
         stack.push_back({s, std::chrono::steady_clock::now()});
-        stat_idle_.fetch_add(1, std::memory_order_relaxed);
+        stat_idle_ += 1;
     }
 
     void connection_pool::start()
@@ -310,12 +323,12 @@ namespace psm::channel
                         break;
                     if (flag->load(std::memory_order_acquire))
                         break;
-                    if (stat_acquires_.load(std::memory_order_relaxed) != 0)
+                    if (stat_acquires_ != 0)
                     {
                         trace::debug("[Pool] total acquires: {}, total hits: {}, total creates: {}, total evictions: {}, total recycles: {}, total idle: {}",
-                                 stat_acquires_.load(std::memory_order_relaxed), stat_hits_.load(std::memory_order_relaxed),
-                                 stat_creates_.load(std::memory_order_relaxed), stat_evictions_.load(std::memory_order_relaxed),
-                                 stat_recycles_.load(std::memory_order_relaxed), stat_idle_.load(std::memory_order_relaxed));
+                                 stat_acquires_, stat_hits_,
+                                 stat_creates_, stat_evictions_,
+                                 stat_recycles_, stat_idle_);
                     }
                     // 执行清理操作
                     cleanup();
@@ -358,8 +371,8 @@ namespace psm::channel
                 {
                     // 连接已过期，销毁 socket
                     delete_socket(stack[read].socket);
-                    stat_evictions_.fetch_add(1, std::memory_order_relaxed);
-                    stat_idle_.fetch_sub(1, std::memory_order_relaxed);
+                    stat_evictions_ += 1;
+                    stat_idle_ -= 1;
                 }
             }
 
@@ -369,7 +382,7 @@ namespace psm::channel
                 // 该端点所有连接都已过期，清空并移除条目
                 stack.clear();
                 it = cache_.erase(it);
-                stat_endpoints_.fetch_sub(1, std::memory_order_relaxed);
+                stat_endpoints_ -= 1;
             }
             else
             {
@@ -383,13 +396,13 @@ namespace psm::channel
     auto connection_pool::stats() const -> pool_stats
     {
         pool_stats s;
-        s.total_acquires = stat_acquires_.load(std::memory_order_relaxed);
-        s.total_hits = stat_hits_.load(std::memory_order_relaxed);
-        s.total_creates = stat_creates_.load(std::memory_order_relaxed);
-        s.total_recycles = stat_recycles_.load(std::memory_order_relaxed);
-        s.total_evictions = stat_evictions_.load(std::memory_order_relaxed);
-        s.idle_count = stat_idle_.load(std::memory_order_relaxed);
-        s.endpoint_count = stat_endpoints_.load(std::memory_order_relaxed);
+        s.total_acquires = stat_acquires_;
+        s.total_hits = stat_hits_;
+        s.total_creates = stat_creates_;
+        s.total_recycles = stat_recycles_;
+        s.total_evictions = stat_evictions_;
+        s.idle_count = stat_idle_;
+        s.endpoint_count = stat_endpoints_;
 
         return s;
     }
@@ -419,7 +432,7 @@ namespace psm::channel
             }
         }
         cache_.clear();
-        stat_idle_.store(0, std::memory_order_relaxed);
-        stat_endpoints_.store(0, std::memory_order_relaxed);
+        stat_idle_ = 0;
+        stat_endpoints_ = 0;
     }
 } // namespace psm::channel

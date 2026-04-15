@@ -30,6 +30,8 @@ namespace psm::agent::worker::launch
         if (ec || !migrated.is_open())
         {
             trace::error("socket migration failed: {}", ec.message());
+            // assign 失败时关闭已 release 的 native handle，防止 fd 泄漏
+            ::closesocket(native_handle);
             return std::nullopt;
         }
 

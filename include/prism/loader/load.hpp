@@ -15,6 +15,7 @@
 #include <prism/config.hpp>
 #include <prism/exception.hpp>
 #include <prism/transformer.hpp>
+#include <prism/trace.hpp>
 #include <prism/agent/account/directory.hpp>
 #include <prism/crypto/sha224.hpp>
 
@@ -59,8 +60,13 @@ namespace psm::loader
                 return cfg;
             }
         }
+        catch (const std::exception &e)
+        {
+            trace::error("[Loader] configuration parse error: {}", e.what());
+        }
         catch (...)
         {
+            trace::error("[Loader] unknown configuration parse error");
         }
         return {};
     }

@@ -151,5 +151,18 @@ int main(const int argc, char **argv)
     std::cout << std::format("{:<12}{} KB (单线程峰值最大值)\n", "峰值内存:", (total_stats.peak_memory / 1024));
     std::cout << "================================================" << std::endl;
 
+    // 阈值检查
+    if (total_stats.ops == 0)
+    {
+        std::cerr << "FAIL: no operations completed (0 ops)\n";
+        return 1;
+    }
+    if (static_cast<std::uint64_t>(total_stats.ops / actual_duration) < 10000)
+    {
+        std::cerr << "FAIL: throughput (" << static_cast<std::uint64_t>(total_stats.ops / actual_duration)
+                  << " ops/s) below threshold (10000 ops/s)\n";
+        return 1;
+    }
+
     return 0;
 }

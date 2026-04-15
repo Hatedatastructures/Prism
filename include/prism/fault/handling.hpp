@@ -206,34 +206,22 @@ namespace psm::fault
             return code::generic_error;
         }
 
-        if (ec == std::make_error_code(std::errc::connection_refused))
-        {
-            return code::connection_refused;
-        }
-        if (ec == std::make_error_code(std::errc::connection_reset))
-        {
-            return code::connection_reset;
-        }
-        if (ec == std::make_error_code(std::errc::connection_aborted))
-        {
-            return code::connection_aborted;
-        }
-        if (ec == std::make_error_code(std::errc::timed_out))
-        {
-            return code::timeout;
-        }
-        if (ec == std::make_error_code(std::errc::host_unreachable))
-        {
-            return code::host_unreachable;
-        }
-        if (ec == std::make_error_code(std::errc::network_unreachable))
-        {
-            return code::network_unreachable;
-        }
-        if (ec == std::make_error_code(std::errc::operation_canceled))
-        {
-            return code::canceled;
-        }
+        // 预构造错误码对象，避免每次比较都调用 std::make_error_code
+        static const auto ec_conn_refused = std::make_error_code(std::errc::connection_refused);
+        static const auto ec_conn_reset = std::make_error_code(std::errc::connection_reset);
+        static const auto ec_conn_aborted = std::make_error_code(std::errc::connection_aborted);
+        static const auto ec_timed_out = std::make_error_code(std::errc::timed_out);
+        static const auto ec_host_unreach = std::make_error_code(std::errc::host_unreachable);
+        static const auto ec_net_unreach = std::make_error_code(std::errc::network_unreachable);
+        static const auto ec_canceled = std::make_error_code(std::errc::operation_canceled);
+
+        if (ec == ec_conn_refused) { return code::connection_refused; }
+        if (ec == ec_conn_reset) { return code::connection_reset; }
+        if (ec == ec_conn_aborted) { return code::connection_aborted; }
+        if (ec == ec_timed_out) { return code::timeout; }
+        if (ec == ec_host_unreach) { return code::host_unreachable; }
+        if (ec == ec_net_unreach) { return code::network_unreachable; }
+        if (ec == ec_canceled) { return code::canceled; }
 
         return code::io_error;
     }

@@ -63,15 +63,9 @@ namespace psm::trace
     template <typename... Args>
     void debug(const std::string_view fmt, Args &&...args)
     {
-        try
+        if (const auto rec = recorder())
         {
-            if (const auto rec = recorder())
-            {
-                rec->debug(spdlog::fmt_lib::runtime(fmt), std::forward<Args>(args)...);
-            }
-        }
-        catch (...)
-        {
+            rec->debug(spdlog::fmt_lib::runtime(fmt), std::forward<Args>(args)...);
         }
     }
 
@@ -87,15 +81,9 @@ namespace psm::trace
     template <typename... Args>
     void info(const std::string_view fmt, Args &&...args)
     {
-        try
+        if (const auto rec = recorder())
         {
-            if (const auto rec = recorder())
-            {
-                rec->info(spdlog::fmt_lib::runtime(fmt), std::forward<Args>(args)...);
-            }
-        }
-        catch (...)
-        {
+            rec->info(spdlog::fmt_lib::runtime(fmt), std::forward<Args>(args)...);
         }
     }
 
@@ -111,15 +99,9 @@ namespace psm::trace
     template <typename... Args>
     void warn(const std::string_view fmt, Args &&...args)
     {
-        try
+        if (const auto rec = recorder())
         {
-            if (const auto rec = recorder())
-            {
-                rec->warn(spdlog::fmt_lib::runtime(fmt), std::forward<Args>(args)...);
-            }
-        }
-        catch (...)
-        {
+            rec->warn(spdlog::fmt_lib::runtime(fmt), std::forward<Args>(args)...);
         }
     }
 
@@ -135,15 +117,9 @@ namespace psm::trace
     template <typename... Args>
     void error(const std::string_view fmt, Args &&...args)
     {
-        try
+        if (const auto rec = recorder())
         {
-            if (const auto rec = recorder())
-            {
-                rec->error(spdlog::fmt_lib::runtime(fmt), std::forward<Args>(args)...);
-            }
-        }
-        catch (...)
-        {
+            rec->error(spdlog::fmt_lib::runtime(fmt), std::forward<Args>(args)...);
         }
     }
 
@@ -160,15 +136,9 @@ namespace psm::trace
     template <typename... Args>
     void fatal(const std::string_view fmt, Args &&...args)
     {
-        try
+        if (const auto rec = recorder())
         {
-            if (const auto rec = recorder())
-            {
-                rec->critical(spdlog::fmt_lib::runtime(fmt), std::forward<Args>(args)...);
-            }
-        }
-        catch (...)
-        {
+            rec->critical(spdlog::fmt_lib::runtime(fmt), std::forward<Args>(args)...);
         }
     }
 }

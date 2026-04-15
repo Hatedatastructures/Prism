@@ -256,9 +256,10 @@ namespace psm::memory
      */
     class frame_arena
     {
-        // 降低内部缓冲大小，避免 session 对象过大。
-        // 大部分内存请求应直接透传给 thread_local_pool，无锁且高效。
-        std::byte buffer_[128];
+        // 内部缓冲覆盖典型 mux 地址头（最大 255 字节域名 + 开销），
+        // 避免解析 UDP 数据报时穿透到上游池。
+        // 生产中 monotonic_buffer 增长后自动缓存，首次穿透后后续分配均为指针推进。
+        std::byte buffer_[512];
         monotonic_buffer resource_;
 
     public:

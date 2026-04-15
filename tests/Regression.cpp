@@ -151,13 +151,13 @@ void TestInnerProtocolDetection()
         }
     }
 
-    // 数据过短且无已知前缀，应返回 unknown
+    // 数据过短且无已知前缀，排除法回退为 shadowsocks
     {
         std::string short_data(30, 'a');
         auto result = psm::protocol::analysis::detect_tls(short_data);
-        if (result != psm::protocol::protocol_type::unknown)
+        if (result != psm::protocol::protocol_type::shadowsocks)
         {
-            log_fail("short data should be unknown");
+            log_fail("short data should be shadowsocks (exclusion fallback)");
             return;
         }
     }
@@ -177,14 +177,14 @@ void TestInnerProtocolDetection()
         }
     }
 
-    // 同样长度但 CRLF 位置不是有效 Trojan 格式，应回退为 HTTP
+    // 同样长度但 CRLF 位置不是有效 Trojan 格式，排除法回退为 shadowsocks
     {
         std::string invalid_trojan(60, 'a');
         invalid_trojan[56] = 'x';
         auto result = psm::protocol::analysis::detect_tls(invalid_trojan);
-        if (result != psm::protocol::protocol_type::http)
+        if (result != psm::protocol::protocol_type::shadowsocks)
         {
-            log_fail("invalid Trojan should be HTTP");
+            log_fail("invalid Trojan should be shadowsocks (exclusion fallback)");
             return;
         }
     }

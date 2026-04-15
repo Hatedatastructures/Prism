@@ -44,18 +44,19 @@ static void BM_AeadSealAes128Gcm(benchmark::State &state)
 static void BM_AeadOpenAes128Gcm(benchmark::State &state)
 {
     std::array<std::uint8_t, 16> key{};
+    std::array<std::uint8_t, 12> nonce{};
     crypto::aead_context seal_ctx(crypto::aead_cipher::aes_128_gcm, key);
 
     std::vector<std::uint8_t> plaintext(1024, 0x42);
     std::vector<std::uint8_t> ciphertext(crypto::aead_context::seal_output_size(plaintext.size()));
-    seal_ctx.seal(ciphertext, plaintext);
+    seal_ctx.seal(ciphertext, plaintext, nonce, {});
 
     std::vector<std::uint8_t> decrypted(crypto::aead_context::open_output_size(ciphertext.size()));
+    crypto::aead_context open_ctx(crypto::aead_cipher::aes_128_gcm, key);
 
     for (auto _ : state)
     {
-        crypto::aead_context open_ctx(crypto::aead_cipher::aes_128_gcm, key);
-        auto ec = open_ctx.open(decrypted, ciphertext);
+        auto ec = open_ctx.open(decrypted, ciphertext, nonce, {});
         if (fault::failed(ec))
             state.SkipWithError("open failed");
         benchmark::DoNotOptimize(decrypted);
@@ -84,18 +85,19 @@ static void BM_AeadSealAes256Gcm(benchmark::State &state)
 static void BM_AeadOpenAes256Gcm(benchmark::State &state)
 {
     std::array<std::uint8_t, 32> key{};
+    std::array<std::uint8_t, 12> nonce{};
     crypto::aead_context seal_ctx(crypto::aead_cipher::aes_256_gcm, key);
 
     std::vector<std::uint8_t> plaintext(1024, 0x42);
     std::vector<std::uint8_t> ciphertext(crypto::aead_context::seal_output_size(plaintext.size()));
-    seal_ctx.seal(ciphertext, plaintext);
+    seal_ctx.seal(ciphertext, plaintext, nonce, {});
 
     std::vector<std::uint8_t> decrypted(crypto::aead_context::open_output_size(ciphertext.size()));
+    crypto::aead_context open_ctx(crypto::aead_cipher::aes_256_gcm, key);
 
     for (auto _ : state)
     {
-        crypto::aead_context open_ctx(crypto::aead_cipher::aes_256_gcm, key);
-        auto ec = open_ctx.open(decrypted, ciphertext);
+        auto ec = open_ctx.open(decrypted, ciphertext, nonce, {});
         if (fault::failed(ec))
             state.SkipWithError("open failed");
         benchmark::DoNotOptimize(decrypted);

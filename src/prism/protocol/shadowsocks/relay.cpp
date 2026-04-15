@@ -3,7 +3,9 @@
 #include <prism/trace/spdlog.hpp>
 #include <prism/memory/container.hpp>
 #include <cstring>
+#include <charconv>
 #include <chrono>
+#include <random>
 
 constexpr std::string_view tag = "[SS2022.Relay]";
 
@@ -204,7 +206,9 @@ namespace psm::protocol::shadowsocks
 
         target_ = analysis::target();
         target_.host = to_string(req.destination_address);
-        target_.port = std::to_string(req.port);
+        char port_buf[8];
+        const auto [pe, pec] = std::to_chars(port_buf, port_buf + sizeof(port_buf), req.port);
+        target_.port.assign(port_buf, std::distance(port_buf, pe));
         target_.positive = true;
 
         // 跳过 padding，提取初始 payload
@@ -230,12 +234,12 @@ namespace psm::protocol::shadowsocks
     {
         std::error_code ec;
 
-        // 生成随机 server salt
+        // 生成随机 server salt（使用密码学安全随机数生成器）
         memory::vector<std::uint8_t> server_salt(key_salt_length_);
-        std::uniform_int_distribution<std::uint32_t> dist(0, 255);
+        std::random_device rd;
         for (auto &b : server_salt)
         {
-            b = static_cast<std::uint8_t>(dist(rng_));
+            b = static_cast<std::uint8_t>(rd() & 0xFF);
         }
 
         encrypt_ctx_ = derive_aead_context(server_salt);
@@ -370,7 +374,6 @@ namespace psm::protocol::shadowsocks
 
             if (decrypted_offset_ == decrypted_.size())
             {
-                decrypted_.clear();
                 decrypted_offset_ = 0;
             }
             co_return n;
@@ -398,7 +401,6 @@ namespace psm::protocol::shadowsocks
 
         if (decrypted_offset_ == decrypted_.size())
         {
-            decrypted_.clear();
             decrypted_offset_ = 0;
         }
 

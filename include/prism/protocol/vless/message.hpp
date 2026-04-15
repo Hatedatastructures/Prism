@@ -1,68 +1,28 @@
 /**
  * @file message.hpp
  * @brief VLESS 消息结构定义
- * @details 定义 VLESS 协议中使用的地址结构和请求消息结构。
- * 地址结构支持 IPv4、IPv6 和域名三种格式，请求结构包含命令、
- * 端口、目标地址和用户 UUID。所有结构设计为零拷贝友好。
+ * @details 定义 VLESS 协议中使用的请求消息结构。地址类型通过
+ * using 声明引用 protocol::common 中的共享定义，避免跨协议重复。
+ * 请求结构包含命令、端口、目标地址和用户 UUID，所有结构设计为
+ * 零拷贝友好。
  */
 
 #pragma once
 
 #include <array>
-#include <variant>
-#include <string>
-
-#ifdef _WIN32
-#include <ws2tcpip.h>
-#else
-#include <arpa/inet.h>
-#endif
 
 #include <prism/protocol/vless/constants.hpp>
 #include <prism/protocol/common/form.hpp>
+#include <prism/protocol/common/address.hpp>
 #include <prism/memory/container.hpp>
 
 namespace psm::protocol::vless
 {
-    /**
-     * @struct ipv4_address
-     * @brief IPv4 地址结构
-     * @details 存储 4 字节的 IPv4 地址数据，采用网络字节序。
-     */
-    struct ipv4_address
-    {
-        std::array<uint8_t, 4> bytes;
-    };
-
-    /**
-     * @struct ipv6_address
-     * @brief IPv6 地址结构
-     * @details 存储 16 字节的 IPv6 地址数据，采用网络字节序。
-     */
-    struct ipv6_address
-    {
-        std::array<uint8_t, 16> bytes;
-    };
-
-    /**
-     * @struct domain_address
-     * @brief 域名地址结构
-     * @details 存储域名长度和域名内容。域名长度最大为 255 字节。
-     */
-    struct domain_address
-    {
-        std::uint8_t length;
-        std::array<char, 255> value;
-
-        [[nodiscard]] auto to_string(const memory::resource_pointer mr = memory::current_resource()) const
-            -> memory::string
-        {
-            return memory::string(value.data(), length, mr);
-        }
-    };
-
-    /// VLESS 地址变体类型
-    using address = std::variant<ipv4_address, ipv6_address, domain_address>;
+    // 引用共享地址类型
+    using protocol::common::ipv4_address;
+    using protocol::common::ipv6_address;
+    using protocol::common::domain_address;
+    using protocol::common::address;
 
     /**
      * @struct request
@@ -94,38 +54,9 @@ namespace psm::protocol::vless
      * @param mr 内存资源指针
      * @return memory::string 地址字符串
      */
-    inline auto to_string(const address &addr, memory::resource_pointer mr = memory::current_resource())
+    [[nodiscard]] inline auto to_string(const address &addr, memory::resource_pointer mr = memory::current_resource())
         -> memory::string
     {
-        auto translate_address = [mr]<typename Address>(const Address &arg) -> memory::string
-        {
-            using type = std::decay_t<Address>;
-            if constexpr (std::is_same_v<type, ipv4_address>)
-            {
-                std::array<char, INET_ADDRSTRLEN> buffer;
-                const char *result = inet_ntop(AF_INET, arg.bytes.data(), buffer.data(), buffer.size());
-                if (result == nullptr)
-                {
-                    return memory::string(mr);
-                }
-                return memory::string(buffer.data(), mr);
-            }
-            else if constexpr (std::is_same_v<type, ipv6_address>)
-            {
-                std::array<char, INET6_ADDRSTRLEN> buffer;
-                const char *result = inet_ntop(AF_INET6, arg.bytes.data(), buffer.data(), buffer.size());
-                if (result == nullptr)
-                {
-                    return memory::string(mr);
-                }
-                return memory::string(buffer.data(), mr);
-            }
-            else if constexpr (std::is_same_v<type, domain_address>)
-            {
-                return arg.to_string(mr);
-            }
-            return {};
-        };
-        return std::visit(translate_address, addr);
+        return protocol::common::address_to_string(addr, mr);
     }
 }

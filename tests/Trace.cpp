@@ -7,6 +7,8 @@
 #include <prism/trace/spdlog.hpp>
 #include <prism/memory.hpp>
 
+#include "common/test_runner.hpp"
+
 #include <exception>
 #include <filesystem>
 #include <format>
@@ -16,37 +18,7 @@ namespace fs = std::filesystem;
 
 namespace
 {
-    int passed = 0;
-    int failed = 0;
-
-    /**
-     * @brief 输出信息级别日志
-     * @param msg 日志消息
-     */
-    void log_info(const std::string_view msg)
-    {
-        psm::trace::info("[Trace] {}", msg);
-    }
-
-    /**
-     * @brief 记录测试通过并递增计数器
-     * @param msg 测试名称
-     */
-    void log_pass(const std::string_view msg)
-    {
-        ++passed;
-        psm::trace::info("[Trace] PASS: {}", msg);
-    }
-
-    /**
-     * @brief 记录测试失败并递增计数器
-     * @param msg 失败原因
-     */
-    void log_fail(const std::string_view msg)
-    {
-        ++failed;
-        psm::trace::error("[Trace] FAIL: {}", msg);
-    }
+    psm::testing::test_runner runner("Trace");
 
     /**
      * @brief 获取文件大小，失败时返回 0
@@ -66,7 +38,7 @@ namespace
  */
 void TestTraceInitAndWrite()
 {
-    log_info("=== TestTraceInitAndWrite ===");
+    runner.log_info("=== TestTraceInitAndWrite ===");
 
     // 使用独立的测试日志目录，避免污染主日志
     const fs::path path_name = fs::path("test_logs") / "trace";
@@ -104,11 +76,11 @@ void TestTraceInitAndWrite()
     const auto size = file_size_or_zero(log_path);
     if (size == 0)
     {
-        log_fail(std::format("log file missing or empty: {}", log_path.string()));
+        runner.log_fail(std::format("log file missing or empty: {}", log_path.string()));
         return;
     }
 
-    log_pass("TraceInitAndWrite");
+    runner.log_pass("TraceInitAndWrite");
 }
 
 /**
@@ -124,15 +96,12 @@ int main()
     // 使用默认配置初始化日志系统
     psm::trace::init({});
 
-    log_info("Starting trace tests...");
+    runner.log_info("Starting trace tests...");
 
     TestTraceInitAndWrite();
 
-    log_info("Trace tests completed.");
+    runner.log_info("Trace tests completed.");
 
-    psm::trace::info("[Trace] Results: {} passed, {} failed", passed, failed);
     // 测试结束前关闭日志，确保所有消息刷盘
-    psm::trace::shutdown();
-
-    return failed > 0 ? 1 : 0;
+    return runner.summary();
 }

@@ -6,6 +6,7 @@
 #include <prism/trace.hpp>
 
 #include <array>
+#include <charconv>
 #include <boost/asio/co_spawn.hpp>
 
 constexpr std::string_view tag = "[Smux.Craft]";
@@ -369,7 +370,9 @@ namespace psm::multiplex::smux
         trace::debug("{} stream {} connecting to {}:{}", tag, stream_id, host, port);
 
         // 通过路由器连接目标
-        auto [code, conn] = co_await router_.async_forward(host, std::to_string(port));
+        char port_buf[8];
+        const auto [port_end, port_ec] = std::to_chars(port_buf, port_buf + sizeof(port_buf), port);
+        auto [code, conn] = co_await router_.async_forward(host, std::string_view(port_buf, std::distance(port_buf, port_end)));
 
         // 连接失败处理
         if (code != fault::code::success || !conn.valid())

@@ -95,6 +95,21 @@ namespace psm::agent
      */
     struct session_context
     {
+        // 禁止拷贝，允许移动：session_context 持有传输对象和资源引用，不应被意外拷贝
+        session_context(const session_context&) = delete;
+        session_context& operator=(const session_context&) = delete;
+        session_context(session_context&&) = default;
+        session_context& operator=(session_context&&) = default;
+
+        // 显式构造函数（替代聚合初始化，因 delete copy ctor 后聚合初始化不可用）
+        session_context(std::uint64_t sid, const server_context &srv, worker_context &w,
+                        memory::frame_arena &arena, account::directory *dir,
+                        std::function<bool(std::string_view)> verifier,
+                        std::uint32_t buf_size, shared_transmission in)
+            : session_id(sid), server(srv), worker(w), frame_arena(arena),
+              credential_verifier(std::move(verifier)), account_directory_ptr(dir),
+              buffer_size(buf_size), inbound(std::move(in)) {}
+
         // 会话唯一标识符，用于日志追踪
         std::uint64_t session_id{0};
 

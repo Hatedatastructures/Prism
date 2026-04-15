@@ -11,6 +11,8 @@
 #include <prism/resolve/config.hpp>
 #include <prism/trace/spdlog.hpp>
 
+#include "common/test_runner.hpp"
+
 #include <boost/asio.hpp>
 
 #include <array>
@@ -23,37 +25,7 @@ using tcp = boost::asio::ip::tcp;
 
 namespace
 {
-    int passed = 0;
-    int failed = 0;
-
-    /**
-     * @brief 输出信息级别日志
-     * @param msg 日志消息
-     */
-    void log_info(std::string_view msg)
-    {
-        psm::trace::info("[Connection] {}", msg);
-    }
-
-    /**
-     * @brief 记录测试通过并递增计数器
-     * @param msg 测试名称
-     */
-    void log_pass(std::string_view msg)
-    {
-        ++passed;
-        psm::trace::info("[Connection] PASS: {}", msg);
-    }
-
-    /**
-     * @brief 记录测试失败并递增计数器
-     * @param msg 失败原因
-     */
-    void log_fail(std::string_view msg)
-    {
-        ++failed;
-        psm::trace::error("[Connection] FAIL: {}", msg);
-    }
+    psm::testing::test_runner runner("Connection");
 } // namespace
 
 /**
@@ -121,53 +93,53 @@ net::awaitable<void> TestPoolAcquireAndRelease(net::io_context &ioc, unsigned sh
         psm::channel::connection_pool pool(ioc);
 
         // 步骤 1：从连接池获取一个新连接
-        log_info("Step 1: Acquire connection");
+        runner.log_info("Step 1: Acquire connection");
         auto [code1, c1] = co_await pool.async_acquire(endpoint);
         if (!psm::fault::succeeded(code1))
         {
-            log_fail("TestPoolAcquireAndRelease - async_acquire returned error code");
+            runner.log_fail("TestPoolAcquireAndRelease - async_acquire returned error code");
             co_return;
         }
         if (!c1.valid())
         {
-            log_fail("TestPoolAcquireAndRelease - acquired connection is invalid");
+            runner.log_fail("TestPoolAcquireAndRelease - acquired connection is invalid");
             co_return;
         }
         // 保存底层 socket 指针，用于后续比较是否复用了同一连接
         auto c1_ptr = c1.get();
 
         // 步骤 2：将连接置空，触发析构并归还到连接池
-        log_info("Step 2: Recycle connection (by destruction)");
+        runner.log_info("Step 2: Recycle connection (by destruction)");
         c1 = psm::channel::pooled_connection{};
 
         // 步骤 3：再次获取，应命中池中回收的同一连接
-        log_info("Step 3: Acquire again (should reuse)");
+        runner.log_info("Step 3: Acquire again (should reuse)");
         auto [code2, c2] = co_await pool.async_acquire(endpoint);
         if (!psm::fault::succeeded(code2))
         {
-            log_fail("TestPoolAcquireAndRelease - second async_acquire returned error code");
+            runner.log_fail("TestPoolAcquireAndRelease - second async_acquire returned error code");
             co_return;
         }
         if (!c2.valid())
         {
-            log_fail("TestPoolAcquireAndRelease - second acquired connection is invalid");
+            runner.log_fail("TestPoolAcquireAndRelease - second acquired connection is invalid");
             co_return;
         }
         // 验证两次拿到的是同一个底层 socket 指针
         if (c2.get() != c1_ptr)
         {
-            log_fail("TestPoolAcquireAndRelease - recycled connection is not the same socket");
+            runner.log_fail("TestPoolAcquireAndRelease - recycled connection is not the same socket");
             co_return;
         }
 
         // 测试通过后释放连接
         c2 = psm::channel::pooled_connection{};
 
-        log_pass("TestPoolAcquireAndRelease");
+        runner.log_pass("TestPoolAcquireAndRelease");
     }
     catch (const std::exception &e)
     {
-        log_fail(std::format("TestPoolAcquireAndRelease - exception: {}", e.what()));
+        runner.log_fail(std::format("TestPoolAcquireAndRelease - exception: {}", e.what()));
     }
 }
 
@@ -184,53 +156,53 @@ net::awaitable<void> TestPoolRecycling(net::io_context &ioc, unsigned short echo
         psm::channel::connection_pool pool(ioc);
 
         // 获取第一个连接，记录其指针
-        log_info("Acquire first connection for recycling test");
+        runner.log_info("Acquire first connection for recycling test");
         auto [code1, c1] = co_await pool.async_acquire(endpoint);
         if (!psm::fault::succeeded(code1))
         {
-            log_fail("TestPoolRecycling - first async_acquire returned error code");
+            runner.log_fail("TestPoolRecycling - first async_acquire returned error code");
             co_return;
         }
         if (!c1.valid())
         {
-            log_fail("TestPoolRecycling - first connection is invalid");
+            runner.log_fail("TestPoolRecycling - first connection is invalid");
             co_return;
         }
         // 记录指针，后续验证是否复用同一 socket
         auto original_ptr = c1.get();
 
         // 释放连接，触发池回收
-        log_info("Release connection back to pool");
+        runner.log_info("Release connection back to pool");
         c1 = psm::channel::pooled_connection{};
 
         // 再次获取，应命中回收的连接
-        log_info("Acquire recycled connection");
+        runner.log_info("Acquire recycled connection");
         auto [code2, c2] = co_await pool.async_acquire(endpoint);
         if (!psm::fault::succeeded(code2))
         {
-            log_fail("TestPoolRecycling - second async_acquire returned error code");
+            runner.log_fail("TestPoolRecycling - second async_acquire returned error code");
             co_return;
         }
         if (!c2.valid())
         {
-            log_fail("TestPoolRecycling - recycled connection is invalid");
+            runner.log_fail("TestPoolRecycling - recycled connection is invalid");
             co_return;
         }
         // 验证指针相同，确认池的回收复用机制正常
         if (c2.get() != original_ptr)
         {
-            log_fail("TestPoolRecycling - did not receive the recycled connection");
+            runner.log_fail("TestPoolRecycling - did not receive the recycled connection");
             co_return;
         }
 
         // 释放连接
         c2 = psm::channel::pooled_connection{};
 
-        log_pass("TestPoolRecycling");
+        runner.log_pass("TestPoolRecycling");
     }
     catch (const std::exception &e)
     {
-        log_fail(std::format("TestPoolRecycling - exception: {}", e.what()));
+        runner.log_fail(std::format("TestPoolRecycling - exception: {}", e.what()));
     }
 }
 
@@ -253,7 +225,7 @@ int main()
         // 绑定到随机可用端口，避免端口冲突
         tcp::acceptor echo_acceptor(ioc, tcp::endpoint(tcp::v4(), 0));
         const unsigned short echo_port = echo_acceptor.local_endpoint().port();
-        log_info(std::format("Echo server listening on port {}", echo_port));
+        runner.log_info(std::format("Echo server listening on port {}", echo_port));
 
         // 启动回显服务器协程，作为测试桩
         net::co_spawn(ioc, EchoServer(std::move(echo_acceptor)), net::detached);
@@ -284,13 +256,9 @@ int main()
     }
     catch (const std::exception &e)
     {
-        log_fail(std::format("Main exception: {}", e.what()));
-        psm::trace::info("[Connection] Results: {} passed, {} failed", passed, failed);
-        psm::trace::shutdown();
-        return 1;
+        runner.log_fail(std::format("Main exception: {}", e.what()));
+        return runner.summary();
     }
 
-    psm::trace::info("[Connection] Results: {} passed, {} failed", passed, failed);
-    psm::trace::shutdown();
-    return failed > 0 ? 1 : 0;
+    return runner.summary();
 }

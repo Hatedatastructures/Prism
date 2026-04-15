@@ -11,19 +11,15 @@ namespace psm::pipeline
         -> net::awaitable<void>
     {
         // 包装传输层（data 通过 preview 重放）
-        auto inbound = std::move(ctx.inbound);
-        if (!data.empty())
-        {
-            inbound = std::make_shared<primitives::preview>(std::move(inbound), data, nullptr);
-        }
+        auto inbound = primitives::wrap_with_preview(ctx, data, true);
 
-        // 全局 salt pool（跨会话共享）
-        static auto global_salt_pool = std::make_shared<protocol::shadowsocks::salt_pool>(
+        // worker 线程独占 salt pool（thread_local 保证每个工作线程独立实例，无需锁）
+        thread_local auto worker_salt_pool = std::make_shared<protocol::shadowsocks::salt_pool>(
             ctx.server.cfg.shadowsocks.salt_pool_ttl);
 
         // 创建 SS2022 relay
         auto agent = protocol::shadowsocks::make_relay(
-            std::move(inbound), ctx.server.cfg.shadowsocks, global_salt_pool);
+            std::move(inbound), ctx.server.cfg.shadowsocks, worker_salt_pool);
 
         // 执行握手：解密请求、验证时间戳、解析地址
         auto [ec, req] = co_await agent->handshake();
@@ -37,8 +33,7 @@ namespace psm::pipeline
         trace::info("{} CONNECT -> {}:{}", shadowsocks_tag, agent->target().host, agent->target().port);
 
         // 通过路由器建立到目标的连接
-        const std::shared_ptr<resolve::router> router_ptr(&ctx.worker.router, [](resolve::router *) {});
-        auto [dial_ec, outbound] = co_await primitives::dial(router_ptr, "SS2022", agent->target(), true, true);
+        auto [dial_ec, outbound] = co_await primitives::dial(ctx.worker.router, "SS2022", agent->target(), true, true);
         if (fault::failed(dial_ec) || !outbound)
         {
             if (dial_ec == fault::code::ipv6_disabled)

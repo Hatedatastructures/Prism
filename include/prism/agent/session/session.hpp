@@ -260,9 +260,9 @@ namespace psm::agent::session
      * @param params 会话参数集合，包含服务器上下文、工作线程上下文和入站传输层
      * @return 新创建的会话对象共享指针
      * @throws std::bad_alloc 当内存分配失败时抛出
-     * @note 该函数是 noexcept 的，不抛出任何异常。
+     * @throws std::bad_alloc 当内存分配失败时抛出
      * @warning 调用者必须确保传入的 io_context 在会话生命周期内保持运行。
      */
-    std::shared_ptr<session> make_session(session_params &&params) noexcept;
+    std::shared_ptr<session> make_session(session_params &&params);
 
 } // namespace psm::agent::session

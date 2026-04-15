@@ -1,7 +1,9 @@
 #include <prism/protocol/trojan/relay.hpp>
+#include <prism/protocol/common/read.hpp>
 #include <prism/memory/container.hpp>
 #include <prism/trace.hpp>
 #include <array>
+#include <charconv>
 #include <string_view>
 #include <algorithm>
 
@@ -9,64 +11,9 @@ constexpr std::string_view udp_tag = "[Trojan.UDP]";
 
 namespace psm::protocol::trojan
 {
-
-    /**
-     * @brief 批量读取至少指定数量的字节
-     * @param transport 传输层
-     * @param buffer 输出缓冲区
-     * @param min_size 最小读取字节数
-     * @return 错误码和实际读取字节数
-     */
-    inline auto read_at_least(channel::transport::transmission &transport, const std::span<std::byte> buffer,
-                              const std::size_t min_size)
-        -> net::awaitable<std::pair<fault::code, std::size_t>>
-    {
-        std::size_t total = 0;
-        while (total < min_size)
-        {
-            std::error_code ec;
-            const auto n = co_await transport.async_read_some(buffer.subspan(total), ec);
-            if (ec)
-            {
-                co_return std::pair{fault::to_code(ec), total};
-            }
-            if (n == 0)
-            {
-                co_return std::pair{fault::code::eof, total};
-            }
-            total += n;
-        }
-        co_return std::pair{fault::code::success, total};
-    }
-
-    /**
-     * @brief 精确补读剩余字节
-     * @param transport 传输层
-     * @param buffer 输出缓冲区
-     * @param current 当前已读字节数
-     * @param target 目标字节数
-     * @return 错误码和最终读取字节数
-     */
-    inline auto read_remaining(channel::transport::transmission &transport, const std::span<std::byte> buffer,
-                               std::size_t current, const std::size_t target)
-        -> net::awaitable<std::pair<fault::code, std::size_t>>
-    {
-        while (current < target)
-        {
-            std::error_code ec;
-            const auto n = co_await transport.async_read_some(buffer.subspan(current), ec);
-            if (ec)
-            {
-                co_return std::pair{fault::to_code(ec), current};
-            }
-            if (n == 0)
-            {
-                co_return std::pair{fault::code::eof, current};
-            }
-            current += n;
-        }
-        co_return std::pair{fault::code::success, current};
-    }
+    // 引用共享读取工具函数
+    using protocol::common::read_at_least;
+    using protocol::common::read_remaining;
 
     /**
      * @brief 验证命令并确定传输形式
@@ -173,17 +120,21 @@ namespace psm::protocol::trojan
      * @param buf 缓冲区集合
      * @return 错误码、响应数据长度、发送者端点
      */
-    inline auto relay_udp_packet(net::any_io_executor executor, const net::ip::udp::endpoint &target_ep,
+    inline auto relay_udp_packet(net::ip::udp::socket &udp_socket, const net::ip::udp::endpoint &target_ep,
                                  std::span<const std::byte> payload, udp_buffers &buf)
         -> net::awaitable<std::tuple<fault::code, std::size_t, net::ip::udp::endpoint>>
     {
         boost::system::error_code udp_ec;
-        net::ip::udp::socket udp_socket(executor);
-        udp_socket.open(target_ep.protocol(), udp_ec);
-        if (udp_ec)
+
+        // 延迟打开 socket：首次调用时按目标协议族打开
+        if (!udp_socket.is_open())
         {
-            trace::warn("{} Socket open failed: {}", udp_tag, udp_ec.message());
-            co_return std::tuple{fault::to_code(udp_ec), 0, net::ip::udp::endpoint{}};
+            udp_socket.open(target_ep.protocol(), udp_ec);
+            if (udp_ec)
+            {
+                trace::warn("{} Socket open failed: {}", udp_tag, udp_ec.message());
+                co_return std::tuple{fault::to_code(udp_ec), 0, net::ip::udp::endpoint{}};
+            }
         }
 
         auto token = net::redirect_error(net::use_awaitable, udp_ec);
@@ -439,6 +390,9 @@ namespace psm::protocol::trojan
     {
         udp_buffers buf(config_.udp_max_datagram);
 
+        // 复用 UDP socket 避免每包 open/close（节省 2 syscall/包）
+        net::ip::udp::socket udp_socket(next_layer_->executor());
+
         while (true)
         {
             idle_timer.expires_after(std::chrono::seconds(config_.udp_idle_timeout));
@@ -459,7 +413,9 @@ namespace psm::protocol::trojan
             }
 
             const auto target_host = to_string(parsed.destination_address, memory::current_resource());
-            const auto target_port = std::to_string(parsed.destination_port);
+            char port_buf[8];
+            const auto [port_end, port_ec] = std::to_chars(port_buf, port_buf + sizeof(port_buf), parsed.destination_port);
+            const std::string_view target_port(port_buf, std::distance(port_buf, port_end));
 
             auto [route_ec, target_ep] = co_await route_cb(target_host, target_port);
             if (fault::failed(route_ec))
@@ -471,7 +427,7 @@ namespace psm::protocol::trojan
             const auto payload = std::span<const std::byte>(buf.recv.data() + parsed.payload_offset, parsed.payload_size);
 
             auto [relay_ec, resp_n, sender_ep] = co_await relay_udp_packet(
-                next_layer_->executor(), target_ep, payload, buf);
+                udp_socket, target_ep, payload, buf);
             if (fault::failed(relay_ec))
             {
                 continue;

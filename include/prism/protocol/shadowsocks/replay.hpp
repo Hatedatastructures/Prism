@@ -52,15 +52,8 @@ namespace psm::protocol::shadowsocks
                 }
                 else
                 {
-                    // 部分移动：将 bitmap 左移
-                    for (std::size_t i = 0; i < window_size - shift; ++i)
-                    {
-                        bitmap_[i] = bitmap_[i + shift];
-                    }
-                    for (std::size_t i = window_size - shift; i < window_size; ++i)
-                    {
-                        bitmap_[i] = false;
-                    }
+                    // 部分移动：利用 std::bitset 移位操作符一次性完成
+                    bitmap_ >>= shift;
                 }
                 base_ = packet_id - (window_size - 1);
                 bitmap_.set(window_size - 1);

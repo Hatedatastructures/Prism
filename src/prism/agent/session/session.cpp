@@ -3,8 +3,8 @@
 #include <prism/pipeline/primitives.hpp>
 #include <prism/channel/transport/encrypted.hpp>
 #include <prism/protocol/analysis.hpp>
-#include <prism/protocol/reality/handshake.hpp>
-#include <prism/protocol/reality/config.hpp>
+#include <prism/stealth/reality/handshake.hpp>
+#include <prism/stealth/reality/config.hpp>
 
 namespace dispatch = psm::agent::dispatch;
 
@@ -169,10 +169,10 @@ namespace psm::agent::session
             // Reality 路径（如果配置了 Reality）
             if (ctx_.server.cfg.reality.enabled())
             {
-                auto result = co_await protocol::reality::handshake(ctx_, span);
+                auto result = co_await stealth::handshake(ctx_, span);
                 switch (result.type)
                 {
-                case protocol::reality::handshake_result_type::authenticated:
+                case stealth::handshake_result_type::authenticated:
                 {
                     // Reality 握手成功，设置加密传输层
                     ctx_.inbound = std::move(result.encrypted_transport);
@@ -184,7 +184,7 @@ namespace psm::agent::session
                     break;
                 }
 
-                case protocol::reality::handshake_result_type::not_reality:
+                case stealth::handshake_result_type::not_reality:
                     // 非 Reality TLS 客户端（SNI 不匹配），fall through 到标准 TLS
                     // ssl_handshake 会通过 span 参数正确缓存预读的 raw_tls_record 数据
                     span = std::span<const std::byte>(result.raw_tls_record.data(),
@@ -193,11 +193,11 @@ namespace psm::agent::session
                     trace::debug("[Session] [{}] Not Reality client, using standard TLS", id_);
                     break;
 
-                case protocol::reality::handshake_result_type::fallback:
+                case stealth::handshake_result_type::fallback:
                     // 已完成透明代理到 dest，会话结束
                     co_return;
 
-                case protocol::reality::handshake_result_type::failed:
+                case stealth::handshake_result_type::failed:
                     trace::warn("[Session] [{}] Reality handshake failed: {}",
                                 id_, fault::describe(result.error));
                     co_return;
@@ -291,7 +291,7 @@ namespace psm::agent::session
         trace::debug("[Session] [{}] Handler {} completed.", id_, handler->name());
     }
 
-    std::shared_ptr<session> make_session(session_params &&params) noexcept
+    std::shared_ptr<session> make_session(session_params &&params)
     {
         return std::make_shared<session>(std::move(params));
     }

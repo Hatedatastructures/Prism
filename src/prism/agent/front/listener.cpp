@@ -1,4 +1,5 @@
 #include <prism/agent/front/listener.hpp>
+#include <prism/trace.hpp>
 
 #include <array>
 
@@ -92,6 +93,25 @@ namespace psm::agent::front
             tcp::socket socket = co_await acceptor_.async_accept(net::redirect_error(net::use_awaitable, ec));
             if (ec)
             {
+                trace::warn("[Listener] accept error: {}", ec.message());
+
+                // 致命错误（文件描述符耗尽 / 内存不足）：指数退避，避免 CPU 空转
+                // Windows EMFILE 对应 WSAEMFILE (10024)，ENOMEM 对应 WSAENOBUFS (10055)
+                if (ec.value() == 10024 || ec.value() == 10055 ||
+                    ec == boost::system::errc::not_enough_memory)
+                {
+                    static constexpr std::chrono::milliseconds min_delay{10};
+                    static constexpr std::chrono::milliseconds max_delay{5120};
+                    static thread_local std::chrono::milliseconds delay = min_delay;
+
+                    timer.expires_after(delay);
+                    co_await timer.async_wait(net::use_awaitable);
+
+                    delay = std::min(delay * 2, max_delay);
+                    continue;
+                }
+
+                // 普通错误：短延迟后重试
                 timer.expires_after(std::chrono::milliseconds(10));
                 co_await timer.async_wait(net::use_awaitable);
                 continue;
@@ -111,11 +131,6 @@ namespace psm::agent::front
                 timer.expires_after(backpressure_delay_);
                 co_await timer.async_wait(net::use_awaitable);
             }
-
-            // TCP_NODELAY 禁用 Nagle 算法——代理场景下延迟敏感，不能等缓冲区填满再发
-            socket.set_option(tcp::no_delay(true));
-            socket.set_option(net::socket_base::receive_buffer_size(buffer_size_));
-            socket.set_option(net::socket_base::send_buffer_size(buffer_size_));
 
             // 将 socket 移交给选中的 Worker
             dispatcher_.dispatch(decision.worker_index, std::move(socket));

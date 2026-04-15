@@ -71,12 +71,12 @@ namespace psm::pipeline::primitives
     // - 否则 → 正向路由（DNS 解析 + TCP 连接，可能通过上游代理）
     //
     // require_open=true 时会验证连接确实已打开，防止返回无效连接。
-    auto dial(std::shared_ptr<resolve::router> router, std::string_view label,
+    auto dial(resolve::router &router, std::string_view label,
               const protocol::analysis::target &target, const bool allow_reverse, const bool require_open)
         -> net::awaitable<std::pair<fault::code, shared_transmission>>
     {
         // 拒绝 IPv6 地址字面量（仅在禁用 IPv6 时）
-        if (router->ipv6_disabled() && is_ipv6_literal(target.host))
+        if (router.ipv6_disabled() && is_ipv6_literal(target.host))
         {
             trace::debug("{} {} rejecting IPv6 literal: {}:{}", DialStr, label, target.host, target.port);
             co_return std::make_pair(fault::code::ipv6_disabled, nullptr);
@@ -88,14 +88,14 @@ namespace psm::pipeline::primitives
         if (allow_reverse && !target.positive)
         {
             // 反向代理：域名 → 预配置的后端地址
-            auto result = co_await router->async_reverse(target.host);
+            auto result = co_await router.async_reverse(target.host);
             ec = result.first;
             conn = std::move(result.second);
         }
         else
         {
             // 正向代理：域名 → DNS 解析 → TCP 连接（可能通过上游代理）
-            auto result = co_await router->async_forward(target.host, target.port);
+            auto result = co_await router.async_forward(target.host, target.port);
             ec = result.first;
             conn = std::move(result.second);
         }

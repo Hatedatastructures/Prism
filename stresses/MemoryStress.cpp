@@ -144,8 +144,9 @@ namespace
 
     /**
      * @brief 运行内存压力测试
+     * @return 总统计结果
      */
-    void StressTest(const StressContext &context)
+    auto StressTest(const StressContext &context) -> ThreadStats
     {
         std::cout << std::format(">>> Prism 内存压力测试工具 <<<\n");
 
@@ -220,6 +221,8 @@ namespace
         std::cout << std::format("{:<12}{} MB (线程峰值之和)\n", "峰值内存:", (total_stats.peak_memory / 1024 / 1024));
         std::cout << std::format("{:<12}{}\n", "OOM 错误:", (total_stats.oom_error ? "是" : "否"));
         std::cout << "================================================" << std::endl;
+
+        return total_stats;
     }
 }
 
@@ -237,6 +240,19 @@ int main(const int argc, char **argv)
     config.max_memory_gb = 2;
 
     StressContext context = BuildStressContext(config);
-    StressTest(context);
+    auto stats = StressTest(context);
+
+    // 阈值检查
+    if (stats.oom_error)
+    {
+        std::cerr << "FAIL: OOM error detected during stress test\n";
+        return 1;
+    }
+    if (stats.ops == 0)
+    {
+        std::cerr << "FAIL: no operations completed (0 ops)\n";
+        return 1;
+    }
+
     return 0;
 }

@@ -20,8 +20,14 @@ namespace psm::crypto
         std::array<std::uint8_t, SHA256_LEN> result{};
 
         unsigned int mac_len = 0;
-        HMAC(EVP_sha256(), key.data(), static_cast<int>(key.size()),
+        const auto *ret = HMAC(EVP_sha256(), key.data(), static_cast<int>(key.size()),
              data.data(), data.size(), result.data(), &mac_len);
+
+        if (!ret)
+        {
+            trace::error("{} HMAC-SHA256 computation failed", HkdfTag);
+            result.fill(0);
+        }
 
         return result;
     }
@@ -35,8 +41,14 @@ namespace psm::crypto
         std::array<std::uint8_t, SHA512_LEN> result{};
 
         unsigned int mac_len = 0;
-        HMAC(EVP_sha512(), key.data(), static_cast<int>(key.size()),
+        const auto *ret = HMAC(EVP_sha512(), key.data(), static_cast<int>(key.size()),
              data.data(), data.size(), result.data(), &mac_len);
+
+        if (!ret)
+        {
+            trace::error("{} HMAC-SHA512 computation failed", HkdfTag);
+            result.fill(0);
+        }
 
         return result;
     }
@@ -96,7 +108,7 @@ namespace psm::crypto
         {
             // 构造 HMAC 输入: T(i-1) || info || counter（栈缓冲，最大 ~289 字节）
             constexpr std::size_t max_hmac_input_size = SHA256_LEN + 256 + 1;
-            std::array<std::uint8_t, max_hmac_input_size> hmac_buf{};
+            std::array<std::uint8_t, max_hmac_input_size> hmac_buf;
             const auto hmac_size = t_size + info.size() + 1;
             if (t_size > 0)
             {
@@ -158,7 +170,7 @@ namespace psm::crypto
         // 组装 HkdfLabel 结构体（栈缓冲）：
         // Length(2) || LabelLen(1) || Label(N) || ContextLen(1) || Context(N)
         constexpr std::size_t max_hkdf_label_size = 2 + 1 + 255 + 1 + 255;
-        std::array<std::uint8_t, max_hkdf_label_size> label_buf{};
+        std::array<std::uint8_t, max_hkdf_label_size> label_buf;
         std::size_t pos = 0;
 
         // Length: 2 字节大端序
@@ -213,8 +225,12 @@ namespace psm::crypto
             return hash;
         }
 
-        EVP_DigestUpdate(ctx, data1.data(), data1.size());
-        EVP_DigestUpdate(ctx, data2.data(), data2.size());
+        if (EVP_DigestUpdate(ctx, data1.data(), data1.size()) != 1 ||
+            EVP_DigestUpdate(ctx, data2.data(), data2.size()) != 1)
+        {
+            EVP_MD_CTX_free(ctx);
+            return hash;
+        }
 
         unsigned int hash_len = 0;
         EVP_DigestFinal_ex(ctx, hash.data(), &hash_len);
@@ -244,9 +260,13 @@ namespace psm::crypto
             return hash;
         }
 
-        EVP_DigestUpdate(ctx, data1.data(), data1.size());
-        EVP_DigestUpdate(ctx, data2.data(), data2.size());
-        EVP_DigestUpdate(ctx, data3.data(), data3.size());
+        if (EVP_DigestUpdate(ctx, data1.data(), data1.size()) != 1 ||
+            EVP_DigestUpdate(ctx, data2.data(), data2.size()) != 1 ||
+            EVP_DigestUpdate(ctx, data3.data(), data3.size()) != 1)
+        {
+            EVP_MD_CTX_free(ctx);
+            return hash;
+        }
 
         unsigned int hash_len = 0;
         EVP_DigestFinal_ex(ctx, hash.data(), &hash_len);

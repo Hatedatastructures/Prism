@@ -13,11 +13,7 @@ namespace psm::pipeline
         ctx.frame_arena.reset();
 
         // 包装入站传输（如有预读数据则用 preview 装饰器重放）
-        auto inbound = std::move(ctx.inbound);
-        if (!data.empty())
-        {
-            inbound = std::make_shared<primitives::preview>(std::move(inbound), data, ctx.frame_arena.get());
-        }
+        auto inbound = primitives::wrap_with_preview(ctx, data);
 
         // 创建 HTTP 中继并握手（读取请求头 + 解析 + 认证）
         auto relay = protocol::http::make_relay(std::move(inbound), ctx.account_directory_ptr);
@@ -33,8 +29,7 @@ namespace psm::pipeline
         trace::info("{} {} {} -> {}:{}", HttpStr, req.method, req.target, target.host, target.port);
 
         // 连接目标服务器
-        auto router_ptr = std::shared_ptr<resolve::router>(&ctx.worker.router, [](resolve::router *) {});
-        auto [fst, snd] = co_await primitives::dial(router_ptr, "HTTP", target, true, false);
+        auto [fst, snd] = co_await primitives::dial(ctx.worker.router, "HTTP", target, true, false);
         if (fault::failed(fst) || !snd)
         {
             trace::warn("{} dial failed: {}:{}", HttpStr, target.host, target.port);

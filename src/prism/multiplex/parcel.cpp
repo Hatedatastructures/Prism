@@ -3,6 +3,7 @@
 #include <prism/multiplex/smux/frame.hpp>
 #include <prism/resolve/router.hpp>
 #include <prism/trace.hpp>
+#include <charconv>
 
 #include <boost/asio/co_spawn.hpp>
 
@@ -119,6 +120,13 @@ namespace psm::multiplex
         // 累积到缓冲区
         mux_buffer_.insert(mux_buffer_.end(), data.begin(), data.end());
 
+        // 缓冲区超过最大数据报大小时关闭管道，防止内存持续膨胀
+        if (mux_buffer_.size() > udp_max_datagram_)
+        {
+            close();
+            co_return;
+        }
+
         // 如果没有处理循环在运行，启动一个
         if (!processing_.exchange(true))
         {
@@ -215,8 +223,10 @@ namespace psm::multiplex
                          std::span<const std::byte> payload) -> net::awaitable<void>
     {
         // 通过路由器解析目标端点
+        char port_buf[8];
+        const auto [port_end, port_ec] = std::to_chars(port_buf, port_buf + sizeof(port_buf), target_port);
         const auto [code, target_ep] = co_await router_.resolve_datagram_target(
-            target_host, std::to_string(target_port));
+            target_host, std::string_view(port_buf, port_end - port_buf));
         if (code != fault::code::success)
         {
             co_return;

@@ -1,28 +1,24 @@
-#include <prism/protocol/reality/auth.hpp>
+#include <prism/stealth/reality/auth.hpp>
 #include <prism/crypto/hkdf.hpp>
 #include <prism/crypto/aead.hpp>
 #include <prism/trace.hpp>
 #include <algorithm>
 #include <cstring>
 
-namespace psm::protocol::reality
+namespace psm::stealth
 {
-    constexpr std::string_view AuthTag = "[Reality.Auth]";
+    constexpr std::string_view AuthTag = "[Stealth.Auth]";
 
     auto match_server_name(const std::string_view sni, const memory::vector<memory::string> &server_names)
         -> bool
     {
         if (sni.empty())
-        {
             return false;
-        }
 
         for (const auto &name : server_names)
         {
             if (name == sni)
-            {
                 return true;
-            }
         }
         return false;
     }
@@ -32,25 +28,16 @@ namespace psm::protocol::reality
     {
         for (const auto &allowed : allowed_short_ids)
         {
-            // 空字符串表示接受任意 short_id
             if (allowed.empty())
-            {
                 return true;
-            }
 
-            // 将 hex 编码的 allowed 转为字节进行比较
             if (allowed.size() % 2 != 0)
-            {
                 continue;
-            }
 
             const auto allowed_bytes = hex_to_bytes(allowed);
             if (allowed_bytes.empty())
-            {
                 continue;
-            }
 
-            // short_id 长度以 allowed_bytes 为准进行前缀比较
             if (short_id.size() >= allowed_bytes.size() &&
                 std::equal(allowed_bytes.begin(), allowed_bytes.end(), short_id.begin()))
             {
@@ -67,8 +54,6 @@ namespace psm::protocol::reality
         auth_result result{};
 
         // Step 1: 检查 SNI
-        // SNI 非空但不匹配 → 确定不是 Reality 客户端
-        // SNI 为空 → 无法判断（IP 地址连接不发 SNI），继续后续认证来确认
         if (!client_hello.server_name.empty() &&
             !match_server_name(client_hello.server_name, cfg.server_names))
         {
@@ -106,7 +91,7 @@ namespace psm::protocol::reality
             return {fault::code::reality_auth_failed, result};
         }
 
-        // Step 5: X25519 密钥交换（服务端私钥 × 客户端 key_share 公钥）
+        // Step 5: X25519 密钥交换
         auto [ec, shared_secret] = crypto::x25519(decoded_private_key, client_hello.client_public_key);
         if (fault::failed(ec))
         {
@@ -114,7 +99,7 @@ namespace psm::protocol::reality
             return {fault::code::reality_key_exchange_failed, result};
         }
 
-        // Step 6: 检查共享密钥是否为全零（低阶点攻击）
+        // Step 6: 检查共享密钥是否为全零
         bool all_zero = true;
         for (const auto byte : shared_secret)
         {
@@ -131,7 +116,6 @@ namespace psm::protocol::reality
         }
 
         // Step 7: HKDF 派生认证密钥
-        // PRK = HMAC-SHA256(salt=Random[:20], IKM=shared_secret)
         const auto prk = crypto::hkdf_extract(
             std::span<const std::uint8_t>(client_hello.random.data(), 20),
             std::span<const std::uint8_t>(shared_secret.data(), shared_secret.size()));
@@ -149,11 +133,7 @@ namespace psm::protocol::reality
             return {fault::code::reality_auth_failed, result};
         }
 
-        trace::debug("{} HKDF derived auth_key ({} bytes)", AuthTag, auth_key_vec.size());
-
-        // Step 8: 构造 AAD = raw_message，session_id 区域清零
-        // handshake 消息格式：type(1)+len(3)+version(2)+random(32)+sid_len(1)+session_id(32)
-        // session_id 起始偏移 = 1+3+2+32+1 = 39
+        // Step 8: 构造 AAD
         constexpr std::size_t sid_offset = 39;
         memory::vector<std::uint8_t> aad(client_hello.raw_message.begin(), client_hello.raw_message.end());
         if (aad.size() >= sid_offset + tls::SESSION_ID_MAX_LEN)
@@ -162,9 +142,6 @@ namespace psm::protocol::reality
         }
 
         // Step 9: AES-256-GCM 解密 session_id
-        // ciphertext = session_id[0:32]（16 字节密文 + 16 字节 GCM tag）
-        // nonce = Random[20:32]（12 字节）
-        // plaintext output = 16 字节
         crypto::aead_context aead(crypto::aead_cipher::aes_256_gcm,
                                   std::span<const std::uint8_t>(auth_key_vec.data(), auth_key_vec.size()));
 
@@ -184,18 +161,14 @@ namespace psm::protocol::reality
             return {fault::code::reality_auth_failed, result};
         }
 
-        trace::debug("{} session_id decrypted: [{:02x} {:02x} {:02x} ...]",
-                     AuthTag, decrypted_sid[0], decrypted_sid[1], decrypted_sid[2]);
-
-        // Step 10: 验证解密后的格式标记
-        // mihomo 客户端写入: [0]=0x01, [1]=0x08, [2]=0x02
+        // Step 10: 验证格式标记
         if (decrypted_sid[0] != 0x01)
         {
             trace::debug("{} invalid version marker: 0x{:02x}", AuthTag, decrypted_sid[0]);
             return {fault::code::reality_auth_failed, result};
         }
 
-        // Step 11: 从解密后的 session_id[8:16] 提取 short_id 并验证
+        // Step 11: 验证 short_id
         const std::span<const std::uint8_t> client_short_id(decrypted_sid.data() + 8, 8);
         if (!match_short_id(client_short_id, cfg.short_ids))
         {
@@ -216,9 +189,7 @@ namespace psm::protocol::reality
     auto hex_to_bytes(const std::string_view hex) -> memory::vector<std::uint8_t>
     {
         if (hex.empty())
-        {
             return {};
-        }
 
         memory::vector<std::uint8_t> bytes;
         bytes.reserve(hex.size() / 2);
@@ -228,9 +199,7 @@ namespace psm::protocol::reality
             const auto hi = hex_digit(hex[i]);
             const auto lo = hex_digit(hex[i + 1]);
             if (hi < 0 || lo < 0)
-            {
                 return {};
-            }
             bytes.push_back(static_cast<std::uint8_t>((hi << 4) | lo));
         }
         return bytes;
@@ -239,17 +208,11 @@ namespace psm::protocol::reality
     auto hex_digit(const char c) -> int
     {
         if (c >= '0' && c <= '9')
-        {
             return c - '0';
-        }
         if (c >= 'a' && c <= 'f')
-        {
             return c - 'a' + 10;
-        }
         if (c >= 'A' && c <= 'F')
-        {
             return c - 'A' + 10;
-        }
         return -1;
     }
-} // namespace psm::protocol::reality
+} // namespace psm::stealth

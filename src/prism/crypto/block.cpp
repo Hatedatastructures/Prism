@@ -20,13 +20,26 @@ namespace psm::crypto
         }
 
         EVP_CIPHER_CTX *ctx = EVP_CIPHER_CTX_new();
-        EVP_EncryptInit_ex(ctx, cipher, nullptr, key.data(), nullptr);
+        if (!ctx)
+        {
+            return out;
+        }
+
+        if (EVP_EncryptInit_ex(ctx, cipher, nullptr, key.data(), nullptr) != 1)
+        {
+            EVP_CIPHER_CTX_free(ctx);
+            return out;
+        }
 
         // 禁用填充（输入已是完整块）
         EVP_CIPHER_CTX_set_padding(ctx, 0);
 
         int out_len = 0;
-        EVP_EncryptUpdate(ctx, out.data(), &out_len, input.data(), 16);
+        if (EVP_EncryptUpdate(ctx, out.data(), &out_len, input.data(), 16) != 1)
+        {
+            EVP_CIPHER_CTX_free(ctx);
+            return out;
+        }
         EVP_EncryptFinal_ex(ctx, out.data() + out_len, &out_len);
 
         EVP_CIPHER_CTX_free(ctx);
@@ -49,13 +62,26 @@ namespace psm::crypto
         }
 
         EVP_CIPHER_CTX *ctx = EVP_CIPHER_CTX_new();
-        EVP_DecryptInit_ex(ctx, cipher, nullptr, key.data(), nullptr);
+        if (!ctx)
+        {
+            return out;
+        }
+
+        if (EVP_DecryptInit_ex(ctx, cipher, nullptr, key.data(), nullptr) != 1)
+        {
+            EVP_CIPHER_CTX_free(ctx);
+            return out;
+        }
 
         // 禁用填充
         EVP_CIPHER_CTX_set_padding(ctx, 0);
 
         int out_len = 0;
-        EVP_DecryptUpdate(ctx, out.data(), &out_len, input.data(), 16);
+        if (EVP_DecryptUpdate(ctx, out.data(), &out_len, input.data(), 16) != 1)
+        {
+            EVP_CIPHER_CTX_free(ctx);
+            return out;
+        }
         EVP_DecryptFinal_ex(ctx, out.data() + out_len, &out_len);
 
         EVP_CIPHER_CTX_free(ctx);

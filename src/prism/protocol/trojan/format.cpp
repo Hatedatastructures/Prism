@@ -1,6 +1,5 @@
 #include <prism/protocol/trojan/format.hpp>
 #include <cstring>
-#include <cctype>
 
 namespace psm::protocol::trojan::format
 {
@@ -16,7 +15,8 @@ namespace psm::protocol::trojan::format
         std::array<char, 56> credential{};
         for (size_t i = 0; i < 56; ++i)
         {
-            if (!std::isxdigit(buffer[i]))
+            const auto c = static_cast<unsigned char>(buffer[i]);
+            if (!((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F')))
             {
                 return {fault::code::protocol_error, {}};
             }
@@ -110,6 +110,9 @@ namespace psm::protocol::trojan::format
                            memory::vector<std::byte> &out)
         -> fault::code
     {
+        // 预分配：最大地址长度(1+16) + port(2) + length(2) + CRLF(2) + payload
+        out.reserve(out.size() + 23 + payload.size());
+
         // 写入 SOCKS5 地址 (ATYP + ADDR + PORT)
         std::visit([&out]<typename Address>(const Address &addr)
                    {

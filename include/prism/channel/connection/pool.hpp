@@ -312,13 +312,13 @@ namespace psm::channel
         // start() 是否已调用
         bool started_{false};
 
-        // 统计计数器
-        mutable std::atomic<std::size_t> stat_acquires_{0};  // 总获取次数
-        mutable std::atomic<std::size_t> stat_hits_{0};      // 缓存命中次数
-        mutable std::atomic<std::size_t> stat_creates_{0};   // 新建连接次数
-        mutable std::atomic<std::size_t> stat_recycles_{0};  // 归还次数
-        mutable std::atomic<std::size_t> stat_evictions_{0}; // 驱逐次数（容量满/不健康/过期）
-        mutable std::atomic<std::size_t> stat_idle_{0};      // 当前空闲连接数
-        mutable std::atomic<std::size_t> stat_endpoints_{0}; // 有缓存的端点数
+        // 统计计数器（thread-local 池，无需原子操作）
+        mutable std::size_t stat_acquires_{0};  // 总获取次数
+        mutable std::size_t stat_hits_{0};      // 缓存命中次数
+        mutable std::size_t stat_creates_{0};   // 新建连接次数
+        mutable std::size_t stat_recycles_{0};  // 归还次数
+        mutable std::size_t stat_evictions_{0}; // 驱逐次数（容量满/不健康/过期）
+        mutable std::size_t stat_idle_{0};      // 当前空闲连接数
+        mutable std::size_t stat_endpoints_{0}; // 有缓存的端点数
     };
 }

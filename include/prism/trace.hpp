@@ -5,8 +5,7 @@
  *
  * 模块组成：
  * @details - config.hpp：日志系统配置，定义输出目标、格式、级别和性能调优选项；
- * @details - spdlog.hpp：高性能异步日志接口，封装 spdlog 库提供统一的日志记录 API；
- * @details - monitor.hpp：已弃用的协程日志系统，保留作为参考实现。
+ * @details - spdlog.hpp：高性能异步日志接口，封装 spdlog 库提供统一的日志记录 API。
  *
  * 设计原理：
  * @details - 性能优先：使用异步日志记录，避免 I/O 操作阻塞业务线程；
@@ -27,4 +26,3 @@
 
 #include <prism/trace/config.hpp>
 #include <prism/trace/spdlog.hpp>
-#include <prism/trace/monitor.hpp>

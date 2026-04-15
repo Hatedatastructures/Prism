@@ -3,6 +3,7 @@
 #include <prism/multiplex/bootstrap.hpp>
 #include <prism/agent/account/directory.hpp>
 #include <prism/memory/container.hpp>
+#include <charconv>
 #include <string_view>
 
 constexpr std::string_view VlessStr = "[Pipeline.Vless]";
@@ -15,11 +16,7 @@ namespace psm::pipeline
         -> net::awaitable<void>
     {
         // 包装传输层（data 通过 preview 重放）
-        auto inbound = std::move(ctx.inbound);
-        if (!data.empty())
-        {
-            inbound = std::make_shared<primitives::preview>(std::move(inbound), data, nullptr);
-        }
+        auto inbound = primitives::wrap_with_preview(ctx, data, true);
 
         // 创建 UUID 验证回调，通过 account::directory 统一认证和连接数限制
         auto verifier = [&ctx](const std::string_view credential) -> bool
@@ -58,7 +55,9 @@ namespace psm::pipeline
             // 解析目标地址
             protocol::analysis::target target(ctx.frame_arena.get());
             target.host = protocol::vless::to_string(req.destination_address, ctx.frame_arena.get());
-            target.port = std::to_string(static_cast<unsigned int>(req.port));
+            char port_buf[8];
+            const auto [pe, pec] = std::to_chars(port_buf, port_buf + sizeof(port_buf), static_cast<unsigned int>(req.port));
+            target.port.assign(port_buf, std::distance(port_buf, pe));
 
             // Mihomo smux 兼容：客户端用 mux 命令或虚假地址标记多路复用连接
             if (ctx.server.cfg.mux.enabled && target.host.size() >= 18 && target.host.substr(target.host.size() - 18) == ".mux.sing-box.arpa")
@@ -78,8 +77,7 @@ namespace psm::pipeline
             trace::info("{} CONNECT -> {}:{}", VlessStr, target.host, target.port);
 
             // 通过路由器建立到目标的连接
-            const std::shared_ptr<resolve::router> router_ptr(&ctx.worker.router, [](resolve::router *) {});
-            auto [dial_ec, outbound] = co_await primitives::dial(router_ptr, "Vless", target, true, true);
+            auto [dial_ec, outbound] = co_await primitives::dial(ctx.worker.router, "Vless", target, true, true);
             if (fault::failed(dial_ec) || !outbound)
             {
                 if (dial_ec == fault::code::ipv6_disabled)

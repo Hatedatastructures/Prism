@@ -385,7 +385,7 @@ static void BM_YamuxBuildGoAwayFrame(benchmark::State &state)
 
 static void BM_MuxFrameDecode_Smux(benchmark::State &state)
 {
-    // 构造包含指定 payload 大小的 smux 帧
+    // 测试不同 payload_size 下帧头解析延迟是否稳定（不应随 payload 变化）
     const auto payload_size = static_cast<std::uint16_t>(state.range(0));
     std::array<std::byte, 8> frame{};
     frame[0] = std::byte{0x01};                             // version
@@ -402,7 +402,8 @@ static void BM_MuxFrameDecode_Smux(benchmark::State &state)
         auto hdr = multiplex::smux::deserialization(frame);
         benchmark::DoNotOptimize(hdr);
     }
-    state.SetBytesProcessed(int64_t(state.iterations()) * int64_t(8 + payload_size));
+    // deserialization 只解析 8 字节帧头，不碰 payload，因此只计入帧头大小
+    state.SetBytesProcessed(int64_t(state.iterations()) * int64_t(multiplex::smux::frame_header_size));
 }
 
 static void BM_MuxFrameDecode_Yamux(benchmark::State &state)
@@ -427,7 +428,8 @@ static void BM_MuxFrameDecode_Yamux(benchmark::State &state)
         auto hdr = multiplex::yamux::parse_header(frame);
         benchmark::DoNotOptimize(hdr);
     }
-    state.SetBytesProcessed(int64_t(state.iterations()) * int64_t(12 + payload_size));
+    // parse_header 只解析 12 字节帧头，不碰 payload，因此只计入帧头大小
+    state.SetBytesProcessed(int64_t(state.iterations()) * int64_t(multiplex::yamux::frame_header_size));
 }
 
 // ============================================================

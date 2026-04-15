@@ -3,6 +3,7 @@
 #include <filesystem>
 #include <mutex>
 #include <shared_mutex>
+#include <atomic>
 #include <vector>
 
 #include <prism/trace/spdlog.hpp>
@@ -18,6 +19,7 @@ namespace psm::trace
         std::shared_mutex trace_mutex;
         config last_config{};
         std::shared_ptr<spdlog::logger> shared_system_logger;
+        std::atomic<spdlog::logger *> atomic_logger_ptr{nullptr};
 
         [[nodiscard]] auto parse_spdlog_level(const std::string_view level_str) noexcept
             -> spdlog::level::level_enum
@@ -75,8 +77,15 @@ namespace psm::trace
     auto recorder() noexcept
         -> std::shared_ptr<spdlog::logger>
     {
-        std::shared_lock lock(trace_mutex);
-        return shared_system_logger;
+        // 使用 atomic load 替代 shared_mutex，减少热路径锁开销
+        // logger 指针仅在 init/shutdown 时变更（极少操作）
+        auto *ptr = atomic_logger_ptr.load(std::memory_order_acquire);
+        if (!ptr)
+        {
+            return nullptr;
+        }
+        // 通过 spdlog::default_logger_raw 获取 managed shared_ptr
+        return spdlog::default_logger();
     }
 
     void init(const config &cfg)
@@ -142,6 +151,7 @@ namespace psm::trace
         spdlog::set_default_logger(logger);
         spdlog::set_level(log_level);
         shared_system_logger = std::move(logger);
+        atomic_logger_ptr.store(shared_system_logger.get(), std::memory_order_release);
     }
 
     void shutdown()
@@ -151,6 +161,7 @@ namespace psm::trace
 
         {
             std::unique_lock lock(trace_mutex);
+            atomic_logger_ptr.store(nullptr, std::memory_order_release);
             logger = std::move(shared_system_logger);
             trace_name = last_config.trace_name;
             shared_system_logger.reset();

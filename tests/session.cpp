@@ -20,6 +20,8 @@
 #include <prism/memory.hpp>
 #include <prism/trace/spdlog.hpp>
 
+#include "common/test_runner.hpp"
+
 #include <array>
 #include <atomic>
 #include <chrono>
@@ -39,40 +41,7 @@ namespace agent = psm::agent;
 
 namespace
 {
-    int passed = 0;
-    int failed = 0;
-
-    /**
-     * @brief 输出信息级别日志
-     * @param msg 日志消息
-     */
-    void log_info(const std::string_view msg)
-    {
-        // 通过 spdlog 后端输出信息级别日志
-        psm::trace::info("[Session] {}", msg);
-    }
-
-    /**
-     * @brief 记录测试通过并递增计数器
-     * @param msg 测试名称
-     */
-    void log_pass(const std::string_view msg)
-    {
-        // 递增通过计数器并记录日志
-        ++passed;
-        psm::trace::info("[Session] PASS: {}", msg);
-    }
-
-    /**
-     * @brief 记录测试失败并递增计数器
-     * @param msg 失败原因
-     */
-    void log_fail(const std::string_view msg)
-    {
-        // 递增失败计数器并记录错误日志
-        ++failed;
-        psm::trace::error("[Session] FAIL: {}", msg);
-    }
+    psm::testing::test_runner runner("Session");
 } // namespace
 
 // ============================================================
@@ -270,7 +239,7 @@ net::awaitable<void> ProxyConnectClientEcho(const tcp::endpoint proxy_ep, const 
     tcp::socket socket(co_await net::this_coro::executor);
     // 连接到代理服务器
     co_await socket.async_connect(proxy_ep, net::use_awaitable);
-    log_info(std::format("{} client: connected to proxy", tag));
+    runner.log_info(std::format("{} client: connected to proxy", tag));
 
     // 构造 HTTP CONNECT 请求，请求代理建立到回显服务器的隧道
     const std::string connect_request = std::format("CONNECT {}:{} HTTP/1.1\r\nHost: {}:{}\r\n\r\n",
@@ -279,11 +248,11 @@ net::awaitable<void> ProxyConnectClientEcho(const tcp::endpoint proxy_ep, const 
 
     // 发送 CONNECT 请求
     co_await net::async_write(socket, net::buffer(connect_request), net::use_awaitable);
-    log_info(std::format("{} client: sent CONNECT", tag));
+    runner.log_info(std::format("{} client: sent CONNECT", tag));
 
     // 读取并验证代理返回的 CONNECT 响应
     const std::string response = co_await ReadProxyConnectResponse(socket);
-    log_info(std::format("{} client: CONNECT response `{}`", tag, response.substr(0, response.find("\r\n"))));
+    runner.log_info(std::format("{} client: CONNECT response `{}`", tag, response.substr(0, response.find("\r\n"))));
 
     // 通过隧道发送固定载荷
     const std::string payload = "hello_forward_engine";
@@ -304,7 +273,7 @@ net::awaitable<void> ProxyConnectClientEcho(const tcp::endpoint proxy_ep, const 
         throw psm::exception::network("echo mismatch");
     }
 
-    log_info(std::format("{} client: echo verified", tag));
+    runner.log_info(std::format("{} client: echo verified", tag));
 
     // 双向关闭连接，忽略可能的错误（对端可能已关闭）
     boost::system::error_code ec;
@@ -409,7 +378,7 @@ net::awaitable<void> ProxyConnectClientExpectClose(const tcp::endpoint proxy_ep,
     // 创建 socket 并连接到代理
     tcp::socket socket(co_await net::this_coro::executor);
     co_await socket.async_connect(proxy_ep, net::use_awaitable);
-    log_info(std::format("{} client: connected, waiting for proxy close", tag));
+    runner.log_info(std::format("{} client: connected, waiting for proxy close", tag));
 
     // 构造 CONNECT 请求，建立到上游的隧道
     const std::string connect_request = std::format("CONNECT {}:{} HTTP/1.1\r\nHost: {}:{}\r\n\r\n",
@@ -420,7 +389,7 @@ net::awaitable<void> ProxyConnectClientExpectClose(const tcp::endpoint proxy_ep,
 
     // 等待代理返回 200 确认隧道建立
     const std::string response = co_await ReadProxyConnectResponse(socket);
-    log_info(std::format("{} client: CONNECT response `{}`", tag, response.substr(0, response.find("\r\n"))));
+    runner.log_info(std::format("{} client: CONNECT response `{}`", tag, response.substr(0, response.find("\r\n"))));
 
     // 设置 1500ms 超时取消信号，防止代理永不关闭导致测试悬挂
     auto timeout_signal = std::make_shared<net::cancellation_signal>();
@@ -446,7 +415,7 @@ net::awaitable<void> ProxyConnectClientExpectClose(const tcp::endpoint proxy_ep,
         throw psm::exception::network("expected close but received data");
     }
 
-    log_info(std::format("{} client: detected proxy close", tag));
+    runner.log_info(std::format("{} client: detected proxy close", tag));
 
     // 清理连接
     boost::system::error_code close_ec;
@@ -468,7 +437,7 @@ net::awaitable<void> ProxyConnectClientThenClose(const tcp::endpoint proxy_ep, c
     // 创建 socket 并连接到代理
     tcp::socket socket(co_await net::this_coro::executor);
     co_await socket.async_connect(proxy_ep, net::use_awaitable);
-    log_info(std::format("{} client: connected, will close actively", tag));
+    runner.log_info(std::format("{} client: connected, will close actively", tag));
 
     // 构造 CONNECT 请求，建立到上游的隧道
     const std::string connect_request = std::format("CONNECT {}:{} HTTP/1.1\r\nHost: {}:{}\r\n\r\n",
@@ -479,14 +448,14 @@ net::awaitable<void> ProxyConnectClientThenClose(const tcp::endpoint proxy_ep, c
 
     // 等待代理确认隧道建立
     const std::string response = co_await ReadProxyConnectResponse(socket);
-    log_info(std::format("{} client: CONNECT response `{}`", tag, response.substr(0, response.find("\r\n"))));
+    runner.log_info(std::format("{} client: CONNECT response `{}`", tag, response.substr(0, response.find("\r\n"))));
 
     // 隧道建立后立即主动关闭，模拟客户端断开场景
     boost::system::error_code ec;
     socket.shutdown(tcp::socket::shutdown_both, ec);
     socket.close(ec);
 
-    log_info(std::format("{} client: closed", tag));
+    runner.log_info(std::format("{} client: closed", tag));
 }
 
 // ============================================================
@@ -502,7 +471,7 @@ net::awaitable<void> ProxyConnectClientThenClose(const tcp::endpoint proxy_ep, c
  */
 net::awaitable<void> TestSessionEcho(agent::server_context &server_ctx, agent::worker_context &worker_ctx)
 {
-    log_info("=== TestSessionEcho ===");
+    runner.log_info("=== TestSessionEcho ===");
 
     try
     {
@@ -522,11 +491,11 @@ net::awaitable<void> TestSessionEcho(agent::server_context &server_ctx, agent::w
         // 以客户端身份通过代理发送数据并验证回显
         co_await ProxyConnectClientEcho(proxy_ep, echo_ep, "echo");
 
-        log_pass("SessionEcho");
+        runner.log_pass("SessionEcho");
     }
     catch (const std::exception &e)
     {
-        log_fail(std::format("SessionEcho: {}", e.what()));
+        runner.log_fail(std::format("SessionEcho: {}", e.what()));
     }
 }
 
@@ -539,7 +508,7 @@ net::awaitable<void> TestSessionEcho(agent::server_context &server_ctx, agent::w
  */
 net::awaitable<void> TestSessionUpstreamClose(agent::server_context &server_ctx, agent::worker_context &worker_ctx)
 {
-    log_info("=== TestSessionUpstreamClose ===");
+    runner.log_info("=== TestSessionUpstreamClose ===");
 
     try
     {
@@ -559,11 +528,11 @@ net::awaitable<void> TestSessionUpstreamClose(agent::server_context &server_ctx,
         // 客户端等待代理因上游关闭而断开连接
         co_await ProxyConnectClientExpectClose(proxy_ep, upstream_ep, "upstream_close");
 
-        log_pass("SessionUpstreamClose");
+        runner.log_pass("SessionUpstreamClose");
     }
     catch (const std::exception &e)
     {
-        log_fail(std::format("SessionUpstreamClose: {}", e.what()));
+        runner.log_fail(std::format("SessionUpstreamClose: {}", e.what()));
     }
 }
 
@@ -576,7 +545,7 @@ net::awaitable<void> TestSessionUpstreamClose(agent::server_context &server_ctx,
  */
 net::awaitable<void> TestSessionClientClose(agent::server_context &server_ctx, agent::worker_context &worker_ctx)
 {
-    log_info("=== TestSessionClientClose ===");
+    runner.log_info("=== TestSessionClientClose ===");
 
     try
     {
@@ -603,11 +572,11 @@ net::awaitable<void> TestSessionClientClose(agent::server_context &server_ctx, a
         // 轮询等待上游检测到对端关闭，验证关闭信号正确传播
         co_await WaitUntilTrue(upstream_closed, timeout);
 
-        log_pass("SessionClientClose");
+        runner.log_pass("SessionClientClose");
     }
     catch (const std::exception &e)
     {
-        log_fail(std::format("SessionClientClose: {}", e.what()));
+        runner.log_fail(std::format("SessionClientClose: {}", e.what()));
     }
 }
 
@@ -710,8 +679,7 @@ int main()
         }
 
         // 输出测试结果汇总
-        psm::trace::info("[Session] Results: {} passed, {} failed", passed, failed);
-        psm::trace::shutdown();
+        return runner.summary();
     }
     catch (const std::exception &e)
     {
@@ -719,7 +687,4 @@ int main()
         psm::trace::error("[Session] fatal: {}", e.what());
         return 1;
     }
-
-    // 根据失败数返回退出码：0 全部通过，1 存在失败
-    return failed > 0 ? 1 : 0;
 }

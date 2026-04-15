@@ -1,6 +1,6 @@
 /**
  * @file constants.hpp
- * @brief Reality 协议 TLS 常量定义
+ * @brief Stealth 模块 TLS 常量定义
  * @details 定义 TLS 1.3 记录层和握手协议的常量，用于 ClientHello 解析、
  * ServerHello 生成和加密记录处理。这些常量遵循 RFC 8446 (TLS 1.3)
  * 和 RFC 5246 (TLS 1.2) 的定义。
@@ -9,8 +9,9 @@
 #pragma once
 
 #include <cstdint>
+#include <prism/memory/container.hpp>
 
-namespace psm::protocol::reality::tls
+namespace psm::stealth::tls
 {
     // ========================================================================
     // TLS 记录层
@@ -113,4 +114,26 @@ namespace psm::protocol::reality::tls
 
     /// Ed25519 签名算法
     constexpr std::uint16_t SIGNATURE_SCHEME_ED25519 = 0x0807;
-} // namespace psm::protocol::reality::tls
+
+    // ========================================================================
+    // TLS 记录层写入工具
+    // ========================================================================
+
+    inline auto write_u8(memory::vector<std::uint8_t> &buf, std::uint8_t val) -> void
+    {
+        buf.push_back(val);
+    }
+
+    inline auto write_u16(memory::vector<std::uint8_t> &buf, std::uint16_t val) -> void
+    {
+        buf.push_back(static_cast<std::uint8_t>((val >> 8) & 0xFF));
+        buf.push_back(static_cast<std::uint8_t>(val & 0xFF));
+    }
+
+    inline auto write_u24(memory::vector<std::uint8_t> &buf, std::size_t val) -> void
+    {
+        buf.push_back(static_cast<std::uint8_t>((val >> 16) & 0xFF));
+        buf.push_back(static_cast<std::uint8_t>((val >> 8) & 0xFF));
+        buf.push_back(static_cast<std::uint8_t>(val & 0xFF));
+    }
+} // namespace psm::stealth::tls

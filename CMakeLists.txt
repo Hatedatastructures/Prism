@@ -11,8 +11,13 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
 # Release 模式优化：-O3 最大优化，-ffunction-sections/-fdata-sections 配合链接器 --gc-sections 裁剪未使用符号
+# 仅对 C/CXX 生效，避免传给 NASM 汇编器导致编译失败
 if(CMAKE_BUILD_TYPE STREQUAL "Release")
-    add_compile_options(-O3 -ffunction-sections -fdata-sections)
+    add_compile_options(
+        $<$<COMPILE_LANGUAGE:C,CXX>:-O3>
+        $<$<COMPILE_LANGUAGE:C,CXX>:-ffunction-sections>
+        $<$<COMPILE_LANGUAGE:C,CXX>:-fdata-sections>
+    )
     add_link_options(-Wl,--gc-sections)
 endif()
 
@@ -68,6 +73,8 @@ FetchContent_MakeAvailable(glaze)
 # Google 维护的 TLS 库，API 兼容 OpenSSL。项目通过 <openssl/*.h> 头文件和 OpenSSL 风格的
 # CMake 目标（OpenSSL::SSL / OpenSSL::Crypto）使用，代码无需修改。
 # BoringSSL 的 CMake 导出 ssl 和 crypto 目标，此处创建 OpenSSL 兼容别名。
+# MinGW + Windows 下 NASM 汇编存在兼容性问题（fiat_p256_adx 链接失败），
+# 暂时使用 OPENSSL_NO_ASM 纯 C 实现。AES-GCM ~240 Mi/s 对代理场景已足够。
 set(OPENSSL_NO_ASM ON CACHE BOOL "" FORCE)
 # 禁用 BoringSSL 内部的 testing/benchmark，避免与项目自身的 Google Benchmark 目标名冲突
 set(BUILD_TESTING OFF CACHE BOOL "" FORCE)
@@ -76,7 +83,7 @@ set(BORINGSSL_BUILD_TOOL OFF CACHE BOOL "" FORCE)
 find_package(Threads REQUIRED)
 FetchContent_Declare(
     boringssl
-    URL https://github.com/google/boringssl/archive/refs/heads/master.tar.gz
+    URL https://github.com/google/boringssl/archive/beafe3db15e3213bbce1711f85f704b6c00413d1.tar.gz
     DOWNLOAD_EXTRACT_TIMESTAMP TRUE
 )
 FetchContent_MakeAvailable(boringssl)
@@ -97,13 +104,17 @@ add_library(blake3_c STATIC
     ${BLAKE3_C_DIR}/blake3.c
     ${BLAKE3_C_DIR}/blake3_dispatch.c
     ${BLAKE3_C_DIR}/blake3_portable.c
+    ${BLAKE3_C_DIR}/blake3_sse2.c
+    ${BLAKE3_C_DIR}/blake3_sse41.c
+    ${BLAKE3_C_DIR}/blake3_avx2.c
+    ${BLAKE3_C_DIR}/blake3_avx512.c
 )
 target_include_directories(blake3_c PUBLIC ${BLAKE3_C_DIR})
-# 禁用 BLAKE3 汇编（MinGW 兼容性）
-target_compile_definitions(blake3_c PRIVATE BLAKE3_NO_SSE2 BLAKE3_NO_SSE41 BLAKE3_NO_AVX2 BLAKE3_NO_AVX512)
-if(OPENSSL_NO_ASM)
-    target_compile_definitions(blake3_c PRIVATE BLAKE3_USE_NEON=0)
-endif()
+# BLAKE3 各 SIMD 源文件需要对应的指令集编译选项（per-file）
+set_source_files_properties(${BLAKE3_C_DIR}/blake3_sse2.c PROPERTIES COMPILE_FLAGS "-msse2")
+set_source_files_properties(${BLAKE3_C_DIR}/blake3_sse41.c PROPERTIES COMPILE_FLAGS "-msse4.1")
+set_source_files_properties(${BLAKE3_C_DIR}/blake3_avx2.c PROPERTIES COMPILE_FLAGS "-mavx2")
+set_source_files_properties(${BLAKE3_C_DIR}/blake3_avx512.c PROPERTIES COMPILE_FLAGS "-mavx512f -mavx512vl")
 
 # BoringSSL 的 bssl/decrepit 等目标无条件编译，排除出默认构建避免 MinGW 编译错误
 set_target_properties(bssl PROPERTIES EXCLUDE_FROM_ALL TRUE)

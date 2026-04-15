@@ -5,9 +5,9 @@
  * 使用 OpenSSL 解析叶子证书，验证 DER 是否可被正常解析且公钥类型为 Ed25519。
  */
 
-#include <prism/protocol/reality/response.hpp>
-#include <prism/protocol/reality/request.hpp>
-#include <prism/protocol/reality/keygen.hpp>
+#include <prism/stealth/reality/response.hpp>
+#include <prism/stealth/reality/request.hpp>
+#include <prism/stealth/reality/keygen.hpp>
 #include <prism/crypto/x25519.hpp>
 #include <prism/trace/spdlog.hpp>
 #include <openssl/x509.h>
@@ -56,7 +56,7 @@ namespace
                 return {};
             }
 
-            if (msg_type != psm::protocol::reality::tls::HANDSHAKE_TYPE_CERTIFICATE)
+            if (msg_type != psm::stealth::tls::HANDSHAKE_TYPE_CERTIFICATE)
             {
                 offset += msg_len;
                 continue;
@@ -102,7 +102,7 @@ namespace
 void TestRealityCertificateParsesAsEd25519()
 {
     using namespace psm;
-    using namespace psm::protocol::reality;
+    using namespace psm::stealth;
 
     client_hello_info client_hello;
     client_hello.session_id = {0x01, 0x02, 0x03, 0x04};

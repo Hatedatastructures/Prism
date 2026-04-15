@@ -5,6 +5,11 @@ namespace psm::protocol
 {
     namespace
     {
+        /// HTTP 方法列表，用于协议检测（最短 4 字节 "GET "）
+        static constexpr std::array<std::string_view, 9> http_methods = {
+            "GET ", "POST ", "HEAD ", "PUT ", "DELETE ",
+            "CONNECT ", "OPTIONS ", "TRACE ", "PATCH "};
+
         /**
          * @brief 获取内存资源
          * @param mr 提供的内存资源指针
@@ -76,12 +81,6 @@ namespace psm::protocol
     auto analysis::detect(const std::string_view peek_data)
         -> protocol_type
     {
-        // HTTP 方法列表 (最短的 3 字节 GET/PUT)
-        static constexpr std::array<std::string_view, 9> http_methods =
-            {
-                "GET ", "POST ", "HEAD ", "PUT ", "DELETE ",
-                "CONNECT ", "OPTIONS ", "TRACE ", "PATCH "};
-
         if (peek_data.empty())
             return protocol_type::unknown;
 
@@ -116,10 +115,6 @@ namespace psm::protocol
     auto analysis::detect_tls(const std::string_view peek_data)
         -> protocol_type
     {
-        static constexpr std::array<std::string_view, 9> http_methods = {
-            "GET ", "POST ", "HEAD ", "PUT ", "DELETE ",
-            "CONNECT ", "OPTIONS ", "TRACE ", "PATCH "};
-
         for (const auto &method : http_methods)
         {
             if (peek_data.size() >= method.size() &&

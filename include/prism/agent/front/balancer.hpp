@@ -154,7 +154,7 @@ namespace psm::agent::front
          * @details 使用 MurmurHash3 混合函数对输入值进行混淆，提高哈希
          * 分布的随机性，减少亲和性选择时的聚集效应。
          */
-        [[nodiscard]] static auto mix_hash(std::uint64_t value) noexcept -> std::uint64_t;
+        [[nodiscard]] static constexpr auto mix_hash(std::uint64_t value) noexcept -> std::uint64_t;
 
         /**
          * @brief 计算负载评分

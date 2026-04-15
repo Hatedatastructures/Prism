@@ -34,7 +34,7 @@ namespace psm::crypto
         for (const auto byte : hash)
         {
             constexpr char hex_chars[] = "0123456789abcdef";
-            result.push_back(hex_chars[byte >> 4 & 0x0F]);
+            result.push_back(hex_chars[(byte >> 4) & 0x0F]);
             result.push_back(hex_chars[byte & 0x0F]);
         }
         return result;

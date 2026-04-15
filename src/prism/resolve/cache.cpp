@@ -103,7 +103,29 @@ namespace psm::resolve
                     const uint32_t ttl_seconds)
     {
         const auto now = std::chrono::steady_clock::now();
-        const auto key = make_key(domain, qt);
+
+        // 使用栈缓冲区构造查找 key，避免 PMR string 分配
+        std::array<char, 260> buffer;
+        const auto key_view = make_key_view(domain, qt, buffer);
+
+        // 检查是否已存在（更新情况）— 单次查找
+        if (const auto existing_it = entries_.find(key_view); existing_it != entries_.end())
+        {
+            // 更新现有条目，保持 LRU 位置（移到头部）
+            const auto &lru_it = existing_it->second.second;
+            lru_order_.splice(lru_order_.begin(), lru_order_, lru_it);
+
+            auto &entry = existing_it->second.first;
+            entry.ips.assign(ips.begin(), ips.end());
+            entry.ttl = ttl_seconds;
+            entry.expire = now + std::chrono::seconds(ttl_seconds);
+            entry.inserted = now;
+            entry.failed = false;
+            return;
+        }
+
+        // 新插入：需要持久化 key（string_view 指向栈缓冲，需要拷贝到 PMR string）
+        const auto key = memory::string(key_view, mr_);
 
         // 构建缓存条目
         cache_entry entry(mr_);
@@ -112,16 +134,6 @@ namespace psm::resolve
         entry.expire = now + std::chrono::seconds(ttl_seconds);
         entry.inserted = now;
         entry.failed = false;
-
-        // 检查是否已存在（更新情况）
-        if (const auto existing_it = entries_.find(std::string_view(key)); existing_it != entries_.end())
-        {
-            // 更新现有条目，保持 LRU 位置（移到头部）
-            const auto &lru_it = existing_it->second.second;
-            lru_order_.splice(lru_order_.begin(), lru_order_, lru_it);
-            existing_it->second.first = std::move(entry);
-            return;
-        }
 
         // 新插入：添加到 LRU 链表头部
         lru_order_.push_front(key);
@@ -143,7 +155,27 @@ namespace psm::resolve
     void cache::put_negative(const std::string_view domain, const qtype qt, const std::chrono::seconds negative_ttl)
     {
         const auto now = std::chrono::steady_clock::now();
-        const auto key = make_key(domain, qt);
+
+        // 使用栈缓冲区构造查找 key，避免 PMR string 分配
+        std::array<char, 260> buffer;
+        const auto key_view = make_key_view(domain, qt, buffer);
+
+        // 检查是否已存在（更新情况）— 单次查找
+        if (const auto existing_it = entries_.find(key_view); existing_it != entries_.end())
+        {
+            auto &lru_it = existing_it->second.second;
+            lru_order_.splice(lru_order_.begin(), lru_order_, lru_it);
+
+            auto &entry = existing_it->second.first;
+            entry.ttl = static_cast<uint32_t>(negative_ttl.count());
+            entry.expire = now + negative_ttl;
+            entry.inserted = now;
+            entry.failed = true;
+            return;
+        }
+
+        // 新插入：需要持久化 key
+        const auto key = memory::string(key_view, mr_);
 
         // 构建负缓存条目
         cache_entry entry(mr_);
@@ -151,16 +183,6 @@ namespace psm::resolve
         entry.expire = now + negative_ttl;
         entry.inserted = now;
         entry.failed = true;
-
-        // 检查是否已存在（更新情况）
-        if (const auto existing_it = entries_.find(std::string_view(key)); existing_it != entries_.end())
-        {
-            // 更新现有条目，保持 LRU 位置（移到头部）
-            auto &lru_it = existing_it->second.second;
-            lru_order_.splice(lru_order_.begin(), lru_order_, lru_it);
-            existing_it->second.first = std::move(entry);
-            return;
-        }
 
         // 新插入：添加到 LRU 链表头部
         lru_order_.push_front(key);

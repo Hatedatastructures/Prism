@@ -24,6 +24,7 @@ target_sources(${PROJECT_NAME}_static_library
 
 add_subdirectory(channel)
 add_subdirectory(protocol)
+add_subdirectory(stealth)
 add_subdirectory(trace)
 add_subdirectory(resolve)
 add_subdirectory(pipeline)

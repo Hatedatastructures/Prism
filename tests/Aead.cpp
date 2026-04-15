@@ -55,8 +55,11 @@ void TestAeadSealOpenRoundtripAes128()
     const std::string plaintext = "Hello AES-128-GCM!";
     const auto pt_span = std::span<const std::uint8_t>(reinterpret_cast<const std::uint8_t *>(plaintext.data()), plaintext.size());
 
+    // 使用显式 nonce 避免自增导致 seal/open nonce 不匹配
+    const std::array<std::uint8_t, 12> nonce{};
+
     std::vector<std::uint8_t> ciphertext(psm::crypto::aead_context::seal_output_size(pt_span.size()));
-    auto ec = ctx.seal(ciphertext, pt_span);
+    auto ec = ctx.seal(ciphertext, pt_span, nonce, {});
     if (psm::fault::failed(ec))
     {
         log_fail("seal failed");
@@ -64,7 +67,7 @@ void TestAeadSealOpenRoundtripAes128()
     }
 
     std::vector<std::uint8_t> decrypted(psm::crypto::aead_context::open_output_size(ciphertext.size()));
-    ec = ctx.open(decrypted, ciphertext);
+    ec = ctx.open(decrypted, ciphertext, nonce, {});
     if (psm::fault::failed(ec))
     {
         log_fail("open failed");
@@ -93,8 +96,11 @@ void TestAeadSealOpenRoundtripAes256()
     const std::string plaintext = "Hello AES-256-GCM!";
     const auto pt_span = std::span<const std::uint8_t>(reinterpret_cast<const std::uint8_t *>(plaintext.data()), plaintext.size());
 
+    // 使用显式 nonce 避免自增导致 seal/open nonce 不匹配
+    const std::array<std::uint8_t, 12> nonce{};
+
     std::vector<std::uint8_t> ciphertext(psm::crypto::aead_context::seal_output_size(pt_span.size()));
-    auto ec = ctx.seal(ciphertext, pt_span);
+    auto ec = ctx.seal(ciphertext, pt_span, nonce, {});
     if (psm::fault::failed(ec))
     {
         log_fail("seal failed");
@@ -102,7 +108,7 @@ void TestAeadSealOpenRoundtripAes256()
     }
 
     std::vector<std::uint8_t> decrypted(psm::crypto::aead_context::open_output_size(ciphertext.size()));
-    ec = ctx.open(decrypted, ciphertext);
+    ec = ctx.open(decrypted, ciphertext, nonce, {});
     if (psm::fault::failed(ec))
     {
         log_fail("open failed");
@@ -227,6 +233,7 @@ void TestAeadNonceAutoIncrement()
     std::vector<std::uint8_t> ciphertext(psm::crypto::aead_context::seal_output_size(plaintext.size()));
     std::vector<std::uint8_t> dummy(psm::crypto::aead_context::open_output_size(ciphertext.size()));
 
+    // 验证 seal 自动递增 nonce
     auto nonce0 = ctx.nonce();
     ctx.seal(ciphertext, plaintext);
     auto nonce1 = ctx.nonce();
@@ -237,7 +244,16 @@ void TestAeadNonceAutoIncrement()
         return;
     }
 
-    ctx.open(dummy, ciphertext);
+    // 验证 open 自动递增 nonce
+    // 用显式 nonce（匹配当前内部 nonce）seal 新密文，使 auto-nonce open 能成功并递增
+    std::array<std::uint8_t, 12> seal_nonce;
+    std::memcpy(seal_nonce.data(), nonce1.data(), 12);
+
+    std::vector<std::uint8_t> ct2(psm::crypto::aead_context::seal_output_size(plaintext.size()));
+    std::vector<std::uint8_t> dec2(psm::crypto::aead_context::open_output_size(ct2.size()));
+
+    ctx.seal(ct2, plaintext, seal_nonce, {});
+    ctx.open(dec2, ct2);
     auto nonce2 = ctx.nonce();
 
     if (nonce1 == nonce2)
@@ -260,9 +276,10 @@ void TestAeadEmptyPlaintext()
     psm::crypto::aead_context ctx(psm::crypto::aead_cipher::aes_128_gcm, key);
 
     const std::span<const std::uint8_t> empty_pt;
+    const std::array<std::uint8_t, 12> nonce{};
 
     std::vector<std::uint8_t> ciphertext(psm::crypto::aead_context::seal_output_size(0));
-    auto ec = ctx.seal(ciphertext, empty_pt);
+    auto ec = ctx.seal(ciphertext, empty_pt, nonce, {});
     if (psm::fault::failed(ec))
     {
         log_fail("seal empty plaintext failed");
@@ -277,7 +294,7 @@ void TestAeadEmptyPlaintext()
     }
 
     std::vector<std::uint8_t> decrypted(psm::crypto::aead_context::open_output_size(ciphertext.size()));
-    ec = ctx.open(decrypted, ciphertext);
+    ec = ctx.open(decrypted, ciphertext, nonce, {});
     if (psm::fault::failed(ec))
     {
         log_fail("open empty ciphertext failed");
@@ -310,8 +327,10 @@ void TestAeadLargePayload()
         plaintext[i] = static_cast<std::uint8_t>(i & 0xFF);
     }
 
+    const std::array<std::uint8_t, 12> nonce{};
+
     std::vector<std::uint8_t> ciphertext(psm::crypto::aead_context::seal_output_size(plaintext.size()));
-    auto ec = ctx.seal(ciphertext, plaintext);
+    auto ec = ctx.seal(ciphertext, plaintext, nonce, {});
     if (psm::fault::failed(ec))
     {
         log_fail("seal large payload failed");
@@ -319,7 +338,7 @@ void TestAeadLargePayload()
     }
 
     std::vector<std::uint8_t> decrypted(psm::crypto::aead_context::open_output_size(ciphertext.size()));
-    ec = ctx.open(decrypted, ciphertext);
+    ec = ctx.open(decrypted, ciphertext, nonce, {});
     if (psm::fault::failed(ec))
     {
         log_fail("open large payload failed");
@@ -347,13 +366,14 @@ void TestAeadMoveSemantics()
 
     const std::string plaintext = "move test";
     const auto pt_span = std::span<const std::uint8_t>(reinterpret_cast<const std::uint8_t *>(plaintext.data()), plaintext.size());
+    const std::array<std::uint8_t, 12> nonce{};
 
     // 移动构造
     psm::crypto::aead_context ctx2(std::move(*ctx1));
     ctx1.reset();
 
     std::vector<std::uint8_t> ciphertext(psm::crypto::aead_context::seal_output_size(pt_span.size()));
-    auto ec = ctx2.seal(ciphertext, pt_span);
+    auto ec = ctx2.seal(ciphertext, pt_span, nonce, {});
     if (psm::fault::failed(ec))
     {
         log_fail("seal after move-construct failed");
@@ -361,7 +381,7 @@ void TestAeadMoveSemantics()
     }
 
     std::vector<std::uint8_t> decrypted(psm::crypto::aead_context::open_output_size(ciphertext.size()));
-    ec = ctx2.open(decrypted, ciphertext);
+    ec = ctx2.open(decrypted, ciphertext, nonce, {});
     if (psm::fault::failed(ec))
     {
         log_fail("open after move-construct failed");
@@ -374,9 +394,11 @@ void TestAeadMoveSemantics()
     psm::crypto::aead_context ctx3(psm::crypto::aead_cipher::aes_128_gcm, key2);
     ctx3 = std::move(ctx2);
 
-    // ctx3 应该继承 ctx2 的 nonce 状态，继续正常工作
+    // ctx3 应该继承 ctx2 的密钥，继续正常工作
+    std::array<std::uint8_t, 12> nonce2{};
+    nonce2[11] = 1;
     std::vector<std::uint8_t> ct2(psm::crypto::aead_context::seal_output_size(pt_span.size()));
-    ec = ctx3.seal(ct2, pt_span);
+    ec = ctx3.seal(ct2, pt_span, nonce2, {});
     if (psm::fault::failed(ec))
     {
         log_fail("seal after move-assign failed");

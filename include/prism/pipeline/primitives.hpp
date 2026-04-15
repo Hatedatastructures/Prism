@@ -87,7 +87,7 @@ namespace psm::pipeline::primitives
      * 路由方法建立连接。连接成功后，将原始套接字包装为可靠传输对象
      * 返回。若路由失败或连接无效，返回相应的错误码和空指针。
      */
-    auto dial(std::shared_ptr<resolve::router> router, std::string_view label,
+    auto dial(resolve::router &router, std::string_view label,
               const protocol::analysis::target &target, bool allow_reverse, bool require_open)
         -> net::awaitable<std::pair<fault::code, shared_transmission>>;
 
@@ -190,6 +190,29 @@ namespace psm::pipeline::primitives
         memory::vector<std::byte> preread_buffer_; // 预读数据缓冲区（拥有所有权）
         std::size_t offset_{0};                    // 当前预读偏移量
     };
+
+    /**
+     * @brief 将入站传输包装为带预读数据的传输
+     * @param ctx 会话上下文，包含入站传输和帧内存资源
+     * @param data 协议嗅探期间捕获的预读数据
+     * @param use_global_mr 是否使用全局内存池而非帧竞技场（默认 false）
+     * @return 包装后的传输对象；若 data 为空则直接返回原始入站传输
+     * @details 若 data 不为空，将 ctx.inbound 的所有权转移到 preview 包装器中，
+     * 在后续读取时优先重放预读数据。mux 模式下使用全局内存池 (use_global_mr=true)
+     * 避免 smux_craft 析构时的 UAF 风险。
+     * @note 调用后 ctx.inbound 被置空，所有权转移至返回值。
+     */
+    inline auto wrap_with_preview(session_context &ctx, std::span<const std::byte> data,
+                                   bool use_global_mr = false) -> shared_transmission
+    {
+        auto inbound = std::move(ctx.inbound);
+        if (!data.empty())
+        {
+            auto *mr = use_global_mr ? nullptr : ctx.frame_arena.get();
+            inbound = std::make_shared<preview>(std::move(inbound), data, mr);
+        }
+        return inbound;
+    }
 
     /**
      * @brief 在两个流之间运行全双工隧道

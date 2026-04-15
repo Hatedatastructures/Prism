@@ -320,9 +320,11 @@ namespace psm::resolve
 
     auto message::pack() const -> memory::vector<std::uint8_t>
     {
-        // 预分配 512 字节（DNS 传统最大报文长度），减少 realloc
-        memory::vector<std::uint8_t> buf(512, mr_);
-        buf.resize(12); // 先占位 12 字节 Header
+        // 预分配容量 512 字节（DNS 传统最大报文长度），初始大小仅 12 字节 Header
+        // 避免构造时零填充 512 字节的无谓开销
+        memory::vector<std::uint8_t> buf(mr_);
+        buf.reserve(512);
+        buf.resize(12);
 
         // 构建压缩表（使用 string_view 键，指向 message 内的 name 字符串）
         std::unordered_map<std::string_view, std::uint16_t> compression;
