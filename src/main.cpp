@@ -4,6 +4,7 @@
 #include <vector>
 #include <iostream>
 #include <fstream>
+#include <filesystem>
 
 #include <prism/agent.hpp>
 #include <prism/agent/account/directory.hpp>
@@ -18,13 +19,28 @@
 
 namespace agent = psm::agent;
 
-// 配置文件路径（开发环境用绝对路径，生产环境应改为相对路径或启动参数传入）
-constexpr std::string_view configuration_path = {R"(C:\Users\C1373\Desktop\code\prism\src\configuration.json)"};
-
 // 启动流程：启用全局内存池 → 加载配置 → 注册处理器 → 构建 worker 线程池 → 绑定均衡器 → 启动监听
-int main()
+int main(int argc, char *argv[])
 {
     psm::memory::system::enable_global_pooling();
+
+    // 配置文件路径：命令行参数 > 可执行文件同目录下的 configuration.json
+    std::filesystem::path configuration_path;
+    if (argc > 1)
+    {
+        configuration_path = std::filesystem::absolute(std::filesystem::path(argv[1]));
+    }
+    else
+    {
+        configuration_path = std::filesystem::absolute(
+            std::filesystem::path(argv[0]).parent_path() / "configuration.json");
+    }
+
+    if (!std::filesystem::exists(configuration_path))
+    {
+        std::cerr << "configuration file not found: " << configuration_path << '\n';
+        return 1;
+    }
 
     try
     {
@@ -36,7 +52,7 @@ int main()
         }
 
         // 加载配置并拆分为 agent 配置和日志配置
-        auto [agent, trace] = psm::loader::load(configuration_path);
+        auto [agent, trace] = psm::loader::load(configuration_path.string());
         psm::trace::init(trace);
 
         // 注册协议检测与处理函数（Trojan、SOCKS5、HTTP、VLESS、Shadowsocks）
