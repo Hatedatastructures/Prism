@@ -26,6 +26,24 @@ namespace psm::stealth
     constexpr std::string_view HsTag = "[Stealth.Handshake]";
 
     // ============================================================
+    // 诊断工具
+    // ============================================================
+
+    static auto format_hex_short(const std::span<const std::uint8_t> data, const std::size_t max_bytes = 16) -> std::string
+    {
+        std::string result;
+        result.reserve(max_bytes * 2);
+        const auto n = std::min(data.size(), max_bytes);
+        for (std::size_t i = 0; i < n; ++i)
+        {
+            constexpr char hex[] = "0123456789abcdef";
+            result.push_back(hex[data[i] >> 4]);
+            result.push_back(hex[data[i] & 0x0F]);
+        }
+        return result;
+    }
+
+    // ============================================================
     // 工具函数
     // ============================================================
 
@@ -245,6 +263,12 @@ namespace psm::stealth
         const auto verify_data = compute_finished_verify_data(
             keys.server_finished_key, transcript_for_finished);
 
+        // 诊断日志：Finished 计算
+        trace::info("{} server Finished transcript: {}", HsTag,
+                    format_hex_short({transcript_for_finished.data(), transcript_for_finished.size()}));
+        trace::info("{} server Finished verify_data: {}", HsTag,
+                    format_hex_short({verify_data.data(), verify_data.size()}));
+
         memory::vector<std::uint8_t> correct_plaintext(ee_cert_cv.begin(), ee_cert_cv.end());
         correct_plaintext.push_back(tls::HANDSHAKE_TYPE_FINISHED);
         correct_plaintext.push_back(0x00);
@@ -332,21 +356,29 @@ namespace psm::stealth
                     const auto inner_content_type = decrypted.back();
                     if (inner_content_type == tls::CONTENT_TYPE_ALERT && decrypted.size() >= 3)
                     {
-                        trace::error("{} client sent TLS ALERT: level={}, desc=0x{:02x}",
+                        trace::error("{} client sent TLS ALERT: level={}, desc=0x{:02x} — server Finished was rejected",
                                      HsTag,
                                      static_cast<unsigned>(decrypted[0]),
                                      static_cast<unsigned>(decrypted[1]));
+                        co_return fault::code::reality_handshake_failed;
                     }
                     else
                     {
                         trace::debug("{} consumed client Finished record ({} bytes, inner_type=0x{:02x})",
                                      HsTag, rec_len, static_cast<unsigned>(inner_content_type));
+                        // 诊断日志：客户端 Finished verify_data
+                        if (inner_content_type == tls::CONTENT_TYPE_HANDSHAKE && decrypted.size() >= 36)
+                        {
+                            trace::info("{} client Finished verify_data: {}", HsTag,
+                                        format_hex_short({decrypted.data() + 4, 32}));
+                        }
                     }
                 }
                 else
                 {
                     trace::warn("{} failed to decrypt client record (ec={}), raw {} bytes",
                                 HsTag, static_cast<int>(open_ec), rec_len);
+                    co_return fault::code::reality_handshake_failed;
                 }
             }
             consumed = true;
@@ -442,20 +474,8 @@ namespace psm::stealth
 
         trace::info("{} authentication successful", HsTag);
 
-        // 4. 获取 dest 证书
-        std::string dest_host;
-        std::uint16_t dest_port = 443;
-        parse_dest(std::string_view(reality_cfg.dest.data(), reality_cfg.dest.size()), dest_host, dest_port);
-
-        auto [cert_ec, dest_cert] = co_await fetch_dest_certificate(dest_host, dest_port, ctx.worker.router);
-        if (fault::failed(cert_ec))
-        {
-            trace::warn("{} failed to fetch dest certificate", HsTag);
-            result.error = cert_ec;
-            co_return result;
-        }
-
-        // 5. TLS ECDH 密钥交换
+        // 4. TLS ECDH 密钥交换
+        // 注意：不为认证客户端获取 dest 证书 — generate_reality_certificate() 会生成合成 ed25519 证书
         auto [ephemeral_ec, tls_shared_secret] = crypto::x25519(
             std::span<const std::uint8_t>(auth_res.server_ephemeral_key.private_key.data(),
                                           auth_res.server_ephemeral_key.private_key.size()),
@@ -468,13 +488,17 @@ namespace psm::stealth
             co_return result;
         }
 
-        // 6. 生成 ServerHello + 派生握手密钥
+        // 诊断日志：TLS ECDH 共享密钥
+        trace::info("{} TLS ECDH shared_secret: {}", HsTag,
+                    format_hex_short({tls_shared_secret.data(), tls_shared_secret.size()}));
+
+        // 5. 生成 ServerHello + 派生握手密钥
         key_material dummy_keys{};
         auto [sh_ec, sh_result] = generate_server_hello(
             client_hello,
             auth_res.server_ephemeral_key.public_key,
             dummy_keys,
-            dest_cert,
+            {},  // 不需要 dest 证书 — Reality 认证客户端使用合成证书
             client_hello.raw_message,
             std::span<const std::uint8_t>(auth_res.auth_key.data(), auth_res.auth_key.size()));
 
@@ -497,7 +521,7 @@ namespace psm::stealth
             co_return result;
         }
 
-        // 7. 用正确密钥重算 Finished
+        // 6. 用正确密钥重算 Finished
         const auto finished_ec = derive_and_encrypt_finished(keys, sh_result, client_hello.raw_message);
         if (fault::failed(finished_ec))
         {
@@ -505,7 +529,7 @@ namespace psm::stealth
             co_return result;
         }
 
-        // 8. 发送握手记录（scatter-gather）
+        // 7. 发送握手记录（scatter-gather）
         {
             std::error_code write_ec;
             const std::span<const std::byte> handshake_parts[] = {
@@ -528,7 +552,7 @@ namespace psm::stealth
             }
         }
 
-        // 9. 消费客户端 CCS + Finished
+        // 8. 消费客户端 CCS + Finished
         const auto consumed_ec = co_await consume_client_finished(*ctx.inbound, keys);
         if (fault::failed(consumed_ec))
         {
@@ -536,7 +560,7 @@ namespace psm::stealth
             co_return result;
         }
 
-        // 10. 派生应用数据密钥
+        // 9. 派生应用数据密钥
         const auto full_transcript_hash = crypto::sha256(
             {client_hello.raw_message.data(), client_hello.raw_message.size()},
             {sh_result.server_hello_msg.data(), sh_result.server_hello_msg.size()},
@@ -551,7 +575,19 @@ namespace psm::stealth
             co_return result;
         }
 
-        // 11. 创建加密传输层 + 预读内层数据
+        // 诊断日志：应用密钥
+        trace::info("{} app transcript hash: {}", HsTag,
+                    format_hex_short({full_transcript_hash.data(), full_transcript_hash.size()}));
+        trace::info("{} server_app_key: {}", HsTag,
+                    format_hex_short({keys.server_app_key.data(), keys.server_app_key.size()}));
+        trace::info("{} server_app_iv: {}", HsTag,
+                    format_hex_short({keys.server_app_iv.data(), keys.server_app_iv.size()}));
+        trace::info("{} client_app_key: {}", HsTag,
+                    format_hex_short({keys.client_app_key.data(), keys.client_app_key.size()}));
+        trace::info("{} client_app_iv: {}", HsTag,
+                    format_hex_short({keys.client_app_iv.data(), keys.client_app_iv.size()}));
+
+        // 10. 创建加密传输层 + 预读内层数据
         auto reality_session = std::make_shared<seal>(
             std::move(ctx.inbound), std::move(keys));
 

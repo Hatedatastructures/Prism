@@ -32,7 +32,7 @@ namespace psm::pipeline
         // 解析目标地址
         trace::info("{} CONNECT -> {}:{}", shadowsocks_tag, agent->target().host, agent->target().port);
 
-        // 通过路由器建立到目标的连接
+        // 先拨号上游 — 失败时不发送响应，客户端看到连接失败而非误导性成功
         auto [dial_ec, outbound] = co_await primitives::dial(ctx.worker.router, "SS2022", agent->target(), true, true);
         if (fault::failed(dial_ec) || !outbound)
         {
@@ -45,6 +45,14 @@ namespace psm::pipeline
                 trace::warn("{} dial failed: {}, target: {}:{}", shadowsocks_tag, fault::describe(dial_ec),
                             agent->target().host, agent->target().port);
             }
+            co_return;
+        }
+
+        // 拨号成功，发送握手响应
+        auto ack_ec = co_await agent->acknowledge();
+        if (fault::failed(ack_ec))
+        {
+            trace::warn("{} acknowledge failed: {}", shadowsocks_tag, fault::describe(ack_ec));
             co_return;
         }
 

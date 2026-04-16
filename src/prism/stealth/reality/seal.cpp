@@ -79,8 +79,43 @@ namespace psm::stealth
         -> net::awaitable<std::size_t>
     {
         ec.clear();
-        const auto written = co_await write_encrypted_record(buffer, ec);
+        // TLS 1.3 最大明文 2^14 = 16384，减去 content_type 字节 = 16383
+        constexpr std::size_t max_app_data = 16383;
+        const auto chunk = buffer.size() > max_app_data
+            ? std::span<const std::byte>(buffer.data(), max_app_data)
+            : buffer;
+        const auto written = co_await write_encrypted_record(chunk, ec);
         co_return written;
+    }
+
+    auto seal::async_write_scatter(const std::span<const std::byte> *buffers, std::size_t count,
+                                     std::error_code &ec) -> net::awaitable<std::size_t>
+    {
+        ec.clear();
+
+        // 计算总长度
+        std::size_t total = 0;
+        for (std::size_t i = 0; i < count; ++i)
+            total += buffers[i].size();
+
+        if (total == 0)
+            co_return 0;
+
+        // 合并所有缓冲区到连续内存
+        scatter_buf_.resize(total);
+        std::size_t offset = 0;
+        for (std::size_t i = 0; i < count; ++i)
+        {
+            if (!buffers[i].empty())
+            {
+                std::memcpy(scatter_buf_.data() + offset, buffers[i].data(), buffers[i].size());
+                offset += buffers[i].size();
+            }
+        }
+
+        // 通过 async_write 分块写入（每次 <= 16383 字节，自动拆分为合规 TLS 记录）
+        co_return co_await async_write(
+            std::span<const std::byte>(scatter_buf_.data(), total), ec);
     }
 
     void seal::close()
@@ -182,6 +217,14 @@ namespace psm::stealth
         const auto nonce_span = std::span<const std::uint8_t>{nonce.data(), nonce.size()};
         const auto ad_span = std::span<const std::uint8_t>{ad.data(), ad.size()};
         const auto dec_ec = client_decryptor_.open(decrypted, ciphertext, nonce_span, ad_span);
+        if (!first_read_logged_)
+        {
+            first_read_logged_ = true;
+            trace::info("{} first decrypt: seq={}, nonce={:02x}{:02x}..{:02x}{:02x}, cipher_len={}",
+                        SessTag, read_sequence_ - 1,
+                        nonce[0], nonce[1], nonce[10], nonce[11],
+                        ciphertext.size());
+        }
         if (fault::failed(dec_ec))
         {
             trace::error("{} AEAD decrypt failed", SessTag);
@@ -237,6 +280,21 @@ namespace psm::stealth
         const auto nonce_span = std::span<const std::uint8_t>{nonce.data(), nonce.size()};
         const auto ad_span = std::span<const std::uint8_t>{ad.data(), ad.size()};
         const auto enc_ec = server_encryptor_.seal(ciphertext, inner, nonce_span, ad_span);
+        if (!first_write_logged_)
+        {
+            first_write_logged_ = true;
+            trace::info("{} first encrypt: seq={}, nonce={:02x}{:02x}..{:02x}{:02x}, plain_len={}",
+                        SessTag, write_sequence_ - 1,
+                        nonce[0], nonce[1], nonce[10], nonce[11],
+                        inner.size());
+            if (inner.size() >= 8)
+            {
+                trace::info("{} first encrypt plain[0..7]: {:02x}{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}",
+                            SessTag,
+                            inner[0], inner[1], inner[2], inner[3],
+                            inner[4], inner[5], inner[6], inner[7]);
+            }
+        }
         if (fault::failed(enc_ec))
         {
             trace::error("{} AEAD encrypt failed", SessTag);

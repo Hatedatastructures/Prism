@@ -187,13 +187,14 @@ namespace psm::channel::transport
         {
             if (pooled_.valid())
             {
-                // 关闭底层 socket 但不释放 pooled_，确保 native_socket()
-                // 对已关闭 socket 仍返回有效引用（操作会返回错误）。
-                // pooled_ 在 reliable 析构时自动归还连接池。
+                // 取消挂起的异步操作，但不关闭 socket。
+                // 保持 socket 打开状态，让析构函数通过 pooled_.reset() → recycle() 归还连接池。
+                // recycle() 会通过 healthy_fast() 检测 socket 健康状态，
+                // 不健康的连接会被自动销毁而非复用。
                 boost::system::error_code ec;
                 if (auto *sock = pooled_.get())
                 {
-                    sock->close(ec);
+                    sock->cancel(ec);
                 }
                 return;
             }

@@ -198,9 +198,20 @@ namespace psm::agent::session
                     co_return;
 
                 case stealth::handshake_result_type::failed:
+                {
+                    // TLS 记录格式错误说明这根本不是 TLS 连接（可能是 SS2022 误判）
+                    // 回退到 SS2022 处理，而不是丢弃连接
+                    if (result.error == fault::code::reality_tls_record_error)
+                    {
+                        trace::debug("[Session] [{}] Reality TLS record error, falling back to Shadowsocks", id_);
+                        need_standard_tls = false;
+                        detect_result.type = protocol::protocol_type::shadowsocks;
+                        break;
+                    }
                     trace::warn("[Session] [{}] Reality handshake failed: {}",
                                 id_, fault::describe(result.error));
                     co_return;
+                }
                 }
             }
 

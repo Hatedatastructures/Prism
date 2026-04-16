@@ -90,8 +90,10 @@ namespace psm::protocol
             return protocol_type::socks5;
         }
 
-        // 2. 检查 TLS (0x16)
-        if (peek_data[0] == 0x16)
+        // 2. 检查 TLS (0x16 0x03)
+        // TLS 记录格式: ContentType(1) + ProtocolVersion(2)，版本高字节固定 0x03
+        // 必须检查两字节，否则 SS2022 的随机 salt 约有 1/256 概率首字节为 0x16
+        if (peek_data.size() >= 2 && peek_data[0] == 0x16 && peek_data[1] == 0x03)
         {
             return protocol_type::tls;
         }

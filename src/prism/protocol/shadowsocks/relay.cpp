@@ -322,6 +322,9 @@ namespace psm::protocol::shadowsocks
             co_return std::pair{fault::code::replay_detected, req};
         }
 
+        // 保存 client_salt 供 acknowledge() 使用
+        client_salt_ = client_salt;
+
         // 3. 派生解密上下文
         decrypt_ctx_ = derive_aead_context(client_salt);
 
@@ -332,6 +335,9 @@ namespace psm::protocol::shadowsocks
             co_return std::pair{header_ec, req};
         }
 
+        // 保存服务端时间戳供 acknowledge() 使用
+        handshake_ts_ = now;
+
         // 5. 读取并解析变长头
         auto var_ec = co_await read_variable_header(var_header_len, req);
         if (var_ec != fault::code::success)
@@ -339,14 +345,15 @@ namespace psm::protocol::shadowsocks
             co_return std::pair{var_ec, req};
         }
 
-        // 6. 发送响应
-        auto resp_ec = co_await send_response(client_salt, now);
-        if (resp_ec != fault::code::success)
-        {
-            co_return std::pair{resp_ec, req};
-        }
-
+        // 握手解析完成，响应延迟到 acknowledge() 中发送
         co_return std::pair{fault::code::success, req};
+    }
+
+    auto relay::acknowledge() -> net::awaitable<fault::code>
+    {
+        co_return co_await send_response(
+            std::span<const std::uint8_t>(client_salt_.data(), client_salt_.size()),
+            handshake_ts_);
     }
 
     auto relay::async_read_some(std::span<std::byte> buffer, std::error_code &ec)
@@ -375,6 +382,7 @@ namespace psm::protocol::shadowsocks
             if (decrypted_offset_ == decrypted_.size())
             {
                 decrypted_offset_ = 0;
+                decrypted_.clear();
             }
             co_return n;
         }
@@ -402,6 +410,7 @@ namespace psm::protocol::shadowsocks
         if (decrypted_offset_ == decrypted_.size())
         {
             decrypted_offset_ = 0;
+            decrypted_.clear();
         }
 
         co_return n;

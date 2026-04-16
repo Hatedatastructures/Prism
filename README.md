@@ -54,11 +54,11 @@ Prism 是一个从零构建的服务端代理引擎，用 **C++23 协程** 替�
 git clone https://github.com/Hatedatastructures/Prism.git
 cd Prism
 
-cmake -B build_release -DCMAKE_BUILD_TYPE=Release
-cmake --build build_release --config Release
+cmake -B build_release -G "MinGW Makefiles" -DCMAKE_BUILD_TYPE=Release ## MinGW 工具链
+cmake --build build_release --config Release -j
 
 # 启动（默认监听 0.0.0.0:8081）
-./build_release/src/Prism.exe
+./build_release/src/prism.exe
 
 # 测试
 ctest --test-dir build_release --output-on-failure

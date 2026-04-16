@@ -46,6 +46,9 @@ namespace psm::stealth
         auto async_write_some(std::span<const std::byte> buffer, std::error_code &ec)
             -> net::awaitable<std::size_t> override;
 
+        auto async_write_scatter(const std::span<const std::byte> *buffers, std::size_t count,
+                                  std::error_code &ec) -> net::awaitable<std::size_t> override;
+
         void close() override;
         void cancel() override;
 
@@ -68,6 +71,9 @@ namespace psm::stealth
         std::uint64_t read_sequence_ = 0;
         std::uint64_t write_sequence_ = 0;
 
+        bool first_write_logged_ = false;
+        bool first_read_logged_ = false;
+
         memory::vector<std::byte> plaintext_buffer_;
         std::size_t plaintext_offset_ = 0;
 
@@ -75,5 +81,6 @@ namespace psm::stealth
         memory::vector<std::uint8_t> decrypted_buf_;
         memory::vector<std::uint8_t> write_plain_buf_;
         memory::vector<std::uint8_t> write_ciphertext_buf_;
+        memory::vector<std::byte> scatter_buf_;
     };
 } // namespace psm::stealth

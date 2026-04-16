@@ -64,10 +64,18 @@ namespace psm::protocol::shadowsocks
         /**
          * @brief 执行 SS2022 握手
          * @details 读取请求 salt，派生会话密钥，解密固定/变长头，
-         * 验证时间戳和 salt 唯一性，解析目标地址，发送响应。
+         * 验证时间戳和 salt 唯一性，解析目标地址。
+         * 握手成功后需调用 acknowledge() 发送响应。
          * @return 错误码和请求信息
          */
         auto handshake() -> net::awaitable<std::pair<fault::code, request>>;
+
+        /**
+         * @brief 发送 SS2022 握手响应
+         * @details 必须在 handshake() 成功后调用。将响应发送延迟到上游拨号成功后，
+         * 避免拨号失败时客户端收到误导性的成功响应。
+         */
+        auto acknowledge() -> net::awaitable<fault::code>;
 
         /**
          * @brief 获取解析后的目标地址
@@ -121,6 +129,10 @@ namespace psm::protocol::shadowsocks
 
         // 目标地址
         protocol::analysis::target target_;
+
+        // 延迟响应所需的握手参数
+        memory::vector<std::uint8_t> client_salt_;
+        std::int64_t handshake_ts_{0};
 
         // 随机数生成器（用于生成 server salt）
         std::mt19937 rng_{std::random_device{}()};

@@ -9,7 +9,6 @@
 #include <prism/crypto/aead.hpp>
 #include <prism/crypto/blake3.hpp>
 #include <prism/protocol/shadowsocks/salts.hpp>
-#include <prism/memory/pool.hpp>
 #include <prism/fault.hpp>
 #include <array>
 #include <cstdint>
