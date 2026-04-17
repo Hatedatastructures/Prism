@@ -1,14 +1,12 @@
 /**
  * @file format.hpp
  * @brief SS2022 协议格式编解码声明
- * @details 提供 SS2022 协议的地址解析、PSK 解码等底层解析函数声明。
+ * @details 提供 SS2022 协议的地址解析、PSK 解码等底层解析函数声明
  */
-
 #pragma once
 
 #include <cstdint>
 #include <span>
-#include <string>
 #include <string_view>
 #include <vector>
 #include <prism/fault/code.hpp>
@@ -19,12 +17,13 @@ namespace psm::protocol::shadowsocks::format
     /**
      * @struct address_parse_result
      * @brief 地址解析结果
+     * @details 存储从缓冲区解析出的目标地址、端口和字节偏移
      */
     struct address_parse_result
     {
-        address addr;         ///< 目标地址
-        std::uint16_t port{}; ///< 目标端口
-        std::size_t offset{}; ///< 地址+端口在缓冲区中占用的总字节数
+        address addr;         // 目标地址
+        std::uint16_t port{}; // 目标端口
+        std::size_t offset{}; // 地址+端口在缓冲区中占用的总字节数
     };
 
     /**
@@ -45,19 +44,13 @@ namespace psm::protocol::shadowsocks::format
 
     /**
      * @brief 根据加密方法获取 key/salt 长度
+     * @param method 加密方法枚举
+     * @return 密钥或 salt 的字节长度（AES-128 为 16，其余为 32）
      */
-    [[nodiscard]] constexpr auto key_salt_length(cipher_method method) noexcept -> std::size_t
+    [[nodiscard]] constexpr auto key_salt_length(cipher_method method) noexcept
+        -> std::size_t
     {
         return method == cipher_method::aes_128_gcm ? 16 : 32;
-    }
-
-    /**
-     * @brief 根据加密方法获取 KDF 上下文字符串
-     * @note SIP022 规范要求所有方法统一使用 "shadowsocks 2022 session subkey"
-     */
-    [[nodiscard]] constexpr auto kdf_context_for(cipher_method /*method*/) noexcept -> std::string_view
-    {
-        return kdf_context;
     }
 
     /**

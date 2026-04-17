@@ -1,11 +1,15 @@
 #include <prism/protocol/vless/relay.hpp>
 #include <prism/protocol/vless/format.hpp>
+#include <prism/fault/handling.hpp>
 #include <prism/protocol/common/read.hpp>
+#include <prism/protocol/common/udp_relay.hpp>
 #include <prism/trace.hpp>
+#include <boost/asio/experimental/awaitable_operators.hpp>
 #include <array>
 #include <string>
 #include <algorithm>
 #include <cstring>
+#include <charconv>
 
 namespace psm::protocol::vless
 {
@@ -249,6 +253,139 @@ namespace psm::protocol::vless
     channel::transport::shared_transmission relay::release()
     {
         return std::move(next_layer_);
+    }
+
+    auto relay::async_associate(route_callback route_cb) const -> net::awaitable<fault::code>
+    {
+        if (!config_.enable_udp)
+        {
+            co_return fault::code::not_supported;
+        }
+
+        net::steady_timer idle_timer(next_layer_->executor());
+        idle_timer.expires_after(std::chrono::seconds(config_.udp_idle_timeout));
+
+        co_await udp_frame_loop(route_cb, idle_timer);
+        co_return fault::code::success;
+    }
+
+    /**
+     * @brief 构建并发送 VLESS UDP 响应
+     * @param transport 传输层
+     * @param sender_ep 发送者端点
+     * @param resp_n 响应数据长度
+     * @param buf 缓冲区集合
+     * @return 是否成功（失败应终止循环）
+     */
+    inline auto send_vless_udp_response(channel::transport::transmission &transport,
+                                        const net::ip::udp::endpoint &sender_ep,
+                                        std::size_t resp_n,
+                                        protocol::common::udp_buffers &buf)
+        -> net::awaitable<bool>
+    {
+        buf.send.clear();
+        format::udp_frame frame;
+        if (sender_ep.address().is_v4())
+        {
+            frame.destination_address = ipv4_address{sender_ep.address().to_v4().to_bytes()};
+        }
+        else
+        {
+            frame.destination_address = ipv6_address{sender_ep.address().to_v6().to_bytes()};
+        }
+        frame.destination_port = sender_ep.port();
+        format::build_udp_packet(frame, {buf.response.data(), resp_n}, buf.send);
+
+        std::error_code write_ec;
+        co_await transport.async_write({buf.send.data(), buf.send.size()}, write_ec);
+        if (write_ec)
+        {
+            trace::debug("[Vless.UDP] Write response failed: {}", write_ec.message());
+            co_return false;
+        }
+        co_return true;
+    }
+
+    auto relay::udp_frame_loop(route_callback &route_cb, net::steady_timer &idle_timer) const
+        -> net::awaitable<void>
+    {
+        using namespace boost::asio::experimental::awaitable_operators;
+
+        protocol::common::udp_buffers buf(config_.udp_max_datagram);
+
+        // 复用 UDP socket 避免每包 open/close（节省 2 syscall/包）
+        net::ip::udp::socket udp_socket(next_layer_->executor());
+
+        while (true)
+        {
+            idle_timer.expires_after(std::chrono::seconds(config_.udp_idle_timeout));
+
+            // 包装读取操作，使 transmission 接口适配 || 运算符
+            auto do_read = [&]() -> net::awaitable<std::size_t>
+            {
+                std::error_code ec;
+                const auto n = co_await next_layer_->async_read_some(
+                    {buf.recv.data(), buf.recv.size()}, ec);
+                if (ec || n == 0)
+                {
+                    co_return 0;
+                }
+                co_return n;
+            };
+
+            // 并行等待：读取数据或空闲超时，先到先得
+            auto read_result = co_await (do_read() || idle_timer.async_wait(net::use_awaitable));
+
+            // 超时分支
+            if (read_result.index() == 1)
+            {
+                trace::debug("[Vless.UDP] Idle timeout");
+                co_return;
+            }
+
+            const auto n = std::get<0>(read_result);
+            idle_timer.cancel();
+
+            if (n == 0)
+            {
+                trace::debug("[Vless.UDP] Read error or EOF");
+                co_return;
+            }
+
+            auto [parse_ec, parsed] = format::parse_udp_packet(
+                std::span<const std::byte>{buf.recv.data(), n});
+            if (fault::failed(parse_ec))
+            {
+                trace::warn("[Vless.UDP] Packet parse failed");
+                continue;
+            }
+
+            const auto target_host = to_string(parsed.destination_address, memory::current_resource());
+            char port_buf[8];
+            const auto [port_end, port_ec] = std::to_chars(port_buf, port_buf + sizeof(port_buf), parsed.destination_port);
+            const std::string_view target_port(port_buf, std::distance(port_buf, port_end));
+
+            auto [route_ec, target_ep] = co_await route_cb(target_host, target_port);
+            if (fault::failed(route_ec))
+            {
+                trace::debug("[Vless.UDP] Route failed for {}:{}", target_host, target_port);
+                continue;
+            }
+
+            const auto payload = std::span<const std::byte>(buf.recv.data() + parsed.payload_offset, parsed.payload_size);
+
+            auto [relay_ec, resp_n, sender_ep] = co_await protocol::common::relay_udp_packet(
+                udp_socket, target_ep, payload, buf);
+            if (fault::failed(relay_ec))
+            {
+                continue;
+            }
+
+            if (!co_await send_vless_udp_response(*next_layer_, sender_ep, resp_n, buf))
+            {
+                co_return;
+            }
+        }
     }
 
 } // namespace psm::protocol::vless

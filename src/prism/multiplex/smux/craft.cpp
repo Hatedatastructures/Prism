@@ -537,7 +537,6 @@ namespace psm::multiplex::smux
                     break;
                 }
                 co_await push_frame(command::nop, 0, memory::vector<std::byte>(mr_));
-                trace::debug("{} nop heartbeat sent", tag);
             }
         }
         catch (const std::exception &e)

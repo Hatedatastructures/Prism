@@ -1,5 +1,6 @@
 #include <prism/stealth/reality/request.hpp>
 #include <prism/stealth/reality/constants.hpp>
+#include <prism/channel/transport/transmission.hpp>
 #include <prism/fault/handling.hpp>
 #include <prism/trace.hpp>
 #include <cstring>

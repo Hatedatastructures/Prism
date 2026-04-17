@@ -36,7 +36,7 @@ namespace
      * @brief 输出信息级别日志
      * @param msg 日志消息
      */
-    void log_info(const std::string_view msg)
+    void LogInfo(const std::string_view msg)
     {
         psm::trace::info("[Socks5] {}", msg);
     }
@@ -45,7 +45,7 @@ namespace
      * @brief 记录测试通过并递增计数器
      * @param msg 测试名称
      */
-    void log_pass(const std::string_view msg)
+    void LogPass(const std::string_view msg)
     {
         ++passed;
         psm::trace::info("[Socks5] PASS: {}", msg);
@@ -55,7 +55,7 @@ namespace
      * @brief 记录测试失败并递增计数器
      * @param msg 失败原因
      */
-    void log_fail(const std::string_view msg)
+    void LogFail(const std::string_view msg)
     {
         ++failed;
         psm::trace::error("[Socks5] FAIL: {}", msg);
@@ -73,7 +73,7 @@ net::awaitable<void> DoSocks5Server(tcp::acceptor &acceptor)
 {
     try
     {
-        log_info("Server coroutine started, waiting for connection...");
+        LogInfo("Server coroutine started, waiting for connection...");
         // 异步等待客户端连接，协程挂起直到有新连接到达
         auto socket = co_await acceptor.async_accept(net::use_awaitable);
 
@@ -83,28 +83,28 @@ net::awaitable<void> DoSocks5Server(tcp::acceptor &acceptor)
         auto socks5 = std::make_shared<protocol::socks5::relay>(std::move(reliable));
 
         // 执行 SOCKS5 完整握手（方法协商 + CONNECT 请求解析）
-        log_info("Server starting SOCKS5 handshake...");
+        LogInfo("Server starting SOCKS5 handshake...");
         auto [ec, req] = co_await socks5->handshake();
         if (psm::fault::failed(ec))
         {
-            log_fail(std::format("Server handshake failed: {}", std::string_view(psm::fault::describe(ec))));
+            LogFail(std::format("Server handshake failed: {}", std::string_view(psm::fault::describe(ec))));
             co_return;
         }
-        log_info("Server handshake success, received target info");
+        LogInfo("Server handshake success, received target info");
 
         // 将请求中的目标地址转换为可读字符串用于日志
         auto host_str = protocol::socks5::to_string(req.destination_address);
-        log_info(std::format("SOCKS5 server received request: CMD={}, ADDR={}, PORT={}",
+        LogInfo(std::format("SOCKS5 server received request: CMD={}, ADDR={}, PORT={}",
                              static_cast<int>(req.cmd), std::string_view(host_str), req.destination_port));
 
         // 向客户端发送 CONNECT 成功响应，告知隧道已建立
-        log_info("Server sending success response...");
+        LogInfo("Server sending success response...");
         if (psm::fault::failed(co_await socks5->async_write_success(req)))
         {
-            log_fail("Server failed to send success response");
+            LogFail("Server failed to send success response");
             co_return;
         }
-        log_info("Server success response sent");
+        LogInfo("Server success response sent");
 
         // Echo 测试：读取客户端发送的数据并原样回显
         std::array<std::byte, 1024> buffer;
@@ -114,13 +114,13 @@ net::awaitable<void> DoSocks5Server(tcp::acceptor &acceptor)
         auto n = co_await socks5->async_read_some(std::span(buffer), read_ec);
         if (psm::fault::failed(psm::fault::to_code(read_ec)) || n == 0)
         {
-            log_fail(std::format("Data read failed: {}", std::string_view(psm::fault::describe(psm::fault::to_code(read_ec)))));
+            LogFail(std::format("Data read failed: {}", std::string_view(psm::fault::describe(psm::fault::to_code(read_ec)))));
             co_return;
         }
         // 将二进制缓冲区转换为字符串以便比对
         std::string received_msg(reinterpret_cast<const char *>(buffer.data()), n);
 
-        log_info(std::format("Server received message: {}", received_msg));
+        LogInfo(std::format("Server received message: {}", received_msg));
 
         // 将收到的消息通过同一隧道回写给客户端
         std::error_code write_ec;
@@ -129,17 +129,17 @@ net::awaitable<void> DoSocks5Server(tcp::acceptor &acceptor)
             write_ec);
         if (psm::fault::failed(psm::fault::to_code(write_ec)))
         {
-            log_fail(std::format("Data write back failed: {}", std::string_view(psm::fault::describe(psm::fault::to_code(write_ec)))));
+            LogFail(std::format("Data write back failed: {}", std::string_view(psm::fault::describe(psm::fault::to_code(write_ec)))));
             co_return;
         }
 
         // 测试完成，关闭 SOCKS5 中继连接
-        log_info("Server test complete, closing connection");
+        LogInfo("Server test complete, closing connection");
         socks5->close();
     }
     catch (const std::exception &e)
     {
-        log_fail(std::format("Server exception: {}", e.what()));
+        LogFail(std::format("Server exception: {}", e.what()));
     }
     co_return;
 }
@@ -155,7 +155,7 @@ net::awaitable<void> DoSocks5Server(tcp::acceptor &acceptor)
  */
 net::awaitable<void> RawSocks5Handshake(tcp::socket &socket, const std::string &host, uint16_t port)
 {
-    log_info("Raw SOCKS5 handshake started, sending method negotiation...");
+    LogInfo("Raw SOCKS5 handshake started, sending method negotiation...");
     // 构造方法协商请求：0x05=SOCKS版本5, 0x01=1种方法, 0x00=无认证
     std::array<uint8_t, 3> method_request = {0x05, 0x01, 0x00};
     co_await net::async_write(socket, net::buffer(method_request), net::use_awaitable);
@@ -163,7 +163,7 @@ net::awaitable<void> RawSocks5Handshake(tcp::socket &socket, const std::string &
     // 读取服务端的方法选择响应，应为 2 字节
     std::array<uint8_t, 2> method_response;
     co_await net::async_read(socket, net::buffer(method_response), net::use_awaitable);
-    log_info(std::format("Received method selection response: {}, {}", static_cast<int>(method_response[0]),
+    LogInfo(std::format("Received method selection response: {}, {}", static_cast<int>(method_response[0]),
                          static_cast<int>(method_response[1])));
 
     // 验证方法选择响应：版本号必须为 5，选中方法必须为无认证(0x00)
@@ -216,12 +216,12 @@ net::awaitable<void> RawSocks5Handshake(tcp::socket &socket, const std::string &
     try
     {
         total_read = co_await socket.async_read_some(net::buffer(response), net::use_awaitable);
-        log_info(std::format("Read {} bytes response", total_read));
+        LogInfo(std::format("Read {} bytes response", total_read));
 
         // 检查响应前两字节：版本号=5 且 回复码=0 表示成功
         if (total_read >= 4 && response[0] == 0x05 && response[1] == 0x00)
         {
-            log_info("Raw SOCKS5 handshake success");
+            LogInfo("Raw SOCKS5 handshake success");
             co_return;
         }
         else
@@ -238,7 +238,7 @@ net::awaitable<void> RawSocks5Handshake(tcp::socket &socket, const std::string &
         {
             if (response[0] == 0x05 && response[1] == 0x00)
             {
-                log_info("Raw SOCKS5 handshake success (EOF)");
+                LogInfo("Raw SOCKS5 handshake success (EOF)");
                 co_return;
             }
         }
@@ -252,7 +252,7 @@ net::awaitable<void> RawSocks5Handshake(tcp::socket &socket, const std::string &
  */
 void TestSocks5RelayHandshake()
 {
-    log_info("=== Testing SOCKS5 relay handshake ===");
+    LogInfo("=== Testing SOCKS5 relay handshake ===");
 
     // 创建 io_context 驱动异步事件循环
     net::io_context ioc;
@@ -263,7 +263,7 @@ void TestSocks5RelayHandshake()
     // 获取实际分配的端口号，供客户端连接使用
     auto bound_endpoint = acceptor.local_endpoint();
 
-    log_info(std::format("Test server listening on: {}:{}", bound_endpoint.address().to_string(), bound_endpoint.port()));
+    LogInfo(std::format("Test server listening on: {}:{}", bound_endpoint.address().to_string(), bound_endpoint.port()));
 
     // 用 shared_ptr 标记客户端是否完成全部测试
     auto client_ok = std::make_shared<bool>(false);
@@ -282,16 +282,16 @@ void TestSocks5RelayHandshake()
                 tcp::socket socket(co_await net::this_coro::executor);
                 // 异步连接到测试服务端
                 co_await socket.async_connect(endpoint, net::use_awaitable);
-                log_info("Client connected successfully");
+                LogInfo("Client connected successfully");
 
                 // 执行原始 SOCKS5 握手（方法协商 + CONNECT）
                 co_await RawSocks5Handshake(socket, "127.0.0.1", 8080);
 
                 // 握手成功后通过隧道发送测试消息
                 std::string test_msg = "Hello SOCKS5";
-                log_info(std::format("Client sending message: {}", test_msg));
+                LogInfo(std::format("Client sending message: {}", test_msg));
                 co_await net::async_write(socket, net::buffer(test_msg), net::use_awaitable);
-                log_info("Client message sent");
+                LogInfo("Client message sent");
 
                 // 读取服务端回显的数据
                 std::array<char, 1024> buffer;
@@ -301,12 +301,12 @@ void TestSocks5RelayHandshake()
                 // 验证回显内容与发送内容一致
                 if (received_msg != test_msg)
                 {
-                    log_fail("Message echo verification failed");
+                    LogFail("Message echo verification failed");
                     co_return;
                 }
 
-                log_info(std::format("Client test success: {}", test_msg));
-                log_info("Client test complete, closing connection");
+                LogInfo(std::format("Client test success: {}", test_msg));
+                LogInfo("Client test complete, closing connection");
                 socket.close();
 
                 // 标记客户端全部流程通过
@@ -314,7 +314,7 @@ void TestSocks5RelayHandshake()
             }
             catch (const std::exception &e)
             {
-                log_fail(std::format("Client exception: {}", e.what()));
+                LogFail(std::format("Client exception: {}", e.what()));
             }
         },
         net::detached);
@@ -325,7 +325,7 @@ void TestSocks5RelayHandshake()
     // 根据客户端标记判定整体测试结果
     if (*client_ok)
     {
-        log_pass("SOCKS5 relay handshake and echo");
+        LogPass("SOCKS5 relay handshake and echo");
     }
 }
 
@@ -346,7 +346,7 @@ int main()
     // 初始化 spdlog 日志系统
     psm::trace::init({});
 
-    log_info("Starting SOCKS5 tests...");
+    LogInfo("Starting SOCKS5 tests...");
 
     try
     {
@@ -354,7 +354,7 @@ int main()
     }
     catch (const std::exception &e)
     {
-        log_fail(std::format("TestSocks5RelayHandshake threw exception: {}", e.what()));
+        LogFail(std::format("TestSocks5RelayHandshake threw exception: {}", e.what()));
     }
 
     psm::trace::info("[Socks5] Results: {} passed, {} failed", passed, failed);

@@ -229,7 +229,7 @@ namespace psm::agent::dispatch {
 | `agent` | `psm::agent::config` | `include/prism/agent/config.hpp` |
 | `agent.addressable` | `agent::endpoint { host, port }` | `include/prism/agent/config.hpp` |
 | `agent.positive` | `agent::endpoint { host, port }` | `include/prism/agent/config.hpp` |
-| `agent.limit` | `agent::limit { concurrences, blacklist }` | `include/prism/agent/config.hpp` |
+| `agent.limit` | `agent::limit { blacklist }` | `include/prism/agent/config.hpp` |
 | `agent.certificate` | `agent::certificate { key, cert }` | `include/prism/agent/config.hpp` |
 | `agent.authentication` | `agent::authentication { users }` | `include/prism/agent/config.hpp` |
 | `agent.authentication.users[]` | `authentication::user { password, uuid, max_connections }` | `include/prism/agent/config.hpp` |

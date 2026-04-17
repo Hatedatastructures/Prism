@@ -7,7 +7,6 @@
  * 是 TLS 1.3 中 ECDHE 的首选曲线之一。
  * @note 所有密钥和共享密钥长度固定为 32 字节。
  */
-
 #pragma once
 
 #include <array>
@@ -47,20 +46,22 @@ namespace psm::crypto
      */
     struct x25519_keypair
     {
-        std::array<std::uint8_t, X25519_KEY_LEN> private_key{};
-        std::array<std::uint8_t, X25519_KEY_LEN> public_key{};
+        std::array<std::uint8_t, X25519_KEY_LEN> private_key{}; // X25519 私钥（32 字节标量）
+        std::array<std::uint8_t, X25519_KEY_LEN> public_key{};  // X25519 公钥（Curve25519 上的点，32 字节）
     };
 
     /**
      * @brief 生成 X25519 密钥对
-     * @return 随机生成的 X25519 密钥对
      * @details 使用 BoringSSL 的随机数生成器生成私钥，
      * 然后从私钥推导对应的公钥。
+     * @return 随机生成的 X25519 密钥对
      */
     [[nodiscard]] auto generate_x25519_keypair() -> x25519_keypair;
 
     /**
      * @brief 从私钥推导公钥
+     * @details 执行 X25519 标量乘法，将私钥映射为 Curve25519 上的公钥点。
+     * 如果私钥无效则返回全零。
      * @param private_key 32 字节 X25519 私钥
      * @return 推导出的 32 字节公钥，失败时返回全零
      */
@@ -69,17 +70,16 @@ namespace psm::crypto
 
     /**
      * @brief X25519 密钥交换
-     * @param private_key 本方 32 字节 X25519 私钥
-     * @param peer_public_key 对方 32 字节 X25519 公钥
-     * @return 错误码和 32 字节共享密钥的配对
      * @details 计算 shared_secret = X25519(private_key, peer_public_key)。
      * 成功时返回 fault::code::success 和共享密钥。
      * 失败可能原因：无效的公钥（低阶点）或 EVP API 错误。
+     * @param private_key 本方 32 字节 X25519 私钥
+     * @param peer_public_key 对方 32 字节 X25519 公钥
+     * @return 错误码和 32 字节共享密钥的配对
      * @note 即使对方公钥是低阶点，X25519 也会成功计算（输出全零），
      * 调用者应检查共享密钥是否为全零以检测此类攻击。
      */
-    auto x25519(std::span<const std::uint8_t> private_key,
-                std::span<const std::uint8_t> peer_public_key)
+    auto x25519(std::span<const std::uint8_t> private_key, std::span<const std::uint8_t> peer_public_key)
         -> std::pair<fault::code, std::array<std::uint8_t, X25519_SHARED_LEN>>;
 
     /**
@@ -90,7 +90,7 @@ namespace psm::crypto
      */
     struct ed25519_keypair
     {
-        std::array<std::uint8_t, ED25519_PRIVATE_KEY_LEN> private_key{};
-        std::array<std::uint8_t, ED25519_KEY_LEN> public_key{};
+        std::array<std::uint8_t, ED25519_PRIVATE_KEY_LEN> private_key{}; // Ed25519 完整私钥（64 字节：种子+公钥）
+        std::array<std::uint8_t, ED25519_KEY_LEN> public_key{};          // Ed25519 公钥（32 字节）
     };
 } // namespace psm::crypto

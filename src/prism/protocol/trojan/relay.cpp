@@ -1,7 +1,13 @@
 #include <prism/protocol/trojan/relay.hpp>
+#include <prism/protocol/common/form.hpp>
+#include <prism/protocol/trojan/constants.hpp>
+#include <prism/protocol/trojan/format.hpp>
+#include <prism/fault/handling.hpp>
 #include <prism/protocol/common/read.hpp>
+#include <prism/protocol/common/udp_relay.hpp>
 #include <prism/memory/container.hpp>
 #include <prism/trace.hpp>
+#include <boost/asio/experimental/awaitable_operators.hpp>
 #include <array>
 #include <charconv>
 #include <string_view>
@@ -94,69 +100,7 @@ namespace psm::protocol::trojan
         }
     }
 
-    /**
-     * @brief UDP 会话缓冲区集合
-     * @details 封装 UDP 帧循环所需的所有缓冲区，避免重复分配
-     */
-    struct udp_buffers
-    {
-        memory::vector<std::byte> recv;     ///< 接收缓冲区
-        memory::vector<std::byte> send;     ///< 发送缓冲区
-        memory::vector<std::byte> response; ///< 响应缓冲区
-
-        explicit udp_buffers(const std::size_t max_datagram)
-            : recv(max_datagram, memory::current_resource()),
-              send(memory::current_resource()),
-              response(max_datagram, memory::current_resource())
-        {
-        }
-    };
-
-    /**
-     * @brief 转发 UDP 数据包到目标并接收响应
-     * @param executor 执行器
-     * @param target_ep 目标端点
-     * @param payload 载荷数据
-     * @param buf 缓冲区集合
-     * @return 错误码、响应数据长度、发送者端点
-     */
-    inline auto relay_udp_packet(net::ip::udp::socket &udp_socket, const net::ip::udp::endpoint &target_ep,
-                                 std::span<const std::byte> payload, udp_buffers &buf)
-        -> net::awaitable<std::tuple<fault::code, std::size_t, net::ip::udp::endpoint>>
-    {
-        boost::system::error_code udp_ec;
-
-        // 延迟打开 socket：首次调用时按目标协议族打开
-        if (!udp_socket.is_open())
-        {
-            udp_socket.open(target_ep.protocol(), udp_ec);
-            if (udp_ec)
-            {
-                trace::warn("{} Socket open failed: {}", udp_tag, udp_ec.message());
-                co_return std::tuple{fault::to_code(udp_ec), 0, net::ip::udp::endpoint{}};
-            }
-        }
-
-        auto token = net::redirect_error(net::use_awaitable, udp_ec);
-        co_await udp_socket.async_send_to(net::buffer(payload.data(), payload.size()), target_ep, token);
-        if (udp_ec)
-        {
-            trace::debug("{} Send failed: {}", udp_tag, udp_ec.message());
-            co_return std::tuple{fault::to_code(udp_ec), 0, net::ip::udp::endpoint{}};
-        }
-
-        net::ip::udp::endpoint sender_ep;
-        const auto resp_n = co_await udp_socket.async_receive_from(
-            net::buffer(buf.response.data(), buf.response.size()), sender_ep,
-            net::redirect_error(net::use_awaitable, udp_ec));
-        if (udp_ec)
-        {
-            trace::debug("{} Receive failed: {}", udp_tag, udp_ec.message());
-            co_return std::tuple{fault::to_code(udp_ec), 0, net::ip::udp::endpoint{}};
-        }
-
-        co_return std::tuple{fault::code::success, resp_n, sender_ep};
-    }
+    using common_udp_buffers = protocol::common::udp_buffers;
 
     /**
      * @brief 构建并发送 UDP 响应
@@ -167,7 +111,7 @@ namespace psm::protocol::trojan
      * @return 是否成功（失败应终止循环）
      */
     inline auto send_udp_response(channel::transport::transmission &transport, const net::ip::udp::endpoint &sender_ep,
-                                  std::size_t resp_n, udp_buffers &buf)
+                                  std::size_t resp_n, common_udp_buffers &buf)
         -> net::awaitable<bool>
     {
         buf.send.clear();
@@ -388,7 +332,9 @@ namespace psm::protocol::trojan
     auto relay::udp_frame_loop(route_callback &route_cb, net::steady_timer &idle_timer) const
         -> net::awaitable<void>
     {
-        udp_buffers buf(config_.udp_max_datagram);
+        using namespace boost::asio::experimental::awaitable_operators;
+
+        common_udp_buffers buf(config_.udp_max_datagram);
 
         // 复用 UDP socket 避免每包 open/close（节省 2 syscall/包）
         net::ip::udp::socket udp_socket(next_layer_->executor());
@@ -397,11 +343,35 @@ namespace psm::protocol::trojan
         {
             idle_timer.expires_after(std::chrono::seconds(config_.udp_idle_timeout));
 
-            std::error_code read_ec;
-            const auto n = co_await next_layer_->async_read_some({buf.recv.data(), buf.recv.size()}, read_ec);
-            if (read_ec || n == 0)
+            // 包装读取操作，使 transmission 接口适配 || 运算符
+            auto do_read = [&]() -> net::awaitable<std::size_t>
             {
-                trace::debug("{} Read error or EOF: {}", udp_tag, read_ec.message());
+                std::error_code ec;
+                const auto n = co_await next_layer_->async_read_some(
+                    {buf.recv.data(), buf.recv.size()}, ec);
+                if (ec || n == 0)
+                {
+                    co_return 0;
+                }
+                co_return n;
+            };
+
+            // 并行等待：读取数据或空闲超时，先到先得
+            auto read_result = co_await (do_read() || idle_timer.async_wait(net::use_awaitable));
+
+            // 超时分支
+            if (read_result.index() == 1)
+            {
+                trace::debug("{} Idle timeout", udp_tag);
+                co_return;
+            }
+
+            const auto n = std::get<0>(read_result);
+            idle_timer.cancel();
+
+            if (n == 0)
+            {
+                trace::debug("{} Read error or EOF", udp_tag);
                 co_return;
             }
 
@@ -426,7 +396,7 @@ namespace psm::protocol::trojan
 
             const auto payload = std::span<const std::byte>(buf.recv.data() + parsed.payload_offset, parsed.payload_size);
 
-            auto [relay_ec, resp_n, sender_ep] = co_await relay_udp_packet(
+            auto [relay_ec, resp_n, sender_ep] = co_await protocol::common::relay_udp_packet(
                 udp_socket, target_ep, payload, buf);
             if (fault::failed(relay_ec))
             {

@@ -1,337 +1,314 @@
 /**
  * @file Smux.cpp
- * @brief smux 多路复用帧编解码单元测试
- * @details 验证 psm::multiplex::smux 模块的帧编解码功能，覆盖以下场景：
- * 1. 帧头反序列化（SYN/FIN/PSH/NOP 命令）
- * 2. 地址解析（IPv4/IPv6/域名 + Flags 标志位）
- * 3. UDP 数据报与 length-prefixed 编解码往返
- * 4. 截断数据与版本不匹配的容错处理
+ * @brief smux 帧协议单元测试
+ * @details 测试 smux 多路复用协议的帧编解码功能：
+ * 帧头反序列化、地址解析、UDP 数据报编解码、length-prefixed 编解码等。
  */
 
-#include <prism/multiplex/smux/frame.hpp>
 #include <prism/memory.hpp>
 #include <prism/trace/spdlog.hpp>
+#include <prism/multiplex/smux/frame.hpp>
+
+#include "common/test_runner.hpp"
 
 #include <array>
-#include <cstddef>
-#include <cstdint>
-#include <span>
-#include <string>
-#include <string_view>
+#include <cstring>
 
 namespace
 {
-    int passed = 0;
-    int failed = 0;
-
-    /**
-     * @brief 输出信息级别日志
-     * @param msg 日志消息
-     */
-    void log_info(const std::string_view msg)
-    {
-        psm::trace::info("[Smux] {}", msg);
-    }
-
-    /**
-     * @brief 记录测试通过并递增计数器
-     * @param msg 测试名称
-     */
-    void log_pass(const std::string_view msg)
-    {
-        ++passed;
-        psm::trace::info("[Smux] PASS: {}", msg);
-    }
-
-    /**
-     * @brief 记录测试失败并递增计数器
-     * @param msg 失败原因
-     */
-    void log_fail(const std::string_view msg)
-    {
-        ++failed;
-        psm::trace::error("[Smux] FAIL: {}", msg);
-    }
-
-    /**
-     * @brief 构建 smux 协议帧的 8 字节头部
-     * @param cmd 帧命令类型 (SYN/FIN/PSH/NOP)
-     * @param length 载荷长度 (小端序)
-     * @param stream_id 流标识符 (小端序)
-     * @return 8 字节帧头数组
-     */
-    // 构建 smux 8 字节帧头：版本(1B) + 命令(1B) + 长度(2B LE) + 流ID(4B LE)
-    [[nodiscard]] auto build_smux_frame(psm::multiplex::smux::command cmd,
-                                        std::uint16_t length,
-                                        std::uint32_t stream_id)
-        -> std::array<std::byte, 8>
-    {
-        std::array<std::byte, 8> buf{};
-        buf[0] = std::byte{psm::multiplex::smux::protocol_version};
-        buf[1] = std::byte{static_cast<std::uint8_t>(cmd)};
-        // 长度字段，小端序低字节在前
-        buf[2] = std::byte{static_cast<std::uint8_t>(length & 0xFF)};
-        buf[3] = std::byte{static_cast<std::uint8_t>((length >> 8) & 0xFF)};
-        // 流 ID 字段，小端序逐字节写入
-        buf[4] = std::byte{static_cast<std::uint8_t>(stream_id & 0xFF)};
-        buf[5] = std::byte{static_cast<std::uint8_t>((stream_id >> 8) & 0xFF)};
-        buf[6] = std::byte{static_cast<std::uint8_t>((stream_id >> 16) & 0xFF)};
-        buf[7] = std::byte{static_cast<std::uint8_t>((stream_id >> 24) & 0xFF)};
-        return buf;
-    }
+    psm::testing::TestRunner runner("Smux");
 } // namespace
 
+using namespace psm::multiplex::smux;
+
+// ---------- helpers ----------
+
 /**
- * @brief 测试 SYN 帧反序列化
+ * @brief 构造 8 字节 smux 帧头（小端序）
+ */
+[[nodiscard]] std::array<std::byte, 8> make_header(std::uint8_t version, command cmd,
+                                                   std::uint16_t length, std::uint32_t stream_id)
+{
+    std::array<std::byte, 8> buf{};
+    buf[0] = static_cast<std::byte>(version);
+    buf[1] = static_cast<std::byte>(cmd);
+    buf[2] = static_cast<std::byte>(length & 0xFF);
+    buf[3] = static_cast<std::byte>((length >> 8) & 0xFF);
+    buf[4] = static_cast<std::byte>(stream_id & 0xFF);
+    buf[5] = static_cast<std::byte>((stream_id >> 8) & 0xFF);
+    buf[6] = static_cast<std::byte>((stream_id >> 16) & 0xFF);
+    buf[7] = static_cast<std::byte>((stream_id >> 24) & 0xFF);
+    return buf;
+}
+
+// ---------- deserialization ----------
+
+/**
+ * @brief 测试合法 SYN 帧反序列化
  */
 void TestDeserializeSyn()
 {
-    log_info("=== TestDeserializeSyn ===");
+    runner.LogInfo("=== TestDeserializeSyn ===");
 
-    namespace smux = psm::multiplex::smux;
-    // 构造 SYN 帧：载荷长度 0，流 ID 为 1
-    auto buf = build_smux_frame(smux::command::syn, 0, 1);
-    auto result = smux::deserialization(std::span<const std::byte>{buf});
-
-    // 反序列化必须成功
+    auto buf = make_header(0x01, command::syn, 0, 42);
+    auto result = deserialization(buf);
     if (!result)
     {
-        log_fail("SYN deserialization returned nullopt");
+        runner.LogFail("SYN deserialization returned nullopt");
         return;
     }
-    // 逐一验证帧头各字段是否与构造值一致
-    if (result->version != smux::protocol_version)
+    if (result->cmd != command::syn)
     {
-        log_fail("SYN version mismatch");
-        return;
-    }
-    if (result->cmd != smux::command::syn)
-    {
-        log_fail("SYN cmd mismatch");
+        runner.LogFail("SYN cmd mismatch");
         return;
     }
     if (result->length != 0)
     {
-        log_fail("SYN length should be 0");
+        runner.LogFail("SYN length mismatch");
         return;
     }
-    if (result->stream_id != 1)
+    if (result->stream_id != 42)
     {
-        log_fail("SYN stream_id should be 1");
+        runner.LogFail("SYN stream_id mismatch");
         return;
     }
 
-    log_pass("DeserializeSyn");
+    runner.LogPass("deserialize SYN");
 }
 
 /**
- * @brief 测试 FIN 帧反序列化
+ * @brief 测试合法 FIN 帧反序列化
  */
 void TestDeserializeFin()
 {
-    log_info("=== TestDeserializeFin ===");
+    runner.LogInfo("=== TestDeserializeFin ===");
 
-    namespace smux = psm::multiplex::smux;
-    // 构造 FIN 帧：流 ID 为 5，表示关闭该流
-    auto buf = build_smux_frame(smux::command::fin, 0, 5);
-    auto result = smux::deserialization(std::span<const std::byte>{buf});
-
+    auto buf = make_header(0x01, command::fin, 100, 7);
+    auto result = deserialization(buf);
     if (!result)
     {
-        log_fail("FIN deserialization returned nullopt");
+        runner.LogFail("FIN deserialization returned nullopt");
         return;
     }
-    // 验证命令类型和流 ID 正确解析
-    if (result->cmd != smux::command::fin)
+    if (result->cmd != command::fin)
     {
-        log_fail("FIN cmd mismatch");
-        return;
-    }
-    if (result->stream_id != 5)
-    {
-        log_fail("FIN stream_id should be 5");
-        return;
-    }
-
-    log_pass("DeserializeFin");
-}
-
-/**
- * @brief 测试 PSH 帧反序列化
- */
-void TestDeserializePush()
-{
-    log_info("=== TestDeserializePush ===");
-
-    namespace smux = psm::multiplex::smux;
-    // 构造 PSH 帧：载荷长度 100，流 ID 为 2
-    auto buf = build_smux_frame(smux::command::push, 100, 2);
-    auto result = smux::deserialization(std::span<const std::byte>{buf});
-
-    if (!result)
-    {
-        log_fail("PSH deserialization returned nullopt");
-        return;
-    }
-    // 验证载荷长度字段正确还原
-    if (result->cmd != smux::command::push)
-    {
-        log_fail("PSH cmd mismatch");
+        runner.LogFail("FIN cmd mismatch");
         return;
     }
     if (result->length != 100)
     {
-        log_fail("PSH length should be 100");
+        runner.LogFail("FIN length mismatch");
         return;
     }
-    if (result->stream_id != 2)
+    if (result->stream_id != 7)
     {
-        log_fail("PSH stream_id should be 2");
+        runner.LogFail("FIN stream_id mismatch");
         return;
     }
 
-    log_pass("DeserializePush");
+    runner.LogPass("deserialize FIN");
 }
 
 /**
- * @brief 测试 NOP 帧反序列化
+ * @brief 测试合法 PSH 帧反序列化
+ */
+void TestDeserializePush()
+{
+    runner.LogInfo("=== TestDeserializePush ===");
+
+    auto buf = make_header(0x01, command::push, 65535, 0x12345678);
+    auto result = deserialization(buf);
+    if (!result)
+    {
+        runner.LogFail("PSH deserialization returned nullopt");
+        return;
+    }
+    if (result->cmd != command::push)
+    {
+        runner.LogFail("PSH cmd mismatch");
+        return;
+    }
+    if (result->length != 65535)
+    {
+        runner.LogFail("PSH length mismatch");
+        return;
+    }
+    if (result->stream_id != 0x12345678)
+    {
+        runner.LogFail("PSH stream_id mismatch");
+        return;
+    }
+
+    runner.LogPass("deserialize PSH");
+}
+
+/**
+ * @brief 测试合法 NOP 帧反序列化
  */
 void TestDeserializeNop()
 {
-    log_info("=== TestDeserializeNop ===");
+    runner.LogInfo("=== TestDeserializeNop ===");
 
-    namespace smux = psm::multiplex::smux;
-    // 构造 NOP 帧：心跳保活，无载荷、无流 ID
-    auto buf = build_smux_frame(smux::command::nop, 0, 0);
-    auto result = smux::deserialization(std::span<const std::byte>{buf});
-
+    auto buf = make_header(0x01, command::nop, 0, 0);
+    auto result = deserialization(buf);
     if (!result)
     {
-        log_fail("NOP deserialization returned nullopt");
+        runner.LogFail("NOP deserialization returned nullopt");
         return;
     }
-    // NOP 帧所有业务字段应为零
-    if (result->cmd != smux::command::nop)
+    if (result->cmd != command::nop)
     {
-        log_fail("NOP cmd mismatch");
-        return;
-    }
-    if (result->length != 0)
-    {
-        log_fail("NOP length should be 0");
+        runner.LogFail("NOP cmd mismatch");
         return;
     }
     if (result->stream_id != 0)
     {
-        log_fail("NOP stream_id should be 0");
+        runner.LogFail("NOP stream_id mismatch");
         return;
     }
 
-    log_pass("DeserializeNop");
+    runner.LogPass("deserialize NOP");
 }
 
 /**
- * @brief 测试版本不匹配时返回 nullopt
- */
-void TestDeserializeVersionMismatch()
-{
-    log_info("=== TestDeserializeVersionMismatch ===");
-
-    // 手工构造版本号 0xFF 的帧，模拟非法版本
-    std::array<std::byte, 8> buf{};
-    buf[0] = std::byte{0xFF};
-
-    // 非法版本应导致反序列化返回 nullopt
-    auto result = psm::multiplex::smux::deserialization(std::span<const std::byte>{buf});
-    if (result.has_value())
-    {
-        log_fail("Version 0xFF should return nullopt");
-        return;
-    }
-
-    log_pass("DeserializeVersionMismatch");
-}
-
-/**
- * @brief 测试截断数据时返回 nullopt
+ * @brief 测试数据不足（< 8 字节）
  */
 void TestDeserializeTruncated()
 {
-    log_info("=== TestDeserializeTruncated ===");
+    runner.LogInfo("=== TestDeserializeTruncated ===");
 
-    // 帧头需 8 字节，7 字节应被判定为截断
-    std::array<std::byte, 7> short_buf{};
-    auto result = psm::multiplex::smux::deserialization(std::span<const std::byte>{short_buf});
+    std::array<std::byte, 4> short_buf{};
+    auto result = deserialization(short_buf);
     if (result.has_value())
     {
-        log_fail("7 bytes should return nullopt");
+        runner.LogFail("truncated data should return nullopt");
         return;
     }
 
-    // 空数据同样应返回 nullopt
-    auto result2 = psm::multiplex::smux::deserialization(std::span<const std::byte>{});
-    if (result2.has_value())
-    {
-        log_fail("0 bytes should return nullopt");
-        return;
-    }
-
-    log_pass("DeserializeTruncated");
+    runner.LogPass("deserialize truncated");
 }
+
+/**
+ * @brief 测试非法版本号
+ */
+void TestDeserializeBadVersion()
+{
+    runner.LogInfo("=== TestDeserializeBadVersion ===");
+
+    auto buf = make_header(0x02, command::syn, 0, 1);
+    auto result = deserialization(buf);
+    if (result.has_value())
+    {
+        runner.LogFail("bad version should return nullopt");
+        return;
+    }
+
+    runner.LogPass("deserialize bad version");
+}
+
+/**
+ * @brief 测试非法命令
+ */
+void TestDeserializeBadCommand()
+{
+    runner.LogInfo("=== TestDeserializeBadCommand ===");
+
+    auto buf = make_header(0x01, static_cast<command>(0xFF), 0, 1);
+    auto result = deserialization(buf);
+    if (result.has_value())
+    {
+        runner.LogFail("bad command should return nullopt");
+        return;
+    }
+
+    runner.LogPass("deserialize bad command");
+}
+
+/**
+ * @brief 测试小端字节序
+ */
+void TestDeserializeEndianness()
+{
+    runner.LogInfo("=== TestDeserializeEndianness ===");
+
+    std::array<std::byte, 8> buf{};
+    buf[0] = std::byte{0x01}; // version
+    buf[1] = std::byte{0x02}; // push
+    buf[2] = std::byte{0x06}; // length low
+    buf[3] = std::byte{0x05}; // length high
+    buf[4] = std::byte{0x04}; // stream_id byte 0
+    buf[5] = std::byte{0x03}; // stream_id byte 1
+    buf[6] = std::byte{0x02}; // stream_id byte 2
+    buf[7] = std::byte{0x01}; // stream_id byte 3
+
+    auto result = deserialization(buf);
+    if (!result)
+    {
+        runner.LogFail("endianness test deserialization failed");
+        return;
+    }
+    if (result->length != 0x0506)
+    {
+        runner.LogFail("endianness length mismatch");
+        return;
+    }
+    if (result->stream_id != 0x01020304)
+    {
+        runner.LogFail("endianness stream_id mismatch");
+        return;
+    }
+
+    runner.LogPass("deserialize endianness");
+}
+
+// ---------- parse_mux_address ----------
 
 /**
  * @brief 测试 IPv4 地址解析
  */
 void TestParseAddressIPv4()
 {
-    log_info("=== TestParseAddressIPv4 ===");
+    runner.LogInfo("=== TestParseAddressIPv4 ===");
 
-    namespace smux = psm::multiplex::smux;
-    psm::memory::resource_pointer mr = psm::memory::current_resource();
+    psm::memory::vector<std::byte> buf;
+    buf.push_back(std::byte{0x00}); // flags high
+    buf.push_back(std::byte{0x01}); // flags low: is_udp=true, packet_addr=false
+    buf.push_back(std::byte{0x01}); // ATYP IPv4
+    buf.push_back(std::byte{127});  // 127
+    buf.push_back(std::byte{0});    // 0
+    buf.push_back(std::byte{0});    // 0
+    buf.push_back(std::byte{1});    // 1  -> 127.0.0.1
+    buf.push_back(std::byte{0x1F}); // port high
+    buf.push_back(std::byte{0x90}); // port low -> 8080
 
-    // 地址缓冲区：Flags(2B BE) + 类型(1B) + IPv4(4B) + 端口(2B BE)
-    // 类型 0x01=IPv4，地址 127.0.0.1，端口 80(0x0050)
-    std::array<std::byte, 9> buf{};
-    buf[0] = std::byte{0x00};
-    buf[1] = std::byte{0x00};
-    buf[2] = std::byte{0x01};
-    buf[3] = std::byte{0x7F};
-    buf[4] = std::byte{0x00};
-    buf[5] = std::byte{0x00};
-    buf[6] = std::byte{0x01};
-    buf[7] = std::byte{0x00};
-    buf[8] = std::byte{0x50};
-
-    auto result = smux::parse_mux_address(std::span<const std::byte>{buf}, mr);
+    auto result = parse_mux_address(buf, psm::memory::current_resource());
     if (!result)
     {
-        log_fail("IPv4 parsing returned nullopt");
+        runner.LogFail("IPv4 address parse returned nullopt");
         return;
     }
-    // 验证解析出的主机、端口、标志位
     if (result->host != "127.0.0.1")
     {
-        log_fail(std::format("IPv4 host='{}', expected '127.0.0.1'", result->host));
+        runner.LogFail(psm::memory::string("IPv4 host mismatch: ") + result->host);
         return;
     }
-    if (result->port != 80)
+    if (result->port != 8080)
     {
-        log_fail(std::format("IPv4 port={}, expected 80", result->port));
+        runner.LogFail("IPv4 port mismatch");
         return;
     }
-    // Flags=0x0000 表示 TCP 且非 PacketAddr 模式
-    if (result->is_udp)
+    if (!result->is_udp)
     {
-        log_fail("IPv4 is_udp should be false");
+        runner.LogFail("is_udp should be true");
         return;
     }
     if (result->packet_addr)
     {
-        log_fail("IPv4 packet_addr should be false");
+        runner.LogFail("packet_addr should be false");
         return;
     }
 
-    log_pass("ParseAddressIPv4");
+    runner.LogPass("parse address IPv4");
 }
 
 /**
@@ -339,46 +316,44 @@ void TestParseAddressIPv4()
  */
 void TestParseAddressDomain()
 {
-    log_info("=== TestParseAddressDomain ===");
+    runner.LogInfo("=== TestParseAddressDomain ===");
 
-    namespace smux = psm::multiplex::smux;
-    psm::memory::resource_pointer mr = psm::memory::current_resource();
-
-    const std::string domain = "example.com";
-    const auto domain_len = static_cast<std::uint8_t>(domain.size());
-
-    // 地址缓冲区：Flags(2B) + 类型(1B=0x03 域名) + 长度(1B) + 域名 + 端口(2B BE)
-    psm::memory::vector<std::byte> buf(mr);
-    buf.push_back(std::byte{0x00});
-    buf.push_back(std::byte{0x00});
-    buf.push_back(std::byte{0x03});
-    buf.push_back(std::byte{domain_len});
-    for (char c : domain)
+    const char *domain = "test.com";
+    psm::memory::vector<std::byte> buf;
+    buf.push_back(std::byte{0x00}); // flags high
+    buf.push_back(std::byte{0x00}); // flags low
+    buf.push_back(std::byte{0x03}); // ATYP domain
+    buf.push_back(static_cast<std::byte>(std::strlen(domain)));
+    for (const char *p = domain; *p; ++p)
     {
-        buf.push_back(std::byte{static_cast<unsigned char>(c)});
+        buf.push_back(static_cast<std::byte>(*p));
     }
-    // 端口 443(0x01BB)，大端序
-    buf.push_back(std::byte{0x01});
-    buf.push_back(std::byte{0xBB});
+    buf.push_back(std::byte{0x00}); // port high
+    buf.push_back(std::byte{0x50}); // port low -> 80
 
-    auto result = smux::parse_mux_address(std::span<const std::byte>{buf}, mr);
+    auto result = parse_mux_address(buf, psm::memory::current_resource());
     if (!result)
     {
-        log_fail("Domain parsing returned nullopt");
+        runner.LogFail("domain address parse returned nullopt");
         return;
     }
-    if (result->host != "example.com")
+    if (result->host != "test.com")
     {
-        log_fail(std::format("Domain host='{}', expected 'example.com'", result->host));
+        runner.LogFail(psm::memory::string("domain host mismatch: ") + result->host);
         return;
     }
-    if (result->port != 443)
+    if (result->port != 80)
     {
-        log_fail(std::format("Domain port={}, expected 443", result->port));
+        runner.LogFail("domain port mismatch");
+        return;
+    }
+    if (result->is_udp)
+    {
+        runner.LogFail("is_udp should be false");
         return;
     }
 
-    log_pass("ParseAddressDomain");
+    runner.LogPass("parse address domain");
 }
 
 /**
@@ -386,315 +361,276 @@ void TestParseAddressDomain()
  */
 void TestParseAddressIPv6()
 {
-    log_info("=== TestParseAddressIPv6 ===");
+    runner.LogInfo("=== TestParseAddressIPv6 ===");
 
-    namespace smux = psm::multiplex::smux;
-    psm::memory::resource_pointer mr = psm::memory::current_resource();
-
-    // 地址缓冲区：Flags(2B) + 类型(1B=0x04 IPv6) + 16B 地址 + 端口(2B BE)
-    // IPv6 地址为 ::1（前 15 字节为 0，末字节为 1）
-    psm::memory::vector<std::byte> buf(mr);
-    buf.push_back(std::byte{0x00});
-    buf.push_back(std::byte{0x00});
-    buf.push_back(std::byte{0x04});
+    psm::memory::vector<std::byte> buf;
+    buf.push_back(std::byte{0x00}); // flags high
+    buf.push_back(std::byte{0x03}); // flags low: is_udp=true, packet_addr=true
+    buf.push_back(std::byte{0x04}); // ATYP IPv6
     for (int i = 0; i < 15; ++i)
     {
-        buf.push_back(std::byte{0x00});
+        buf.push_back(std::byte{0});
     }
-    buf.push_back(std::byte{0x01});
-    // 端口 443(0x01BB)，大端序
-    buf.push_back(std::byte{0x01});
-    buf.push_back(std::byte{0xBB});
+    buf.push_back(std::byte{1});    // ::1
+    buf.push_back(std::byte{0x00}); // port high
+    buf.push_back(std::byte{0x50}); // port low -> 80
 
-    auto result = smux::parse_mux_address(std::span<const std::byte>{buf}, mr);
+    auto result = parse_mux_address(buf, psm::memory::current_resource());
     if (!result)
     {
-        log_fail("IPv6 parsing returned nullopt");
+        runner.LogFail("IPv6 address parse returned nullopt");
         return;
     }
-    if (result->host.empty())
+    if (result->host != "::1")
     {
-        log_fail("IPv6 host should not be empty");
+        runner.LogFail(psm::memory::string("IPv6 host mismatch: ") + result->host);
+        return;
+    }
+    if (result->port != 80)
+    {
+        runner.LogFail("IPv6 port mismatch");
+        return;
+    }
+    if (!result->packet_addr)
+    {
+        runner.LogFail("packet_addr should be true");
+        return;
+    }
+
+    runner.LogPass("parse address IPv6");
+}
+
+/**
+ * @brief 测试数据不足的地址解析
+ */
+void TestParseAddressTruncated()
+{
+    runner.LogInfo("=== TestParseAddressTruncated ===");
+
+    psm::memory::vector<std::byte> buf;
+    buf.push_back(std::byte{0x00});
+    buf.push_back(std::byte{0x00});
+    buf.push_back(std::byte{0x01}); // ATYP IPv4 but no address bytes
+
+    auto result = parse_mux_address(buf, psm::memory::current_resource());
+    if (result.has_value())
+    {
+        runner.LogFail("truncated address should return nullopt");
+        return;
+    }
+
+    runner.LogPass("parse address truncated");
+}
+
+/**
+ * @brief 测试非法 ATYP
+ */
+void TestParseAddressBadAtyp()
+{
+    runner.LogInfo("=== TestParseAddressBadAtyp ===");
+
+    psm::memory::vector<std::byte> buf;
+    buf.push_back(std::byte{0x00});
+    buf.push_back(std::byte{0x00});
+    buf.push_back(std::byte{0xFF}); // invalid ATYP
+
+    auto result = parse_mux_address(buf, psm::memory::current_resource());
+    if (result.has_value())
+    {
+        runner.LogFail("bad ATYP should return nullopt");
+        return;
+    }
+
+    runner.LogPass("parse address bad ATYP");
+}
+
+// ---------- UDP datagram roundtrip ----------
+
+/**
+ * @brief 测试 UDP 数据报编解码往返（IPv4）
+ */
+void TestUdpDatagramRoundtripIPv4()
+{
+    runner.LogInfo("=== TestUdpDatagramRoundtripIPv4 ===");
+
+    const std::byte payload[] = {std::byte{0xAA}, std::byte{0xBB}, std::byte{0xCC}};
+    auto encoded = build_udp_datagram("127.0.0.1", 9090, payload, psm::memory::current_resource());
+    auto result = parse_udp_datagram(encoded, psm::memory::current_resource());
+
+    if (!result)
+    {
+        runner.LogFail("UDP datagram parse returned nullopt");
+        return;
+    }
+    if (result->host != "127.0.0.1")
+    {
+        runner.LogFail(psm::memory::string("UDP host mismatch: ") + result->host);
+        return;
+    }
+    if (result->port != 9090)
+    {
+        runner.LogFail("UDP port mismatch");
+        return;
+    }
+    if (result->payload.size() != 3)
+    {
+        runner.LogFail("UDP payload size mismatch");
+        return;
+    }
+    if (result->payload[0] != std::byte{0xAA} || result->payload[2] != std::byte{0xCC})
+    {
+        runner.LogFail("UDP payload content mismatch");
+        return;
+    }
+
+    runner.LogPass("UDP datagram roundtrip IPv4");
+}
+
+/**
+ * @brief 测试 UDP 数据报编解码往返（域名）
+ */
+void TestUdpDatagramRoundtripDomain()
+{
+    runner.LogInfo("=== TestUdpDatagramRoundtripDomain ===");
+
+    const std::byte payload[] = {std::byte{0x01}, std::byte{0x02}};
+    auto encoded = build_udp_datagram("example.com", 443, payload, psm::memory::current_resource());
+    auto result = parse_udp_datagram(encoded, psm::memory::current_resource());
+
+    if (!result)
+    {
+        runner.LogFail("UDP datagram domain parse returned nullopt");
+        return;
+    }
+    if (result->host != "example.com")
+    {
+        runner.LogFail(psm::memory::string("UDP domain host mismatch: ") + result->host);
         return;
     }
     if (result->port != 443)
     {
-        log_fail(std::format("IPv6 port={}, expected 443", result->port));
+        runner.LogFail("UDP domain port mismatch");
+        return;
+    }
+    if (result->payload.size() != 2)
+    {
+        runner.LogFail("UDP domain payload size mismatch");
         return;
     }
 
-    log_pass("ParseAddressIPv6");
+    runner.LogPass("UDP datagram roundtrip domain");
 }
 
 /**
- * @brief 测试 Flags 标志位解析（UDP 和 PacketAddr）
+ * @brief 测试空数据的 UDP 解析
  */
-void TestParseAddressFlags()
+void TestUdpDatagramEmpty()
 {
-    log_info("=== TestParseAddressFlags ===");
+    runner.LogInfo("=== TestUdpDatagramEmpty ===");
 
-    namespace smux = psm::multiplex::smux;
-    psm::memory::resource_pointer mr = psm::memory::current_resource();
-
-    // Flags=0x0001 表示 UDP 模式，非 PacketAddr
+    psm::memory::vector<std::byte> empty_buf;
+    auto result = parse_udp_datagram(empty_buf, psm::memory::current_resource());
+    if (result.has_value())
     {
-        // 地址缓冲区布局同 IPv4，仅 Flags 字段不同
-        std::array<std::byte, 9> buf{};
-        buf[0] = std::byte{0x00};
-        buf[1] = std::byte{0x01};
-        buf[2] = std::byte{0x01};
-        buf[3] = std::byte{0x7F};
-        buf[4] = std::byte{0x00};
-        buf[5] = std::byte{0x00};
-        buf[6] = std::byte{0x01};
-        buf[7] = std::byte{0x00};
-        buf[8] = std::byte{0x50};
-
-        auto result = smux::parse_mux_address(std::span<const std::byte>{buf}, mr);
-        if (!result || !result->is_udp || result->packet_addr)
-        {
-            log_fail("Flags 0x0001 mismatch");
-            return;
-        }
+        runner.LogFail("empty UDP datagram should return nullopt");
+        return;
     }
 
-    // Flags=0x0002 表示 PacketAddr 模式，非 UDP
-    {
-        std::array<std::byte, 9> buf{};
-        buf[0] = std::byte{0x00};
-        buf[1] = std::byte{0x02};
-        buf[2] = std::byte{0x01};
-        buf[3] = std::byte{0x7F};
-        buf[4] = std::byte{0x00};
-        buf[5] = std::byte{0x00};
-        buf[6] = std::byte{0x01};
-        buf[7] = std::byte{0x00};
-        buf[8] = std::byte{0x50};
-
-        auto result = smux::parse_mux_address(std::span<const std::byte>{buf}, mr);
-        if (!result || result->is_udp || !result->packet_addr)
-        {
-            log_fail("Flags 0x0002 mismatch");
-            return;
-        }
-    }
-
-    // Flags=0x0003 表示同时启用 UDP 和 PacketAddr
-    {
-        std::array<std::byte, 9> buf{};
-        buf[0] = std::byte{0x00};
-        buf[1] = std::byte{0x03};
-        buf[2] = std::byte{0x01};
-        buf[3] = std::byte{0x7F};
-        buf[4] = std::byte{0x00};
-        buf[5] = std::byte{0x00};
-        buf[6] = std::byte{0x01};
-        buf[7] = std::byte{0x00};
-        buf[8] = std::byte{0x50};
-
-        auto result = smux::parse_mux_address(std::span<const std::byte>{buf}, mr);
-        if (!result || !result->is_udp || !result->packet_addr)
-        {
-            log_fail("Flags 0x0003 mismatch");
-            return;
-        }
-    }
-
-    log_pass("ParseAddressFlags");
+    runner.LogPass("UDP datagram empty");
 }
 
+// ---------- length-prefixed roundtrip ----------
+
 /**
- * @brief 测试 UDP 数据报编解码往返
+ * @brief 测试 length-prefixed 编解码往返
  */
-void TestUdpDatagramRoundTrip()
+void TestUdpLengthPrefixedRoundtrip()
 {
-    log_info("=== TestUdpDatagramRoundTrip ===");
+    runner.LogInfo("=== TestUdpLengthPrefixedRoundtrip ===");
 
-    namespace smux = psm::multiplex::smux;
-    psm::memory::resource_pointer mr = psm::memory::current_resource();
-
-    // 构造 5 字节测试载荷
-    const std::array<std::byte, 5> payload = {
-        std::byte{0xDE}, std::byte{0xAD}, std::byte{0xBE}, std::byte{0xEF}, std::byte{0x42}};
-
-    // 编码为 UDP 数据报格式，再解码，验证往返一致性
-    auto encoded = smux::build_udp_datagram("127.0.0.1", 53, std::span<const std::byte>{payload}, mr);
-    auto result = smux::parse_udp_datagram(encoded, mr);
+    const std::byte payload[] = {std::byte{0xDE}, std::byte{0xAD}, std::byte{0xBE}, std::byte{0xEF}};
+    auto encoded = build_udp_length_prefixed(payload, psm::memory::current_resource());
+    auto result = parse_udp_length_prefixed(encoded);
 
     if (!result)
     {
-        log_fail("UDP datagram round-trip returned nullopt");
+        runner.LogFail("length-prefixed parse returned nullopt");
         return;
     }
-    // 验证地址和端口在往返中保持一致
-    if (result->host != "127.0.0.1")
+    if (result->payload.size() != 4)
     {
-        log_fail(std::format("UDP datagram host='{}', expected '127.0.0.1'", result->host));
+        runner.LogFail("length-prefixed payload size mismatch");
         return;
     }
-    if (result->port != 53)
+    if (result->payload[0] != std::byte{0xDE} || result->payload[3] != std::byte{0xEF})
     {
-        log_fail(std::format("UDP datagram port={}, expected 53", result->port));
+        runner.LogFail("length-prefixed payload content mismatch");
         return;
-    }
-    // 验证载荷长度和逐字节内容一致
-    if (result->payload.size() != payload.size())
-    {
-        log_fail(std::format("UDP datagram payload size={}, expected {}", result->payload.size(), payload.size()));
-        return;
-    }
-    // 逐字节比对载荷，确保编解码无损
-    for (std::size_t i = 0; i < payload.size(); ++i)
-    {
-        if (result->payload[i] != payload[i])
-        {
-            log_fail(std::format("UDP datagram payload mismatch at byte {}", i));
-            return;
-        }
     }
 
-    log_pass("UdpDatagramRoundTrip");
+    runner.LogPass("UDP length-prefixed roundtrip");
 }
 
 /**
- * @brief 测试 UDP length-prefixed 编解码往返
+ * @brief 测试数据不足的 length-prefixed 解析
  */
-void TestUdpLengthPrefixedRoundTrip()
+void TestUdpLengthPrefixedTruncated()
 {
-    log_info("=== TestUdpLengthPrefixedRoundTrip ===");
+    runner.LogInfo("=== TestUdpLengthPrefixedTruncated ===");
 
-    namespace smux = psm::multiplex::smux;
-    psm::memory::resource_pointer mr = psm::memory::current_resource();
+    psm::memory::vector<std::byte> short_data;
+    short_data.push_back(std::byte{0x00});
 
-    // 构造 8 字节顺序载荷
-    const std::array<std::byte, 8> payload = {
-        std::byte{0x01}, std::byte{0x02}, std::byte{0x03}, std::byte{0x04},
-        std::byte{0x05}, std::byte{0x06}, std::byte{0x07}, std::byte{0x08}};
-
-    // length-prefixed 格式：长度前缀(2B BE) + 载荷
-    auto encoded = smux::build_udp_length_prefixed(std::span<const std::byte>{payload}, mr);
-    auto result = smux::parse_udp_length_prefixed(encoded);
-
-    if (!result)
+    auto result = parse_udp_length_prefixed(short_data);
+    if (result.has_value())
     {
-        log_fail("UDP length-prefixed round-trip returned nullopt");
-        return;
-    }
-    if (result->payload.size() != payload.size())
-    {
-        log_fail(std::format("UDP length-prefixed payload size={}, expected {}",
-                             result->payload.size(), payload.size()));
-        return;
-    }
-    for (std::size_t i = 0; i < payload.size(); ++i)
-    {
-        if (result->payload[i] != payload[i])
-        {
-            log_fail(std::format("UDP length-prefixed payload mismatch at byte {}", i));
-            return;
-        }
-    }
-
-    log_pass("UdpLengthPrefixedRoundTrip");
-}
-
-/**
- * @brief 测试 UDP 截断数据返回 nullopt
- */
-void TestParseUdpTruncated()
-{
-    log_info("=== TestParseUdpTruncated ===");
-
-    namespace smux = psm::multiplex::smux;
-    psm::memory::resource_pointer mr = psm::memory::current_resource();
-
-    // 空数据无法解析出有效地址和载荷
-    auto result1 = smux::parse_udp_datagram(std::span<const std::byte>{}, mr);
-    if (result1.has_value())
-    {
-        log_fail("Empty data should return nullopt");
+        runner.LogFail("truncated length-prefixed should return nullopt");
         return;
     }
 
-    // 仅 1 字节同样不足以解析地址类型
-    const std::byte one = std::byte{0x01};
-    auto result2 = smux::parse_udp_datagram(std::span<const std::byte>{&one, 1}, mr);
+    psm::memory::vector<std::byte> mismatch_data;
+    mismatch_data.push_back(std::byte{0x00});
+    mismatch_data.push_back(std::byte{0x10}); // length = 16
+    mismatch_data.push_back(std::byte{0xAA}); // only 1 byte of payload
+
+    auto result2 = parse_udp_length_prefixed(mismatch_data);
     if (result2.has_value())
     {
-        log_fail("1 byte should return nullopt");
+        runner.LogFail("length-prefixed with oversized length should return nullopt");
         return;
     }
 
-    log_pass("ParseUdpTruncated");
+    runner.LogPass("UDP length-prefixed truncated");
 }
 
-/**
- * @brief 测试地址解析截断数据返回 nullopt
- */
-void TestParseAddressTruncated()
-{
-    log_info("=== TestParseAddressTruncated ===");
-
-    namespace smux = psm::multiplex::smux;
-    psm::memory::resource_pointer mr = psm::memory::current_resource();
-
-    // 6 字节不足以容纳最小地址格式（Flags+类型+端口=5B，至少还需 1B 地址）
-    std::array<std::byte, 6> short_buf{};
-    auto result1 = smux::parse_mux_address(std::span<const std::byte>{short_buf}, mr);
-    if (result1.has_value())
-    {
-        log_fail("6 bytes should return nullopt");
-        return;
-    }
-
-    // 空数据应返回 nullopt
-    auto result2 = smux::parse_mux_address(std::span<const std::byte>{}, mr);
-    if (result2.has_value())
-    {
-        log_fail("Empty data should return nullopt");
-        return;
-    }
-
-    log_pass("ParseAddressTruncated");
-}
-
-/**
- * @brief 测试入口
- * @details 初始化全局内存池和日志系统，运行 smux 帧反序列化、地址解析、
- *          UDP 数据报导编解码等全部测试用例，输出结果。
- * @return 0 表示全部通过，1 表示存在失败
- */
 int main()
 {
-    // 初始化 PMR 全局内存池和日志系统
     psm::memory::system::enable_global_pooling();
     psm::trace::init({});
 
-    log_info("Starting smux tests...");
+    runner.LogInfo("========== Smux Frame Tests ==========");
 
-    // 帧头反序列化测试：覆盖四种命令类型
     TestDeserializeSyn();
     TestDeserializeFin();
     TestDeserializePush();
     TestDeserializeNop();
-    // 容错测试：非法版本号和截断数据
-    TestDeserializeVersionMismatch();
     TestDeserializeTruncated();
-    // 地址解析测试：IPv4/域名/IPv6/标志位
+    TestDeserializeBadVersion();
+    TestDeserializeBadCommand();
+    TestDeserializeEndianness();
+
     TestParseAddressIPv4();
     TestParseAddressDomain();
     TestParseAddressIPv6();
-    TestParseAddressFlags();
-    // UDP 数据报编解码往返测试
-    TestUdpDatagramRoundTrip();
-    TestUdpLengthPrefixedRoundTrip();
-    // UDP 和地址解析截断容错测试
-    TestParseUdpTruncated();
     TestParseAddressTruncated();
+    TestParseAddressBadAtyp();
 
-    log_info("Smux tests completed.");
+    TestUdpDatagramRoundtripIPv4();
+    TestUdpDatagramRoundtripDomain();
+    TestUdpDatagramEmpty();
 
-    psm::trace::info("[Smux] Results: {} passed, {} failed", passed, failed);
+    TestUdpLengthPrefixedRoundtrip();
+    TestUdpLengthPrefixedTruncated();
 
-    return failed > 0 ? 1 : 0;
+    return runner.Summary();
 }

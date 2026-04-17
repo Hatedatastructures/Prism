@@ -8,19 +8,16 @@
  * 不同目标地址和端口。parcel 通过 egress_socket_ 发送 UDP 数据报，
  * 同一 socket 复用接收所有目标的响应。空闲超时自动关闭，避免资源泄露。
  * 方法实现位于 parcel.cpp 中。
- *
  * @note 设计原则：parcel 是协议无关的，通过 core 虚函数接口发送帧，不依赖具体协议
  * @note 线程安全：单个实例非线程安全，应在 transport executor 上串行使用
  * @note 生命周期：通过 shared_from_this 保活，协程持有 self 防止提前析构
  * @warning owner_ 持有 core 的 weak_ptr，core 的 parcels_ 持有 parcel 的 shared_ptr，
- *          不构成循环引用，core 销毁后 parcel 通过 lock() 检测并安全退出
+ * 不构成循环引用，core 销毁后 parcel 通过 lock() 检测并安全退出
  */
 #pragma once
 
-#include <atomic>
 #include <cstdint>
 #include <memory>
-#include <optional>
 #include <span>
 
 #include <boost/asio.hpp>
@@ -47,18 +44,16 @@ namespace psm::multiplex
      * 为 SOCKS5 UDP relay 格式数据报：[ATYP 1B][Addr(var)][Port 2B][Data]，
      * parcel 解析后通过 egress_socket_ 发送到目标，响应数据编码为相同格式
      * 通过 owner_->send_data 发回 mux 客户端。
-     *
      * 与 duct 的双向流模型不同，parcel 是请求-响应模型：
      * on_mux_data 逐个处理入站数据报（由 craft::dispatch_push co_spawn 非阻塞调用），
-     * relay_datagram 完成单次 DNS 解析 → UDP 发送 → 等待响应 → 编码回传的完整流程。
+     * relay_datagram 完成单次 DNS 解析到 UDP 发送到等待响应到编码回传的完整流程。
      * 空闲超时通过 idle_timer_ 管理，每次数据活动重置计时器，
      * 超时后自动调用 close() 关闭管道。继承 std::enable_shared_from_this，
      * 各协程通过 self 保活。
-     *
      * @note 线程安全：单个实例非线程安全，应在同一 executor 上串行使用
      * @note 生命周期：core::close() 通过 std::move(parcels_) 取出所有 parcel 后逐一 close
      * @warning on_mux_data 中的串行处理保证同一时刻只有一个数据报在处理中，
-     *          避免多个 relay_datagram 并发写入同一 egress_socket_
+     * 避免多个 relay_datagram 并发写入同一 egress_socket_
      * @warning owner_ (weak_ptr<core>) 不与 core 的 parcels_ (shared_ptr<parcel>) 构成循环引用
      */
     class parcel : public std::enable_shared_from_this<parcel>
@@ -118,6 +113,7 @@ namespace psm::multiplex
 
         /**
          * @brief 获取流标识符
+         * @details 返回 mux 协议在 SYN 帧中分配的流标识符
          * @return std::uint32_t mux 协议分配的流标识符
          */
         [[nodiscard]] std::uint32_t stream_id() const noexcept

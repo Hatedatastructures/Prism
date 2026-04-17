@@ -26,38 +26,37 @@ namespace psm::multiplex::smux
      */
     enum class command : std::uint8_t
     {
-        syn = 0,  // 新建流
-        fin = 1,  // 半关闭流
-        push = 2, // 数据推送
-        nop = 3,  // 心跳（不回复）
+        /** @brief 新建流 */
+        syn = 0,
+        /** @brief 半关闭流 */
+        fin = 1,
+        /** @brief 数据推送 */
+        push = 2,
+        /** @brief 心跳（不回复） */
+        nop = 3,
     };
 
-    /// 协议版本号
+    // 协议版本号
     constexpr std::uint8_t protocol_version = 0x01;
 
-    /// 帧头大小（字节）：Version(1) + Cmd(1) + Length(2) + StreamID(4) = 8
+    // 帧头大小（字节）：Version(1) + Cmd(1) + Length(2) + StreamID(4) = 8
     constexpr std::size_t frame_header_size = 8;
 
-    /// 最大帧数据大小（64KB）
+    // 最大帧数据大小（64KB）
     constexpr std::size_t max_frame_length = 65535;
 
     /**
      * @struct frame_header
      * @brief smux 帧头结构，8 字节定长
+     * @details 定长帧头格式为 [Version 1B][Cmd 1B][Length 2B LE][StreamID 4B LE]，
+     * Length 和 StreamID 采用小端字节序
      */
     struct frame_header
     {
-        /// 协议版本号
-        std::uint8_t version = protocol_version;
-
-        /// 命令类型
-        command cmd = command::push;
-
-        /// 负载长度，小端序
-        std::uint16_t length = 0;
-
-        /// 流标识符，小端序，0 表示会话级帧
-        std::uint32_t stream_id = 0;
+        std::uint8_t version = protocol_version; // 协议版本号
+        command cmd = command::push;             // 命令类型
+        std::uint16_t length = 0;                // 负载长度，小端序
+        std::uint32_t stream_id = 0;             // 流标识符，小端序，0 表示会话级帧
     };
 
     /**
@@ -71,10 +70,10 @@ namespace psm::multiplex::smux
      */
     struct parsed_address
     {
-        memory::string host;    // 目标主机（IPv4/IPv6/域名）
-        std::uint16_t port = 0; // 目标端口
-        std::size_t offset = 0; // 地址结束位置，相对于原始 buffer
-        bool is_udp = false;    // 是否为 UDP 流（Flags bit0）
+        memory::string host;      // 目标主机（IPv4/IPv6/域名）
+        std::uint16_t port = 0;   // 目标端口
+        std::size_t offset = 0;   // 地址结束位置，相对于原始 buffer
+        bool is_udp = false;      // 是否为 UDP 流（Flags bit0）
         bool packet_addr = false; // 是否为 PacketAddr 模式（Flags bit1）
     };
 

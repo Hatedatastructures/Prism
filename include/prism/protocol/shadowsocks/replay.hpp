@@ -3,7 +3,7 @@
  * @brief WireGuard 风格 PacketID 滑动窗口重放检测
  * @details SS2022 (SIP022) UDP 使用 PacketID 进行重放保护。
  * 采用 WireGuard 式滑动窗口：维护最近 N 个 PacketID 的位图，
- * 拒绝窗口外的旧包和重复包。
+ * 拒绝窗口外的旧包和重复包
  */
 
 #pragma once
@@ -17,7 +17,8 @@ namespace psm::protocol::shadowsocks
      * @class replay_window
      * @brief PacketID 滑动窗口重放过滤器
      * @details 窗口大小 64，支持 64 位 PacketID 空间。
-     * 线程不安全，每个 UDP 会话独立持有。
+     * 线程不安全，每个 UDP 会话独立持有
+     * @note 每个 UDP 会话独立持有，无需线程同步
      */
     class replay_window
     {

@@ -1,10 +1,12 @@
 #include <prism/stealth/reality/handshake.hpp>
+#include <prism/stealth/reality/constants.hpp>
 #include <prism/stealth/reality/request.hpp>
 #include <prism/stealth/reality/auth.hpp>
 #include <prism/stealth/reality/keygen.hpp>
 #include <prism/stealth/reality/response.hpp>
 #include <prism/stealth/reality/seal.hpp>
 #include <prism/stealth/reality/config.hpp>
+#include <prism/resolve/router.hpp>
 #include <prism/crypto/base64.hpp>
 #include <prism/crypto/x25519.hpp>
 #include <prism/crypto/hkdf.hpp>
@@ -18,6 +20,7 @@
 #include <openssl/x509.h>
 #include <openssl/bio.h>
 #include <cstring>
+#include <memory>
 #include <string>
 #include <charconv>
 
@@ -264,10 +267,10 @@ namespace psm::stealth
             keys.server_finished_key, transcript_for_finished);
 
         // 诊断日志：Finished 计算
-        trace::info("{} server Finished transcript: {}", HsTag,
-                    format_hex_short({transcript_for_finished.data(), transcript_for_finished.size()}));
-        trace::info("{} server Finished verify_data: {}", HsTag,
-                    format_hex_short({verify_data.data(), verify_data.size()}));
+        trace::debug("{} server Finished transcript: {}", HsTag,
+                     format_hex_short({transcript_for_finished.data(), transcript_for_finished.size()}));
+        trace::debug("{} server Finished verify_data: {}", HsTag,
+                     format_hex_short({verify_data.data(), verify_data.size()}));
 
         memory::vector<std::uint8_t> correct_plaintext(ee_cert_cv.begin(), ee_cert_cv.end());
         correct_plaintext.push_back(tls::HANDSHAKE_TYPE_FINISHED);
@@ -489,8 +492,8 @@ namespace psm::stealth
         }
 
         // 诊断日志：TLS ECDH 共享密钥
-        trace::info("{} TLS ECDH shared_secret: {}", HsTag,
-                    format_hex_short({tls_shared_secret.data(), tls_shared_secret.size()}));
+        trace::debug("{} TLS ECDH shared_secret: {}", HsTag,
+                     format_hex_short({tls_shared_secret.data(), tls_shared_secret.size()}));
 
         // 5. 生成 ServerHello + 派生握手密钥
         key_material dummy_keys{};
@@ -498,7 +501,7 @@ namespace psm::stealth
             client_hello,
             auth_res.server_ephemeral_key.public_key,
             dummy_keys,
-            {},  // 不需要 dest 证书 — Reality 认证客户端使用合成证书
+            {}, // 不需要 dest 证书 — Reality 认证客户端使用合成证书
             client_hello.raw_message,
             std::span<const std::uint8_t>(auth_res.auth_key.data(), auth_res.auth_key.size()));
 
@@ -576,16 +579,16 @@ namespace psm::stealth
         }
 
         // 诊断日志：应用密钥
-        trace::info("{} app transcript hash: {}", HsTag,
-                    format_hex_short({full_transcript_hash.data(), full_transcript_hash.size()}));
-        trace::info("{} server_app_key: {}", HsTag,
-                    format_hex_short({keys.server_app_key.data(), keys.server_app_key.size()}));
-        trace::info("{} server_app_iv: {}", HsTag,
-                    format_hex_short({keys.server_app_iv.data(), keys.server_app_iv.size()}));
-        trace::info("{} client_app_key: {}", HsTag,
-                    format_hex_short({keys.client_app_key.data(), keys.client_app_key.size()}));
-        trace::info("{} client_app_iv: {}", HsTag,
-                    format_hex_short({keys.client_app_iv.data(), keys.client_app_iv.size()}));
+        trace::debug("{} app transcript hash: {}", HsTag,
+                     format_hex_short({full_transcript_hash.data(), full_transcript_hash.size()}));
+        trace::debug("{} server_app_key: {}", HsTag,
+                     format_hex_short({keys.server_app_key.data(), keys.server_app_key.size()}));
+        trace::debug("{} server_app_iv: {}", HsTag,
+                     format_hex_short({keys.server_app_iv.data(), keys.server_app_iv.size()}));
+        trace::debug("{} client_app_key: {}", HsTag,
+                     format_hex_short({keys.client_app_key.data(), keys.client_app_key.size()}));
+        trace::debug("{} client_app_iv: {}", HsTag,
+                     format_hex_short({keys.client_app_iv.data(), keys.client_app_iv.size()}));
 
         // 10. 创建加密传输层 + 预读内层数据
         auto reality_session = std::make_shared<seal>(

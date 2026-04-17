@@ -3,19 +3,14 @@
  * @brief smux 多路复用会话服务端（兼容 Mihomo/xtaci/smux v1 + sing-mux 协商）
  * @details smux::craft 继承 multiplex::core，实现 smux v1 帧协议和 sing-mux 协议协商。
  * 帧格式为 8 字节定长帧头 [Version 1B][Cmd 1B][Length 2B LE][StreamID 4B LE]，
- * 最大帧载荷 65535 字节。
- *
- * 协议会话生命周期：
- * 1. negotiate() 读取 sing-mux 协议头完成握手
- * 2. frame_loop() 循环读取帧，按命令分发
- * 3. SYN → 创建 pending_entry，累积首个 PSH 的地址数据
- * 4. 地址完整后 activate_stream() 连接目标，创建 duct（TCP）或 parcel（UDP）
- * 5. 后续 PSH 帧通过 dispatch_push() 非阻塞分发到 duct/parcel
- *
- * 发送路径（客户端下载方向）：
- * duct::target_read_loop() → send_data() → push_frame() → channel_ → send_loop() → transport
- * header 与 payload 分离传递，消除 serialize 的 payload memcpy。
- *
+ * 最大帧载荷 65535 字节。协议会话生命周期：negotiate() 读取 sing-mux 协议头
+ * 完成握手，frame_loop() 循环读取帧按命令分发，SYN 创建 pending_entry
+ * 累积首个 PSH 的地址数据，地址完整后 activate_stream() 连接目标创建
+ * duct（TCP）或 parcel（UDP），后续 PSH 帧通过 dispatch_push() 非阻塞
+ * 分发到 duct/parcel。发送路径（客户端下载方向）：
+ * duct::target_read_loop() 到 send_data() 到 push_frame() 到 channel_ 到
+ * send_loop() 到 transport，header 与 payload 分离传递消除 serialize 的
+ * payload memcpy。
  * @note 通过 core 的虚函数接口发送帧，不依赖具体协议
  */
 #pragma once
@@ -62,6 +57,8 @@ namespace psm::multiplex::smux
     public:
         /**
          * @brief 构造 smux 会话
+         * @details 初始化传输层、配置和发送通道，会话处于未启动状态，
+         * 调用 start() 后才会进入协议主循环
          * @param transport 已建立的传输层连接（通常是 Trojan 隧道）
          * @param router 路由器引用，用于解析地址并连接目标
          * @param cfg smux 配置参数
@@ -93,6 +90,7 @@ namespace psm::multiplex::smux
 
         /**
          * @brief 获取 transport executor
+         * @details 返回传输层连接的执行器，用于 duct/parcel 协程调度
          * @return net::any_io_executor transport 的执行器
          * @note 用于 duct/parcel 协程调度
          */
@@ -108,11 +106,8 @@ namespace psm::multiplex::smux
         /**
          * @brief 帧循环主协程
          * @details 循环读取帧头（8 字节）+ 载荷，按命令类型分发：
-         * - SYN: 创建 pending_entry
-         * - PSH: dispatch_push 非阻塞三路分发
-         * - FIN: 关闭对应流
-         * - NOP: 忽略
-         * 读取失败或无效帧时退出循环。
+         * SYN 创建 pending_entry，PSH 由 dispatch_push 非阻塞三路分发，
+         * FIN 关闭对应流，NOP 忽略。读取失败或无效帧时退出循环。
          */
         auto frame_loop() -> net::awaitable<void>;
 
@@ -147,8 +142,8 @@ namespace psm::multiplex::smux
          * @brief 从 pending 解析地址、连接目标、创建 duct/parcel
          * @param stream_id 流标识符
          * @details 解析 SOCKS5 格式目标地址，区分 TCP/UDP：
-         * - UDP: 发送成功状态 → 创建 parcel → 转发剩余数据
-         * - TCP: 通过 router 连接目标 → 发送状态 → 创建 duct → 转发剩余数据
+         * UDP 发送成功状态后创建 parcel 并转发剩余数据，
+         * TCP 通过 router 连接目标后发送状态并创建 duct 转发剩余数据。
          * 地址解析失败时发送错误状态并 FIN。
          */
         auto activate_stream(std::uint32_t stream_id) -> net::awaitable<void>;
@@ -165,9 +160,9 @@ namespace psm::multiplex::smux
         auto push_frame(command cmd, std::uint32_t stream_id, memory::vector<std::byte> payload) const
             -> net::awaitable<void>;
 
-        /// 发送通道类型，容量与 config::max_streams 对齐
+        // 发送通道类型，容量与 config::max_streams 对齐
         using channel_type = net::experimental::concurrent_channel<void(boost::system::error_code, outbound_frame)>;
-        mutable channel_type channel_; ///< 有界发送通道，串行化多流写入
+        mutable channel_type channel_; // 有界发送通道，串行化多流写入
 
         /**
          * @brief 发送循环协程

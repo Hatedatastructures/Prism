@@ -34,6 +34,8 @@ SOCKS5 握手逻辑见 src/protocol/socks5/stream.cpp
 
 运行行为可用以下测试文件交叉核对：
 
+所有测试共用 `tests/common/test_runner.hpp` 中的 `psm::testing::test_runner` 类，提供统一的 `LogInfo`/`LogPass`/`LogFail`/`Check`/`Summary` 接口。测试函数统一使用 PascalCase 命名。
+
 | 测试文件 | 验证范围 |
 |---------|---------|
 | `tests/Session.cpp` | 会话生命周期、连接管理 |
@@ -44,6 +46,22 @@ SOCKS5 握手逻辑见 src/protocol/socks5/stream.cpp
 | `tests/Trojan.cpp` | Trojan 协议实现 |
 | `tests/Smux.cpp` | smux 帧编解码、地址解析 |
 | `tests/Yamux.cpp` | yamux 帧编解码、窗口管理 |
+| `tests/Shadowsocks.cpp` | Shadowsocks 2022 协议 |
+| `tests/Vless.cpp` | VLESS 协议实现 |
+| `tests/Crypto.cpp` | SHA224、Base64 等加密工具 |
+| `tests/Aead.cpp` | AEAD 加密解密 |
+| `tests/Blake3.cpp` | BLAKE3 密钥派生 |
+| `tests/DnsPacket.cpp` | DNS 数据包解析 |
+| `tests/DnsRules.cpp` | DNS 规则匹配 |
+| `tests/DnsCache.cpp` | DNS 缓存 LRU/TTL/serve-stale |
+| `tests/AccountDirectory.cpp` | 账户目录 upsert/lease/连接限制 |
+| `tests/Balancer.cpp` | 负载均衡器评分/一致性 |
+| `tests/ProtocolAnalysis.cpp` | 协议探测 detect/detect_tls |
+| `tests/Transmission.cpp` | 传输层抽象、可靠/不可靠传输 |
+| `tests/Exception.cpp` | 异常层次结构、错误分类 |
+| `tests/Trace.cpp` | 日志系统初始化与输出 |
+| `tests/Reality.cpp` | Reality TLS 握手、密钥交换、证书签名 |
+| `tests/Fault.cpp` | 错误码体系、兼容映射 |
 | `tests/Regression.cpp` | 回归测试 |
 
 ### 规则 4：区分三类能力

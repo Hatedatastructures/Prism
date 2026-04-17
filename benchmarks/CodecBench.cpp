@@ -9,10 +9,7 @@
 #include <prism/resolve/rules.hpp>
 #include <prism/crypto/sha224.hpp>
 #include <prism/crypto/base64.hpp>
-#include <prism/memory/pool.hpp>
-#include <prism/fault.hpp>
 #include <array>
-#include <cstdint>
 #include <span>
 #include <string>
 #include <string_view>
@@ -66,7 +63,7 @@ static void BM_HttpParseProxyRequest_Get(benchmark::State &state)
         }
         benchmark::DoNotOptimize(req);
     }
-    state.SetBytesProcessed(int64_t(state.iterations()) * int64_t(http_get_request.size()));
+    state.SetBytesProcessed(state.iterations() * static_cast<int64_t>(http_get_request.size()));
 }
 
 static void BM_HttpParseProxyRequest_Connect(benchmark::State &state)
@@ -74,14 +71,14 @@ static void BM_HttpParseProxyRequest_Connect(benchmark::State &state)
     protocol::http::proxy_request req;
     for (auto _ : state)
     {
-        fault::code ec = protocol::http::parse_proxy_request(http_connect_request, req);
+        const fault::code ec = protocol::http::parse_proxy_request(http_connect_request, req);
         if (fault::failed(ec))
         {
             state.SkipWithError("HTTP Parsing failed");
         }
         benchmark::DoNotOptimize(req);
     }
-    state.SetBytesProcessed(int64_t(state.iterations()) * int64_t(http_connect_request.size()));
+    state.SetBytesProcessed(state.iterations() * static_cast<int64_t>(http_connect_request.size()));
 }
 
 static void BM_HttpParseProxyRequest_PostBody(benchmark::State &state)

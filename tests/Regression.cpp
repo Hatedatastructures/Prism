@@ -24,7 +24,7 @@ namespace
      * @brief 输出信息级别日志
      * @param msg 日志消息
      */
-    void log_info(const std::string_view msg)
+    void LogInfo(const std::string_view msg)
     {
         psm::trace::info("[Regression] {}", msg);
     }
@@ -33,7 +33,7 @@ namespace
      * @brief 记录测试通过并递增计数器
      * @param msg 测试名称
      */
-    void log_pass(const std::string_view msg)
+    void LogPass(const std::string_view msg)
     {
         ++passed;
         psm::trace::info("[Regression] PASS: {}", msg);
@@ -43,7 +43,7 @@ namespace
      * @brief 记录测试失败并递增计数器
      * @param msg 失败原因
      */
-    void log_fail(const std::string_view msg)
+    void LogFail(const std::string_view msg)
     {
         ++failed;
         psm::trace::error("[Regression] FAIL: {}", msg);
@@ -55,7 +55,7 @@ namespace
  */
 void TestIPv6Parsing()
 {
-    log_info("=== TestIPv6Parsing ===");
+    LogInfo("=== TestIPv6Parsing ===");
 
     // 回归背景：早期 resolve 无法正确剥离 IPv6 方括号
     psm::memory::resource_pointer mr = psm::memory::current_resource();
@@ -72,7 +72,7 @@ void TestIPv6Parsing()
         auto [h, p] = parse("[::1]:443");
         if (h != "::1" || p != "443")
         {
-            log_fail("[::1]:443 parsing");
+            LogFail("[::1]:443 parsing");
             return;
         }
     }
@@ -82,7 +82,7 @@ void TestIPv6Parsing()
         auto [h, p] = parse("[2001:db8::1]:8080");
         if (h != "2001:db8::1" || p != "8080")
         {
-            log_fail("[2001:db8::1]:8080 parsing");
+            LogFail("[2001:db8::1]:8080 parsing");
             return;
         }
     }
@@ -92,7 +92,7 @@ void TestIPv6Parsing()
         auto [h, p] = parse("[fe80::1]:443");
         if (h != "fe80::1" || p != "443")
         {
-            log_fail("[fe80::1]:443 parsing");
+            LogFail("[fe80::1]:443 parsing");
             return;
         }
     }
@@ -102,7 +102,7 @@ void TestIPv6Parsing()
         auto [h, p] = parse("example.com:8080");
         if (h != "example.com" || p != "8080")
         {
-            log_fail("example.com:8080 parsing");
+            LogFail("example.com:8080 parsing");
             return;
         }
     }
@@ -112,12 +112,12 @@ void TestIPv6Parsing()
         auto [h, p] = parse("192.168.1.1:443");
         if (h != "192.168.1.1" || p != "443")
         {
-            log_fail("192.168.1.1:443 parsing");
+            LogFail("192.168.1.1:443 parsing");
             return;
         }
     }
 
-    log_pass("IPv6Parsing");
+    LogPass("IPv6Parsing");
 }
 
 /**
@@ -125,7 +125,7 @@ void TestIPv6Parsing()
  */
 void TestInnerProtocolDetection()
 {
-    log_info("=== TestInnerProtocolDetection ===");
+    LogInfo("=== TestInnerProtocolDetection ===");
 
     // 回归背景：TLS 隧道建立后需探测内层协议类型
 
@@ -135,7 +135,7 @@ void TestInnerProtocolDetection()
         auto result = psm::protocol::analysis::detect_tls(http_request);
         if (result != psm::protocol::protocol_type::http)
         {
-            log_fail("HTTP detection");
+            LogFail("HTTP detection");
             return;
         }
     }
@@ -146,18 +146,29 @@ void TestInnerProtocolDetection()
         auto result = psm::protocol::analysis::detect_tls(partial_data);
         if (result != psm::protocol::protocol_type::http)
         {
-            log_fail("partial HTTP detection");
+            LogFail("partial HTTP detection");
             return;
         }
     }
 
-    // 数据过短且无已知前缀，排除法回退为 shadowsocks
+    // 数据过短且无已知前缀，返回 unknown（等待更多数据）
     {
         std::string short_data(30, 'a');
         auto result = psm::protocol::analysis::detect_tls(short_data);
+        if (result != psm::protocol::protocol_type::unknown)
+        {
+            LogFail("short data should be unknown (insufficient for detection)");
+            return;
+        }
+    }
+
+    // 60+ 字节无已知前缀，排除法回退为 shadowsocks
+    {
+        std::string long_data(70, 'b');
+        auto result = psm::protocol::analysis::detect_tls(long_data);
         if (result != psm::protocol::protocol_type::shadowsocks)
         {
-            log_fail("short data should be shadowsocks (exclusion fallback)");
+            LogFail("long unrecognized data should be shadowsocks (exclusion fallback)");
             return;
         }
     }
@@ -172,7 +183,7 @@ void TestInnerProtocolDetection()
         auto result = psm::protocol::analysis::detect_tls(trojan_like);
         if (result != psm::protocol::protocol_type::trojan)
         {
-            log_fail("Trojan detection");
+            LogFail("Trojan detection");
             return;
         }
     }
@@ -184,12 +195,12 @@ void TestInnerProtocolDetection()
         auto result = psm::protocol::analysis::detect_tls(invalid_trojan);
         if (result != psm::protocol::protocol_type::shadowsocks)
         {
-            log_fail("invalid Trojan should be shadowsocks (exclusion fallback)");
+            LogFail("invalid Trojan should be shadowsocks (exclusion fallback)");
             return;
         }
     }
 
-    log_pass("InnerProtocolDetection");
+    LogPass("InnerProtocolDetection");
 }
 
 /**
@@ -197,7 +208,7 @@ void TestInnerProtocolDetection()
  */
 void TestTrojanLease()
 {
-    log_info("=== TestTrojanLease ===");
+    LogInfo("=== TestTrojanLease ===");
 
     // 回归背景：早期 lease 析构时未正确递减活跃连接数
     psm::agent::account::directory dir;
@@ -209,7 +220,7 @@ void TestTrojanLease()
         auto lease1 = psm::agent::account::try_acquire(dir, "test_credential");
         if (!lease1)
         {
-            log_fail("first lease acquire");
+            LogFail("first lease acquire");
             return;
         }
 
@@ -217,7 +228,7 @@ void TestTrojanLease()
         auto entry = dir.find("test_credential");
         if (!entry || entry->active_connections.load() != 1)
         {
-            log_fail("active connections after first lease");
+            LogFail("active connections after first lease");
             return;
         }
 
@@ -225,14 +236,14 @@ void TestTrojanLease()
         auto lease2 = psm::agent::account::try_acquire(dir, "test_credential");
         if (!lease2)
         {
-            log_fail("second lease acquire");
+            LogFail("second lease acquire");
             return;
         }
 
         // 活跃连接数应递增为 2
         if (entry->active_connections.load() != 2)
         {
-            log_fail("active connections after second lease");
+            LogFail("active connections after second lease");
             return;
         }
 
@@ -240,7 +251,7 @@ void TestTrojanLease()
         auto lease3 = psm::agent::account::try_acquire(dir, "test_credential");
         if (lease3)
         {
-            log_fail("third lease should fail (limit=2)");
+            LogFail("third lease should fail (limit=2)");
             return;
         }
     }
@@ -249,11 +260,11 @@ void TestTrojanLease()
     auto entry = dir.find("test_credential");
     if (!entry || entry->active_connections.load() != 0)
     {
-        log_fail("active connections should be 0 after release");
+        LogFail("active connections should be 0 after release");
         return;
     }
 
-    log_pass("TrojanLease");
+    LogPass("TrojanLease");
 }
 
 /**
@@ -269,13 +280,13 @@ int main()
     // 初始化日志系统
     psm::trace::init({});
 
-    log_info("Starting regression tests...");
+    LogInfo("Starting regression tests...");
 
     TestIPv6Parsing();
     TestInnerProtocolDetection();
     TestTrojanLease();
 
-    log_info("Regression tests completed.");
+    LogInfo("Regression tests completed.");
 
     psm::trace::info("[Regression] Results: {} passed, {} failed", passed, failed);
 

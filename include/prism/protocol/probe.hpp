@@ -24,13 +24,6 @@
 #include <prism/protocol/analysis.hpp>
 #include <prism/channel/transport/transmission.hpp>
 
-/**
- * @namespace psm::protocol
- * @brief 协议探测模块
- * @details 该命名空间提供协议探测功能，从传输层异步读取初始数据并识别
- * 协议类型。模块设计为无状态，所有操作通过函数实现。探测结果包含协议
- * 类型、预读数据和错误代码，供后续协议处理器使用。
- */
 namespace psm::protocol
 {
     namespace net = boost::asio;

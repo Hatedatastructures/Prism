@@ -36,7 +36,7 @@ namespace srv
         {
             psm::trace::debug("[server] 开始监听端口 {}...", acceptor_.local_endpoint().port());
 
-            boost::asio::co_spawn(io_context_, accept_loop(), boost::asio::detached);
+            boost::asio::co_spawn(io_context_, AcceptLoop(), boost::asio::detached);
 
             io_context_.run();
         }
@@ -47,7 +47,7 @@ namespace srv
         }
 
     private:
-        boost::asio::awaitable<void> accept_loop()
+        boost::asio::awaitable<void> AcceptLoop()
         {
             while (true)
             {   // 死循环获取 socket

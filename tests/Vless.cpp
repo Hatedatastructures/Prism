@@ -33,18 +33,18 @@ namespace
     int passed = 0;
     int failed = 0;
 
-    void log_info(const std::string_view msg)
+    void LogInfo(const std::string_view msg)
     {
         psm::trace::info("[Vless] {}", msg);
     }
 
-    void log_pass(const std::string_view msg)
+    void LogPass(const std::string_view msg)
     {
         ++passed;
         psm::trace::info("[Vless] PASS: {}", msg);
     }
 
-    void log_fail(const std::string_view msg)
+    void LogFail(const std::string_view msg)
     {
         ++failed;
         psm::trace::error("[Vless] FAIL: {}", msg);
@@ -60,7 +60,7 @@ namespace
  */
 void TestVlessParseRequestIPv4()
 {
-    log_info("=== TestVlessParseRequestIPv4 ===");
+    LogInfo("=== TestVlessParseRequestIPv4 ===");
 
     // [Version 1B][UUID 16B][AddnlLen 1B][Cmd 1B][Port 2B BE][Atyp 1B][Addr 4B]
     std::vector<std::uint8_t> buf;
@@ -75,37 +75,37 @@ void TestVlessParseRequestIPv4()
     auto result = protocol::vless::format::parse_request(buf);
     if (!result)
     {
-        log_fail("parse_request returned nullopt for valid IPv4 request");
+        LogFail("parse_request returned nullopt for valid IPv4 request");
         return;
     }
 
     if (result->cmd != protocol::vless::command::tcp)
     {
-        log_fail("cmd should be tcp");
+        LogFail("cmd should be tcp");
         return;
     }
 
     if (result->port != 80)
     {
-        log_fail("port should be 80, got " + std::to_string(result->port));
+        LogFail("port should be 80, got " + std::to_string(result->port));
         return;
     }
 
     auto *ipv4 = std::get_if<protocol::vless::ipv4_address>(&result->destination_address);
     if (!ipv4)
     {
-        log_fail("address type should be IPv4");
+        LogFail("address type should be IPv4");
         return;
     }
 
     std::array<std::uint8_t, 4> expected = {127, 0, 0, 1};
     if (ipv4->bytes != expected)
     {
-        log_fail("IPv4 address mismatch");
+        LogFail("IPv4 address mismatch");
         return;
     }
 
-    log_pass("VlessParseRequestIPv4");
+    LogPass("VlessParseRequestIPv4");
 }
 
 /**
@@ -113,7 +113,7 @@ void TestVlessParseRequestIPv4()
  */
 void TestVlessParseRequestDomain()
 {
-    log_info("=== TestVlessParseRequestDomain ===");
+    LogInfo("=== TestVlessParseRequestDomain ===");
 
     const std::string domain = "example.com";
 
@@ -130,30 +130,30 @@ void TestVlessParseRequestDomain()
     auto result = protocol::vless::format::parse_request(buf);
     if (!result)
     {
-        log_fail("parse_request returned nullopt for valid domain request");
+        LogFail("parse_request returned nullopt for valid domain request");
         return;
     }
 
     if (result->port != 443)
     {
-        log_fail("port should be 443");
+        LogFail("port should be 443");
         return;
     }
 
     auto *dom = std::get_if<protocol::vless::domain_address>(&result->destination_address);
     if (!dom)
     {
-        log_fail("address type should be domain");
+        LogFail("address type should be domain");
         return;
     }
 
     if (dom->length != domain.size())
     {
-        log_fail("domain length mismatch");
+        LogFail("domain length mismatch");
         return;
     }
 
-    log_pass("VlessParseRequestDomain");
+    LogPass("VlessParseRequestDomain");
 }
 
 /**
@@ -161,7 +161,7 @@ void TestVlessParseRequestDomain()
  */
 void TestVlessParseRequestIPv6()
 {
-    log_info("=== TestVlessParseRequestIPv6 ===");
+    LogInfo("=== TestVlessParseRequestIPv6 ===");
 
     std::vector<std::uint8_t> buf;
     buf.push_back(0x00);                                         // version
@@ -177,24 +177,24 @@ void TestVlessParseRequestIPv6()
     auto result = protocol::vless::format::parse_request(buf);
     if (!result)
     {
-        log_fail("parse_request returned nullopt for valid IPv6 request");
+        LogFail("parse_request returned nullopt for valid IPv6 request");
         return;
     }
 
     if (result->port != 8443)
     {
-        log_fail("port should be 8443, got " + std::to_string(result->port));
+        LogFail("port should be 8443, got " + std::to_string(result->port));
         return;
     }
 
     auto *ipv6 = std::get_if<protocol::vless::ipv6_address>(&result->destination_address);
     if (!ipv6)
     {
-        log_fail("address type should be IPv6");
+        LogFail("address type should be IPv6");
         return;
     }
 
-    log_pass("VlessParseRequestIPv6");
+    LogPass("VlessParseRequestIPv6");
 }
 
 /**
@@ -202,7 +202,7 @@ void TestVlessParseRequestIPv6()
  */
 void TestVlessParseRequestMuxCommand()
 {
-    log_info("=== TestVlessParseRequestMuxCommand ===");
+    LogInfo("=== TestVlessParseRequestMuxCommand ===");
 
     std::vector<std::uint8_t> buf;
     buf.push_back(0x00);
@@ -216,17 +216,17 @@ void TestVlessParseRequestMuxCommand()
     auto result = protocol::vless::format::parse_request(buf);
     if (!result)
     {
-        log_fail("parse_request returned nullopt");
+        LogFail("parse_request returned nullopt");
         return;
     }
 
     if (result->cmd != protocol::vless::command::mux)
     {
-        log_fail("cmd should be mux");
+        LogFail("cmd should be mux");
         return;
     }
 
-    log_pass("VlessParseRequestMuxCommand");
+    LogPass("VlessParseRequestMuxCommand");
 }
 
 /**
@@ -234,7 +234,7 @@ void TestVlessParseRequestMuxCommand()
  */
 void TestVlessParseRequestInvalidVersion()
 {
-    log_info("=== TestVlessParseRequestInvalidVersion ===");
+    LogInfo("=== TestVlessParseRequestInvalidVersion ===");
 
     std::vector<std::uint8_t> buf;
     buf.push_back(0x01);                                         // version = 1 (invalid)
@@ -248,11 +248,11 @@ void TestVlessParseRequestInvalidVersion()
     auto result = protocol::vless::format::parse_request(buf);
     if (result.has_value())
     {
-        log_fail("invalid version should return nullopt");
+        LogFail("invalid version should return nullopt");
         return;
     }
 
-    log_pass("VlessParseRequestInvalidVersion");
+    LogPass("VlessParseRequestInvalidVersion");
 }
 
 /**
@@ -260,18 +260,18 @@ void TestVlessParseRequestInvalidVersion()
  */
 void TestVlessParseRequestTruncated()
 {
-    log_info("=== TestVlessParseRequestTruncated ===");
+    LogInfo("=== TestVlessParseRequestTruncated ===");
 
     std::array<std::uint8_t, 5> short_buf = {0x00, 0x00, 0x00, 0x00, 0x00};
 
     auto result = protocol::vless::format::parse_request(short_buf);
     if (result.has_value())
     {
-        log_fail("truncated buffer should return nullopt");
+        LogFail("truncated buffer should return nullopt");
         return;
     }
 
-    log_pass("VlessParseRequestTruncated");
+    LogPass("VlessParseRequestTruncated");
 }
 
 /**
@@ -279,7 +279,7 @@ void TestVlessParseRequestTruncated()
  */
 void TestVlessParseRequestNonZeroAddnl()
 {
-    log_info("=== TestVlessParseRequestNonZeroAddnl ===");
+    LogInfo("=== TestVlessParseRequestNonZeroAddnl ===");
 
     std::vector<std::uint8_t> buf;
     buf.push_back(0x00);                                         // version
@@ -289,11 +289,11 @@ void TestVlessParseRequestNonZeroAddnl()
     auto result = protocol::vless::format::parse_request(buf);
     if (result.has_value())
     {
-        log_fail("non-zero addnl_len should return nullopt");
+        LogFail("non-zero addnl_len should return nullopt");
         return;
     }
 
-    log_pass("VlessParseRequestNonZeroAddnl");
+    LogPass("VlessParseRequestNonZeroAddnl");
 }
 
 /**
@@ -301,23 +301,269 @@ void TestVlessParseRequestNonZeroAddnl()
  */
 void TestVlessMakeResponse()
 {
-    log_info("=== TestVlessMakeResponse ===");
+    LogInfo("=== TestVlessMakeResponse ===");
 
     auto resp = protocol::vless::format::make_response();
 
     if (resp.size() != 2)
     {
-        log_fail("response should be 2 bytes");
+        LogFail("response should be 2 bytes");
         return;
     }
 
     if (resp[0] != std::byte{0x00} || resp[1] != std::byte{0x00})
     {
-        log_fail("response should be {0x00, 0x00}");
+        LogFail("response should be {0x00, 0x00}");
         return;
     }
 
-    log_pass("VlessMakeResponse");
+    LogPass("VlessMakeResponse");
+}
+
+// ============================================================================
+// UDP 帧格式测试
+// ============================================================================
+
+/**
+ * @brief 测试 parse_udp_packet — IPv4 地址
+ */
+void TestVlessUdpParseIPv4()
+{
+    LogInfo("=== TestVlessUdpParseIPv4 ===");
+
+    // [ATYP=0x01][127.0.0.1][Port=0x0050][Payload]
+    std::vector<std::byte> buf;
+    buf.push_back(std::byte{0x01});                                // ATYP = IPv4
+    buf.push_back(std::byte{127}); buf.push_back(std::byte{0});
+    buf.push_back(std::byte{0});   buf.push_back(std::byte{1});   // 127.0.0.1
+    buf.push_back(std::byte{0x00}); buf.push_back(std::byte{0x50}); // port = 80
+    const char* payload = "hello";
+    for (auto c : std::string_view(payload))
+    {
+        buf.push_back(static_cast<std::byte>(c));
+    }
+
+    auto [ec, result] = protocol::vless::format::parse_udp_packet(buf);
+    if (psm::fault::failed(ec))
+    {
+        LogFail("parse_udp_packet IPv4 failed: " + std::string(psm::fault::describe(ec)));
+        return;
+    }
+
+    auto* ipv4 = std::get_if<protocol::vless::ipv4_address>(&result.destination_address);
+    if (!ipv4)
+    {
+        LogFail("address type should be IPv4");
+        return;
+    }
+    if (result.destination_port != 80)
+    {
+        LogFail("port should be 80, got " + std::to_string(result.destination_port));
+        return;
+    }
+    if (result.payload_size != 5)
+    {
+        LogFail("payload size should be 5, got " + std::to_string(result.payload_size));
+        return;
+    }
+
+    LogPass("VlessUdpParseIPv4");
+}
+
+/**
+ * @brief 测试 parse_udp_packet — IPv6 地址
+ */
+void TestVlessUdpParseIPv6()
+{
+    LogInfo("=== TestVlessUdpParseIPv6 ===");
+
+    // [ATYP=0x03][16B ::1][Port=0x01BB][Payload]
+    std::vector<std::byte> buf;
+    buf.push_back(std::byte{0x03});                                // ATYP = IPv6 (VLESS uses 0x03 for IPv6)
+    for (int i = 0; i < 15; ++i)
+    {
+        buf.push_back(std::byte{0x00});
+    }
+    buf.push_back(std::byte{0x01});                                // ::1
+    buf.push_back(std::byte{0x01}); buf.push_back(std::byte{0xBB}); // port = 443
+    const char* payload = "world";
+    for (auto c : std::string_view(payload))
+    {
+        buf.push_back(static_cast<std::byte>(c));
+    }
+
+    auto [ec, result] = protocol::vless::format::parse_udp_packet(buf);
+    if (psm::fault::failed(ec))
+    {
+        LogFail("parse_udp_packet IPv6 failed: " + std::string(psm::fault::describe(ec)));
+        return;
+    }
+
+    auto* ipv6 = std::get_if<protocol::vless::ipv6_address>(&result.destination_address);
+    if (!ipv6)
+    {
+        LogFail("address type should be IPv6");
+        return;
+    }
+    if (result.destination_port != 443)
+    {
+        LogFail("port should be 443, got " + std::to_string(result.destination_port));
+        return;
+    }
+
+    LogPass("VlessUdpParseIPv6");
+}
+
+/**
+ * @brief 测试 parse_udp_packet — 域名地址
+ */
+void TestVlessUdpParseDomain()
+{
+    LogInfo("=== TestVlessUdpParseDomain ===");
+
+    const std::string domain = "example.com";
+    std::vector<std::byte> buf;
+    buf.push_back(std::byte{0x02});                                // ATYP = Domain
+    buf.push_back(static_cast<std::byte>(domain.size()));          // domain length
+    for (auto c : domain)
+    {
+        buf.push_back(static_cast<std::byte>(c));
+    }
+    buf.push_back(std::byte{0x01}); buf.push_back(std::byte{0xBB}); // port = 443
+    const char* payload = "test";
+    for (auto c : std::string_view(payload))
+    {
+        buf.push_back(static_cast<std::byte>(c));
+    }
+
+    auto [ec, result] = protocol::vless::format::parse_udp_packet(buf);
+    if (psm::fault::failed(ec))
+    {
+        LogFail("parse_udp_packet Domain failed: " + std::string(psm::fault::describe(ec)));
+        return;
+    }
+
+    auto* dom = std::get_if<protocol::vless::domain_address>(&result.destination_address);
+    if (!dom)
+    {
+        LogFail("address type should be domain");
+        return;
+    }
+    if (result.destination_port != 443)
+    {
+        LogFail("port should be 443");
+        return;
+    }
+    if (result.payload_size != 4)
+    {
+        LogFail("payload size should be 4, got " + std::to_string(result.payload_size));
+        return;
+    }
+
+    LogPass("VlessUdpParseDomain");
+}
+
+/**
+ * @brief 测试 parse_udp_packet — 短缓冲区
+ */
+void TestVlessUdpParseShortBuffer()
+{
+    LogInfo("=== TestVlessUdpParseShortBuffer ===");
+
+    // IPv4 最小帧需要 7 字节 (1+4+2)，提供 5 字节应失败
+    std::vector<std::byte> buf(5, std::byte{0x01});
+    auto [ec, result] = protocol::vless::format::parse_udp_packet(buf);
+    if (!psm::fault::failed(ec))
+    {
+        LogFail("short buffer should fail");
+        return;
+    }
+
+    LogPass("VlessUdpParseShortBuffer");
+}
+
+/**
+ * @brief 测试 parse_udp_packet — 空 payload
+ */
+void TestVlessUdpParseEmptyPayload()
+{
+    LogInfo("=== TestVlessUdpParseEmptyPayload ===");
+
+    // [ATYP=0x01][127.0.0.1][Port=80] — 无 payload
+    std::vector<std::byte> buf;
+    buf.push_back(std::byte{0x01});
+    buf.push_back(std::byte{127}); buf.push_back(std::byte{0});
+    buf.push_back(std::byte{0});   buf.push_back(std::byte{1});
+    buf.push_back(std::byte{0x00}); buf.push_back(std::byte{0x50});
+
+    auto [ec, result] = protocol::vless::format::parse_udp_packet(buf);
+    if (psm::fault::failed(ec))
+    {
+        LogFail("parse_udp_packet with empty payload should succeed");
+        return;
+    }
+    if (result.payload_size != 0)
+    {
+        LogFail("payload_size should be 0, got " + std::to_string(result.payload_size));
+        return;
+    }
+
+    LogPass("VlessUdpParseEmptyPayload");
+}
+
+/**
+ * @brief 测试 build_udp_packet + parse_udp_packet 往返
+ */
+void TestVlessUdpBuildParseRoundtrip()
+{
+    LogInfo("=== TestVlessUdpBuildParseRoundtrip ===");
+
+    // 构建 IPv4 帧
+    protocol::vless::format::udp_frame frame;
+    frame.destination_address = protocol::vless::ipv4_address{{127, 0, 0, 1}};
+    frame.destination_port = 8080;
+
+    const std::string payload_str = "hello vless udp";
+    auto payload_span = std::span<const std::byte>(
+        reinterpret_cast<const std::byte*>(payload_str.data()), payload_str.size());
+
+    psm::memory::vector<std::byte> out(psm::memory::current_resource());
+    auto build_ec = protocol::vless::format::build_udp_packet(frame, payload_span, out);
+    if (psm::fault::failed(build_ec))
+    {
+        LogFail("build_udp_packet failed: " + std::string(psm::fault::describe(build_ec)));
+        return;
+    }
+
+    // 解析回来
+    auto [parse_ec, result] = protocol::vless::format::parse_udp_packet(out);
+    if (psm::fault::failed(parse_ec))
+    {
+        LogFail("parse_udp_packet roundtrip failed: " + std::string(psm::fault::describe(parse_ec)));
+        return;
+    }
+
+    if (result.destination_port != 8080)
+    {
+        LogFail("roundtrip port should be 8080, got " + std::to_string(result.destination_port));
+        return;
+    }
+    if (result.payload_size != payload_str.size())
+    {
+        LogFail("roundtrip payload_size mismatch");
+        return;
+    }
+
+    // 验证 payload 内容一致
+    std::string_view parsed_payload(reinterpret_cast<const char*>(out.data() + result.payload_offset),
+                                     result.payload_size);
+    if (parsed_payload != payload_str)
+    {
+        LogFail("roundtrip payload content mismatch");
+        return;
+    }
+
+    LogPass("VlessUdpBuildParseRoundtrip");
 }
 
 // ============================================================================
@@ -331,27 +577,27 @@ net::awaitable<void> DoVlessServer(tcp::acceptor &acceptor)
 {
     try
     {
-        log_info("Server coroutine started, waiting for connection...");
+        LogInfo("Server coroutine started, waiting for connection...");
         auto socket = co_await acceptor.async_accept(net::use_awaitable);
 
         // UUID 验证器：接受全零 UUID
         auto verifier = [](std::string_view uuid) -> bool
         {
-            log_info(std::format("Verifying UUID: {}", uuid));
+            LogInfo(std::format("Verifying UUID: {}", uuid));
             return !uuid.empty();
         };
 
         auto trans = transport::make_reliable(std::move(socket));
         auto vless = protocol::vless::make_relay(std::move(trans), {}, verifier);
 
-        log_info("Server starting VLESS handshake...");
+        LogInfo("Server starting VLESS handshake...");
         auto [ec, req] = co_await vless->handshake();
         if (psm::fault::failed(ec))
         {
-            log_fail(std::format("Server handshake failed: {}", std::string_view(psm::fault::describe(ec))));
+            LogFail(std::format("Server handshake failed: {}", std::string_view(psm::fault::describe(ec))));
             co_return;
         }
-        log_info("Server handshake success");
+        LogInfo("Server handshake success");
 
         // Echo 测试
         std::array<char, 1024> buffer;
@@ -359,20 +605,20 @@ net::awaitable<void> DoVlessServer(tcp::acceptor &acceptor)
         {
             std::size_t n = co_await transport::async_read_some(vless, net::buffer(buffer), net::use_awaitable);
             std::string received(buffer.data(), n);
-            log_info(std::format("Server received: {}", received));
+            LogInfo(std::format("Server received: {}", received));
 
             co_await transport::async_write_some(vless, net::buffer(received), net::use_awaitable);
         }
         catch (const std::exception &e)
         {
-            log_fail(std::format("Data echo error: {}", e.what()));
+            LogFail(std::format("Data echo error: {}", e.what()));
         }
 
         vless->close();
     }
     catch (const std::exception &e)
     {
-        log_fail(std::format("Server exception: {}", e.what()));
+        LogFail(std::format("Server exception: {}", e.what()));
     }
 }
 
@@ -415,7 +661,7 @@ net::awaitable<void> DoVlessClient(tcp::endpoint endpoint, const std::string &te
             throw std::runtime_error("echo mismatch");
         }
 
-        log_info(std::format("Client test success: {}", test_msg));
+        LogInfo(std::format("Client test success: {}", test_msg));
 
         boost::system::error_code ec;
         socket.shutdown(tcp::socket::shutdown_both, ec);
@@ -423,7 +669,7 @@ net::awaitable<void> DoVlessClient(tcp::endpoint endpoint, const std::string &te
     }
     catch (const std::exception &e)
     {
-        log_fail(std::format("Client exception: {}", e.what()));
+        LogFail(std::format("Client exception: {}", e.what()));
     }
 }
 
@@ -432,7 +678,7 @@ net::awaitable<void> DoVlessClient(tcp::endpoint endpoint, const std::string &te
  */
 void TestVlessRelayHandshake()
 {
-    log_info("=== TestVlessRelayHandshake ===");
+    LogInfo("=== TestVlessRelayHandshake ===");
 
     net::io_context ioc;
 
@@ -440,7 +686,7 @@ void TestVlessRelayHandshake()
     tcp::acceptor acceptor(ioc, endpoint);
     auto bound_endpoint = acceptor.local_endpoint();
 
-    log_info(std::format("Test server listening on: {}:{}", bound_endpoint.address().to_string(), bound_endpoint.port()));
+    LogInfo(std::format("Test server listening on: {}:{}", bound_endpoint.address().to_string(), bound_endpoint.port()));
 
     const std::string test_message = "Hello VLESS";
     auto client_ok = std::make_shared<bool>(false);
@@ -457,7 +703,7 @@ void TestVlessRelayHandshake()
             }
             catch (const std::exception &e)
             {
-                log_fail(std::format("Client wrapper exception: {}", e.what()));
+                LogFail(std::format("Client wrapper exception: {}", e.what()));
             }
         },
         [&](const std::exception_ptr &)
@@ -467,7 +713,7 @@ void TestVlessRelayHandshake()
 
     if (*client_ok)
     {
-        log_pass("Vless relay handshake and echo");
+        LogPass("Vless relay handshake and echo");
     }
 }
 
@@ -487,7 +733,7 @@ int main()
     psm::memory::system::enable_global_pooling();
     psm::trace::init({});
 
-    log_info("Starting VLESS tests...");
+    LogInfo("Starting VLESS tests...");
 
     // 单元测试
     TestVlessParseRequestIPv4();
@@ -499,6 +745,14 @@ int main()
     TestVlessParseRequestNonZeroAddnl();
     TestVlessMakeResponse();
 
+    // UDP 帧格式测试
+    TestVlessUdpParseIPv4();
+    TestVlessUdpParseIPv6();
+    TestVlessUdpParseDomain();
+    TestVlessUdpParseShortBuffer();
+    TestVlessUdpParseEmptyPayload();
+    TestVlessUdpBuildParseRoundtrip();
+
     // 集成测试
     try
     {
@@ -506,7 +760,7 @@ int main()
     }
     catch (const std::exception &e)
     {
-        log_fail(std::format("TestVlessRelayHandshake threw exception: {}", e.what()));
+        LogFail(std::format("TestVlessRelayHandshake threw exception: {}", e.what()));
     }
 
     psm::trace::info("[Vless] Results: {} passed, {} failed", passed, failed);

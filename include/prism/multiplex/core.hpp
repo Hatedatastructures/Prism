@@ -7,7 +7,6 @@
  * pending（SYN 后等待地址数据）、duct（TCP 流双向转发）、
  * parcel（UDP 数据报中继）。duct 和 parcel 通过 core 的虚函数
  * 接口与具体协议交互，无需感知底层帧格式。
- *
  * @note 设计原则：core 是协议无关的抽象层，所有帧编解码委托给子类
  * @note 线程安全：单个实例非线程安全，应在 transport executor 上串行使用
  * @note 方法实现位于 core.cpp 中
@@ -17,7 +16,6 @@
 #include <atomic>
 #include <cstdint>
 #include <memory>
-#include <span>
 
 #include <boost/asio.hpp>
 
@@ -45,12 +43,9 @@ namespace psm::multiplex
      * 协议子类解析地址后连接目标，创建 duct/parcel 进行双向转发。
      * 继承 std::enable_shared_from_this，支持协程上下文中安全的共享指针管理。
      * duct 和 parcel 声明为 friend，可直接访问 pending_/ducts_/parcels_。
-     *
-     * 流状态转换：
-     * 1. SYN 帧 → pending_ 中创建 pending_entry，累积地址数据
-     * 2. 地址完整 → activate_stream() 连接目标，创建 duct（TCP）或 parcel（UDP）
-     * 3. FIN 帧 → 半关闭或完全关闭对应流
-     *
+     * 流状态转换：SYN 帧创建 pending_entry 累积地址数据，
+     * 地址完整后 activate_stream() 连接目标创建 duct（TCP）或 parcel（UDP），
+     * FIN 帧半关闭或完全关闭对应流。
      * @note 发送操作通过子类的串行化机制确保帧不会被交错写入
      * @note close() 是幂等操作，多次调用无副作用
      * @warning 子类必须实现 send_data、send_fin、executor 和 run 四个纯虚函数
@@ -95,14 +90,13 @@ namespace psm::multiplex
 
         /**
          * @brief 检查会话是否活跃
-         * @return true 表示会话正在运行
+         * @details 通过原子变量读取 active_ 标志，使用 acquire 内存序保证可见性
+         * @return bool true 表示会话正在运行
          */
         [[nodiscard]] bool is_active() const noexcept
         {
             return active_.load(std::memory_order_acquire);
         }
-
-        // --- duct/parcel 通过这些虚函数发送帧 ---
 
         /**
          * @brief 发送数据帧到客户端

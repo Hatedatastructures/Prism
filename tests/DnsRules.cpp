@@ -30,7 +30,7 @@ namespace
      * @brief 输出信息级别日志
      * @param msg 日志消息
      */
-    void log_info(const std::string_view msg)
+    void LogInfo(const std::string_view msg)
     {
         psm::trace::info("[DnsRules] {}", msg);
     }
@@ -39,7 +39,7 @@ namespace
      * @brief 记录测试通过并递增计数器
      * @param msg 测试名称
      */
-    void log_pass(const std::string_view msg)
+    void LogPass(const std::string_view msg)
     {
         ++passed;
         psm::trace::info("[DnsRules] PASS: {}", msg);
@@ -49,7 +49,7 @@ namespace
      * @brief 记录测试失败并递增计数器
      * @param msg 失败原因
      */
-    void log_fail(const std::string_view msg)
+    void LogFail(const std::string_view msg)
     {
         ++failed;
         psm::trace::error("[DnsRules] FAIL: {}", msg);
@@ -65,7 +65,7 @@ namespace
  */
 void TestTrieExactMatch()
 {
-    log_info("=== TestTrieExactMatch ===");
+    LogInfo("=== TestTrieExactMatch ===");
 
     psm::resolve::domain_trie trie;
 
@@ -77,7 +77,7 @@ void TestTrieExactMatch()
         auto result = trie.search("example.com");
         if (!result.has_value())
         {
-            log_fail("search(\"example.com\") should return a value");
+            LogFail("search(\"example.com\") should return a value");
             return;
         }
 
@@ -85,7 +85,7 @@ void TestTrieExactMatch()
         auto val = std::any_cast<int>(result.value());
         if (val != 42)
         {
-            log_fail("search(\"example.com\") should return 42");
+            LogFail("search(\"example.com\") should return 42");
             return;
         }
     }
@@ -95,12 +95,12 @@ void TestTrieExactMatch()
         auto result = trie.search("other.com");
         if (result.has_value())
         {
-            log_fail("search(\"other.com\") should return nullopt");
+            LogFail("search(\"other.com\") should return nullopt");
             return;
         }
     }
 
-    log_pass("TestTrieExactMatch");
+    LogPass("TestTrieExactMatch");
 }
 
 /**
@@ -108,7 +108,7 @@ void TestTrieExactMatch()
  */
 void TestTrieWildcardMatch()
 {
-    log_info("=== TestTrieWildcardMatch ===");
+    LogInfo("=== TestTrieWildcardMatch ===");
 
     psm::resolve::domain_trie trie;
 
@@ -120,14 +120,14 @@ void TestTrieWildcardMatch()
         auto result = trie.search("www.example.com");
         if (!result.has_value())
         {
-            log_fail("search(\"www.example.com\") should match *.example.com");
+            LogFail("search(\"www.example.com\") should match *.example.com");
             return;
         }
 
         auto val = std::any_cast<int>(result.value());
         if (val != 100)
         {
-            log_fail("search(\"www.example.com\") should return 100");
+            LogFail("search(\"www.example.com\") should return 100");
             return;
         }
     }
@@ -137,14 +137,14 @@ void TestTrieWildcardMatch()
         auto result = trie.search("example.com");
         if (!result.has_value())
         {
-            log_fail("search(\"example.com\") should match *.example.com under current trie semantics");
+            LogFail("search(\"example.com\") should match *.example.com under current trie semantics");
             return;
         }
 
         auto val = std::any_cast<int>(result.value());
         if (val != 100)
         {
-            log_fail("search(\"example.com\") should return 100");
+            LogFail("search(\"example.com\") should return 100");
             return;
         }
     }
@@ -154,19 +154,19 @@ void TestTrieWildcardMatch()
         auto result = trie.search("sub.example.com");
         if (!result.has_value())
         {
-            log_fail("search(\"sub.example.com\") should match *.example.com");
+            LogFail("search(\"sub.example.com\") should match *.example.com");
             return;
         }
 
         auto val = std::any_cast<int>(result.value());
         if (val != 100)
         {
-            log_fail("search(\"sub.example.com\") should return 100");
+            LogFail("search(\"sub.example.com\") should return 100");
             return;
         }
     }
 
-    log_pass("TestTrieWildcardMatch");
+    LogPass("TestTrieWildcardMatch");
 }
 
 /**
@@ -174,7 +174,7 @@ void TestTrieWildcardMatch()
  */
 void TestTrieCaseInsensitive()
 {
-    log_info("=== TestTrieCaseInsensitive ===");
+    LogInfo("=== TestTrieCaseInsensitive ===");
 
     psm::resolve::domain_trie trie;
 
@@ -186,19 +186,19 @@ void TestTrieCaseInsensitive()
         auto result = trie.search("example.com");
         if (!result.has_value())
         {
-            log_fail("search(\"example.com\") should match inserted \"Example.COM\"");
+            LogFail("search(\"example.com\") should match inserted \"Example.COM\"");
             return;
         }
 
         auto val = std::any_cast<int>(result.value());
         if (val != 77)
         {
-            log_fail("search(\"example.com\") should return 77");
+            LogFail("search(\"example.com\") should return 77");
             return;
         }
     }
 
-    log_pass("TestTrieCaseInsensitive");
+    LogPass("TestTrieCaseInsensitive");
 }
 
 /**
@@ -206,7 +206,7 @@ void TestTrieCaseInsensitive()
  */
 void TestTrieNoMatch()
 {
-    log_info("=== TestTrieNoMatch ===");
+    LogInfo("=== TestTrieNoMatch ===");
 
     // 空 trie 的查询应返回空
     {
@@ -215,7 +215,7 @@ void TestTrieNoMatch()
         auto result = trie.search("anything");
         if (result.has_value())
         {
-            log_fail("search on empty trie should return nullopt");
+            LogFail("search on empty trie should return nullopt");
             return;
         }
     }
@@ -228,12 +228,12 @@ void TestTrieNoMatch()
         auto result = trie.search("b.com");
         if (result.has_value())
         {
-            log_fail("search(\"b.com\") should return nullopt when only \"a.com\" is inserted");
+            LogFail("search(\"b.com\") should return nullopt when only \"a.com\" is inserted");
             return;
         }
     }
 
-    log_pass("TestTrieNoMatch");
+    LogPass("TestTrieNoMatch");
 }
 
 /**
@@ -241,7 +241,7 @@ void TestTrieNoMatch()
  */
 void TestTrieMatchBoolean()
 {
-    log_info("=== TestTrieMatchBoolean ===");
+    LogInfo("=== TestTrieMatchBoolean ===");
 
     psm::resolve::domain_trie trie;
     trie.insert("test.com", 99);
@@ -249,18 +249,18 @@ void TestTrieMatchBoolean()
     // match() 只关心是否存在匹配，不返回值
     if (!trie.match("test.com"))
     {
-        log_fail("match(\"test.com\") should return true");
+        LogFail("match(\"test.com\") should return true");
         return;
     }
 
     // 未插入的域名应返回 false
     if (trie.match("other.com"))
     {
-        log_fail("match(\"other.com\") should return false");
+        LogFail("match(\"other.com\") should return false");
         return;
     }
 
-    log_pass("TestTrieMatchBoolean");
+    LogPass("TestTrieMatchBoolean");
 }
 
 // ---------------------------------------------------------------------------
@@ -272,7 +272,7 @@ void TestTrieMatchBoolean()
  */
 void TestRulesAddressRule()
 {
-    log_info("=== TestRulesAddressRule ===");
+    LogInfo("=== TestRulesAddressRule ===");
 
     psm::resolve::rules_engine engine;
 
@@ -291,25 +291,25 @@ void TestRulesAddressRule()
         auto result = engine.match("blocked.com");
         if (!result.has_value())
         {
-            log_fail("match(\"blocked.com\") should return a result");
+            LogFail("match(\"blocked.com\") should return a result");
             return;
         }
 
         if (result->addresses.empty())
         {
-            log_fail("addresses should not be empty");
+            LogFail("addresses should not be empty");
             return;
         }
 
         auto addr = result->addresses[0].to_string();
         if (addr != "1.2.3.4")
         {
-            log_fail("addresses[0] should be \"1.2.3.4\", got " + addr);
+            LogFail("addresses[0] should be \"1.2.3.4\", got " + addr);
             return;
         }
     }
 
-    log_pass("TestRulesAddressRule");
+    LogPass("TestRulesAddressRule");
 }
 
 /**
@@ -317,7 +317,7 @@ void TestRulesAddressRule()
  */
 void TestRulesNegativeRule()
 {
-    log_info("=== TestRulesNegativeRule ===");
+    LogInfo("=== TestRulesNegativeRule ===");
 
     psm::resolve::rules_engine engine;
 
@@ -328,19 +328,19 @@ void TestRulesNegativeRule()
         auto result = engine.match("evil.com");
         if (!result.has_value())
         {
-            log_fail("match(\"evil.com\") should return a result");
+            LogFail("match(\"evil.com\") should return a result");
             return;
         }
 
         // blocked 标志应被置为 true
         if (!result->blocked)
         {
-            log_fail("blocked should be true for negative rule");
+            LogFail("blocked should be true for negative rule");
             return;
         }
     }
 
-    log_pass("TestRulesNegativeRule");
+    LogPass("TestRulesNegativeRule");
 }
 
 /**
@@ -348,7 +348,7 @@ void TestRulesNegativeRule()
  */
 void TestRulesCnameRule()
 {
-    log_info("=== TestRulesCnameRule ===");
+    LogInfo("=== TestRulesCnameRule ===");
 
     psm::resolve::rules_engine engine;
 
@@ -359,19 +359,19 @@ void TestRulesCnameRule()
         auto result = engine.match("alias.com");
         if (!result.has_value())
         {
-            log_fail("match(\"alias.com\") should return a result");
+            LogFail("match(\"alias.com\") should return a result");
             return;
         }
 
         // 应返回 CNAME 目标域名
         if (result->cname != "real.com")
         {
-            log_fail("cname should be \"real.com\"");
+            LogFail("cname should be \"real.com\"");
             return;
         }
     }
 
-    log_pass("TestRulesCnameRule");
+    LogPass("TestRulesCnameRule");
 }
 
 /**
@@ -379,7 +379,7 @@ void TestRulesCnameRule()
  */
 void TestRulesCombinedPriority()
 {
-    log_info("=== TestRulesCombinedPriority ===");
+    LogInfo("=== TestRulesCombinedPriority ===");
 
     psm::resolve::rules_engine engine;
 
@@ -401,18 +401,18 @@ void TestRulesCombinedPriority()
         auto result = engine.match("test.com");
         if (!result.has_value())
         {
-            log_fail("match(\"test.com\") should return a result");
+            LogFail("match(\"test.com\") should return a result");
             return;
         }
 
         if (result->addresses.empty())
         {
-            log_fail("address rule should take priority — addresses should be non-empty");
+            LogFail("address rule should take priority — addresses should be non-empty");
             return;
         }
     }
 
-    log_pass("TestRulesCombinedPriority");
+    LogPass("TestRulesCombinedPriority");
 }
 
 // ---------------------------------------------------------------------------
@@ -424,14 +424,14 @@ void TestRulesCombinedPriority()
  */
 void TestParsePortValid()
 {
-    log_info("=== TestParsePortValid ===");
+    LogInfo("=== TestParsePortValid ===");
 
     // HTTP 标准端口
     {
         auto r = psm::resolve::parse_port("80");
         if (!r || *r != 80)
         {
-            log_fail("parse_port(\"80\") should return 80");
+            LogFail("parse_port(\"80\") should return 80");
             return;
         }
     }
@@ -441,7 +441,7 @@ void TestParsePortValid()
         auto r = psm::resolve::parse_port("443");
         if (!r || *r != 443)
         {
-            log_fail("parse_port(\"443\") should return 443");
+            LogFail("parse_port(\"443\") should return 443");
             return;
         }
     }
@@ -451,7 +451,7 @@ void TestParsePortValid()
         auto r = psm::resolve::parse_port("0");
         if (!r || *r != 0)
         {
-            log_fail("parse_port(\"0\") should return 0");
+            LogFail("parse_port(\"0\") should return 0");
             return;
         }
     }
@@ -461,12 +461,12 @@ void TestParsePortValid()
         auto r = psm::resolve::parse_port("65535");
         if (!r || *r != 65535)
         {
-            log_fail("parse_port(\"65535\") should return 65535");
+            LogFail("parse_port(\"65535\") should return 65535");
             return;
         }
     }
 
-    log_pass("TestParsePortValid");
+    LogPass("TestParsePortValid");
 }
 
 /**
@@ -474,44 +474,44 @@ void TestParsePortValid()
  */
 void TestParsePortInvalid()
 {
-    log_info("=== TestParsePortInvalid ===");
+    LogInfo("=== TestParsePortInvalid ===");
 
     // 空串不是有效端口号
     if (psm::resolve::parse_port("").has_value())
     {
-        log_fail("parse_port(\"\") should return nullopt");
+        LogFail("parse_port(\"\") should return nullopt");
         return;
     }
 
     // 非数字字符
     if (psm::resolve::parse_port("abc").has_value())
     {
-        log_fail("parse_port(\"abc\") should return nullopt");
+        LogFail("parse_port(\"abc\") should return nullopt");
         return;
     }
 
     // 超出 16 位范围（65535 + 1）
     if (psm::resolve::parse_port("65536").has_value())
     {
-        log_fail("parse_port(\"65536\") should return nullopt");
+        LogFail("parse_port(\"65536\") should return nullopt");
         return;
     }
 
     // 负数
     if (psm::resolve::parse_port("-1").has_value())
     {
-        log_fail("parse_port(\"-1\") should return nullopt");
+        LogFail("parse_port(\"-1\") should return nullopt");
         return;
     }
 
     // 超长数字（>5 位）
     if (psm::resolve::parse_port("123456").has_value())
     {
-        log_fail("parse_port(\"123456\") should return nullopt (>5 chars)");
+        LogFail("parse_port(\"123456\") should return nullopt (>5 chars)");
         return;
     }
 
-    log_pass("TestParsePortInvalid");
+    LogPass("TestParsePortInvalid");
 }
 
 /**
@@ -519,14 +519,14 @@ void TestParsePortInvalid()
  */
 void TestParsePortBoundary()
 {
-    log_info("=== TestParsePortBoundary ===");
+    LogInfo("=== TestParsePortBoundary ===");
 
     // 上边界：65535 是最大合法端口
     {
         auto r = psm::resolve::parse_port("65535");
         if (!r || *r != 65535)
         {
-            log_fail("parse_port(\"65535\") should return 65535 (valid boundary)");
+            LogFail("parse_port(\"65535\") should return 65535 (valid boundary)");
             return;
         }
     }
@@ -536,12 +536,12 @@ void TestParsePortBoundary()
         auto r = psm::resolve::parse_port("65536");
         if (r.has_value())
         {
-            log_fail("parse_port(\"65536\") should return nullopt (invalid boundary)");
+            LogFail("parse_port(\"65536\") should return nullopt (invalid boundary)");
             return;
         }
     }
 
-    log_pass("TestParsePortBoundary");
+    LogPass("TestParsePortBoundary");
 }
 
 // ---------------------------------------------------------------------------
@@ -553,7 +553,7 @@ void TestParsePortBoundary()
  */
 void TestTransparentHashDeterminism()
 {
-    log_info("=== TestTransparentHashDeterminism ===");
+    LogInfo("=== TestTransparentHashDeterminism ===");
 
     psm::resolve::transparent_hash h;
 
@@ -563,7 +563,7 @@ void TestTransparentHashDeterminism()
 
     if (v1 != v2)
     {
-        log_fail("hash(string_view) should be deterministic across calls");
+        LogFail("hash(string_view) should be deterministic across calls");
         return;
     }
 
@@ -573,11 +573,11 @@ void TestTransparentHashDeterminism()
 
     if (v1 != v3)
     {
-        log_fail("hash(string_view) should equal hash(memory::string) for same content");
+        LogFail("hash(string_view) should equal hash(memory::string) for same content");
         return;
     }
 
-    log_pass("TestTransparentHashDeterminism");
+    LogPass("TestTransparentHashDeterminism");
 }
 
 /**
@@ -585,7 +585,7 @@ void TestTransparentHashDeterminism()
  */
 void TestTransparentEqualCrossType()
 {
-    log_info("=== TestTransparentEqualCrossType ===");
+    LogInfo("=== TestTransparentEqualCrossType ===");
 
     psm::resolve::transparent_equal eq;
 
@@ -595,39 +595,39 @@ void TestTransparentEqualCrossType()
     // 同类型 string_view 比较
     if (!eq(sv, sv))
     {
-        log_fail("eq(string_view, string_view) should be true");
+        LogFail("eq(string_view, string_view) should be true");
         return;
     }
 
     // memory::string 与 string_view 交叉比较
     if (!eq(ms, sv))
     {
-        log_fail("eq(memory::string, string_view) should be true");
+        LogFail("eq(memory::string, string_view) should be true");
         return;
     }
 
     // 反向交叉比较
     if (!eq(sv, ms))
     {
-        log_fail("eq(string_view, memory::string) should be true");
+        LogFail("eq(string_view, memory::string) should be true");
         return;
     }
 
     // 同类型 memory::string 比较
     if (!eq(ms, ms))
     {
-        log_fail("eq(memory::string, memory::string) should be true");
+        LogFail("eq(memory::string, memory::string) should be true");
         return;
     }
 
     // 不同内容应返回 false
     if (eq(sv, std::string_view("world")))
     {
-        log_fail("eq(\"hello\", \"world\") should be false");
+        LogFail("eq(\"hello\", \"world\") should be false");
         return;
     }
 
-    log_pass("TestTransparentEqualCrossType");
+    LogPass("TestTransparentEqualCrossType");
 }
 
 // ---------------------------------------------------------------------------
@@ -648,7 +648,7 @@ int main()
     // 初始化日志系统
     psm::trace::init({});
 
-    log_info("Starting DNS rules tests...");
+    LogInfo("Starting DNS rules tests...");
 
     // domain_trie
     TestTrieExactMatch();
@@ -672,7 +672,7 @@ int main()
     TestTransparentHashDeterminism();
     TestTransparentEqualCrossType();
 
-    log_info("DNS rules tests completed.");
+    LogInfo("DNS rules tests completed.");
 
     psm::trace::info("[DnsRules] Results: {} passed, {} failed", passed, failed);
 

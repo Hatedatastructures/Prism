@@ -567,7 +567,7 @@ curl -x http://127.0.0.1:8081 -I http://example.com --connect-timeout 5
 | 端口监听 | `nc -z localhost 8081` | 端口不通 |
 | 内存使用 | `/proc/<pid>/status` VmRSS | 超物理内存 80% |
 | 文件描述符 | `ls /proc/<pid>/fd \| wc -l` | 接近 `ulimit -n` 的 80% |
-| 连接数 | `ss -s` | 接近 `agent.limit.concurrences` |
+| 连接数 | `ss -s` | 接近系统文件描述符限制 |
 | 日志错误率 | `[error]` 出现频率 | 持续出现 |
 
 ---

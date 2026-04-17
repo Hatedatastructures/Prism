@@ -18,13 +18,6 @@
 
 #include <prism/memory/container.hpp>
 
-/**
- * @namespace psm::agent::front
- * @brief 前端代理模块
- * @details 该命名空间包含前端代理的核心组件，负责监听入站连接、执行
- * 负载均衡、将连接分发给后端工作线程。主要组件包括监听器和负载均衡器，
- * 两者协作完成高性能的连接接入与分发流程。
- */
 namespace psm::agent::front
 {
     namespace net = boost::asio;

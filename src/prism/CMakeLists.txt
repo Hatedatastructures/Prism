@@ -17,7 +17,6 @@ target_sources(${PROJECT_NAME}_static_library
             ${PROJECT_SOURCE_DIR}/include/prism/fault/compatible.hpp
             ${PROJECT_SOURCE_DIR}/include/prism/fault/handling.hpp
             ${PROJECT_SOURCE_DIR}/include/prism/memory/container.hpp
-            ${PROJECT_SOURCE_DIR}/include/prism/memory/pointer.hpp
             ${PROJECT_SOURCE_DIR}/include/prism/memory/pool.hpp
             ${PROJECT_SOURCE_DIR}/include/prism/transformer/json.hpp
 )

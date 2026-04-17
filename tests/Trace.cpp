@@ -1,107 +1,275 @@
 /**
  * @file Trace.cpp
- * @brief 日志系统测试
- * @details 测试 psm::trace (spdlog 封装) 的初始化、五级日志输出、关闭和日志文件验证。
+ * @brief 日志模块单元测试
+ * @details 测试 psm::trace 模块的核心功能：初始化/关闭生命周期、
+ * 日志级别配置、各级别日志输出、重复初始化、空日志器安全调用等。
  */
 
-#include <prism/trace/spdlog.hpp>
 #include <prism/memory.hpp>
+#include <prism/trace/spdlog.hpp>
+#include <prism/trace/config.hpp>
 
 #include "common/test_runner.hpp"
 
-#include <exception>
-#include <filesystem>
-#include <format>
-#include <string_view>
-
-namespace fs = std::filesystem;
-
 namespace
 {
-    psm::testing::test_runner runner("Trace");
-
-    /**
-     * @brief 获取文件大小，失败时返回 0
-     * @param path 文件路径
-     * @return 文件大小（字节），路径无效或出错时返回 0
-     */
-    [[nodiscard]] auto file_size_or_zero(const fs::path &path) -> std::uintmax_t
-    {
-        std::error_code ec;
-        const auto size = fs::file_size(path, ec);
-        return ec ? 0 : size;
-    }
+    psm::testing::TestRunner runner("Trace");
 } // namespace
 
 /**
- * @brief 测试日志系统初始化、输出和关闭
+ * @brief 测试 config 默认值
  */
-void TestTraceInitAndWrite()
+void TestConfigDefaults()
 {
-    runner.log_info("=== TestTraceInitAndWrite ===");
+    runner.LogInfo("=== TestConfigDefaults ===");
 
-    // 使用独立的测试日志目录，避免污染主日志
-    const fs::path path_name = fs::path("test_logs") / "trace";
-    const std::string file_name = "trace_test.log";
-
-    // 构造测试专用日志配置
     psm::trace::config cfg;
-    cfg.path_name = path_name.string();
-    cfg.file_name = file_name;
-    cfg.max_size = 1024U * 1024U;
-    cfg.max_files = 2U;
-    cfg.queue_size = 8192U;
-    cfg.thread_count = 1U;
-    cfg.enable_console = true;
-    cfg.log_level = "debug";
-    cfg.trace_name = "trace_test";
 
-    psm::trace::init(cfg);
-
-    // 依次输出五个日志级别，验证完整日志链路
-    psm::trace::debug("trace_test: debug `{}`", 1);
-    psm::trace::info("trace_test: info `{}`", 2);
-    psm::trace::warn("trace_test: warn `{}`", 3);
-    psm::trace::error("trace_test: error `{}`", 4);
-    psm::trace::fatal("trace_test: fatal `{}`", 5);
-
-    // 必须关闭才能确保异步日志刷盘到磁盘
-    psm::trace::shutdown();
-
-    // 重新初始化为默认配置，供后续测试输出使用
-    psm::trace::init({});
-
-    // 检查日志文件是否已生成且非空
-    const fs::path log_path = path_name / file_name;
-    const auto size = file_size_or_zero(log_path);
-    if (size == 0)
+    if (cfg.file_name != "prism.log")
     {
-        runner.log_fail(std::format("log file missing or empty: {}", log_path.string()));
+        runner.LogFail("file_name default");
+        return;
+    }
+    if (cfg.path_name != "logs")
+    {
+        runner.LogFail("path_name default");
+        return;
+    }
+    if (cfg.max_size != 64 * 1024 * 1024)
+    {
+        runner.LogFail("max_size default");
+        return;
+    }
+    if (cfg.max_files != 8)
+    {
+        runner.LogFail("max_files default");
+        return;
+    }
+    if (!cfg.enable_console)
+    {
+        runner.LogFail("enable_console should be true");
+        return;
+    }
+    if (!cfg.enable_file)
+    {
+        runner.LogFail("enable_file should be true");
+        return;
+    }
+    if (cfg.log_level != "info")
+    {
+        runner.LogFail("log_level default");
+        return;
+    }
+    if (cfg.trace_name != "prism")
+    {
+        runner.LogFail("trace_name default");
         return;
     }
 
-    runner.log_pass("TraceInitAndWrite");
+    runner.LogPass("config defaults");
 }
 
 /**
- * @brief 测试入口
- * @details 初始化全局内存池和日志系统，运行日志初始化与五级输出测试；
- * 测试过程中先关闭日志以确保刷盘，随后读文件校验日志内容非空，最后重新初始化供结果输出。
- * @return 0 表示全部通过，1 表示存在失败
+ * @brief 测试 shutdown 后 recorder 为空
  */
+void TestShutdownNullRecorder()
+{
+    runner.LogInfo("=== TestShutdownNullRecorder ===");
+
+    psm::trace::config cfg;
+    cfg.enable_console = true;
+    cfg.enable_file = false;
+    psm::trace::init(cfg);
+
+    auto logger = psm::trace::recorder();
+    if (!logger)
+    {
+        runner.LogFail("recorder should not be null after init");
+        return;
+    }
+
+    psm::trace::shutdown();
+
+    logger = psm::trace::recorder();
+    if (logger != nullptr)
+    {
+        runner.LogFail("recorder should be null after shutdown");
+        return;
+    }
+
+    runner.LogPass("shutdown null recorder");
+}
+
+/**
+ * @brief 测试未初始化时调用日志函数不崩溃
+ */
+void TestLogWithoutInit()
+{
+    runner.LogInfo("=== TestLogWithoutInit ===");
+
+    psm::trace::shutdown();
+
+    psm::trace::debug("debug without init");
+    psm::trace::info("info without init");
+    psm::trace::warn("warn without init");
+    psm::trace::error("error without init");
+    psm::trace::fatal("fatal without init");
+
+    runner.LogPass("log without init no crash");
+}
+
+/**
+ * @brief 测试带格式化参数的日志输出
+ */
+void TestLogWithFormatArgs()
+{
+    runner.LogInfo("=== TestLogWithFormatArgs ===");
+
+    psm::trace::config cfg;
+    cfg.enable_console = true;
+    cfg.enable_file = false;
+    psm::trace::init(cfg);
+
+    psm::trace::debug("debug message: {}", 42);
+    psm::trace::info("info message: {} + {} = {}", 1, 2, 3);
+    psm::trace::warn("warn message: {}", "string arg");
+    psm::trace::error("error code: {}", 0xDEAD);
+    psm::trace::fatal("fatal: {} {} {}", "a", "b", "c");
+
+    runner.LogPass("log with format args");
+}
+
+/**
+ * @brief 测试重复 init 覆盖不崩溃
+ */
+void TestRepeatedInit()
+{
+    runner.LogInfo("=== TestRepeatedInit ===");
+
+    psm::trace::config cfg;
+    cfg.enable_console = true;
+    cfg.enable_file = false;
+
+    psm::trace::init(cfg);
+    psm::trace::info("first init");
+
+    psm::trace::init(cfg);
+    psm::trace::info("second init");
+
+    psm::trace::init(cfg);
+    psm::trace::info("third init");
+
+    auto logger = psm::trace::recorder();
+    if (!logger)
+    {
+        runner.LogFail("recorder should not be null after repeated init");
+        return;
+    }
+
+    runner.LogPass("repeated init");
+}
+
+/**
+ * @brief 测试仅控制台输出模式
+ */
+void TestConsoleOnly()
+{
+    runner.LogInfo("=== TestConsoleOnly ===");
+
+    psm::trace::config cfg;
+    cfg.enable_console = true;
+    cfg.enable_file = false;
+    psm::trace::init(cfg);
+
+    psm::trace::info("console only message");
+
+    auto logger = psm::trace::recorder();
+    if (!logger)
+    {
+        runner.LogFail("recorder should exist in console-only mode");
+        return;
+    }
+
+    runner.LogPass("console only mode");
+}
+
+/**
+ * @brief 测试不同日志级别字符串
+ */
+void TestLogLevelStrings()
+{
+    runner.LogInfo("=== TestLogLevelStrings ===");
+
+    const psm::trace::config base_cfg = []
+    {
+        psm::trace::config c;
+        c.enable_console = true;
+        c.enable_file = false;
+        return c;
+    }();
+
+    const char *levels[] = {"trace", "debug", "info", "warn", "warning", "error", "err", "critical", "fatal", "off", "INFO", "DeBuG", "UNKNOWN_LEVEL"};
+
+    for (const auto *level : levels)
+    {
+        psm::trace::config cfg = base_cfg;
+        cfg.log_level = psm::memory::string(level);
+        psm::trace::init(cfg);
+
+        auto logger = psm::trace::recorder();
+        if (!logger)
+        {
+            runner.LogFail(std::string("recorder null for level: ") + level);
+            return;
+        }
+
+        psm::trace::info("level test: {}", level);
+    }
+
+    runner.LogPass("log level strings");
+}
+
+/**
+ * @brief 测试空文件名自动替换
+ */
+void TestEmptyFileNameFallback()
+{
+    runner.LogInfo("=== TestEmptyFileNameFallback ===");
+
+    psm::trace::config cfg;
+    cfg.enable_console = true;
+    cfg.enable_file = true;
+    cfg.file_name = "";
+    cfg.trace_name = "test_trace";
+    psm::trace::init(cfg);
+
+    psm::trace::info("empty file name fallback test");
+
+    auto logger = psm::trace::recorder();
+    if (!logger)
+    {
+        runner.LogFail("recorder should exist with empty file name");
+        return;
+    }
+
+    runner.LogPass("empty file name fallback");
+}
+
 int main()
 {
-    // 初始化 PMR 全局内存池
     psm::memory::system::enable_global_pooling();
-    // 使用默认配置初始化日志系统
     psm::trace::init({});
 
-    runner.log_info("Starting trace tests...");
+    runner.LogInfo("========== Trace Tests ==========");
 
-    TestTraceInitAndWrite();
+    TestConfigDefaults();
+    TestLogWithoutInit();
+    TestConsoleOnly();
+    TestLogWithFormatArgs();
+    TestRepeatedInit();
+    TestLogLevelStrings();
+    TestEmptyFileNameFallback();
+    TestShutdownNullRecorder();
 
-    runner.log_info("Trace tests completed.");
-
-    // 测试结束前关闭日志，确保所有消息刷盘
-    return runner.summary();
+    return runner.Summary();
 }

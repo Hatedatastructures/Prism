@@ -105,7 +105,7 @@ Prism/
 │   ├── stealth/          # TLS 伪装层（reality/）
 │   └── resolve/          # DNS（router, recursor, cache, resolver, rules）
 ├── src/                  # 源文件 + 入口
-├── tests/                # 单元测试（21 个）
+├── tests/                # 单元测试（25 个）
 ├── benchmarks/           # 基准测试
 ├── stresses/             # 压力测试
 ├── docs/                 # 文档
@@ -136,7 +136,7 @@ Prism/
 | *HTTP* | ✓ | — | Basic | — |
 | *SOCKS5* | ✓ | ✓ | User/Pass | — |
 | *Trojan* | ✓ | ✓ | SHA224 | ✓ |
-| *VLESS* | ✓ | — | UUID | ✓ |
+| *VLESS* | ✓ | ✓ | UUID | ✓ |
 | *SS2022* | ✓ | ✓ | PSK/BLAKE3 | — |
 
 | 伪装 | 状态 | 说明 |

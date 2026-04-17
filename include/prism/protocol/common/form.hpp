@@ -29,7 +29,9 @@ namespace psm::protocol
      */
     enum class form : std::uint8_t
     {
-        stream,    // TCP 可靠流传输
-        datagram   // UDP 数据报传输
+        /** @brief TCP 可靠流传输 */
+        stream,
+        /** @brief UDP 数据报传输 */
+        datagram
     };
 }

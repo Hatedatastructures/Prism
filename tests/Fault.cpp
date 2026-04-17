@@ -28,7 +28,7 @@
 
 namespace
 {
-    psm::testing::test_runner runner("FaultTest");
+    psm::testing::TestRunner runner("FaultTest");
 }
 
 /**
@@ -36,7 +36,7 @@ namespace
  */
 void TestDescribeAllCodes()
 {
-    runner.log_info("=== Testing describe() for all codes ===");
+    runner.LogInfo("=== Testing describe() for all codes ===");
 
     // 遍历全部错误码，确保每个都有非空描述
     constexpr int count = static_cast<int>(psm::fault::code::_count);
@@ -46,7 +46,7 @@ void TestDescribeAllCodes()
         const std::string_view desc = psm::fault::describe(c);
         if (desc.empty())
         {
-            runner.log_fail(std::format("describe(code={}) returned empty string", i));
+            runner.LogFail(std::format("describe(code={}) returned empty string", i));
             return;
         }
     }
@@ -54,25 +54,25 @@ void TestDescribeAllCodes()
     // success 码：代表操作成功的唯一正例
     if (psm::fault::describe(psm::fault::code::success) != "success")
     {
-        runner.log_fail("describe(success) != 'success'");
+        runner.LogFail("describe(success) != 'success'");
         return;
     }
 
     // eof 码：代表连接正常关闭（对端 EOF）
     if (psm::fault::describe(psm::fault::code::eof) != "eof")
     {
-        runner.log_fail("describe(eof) != 'eof'");
+        runner.LogFail("describe(eof) != 'eof'");
         return;
     }
 
     // timeout 码：代表异步操作超时
     if (psm::fault::describe(psm::fault::code::timeout) != "timeout")
     {
-        runner.log_fail("describe(timeout) != 'timeout'");
+        runner.LogFail("describe(timeout) != 'timeout'");
         return;
     }
 
-    runner.log_pass("describe() for all codes");
+    runner.LogPass("describe() for all codes");
 }
 
 /**
@@ -80,46 +80,46 @@ void TestDescribeAllCodes()
  */
 void TestSucceededFailed()
 {
-    runner.log_info("=== Testing succeeded/failed semantics ===");
+    runner.LogInfo("=== Testing succeeded/failed semantics ===");
 
     // success 是唯一使 succeeded 返回 true 的码
     if (!psm::fault::succeeded(psm::fault::code::success))
     {
-        runner.log_fail("succeeded(success) should be true");
+        runner.LogFail("succeeded(success) should be true");
         return;
     }
     // success 不应被视为失败
     if (psm::fault::failed(psm::fault::code::success))
     {
-        runner.log_fail("failed(success) should be false");
+        runner.LogFail("failed(success) should be false");
         return;
     }
 
     // eof 属于失败码，表示非正常结束
     if (psm::fault::succeeded(psm::fault::code::eof))
     {
-        runner.log_fail("succeeded(eof) should be false");
+        runner.LogFail("succeeded(eof) should be false");
         return;
     }
     if (!psm::fault::failed(psm::fault::code::eof))
     {
-        runner.log_fail("failed(eof) should be true");
+        runner.LogFail("failed(eof) should be true");
         return;
     }
 
     // parse_error 属于失败码，表示协议解析出错
     if (psm::fault::succeeded(psm::fault::code::parse_error))
     {
-        runner.log_fail("succeeded(parse_error) should be false");
+        runner.LogFail("succeeded(parse_error) should be false");
         return;
     }
     if (!psm::fault::failed(psm::fault::code::parse_error))
     {
-        runner.log_fail("failed(parse_error) should be true");
+        runner.LogFail("failed(parse_error) should be true");
         return;
     }
 
-    runner.log_pass("succeeded/failed semantics");
+    runner.LogPass("succeeded/failed semantics");
 }
 
 /**
@@ -127,7 +127,7 @@ void TestSucceededFailed()
  */
 void TestCachedMessageConsistency()
 {
-    runner.log_info("=== Testing cached_message consistency ===");
+    runner.LogInfo("=== Testing cached_message consistency ===");
 
     // 确保缓存版本与实时描述完全一致
     constexpr int count = static_cast<int>(psm::fault::code::_count);
@@ -139,12 +139,12 @@ void TestCachedMessageConsistency()
 
         if (desc != cached)
         {
-            runner.log_fail(std::format("cached_message(code={})='{}' != describe()='{}'", i, cached, desc));
+            runner.LogFail(std::format("cached_message(code={})='{}' != describe()='{}'", i, cached, desc));
             return;
         }
     }
 
-    runner.log_pass("cached_message consistency");
+    runner.LogPass("cached_message consistency");
 }
 
 /**
@@ -152,18 +152,18 @@ void TestCachedMessageConsistency()
  */
 void TestMakeErrorCodeStd()
 {
-    runner.log_info("=== Testing std::error_code construction ===");
+    runner.LogInfo("=== Testing std::error_code construction ===");
 
     // 显式构造：eof 的数值应为 3，类别名为 psm::fault
     const std::error_code ec = psm::fault::make_error_code(psm::fault::code::eof);
     if (ec.value() != 3)
     {
-        runner.log_fail(std::format("make_error_code(eof).value()={}, expected 3", ec.value()));
+        runner.LogFail(std::format("make_error_code(eof).value()={}, expected 3", ec.value()));
         return;
     }
     if (std::string_view(ec.category().name()) != "psm::fault")
     {
-        runner.log_fail(std::format("category name='{}', expected 'psm::fault'", ec.category().name()));
+        runner.LogFail(std::format("category name='{}', expected 'psm::fault'", ec.category().name()));
         return;
     }
 
@@ -171,11 +171,11 @@ void TestMakeErrorCodeStd()
     const std::error_code ec2 = psm::fault::code::timeout;
     if (ec2.value() != 11)
     {
-        runner.log_fail(std::format("implicit conversion: timeout value={}, expected 11", ec2.value()));
+        runner.LogFail(std::format("implicit conversion: timeout value={}, expected 11", ec2.value()));
         return;
     }
 
-    runner.log_pass("std::error_code construction");
+    runner.LogPass("std::error_code construction");
 }
 
 /**
@@ -183,22 +183,22 @@ void TestMakeErrorCodeStd()
  */
 void TestMakeErrorCodeBoost()
 {
-    runner.log_info("=== Testing boost::system::error_code construction ===");
+    runner.LogInfo("=== Testing boost::system::error_code construction ===");
 
     // 验证 Boost 错误码的数值和类别与 std 版本一致
     const boost::system::error_code ec = boost::system::make_error_code(psm::fault::code::eof);
     if (ec.value() != 3)
     {
-        runner.log_fail(std::format("boost make_error_code(eof).value()={}, expected 3", ec.value()));
+        runner.LogFail(std::format("boost make_error_code(eof).value()={}, expected 3", ec.value()));
         return;
     }
     if (std::string_view(ec.category().name()) != "psm::fault")
     {
-        runner.log_fail(std::format("boost category name='{}', expected 'psm::fault'", ec.category().name()));
+        runner.LogFail(std::format("boost category name='{}', expected 'psm::fault'", ec.category().name()));
         return;
     }
 
-    runner.log_pass("boost::system::error_code construction");
+    runner.LogPass("boost::system::error_code construction");
 }
 
 /**
@@ -206,7 +206,7 @@ void TestMakeErrorCodeBoost()
  */
 void TestToCodeBoostRoundTrip()
 {
-    runner.log_info("=== Testing to_code boost round trip ===");
+    runner.LogInfo("=== Testing to_code boost round trip ===");
 
     // 正向+反向转换：code -> boost ec -> 还原为 code
     const psm::fault::code c = psm::fault::code::timeout;
@@ -214,7 +214,7 @@ void TestToCodeBoostRoundTrip()
     const psm::fault::code back = psm::fault::to_code(ec);
     if (back != psm::fault::code::timeout)
     {
-        runner.log_fail(std::format("boost round trip: expected timeout, got {}", static_cast<int>(back)));
+        runner.LogFail(std::format("boost round trip: expected timeout, got {}", static_cast<int>(back)));
         return;
     }
 
@@ -222,7 +222,7 @@ void TestToCodeBoostRoundTrip()
     const psm::fault::code eof_code = psm::fault::to_code(boost::asio::error::eof);
     if (eof_code != psm::fault::code::eof)
     {
-        runner.log_fail(std::format("asio::eof -> code={}, expected eof({})", static_cast<int>(eof_code),
+        runner.LogFail(std::format("asio::eof -> code={}, expected eof({})", static_cast<int>(eof_code),
                              static_cast<int>(psm::fault::code::eof)));
         return;
     }
@@ -231,12 +231,12 @@ void TestToCodeBoostRoundTrip()
     const psm::fault::code abort_code = psm::fault::to_code(boost::asio::error::operation_aborted);
     if (abort_code != psm::fault::code::canceled)
     {
-        runner.log_fail(std::format("asio::operation_aborted -> code={}, expected canceled({})",
+        runner.LogFail(std::format("asio::operation_aborted -> code={}, expected canceled({})",
                              static_cast<int>(abort_code), static_cast<int>(psm::fault::code::canceled)));
         return;
     }
 
-    runner.log_pass("to_code boost round trip");
+    runner.LogPass("to_code boost round trip");
 }
 
 /**
@@ -244,7 +244,7 @@ void TestToCodeBoostRoundTrip()
  */
 void TestToCodeStdRoundTrip()
 {
-    runner.log_info("=== Testing to_code std round trip ===");
+    runner.LogInfo("=== Testing to_code std round trip ===");
 
     // 正向+反向转换：code -> std ec -> 还原为 code
     const psm::fault::code c = psm::fault::code::connection_refused;
@@ -252,7 +252,7 @@ void TestToCodeStdRoundTrip()
     const psm::fault::code back = psm::fault::to_code(ec);
     if (back != psm::fault::code::connection_refused)
     {
-        runner.log_fail(std::format("std round trip: expected connection_refused, got {}", static_cast<int>(back)));
+        runner.LogFail(std::format("std round trip: expected connection_refused, got {}", static_cast<int>(back)));
         return;
     }
 
@@ -260,7 +260,7 @@ void TestToCodeStdRoundTrip()
     const psm::fault::code timeout_code = psm::fault::to_code(std::make_error_code(std::errc::timed_out));
     if (timeout_code != psm::fault::code::timeout)
     {
-        runner.log_fail(std::format("errc::timed_out -> code={}, expected timeout({})", static_cast<int>(timeout_code),
+        runner.LogFail(std::format("errc::timed_out -> code={}, expected timeout({})", static_cast<int>(timeout_code),
                              static_cast<int>(psm::fault::code::timeout)));
         return;
     }
@@ -269,12 +269,12 @@ void TestToCodeStdRoundTrip()
     const psm::fault::code cancel_code = psm::fault::to_code(std::make_error_code(std::errc::operation_canceled));
     if (cancel_code != psm::fault::code::canceled)
     {
-        runner.log_fail(std::format("errc::operation_canceled -> code={}, expected canceled({})",
+        runner.LogFail(std::format("errc::operation_canceled -> code={}, expected canceled({})",
                              static_cast<int>(cancel_code), static_cast<int>(psm::fault::code::canceled)));
         return;
     }
 
-    runner.log_pass("to_code std round trip");
+    runner.LogPass("to_code std round trip");
 }
 
 /**
@@ -290,7 +290,7 @@ int main()
     // 使用默认配置初始化 spdlog 日志系统
     psm::trace::init({});
 
-    runner.log_info("Starting fault tests...");
+    runner.LogInfo("Starting fault tests...");
 
     TestDescribeAllCodes();
     TestSucceededFailed();
@@ -300,7 +300,7 @@ int main()
     TestToCodeBoostRoundTrip();
     TestToCodeStdRoundTrip();
 
-    runner.log_info("Fault tests completed.");
+    runner.LogInfo("Fault tests completed.");
 
-    return runner.summary();
+    return runner.Summary();
 }

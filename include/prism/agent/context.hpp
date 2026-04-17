@@ -1,9 +1,10 @@
 /**
  * @file context.hpp
  * @brief Agent 运行时上下文类型定义
- * @details 声明代理服务运行时的上下文结构，包括服务器上下文、
- * 工作线程上下文和会话上下文。这些上下文结构贯穿整个请求处理
- * 生命周期，为各层组件提供配置、资源和状态访问入口。
+ * @details 声明代理服务运行时的上下文结构，包括服务器
+ * 上下文、工作线程上下文和会话上下文。这些上下文结构
+ * 贯穿整个请求处理生命周期，为各层组件提供配置、资源
+ * 和状态访问入口。
  */
 #pragma once
 
@@ -14,24 +15,15 @@
 #include <prism/channel/transport/transmission.hpp>
 #include <boost/asio.hpp>
 #include <boost/asio/ssl.hpp>
-#include <cstdint>
 #include <functional>
 #include <memory>
 #include <string_view>
-#include <optional>
 
-/**
- * @namespace psm::agent
- * @brief Agent 运行时域
- * @details 包含代理运行时的配置、会话、路由、前端监听器以及
- * 协议管道构建模块。该命名空间是正向代理引擎的核心组件集合，
- * 负责连接管理、流量转发和协议适配。
- */
 namespace psm::agent
 {
     namespace net = boost::asio;
     namespace ssl = net::ssl;
-    using shared_transmission = psm::channel::transport::shared_transmission;
+    using shared_transmission = channel::transport::shared_transmission;
     namespace account
     {
         class directory;
@@ -40,113 +32,77 @@ namespace psm::agent
     /**
      * @struct server_context
      * @brief 服务器全局上下文
-     * @details 聚合服务器级别的共享资源，包括配置引用、SSL 上下文
-     * 和账户注册表。该结构在服务器启动时创建，被所有工作线程共享。
-     * 配置对象以常量引用形式存储，确保运行时配置不可变。
-     * @note 配置对象的生命周期必须长于 server_context。
-     * @warning SSL 上下文和账户注册表使用 shared_ptr 管理，
-     * 确保跨线程共享安全。
+     * @details 聚合服务器级别的共享资源，包括配置引用、
+     * SSL 上下文和账户注册表。该结构在服务器启动时创建，
+     * 被所有工作线程共享。配置对象以常量引用形式存储，
+     * 确保运行时配置不可变。
+     * @note 配置对象的生命周期必须长于 server_context
+     * @warning SSL 上下文和账户注册表使用 shared_ptr
+     * 管理，确保跨线程共享安全。
      */
     struct server_context
     {
-        // 配置对象的常量引用，包含所有运行时参数
-        const config &cfg;
-
-        // SSL 上下文，用于 TLS 握手和加密通信
-        std::shared_ptr<ssl::context> ssl_ctx;
-
-        // 账户注册表，管理用户凭据和连接配额
-        std::shared_ptr<account::directory> account_store;
-    };
+        const config &cfg;                                 // 配置对象的常量引用
+        std::shared_ptr<ssl::context> ssl_ctx;             // SSL 上下文
+        std::shared_ptr<account::directory> account_store; // 账户注册表
+    }; // struct server_context
 
     /**
      * @struct worker_context
      * @brief 工作线程上下文
-     * @details 封装单个工作线程的独立资源，包括 io_context 引用、
-     * 路由器和内存池。每个工作线程拥有独立的 worker_context 实例，
-     * 实现线程间的资源隔离和避免锁竞争。io_context 驱动该线程上
-     * 所有异步操作，路由器负责请求分发决策。
-     * @note io_context 的生命周期由工作线程管理。
-     * @warning 内存池资源指针用于 PMR 分配，应确保线程安全。
+     * @details 封装单个工作线程的独立资源，包括
+     * io_context 引用、路由器和内存池。每个工作线程
+     * 拥有独立的 worker_context 实例，实现线程间的
+     * 资源隔离和避免锁竞争。
+     * @note io_context 的生命周期由工作线程管理
+     * @warning 内存池资源指针用于 PMR 分配，应确保
+     * 线程安全
      */
     struct worker_context
     {
-        // I/O 上下文引用，驱动该线程的异步操作
-        net::io_context &io_context;
-
-        // 路由器引用，负责请求分发和后端选择
-        resolve::router &router;
-
-        // 内存池资源指针，用于 PMR 内存分配
-        memory::resource_pointer memory_pool;
-    };
+        net::io_context &io_context;          // I/O 上下文引用
+        resolve::router &router;              // 路由器引用
+        memory::resource_pointer memory_pool; // 内存池资源指针
+    }; // struct worker_context
 
     /**
      * @struct session_context
      * @brief 会话上下文
-     * @details 聚合单个连接会话所需的所有资源和状态，是请求处理
-     * 流程的核心数据结构。包含服务器上下文和工作线程上下文的引用、
-     * 帧内存池、凭据验证器、缓冲区配置以及入站出站传输对象。
-     * 该结构在会话创建时初始化，随会话生命周期销毁。
-     * @note 帧内存池用于会话期间的临时分配，会话结束后自动回收。
+     * @details 聚合单个连接会话所需的所有资源和状态，
+     * 是请求处理流程的核心数据结构。包含服务器上下文
+     * 和工作线程上下文的引用、帧内存池、凭据验证器、
+     * 缓冲区配置以及入站出站传输对象。该结构在会话
+     * 创建时初始化，随会话生命周期销毁。
+     * @note 帧内存池用于会话期间的临时分配，会话结束
+     * 后自动回收。
      * @warning 凭据验证器可能为空，使用前应检查有效性。
      * 入站和出站传输对象由会话管理，确保正确释放。
-     * account_lease 用于持有账户连接租约，确保连接限制生效。
      */
     struct session_context
     {
-        // 禁止拷贝，允许移动：session_context 持有传输对象和资源引用，不应被意外拷贝
-        session_context(const session_context&) = delete;
-        session_context& operator=(const session_context&) = delete;
-        session_context(session_context&&) = default;
-        session_context& operator=(session_context&&) = default;
+        session_context(const session_context &) = delete;
+        session_context &operator=(const session_context &) = delete;
+        session_context(session_context &&) = default;
+        session_context &operator=(session_context &&) = delete;
 
-        // 显式构造函数（替代聚合初始化，因 delete copy ctor 后聚合初始化不可用）
-        session_context(std::uint64_t sid, const server_context &srv, worker_context &w,
-                        memory::frame_arena &arena, account::directory *dir,
-                        std::function<bool(std::string_view)> verifier,
-                        std::uint32_t buf_size, shared_transmission in)
+        session_context(const std::uint64_t sid, const server_context &srv, worker_context &w,
+                        memory::frame_arena &arena, account::directory *dir, std::function<bool(std::string_view)> verifier,
+                        const std::uint32_t buf_size, shared_transmission in)
             : session_id(sid), server(srv), worker(w), frame_arena(arena),
               credential_verifier(std::move(verifier)), account_directory_ptr(dir),
               buffer_size(buf_size), inbound(std::move(in)) {}
 
-        // 会话唯一标识符，用于日志追踪
-        std::uint64_t session_id{0};
-
-        // 服务器上下文的常量引用，提供全局资源访问
-        const server_context &server;
-
-        // 工作线程上下文引用，提供线程级资源访问
-        worker_context &worker;
-
-        // 帧内存池引用，用于会话期间的临时内存分配
-        memory::frame_arena &frame_arena;
-
-        // 凭据验证函数，用于校验客户端身份
-        std::function<bool(std::string_view)> credential_verifier;
-
-        // 账户注册表指针，用于配额检查和流量统计
-        account::directory *account_directory_ptr{nullptr};
-
-        // 数据传输缓冲区大小（字节）
-        std::uint32_t buffer_size;
-
-        // 入站传输对象，处理来自客户端的数据
-        shared_transmission inbound;
-
-        // 出站传输对象，处理发往目标服务器的数据
-        shared_transmission outbound;
-
-        // 账户连接租约，持有期间保持连接计数，会话结束时自动释放
-        account::lease account_lease;
-
-        // 活跃流取消回调（由 TLS 等加密协议处理器设置）
-        // 用于取消底层流的异步操作，当 ctx.inbound 被 move 后仍能正确清理
-        std::function<void()> active_stream_cancel;
-
-        // 活跃流关闭回调（由 TLS 等加密协议处理器设置）
-        // 用于关闭底层流连接，当 ctx.inbound 被 move 后仍能正确清理
-        std::function<void()> active_stream_close;
-    };
-
-}
+        std::uint64_t session_id{0};                               // 会话唯一标识符
+        const server_context &server;                              // 服务器上下文常量引用
+        worker_context &worker;                                    // 工作线程上下文引用
+        memory::frame_arena &frame_arena;                          // 帧内存池引用
+        std::function<bool(std::string_view)> credential_verifier; // 凭据验证函数
+        account::directory *account_directory_ptr{nullptr};        // 账户注册表指针
+        std::uint32_t buffer_size;                                 // 数据传输缓冲区大小（字节）
+        shared_transmission inbound;                               // 入站传输对象
+        shared_transmission outbound;                              // 出站传输对象
+        account::lease account_lease;                              // 账户连接租约
+        std::function<void()> active_stream_cancel;                // 活跃流取消回调
+        std::function<void()> active_stream_close;                 // 活跃流关闭回调
+    }; // struct session_context
+} // namespace psm::agent

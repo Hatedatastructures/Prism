@@ -9,7 +9,7 @@
 - **核心技术**：C++23、Boost.Asio 协程、BoringSSL、PMR 内存管理
 - **开发状态**：**稳定可用**，核心功能已完成
 - **当前版本**：v0.9.0
-- **最后更新**：2026年4月15日
+- **最后更新**：2026年4月17日
 - **主要依赖**：Boost(system)、BoringSSL、spdlog、glaze
 
 ---
@@ -247,6 +247,19 @@ curl -v -x socks5://127.0.0.1:8081 http://www.baidu.com
 ---
 
 ## 更新日志
+
+### 2026年4月17日
+
+**Doxygen 中文注释标准化：**
+- 全量规范化所有 120 个 `.hpp` 文件的 Doxygen 中文注释，统一风格参照 `channel/transport/reliable.hpp`
+- 删除所有独立的 `@namespace` 注释块，统一命名空间无独立注释风格
+- 枚举值统一为 `/** @brief */` Doxygen 块注释，成员变量统一为 `// 行尾注释`
+- 补齐函数 `@details`，清除 Markdown 格式标记（列表符号、分隔线等）
+- 移除所有 `///<`、`///` 前缀注释
+
+**测试函数统一 PascalCase：**
+- `test_runner.hpp` 成员函数重命名：`LogInfo`、`LogPass`、`LogFail`、`Check`、`Summary`、`PassedCount`、`FailedCount`
+- 全部 28 个测试/并发文件中的函数统一为 PascalCase（共 97 个函数重命名）
 
 ### 2026年4月15日
 

@@ -2,7 +2,8 @@
  * @file packet.hpp
  * @brief DNS 报文编解码
  * @details DNS 二进制报文的构造与解析（RFC 1035），完全不依赖系统 resolver。
- * 支持域名压缩指针、多种记录类型（A/AAAA/CNAME/NS/MX/TXT/SOA/PTR/OPT）。
+ * 支持域名压缩指针、多种记录类型（A/AAAA/CNAME/NS/MX/TXT/SOA/PTR/OPT），
+ * 以及 TCP 帧格式的封装与解析。
  */
 #pragma once
 
@@ -11,7 +12,6 @@
 #include <optional>
 #include <span>
 #include <string_view>
-#include <vector>
 
 #include <boost/asio.hpp>
 
@@ -29,14 +29,22 @@ namespace psm::resolve
      */
     enum class qtype : std::uint16_t
     {
-        a = 1,     // IPv4 地址记录
-        ns = 2,    // 权威名称服务器
-        cname = 5, // 规范名称（别名）
-        soa = 6,   // 区域起始授权
-        mx = 15,   // 邮件交换
-        txt = 16,  // 文本记录
-        aaaa = 28, // IPv6 地址记录
-        opt = 41,  // EDNS0 选项
+        /** @brief IPv4 地址记录 */
+        a = 1,
+        /** @brief 权威名称服务器 */
+        ns = 2,
+        /** @brief 规范名称（别名） */
+        cname = 5,
+        /** @brief 区域起始授权 */
+        soa = 6,
+        /** @brief 邮件交换 */
+        mx = 15,
+        /** @brief 文本记录 */
+        txt = 16,
+        /** @brief IPv6 地址记录 */
+        aaaa = 28,
+        /** @brief EDNS0 选项 */
+        opt = 41,
     };
 
     /**
@@ -51,6 +59,11 @@ namespace psm::resolve
         qtype qtype{};           // 查询类型
         std::uint16_t qclass{1}; // 查询类，默认 IN（Internet）
 
+        /**
+         * @brief 构造 DNS 查询段
+         * @details 使用指定内存资源初始化域名成员。
+         * @param mr PMR 内存资源指针，默认使用当前全局资源
+         */
         explicit question(memory::resource_pointer mr = memory::current_resource())
             : name(mr)
         {
@@ -72,6 +85,11 @@ namespace psm::resolve
         std::uint32_t ttl{0};               // 生存时间（秒）
         memory::vector<std::uint8_t> rdata; // 原始 RDATA
 
+        /**
+         * @brief 构造 DNS 资源记录
+         * @details 使用指定内存资源初始化名称和 RDATA 容器成员。
+         * @param mr PMR 内存资源指针，默认使用当前全局资源
+         */
         explicit record(memory::resource_pointer mr = memory::current_resource())
             : name(mr), rdata(mr)
         {
@@ -80,6 +98,7 @@ namespace psm::resolve
 
     /**
      * @brief 从 A 记录中提取 IPv4 地址
+     * @details 检查 rdata 长度是否恰好为 4 字节，若是则构造地址对象。
      * @param rec DNS 资源记录
      * @return 若 rdata 恰好 4 字节则返回对应地址，否则返回 std::nullopt
      */
@@ -87,6 +106,7 @@ namespace psm::resolve
 
     /**
      * @brief 从 AAAA 记录中提取 IPv6 地址
+     * @details 检查 rdata 长度是否恰好为 16 字节，若是则构造地址对象。
      * @param rec DNS 资源记录
      * @return 若 rdata 恰好 16 字节则返回对应地址，否则返回 std::nullopt
      */
@@ -97,19 +117,13 @@ namespace psm::resolve
      * @brief DNS 报文（RFC 1035）
      * @details 表示一条完整的 DNS 报文，包含 Header、Question、Answer、
      * Authority、Additional 四个段。提供序列化（pack）与反序列化（unpack）
-     * 能力，支持域名压缩指针编解码。
-     *
-     * 内存模型：所有字符串与容器均通过 PMR 分配器管理。
-     *
-     * @note id 字段默认为 0，调用方在发送前应自行设置。
-     * @warning unpack 时若遇到域名压缩指针循环（跳转 > 255 次），
-     *          将返回 std::nullopt。
+     * 能力，支持域名压缩指针编解码。所有字符串与容器均通过 PMR 分配器管理。
+     * @note id 字段默认为 0，调用方在发送前应自行设置
+     * @warning unpack 时若遇到域名压缩指针循环（跳转大于 255 次），将返回 std::nullopt
      */
     class message
     {
     public:
-        // --- Header 字段 ---
-
         std::uint16_t id{0};    // 报文标识
         bool qr{false};         // 0=查询, 1=响应
         std::uint8_t opcode{0}; // 操作码（0=标准查询）
@@ -119,8 +133,6 @@ namespace psm::resolve
         bool ra{false};         // 可用递归
         std::uint8_t rcode{0};  // 响应码
 
-        // --- 各段 ---
-
         memory::vector<question> questions; // 查询段
         memory::vector<record> answers;     // 应答段
         memory::vector<record> authority;   // 权威段
@@ -128,6 +140,7 @@ namespace psm::resolve
 
         /**
          * @brief 构造 DNS 报文
+         * @details 使用指定内存资源初始化所有 PMR 容器成员。
          * @param mr PMR 内存资源指针，默认使用当前全局资源
          */
         explicit message(memory::resource_pointer mr = memory::current_resource());
@@ -166,12 +179,15 @@ namespace psm::resolve
 
         /**
          * @brief 提取所有 A/AAAA 记录的 IP 地址
-         * @return 包含所有有效 IP 地址的列表（A 记录映射为 v4，AAAA 为 v6）
+         * @details 遍历应答段中的所有记录，将 A 记录映射为 v4 地址，
+         * AAAA 记录映射为 v6 地址，跳过其他类型。
+         * @return 包含所有有效 IP 地址的列表
          */
         [[nodiscard]] auto extract_ips() const -> memory::vector<net::ip::address>;
 
         /**
          * @brief 计算所有记录中的最小 TTL
+         * @details 遍历应答段、权威段和附加段中的所有记录，取最小 TTL 值。
          * @return 所有段中记录的最小 TTL 值；若无任何记录则返回 0
          */
         [[nodiscard]] auto min_ttl() const -> std::uint32_t;
@@ -180,12 +196,11 @@ namespace psm::resolve
         memory::resource_pointer mr_;
     };
 
-    // TCP 帧封装：2 字节大端长度前缀 + DNS 报文
-
     /**
      * @brief 将 DNS 报文封装为 TCP 帧格式
+     * @details 在 DNS 报文前添加 2 字节大端长度前缀，构成 TCP 帧格式。
      * @param msg 待封装的 DNS 报文
-     * @return {长度高字节, 长度低字节, ...报文字节}
+     * @return 包含长度前缀和报文字节的字节序列
      */
     [[nodiscard]] auto pack_tcp(const message &msg) -> memory::vector<std::uint8_t>;
 

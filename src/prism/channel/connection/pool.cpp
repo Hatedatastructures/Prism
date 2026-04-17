@@ -200,9 +200,9 @@ namespace psm::channel
         auto timer_op = timer.async_wait(timer_token);
 
         // 竞速等待：连接成功或超时
+        // awaitable_operators::operator|| 保证两个操作都完成后才返回
+        // （先完成的正常返回，后完成的被 cancel 并等待取消完成）
         const auto result = co_await (std::move(connect_op) || std::move(timer_op));
-
-        // 超时分支：timer 先完成，连接被自动取消
         if (result.index() == 1)
         {
             delete_socket(sock);

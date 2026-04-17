@@ -1,7 +1,6 @@
 {
     "agent": {
         "limit": {
-            "concurrences": 2048,
             "blacklist": true
         },
         "positive": {
@@ -57,7 +56,11 @@
             "udp_idle_timeout": 60,
             "udp_max_datagram": 65535
         },
-        "vless": {},
+        "vless": {
+            "enable_udp": true,
+            "udp_idle_timeout": 60,
+            "udp_max_datagram": 65535
+        },
         "reality": {
             "dest": "www.microsoft.com:443",
             "server_names": ["www.microsoft.com"],

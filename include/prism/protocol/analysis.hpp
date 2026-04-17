@@ -19,13 +19,6 @@
 #include <prism/memory/container.hpp>
 #include <prism/protocol/http/parser.hpp>
 
-/**
- * @namespace psm::protocol
- * @brief 协议处理模块
- * @details 该命名空间包含所有协议相关的实现，包括协议分析、帧定义、
- * HTTP、SOCKS5、Trojan 等协议的完整实现。模块设计遵循零拷贝和高性能
- * 原则，所有协议处理器都使用 PMR 内存池管理内存，确保热路径无堆分配。
- */
 namespace psm::protocol
 {
     /**
@@ -42,12 +35,19 @@ namespace psm::protocol
      */
     enum class protocol_type
     {
+        /** @brief 未知协议 */
         unknown,
+        /** @brief HTTP 协议 */
         http,
+        /** @brief SOCKS5 协议 */
         socks5,
+        /** @brief Trojan 协议 */
         trojan,
+        /** @brief VLESS 协议 */
         vless,
+        /** @brief Shadowsocks 2022 协议 */
         shadowsocks,
+        /** @brief TLS 协议 */
         tls
     };
 

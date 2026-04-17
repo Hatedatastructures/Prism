@@ -1,4 +1,6 @@
 #include <prism/agent/worker/tls.hpp>
+#include <prism/trace.hpp>
+#include <prism/exception.hpp>
 
 namespace psm::agent::worker::tls
 {

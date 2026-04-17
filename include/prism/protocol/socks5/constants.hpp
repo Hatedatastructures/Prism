@@ -10,15 +10,6 @@
 
 #include <cstdint>
 
-/**
- * @namespace psm::protocol::socks5
- * @brief SOCKS5 协议实现
- * @details 实现 SOCKS5 协议（RFC 1928）的服务端逻辑，支持无认证
- * 模式，处理 CONNECT、BIND 和 UDP ASSOCIATE 命令。协议流程包括
- * 方法协商、请求解析、命令执行和响应生成四个阶段。服务端通过
- * stream 类封装完整的协议状态机，提供协程友好的异步接口。
- * @note 参考 RFC 1928 和 SOCKS5 协议详解
- */
 namespace psm::protocol::socks5
 {
     /**
@@ -30,9 +21,12 @@ namespace psm::protocol::socks5
      */
     enum class command : std::uint8_t
     {
-        connect = 0x01,        // 建立 TCP 连接
-        bind = 0x02,           // 绑定端口等待反向连接
-        udp_associate = 0x03   // 建立 UDP 关联
+        /** @brief 建立 TCP 连接 */
+        connect = 0x01,
+        /** @brief 绑定端口等待反向连接 */
+        bind = 0x02,
+        /** @brief 建立 UDP 关联 */
+        udp_associate = 0x03
     };
 
     /**
@@ -44,9 +38,12 @@ namespace psm::protocol::socks5
      */
     enum class address_type : std::uint8_t
     {
-        ipv4 = 0x01,    // IPv4 地址（4 字节）
-        domain = 0x03,  // 域名地址（1 字节长度 + 域名）
-        ipv6 = 0x04     // IPv6 地址（16 字节）
+        /** @brief IPv4 地址（4 字节） */
+        ipv4 = 0x01,
+        /** @brief 域名地址（1 字节长度 + 域名） */
+        domain = 0x03,
+        /** @brief IPv6 地址（16 字节） */
+        ipv6 = 0x04
     };
 
     /**
@@ -59,10 +56,14 @@ namespace psm::protocol::socks5
      */
     enum class auth_method : std::uint8_t
     {
-        no_auth = 0x00,                  // 无需认证
-        gssapi = 0x01,                   // GSSAPI 认证
-        password = 0x02,                 // 用户名/密码认证
-        no_acceptable_methods = 0xFF     // 无可接受的认证方法
+        /** @brief 无需认证 */
+        no_auth = 0x00,
+        /** @brief GSSAPI 认证 */
+        gssapi = 0x01,
+        /** @brief 用户名/密码认证 */
+        password = 0x02,
+        /** @brief 无可接受的认证方法 */
+        no_acceptable_methods = 0xFF
     };
 
     /**
@@ -75,14 +76,23 @@ namespace psm::protocol::socks5
      */
     enum class reply_code : std::uint8_t
     {
-        succeeded = 0x00,                // 成功
-        server_failure = 0x01,           // 服务器内部错误
-        connection_not_allowed = 0x02,   // 连接被策略拒绝
-        network_unreachable = 0x03,      // 网络不可达
-        host_unreachable = 0x04,         // 主机不可达
-        connection_refused = 0x05,       // 连接被目标拒绝
-        ttl_expired = 0x06,              // TTL 过期
-        command_not_supported = 0x07,    // 不支持的命令
-        address_type_not_supported = 0x08 // 不支持的地址类型
+        /** @brief 成功 */
+        succeeded = 0x00,
+        /** @brief 服务器内部错误 */
+        server_failure = 0x01,
+        /** @brief 连接被策略拒绝 */
+        connection_not_allowed = 0x02,
+        /** @brief 网络不可达 */
+        network_unreachable = 0x03,
+        /** @brief 主机不可达 */
+        host_unreachable = 0x04,
+        /** @brief 连接被目标拒绝 */
+        connection_refused = 0x05,
+        /** @brief TTL 过期 */
+        ttl_expired = 0x06,
+        /** @brief 不支持的命令 */
+        command_not_supported = 0x07,
+        /** @brief 不支持的地址类型 */
+        address_type_not_supported = 0x08
     };
 }

@@ -2,6 +2,8 @@
 #include <prism/multiplex/core.hpp>
 #include <prism/fault/handling.hpp>
 #include <prism/trace.hpp>
+#include <atomic>
+#include <span>
 
 #include <boost/asio/co_spawn.hpp>
 

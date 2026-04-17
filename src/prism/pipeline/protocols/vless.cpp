@@ -3,6 +3,7 @@
 #include <prism/multiplex/bootstrap.hpp>
 #include <prism/agent/account/directory.hpp>
 #include <prism/memory/container.hpp>
+#include <prism/trace.hpp>
 #include <charconv>
 #include <string_view>
 
@@ -60,7 +61,7 @@ namespace psm::pipeline
             target.port.assign(port_buf, std::distance(port_buf, pe));
 
             // Mihomo smux 兼容：客户端用 mux 命令或虚假地址标记多路复用连接
-            if (ctx.server.cfg.mux.enabled && target.host.size() >= 18 && target.host.substr(target.host.size() - 18) == ".mux.sing-box.arpa")
+            if (primitives::is_mux_target(target.host, ctx.server.cfg.mux.enabled))
             {
                 trace::info("{} mux session started", VlessStr);
                 ctx.active_stream_close = nullptr;
@@ -76,29 +77,23 @@ namespace psm::pipeline
             target.positive = true;
             trace::info("{} CONNECT -> {}:{}", VlessStr, target.host, target.port);
 
-            // 通过路由器建立到目标的连接
-            auto [dial_ec, outbound] = co_await primitives::dial(ctx.worker.router, "Vless", target, true, true);
-            if (fault::failed(dial_ec) || !outbound)
-            {
-                if (dial_ec == fault::code::ipv6_disabled)
-                {
-                    trace::debug("{} IPv6 disabled: {}:{}", VlessStr, target.host, target.port);
-                }
-                else
-                {
-                    trace::warn("{} dial failed: {}, target: {}:{}", VlessStr, fault::describe(dial_ec), target.host, target.port);
-                }
-                co_return;
-            }
-
-            // 释放传输对象并进入双向隧道转发
-            auto raw_trans = agent->release();
-            co_await primitives::tunnel(std::move(raw_trans), std::move(outbound), ctx);
+            // 拨号 + 隧道转发
+            co_await primitives::forward(ctx, "Vless", target, agent->release());
             break;
         }
         case protocol::vless::command::udp:
         {
-            trace::warn("{} UDP not yet supported", VlessStr);
+            trace::info("{} UDP associate started", VlessStr);
+            const auto associate_ec = co_await agent->async_associate(
+                primitives::make_datagram_router(ctx.worker.router));
+            if (fault::failed(associate_ec))
+            {
+                trace::warn("{} UDP associate failed: {}", VlessStr, fault::describe(associate_ec));
+            }
+            else
+            {
+                trace::info("{} UDP associate completed", VlessStr);
+            }
             break;
         }
         default:

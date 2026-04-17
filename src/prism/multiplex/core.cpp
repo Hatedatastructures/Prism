@@ -3,6 +3,7 @@
 #include <prism/multiplex/parcel.hpp>
 #include <prism/trace.hpp>
 #include <ranges>
+#include <span>
 
 #include <boost/asio/co_spawn.hpp>
 

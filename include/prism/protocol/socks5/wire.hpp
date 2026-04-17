@@ -13,7 +13,6 @@
 #include <cstring>
 #include <utility>
 #include <span>
-#include <vector>
 #include <fault.hpp>
 
 #include <prism/protocol/socks5/constants.hpp>
@@ -375,9 +374,9 @@ namespace psm::protocol::socks5::wire
      */
     struct password_auth_request
     {
-        std::uint8_t version;        ///< 子协商版本，固定 0x01
-        std::string_view username;   ///< 用户名（1-255 字节）
-        std::string_view password;   ///< 密码（1-255 字节）
+        std::uint8_t version;      // 子协商版本，固定 0x01
+        std::string_view username; // 用户名（1-255 字节）
+        std::string_view password; // 密码（1-255 字节）
     };
 
     /**

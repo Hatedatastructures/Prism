@@ -4,8 +4,8 @@
  * @details 提供 BLAKE3 derive_key 功能，用于 SS2022 (SIP022) 会话密钥派生。
  * 包装 BLAKE3 C API，提供类型安全的 C++ 接口。
  * 函数命名为 derive_key（非 blake3_derive_key）以避免与 C API 冲突。
+ * @note 所有密钥和输出长度均为字节数。
  */
-
 #pragma once
 
 #include <cstddef>
@@ -18,6 +18,9 @@ namespace psm::crypto
 {
     /**
      * @brief BLAKE3 密钥派生
+     * @details 使用 BLAKE3 的 derive_key 模式，从上下文字符串和密钥材料
+     * 派生指定长度的密钥。上下文字符串用于域分离，确保不同用途
+     * 派生出不同的密钥。
      * @param context 上下文字符串（如 "shadowsocks 2022 session subkey"）
      * @param material 输入密钥材料
      * @param out_len 输出密钥长度
@@ -29,12 +32,13 @@ namespace psm::crypto
 
     /**
      * @brief BLAKE3 密钥派生（返回 vector 版本）
+     * @details 使用 BLAKE3 的 derive_key 模式，从上下文字符串和密钥材料
+     * 派生指定长度的密钥。返回包含派生密钥的 vector。
      * @param context 上下文字符串
      * @param material 输入密钥材料
      * @param out_len 输出密钥长度
      * @return 派生出的密钥字节
      */
-    [[nodiscard]] auto derive_key(std::string_view context, std::span<const std::uint8_t> material,
-                                  std::size_t out_len)
+    [[nodiscard]] auto derive_key(std::string_view context, std::span<const std::uint8_t> material, std::size_t out_len)
         -> std::vector<std::uint8_t>;
 } // namespace psm::crypto

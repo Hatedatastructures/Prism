@@ -4,24 +4,21 @@
  * @details 声明 multiplex::duct，协议无关的双向 TCP 转发管道。
  * 每条 duct 绑定一个已连接的 target 传输层，提供 mux 帧到 target 的
  * 透明双向转发。构造时即持有 target，不存在空管道阶段。
- * target_read_loop（target 读 → mux 发送，客户端下载方向）由独立协程
+ * target_read_loop（target 读到 mux 发送，客户端下载方向）由独立协程
  * 循环读取 target 数据并通过 core::send_data 发送到 mux 客户端；
  * on_mux_data 将 mux 推来的数据推入有界写通道，由独立的
  * target_write_loop 写入 target（客户端上传方向），解耦帧循环与
  * target 写入速度差异，消除队头阻塞。方法实现位于 duct.cpp 中。
- *
  * @note 设计原则：duct 是协议无关的，通过 core 虚函数接口发送帧，不依赖具体协议
  * @note 线程安全：单个实例非线程安全，应在 transport executor 上串行使用
  * @note 生命周期：通过 shared_from_this 保活，协程持有 self 防止提前析构
  * @warning owner_ 持有 core 的 weak_ptr，core 的 ducts_ 持有 duct 的 shared_ptr，
- *          不构成循环引用，core 销毁后 duct 通过 lock() 检测并安全退出
+ * 不构成循环引用，core 销毁后 duct 通过 lock() 检测并安全退出
  */
 #pragma once
 
-#include <atomic>
 #include <cstdint>
 #include <memory>
-#include <span>
 
 #include <boost/asio.hpp>
 #include <boost/asio/experimental/concurrent_channel.hpp>
@@ -43,13 +40,11 @@ namespace psm::multiplex
      * target_read_loop 独立协程读 target 数据，通过 owner_->send_data 发送到 mux
      * （客户端下载方向）；on_mux_data 接收 mux 帧数据，推入 write_channel_，
      * 由 target_write_loop 独立协程写入 target（客户端上传方向）。
-     *
      * 半关闭语义：mux 端收到 FIN 时调用 on_mux_fin，标记 mux_closed_ 并关闭
      * write_channel_ 通知 target_write_loop 退出；target 端读到 EOF 时标记
      * target_closed_ 并调用 owner_->send_fin 通知 mux 端。两端均关闭后 duct
      * 自行析构。write_channel_ 有界容量提供反压，防止快生产者淹没慢 target。
      * 继承 std::enable_shared_from_this，start() 和各协程通过 self 保活。
-     *
      * @note 线程安全：单个实例非线程安全，应在同一 executor 上串行使用
      * @note 生命周期：core::close() 通过 std::move(ducts_) 取出所有 duct 后逐一 close
      * @warning owner_ (weak_ptr<core>) 不与 core 的 ducts_ (shared_ptr<duct>) 构成循环引用
@@ -120,6 +115,7 @@ namespace psm::multiplex
 
         /**
          * @brief 获取流标识符
+         * @details 返回 mux 协议在 SYN 帧中分配的流标识符
          * @return std::uint32_t mux 协议分配的流标识符
          */
         [[nodiscard]] std::uint32_t stream_id() const noexcept

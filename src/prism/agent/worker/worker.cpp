@@ -1,4 +1,7 @@
 #include <prism/agent/worker/worker.hpp>
+#include <prism/agent/worker/launch.hpp>
+#include <prism/agent/account/directory.hpp>
+#include <prism/trace.hpp>
 
 namespace psm::agent::worker
 {

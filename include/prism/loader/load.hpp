@@ -1,13 +1,12 @@
 /**
  * @file load.hpp
  * @brief 配置加载适配器
- * @details 负责将外部配置格式（如 JSON）转换为内部的 psm::config 结构，
- * 并将认证配置构建为运行时 account::directory。该模块充当外部世界与
- * 核心配置之间的防腐层，确保核心配置结构不受外部格式变化的影响。
- * 当前支持通过 glaze 库解析 JSON 格式配置文件，未来可扩展支持
- * YAML、TOML 等格式。
+ * @details 负责将外部配置格式（如 JSON）转换为内部的
+ * psm::config 结构，并将认证配置构建为运行时
+ * account::directory。充当外部世界与核心配置之间的
+ * 防腐层，当前通过 glaze 库解析 JSON 格式。
  * @note 配置文件必须是有效的 JSON 格式
- * @warning 配置文件加载失败将返回空配置对象
+ * @warning 配置文件加载失败将抛出异常
  */
 #pragma once
 #include <string>
@@ -19,13 +18,6 @@
 #include <prism/agent/account/directory.hpp>
 #include <prism/crypto/sha224.hpp>
 
-/**
- * @namespace psm::loader
- * @brief 配置适配层
- * @details 负责将外部配置格式（如 YAML、JSON、Clash 配置）转换为
- * 内部的 psm::config 结构。充当外部世界与核心配置之间的防腐层，
- * 确保核心配置结构不受外部格式变化的影响。
- */
 namespace psm::loader
 {
     /**
@@ -51,7 +43,6 @@ namespace psm::loader
         memory::string content(size, '\0');
         file.read(content.data(), size);
 
-
         config cfg;
         try
         {
@@ -63,12 +54,14 @@ namespace psm::loader
         catch (const std::exception &e)
         {
             trace::error("[Loader] configuration parse error: {}", e.what());
+            throw exception::network(fault::code::parse_error);
         }
         catch (...)
         {
             trace::error("[Loader] unknown configuration parse error");
+            throw exception::network(fault::code::parse_error);
         }
-        return {};
+        throw exception::network(fault::code::parse_error);
     }
 
     /**
@@ -88,8 +81,14 @@ namespace psm::loader
         std::size_t entry_count = 0;
         for (const auto &user : auth.users)
         {
-            if (!user.password.empty()) { ++entry_count; }
-            if (!user.uuid.empty()) { ++entry_count; }
+            if (!user.password.empty())
+            {
+                ++entry_count;
+            }
+            if (!user.uuid.empty())
+            {
+                ++entry_count;
+            }
         }
         dir->reserve(entry_count);
 

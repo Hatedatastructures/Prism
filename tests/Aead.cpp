@@ -24,18 +24,18 @@ namespace
     int passed = 0;
     int failed = 0;
 
-    auto log_info(const std::string_view msg) -> void
+    auto LogInfo(const std::string_view msg) -> void
     {
         psm::trace::info("[Aead] {}", msg);
     }
 
-    auto log_pass(const std::string_view msg) -> void
+    auto LogPass(const std::string_view msg) -> void
     {
         ++passed;
         psm::trace::info("[Aead] PASS: {}", msg);
     }
 
-    auto log_fail(const std::string_view msg) -> void
+    auto LogFail(const std::string_view msg) -> void
     {
         ++failed;
         psm::trace::error("[Aead] FAIL: {}", msg);
@@ -47,7 +47,7 @@ namespace
  */
 void TestAeadSealOpenRoundtripAes128()
 {
-    log_info("=== TestAeadSealOpenRoundtripAes128 ===");
+    LogInfo("=== TestAeadSealOpenRoundtripAes128 ===");
 
     const std::array<std::uint8_t, 16> key = {};
     psm::crypto::aead_context ctx(psm::crypto::aead_cipher::aes_128_gcm, key);
@@ -62,7 +62,7 @@ void TestAeadSealOpenRoundtripAes128()
     auto ec = ctx.seal(ciphertext, pt_span, nonce, {});
     if (psm::fault::failed(ec))
     {
-        log_fail("seal failed");
+        LogFail("seal failed");
         return;
     }
 
@@ -70,17 +70,17 @@ void TestAeadSealOpenRoundtripAes128()
     ec = ctx.open(decrypted, ciphertext, nonce, {});
     if (psm::fault::failed(ec))
     {
-        log_fail("open failed");
+        LogFail("open failed");
         return;
     }
 
     if (std::memcmp(decrypted.data(), plaintext.data(), plaintext.size()) != 0)
     {
-        log_fail("decrypted data does not match original");
+        LogFail("decrypted data does not match original");
         return;
     }
 
-    log_pass("AeadSealOpenRoundtripAes128");
+    LogPass("AeadSealOpenRoundtripAes128");
 }
 
 /**
@@ -88,7 +88,7 @@ void TestAeadSealOpenRoundtripAes128()
  */
 void TestAeadSealOpenRoundtripAes256()
 {
-    log_info("=== TestAeadSealOpenRoundtripAes256 ===");
+    LogInfo("=== TestAeadSealOpenRoundtripAes256 ===");
 
     const std::array<std::uint8_t, 32> key = {};
     psm::crypto::aead_context ctx(psm::crypto::aead_cipher::aes_256_gcm, key);
@@ -103,7 +103,7 @@ void TestAeadSealOpenRoundtripAes256()
     auto ec = ctx.seal(ciphertext, pt_span, nonce, {});
     if (psm::fault::failed(ec))
     {
-        log_fail("seal failed");
+        LogFail("seal failed");
         return;
     }
 
@@ -111,17 +111,17 @@ void TestAeadSealOpenRoundtripAes256()
     ec = ctx.open(decrypted, ciphertext, nonce, {});
     if (psm::fault::failed(ec))
     {
-        log_fail("open failed");
+        LogFail("open failed");
         return;
     }
 
     if (std::memcmp(decrypted.data(), plaintext.data(), plaintext.size()) != 0)
     {
-        log_fail("decrypted data does not match original");
+        LogFail("decrypted data does not match original");
         return;
     }
 
-    log_pass("AeadSealOpenRoundtripAes256");
+    LogPass("AeadSealOpenRoundtripAes256");
 }
 
 /**
@@ -129,11 +129,11 @@ void TestAeadSealOpenRoundtripAes256()
  */
 void TestAeadWrongKey()
 {
-    log_info("=== TestAeadWrongKey ===");
+    LogInfo("=== TestAeadWrongKey ===");
 
     const std::array<std::uint8_t, 16> key_a = {};
     const std::array<std::uint8_t, 16> key_b = {0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
-                                                  0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF};
+                                                0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF};
 
     psm::crypto::aead_context ctx_a(psm::crypto::aead_cipher::aes_128_gcm, key_a);
 
@@ -150,11 +150,11 @@ void TestAeadWrongKey()
 
     if (psm::fault::succeeded(ec))
     {
-        log_fail("wrong key should produce crypto_error");
+        LogFail("wrong key should produce crypto_error");
         return;
     }
 
-    log_pass("AeadWrongKey");
+    LogPass("AeadWrongKey");
 }
 
 /**
@@ -162,7 +162,7 @@ void TestAeadWrongKey()
  */
 void TestAeadTamperedCiphertext()
 {
-    log_info("=== TestAeadTamperedCiphertext ===");
+    LogInfo("=== TestAeadTamperedCiphertext ===");
 
     const std::array<std::uint8_t, 16> key = {};
     psm::crypto::aead_context ctx(psm::crypto::aead_cipher::aes_128_gcm, key);
@@ -181,11 +181,11 @@ void TestAeadTamperedCiphertext()
 
     if (psm::fault::succeeded(ec))
     {
-        log_fail("tampered ciphertext should produce crypto_error");
+        LogFail("tampered ciphertext should produce crypto_error");
         return;
     }
 
-    log_pass("AeadTamperedCiphertext");
+    LogPass("AeadTamperedCiphertext");
 }
 
 /**
@@ -193,7 +193,7 @@ void TestAeadTamperedCiphertext()
  */
 void TestAeadMissingAd()
 {
-    log_info("=== TestAeadMissingAd ===");
+    LogInfo("=== TestAeadMissingAd ===");
 
     const std::array<std::uint8_t, 16> key = {};
     psm::crypto::aead_context ctx(psm::crypto::aead_cipher::aes_128_gcm, key);
@@ -211,11 +211,11 @@ void TestAeadMissingAd()
 
     if (psm::fault::succeeded(ec))
     {
-        log_fail("missing AD should produce crypto_error");
+        LogFail("missing AD should produce crypto_error");
         return;
     }
 
-    log_pass("AeadMissingAd");
+    LogPass("AeadMissingAd");
 }
 
 /**
@@ -223,7 +223,7 @@ void TestAeadMissingAd()
  */
 void TestAeadNonceAutoIncrement()
 {
-    log_info("=== TestAeadNonceAutoIncrement ===");
+    LogInfo("=== TestAeadNonceAutoIncrement ===");
 
     const std::array<std::uint8_t, 16> key = {};
     psm::crypto::aead_context ctx(psm::crypto::aead_cipher::aes_128_gcm, key);
@@ -240,7 +240,7 @@ void TestAeadNonceAutoIncrement()
 
     if (nonce0 == nonce1)
     {
-        log_fail("nonce should change after first seal");
+        LogFail("nonce should change after first seal");
         return;
     }
 
@@ -258,11 +258,11 @@ void TestAeadNonceAutoIncrement()
 
     if (nonce1 == nonce2)
     {
-        log_fail("nonce should change after open");
+        LogFail("nonce should change after open");
         return;
     }
 
-    log_pass("AeadNonceAutoIncrement");
+    LogPass("AeadNonceAutoIncrement");
 }
 
 /**
@@ -270,7 +270,7 @@ void TestAeadNonceAutoIncrement()
  */
 void TestAeadEmptyPlaintext()
 {
-    log_info("=== TestAeadEmptyPlaintext ===");
+    LogInfo("=== TestAeadEmptyPlaintext ===");
 
     const std::array<std::uint8_t, 16> key = {};
     psm::crypto::aead_context ctx(psm::crypto::aead_cipher::aes_128_gcm, key);
@@ -282,14 +282,14 @@ void TestAeadEmptyPlaintext()
     auto ec = ctx.seal(ciphertext, empty_pt, nonce, {});
     if (psm::fault::failed(ec))
     {
-        log_fail("seal empty plaintext failed");
+        LogFail("seal empty plaintext failed");
         return;
     }
 
     // 空明文的密文应该只有 tag（16 字节）
     if (ciphertext.size() != 16)
     {
-        log_fail("empty plaintext ciphertext should be 16 bytes (tag only), got " + std::to_string(ciphertext.size()));
+        LogFail("empty plaintext ciphertext should be 16 bytes (tag only), got " + std::to_string(ciphertext.size()));
         return;
     }
 
@@ -297,17 +297,17 @@ void TestAeadEmptyPlaintext()
     ec = ctx.open(decrypted, ciphertext, nonce, {});
     if (psm::fault::failed(ec))
     {
-        log_fail("open empty ciphertext failed");
+        LogFail("open empty ciphertext failed");
         return;
     }
 
     if (!decrypted.empty())
     {
-        log_fail("decrypted empty plaintext should be empty");
+        LogFail("decrypted empty plaintext should be empty");
         return;
     }
 
-    log_pass("AeadEmptyPlaintext");
+    LogPass("AeadEmptyPlaintext");
 }
 
 /**
@@ -315,7 +315,7 @@ void TestAeadEmptyPlaintext()
  */
 void TestAeadLargePayload()
 {
-    log_info("=== TestAeadLargePayload ===");
+    LogInfo("=== TestAeadLargePayload ===");
 
     const std::array<std::uint8_t, 16> key = {};
     psm::crypto::aead_context ctx(psm::crypto::aead_cipher::aes_128_gcm, key);
@@ -333,7 +333,7 @@ void TestAeadLargePayload()
     auto ec = ctx.seal(ciphertext, plaintext, nonce, {});
     if (psm::fault::failed(ec))
     {
-        log_fail("seal large payload failed");
+        LogFail("seal large payload failed");
         return;
     }
 
@@ -341,17 +341,17 @@ void TestAeadLargePayload()
     ec = ctx.open(decrypted, ciphertext, nonce, {});
     if (psm::fault::failed(ec))
     {
-        log_fail("open large payload failed");
+        LogFail("open large payload failed");
         return;
     }
 
     if (decrypted != plaintext)
     {
-        log_fail("large payload roundtrip mismatch");
+        LogFail("large payload roundtrip mismatch");
         return;
     }
 
-    log_pass("AeadLargePayload");
+    LogPass("AeadLargePayload");
 }
 
 /**
@@ -359,7 +359,7 @@ void TestAeadLargePayload()
  */
 void TestAeadMoveSemantics()
 {
-    log_info("=== TestAeadMoveSemantics ===");
+    LogInfo("=== TestAeadMoveSemantics ===");
 
     const std::array<std::uint8_t, 16> key = {};
     auto ctx1 = std::make_unique<psm::crypto::aead_context>(psm::crypto::aead_cipher::aes_128_gcm, key);
@@ -376,7 +376,7 @@ void TestAeadMoveSemantics()
     auto ec = ctx2.seal(ciphertext, pt_span, nonce, {});
     if (psm::fault::failed(ec))
     {
-        log_fail("seal after move-construct failed");
+        LogFail("seal after move-construct failed");
         return;
     }
 
@@ -384,13 +384,13 @@ void TestAeadMoveSemantics()
     ec = ctx2.open(decrypted, ciphertext, nonce, {});
     if (psm::fault::failed(ec))
     {
-        log_fail("open after move-construct failed");
+        LogFail("open after move-construct failed");
         return;
     }
 
     // 移动赋值
     const std::array<std::uint8_t, 16> key2 = {0xAA, 0xBB, 0xCC, 0xDD, 0xAA, 0xBB, 0xCC, 0xDD,
-                                                 0xAA, 0xBB, 0xCC, 0xDD, 0xAA, 0xBB, 0xCC, 0xDD};
+                                               0xAA, 0xBB, 0xCC, 0xDD, 0xAA, 0xBB, 0xCC, 0xDD};
     psm::crypto::aead_context ctx3(psm::crypto::aead_cipher::aes_128_gcm, key2);
     ctx3 = std::move(ctx2);
 
@@ -401,11 +401,11 @@ void TestAeadMoveSemantics()
     ec = ctx3.seal(ct2, pt_span, nonce2, {});
     if (psm::fault::failed(ec))
     {
-        log_fail("seal after move-assign failed");
+        LogFail("seal after move-assign failed");
         return;
     }
 
-    log_pass("AeadMoveSemantics");
+    LogPass("AeadMoveSemantics");
 }
 
 /**
@@ -413,26 +413,26 @@ void TestAeadMoveSemantics()
  */
 void TestAeadOutputSizeValidation()
 {
-    log_info("=== TestAeadOutputSizeValidation ===");
+    LogInfo("=== TestAeadOutputSizeValidation ===");
 
     // seal_output_size(n) = n + 16
     if (psm::crypto::aead_context::seal_output_size(100) != 116)
     {
-        log_fail("seal_output_size(100) should be 116");
+        LogFail("seal_output_size(100) should be 116");
         return;
     }
 
     // open_output_size(n + 16) = n
     if (psm::crypto::aead_context::open_output_size(116) != 100)
     {
-        log_fail("open_output_size(116) should be 100");
+        LogFail("open_output_size(116) should be 100");
         return;
     }
 
     // tag_length = 16
     if (psm::crypto::aead_context::tag_length() != 16)
     {
-        log_fail("tag_length should be 16");
+        LogFail("tag_length should be 16");
         return;
     }
 
@@ -441,11 +441,11 @@ void TestAeadOutputSizeValidation()
     psm::crypto::aead_context ctx128(psm::crypto::aead_cipher::aes_128_gcm, tmp_key);
     if (ctx128.nonce_length() != 12)
     {
-        log_fail("nonce_length should be 12 for AES-GCM");
+        LogFail("nonce_length should be 12 for AES-GCM");
         return;
     }
 
-    log_pass("AeadOutputSizeValidation");
+    LogPass("AeadOutputSizeValidation");
 }
 
 /**
@@ -460,7 +460,7 @@ int main()
     psm::memory::system::enable_global_pooling();
     psm::trace::init({});
 
-    log_info("Starting AEAD tests...");
+    LogInfo("Starting AEAD tests...");
 
     TestAeadSealOpenRoundtripAes128();
     TestAeadSealOpenRoundtripAes256();

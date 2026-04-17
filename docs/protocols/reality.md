@@ -172,7 +172,7 @@ HkdfLabel = Length(2) || len(1) || "tls13 " + Label || len(1) || Context
 | 纯 X25519 | `0x001D` | 32 字节 | 完整的 Key Exchange 数据 |
 | X25519MLKEM768 | `0x11EC` | >= 32 字节 | Key Exchange 末尾 32 字节 |
 
-Prism 实现（[request.cpp](../../src/prism/protocol/reality/request.cpp) `parse_key_share()`）：
+Prism 实现（[request.cpp](../../src/prism/stealth/reality/request.cpp) `parse_key_share()`）：
 
 ```cpp
 // 纯 X25519
@@ -222,7 +222,7 @@ Nonce: iv XOR big_endian(sequence, 8B)，读/写方向独立计数
    入口：[session.cpp](../../src/prism/agent/session/session.cpp)
 
 4. **握手状态机**：`reality::handshake()` 协调 ClientHello 解析、认证、回退、TLS 1.3 握手
-   入口：[handshake.cpp](../../src/prism/protocol/reality/handshake.cpp)
+   入口：[handshake.cpp](../../src/prism/stealth/reality/handshake.cpp)
 
 5. **握手结果分发**：
    - `authenticated` → 创建加密传输层，内层固定为 VLESS
@@ -239,20 +239,20 @@ Nonce: iv XOR big_endian(sequence, 8B)，读/写方向独立计数
 
 | 文件 | 说明 |
 |------|------|
-| [constants.hpp](../../include/prism/protocol/reality/constants.hpp) | TLS 1.3 协议常量 |
-| [config.hpp](../../include/prism/protocol/reality/config.hpp) | Reality 配置结构体 |
-| [request.hpp](../../include/prism/protocol/reality/request.hpp) | ClientHello 解析器声明 |
-| [request.cpp](../../src/prism/protocol/reality/request.cpp) | ClientHello 解析器实现 |
-| [auth.hpp](../../include/prism/protocol/reality/auth.hpp) | Reality 认证逻辑声明 |
-| [auth.cpp](../../src/prism/protocol/reality/auth.cpp) | Reality 认证实现 |
-| [keygen.hpp](../../include/prism/protocol/reality/keygen.hpp) | TLS 1.3 密钥调度声明 |
-| [keygen.cpp](../../src/prism/protocol/reality/keygen.cpp) | TLS 1.3 密钥调度实现（RFC 8446 Section 7） |
-| [response.hpp](../../include/prism/protocol/reality/response.hpp) | ServerHello 生成器声明 |
-| [response.cpp](../../src/prism/protocol/reality/response.cpp) | ServerHello 生成器实现 |
-| [session.hpp](../../include/prism/protocol/reality/session.hpp) | Reality 加密传输层声明 |
-| [session.cpp](../../src/prism/protocol/reality/session.cpp) | Reality 加密传输层实现 |
-| [handshake.hpp](../../include/prism/protocol/reality/handshake.hpp) | 握手状态机声明 |
-| [handshake.cpp](../../src/prism/protocol/reality/handshake.cpp) | 握手状态机实现 |
+| [constants.hpp](../../include/prism/stealth/reality/constants.hpp) | TLS 1.3 协议常量 |
+| [config.hpp](../../include/prism/stealth/reality/config.hpp) | Reality 配置结构体 |
+| [request.hpp](../../include/prism/stealth/reality/request.hpp) | ClientHello 解析器声明 |
+| [request.cpp](../../src/prism/stealth/reality/request.cpp) | ClientHello 解析器实现 |
+| [auth.hpp](../../include/prism/stealth/reality/auth.hpp) | Reality 认证逻辑声明 |
+| [auth.cpp](../../src/prism/stealth/reality/auth.cpp) | Reality 认证实现 |
+| [keygen.hpp](../../include/prism/stealth/reality/keygen.hpp) | TLS 1.3 密钥调度声明 |
+| [keygen.cpp](../../src/prism/stealth/reality/keygen.cpp) | TLS 1.3 密钥调度实现（RFC 8446 Section 7） |
+| [response.hpp](../../include/prism/stealth/reality/response.hpp) | ServerHello 生成器声明 |
+| [response.cpp](../../src/prism/stealth/reality/response.cpp) | ServerHello 生成器实现 |
+| [session.hpp](../../include/prism/stealth/reality/session.hpp) | Reality 加密传输层声明 |
+| [session.cpp](../../src/prism/stealth/reality/session.cpp) | Reality 加密传输层实现 |
+| [handshake.hpp](../../include/prism/stealth/reality/handshake.hpp) | 握手状态机声明 |
+| [handshake.cpp](../../src/prism/stealth/reality/handshake.cpp) | 握手状态机实现 |
 | [hkdf.hpp](../../include/prism/crypto/hkdf.hpp) | HKDF-SHA256/HMAC-SHA256/HMAC-SHA512 |
 | [hkdf.cpp](../../src/prism/crypto/hkdf.cpp) | HKDF 实现（BoringSSL HMAC API） |
 | [x25519.hpp](../../include/prism/crypto/x25519.hpp) | X25519 密钥交换 + Ed25519 密钥对 |

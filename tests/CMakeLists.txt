@@ -35,6 +35,10 @@ forward_add_test(DnsPacket      DnsPacket.cpp)
 forward_add_test(DnsRules       DnsRules.cpp)
 forward_add_test(Fault          Fault.cpp)
 forward_add_test(Exception      Exception.cpp)
+	forward_add_test(ProtocolAnalysis ProtocolAnalysis.cpp)
+	forward_add_test(Balancer       Balancer.cpp)
+	forward_add_test(DnsCache       DnsCache.cpp)
+	forward_add_test(AccountDirectory AccountDirectory.cpp)
 
 add_subdirectory(concurrency)
 
@@ -42,7 +46,8 @@ if(MINGW)
     foreach(t IN ITEMS
         Session Connection Transmission Trace
         Http Socks5 Trojan Vless Shadowsocks Regression
-        HttpParser Smux Yamux Crypto Aead Reality Blake3 DnsPacket DnsRules Fault Exception
+        HttpParser Smux Yamux Crypto Aead Reality Blake3 DnsPacket DnsRules Fault Exception ProtocolAnalysis
+        Balancer DnsCache AccountDirectory
         ConcurrencyServer ConcurrencyClient)
         if(TARGET ${t})
             target_compile_options(${t} PRIVATE -Wa,-mbig-obj)

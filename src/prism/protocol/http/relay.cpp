@@ -1,4 +1,5 @@
 #include <prism/protocol/http/relay.hpp>
+#include <span>
 #include <cstring>
 
 namespace psm::protocol::http
@@ -10,6 +11,9 @@ namespace psm::protocol::http
 
         // 502 Bad Gateway 响应
         constexpr std::string_view resp502 = "HTTP/1.1 502 Bad Gateway\r\nContent-Length: 0\r\n\r\n";
+
+        // 最大 HTTP 头部大小（防止慢速 OOM 攻击）
+        constexpr std::size_t max_header_size = 65536;
     } // namespace
 
     relay::relay(transport::shared_transmission transport, agent::account::directory *account_directory)
@@ -36,7 +40,7 @@ namespace psm::protocol::http
 
         // 执行 Basic 认证（若配置了账户目录）
         if (account_directory_)
-        {   // 认证失败时直接返回 407 响应，成功时保存租约信息以供后续使用
+        { // 认证失败时直接返回 407 响应，成功时保存租约信息以供后续使用
             auto auth = authenticate_proxy_request(req.authorization, *account_directory_);
             if (!auth.authenticated)
             {
@@ -49,14 +53,14 @@ namespace psm::protocol::http
         co_return std::make_pair(fault::code::success, req);
     }
 
-    auto relay::write_connect_success() -> net::awaitable<void>
+    auto relay::write_connect_success() -> net::awaitable<fault::code>
     {
-        co_await write_bytes(resp200);
+        co_return co_await write_bytes(resp200);
     }
 
-    auto relay::write_bad_gateway() -> net::awaitable<void>
+    auto relay::write_bad_gateway() -> net::awaitable<fault::code>
     {
-        co_await write_bytes(resp502);
+        co_return co_await write_bytes(resp502);
     }
 
     auto relay::forward(const proxy_request &req, transport::shared_transmission outbound, std::pmr::memory_resource *mr)
@@ -99,6 +103,10 @@ namespace psm::protocol::http
             // 缓冲区满时扩容
             if (used_ >= buffer_.size())
             {
+                if (buffer_.size() >= max_header_size)
+                {
+                    co_return false;
+                }
                 buffer_.resize(buffer_.size() * 2);
             }
 
@@ -114,10 +122,11 @@ namespace psm::protocol::http
         }
     }
 
-    auto relay::write_bytes(std::string_view data) -> net::awaitable<void>
+    auto relay::write_bytes(std::string_view data) -> net::awaitable<fault::code>
     {
         std::error_code ec;
         std::span span = std::span(reinterpret_cast<const std::byte *>(data.data()), data.size());
         co_await transport_->async_write(std::move(span), ec);
+        co_return ec ? fault::code::io_error : fault::code::success;
     }
 } // namespace psm::protocol::http

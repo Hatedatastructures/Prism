@@ -3,17 +3,12 @@
  * @brief yamux 协议帧格式定义与编解码
  * @details 定义 yamux 多路复用协议的帧格式、消息类型、标志位和编解码函数。
  * 帧格式为 12 字节定长帧头，所有多字节字段使用大端序（网络字节序）：
- * [Version 1B][Type 1B][Flags 2B BE][StreamID 4B BE][Length 4B BE]
- *
- * 消息类型与 Length 字段的对应关系：
- * - Data: Length 为载荷字节数，帧后紧跟载荷数据
- * - WindowUpdate: Length 为窗口增量（字节数），无载荷
- * - Ping: Length 为 ping 标识符，无载荷
- * - GoAway: Length 为错误码，无载荷
- *
- * 兼容 Hashicorp/yamux 协议规范，Version 固定为 0。
- * 与 smux 的 8 字节小端帧头不同，yamux 使用 12 字节大端帧头，
- * 并引入完整的流量控制（窗口管理）和标志位系统。
+ * [Version 1B][Type 1B][Flags 2B BE][StreamID 4B BE][Length 4B BE]。
+ * 消息类型与 Length 字段的对应关系：Data 中 Length 为载荷字节数，
+ * WindowUpdate 中 Length 为窗口增量，Ping 中 Length 为 ping 标识符，
+ * GoAway 中 Length 为错误码。兼容 Hashicorp/yamux 协议规范，
+ * Version 固定为 0。与 smux 的 8 字节小端帧头不同，yamux 使用
+ * 12 字节大端帧头，并引入完整的流量控制（窗口管理）和标志位系统。
  */
 #pragma once
 
@@ -23,22 +18,16 @@
 #include <optional>
 #include <span>
 
-#include <prism/memory/container.hpp>
-
 namespace psm::multiplex::yamux
 {
-    // === 协议常量 ===
-
-    /// 协议版本号，yamux 规范规定 Version 字段固定为 0
+    // 协议版本号，yamux 规范规定 Version 字段固定为 0
     constexpr std::uint8_t protocol_version = 0x00;
 
-    /// 帧头大小（字节）：Version(1) + Type(1) + Flags(2) + StreamID(4) + Length(4) = 12
+    // 帧头大小（字节）：Version(1) + Type(1) + Flags(2) + StreamID(4) + Length(4) = 12
     constexpr std::size_t frame_header_size = 12;
 
-    /// 初始流窗口大小（256KB），用于 WindowUpdate SYN/ACK 的 Length 字段和接收窗口阈值
+    // 初始流窗口大小（256KB），用于 WindowUpdate SYN/ACK 的 Length 字段和接收窗口阈值
     constexpr std::uint32_t initial_stream_window = 256 * 1024;
-
-    // === 消息类型 ===
 
     /**
      * @enum message_type
@@ -46,36 +35,43 @@ namespace psm::multiplex::yamux
      */
     enum class message_type : std::uint8_t
     {
-        data = 0x00,          // 数据帧，承载流数据或携带 SYN/FIN/RST 标志控制流生命周期
-        window_update = 0x01, // 窗口更新帧，用于流量控制或携带 SYN/ACK 标志打开/确认流
-        ping = 0x02,          // 心跳帧，SYN 为请求，ACK 为响应
-        go_away = 0x03        // 会话终止帧，Length 字段携带终止原因码
+        /** @brief 数据帧，承载流数据或携带 SYN/FIN/RST 标志控制流生命周期 */
+        data = 0x00,
+        /** @brief 窗口更新帧，用于流量控制或携带 SYN/ACK 标志打开/确认流 */
+        window_update = 0x01,
+        /** @brief 心跳帧，SYN 为请求，ACK 为响应 */
+        ping = 0x02,
+        /** @brief 会话终止帧，Length 字段携带终止原因码 */
+        go_away = 0x03
     }; // enum message_type
 
-    // === 标志位 ===
+    // 标志位
 
     /**
      * @enum flags
      * @brief yamux 帧标志位，对应帧头的 Flags 字段（2 字节大端序）
      * @details 标志位可组合使用，不同消息类型下语义不同：
-     * - Data + SYN: 携带地址数据的新流创建（sing-mux 兼容模式）
-     * - Data + FIN: 半关闭流（发送端不再发送数据）
-     * - Data + RST: 强制重置流
-     * - WindowUpdate + SYN: 客户端打开新流，Length 为初始窗口大小
-     * - WindowUpdate + ACK: 确认流创建，Length 为服务端初始窗口大小
-     * - Ping + SYN: 心跳请求
-     * - Ping + ACK: 心跳响应
+     * Data+SYN 为携带地址数据的新流创建（sing-mux 兼容模式），
+     * Data+FIN 为半关闭流（发送端不再发送数据），Data+RST 为强制重置流，
+     * WindowUpdate+SYN 为客户端打开新流（Length 为初始窗口大小），
+     * WindowUpdate+ACK 为确认流创建（Length 为服务端初始窗口大小），
+     * Ping+SYN 为心跳请求，Ping+ACK 为心跳响应
      */
     enum class flags : std::uint16_t
     {
-        none = 0x0000, // 无标志
-        syn = 0x0001,  // SYN - 同步标志，用于打开流或发起心跳请求
-        ack = 0x0002,  // ACK - 确认标志，用于确认流创建或回复心跳
-        fin = 0x0004,  // FIN - 半关闭标志，发送端不再发送数据
-        rst = 0x0008   // RST - 重置标志，强制关闭流
+        /** @brief 无标志 */
+        none = 0x0000,
+        /** @brief SYN 同步标志，用于打开流或发起心跳请求 */
+        syn = 0x0001,
+        /** @brief ACK 确认标志，用于确认流创建或回复心跳 */
+        ack = 0x0002,
+        /** @brief FIN 半关闭标志，发送端不再发送数据 */
+        fin = 0x0004,
+        /** @brief RST 重置标志，强制关闭流 */
+        rst = 0x0008
     }; // enum flags
 
-    /// 标志位按位与运算
+    // 标志位按位与运算
     [[nodiscard]] constexpr flags operator&(flags a, flags b) noexcept
     {
         return static_cast<flags>(static_cast<std::uint16_t>(a) & static_cast<std::uint16_t>(b));
@@ -98,10 +94,11 @@ namespace psm::multiplex::yamux
      */
     enum class go_away_code : std::uint32_t
     {
-        protocol_error = 1 // 协议错误，收到无法识别的帧或非法状态转换
+        /** @brief 协议错误，收到无法识别的帧或非法状态转换 */
+        protocol_error = 1
     }; // enum go_away_code
 
-    // === 帧结构 ===
+    // 帧结构
 
     /**
      * @struct frame_header
@@ -128,7 +125,7 @@ namespace psm::multiplex::yamux
         }
     }; // struct frame_header
 
-    // === 帧编解码函数 ===
+    // 帧编解码函数
 
     /**
      * @brief 编码帧头为 12 字节大端序数组

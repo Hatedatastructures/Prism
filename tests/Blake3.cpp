@@ -27,7 +27,7 @@ namespace
      * @brief 输出信息级别日志
      * @param msg 日志消息
      */
-    auto log_info(const std::string_view msg) -> void
+    auto LogInfo(const std::string_view msg) -> void
     {
         psm::trace::info("[Blake3] {}", msg);
     }
@@ -36,7 +36,7 @@ namespace
      * @brief 记录测试通过并递增计数器
      * @param msg 测试名称
      */
-    auto log_pass(const std::string_view msg) -> void
+    auto LogPass(const std::string_view msg) -> void
     {
         ++passed;
         psm::trace::info("[Blake3] PASS: {}", msg);
@@ -46,7 +46,7 @@ namespace
      * @brief 记录测试失败并递增计数器
      * @param msg 失败原因
      */
-    auto log_fail(const std::string_view msg) -> void
+    auto LogFail(const std::string_view msg) -> void
     {
         ++failed;
         psm::trace::error("[Blake3] FAIL: {}", msg);
@@ -58,7 +58,7 @@ namespace
  */
 void TestBlake3DeriveKeyDeterministic()
 {
-    log_info("=== TestBlake3DeriveKeyDeterministic ===");
+    LogInfo("=== TestBlake3DeriveKeyDeterministic ===");
 
     const std::array<std::uint8_t, 3> material = {0x01, 0x02, 0x03};
 
@@ -67,17 +67,17 @@ void TestBlake3DeriveKeyDeterministic()
 
     if (key1.size() != 32)
     {
-        log_fail("derive_key should produce 32 bytes, got " + std::to_string(key1.size()));
+        LogFail("derive_key should produce 32 bytes, got " + std::to_string(key1.size()));
         return;
     }
 
     if (key1 != key2)
     {
-        log_fail("derive_key with same inputs should produce identical output");
+        LogFail("derive_key with same inputs should produce identical output");
         return;
     }
 
-    log_pass("Blake3DeriveKeyDeterministic");
+    LogPass("Blake3DeriveKeyDeterministic");
 }
 
 /**
@@ -85,7 +85,7 @@ void TestBlake3DeriveKeyDeterministic()
  */
 void TestBlake3DifferentContextDifferentOutput()
 {
-    log_info("=== TestBlake3DifferentContextDifferentOutput ===");
+    LogInfo("=== TestBlake3DifferentContextDifferentOutput ===");
 
     const std::array<std::uint8_t, 3> material = {0x01, 0x02, 0x03};
 
@@ -94,11 +94,11 @@ void TestBlake3DifferentContextDifferentOutput()
 
     if (key_a == key_b)
     {
-        log_fail("different contexts should produce different keys");
+        LogFail("different contexts should produce different keys");
         return;
     }
 
-    log_pass("Blake3DifferentContextDifferentOutput");
+    LogPass("Blake3DifferentContextDifferentOutput");
 }
 
 /**
@@ -106,7 +106,7 @@ void TestBlake3DifferentContextDifferentOutput()
  */
 void TestBlake3DifferentMaterialDifferentOutput()
 {
-    log_info("=== TestBlake3DifferentMaterialDifferentOutput ===");
+    LogInfo("=== TestBlake3DifferentMaterialDifferentOutput ===");
 
     const std::array<std::uint8_t, 1> mat_a = {0x01};
     const std::array<std::uint8_t, 1> mat_b = {0x02};
@@ -116,11 +116,11 @@ void TestBlake3DifferentMaterialDifferentOutput()
 
     if (key_a == key_b)
     {
-        log_fail("different materials should produce different keys");
+        LogFail("different materials should produce different keys");
         return;
     }
 
-    log_pass("Blake3DifferentMaterialDifferentOutput");
+    LogPass("Blake3DifferentMaterialDifferentOutput");
 }
 
 /**
@@ -128,7 +128,7 @@ void TestBlake3DifferentMaterialDifferentOutput()
  */
 void TestBlake3SpanVsVectorOverload()
 {
-    log_info("=== TestBlake3SpanVsVectorOverload ===");
+    LogInfo("=== TestBlake3SpanVsVectorOverload ===");
 
     const std::array<std::uint8_t, 4> material = {0xAA, 0xBB, 0xCC, 0xDD};
 
@@ -141,17 +141,17 @@ void TestBlake3SpanVsVectorOverload()
 
     if (vec_result.size() != span_result.size())
     {
-        log_fail("span and vector overloads should produce same size output");
+        LogFail("span and vector overloads should produce same size output");
         return;
     }
 
     if (vec_result != span_result)
     {
-        log_fail("span and vector overloads should produce identical output");
+        LogFail("span and vector overloads should produce identical output");
         return;
     }
 
-    log_pass("Blake3SpanVsVectorOverload");
+    LogPass("Blake3SpanVsVectorOverload");
 }
 
 /**
@@ -159,7 +159,7 @@ void TestBlake3SpanVsVectorOverload()
  */
 void TestBlake3OutputLengthMatchesRequest()
 {
-    log_info("=== TestBlake3OutputLengthMatchesRequest ===");
+    LogInfo("=== TestBlake3OutputLengthMatchesRequest ===");
 
     const std::array<std::uint8_t, 4> material = {0x01, 0x02, 0x03, 0x04};
 
@@ -168,7 +168,7 @@ void TestBlake3OutputLengthMatchesRequest()
         auto key = psm::crypto::derive_key("len test", material, 16);
         if (key.size() != 16)
         {
-            log_fail("requested 16 bytes, got " + std::to_string(key.size()));
+            LogFail("requested 16 bytes, got " + std::to_string(key.size()));
             return;
         }
     }
@@ -178,12 +178,12 @@ void TestBlake3OutputLengthMatchesRequest()
         auto key = psm::crypto::derive_key("len test", material, 64);
         if (key.size() != 64)
         {
-            log_fail("requested 64 bytes, got " + std::to_string(key.size()));
+            LogFail("requested 64 bytes, got " + std::to_string(key.size()));
             return;
         }
     }
 
-    log_pass("Blake3OutputLengthMatchesRequest");
+    LogPass("Blake3OutputLengthMatchesRequest");
 }
 
 /**
@@ -191,7 +191,7 @@ void TestBlake3OutputLengthMatchesRequest()
  */
 void TestBlake3EmptyMaterial()
 {
-    log_info("=== TestBlake3EmptyMaterial ===");
+    LogInfo("=== TestBlake3EmptyMaterial ===");
 
     try
     {
@@ -200,17 +200,17 @@ void TestBlake3EmptyMaterial()
 
         if (key.size() != 32)
         {
-            log_fail("empty material should still produce 32 bytes, got " + std::to_string(key.size()));
+            LogFail("empty material should still produce 32 bytes, got " + std::to_string(key.size()));
             return;
         }
     }
     catch (const std::exception &e)
     {
-        log_fail(std::format("empty material threw exception: {}", e.what()));
+        LogFail(std::format("empty material threw exception: {}", e.what()));
         return;
     }
 
-    log_pass("Blake3EmptyMaterial");
+    LogPass("Blake3EmptyMaterial");
 }
 
 /**
@@ -218,7 +218,7 @@ void TestBlake3EmptyMaterial()
  */
 void TestBlake3EmptyContext()
 {
-    log_info("=== TestBlake3EmptyContext ===");
+    LogInfo("=== TestBlake3EmptyContext ===");
 
     try
     {
@@ -227,17 +227,17 @@ void TestBlake3EmptyContext()
 
         if (key.size() != 32)
         {
-            log_fail("empty context should still produce 32 bytes, got " + std::to_string(key.size()));
+            LogFail("empty context should still produce 32 bytes, got " + std::to_string(key.size()));
             return;
         }
     }
     catch (const std::exception &e)
     {
-        log_fail(std::format("empty context threw exception: {}", e.what()));
+        LogFail(std::format("empty context threw exception: {}", e.what()));
         return;
     }
 
-    log_pass("Blake3EmptyContext");
+    LogPass("Blake3EmptyContext");
 }
 
 /**
@@ -253,7 +253,7 @@ int main()
     psm::memory::system::enable_global_pooling();
     psm::trace::init({});
 
-    log_info("Starting BLAKE3 tests...");
+    LogInfo("Starting BLAKE3 tests...");
 
     TestBlake3DeriveKeyDeterministic();
     TestBlake3DifferentContextDifferentOutput();

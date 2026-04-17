@@ -1,6 +1,7 @@
 #include <prism/pipeline/protocols/socks5.hpp>
 #include <protocol.hpp>
 #include <prism/memory/container.hpp>
+#include <prism/trace.hpp>
 #include <charconv>
 
 constexpr std::string_view Socks5Str = "[Pipeline.Socks5]";
@@ -35,7 +36,7 @@ namespace psm::pipeline
         {
         case protocol::socks5::command::connect:
         {
-            // TCP 连接请求：解析目标地址并建立连接
+            // TCP 连接请求：解析目标地址
             protocol::analysis::target target(ctx.frame_arena.get());
             target.host = protocol::socks5::to_string(request.destination_address, ctx.frame_arena.get());
             char port_buf[8];
@@ -44,26 +45,31 @@ namespace psm::pipeline
             target.positive = true;
             trace::info("{} CONNECT -> {}:{}", Socks5Str, target.host, target.port);
 
-            // 通过路由器建立到目标的连接
-            auto [conn_ec, outbound] = co_await primitives::dial(ctx.worker.router, "SOCKS5", target, true, true);
-            if (fault::failed(conn_ec) || !outbound)
+            // 先拨号上游 — 失败时返回 SOCKS5 错误码（RFC 1928 语义）
+            auto [dial_ec, outbound] = co_await primitives::dial(ctx.worker.router, "SOCKS5", target, true, true);
+            if (fault::failed(dial_ec) || !outbound)
             {
-                trace::warn("{} failed: {}, target: {}:{}", Socks5Str, fault::describe(conn_ec), target.host, target.port);
-                // 连接失败，返回主机不可达错误
-                co_await agent->async_write_error(protocol::socks5::reply_code::host_unreachable);
+                if (dial_ec == fault::code::ipv6_disabled)
+                {
+                    trace::debug("{} IPv6 disabled: {}:{}", Socks5Str, target.host, target.port);
+                    co_await agent->async_write_error(protocol::socks5::reply_code::network_unreachable);
+                }
+                else
+                {
+                    trace::warn("{} dial failed: {}, target: {}:{}", Socks5Str, fault::describe(dial_ec), target.host, target.port);
+                    co_await agent->async_write_error(protocol::socks5::reply_code::host_unreachable);
+                }
                 co_return;
             }
 
-            // 连接成功，发送成功响应给客户端
+            // 拨号成功，发送 SOCKS5 成功响应
             if (fault::failed(co_await agent->async_write_success(request)))
             {
                 co_return;
             }
-            // 释放传输对象并进入双向隧道转发
-            auto trans = agent->release();
-            trace::debug("{} tunnel opened: {}:{}", Socks5Str, target.host, target.port);
-            co_await primitives::tunnel(std::move(trans), std::move(outbound), ctx);
-            trace::debug("{} tunnel closed: {}:{}", Socks5Str, target.host, target.port);
+
+            // 进入双向隧道转发
+            co_await primitives::tunnel(agent->release(), std::move(outbound), ctx);
             break;
         }
         case protocol::socks5::command::udp_associate:
@@ -75,15 +81,8 @@ namespace psm::pipeline
             const auto target_port = std::string_view(udp_port_buf, std::distance(udp_port_buf, upe));
             trace::info("{} UDP_ASSOCIATE -> {}:{}", Socks5Str, target_host, target_port);
 
-            // 创建路由回调函数，用于解析 UDP 数据报目标地址
-            const auto router_ptr = std::shared_ptr<resolve::router>(&ctx.worker.router, [](resolve::router *) {});
-            auto route_callback = [router_ptr](const std::string_view host, const std::string_view port)
-                -> net::awaitable<std::pair<fault::code, net::ip::udp::endpoint>>
-            {
-                co_return co_await router_ptr->resolve_datagram_target(host, port);
-            };
             // 启动 UDP 关联处理
-            const auto associate_ec = co_await agent->async_associate(request, std::move(route_callback));
+            const auto associate_ec = co_await agent->async_associate(request, primitives::make_datagram_router(ctx.worker.router));
             if (fault::failed(associate_ec))
             {
                 trace::warn("{} UDP_ASSOCIATE failed: {}", Socks5Str, fault::describe(associate_ec));

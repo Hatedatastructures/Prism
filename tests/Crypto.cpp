@@ -18,7 +18,7 @@
 
 namespace
 {
-    psm::testing::test_runner runner("Crypto");
+    psm::testing::TestRunner runner("Crypto");
 }
 
 // ============================================================================
@@ -30,24 +30,24 @@ namespace
  */
 void TestSha224Empty()
 {
-    runner.log_info("=== TestSha224Empty ===");
+    runner.LogInfo("=== TestSha224Empty ===");
 
     // SHA-224 对空串的标准哈希向量
     auto hash = psm::crypto::sha224("");
     // SHA-224 输出 28 字节 = 56 个十六进制字符
     if (hash.size() != 56)
     {
-        runner.log_fail("SHA224('') should produce 56 hex chars");
+        runner.LogFail("SHA224('') should produce 56 hex chars");
         return;
     }
     // 对照 RFC 4634 附录的已知向量
     if (hash != "d14a028c2a3a2bc9476102bb288234c415a2b01f828ea62ac5b3e42f")
     {
-        runner.log_fail("SHA224('') mismatch: got '" + hash + "'");
+        runner.LogFail("SHA224('') mismatch: got '" + hash + "'");
         return;
     }
 
-    runner.log_pass("Sha224Empty");
+    runner.LogPass("Sha224Empty");
 }
 
 /**
@@ -55,17 +55,17 @@ void TestSha224Empty()
  */
 void TestSha224KnownVector()
 {
-    runner.log_info("=== TestSha224KnownVector ===");
+    runner.LogInfo("=== TestSha224KnownVector ===");
 
     // SHA-224 对 "abc" 的 NIST 标准测试向量
     auto hash = psm::crypto::sha224("abc");
     if (hash != "23097d223405d8228642a477bda255b32aadbce4bda0b3f7e36c9da7")
     {
-        runner.log_fail("SHA224('abc') mismatch: got '" + hash + "'");
+        runner.LogFail("SHA224('abc') mismatch: got '" + hash + "'");
         return;
     }
 
-    runner.log_pass("Sha224KnownVector");
+    runner.LogPass("Sha224KnownVector");
 }
 
 /**
@@ -73,7 +73,7 @@ void TestSha224KnownVector()
  */
 void TestSha224OutputLength()
 {
-    runner.log_info("=== TestSha224OutputLength ===");
+    runner.LogInfo("=== TestSha224OutputLength ===");
 
     // 普通长度输入
     {
@@ -81,7 +81,7 @@ void TestSha224OutputLength()
         // SHA-224 定长输出 56 个十六进制字符
         if (hash.size() != 56)
         {
-            runner.log_fail("SHA224('any input') should be 56 chars, got " + std::to_string(hash.size()));
+            runner.LogFail("SHA224('any input') should be 56 chars, got " + std::to_string(hash.size()));
             return;
         }
     }
@@ -91,7 +91,7 @@ void TestSha224OutputLength()
         auto hash = psm::crypto::sha224("a longer string with more data to hash for testing purposes");
         if (hash.size() != 56)
         {
-            runner.log_fail("SHA224(long string) should be 56 chars");
+            runner.LogFail("SHA224(long string) should be 56 chars");
             return;
         }
     }
@@ -101,12 +101,12 @@ void TestSha224OutputLength()
         auto hash = psm::crypto::sha224("x");
         if (hash.size() != 56)
         {
-            runner.log_fail("SHA224('x') should be 56 chars");
+            runner.LogFail("SHA224('x') should be 56 chars");
             return;
         }
     }
 
-    runner.log_pass("Sha224OutputLength");
+    runner.LogPass("Sha224OutputLength");
 }
 
 /**
@@ -114,13 +114,13 @@ void TestSha224OutputLength()
  */
 void TestIsHexString()
 {
-    runner.log_info("=== TestIsHexString ===");
+    runner.LogInfo("=== TestIsHexString ===");
 
     // 合法十六进制字符（含大小写）
     {
         if (!psm::crypto::is_hex_string("0123456789abcdefABCDEF"))
         {
-            runner.log_fail("'0123456789abcdefABCDEF' should be hex");
+            runner.LogFail("'0123456789abcdefABCDEF' should be hex");
             return;
         }
     }
@@ -129,7 +129,7 @@ void TestIsHexString()
     {
         if (psm::crypto::is_hex_string("xyz"))
         {
-            runner.log_fail("'xyz' should not be hex");
+            runner.LogFail("'xyz' should not be hex");
             return;
         }
     }
@@ -138,7 +138,7 @@ void TestIsHexString()
     {
         if (!psm::crypto::is_hex_string(""))
         {
-            runner.log_fail("empty string should be hex (trivially)");
+            runner.LogFail("empty string should be hex (trivially)");
             return;
         }
     }
@@ -147,12 +147,12 @@ void TestIsHexString()
     {
         if (psm::crypto::is_hex_string("0g"))
         {
-            runner.log_fail("'0g' should not be hex");
+            runner.LogFail("'0g' should not be hex");
             return;
         }
     }
 
-    runner.log_pass("IsHexString");
+    runner.LogPass("IsHexString");
 }
 
 /**
@@ -160,20 +160,20 @@ void TestIsHexString()
  */
 void TestNormalizeCredential()
 {
-    runner.log_info("=== TestNormalizeCredential ===");
+    runner.LogInfo("=== TestNormalizeCredential ===");
 
     {
         // 明文密码应被 SHA-224 哈希，不暴露原文
         auto result = psm::crypto::normalize_credential("password");
         if (result == "password")
         {
-            runner.log_fail("normalize_credential('password') should hash, not return plaintext");
+            runner.LogFail("normalize_credential('password') should hash, not return plaintext");
             return;
         }
         // 哈希结果必须为 56 个十六进制字符
         if (result.size() != 56)
         {
-            runner.log_fail("normalize_credential('password') should return 56-char hash");
+            runner.LogFail("normalize_credential('password') should return 56-char hash");
             return;
         }
     }
@@ -184,7 +184,7 @@ void TestNormalizeCredential()
         auto result = psm::crypto::normalize_credential(hex56);
         if (result != hex56)
         {
-            runner.log_fail("56-char hex string should be returned as-is");
+            runner.LogFail("56-char hex string should be returned as-is");
             return;
         }
     }
@@ -194,17 +194,17 @@ void TestNormalizeCredential()
         auto result = psm::crypto::normalize_credential("short");
         if (result == "short")
         {
-            runner.log_fail("normalize_credential('short') should hash, not return plaintext");
+            runner.LogFail("normalize_credential('short') should hash, not return plaintext");
             return;
         }
         if (result.size() != 56)
         {
-            runner.log_fail("normalize_credential('short') should return 56-char hash");
+            runner.LogFail("normalize_credential('short') should return 56-char hash");
             return;
         }
     }
 
-    runner.log_pass("NormalizeCredential");
+    runner.LogPass("NormalizeCredential");
 }
 
 // ============================================================================
@@ -216,52 +216,52 @@ void TestNormalizeCredential()
  */
 void TestBase64DecodeStandard()
 {
-    runner.log_info("=== TestBase64DecodeStandard ===");
+    runner.LogInfo("=== TestBase64DecodeStandard ===");
 
     // 空输入应返回空串
     if (psm::crypto::base64_decode("") != "")
     {
-        runner.log_fail("base64_decode('') should be ''");
+        runner.LogFail("base64_decode('') should be ''");
         return;
     }
     // 1 字节输入 "f" → Zg== (2 个填充)
     if (psm::crypto::base64_decode("Zg==") != "f")
     {
-        runner.log_fail("base64_decode('Zg==') should be 'f'");
+        runner.LogFail("base64_decode('Zg==') should be 'f'");
         return;
     }
     // 2 字节输入 "fo" → Zm8= (1 个填充)
     if (psm::crypto::base64_decode("Zm8=") != "fo")
     {
-        runner.log_fail("base64_decode('Zm8=') should be 'fo'");
+        runner.LogFail("base64_decode('Zm8=') should be 'fo'");
         return;
     }
     // 3 字节输入 "foo" → Zm9v (无填充)
     if (psm::crypto::base64_decode("Zm9v") != "foo")
     {
-        runner.log_fail("base64_decode('Zm9v') should be 'foo'");
+        runner.LogFail("base64_decode('Zm9v') should be 'foo'");
         return;
     }
     // 4 字节输入 "foob" → Zm9vYg==
     if (psm::crypto::base64_decode("Zm9vYg==") != "foob")
     {
-        runner.log_fail("base64_decode('Zm9vYg==') should be 'foob'");
+        runner.LogFail("base64_decode('Zm9vYg==') should be 'foob'");
         return;
     }
     // 5 字节输入 "fooba" → Zm9vYmE=
     if (psm::crypto::base64_decode("Zm9vYmE=") != "fooba")
     {
-        runner.log_fail("base64_decode('Zm9vYmE=') should be 'fooba'");
+        runner.LogFail("base64_decode('Zm9vYmE=') should be 'fooba'");
         return;
     }
     // 6 字节输入 "foobar" → Zm9vYmFy
     if (psm::crypto::base64_decode("Zm9vYmFy") != "foobar")
     {
-        runner.log_fail("base64_decode('Zm9vYmFy') should be 'foobar'");
+        runner.LogFail("base64_decode('Zm9vYmFy') should be 'foobar'");
         return;
     }
 
-    runner.log_pass("Base64DecodeStandard");
+    runner.LogPass("Base64DecodeStandard");
 }
 
 /**
@@ -269,12 +269,12 @@ void TestBase64DecodeStandard()
  */
 void TestBase64DecodeUrlSafe()
 {
-    runner.log_info("=== TestBase64DecodeUrlSafe ===");
+    runner.LogInfo("=== TestBase64DecodeUrlSafe ===");
 
     // 先验证标准编码的基线正确性
     if (psm::crypto::base64_decode("Zm9v") != "foo")
     {
-        runner.log_fail("standard 'Zm9v' baseline failed");
+        runner.LogFail("standard 'Zm9v' baseline failed");
         return;
     }
 
@@ -285,12 +285,12 @@ void TestBase64DecodeUrlSafe()
         auto url_safe = psm::crypto::base64_decode("a-__");
         if (standard != url_safe)
         {
-            runner.log_fail("URL-safe variant should decode to same result as standard");
+            runner.LogFail("URL-safe variant should decode to same result as standard");
             return;
         }
     }
 
-    runner.log_pass("Base64DecodeUrlSafe");
+    runner.LogPass("Base64DecodeUrlSafe");
 }
 
 /**
@@ -298,14 +298,14 @@ void TestBase64DecodeUrlSafe()
  */
 void TestBase64DecodeWhitespace()
 {
-    runner.log_info("=== TestBase64DecodeWhitespace ===");
+    runner.LogInfo("=== TestBase64DecodeWhitespace ===");
 
     // 空格分隔的 Base64 应被容忍
     {
         auto result = psm::crypto::base64_decode("Z m 9 v");
         if (result != "foo")
         {
-            runner.log_fail("base64_decode('Z m 9 v') should be 'foo'");
+            runner.LogFail("base64_decode('Z m 9 v') should be 'foo'");
             return;
         }
     }
@@ -315,12 +315,12 @@ void TestBase64DecodeWhitespace()
         auto result = psm::crypto::base64_decode("Zm\n9v");
         if (result != "foo")
         {
-            runner.log_fail("base64_decode('Zm\\n9v') should be 'foo'");
+            runner.LogFail("base64_decode('Zm\\n9v') should be 'foo'");
             return;
         }
     }
 
-    runner.log_pass("Base64DecodeWhitespace");
+    runner.LogPass("Base64DecodeWhitespace");
 }
 
 /**
@@ -328,17 +328,17 @@ void TestBase64DecodeWhitespace()
  */
 void TestBase64DecodeInvalidChars()
 {
-    runner.log_info("=== TestBase64DecodeInvalidChars ===");
+    runner.LogInfo("=== TestBase64DecodeInvalidChars ===");
 
     // '!' 不在 Base64 字母表中，应返回空串表示失败
     auto result = psm::crypto::base64_decode("Zm9v!");
     if (!result.empty())
     {
-        runner.log_fail("base64_decode with invalid char '!' should return empty string");
+        runner.LogFail("base64_decode with invalid char '!' should return empty string");
         return;
     }
 
-    runner.log_pass("Base64DecodeInvalidChars");
+    runner.LogPass("Base64DecodeInvalidChars");
 }
 
 /**
@@ -346,30 +346,30 @@ void TestBase64DecodeInvalidChars()
  */
 void TestBase64DecodePadding()
 {
-    runner.log_info("=== TestBase64DecodePadding ===");
+    runner.LogInfo("=== TestBase64DecodePadding ===");
 
     // 无填充：输入恰好是 3 字节的倍数
     if (psm::crypto::base64_decode("Zm9v") != "foo")
     {
-        runner.log_fail("0-padding decode failed");
+        runner.LogFail("0-padding decode failed");
         return;
     }
 
     // 1 个填充：原始数据余 2 字节
     if (psm::crypto::base64_decode("Zm8=") != "fo")
     {
-        runner.log_fail("1-padding decode failed");
+        runner.LogFail("1-padding decode failed");
         return;
     }
 
     // 2 个填充：原始数据余 1 字节
     if (psm::crypto::base64_decode("Zg==") != "f")
     {
-        runner.log_fail("2-padding decode failed");
+        runner.LogFail("2-padding decode failed");
         return;
     }
 
-    runner.log_pass("Base64DecodePadding");
+    runner.LogPass("Base64DecodePadding");
 }
 
 /**
@@ -377,7 +377,7 @@ void TestBase64DecodePadding()
  */
 void TestBase64DecodeLongInput()
 {
-    runner.log_info("=== TestBase64DecodeLongInput ===");
+    runner.LogInfo("=== TestBase64DecodeLongInput ===");
 
     // 构造 1000 字节的重复模式，验证长输入编解码
     std::string long_input;
@@ -435,18 +435,18 @@ void TestBase64DecodeLongInput()
 
     if (decoded != long_input)
     {
-        runner.log_fail("long input roundtrip encode/decode mismatch");
+        runner.LogFail("long input roundtrip encode/decode mismatch");
         return;
     }
 
     // 确保解码后长度与原始一致
     if (decoded.size() != expected_length)
     {
-        runner.log_fail("decoded length should be " + std::to_string(expected_length) + ", got " + std::to_string(decoded.size()));
+        runner.LogFail("decoded length should be " + std::to_string(expected_length) + ", got " + std::to_string(decoded.size()));
         return;
     }
 
-    runner.log_pass("Base64DecodeLongInput");
+    runner.LogPass("Base64DecodeLongInput");
 }
 
 /**
@@ -462,7 +462,7 @@ int main()
     // 初始化日志系统
     psm::trace::init({});
 
-    runner.log_info("Starting crypto tests...");
+    runner.LogInfo("Starting crypto tests...");
 
     // SHA224 测试
     TestSha224Empty();
@@ -479,7 +479,7 @@ int main()
     TestBase64DecodePadding();
     TestBase64DecodeLongInput();
 
-    runner.log_info("Crypto tests completed.");
+    runner.LogInfo("Crypto tests completed.");
 
-    return runner.summary();
+    return runner.Summary();
 }

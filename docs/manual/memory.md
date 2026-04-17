@@ -6,13 +6,12 @@
 
 Prism 采用 C++23 纯协程架构处理高并发代理连接，对内存分配延迟极其敏感。传统的 `new`/`malloc` 在高频 I/O 路径上会引入不可控的延迟抖动和缓存失效。为此，Prism 基于 `std::pmr` 构建了分层内存管理体系，将分配器决策从对象层面提升到架构层面。
 
-整个模块位于 `include/prism/memory/`，全部 header-only，分为三个子文件：
+整个模块位于 `include/prism/memory/`，全部 header-only，分为两个子文件：
 
 | 文件 | 职责 |
 |------|------|
 | [container.hpp](../../../include/prism/memory/container.hpp) | PMR 容器别名、内存资源类型、分配器定义 |
 | [pool.hpp](../../../include/prism/memory/pool.hpp) | 全局池/线程局部池管理、帧分配器、池化对象基类 |
-| [pointer.hpp](../../../include/prism/memory/pointer.hpp) | 智能指针扩展预留（当前未实现） |
 
 命名空间：`psm::memory`
 
@@ -251,18 +250,6 @@ auto obj = std::make_shared<my_component>(...);
 **设计选择**：使用 `global_pool()`（同步池）而非 `thread_local_pool()`，因为通用对象的生命周期通常跨越多个线程或不确定。大小阈值遵循 `policy::max_pool_size`。
 
 源码：[pool.hpp](../../../include/prism/memory/pool.hpp)
-
-## pointer.hpp -- 智能指针预留
-
-当前 `pointer.hpp` 为预留文件，尚未实现具体功能。规划中的功能包括：
-
-| 规划类型 | 说明 |
-|----------|------|
-| `unique_ptr<T>` | 支持自定义池删除器的 unique_ptr 别名 |
-| `shared_ptr` 支持 | 内存池分配的 shared_ptr 创建函数 |
-| `make_unique` 工厂 | 从指定内存池创建 unique_ptr |
-
-源码：[pointer.hpp](../../../include/prism/memory/pointer.hpp)
 
 ## 实际使用模式
 

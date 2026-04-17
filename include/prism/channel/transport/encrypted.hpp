@@ -32,6 +32,12 @@ namespace psm::channel::transport
      * @details 将 ssl::stream<connector> 适配为 transmission 接口，
      * 使协议装饰器（如 trojan::stream）能够装饰 TLS 加密流。
      * 该类持有 ssl::stream 的共享所有权，确保在协议处理期间流对象有效。
+     * 核心职责包括传输抽象，继承 transmission 接口实现 TLS 传输层；
+     * 协程设计，所有异步操作返回 net::awaitable 简化调用；
+     * 错误码映射，自动映射 Boost.System 错误码到项目错误码。
+     * @note 该类用于 TLS 加密场景，所有基于 TLS 的协议都应使用此类。
+     * @warning 关闭后传输层对象不再可用，不应再调用其任何方法。
+     * @throws std::bad_alloc 如果内存分配失败
      */
     class encrypted : public transmission
     {
@@ -42,6 +48,8 @@ namespace psm::channel::transport
 
         /**
          * @brief 构造加密传输层
+         * @details 使用已建立的 TLS 流创建加密传输层。
+         * TLS 流必须已完成握手。
          * @param ssl_stream TLS 流的共享指针
          */
         explicit encrypted(shared_stream ssl_stream)
@@ -51,6 +59,7 @@ namespace psm::channel::transport
 
         /**
          * @brief 检查传输是否可靠
+         * @details 重写基类虚函数，TLS 基于 TCP，始终返回 true。
          * @return 始终返回 true，TLS 流是可靠的
          */
         [[nodiscard]] bool is_reliable() const noexcept override
@@ -60,6 +69,7 @@ namespace psm::channel::transport
 
         /**
          * @brief 获取关联的执行器
+         * @details 返回底层 TLS 流关联的执行器，用于调度异步操作。
          * @return 底层 TLS 流的执行器
          */
         [[nodiscard]] executor_type executor() const override
@@ -69,6 +79,8 @@ namespace psm::channel::transport
 
         /**
          * @brief 异步读取数据
+         * @details 调用底层 TLS 流的 async_read_some 实现异步读取。
+         * 返回实际读取的字节数，错误通过 ec 返回。
          * @param buffer 接收缓冲区
          * @param ec 错误码输出参数
          * @return net::awaitable<std::size_t> 异步操作，完成后返回读取的字节数
@@ -86,6 +98,8 @@ namespace psm::channel::transport
 
         /**
          * @brief 异步写入数据
+         * @details 调用底层 TLS 流的 async_write_some 实现异步写入。
+         * 返回实际写入的字节数，错误通过 ec 返回。
          * @param buffer 发送缓冲区
          * @param ec 错误码输出参数
          * @return net::awaitable<std::size_t> 异步操作，完成后返回写入的字节数
@@ -145,6 +159,8 @@ namespace psm::channel::transport
 
         /**
          * @brief 关闭传输层
+         * @details 先发送 TLS close_notify 通知对端，然后关闭底层传输层。
+         * SSL_shutdown 在非阻塞模式下立即返回，不等待对端响应。
          */
         void close() override
         {
@@ -156,6 +172,8 @@ namespace psm::channel::transport
 
         /**
          * @brief 取消所有未完成的异步操作
+         * @details 取消底层传输层当前所有挂起的异步读写操作。
+         * 被取消的操作将返回 operation_canceled 错误。
          */
         void cancel() override
         {
@@ -164,6 +182,7 @@ namespace psm::channel::transport
 
         /**
          * @brief 获取底层 TLS 流引用
+         * @details 返回内部 TLS 流的引用，用于直接操作 TLS 层。
          * @return stream_type& TLS 流引用
          */
         [[nodiscard]] stream_type &stream() noexcept
@@ -173,6 +192,7 @@ namespace psm::channel::transport
 
         /**
          * @brief 获取底层 TLS 流常量引用
+         * @details 返回内部 TLS 流的常量引用，用于只读访问。
          * @return const stream_type& TLS 流常量引用
          */
         [[nodiscard]] const stream_type &stream() const noexcept
@@ -182,6 +202,7 @@ namespace psm::channel::transport
 
         /**
          * @brief 释放 TLS 流所有权
+         * @details 将内部持有的 TLS 流共享指针移动返回，调用后对象不再持有流。
          * @return shared_stream TLS 流共享指针
          */
         shared_stream release()
@@ -190,11 +211,13 @@ namespace psm::channel::transport
         }
 
     private:
-        shared_stream ssl_stream_;
+        shared_stream ssl_stream_; // TLS 流的共享指针，持有流的所有权
     };
 
     /**
      * @brief 创建加密传输层
+     * @details 使用已建立的 TLS 流创建加密传输层实例。
+     * TLS 流必须已完成握手。
      * @param ssl_stream TLS 流的共享指针
      * @return shared_transmission 传输层指针
      */

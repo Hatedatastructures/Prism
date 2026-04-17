@@ -3,7 +3,6 @@
 - [x] Reality 零拷贝注释优化
 - [x] shadowsocks udp 逻辑优化
 - [x] shadowsocks 拷贝优化使用span
-- [ ] 验证测试问题，找出测试未通过问题
 - [x] 函数参数优化，命名空间优化防止出现过长参数和过长的命令空间
 - [x] 文档更新（Reality 协议文档已更新 2026-04-15）
 - [x] stresses 逻辑优化

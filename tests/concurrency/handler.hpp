@@ -15,7 +15,7 @@ namespace srv
 
     constexpr std::string_view JSON_CONTENT = "application/json; charset=utf-8";
 
-    inline auto build_http_response(const unsigned int status_code, const std::string_view reason,
+    inline auto BuildHttpResponse(const unsigned int status_code, const std::string_view reason,
                                     const std::string_view content_type, const std::string_view body)
         -> std::string
     {
@@ -38,10 +38,10 @@ namespace srv
         return res;
     }
 
-    inline auto build_stress_response(const std::string_view chunk_data)
+    inline auto BuildStressResponse(const std::string_view chunk_data)
         -> std::string
     {
-        return build_http_response(200, "OK", JSON_CONTENT, chunk_data);
+        return BuildHttpResponse(200, "OK", JSON_CONTENT, chunk_data);
     }
 
     enum class mode
@@ -50,7 +50,7 @@ namespace srv
         stress
     };
 
-    inline auto detect_mode(std::string_view target) -> mode
+    inline auto DetectMode(std::string_view target) -> mode
     {
         if (const auto pos = target.find('?'); pos != std::string_view::npos)
         {
@@ -65,7 +65,7 @@ namespace srv
         return mode::concurrent;
     }
 
-    inline auto handle_stress(net::ip::tcp::socket &socket, psm::memory::resource_pointer mr = nullptr)
+    inline auto HandleStress(net::ip::tcp::socket &socket, psm::memory::resource_pointer mr = nullptr)
         -> net::awaitable<void>
     {
         constexpr std::size_t chunk_size = 4 * 1024;
@@ -76,7 +76,7 @@ namespace srv
             chunk_data[i] = static_cast<char>('A' + (i % 26));
         }
 
-        auto response_data = build_stress_response(chunk_data);
+        auto response_data = BuildStressResponse(chunk_data);
 
         std::array<char, 256> recv_buf{};
 

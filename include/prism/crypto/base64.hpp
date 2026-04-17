@@ -13,10 +13,6 @@
 #include <array>
 #include <cctype>
 
-/**
- * @brief Base64 编解码工具命名空间
- * @details 提供标准 Base64 编码和解码功能，遵循 RFC 4648 规范。
- */
 namespace psm::crypto
 {
     namespace detail

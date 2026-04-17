@@ -32,23 +32,7 @@ namespace psm::pipeline
         // 解析目标地址
         trace::info("{} CONNECT -> {}:{}", shadowsocks_tag, agent->target().host, agent->target().port);
 
-        // 先拨号上游 — 失败时不发送响应，客户端看到连接失败而非误导性成功
-        auto [dial_ec, outbound] = co_await primitives::dial(ctx.worker.router, "SS2022", agent->target(), true, true);
-        if (fault::failed(dial_ec) || !outbound)
-        {
-            if (dial_ec == fault::code::ipv6_disabled)
-            {
-                trace::debug("{} IPv6 disabled: {}:{}", shadowsocks_tag, agent->target().host, agent->target().port);
-            }
-            else
-            {
-                trace::warn("{} dial failed: {}, target: {}:{}", shadowsocks_tag, fault::describe(dial_ec),
-                            agent->target().host, agent->target().port);
-            }
-            co_return;
-        }
-
-        // 拨号成功，发送握手响应
+        // 乐观响应：先发送 acknowledge 再拨号（与 mihomo 一致）
         auto ack_ec = co_await agent->acknowledge();
         if (fault::failed(ack_ec))
         {
@@ -56,9 +40,7 @@ namespace psm::pipeline
             co_return;
         }
 
-        // 关键：relay 本身作为 inbound（不 release），AEAD 加解密持续进行
-        co_await primitives::tunnel(
-            std::static_pointer_cast<channel::transport::transmission>(agent),
-            std::move(outbound), ctx);
+        // 拨号 + 隧道转发（relay 本身作为 inbound，AEAD 加解密持续进行）
+        co_await primitives::forward(ctx, "SS2022", agent->target(), std::static_pointer_cast<channel::transport::transmission>(agent));
     }
 } // namespace psm::pipeline

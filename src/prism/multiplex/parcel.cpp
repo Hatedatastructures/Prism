@@ -3,7 +3,9 @@
 #include <prism/multiplex/smux/frame.hpp>
 #include <prism/resolve/router.hpp>
 #include <prism/trace.hpp>
+#include <atomic>
 #include <charconv>
+#include <optional>
 
 #include <boost/asio/co_spawn.hpp>
 

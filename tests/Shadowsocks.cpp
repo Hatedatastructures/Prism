@@ -30,18 +30,18 @@ namespace
     int passed = 0;
     int failed = 0;
 
-    void log_info(const std::string_view msg)
+    void LogInfo(const std::string_view msg)
     {
         psm::trace::info("[Shadowsocks] {}", msg);
     }
 
-    void log_pass(const std::string_view msg)
+    void LogPass(const std::string_view msg)
     {
         ++passed;
         psm::trace::info("[Shadowsocks] PASS: {}", msg);
     }
 
-    void log_fail(const std::string_view msg)
+    void LogFail(const std::string_view msg)
     {
         ++failed;
         psm::trace::error("[Shadowsocks] FAIL: {}", msg);
@@ -57,7 +57,7 @@ namespace
  */
 void TestSaltPoolInsertAndCheck()
 {
-    log_info("=== TestSaltPoolInsertAndCheck ===");
+    LogInfo("=== TestSaltPoolInsertAndCheck ===");
 
     psm::protocol::shadowsocks::salt_pool pool(60);
 
@@ -68,11 +68,11 @@ void TestSaltPoolInsertAndCheck()
 
     if (!pool.check_and_insert(salt))
     {
-        log_fail("first insert should return true");
+        LogFail("first insert should return true");
         return;
     }
 
-    log_pass("SaltPoolInsertAndCheck");
+    LogPass("SaltPoolInsertAndCheck");
 }
 
 /**
@@ -80,7 +80,7 @@ void TestSaltPoolInsertAndCheck()
  */
 void TestSaltPoolDuplicateReplay()
 {
-    log_info("=== TestSaltPoolDuplicateReplay ===");
+    LogInfo("=== TestSaltPoolDuplicateReplay ===");
 
     psm::protocol::shadowsocks::salt_pool pool(60);
 
@@ -89,17 +89,17 @@ void TestSaltPoolDuplicateReplay()
 
     if (!pool.check_and_insert(salt))
     {
-        log_fail("first insert should return true");
+        LogFail("first insert should return true");
         return;
     }
 
     if (pool.check_and_insert(salt))
     {
-        log_fail("duplicate salt should return false");
+        LogFail("duplicate salt should return false");
         return;
     }
 
-    log_pass("SaltPoolDuplicateReplay");
+    LogPass("SaltPoolDuplicateReplay");
 }
 
 /**
@@ -107,7 +107,7 @@ void TestSaltPoolDuplicateReplay()
  */
 void TestSaltPoolExpiry()
 {
-    log_info("=== TestSaltPoolExpiry ===");
+    LogInfo("=== TestSaltPoolExpiry ===");
 
     // 1 秒 TTL
     psm::protocol::shadowsocks::salt_pool pool(1);
@@ -117,13 +117,13 @@ void TestSaltPoolExpiry()
 
     if (!pool.check_and_insert(salt))
     {
-        log_fail("first insert should return true");
+        LogFail("first insert should return true");
         return;
     }
 
     if (pool.check_and_insert(salt))
     {
-        log_fail("immediate retry should return false");
+        LogFail("immediate retry should return false");
         return;
     }
 
@@ -132,11 +132,11 @@ void TestSaltPoolExpiry()
 
     if (!pool.check_and_insert(salt))
     {
-        log_fail("expired salt should be re-insertable");
+        LogFail("expired salt should be re-insertable");
         return;
     }
 
-    log_pass("SaltPoolExpiry");
+    LogPass("SaltPoolExpiry");
 }
 
 /**
@@ -144,7 +144,7 @@ void TestSaltPoolExpiry()
  */
 void TestSaltPoolCleanup()
 {
-    log_info("=== TestSaltPoolCleanup ===");
+    LogInfo("=== TestSaltPoolCleanup ===");
 
     psm::protocol::shadowsocks::salt_pool pool(60);
 
@@ -155,7 +155,7 @@ void TestSaltPoolCleanup()
         salt[0] = i;
         if (!pool.check_and_insert(salt))
         {
-            log_fail("salt " + std::to_string(i) + " should insert successfully");
+            LogFail("salt " + std::to_string(i) + " should insert successfully");
             return;
         }
     }
@@ -170,12 +170,12 @@ void TestSaltPoolCleanup()
         salt[0] = i;
         if (pool.check_and_insert(salt))
         {
-            log_fail("salt " + std::to_string(i) + " should still be rejected after cleanup");
+            LogFail("salt " + std::to_string(i) + " should still be rejected after cleanup");
             return;
         }
     }
 
-    log_pass("SaltPoolCleanup");
+    LogPass("SaltPoolCleanup");
 }
 
 // ============================================================================
@@ -187,7 +187,7 @@ void TestSaltPoolCleanup()
  */
 void TestFormatParseAddressPortIPv4()
 {
-    log_info("=== TestFormatParseAddressPortIPv4 ===");
+    LogInfo("=== TestFormatParseAddressPortIPv4 ===");
 
     // [atyp=0x01][127.0.0.1][port=8080 BE]
     const std::array<std::uint8_t, 7> buf = {0x01, 127, 0, 0, 1, 0x1F, 0x90};
@@ -195,37 +195,37 @@ void TestFormatParseAddressPortIPv4()
     auto [ec, result] = psm::protocol::shadowsocks::format::parse_address_port(buf);
     if (psm::fault::failed(ec))
     {
-        log_fail(std::format("parse failed: {}", std::string_view(psm::fault::describe(ec))));
+        LogFail(std::format("parse failed: {}", std::string_view(psm::fault::describe(ec))));
         return;
     }
 
     if (result.port != 8080)
     {
-        log_fail("port should be 8080, got " + std::to_string(result.port));
+        LogFail("port should be 8080, got " + std::to_string(result.port));
         return;
     }
 
     if (result.offset != 7)
     {
-        log_fail("offset should be 7, got " + std::to_string(result.offset));
+        LogFail("offset should be 7, got " + std::to_string(result.offset));
         return;
     }
 
     auto *ipv4 = std::get_if<psm::protocol::shadowsocks::ipv4_address>(&result.addr);
     if (!ipv4)
     {
-        log_fail("address type should be IPv4");
+        LogFail("address type should be IPv4");
         return;
     }
 
     std::array<std::uint8_t, 4> expected = {127, 0, 0, 1};
     if (ipv4->bytes != expected)
     {
-        log_fail("IPv4 address mismatch");
+        LogFail("IPv4 address mismatch");
         return;
     }
 
-    log_pass("FormatParseAddressPortIPv4");
+    LogPass("FormatParseAddressPortIPv4");
 }
 
 /**
@@ -233,7 +233,7 @@ void TestFormatParseAddressPortIPv4()
  */
 void TestFormatParseAddressPortIPv6()
 {
-    log_info("=== TestFormatParseAddressPortIPv6 ===");
+    LogInfo("=== TestFormatParseAddressPortIPv6 ===");
 
     // [atyp=0x04][::1 16 bytes][port=80 BE]
     std::array<std::uint8_t, 19> buf{};
@@ -243,23 +243,23 @@ void TestFormatParseAddressPortIPv6()
     auto [ec, result] = psm::protocol::shadowsocks::format::parse_address_port(buf);
     if (psm::fault::failed(ec))
     {
-        log_fail(std::format("parse failed: {}", std::string_view(psm::fault::describe(ec))));
+        LogFail(std::format("parse failed: {}", std::string_view(psm::fault::describe(ec))));
         return;
     }
 
     if (result.port != 80)
     {
-        log_fail("port should be 80, got " + std::to_string(result.port));
+        LogFail("port should be 80, got " + std::to_string(result.port));
         return;
     }
 
     if (result.offset != 19)
     {
-        log_fail("offset should be 19, got " + std::to_string(result.offset));
+        LogFail("offset should be 19, got " + std::to_string(result.offset));
         return;
     }
 
-    log_pass("FormatParseAddressPortIPv6");
+    LogPass("FormatParseAddressPortIPv6");
 }
 
 /**
@@ -267,7 +267,7 @@ void TestFormatParseAddressPortIPv6()
  */
 void TestFormatParseAddressPortDomain()
 {
-    log_info("=== TestFormatParseAddressPortDomain ===");
+    LogInfo("=== TestFormatParseAddressPortDomain ===");
 
     // [atyp=0x03][len=11]["example.com"][port=80 BE]
     const std::string domain = "example.com";
@@ -281,30 +281,30 @@ void TestFormatParseAddressPortDomain()
     auto [ec, result] = psm::protocol::shadowsocks::format::parse_address_port(buf);
     if (psm::fault::failed(ec))
     {
-        log_fail(std::format("parse failed: {}", std::string_view(psm::fault::describe(ec))));
+        LogFail(std::format("parse failed: {}", std::string_view(psm::fault::describe(ec))));
         return;
     }
 
     if (result.port != 80)
     {
-        log_fail("port should be 80, got " + std::to_string(result.port));
+        LogFail("port should be 80, got " + std::to_string(result.port));
         return;
     }
 
     auto *dom = std::get_if<psm::protocol::shadowsocks::domain_address>(&result.addr);
     if (!dom)
     {
-        log_fail("address type should be domain");
+        LogFail("address type should be domain");
         return;
     }
 
     if (dom->length != domain.size())
     {
-        log_fail("domain length mismatch");
+        LogFail("domain length mismatch");
         return;
     }
 
-    log_pass("FormatParseAddressPortDomain");
+    LogPass("FormatParseAddressPortDomain");
 }
 
 /**
@@ -312,24 +312,24 @@ void TestFormatParseAddressPortDomain()
  */
 void TestFormatParseAddressPortEmpty()
 {
-    log_info("=== TestFormatParseAddressPortEmpty ===");
+    LogInfo("=== TestFormatParseAddressPortEmpty ===");
 
     const std::span<const std::uint8_t> empty;
     auto [ec, result] = psm::protocol::shadowsocks::format::parse_address_port(empty);
 
     if (psm::fault::succeeded(ec))
     {
-        log_fail("empty buffer should fail");
+        LogFail("empty buffer should fail");
         return;
     }
 
     if (ec != psm::fault::code::bad_message)
     {
-        log_fail("expected bad_message error code");
+        LogFail("expected bad_message error code");
         return;
     }
 
-    log_pass("FormatParseAddressPortEmpty");
+    LogPass("FormatParseAddressPortEmpty");
 }
 
 // ============================================================================
@@ -341,20 +341,20 @@ void TestFormatParseAddressPortEmpty()
  */
 void TestFormatDecodePskValid()
 {
-    log_info("=== TestFormatDecodePskValid ===");
+    LogInfo("=== TestFormatDecodePskValid ===");
 
     // base64("AAAAAAAAAAAAAAAAAAAAAA==") → 16 字节全零
     auto [ec, psk] = psm::protocol::shadowsocks::format::decode_psk("AAAAAAAAAAAAAAAAAAAAAA==");
 
     if (psm::fault::failed(ec))
     {
-        log_fail(std::format("decode failed: {}", std::string_view(psm::fault::describe(ec))));
+        LogFail(std::format("decode failed: {}", std::string_view(psm::fault::describe(ec))));
         return;
     }
 
     if (psk.size() != 16)
     {
-        log_fail("PSK should be 16 bytes, got " + std::to_string(psk.size()));
+        LogFail("PSK should be 16 bytes, got " + std::to_string(psk.size()));
         return;
     }
 
@@ -362,12 +362,12 @@ void TestFormatDecodePskValid()
     {
         if (b != 0)
         {
-            log_fail("PSK bytes should all be zero");
+            LogFail("PSK bytes should all be zero");
             return;
         }
     }
 
-    log_pass("FormatDecodePskValid");
+    LogPass("FormatDecodePskValid");
 }
 
 /**
@@ -375,16 +375,16 @@ void TestFormatDecodePskValid()
  */
 void TestFormatDecodePskInvalidBase64()
 {
-    log_info("=== TestFormatDecodePskInvalidBase64 ===");
+    LogInfo("=== TestFormatDecodePskInvalidBase64 ===");
 
     auto [ec, psk] = psm::protocol::shadowsocks::format::decode_psk("!!!invalid!!!");
     if (psm::fault::succeeded(ec))
     {
-        log_fail("invalid base64 should fail");
+        LogFail("invalid base64 should fail");
         return;
     }
 
-    log_pass("FormatDecodePskInvalidBase64");
+    LogPass("FormatDecodePskInvalidBase64");
 }
 
 /**
@@ -392,23 +392,23 @@ void TestFormatDecodePskInvalidBase64()
  */
 void TestFormatDecodePskWrongLength()
 {
-    log_info("=== TestFormatDecodePskWrongLength ===");
+    LogInfo("=== TestFormatDecodePskWrongLength ===");
 
     // "Zm9vYmFy" decodes to "foobar" = 6 bytes (neither 16 nor 32)
     auto [ec, psk] = psm::protocol::shadowsocks::format::decode_psk("Zm9vYmFy");
     if (psm::fault::succeeded(ec))
     {
-        log_fail("wrong length PSK should fail");
+        LogFail("wrong length PSK should fail");
         return;
     }
 
     if (ec != psm::fault::code::invalid_psk)
     {
-        log_fail("expected invalid_psk error code");
+        LogFail("expected invalid_psk error code");
         return;
     }
 
-    log_pass("FormatDecodePskWrongLength");
+    LogPass("FormatDecodePskWrongLength");
 }
 
 /**
@@ -416,23 +416,23 @@ void TestFormatDecodePskWrongLength()
  */
 void TestFormatKeySaltLength()
 {
-    log_info("=== TestFormatKeySaltLength ===");
+    LogInfo("=== TestFormatKeySaltLength ===");
 
     using cm = psm::protocol::shadowsocks::cipher_method;
 
     if (psm::protocol::shadowsocks::format::key_salt_length(cm::aes_128_gcm) != 16)
     {
-        log_fail("AES-128-GCM key_salt_length should be 16");
+        LogFail("AES-128-GCM key_salt_length should be 16");
         return;
     }
 
     if (psm::protocol::shadowsocks::format::key_salt_length(cm::aes_256_gcm) != 32)
     {
-        log_fail("AES-256-GCM key_salt_length should be 32");
+        LogFail("AES-256-GCM key_salt_length should be 32");
         return;
     }
 
-    log_pass("FormatKeySaltLength");
+    LogPass("FormatKeySaltLength");
 }
 
 // ============================================================================
@@ -451,7 +451,7 @@ int main()
     psm::memory::system::enable_global_pooling();
     psm::trace::init({});
 
-    log_info("Starting Shadowsocks tests...");
+    LogInfo("Starting Shadowsocks tests...");
 
     // Salt Pool 测试
     TestSaltPoolInsertAndCheck();

@@ -492,14 +492,12 @@ namespace psm::multiplex::yamux
         if (has_flag(hdr.flag, flags::syn) && config_.yamux.enable_ping)
         {
             co_await push_frame(message_type::ping, flags::ack, 0, hdr.length, {});
-            trace::debug("{} ping request {} replied", tag, hdr.length);
             co_return;
         }
 
         // ACK 标志：Ping 响应，忽略
         if (has_flag(hdr.flag, flags::ack))
         {
-            trace::debug("{} ping response {} received", tag, hdr.length);
         }
 
         co_return;
@@ -948,7 +946,6 @@ namespace psm::multiplex::yamux
                 }
                 const auto id = ping_id_.fetch_add(1, std::memory_order_relaxed) + 1;
                 co_await push_frame(message_type::ping, flags::syn, 0, id, {});
-                trace::debug("{} ping {} sent", tag, id);
             }
         }
         catch (const std::exception &e)

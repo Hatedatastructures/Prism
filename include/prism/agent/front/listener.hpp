@@ -77,10 +77,10 @@ namespace psm::agent::front
          */
         auto accept_loop() -> net::awaitable<void>;
 
-        net::io_context ioc_;                           // 独立的 IO 上下文
-        tcp::acceptor acceptor_;                        // TCP 接受器
-        balancer &dispatcher_;                          // 负载均衡器引用
-        std::uint32_t buffer_size_;                     // 套接字缓冲区大小
-        std::chrono::milliseconds backpressure_delay_;  // 反压延迟时间
+        net::io_context ioc_;                          // 独立的 IO 上下文
+        tcp::acceptor acceptor_;                       // TCP 接受器
+        balancer &dispatcher_;                         // 负载均衡器引用
+        std::uint32_t buffer_size_;                    // 套接字缓冲区大小
+        std::chrono::milliseconds backpressure_delay_; // 反压延迟时间
     };
 } // namespace psm::agent::front

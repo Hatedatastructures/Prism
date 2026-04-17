@@ -14,7 +14,6 @@
 #include <boost/asio.hpp>
 #include <cstddef>
 #include <memory>
-#include <span>
 #include <string_view>
 #include <utility>
 #include <vector>
@@ -54,15 +53,17 @@ namespace psm::protocol::http
 
         /**
          * @brief 发送 200 Connection Established 响应
+         * @return fault::code 写入结果
          * @details 用于 CONNECT 方法成功建连后通知客户端隧道已建立。
          */
-        auto write_connect_success() -> net::awaitable<void>;
+        auto write_connect_success() -> net::awaitable<fault::code>;
 
         /**
          * @brief 发送 502 Bad Gateway 响应
+         * @return fault::code 写入结果
          * @details 用于上游连接失败时通知客户端。
          */
-        auto write_bad_gateway() -> net::awaitable<void>;
+        auto write_bad_gateway() -> net::awaitable<fault::code>;
 
         /**
          * @brief 转发普通 HTTP 请求到上游
@@ -98,8 +99,9 @@ namespace psm::protocol::http
         /**
          * @brief 完整写入字符串数据到传输层
          * @param data 待写入的字符串视图
+         * @return fault::code 写入结果
          */
-        auto write_bytes(std::string_view data) -> net::awaitable<void>;
+        auto write_bytes(std::string_view data) -> net::awaitable<fault::code>;
     };
 
     /**

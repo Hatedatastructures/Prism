@@ -1,12 +1,15 @@
 #include <prism/pipeline/primitives.hpp>
 #include <prism/channel/transport/reliable.hpp>
 #include <prism/channel/transport/encrypted.hpp>
+#include <boost/asio/experimental/awaitable_operators.hpp>
+#include <prism/trace.hpp>
 #include <chrono>
 #include <string_view>
 
 constexpr std::string_view SslStr = "[Primitives.SSL]";
 constexpr std::string_view DialStr = "[Primitives.Dial]";
 constexpr std::string_view TunnelStr = "[Primitives.Tunnel]";
+constexpr std::string_view ForwardStr = "[Primitives.Forward]";
 
 namespace psm::pipeline::primitives
 {
@@ -264,5 +267,38 @@ namespace psm::pipeline::primitives
         // 关闭两个方向的传输层
         shut_close(inbound);
         shut_close(outbound);
+    }
+
+    auto forward(session_context &ctx, std::string_view label,
+                 const protocol::analysis::target &target, shared_transmission inbound)
+        -> net::awaitable<void>
+    {
+        auto [ec, outbound] = co_await dial(ctx.worker.router, label, target, true, true);
+        if (fault::failed(ec) || !outbound)
+        {
+            if (ec == fault::code::ipv6_disabled)
+                trace::debug("{} IPv6 disabled: {}:{}", ForwardStr, target.host, target.port);
+            else
+                trace::warn("{} dial failed: {}, target: {}:{}", ForwardStr, fault::describe(ec), target.host, target.port);
+            co_return;
+        }
+        co_await tunnel(std::move(inbound), std::move(outbound), ctx);
+    }
+
+    auto is_mux_target(const std::string_view host, const bool mux_enabled) noexcept -> bool
+    {
+        constexpr std::string_view suffix = ".mux.sing-box.arpa";
+        return mux_enabled && host.size() >= suffix.size() && host.substr(host.size() - suffix.size()) == suffix;
+    }
+
+    auto make_datagram_router(resolve::router &router)
+        -> std::function<net::awaitable<std::pair<fault::code, net::ip::udp::endpoint>>(std::string_view, std::string_view)>
+    {
+        const auto ptr = std::shared_ptr<resolve::router>(&router, [](resolve::router *) {});
+        return [ptr](const std::string_view host, const std::string_view port)
+                   -> net::awaitable<std::pair<fault::code, net::ip::udp::endpoint>>
+        {
+            co_return co_await ptr->resolve_datagram_target(host, port);
+        };
     }
 } // namespace psm::pipeline::primitives

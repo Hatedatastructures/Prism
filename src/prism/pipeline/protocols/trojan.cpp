@@ -3,8 +3,8 @@
 #include <prism/multiplex/bootstrap.hpp>
 #include <prism/agent/account/directory.hpp>
 #include <prism/memory/container.hpp>
+#include <prism/trace.hpp>
 #include <charconv>
-#include <boost/asio/experimental/awaitable_operators.hpp>
 #include <string_view>
 
 constexpr std::string_view TrojanStr = "[Pipeline.Trojan]";
@@ -62,8 +62,7 @@ namespace psm::pipeline
             target.port.assign(port_buf, std::distance(port_buf, pe));
 
             // Mihomo smux 兼容：客户端用 CONNECT + 虚假地址标记 mux 连接
-            // 检测 mux 标记地址，命中则走 smux 多路复用逻辑
-            if (ctx.server.cfg.mux.enabled && target.host.size() >= 18 && target.host.substr(target.host.size() - 18) == ".mux.sing-box.arpa")
+            if (primitives::is_mux_target(target.host, ctx.server.cfg.mux.enabled))
             {
                 trace::info("{} mux session started", TrojanStr);
                 // 清除 session 流关闭回调，transport 生命周期由 multiplexer 接管
@@ -81,41 +80,16 @@ namespace psm::pipeline
             target.positive = true;
             trace::info("{} CONNECT -> {}:{}", TrojanStr, target.host, target.port);
 
-            // 通过路由器建立到目标的连接
-            auto [dial_ec, outbound] = co_await primitives::dial(ctx.worker.router, "Trojan", target, true, true);
-            if (fault::failed(dial_ec) || !outbound)
-            {
-                // IPv6 被禁用是预期行为，使用 debug 级别
-                if (dial_ec == fault::code::ipv6_disabled)
-                {
-                    trace::debug("{} IPv6 disabled: {}:{}", TrojanStr, target.host, target.port);
-                }
-                else
-                {
-                    trace::warn("{} dial failed: {}, target: {}:{}", TrojanStr, fault::describe(dial_ec), target.host, target.port);
-                }
-                co_return;
-            }
-
-            // 释放传输对象并进入双向隧道转发
-            auto raw_trans = agent->release();
-            co_await primitives::tunnel(std::move(raw_trans), std::move(outbound), ctx);
+            // 拨号 + 隧道转发
+            co_await primitives::forward(ctx, "Trojan", target, agent->release());
             break;
         }
         case protocol::trojan::command::udp_associate:
         {
             trace::info("{} UDP_ASSOCIATE started", TrojanStr);
 
-            // 创建路由回调函数，用于解析 UDP 数据报目标地址
-            const auto router_ptr = std::shared_ptr<resolve::router>(&ctx.worker.router, [](resolve::router *) {});
-            auto route_callback = [router_ptr](const std::string_view host, const std::string_view port)
-                -> net::awaitable<std::pair<fault::code, net::ip::udp::endpoint>>
-            {
-                co_return co_await router_ptr->resolve_datagram_target(host, port);
-            };
-
             // 启动 UDP 关联处理
-            const auto associate_ec = co_await agent->async_associate(std::move(route_callback));
+            const auto associate_ec = co_await agent->async_associate(primitives::make_datagram_router(ctx.worker.router));
             if (fault::failed(associate_ec))
             {
                 trace::warn("{} UDP_ASSOCIATE failed: {}", TrojanStr, fault::describe(associate_ec));
@@ -125,6 +99,20 @@ namespace psm::pipeline
                 trace::info("{} UDP_ASSOCIATE completed", TrojanStr);
             }
             break;
+        }
+        case protocol::trojan::command::mux:
+        {
+            // Trojan mux (cmd=0x7F)：直接进入多路复用模式
+            trace::info("{} mux session started (cmd=0x7F)", TrojanStr);
+            ctx.active_stream_close = nullptr;
+            ctx.active_stream_cancel = nullptr;
+            auto muxprotocol = co_await multiplex::bootstrap(
+                agent->release(), ctx.worker.router, ctx.server.cfg.mux);
+            if (muxprotocol)
+            {
+                muxprotocol->start();
+            }
+            co_return;
         }
         default:
             // 未知命令类型

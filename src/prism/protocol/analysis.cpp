@@ -11,6 +11,23 @@ namespace psm::protocol
             "CONNECT ", "OPTIONS ", "TRACE ", "PATCH "};
 
         /**
+         * @brief 检查数据是否以已知 HTTP 方法前缀开头
+         * @param data 待检查数据
+         * @return 若匹配任何 HTTP 方法前缀则返回 true
+         */
+        bool is_http_request(const std::string_view data) noexcept
+        {
+            for (const auto &method : http_methods)
+            {
+                if (data.size() >= method.size() && data.substr(0, method.size()) == method)
+                {
+                    return true;
+                }
+            }
+            return false;
+        }
+
+        /**
          * @brief 获取内存资源
          * @param mr 提供的内存资源指针
          * @return 优先使用 mr，否则使用默认内存资源
@@ -99,12 +116,9 @@ namespace psm::protocol
         }
 
         // 3. 检查 HTTP
-        for (const auto &method : http_methods)
+        if (is_http_request(peek_data))
         {
-            if (peek_data.size() >= method.size() && peek_data.substr(0, method.size()) == method)
-            {
-                return protocol_type::http;
-            }
+            return protocol_type::http;
         }
 
         // 4. SS2022 fallback
@@ -117,16 +131,13 @@ namespace psm::protocol
     auto analysis::detect_tls(const std::string_view peek_data)
         -> protocol_type
     {
-        for (const auto &method : http_methods)
+        // 阶段 1：HTTP 检测（最少 4 字节）
+        if (peek_data.size() >= 4 && is_http_request(peek_data))
         {
-            if (peek_data.size() >= method.size() &&
-                peek_data.substr(0, method.size()) == method)
-            {
-                return protocol_type::http;
-            }
+            return protocol_type::http;
         }
 
-        // VLESS 检测（最小 22 字节）
+        // 阶段 2：VLESS 检测（最少 22 字节）
         // byte[0] = 0x00 (version), byte[17] = 0x00 (no additional info)
         // byte[18] in {0x01, 0x02, 0x7F} (valid command)
         // byte[21] in {0x01, 0x02, 0x03} (valid address type)
@@ -144,6 +155,7 @@ namespace psm::protocol
             }
         }
 
+        // 阶段 3：Trojan 检测（最少 60 字节）
         constexpr std::size_t trojan_min_length = 60;
         if (peek_data.size() >= trojan_min_length)
         {
@@ -172,12 +184,13 @@ namespace psm::protocol
                     }
                 }
             }
+
+            // 60+ 字节仍无法识别，排除法 fallback 到 SS2022
+            return protocol_type::shadowsocks;
         }
 
-        // SS2022 fallback：TLS 内层排除 HTTP/VLESS/Trojan 后，尝试 SS2022。
-        // SS2022 数据全是 AEAD 加密随机字节，无法通过特征检测，只能排除法。
-        // relay 的 handshake() 会通过 AEAD 解密验证来确认。
-        return protocol_type::shadowsocks;
+        // 数据不足 60 字节且不匹配任何已知协议，返回 unknown 让调用者继续读取
+        return protocol_type::unknown;
     }
 
     auto analysis::resolve(const http::proxy_request &req, const memory::resource_pointer mr)

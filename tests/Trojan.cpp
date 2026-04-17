@@ -8,6 +8,7 @@
  */
 
 #include <prism/protocol/trojan.hpp>
+#include <prism/protocol/trojan/format.hpp>
 #include <prism/exception/network.hpp>
 #include <prism/fault/code.hpp>
 #include <prism/channel/transport/reliable.hpp>
@@ -34,7 +35,7 @@ namespace
      * @brief 输出信息级别日志
      * @param msg 日志消息
      */
-    void log_info(const std::string_view msg)
+    void LogInfo(const std::string_view msg)
     {
         psm::trace::info("[Trojan] {}", msg);
     }
@@ -43,7 +44,7 @@ namespace
      * @brief 记录测试通过并递增计数器
      * @param msg 测试名称
      */
-    void log_pass(const std::string_view msg)
+    void LogPass(const std::string_view msg)
     {
         ++passed;
         psm::trace::info("[Trojan] PASS: {}", msg);
@@ -53,7 +54,7 @@ namespace
      * @brief 记录测试失败并递增计数器
      * @param msg 失败原因
      */
-    void log_fail(const std::string_view msg)
+    void LogFail(const std::string_view msg)
     {
         ++failed;
         psm::trace::error("[Trojan] FAIL: {}", msg);
@@ -72,14 +73,14 @@ net::awaitable<void> DoTrojanServer(tcp::acceptor &acceptor, const std::string &
 {
     try
     {
-        log_info("Server coroutine started, waiting for connection...");
+        LogInfo("Server coroutine started, waiting for connection...");
         // 异步等待客户端连接
         auto socket = co_await acceptor.async_accept(net::use_awaitable);
 
         // 凭据验证回调：比对客户端发送的 SHA224 哈希与期望值
         auto user_credential_verifier = [expected_credential](std::string_view user_credential) -> bool
         {
-            log_info(std::format("Verifying user credential: {}", user_credential));
+            LogInfo(std::format("Verifying user credential: {}", user_credential));
             return user_credential == expected_credential;
         };
 
@@ -89,18 +90,18 @@ net::awaitable<void> DoTrojanServer(tcp::acceptor &acceptor, const std::string &
         auto trojan = psm::protocol::trojan::make_relay(std::move(trans), {}, user_credential_verifier);
 
         // 执行 Trojan 握手（读取凭据 + 解析 CMD/ATYP/ADDR/PORT）
-        log_info("Server starting Trojan handshake...");
+        LogInfo("Server starting Trojan handshake...");
         auto [ec, req] = co_await trojan->handshake();
         if (psm::fault::failed(ec))
         {
-            log_fail(std::format("Server handshake failed: {}", std::string_view(psm::fault::describe(ec))));
+            LogFail(std::format("Server handshake failed: {}", std::string_view(psm::fault::describe(ec))));
             co_return;
         }
-        log_info("Server handshake success");
+        LogInfo("Server handshake success");
 
         // 将目标地址转为可读字符串用于日志输出
         auto host_str = psm::protocol::trojan::to_string(req.destination_address);
-        log_info(std::format("Trojan server received request: CMD={}, ADDR={}, PORT={}",
+        LogInfo(std::format("Trojan server received request: CMD={}, ADDR={}, PORT={}",
                              static_cast<int>(req.cmd), host_str, req.port));
 
         // Echo 测试：读取客户端载荷并原样回显
@@ -113,23 +114,23 @@ net::awaitable<void> DoTrojanServer(tcp::acceptor &acceptor, const std::string &
             std::size_t n = co_await psm::channel::transport::async_read_some(trojan, buf, net::use_awaitable);
             std::string received_msg(buffer.data(), n);
 
-            log_info(std::format("Server received message: {}", received_msg));
+            LogInfo(std::format("Server received message: {}", received_msg));
 
             // 将收到的数据通过同一 Trojan 隧道回写给客户端
             co_await psm::channel::transport::async_write_some(trojan, net::buffer(received_msg), net::use_awaitable);
         }
         catch (const std::exception &e)
         {
-            log_fail(std::format("Data transmission error: {}", e.what()));
+            LogFail(std::format("Data transmission error: {}", e.what()));
         }
 
         // 测试完成，关闭 Trojan 中继连接
-        log_info("Server test complete, closing connection");
+        LogInfo("Server test complete, closing connection");
         trojan->close();
     }
     catch (const std::exception &e)
     {
-        log_fail(std::format("Server exception: {}", e.what()));
+        LogFail(std::format("Server exception: {}", e.what()));
     }
     co_return;
 }
@@ -189,7 +190,7 @@ net::awaitable<void> DoTrojanClient(tcp::endpoint endpoint, const std::string &c
             throw psm::exception::network(psm::fault::code::generic_error);
         }
 
-        log_info(std::format("Client test success: {}", test_msg));
+        LogInfo(std::format("Client test success: {}", test_msg));
 
         // 优雅关闭 socket 的读写两端
         boost::system::error_code ec;
@@ -198,9 +199,159 @@ net::awaitable<void> DoTrojanClient(tcp::endpoint endpoint, const std::string &c
     }
     catch (const std::exception &e)
     {
-        log_fail(std::format("Client exception: {}", e.what()));
+        LogFail(std::format("Client exception: {}", e.what()));
     }
     co_return;
+}
+
+// ============================================================================
+// UDP 帧格式测试
+// ============================================================================
+
+/**
+ * @brief 测试 Trojan parse_udp_packet — IPv4 地址
+ */
+void TestTrojanUdpParseIPv4()
+{
+    LogInfo("=== TestTrojanUdpParseIPv4 ===");
+
+    // Trojan UDP: [ATYP=0x01][IPv4 4B][Port 2B][Length 2B][CRLF 2B][Payload]
+    std::vector<std::byte> buf;
+    buf.push_back(std::byte{0x01});                                // ATYP = IPv4
+    buf.push_back(std::byte{127}); buf.push_back(std::byte{0});
+    buf.push_back(std::byte{0});   buf.push_back(std::byte{1});   // 127.0.0.1
+    buf.push_back(std::byte{0x00}); buf.push_back(std::byte{0x50}); // port = 80
+    buf.push_back(std::byte{0x00}); buf.push_back(std::byte{0x05}); // length = 5
+    buf.push_back(std::byte{0x0D}); buf.push_back(std::byte{0x0A}); // CRLF
+    const char* payload = "hello";
+    for (auto c : std::string_view(payload))
+    {
+        buf.push_back(static_cast<std::byte>(c));
+    }
+
+    auto [ec, result] = protocol::trojan::format::parse_udp_packet(buf);
+    if (psm::fault::failed(ec))
+    {
+        LogFail("parse_udp_packet IPv4 failed: " + std::string(psm::fault::describe(ec)));
+        return;
+    }
+
+    auto* ipv4 = std::get_if<protocol::trojan::ipv4_address>(&result.destination_address);
+    if (!ipv4)
+    {
+        LogFail("address type should be IPv4");
+        return;
+    }
+    if (result.destination_port != 80)
+    {
+        LogFail("port should be 80, got " + std::to_string(result.destination_port));
+        return;
+    }
+    if (result.payload_size != 5)
+    {
+        LogFail("payload size should be 5, got " + std::to_string(result.payload_size));
+        return;
+    }
+
+    LogPass("TrojanUdpParseIPv4");
+}
+
+/**
+ * @brief 测试 Trojan parse_udp_packet — 域名地址
+ */
+void TestTrojanUdpParseDomain()
+{
+    LogInfo("=== TestTrojanUdpParseDomain ===");
+
+    const std::string domain = "example.com";
+    std::vector<std::byte> buf;
+    buf.push_back(std::byte{0x03});                                // ATYP = Domain
+    buf.push_back(static_cast<std::byte>(domain.size()));          // domain length
+    for (auto c : domain)
+    {
+        buf.push_back(static_cast<std::byte>(c));
+    }
+    buf.push_back(std::byte{0x01}); buf.push_back(std::byte{0x0BB}); // port = 443
+    buf.push_back(std::byte{0x00}); buf.push_back(std::byte{0x04}); // length = 4
+    buf.push_back(std::byte{0x0D}); buf.push_back(std::byte{0x0A}); // CRLF
+    const char* payload = "test";
+    for (auto c : std::string_view(payload))
+    {
+        buf.push_back(static_cast<std::byte>(c));
+    }
+
+    auto [ec, result] = protocol::trojan::format::parse_udp_packet(buf);
+    if (psm::fault::failed(ec))
+    {
+        LogFail("parse_udp_packet Domain failed: " + std::string(psm::fault::describe(ec)));
+        return;
+    }
+
+    auto* dom = std::get_if<protocol::trojan::domain_address>(&result.destination_address);
+    if (!dom)
+    {
+        LogFail("address type should be domain");
+        return;
+    }
+    if (result.destination_port != 443)
+    {
+        LogFail("port should be 443");
+        return;
+    }
+
+    LogPass("TrojanUdpParseDomain");
+}
+
+/**
+ * @brief 测试 Trojan build_udp_packet + parse_udp_packet 往返
+ */
+void TestTrojanUdpBuildParseRoundtrip()
+{
+    LogInfo("=== TestTrojanUdpBuildParseRoundtrip ===");
+
+    protocol::trojan::format::udp_frame frame;
+    frame.destination_address = protocol::trojan::ipv4_address{{127, 0, 0, 1}};
+    frame.destination_port = 8080;
+
+    const std::string payload_str = "hello trojan udp";
+    auto payload_span = std::span<const std::byte>(
+        reinterpret_cast<const std::byte*>(payload_str.data()), payload_str.size());
+
+    psm::memory::vector<std::byte> out(psm::memory::current_resource());
+    auto build_ec = protocol::trojan::format::build_udp_packet(frame, payload_span, out);
+    if (psm::fault::failed(build_ec))
+    {
+        LogFail("build_udp_packet failed: " + std::string(psm::fault::describe(build_ec)));
+        return;
+    }
+
+    auto [parse_ec, result] = protocol::trojan::format::parse_udp_packet(out);
+    if (psm::fault::failed(parse_ec))
+    {
+        LogFail("parse_udp_packet roundtrip failed: " + std::string(psm::fault::describe(parse_ec)));
+        return;
+    }
+
+    if (result.destination_port != 8080)
+    {
+        LogFail("roundtrip port should be 8080, got " + std::to_string(result.destination_port));
+        return;
+    }
+    if (result.payload_size != payload_str.size())
+    {
+        LogFail("roundtrip payload_size mismatch");
+        return;
+    }
+
+    std::string_view parsed_payload(reinterpret_cast<const char*>(out.data() + result.payload_offset),
+                                     result.payload_size);
+    if (parsed_payload != payload_str)
+    {
+        LogFail("roundtrip payload content mismatch");
+        return;
+    }
+
+    LogPass("TrojanUdpBuildParseRoundtrip");
 }
 
 /**
@@ -208,7 +359,7 @@ net::awaitable<void> DoTrojanClient(tcp::endpoint endpoint, const std::string &c
  */
 void TestTrojanRelayHandshake()
 {
-    log_info("=== Testing Trojan relay handshake ===");
+    LogInfo("=== Testing Trojan relay handshake ===");
 
     // 创建 io_context 驱动异步事件循环
     net::io_context ioc;
@@ -219,7 +370,7 @@ void TestTrojanRelayHandshake()
     // 获取实际分配的端口号，供客户端连接使用
     auto bound_endpoint = acceptor.local_endpoint();
 
-    log_info(std::format("Test server listening on: {}:{}", bound_endpoint.address().to_string(), bound_endpoint.port()));
+    LogInfo(std::format("Test server listening on: {}:{}", bound_endpoint.address().to_string(), bound_endpoint.port()));
 
     // 构造测试凭据：56 个 'a' 模拟 SHA224 哈希输出
     const std::string test_user_credential(56, 'a');
@@ -242,7 +393,7 @@ void TestTrojanRelayHandshake()
                       }
                       catch (const std::exception &e)
                       {
-                          log_fail(std::format("Client wrapper exception: {}", e.what()));
+                          LogFail(std::format("Client wrapper exception: {}", e.what()));
                       } }, [&](const std::exception_ptr &)
                   { ioc.stop(); });
 
@@ -252,7 +403,7 @@ void TestTrojanRelayHandshake()
     // 根据客户端标记判定整体测试结果
     if (*client_ok)
     {
-        log_pass("Trojan relay handshake and echo");
+        LogPass("Trojan relay handshake and echo");
     }
 }
 
@@ -273,15 +424,21 @@ int main()
     // 初始化 spdlog 日志系统
     psm::trace::init({});
 
-    log_info("Starting Trojan tests...");
+    LogInfo("Starting Trojan tests...");
 
+    // UDP 帧格式测试
+    TestTrojanUdpParseIPv4();
+    TestTrojanUdpParseDomain();
+    TestTrojanUdpBuildParseRoundtrip();
+
+    // 集成测试
     try
     {
         TestTrojanRelayHandshake();
     }
     catch (const std::exception &e)
     {
-        log_fail(std::format("TestTrojanRelayHandshake threw exception: {}", e.what()));
+        LogFail(std::format("TestTrojanRelayHandshake threw exception: {}", e.what()));
     }
 
     psm::trace::info("[Trojan] Results: {} passed, {} failed", passed, failed);

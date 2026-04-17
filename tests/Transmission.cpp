@@ -27,7 +27,7 @@ namespace
      * @brief 输出信息级别日志
      * @param msg 日志消息
      */
-    void log_info(const std::string_view msg)
+    void LogInfo(const std::string_view msg)
     {
         psm::trace::info("[Transmission] {}", msg);
     }
@@ -36,7 +36,7 @@ namespace
      * @brief 记录测试通过并递增计数器
      * @param msg 测试名称
      */
-    void log_pass(const std::string_view msg)
+    void LogPass(const std::string_view msg)
     {
         ++passed;
         psm::trace::info("[Transmission] PASS: {}", msg);
@@ -46,7 +46,7 @@ namespace
      * @brief 记录测试失败并递增计数器
      * @param msg 失败原因
      */
-    void log_fail(const std::string_view msg)
+    void LogFail(const std::string_view msg)
     {
         ++failed;
         psm::trace::error("[Transmission] FAIL: {}", msg);
@@ -109,7 +109,7 @@ net::awaitable<void> EchoOnceAccept(net::ip::tcp::acceptor acceptor)
  */
 void TestReliableConstructor()
 {
-    log_info("=== TestReliableConstructor ===");
+    LogInfo("=== TestReliableConstructor ===");
 
     net::io_context ioc;
     auto executor = ioc.get_executor();
@@ -119,11 +119,11 @@ void TestReliableConstructor()
     // 确保构造后的 executor 与传入的相同
     if (reliable->executor() != executor)
     {
-        log_fail("executor mismatch");
+        LogFail("executor mismatch");
         return;
     }
 
-    log_pass("ReliableConstructor");
+    LogPass("ReliableConstructor");
 }
 
 /**
@@ -131,7 +131,7 @@ void TestReliableConstructor()
  */
 void TestReliableFromSocket()
 {
-    log_info("=== TestReliableFromSocket ===");
+    LogInfo("=== TestReliableFromSocket ===");
 
     net::io_context ioc;
     auto executor = ioc.get_executor();
@@ -142,11 +142,11 @@ void TestReliableFromSocket()
 
     if (reliable->executor() != executor)
     {
-        log_fail("executor mismatch");
+        LogFail("executor mismatch");
         return;
     }
 
-    log_pass("ReliableFromSocket");
+    LogPass("ReliableFromSocket");
 }
 
 /**
@@ -158,7 +158,7 @@ void TestReliableFromSocket()
  */
 net::awaitable<void> TestReliableBasicReadWrite(net::io_context &ioc)
 {
-    log_info("=== TestReliableBasicReadWrite ===");
+    LogInfo("=== TestReliableBasicReadWrite ===");
 
     // 在随机端口上创建 echo 服务端监听器
     net::ip::tcp::acceptor echo_acceptor(ioc, net::ip::tcp::endpoint(net::ip::tcp::v4(), 0));
@@ -187,12 +187,12 @@ net::awaitable<void> TestReliableBasicReadWrite(net::io_context &ioc)
         // 验证回显的字节数和内容均与发送一致
         if (n != test_message.size() || std::string_view(buffer.data(), n) != test_message)
         {
-            log_fail(std::format("echo mismatch: got {} bytes", n));
+            LogFail(std::format("echo mismatch: got {} bytes", n));
             co_return;
         }
     }
 
-    log_pass("ReliableBasicReadWrite");
+    LogPass("ReliableBasicReadWrite");
 }
 
 /**
@@ -204,7 +204,7 @@ net::awaitable<void> TestReliableBasicReadWrite(net::io_context &ioc)
  */
 net::awaitable<void> TestReliableClose(net::io_context &ioc)
 {
-    log_info("=== TestReliableClose ===");
+    LogInfo("=== TestReliableClose ===");
 
     // 在随机端口上创建监听器
     net::ip::tcp::acceptor acceptor(ioc, net::ip::tcp::endpoint(net::ip::tcp::v4(), 0));
@@ -258,7 +258,7 @@ net::awaitable<void> TestReliableClose(net::io_context &ioc)
         // 客户端必须收到某种关闭指示
         if (!ec)
         {
-            log_fail("ReliableClose: client expected close indication but got none");
+            LogFail("ReliableClose: client expected close indication but got none");
             co_return;
         }
 
@@ -267,7 +267,7 @@ net::awaitable<void> TestReliableClose(net::io_context &ioc)
             ec != net::error::connection_reset &&
             ec != net::error::operation_aborted)
         {
-            log_fail(std::format("ReliableClose: unexpected client error {}", ec.message()));
+            LogFail(std::format("ReliableClose: unexpected client error {}", ec.message()));
             co_return;
         }
     }
@@ -275,11 +275,11 @@ net::awaitable<void> TestReliableClose(net::io_context &ioc)
     // 服务端和客户端都必须检测到关闭
     if (!server_close_detected)
     {
-        log_fail("server_close not detected");
+        LogFail("server_close not detected");
         co_return;
     }
 
-    log_pass("ReliableClose");
+    LogPass("ReliableClose");
 }
 
 /**
@@ -287,7 +287,7 @@ net::awaitable<void> TestReliableClose(net::io_context &ioc)
  */
 void TestUnreliableConstructor()
 {
-    log_info("=== TestUnreliableConstructor ===");
+    LogInfo("=== TestUnreliableConstructor ===");
 
     net::io_context ioc;
     auto executor = ioc.get_executor();
@@ -297,18 +297,18 @@ void TestUnreliableConstructor()
     // 验证构造后的 executor 与传入的一致
     if (unreliable->executor() != executor)
     {
-        log_fail("executor mismatch");
+        LogFail("executor mismatch");
         return;
     }
 
     // 新构造的 unreliable 尚未设置远端，应为空
     if (unreliable->remote_endpoint().has_value())
     {
-        log_fail("remote_endpoint should be nullopt");
+        LogFail("remote_endpoint should be nullopt");
         return;
     }
 
-    log_pass("UnreliableConstructor");
+    LogPass("UnreliableConstructor");
 }
 
 /**
@@ -316,7 +316,7 @@ void TestUnreliableConstructor()
  */
 void TestUnreliableSetRemoteEndpoint()
 {
-    log_info("=== TestUnreliableSetRemoteEndpoint ===");
+    LogInfo("=== TestUnreliableSetRemoteEndpoint ===");
 
     net::io_context ioc;
     auto executor = ioc.get_executor();
@@ -331,23 +331,23 @@ void TestUnreliableSetRemoteEndpoint()
     auto remote_opt = unreliable->remote_endpoint();
     if (!remote_opt.has_value())
     {
-        log_fail("remote_endpoint should have value");
+        LogFail("remote_endpoint should have value");
         return;
     }
 
     if (remote_opt->address() != endpoint.address())
     {
-        log_fail("address mismatch");
+        LogFail("address mismatch");
         return;
     }
 
     if (remote_opt->port() != endpoint.port())
     {
-        log_fail("port mismatch");
+        LogFail("port mismatch");
         return;
     }
 
-    log_pass("UnreliableSetRemoteEndpoint");
+    LogPass("UnreliableSetRemoteEndpoint");
 }
 
 /**
@@ -363,7 +363,7 @@ int main()
     // 初始化 spdlog 日志系统
     psm::trace::init({});
 
-    log_info("Starting transmission tests...");
+    LogInfo("Starting transmission tests...");
 
     net::io_context ioc;
 
@@ -400,11 +400,11 @@ int main()
         }
         catch (const std::exception &e)
         {
-            log_fail(std::format("uncaught exception: {}", e.what()));
+            LogFail(std::format("uncaught exception: {}", e.what()));
         }
     }
 
-    log_info("Transmission tests completed.");
+    LogInfo("Transmission tests completed.");
 
     psm::trace::info("[Transmission] Results: {} passed, {} failed", passed, failed);
 

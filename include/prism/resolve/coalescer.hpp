@@ -4,6 +4,7 @@
  * @details 该组件实现了请求合并模式，用于将同一目标的并发请求合并为单次操作。
  * 当多个协程同时请求同一资源时，仅执行一次实际操作，其他协程等待结果复用。
  * 这在 DNS 解析等场景中特别有用，可以有效降低服务器压力。
+ * @note 该组件不是线程安全的，应在单线程上下文中使用
  */
 
 #pragma once
@@ -45,9 +46,11 @@ namespace psm::resolve
         struct flight
         {
             /**
-             * @brief 构造请求合并记录。
-             * @param value 查找键字符串。
-             * @param executor 执行器，用于创建等待定时器。
+             * @brief 构造请求合并记录
+             * @details 初始化查找键和等待定时器，定时器设为永不超时，
+             * 用于挂起等待的协程直到请求完成。
+             * @param value 查找键字符串
+             * @param executor 执行器，用于创建等待定时器
              */
             explicit flight(memory::string value, const net::any_io_executor &executor)
                 : key(std::move(value)), timer(executor)
@@ -67,8 +70,9 @@ namespace psm::resolve
         using flight_hash_map = memory::unordered_map<std::string_view, flight_iterator, transparent_hash, transparent_equal>; // 请求合并索引类型
 
         /**
-         * @brief 构造请求合并器。
-         * @param mr 内存资源，用于内部存储分配。
+         * @brief 构造请求合并器
+         * @details 使用指定的内存资源初始化内部的请求合并列表和索引。
+         * @param mr 内存资源，用于内部存储分配
          */
         explicit coalescer(const memory::resource_pointer mr = memory::current_resource())
             : mr_(mr), flights_(mr), flight_map_(mr)
@@ -76,10 +80,12 @@ namespace psm::resolve
         }
 
         /**
-         * @brief 构造查找键字符串。
-         * @param host 主机名。
-         * @param port 服务端口。
-         * @return 格式为 "host:port" 的键字符串。
+         * @brief 构造查找键字符串
+         * @details 将主机名和端口号拼接为 "host:port" 格式的键字符串，
+         * 用于唯一标识一个请求目标。
+         * @param host 主机名
+         * @param port 服务端口
+         * @return 格式为 "host:port" 的键字符串
          */
         [[nodiscard]] auto make_key(const std::string_view host, const std::string_view port) const -> memory::string
         {
@@ -92,13 +98,13 @@ namespace psm::resolve
         }
 
         /**
-         * @brief 查找或创建请求合并记录。
-         * @param key 查找键。
-         * @param executor 执行器，用于创建等待定时器。
-         * @return 请求合并记录的迭代器和是否为新创建的标志。
+         * @brief 查找或创建请求合并记录
          * @details 若该键对应的请求正在进行中，返回现有记录；
          * 否则创建新的请求记录。键存储在 flight 对象中，确保
          * 哈希表中的 string_view 键指向有效的内存。
+         * @param key 查找键
+         * @param executor 执行器，用于创建等待定时器
+         * @return 请求合并记录的迭代器和是否为新创建的标志
          */
         auto find_or_create(const memory::string &key, const net::any_io_executor &executor)
             -> std::pair<flight_iterator, bool>
@@ -116,10 +122,10 @@ namespace psm::resolve
         }
 
         /**
-         * @brief 标记请求合并记录待清理。
-         * @param flight 请求合并记录的迭代器。
+         * @brief 标记请求合并记录待清理
          * @details 当请求已完成且无等待者时，标记为待清理状态。
          * 实际删除操作在 flush_cleanup 中执行，避免迭代器失效。
+         * @param flight 请求合并记录的迭代器
          */
         static void cleanup_flight(const flight_iterator flight)
         {
@@ -130,7 +136,7 @@ namespace psm::resolve
         }
 
         /**
-         * @brief 执行延迟清理。
+         * @brief 执行延迟清理
          * @details 删除所有标记为 pending_cleanup 的 flight 记录。
          * 应在安全时机调用，例如下一次请求开始前。
          * 使用安全的方式遍历和删除，避免迭代器失效。

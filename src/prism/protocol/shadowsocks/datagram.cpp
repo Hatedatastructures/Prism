@@ -11,6 +11,8 @@ namespace psm::protocol::shadowsocks
 {
     namespace
     {
+        /// 时间戳验证窗口（秒），与 config::timestamp_window 默认值一致
+        static constexpr std::int64_t timestamp_window = 30;
         /// byte span → uint8_t 只读 span
         [[nodiscard]] auto as_u8(const std::span<const std::byte> s) noexcept
             -> std::span<const std::uint8_t>
@@ -149,7 +151,7 @@ namespace psm::protocol::shadowsocks
         // AEAD 解密 body（PMR vector，零拷贝 payload 指向此缓冲区）
         const auto body_enc = packet.subspan(separate_header_len);
         memory::vector<std::uint8_t> body_plain(body_enc.size() - aead_tag_len,
-                                                  memory::current_resource());
+                                                memory::current_resource());
 
         if (const auto r = entry->aead_ctx->open(body_plain, as_u8(body_enc), nonce_span);
             r != fault::code::success)
@@ -289,7 +291,7 @@ namespace psm::protocol::shadowsocks
         // 解密 body（跳过 16 字节明文 header，PMR vector）
         const auto body_enc = packet.subspan(session_id_len + packet_id_len);
         memory::vector<std::uint8_t> body_plain(body_enc.size() - aead_tag_len,
-                                                  memory::current_resource());
+                                                memory::current_resource());
         const auto nonce_span = std::span<const std::uint8_t>(nonce.data(), nonce.size());
 
         if (const auto r = ctx.open(body_plain, as_u8(body_enc), nonce_span);

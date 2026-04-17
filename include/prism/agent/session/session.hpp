@@ -9,39 +9,17 @@
 
 #pragma once
 
-#include <cstddef>
-#include <cctype>
-
-#include <array>
-#include <vector>
 #include <memory>
-#include <string>
 #include <utility>
 #include <functional>
 #include <string_view>
-#include <span>
 
 #include <boost/asio.hpp>
-#include <boost/asio/experimental/awaitable_operators.hpp>
 
 #include <prism/agent/context.hpp>
-#include <prism/exception.hpp>
 #include <prism/memory/pool.hpp>
-#include <prism/protocol/analysis.hpp>
-#include <prism/protocol/probe.hpp>
-#include <prism/trace/spdlog.hpp>
-#include <prism/channel/transport/transmission.hpp>
-#include <prism/pipeline/protocols.hpp>
-#include <prism/pipeline/primitives.hpp>
 #include <atomic>
 
-/**
- * @namespace psm::agent::session
- * @brief 连接管理层命名空间
- * @details 本命名空间封装了连接会话相关的所有类型定义和实现，包括会话参数、
- * 会话对象以及会话工厂函数。会话是代理服务的核心抽象，每个入站连接对应
- * 一个独立的会话实例，负责协议识别、数据转发和资源管理。
- */
 namespace psm::agent::session
 {
     namespace net = boost::asio;
@@ -58,18 +36,20 @@ namespace psm::agent::session
         }
     } // namespace detail
 
-
     /**
      * @struct session_params
      * @brief 会话初始化参数集合
-     * @details 该结构体封装了创建会话所需的所有外部依赖，包括服务器级上下文、
-     * 工作线程级上下文以及入站传输层。采用结构体聚合参数可提高接口稳定性，
-     * 便于后续扩展新参数而不破坏现有调用点。
+     * @details 该结构体封装了创建会话所需的所有外部依赖，
+     * 包括服务器级上下文、工作线程级上下文以及入站传输层。
+     * 采用结构体聚合参数可提高接口稳定性，便于后续扩展
+     * 新参数而不破坏现有调用点。
+     * @note server 和 worker 引用的生命周期必须长于会话
+     * @warning inbound 的所有权将转移到会话对象内部
      */
     struct session_params
     {
-        server_context &server;                  // 服务器全局上下文引用
-        worker_context &worker;                  // 工作线程上下文引用
+        server_context &server;      // 服务器全局上下文引用
+        worker_context &worker;      // 工作线程上下文引用
         shared_transmission inbound; // 入站传输层所有权
     };
 
@@ -95,14 +75,18 @@ namespace psm::agent::session
     {
     public:
         /**
+         * @enum state
          * @brief 会话生命周期状态
          * @details 用于跟踪会话的当前状态，确保关闭流程的正确性。
          */
         enum class state : std::uint8_t
         {
-            active,     // 活跃状态，正常处理中
-            closing,    // 正在关闭，已取消底层连接
-            closed      // 已关闭，资源已释放
+            /** @brief 活跃状态，正常处理中 */
+            active,
+            /** @brief 正在关闭，已取消底层连接 */
+            closing,
+            /** @brief 已关闭，资源已释放 */
+            closed
         };
 
         /**
@@ -181,7 +165,7 @@ namespace psm::agent::session
          * @details 用于限制用户连接数，防止单用户滥用。如果未设置，默认
          * 不限制连接数。验证器在每个连接建立时被调用，用于检查连接数是否
          * 超过配额。账户注册表是线程安全的，可被多个会话并发访问。
-         * @param account_registry 账户运行时注册表指针
+         * @param account_directory 账户运行时注册表指针
          * @note 应在调用 start() 之前设置此验证器，否则配额控制不会生效。
          * @warning 验证器必须是线程安全的，因为可能被多个会话并发访问。
          * @warning 该方法不抛出异常（标记为 noexcept）。
@@ -218,7 +202,6 @@ namespace psm::agent::session
         }
 
     private:
-
         /**
          * @brief 协议分流处理
          * @details 预读部分数据，根据协议特征进行分流处理。这是会话处理的
@@ -239,29 +222,33 @@ namespace psm::agent::session
         /**
          * @brief 释放所有资源
          * @details 关闭并释放传输层对象，触发关闭回调。
-         * 该方法只在确定没有异步操作运行时调用，确保安全释放。
+         * 该方法只在确定没有异步操作运行时调用，确保安全
+         * 释放。
+         * @note 该方法是幂等的，多次调用无副作用
          */
         void release_resources() noexcept;
 
-        std::uint64_t id_;                        // 会话唯一标识符
-        memory::frame_arena frame_arena_;    // 帧内存池
-        state state_{state::active}; // 会话状态（单线程 io_context，无需原子）
-        std::function<void()> on_closed_;    // 关闭回调
+        std::uint64_t id_;                // 会话唯一标识符
+        memory::frame_arena frame_arena_; // 帧内存池
+        state state_{state::active};      // 会话状态（单线程 io_context，无需原子）
+        std::function<void()> on_closed_; // 关闭回调
 
         session_context ctx_; // 会话上下文，持有所有状态
     };
 
     /**
      * @brief 创建会话对象的工厂函数
-     * @details 该函数封装了 session 对象的创建逻辑，返回一个 std::shared_ptr
-     * 管理的会话实例。使用工厂函数可以确保会话对象始终通过共享指针管理，
-     * 满足 enable_shared_from_this 的前提条件。工厂函数内部调用
-     * std::make_shared，相比直接 new 具有更好的内存局部性。
-     * @param params 会话参数集合，包含服务器上下文、工作线程上下文和入站传输层
+     * @details 该函数封装了 session 对象的创建逻辑，返回一个
+     * std::shared_ptr 管理的会话实例。使用工厂函数可以确保会话
+     * 对象始终通过共享指针管理，满足 enable_shared_from_this
+     * 的前提条件。工厂函数内部调用 std::make_shared，相比直接
+     * new 具有更好的内存局部性。
+     * @param params 会话参数集合，包含服务器上下文、工作线程
+     * 上下文和入站传输层
      * @return 新创建的会话对象共享指针
      * @throws std::bad_alloc 当内存分配失败时抛出
-     * @throws std::bad_alloc 当内存分配失败时抛出
-     * @warning 调用者必须确保传入的 io_context 在会话生命周期内保持运行。
+     * @warning 调用者必须确保传入的 io_context 在会话生命周期
+     * 内保持运行。
      */
     std::shared_ptr<session> make_session(session_params &&params);
 

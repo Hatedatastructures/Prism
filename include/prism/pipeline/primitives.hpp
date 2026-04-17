@@ -9,6 +9,7 @@
 #pragma once
 
 #include <cstddef>
+#include <functional>
 #include <memory>
 #include <span>
 #include <string_view>
@@ -17,8 +18,6 @@
 
 #include <boost/asio.hpp>
 #include <boost/asio/ssl.hpp>
-#include <boost/asio/experimental/awaitable_operators.hpp>
-
 #include <prism/agent/context.hpp>
 #include <prism/resolve/router.hpp>
 #include <prism/fault/code.hpp>
@@ -27,16 +26,9 @@
 #include <prism/channel/transport/transmission.hpp>
 #include <prism/channel/adapter/connector.hpp>
 
-/**
- * @namespace psm::pipeline::primitives
- * @brief 管道原语命名空间
- * @details 提供协议处理管道的基础原语实现，包括传输层资源管理、
- * 上游连接建立、预读数据回放以及全双工隧道转发等功能。这些原语
- * 被上层协议处理器直接调用，不应在协议检测阶段使用。
- */
 namespace psm::pipeline::primitives
 {
-    using psm::agent::session_context;
+    using agent::session_context;
     namespace net = boost::asio;
     namespace ssl = net::ssl;
 
@@ -55,6 +47,7 @@ namespace psm::pipeline::primitives
     {
         if (trans)
         {
+            trans->shutdown_write();
             trans->close();
         }
     }
@@ -70,6 +63,7 @@ namespace psm::pipeline::primitives
     {
         if (trans)
         {
+            trans->shutdown_write();
             trans->close();
             trans.reset();
         }
@@ -136,7 +130,8 @@ namespace psm::pipeline::primitives
 
         /**
          * @brief 获取内部传输的执行器
-         * @return 绑定到内部传输的执行器
+         * @details 委托给内部传输对象的 executor 方法
+         * @return executor_type 绑定到内部传输的执行器
          */
         [[nodiscard]] executor_type executor() const override;
 
@@ -177,11 +172,13 @@ namespace psm::pipeline::primitives
 
         /**
          * @brief 关闭内部传输流
+         * @details 清空预读缓冲区后关闭内部传输连接
          */
         void close() override;
 
         /**
          * @brief 取消内部传输的待处理操作
+         * @details 取消内部传输对象上所有挂起的异步读写操作
          */
         void cancel() override;
 
@@ -203,7 +200,7 @@ namespace psm::pipeline::primitives
      * @note 调用后 ctx.inbound 被置空，所有权转移至返回值。
      */
     inline auto wrap_with_preview(session_context &ctx, std::span<const std::byte> data,
-                                   bool use_global_mr = false) -> shared_transmission
+                                  bool use_global_mr = false) -> shared_transmission
     {
         auto inbound = std::move(ctx.inbound);
         if (!data.empty())
@@ -232,4 +229,43 @@ namespace psm::pipeline::primitives
     auto tunnel(shared_transmission inbound, shared_transmission outbound,
                 const session_context &ctx, bool complete_write = true)
         -> net::awaitable<void>;
+
+    /**
+     * @brief 拨号连接上游并建立双向隧道
+     * @param ctx 会话上下文，提供路由器和会话信息
+     * @param label 协议标签，用于日志记录
+     * @param target 目标地址信息
+     * @param inbound 入站传输对象
+     * @return 协程对象，隧道结束后完成
+     * @details 组合 dial + tunnel 操作，所有协议的 TCP 隧道转发共用此函数。
+     * 先通过路由器建立到目标的上游连接，连接成功后进入双向隧道转发。
+     * 连接失败时记录日志并返回，不抛出异常。
+     */
+    auto forward(session_context &ctx, std::string_view label,
+                 const protocol::analysis::target &target,
+                 shared_transmission inbound) -> net::awaitable<void>;
+
+    /**
+     * @brief 检测是否为 mux 多路复用标记地址
+     * @param host 目标主机名
+     * @param mux_enabled 是否启用多路复用
+     * @return 若目标地址为 mux 标记地址且 mux 已启用则返回 true
+     * @details 检测目标主机名是否以 ".mux.sing-box.arpa" 结尾，
+     * 这是 Mihomo/sing-box 兼容的 mux 多路复用标记地址。
+     */
+    [[nodiscard]] auto is_mux_target(std::string_view host, bool mux_enabled) noexcept -> bool;
+
+    /**
+     * @brief 创建 UDP 数据报路由回调
+     * @param router 路由器引用
+     * @return UDP 路由回调函数
+     * @details 创建用于 UDP ASSOCIATE 的路由回调函数，避免每个协议重复
+     * 构造 shared_ptr<router> + lambda。回调接受主机名和端口，
+     * 返回错误码和 UDP 端点的配对。
+     * @warning 返回的回调持有 router 的非拥有引用（空删除器 shared_ptr），
+     * 调用方必须确保 router 的生命周期长于回调的使用期。
+     */
+    auto make_datagram_router(resolve::router &router)
+        -> std::function<net::awaitable<std::pair<fault::code, net::ip::udp::endpoint>>(
+            std::string_view, std::string_view)>;
 } // namespace psm::pipeline::primitives

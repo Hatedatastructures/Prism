@@ -2,9 +2,12 @@
 #include <prism/agent/dispatch/handlers.hpp>
 #include <prism/pipeline/primitives.hpp>
 #include <prism/channel/transport/encrypted.hpp>
+#include <prism/protocol/probe.hpp>
 #include <prism/protocol/analysis.hpp>
+#include <boost/asio/experimental/awaitable_operators.hpp>
 #include <prism/stealth/reality/handshake.hpp>
 #include <prism/stealth/reality/config.hpp>
+#include <prism/exception.hpp>
 
 namespace dispatch = psm::agent::dispatch;
 
@@ -127,6 +130,8 @@ namespace psm::agent::session
         }
         if (ctx_.outbound)
         {
+            // 尝试优雅关闭（发 FIN），忽略错误（对端可能已关闭）
+            ctx_.outbound->shutdown_write();
             ctx_.outbound->close();
             ctx_.outbound.reset();
         }
@@ -177,7 +182,7 @@ namespace psm::agent::session
                     // Reality 握手成功，设置加密传输层
                     ctx_.inbound = std::move(result.encrypted_transport);
                     span = std::span<const std::byte>(result.inner_preread.data(),
-                                                       result.inner_preread.size());
+                                                      result.inner_preread.size());
                     // Reality 内层固定为 VLESS
                     detect_result.type = protocol::protocol_type::vless;
                     trace::debug("[Session] [{}] Reality authenticated, dispatching to VLESS", id_);
@@ -188,7 +193,7 @@ namespace psm::agent::session
                     // 非 Reality TLS 客户端（SNI 不匹配），fall through 到标准 TLS
                     // ssl_handshake 会通过 span 参数正确缓存预读的 raw_tls_record 数据
                     span = std::span<const std::byte>(result.raw_tls_record.data(),
-                                                       result.raw_tls_record.size());
+                                                      result.raw_tls_record.size());
                     need_standard_tls = true;
                     trace::debug("[Session] [{}] Not Reality client, using standard TLS", id_);
                     break;
@@ -242,7 +247,7 @@ namespace psm::agent::session
                 // 增量读取内层数据并逐次探测协议，避免短请求死锁
                 // HTTP 方法前缀最短 4 字节（GET/PUT），Trojan 需 60 字节
                 constexpr std::size_t trojan_min = 60;
-                std::array<std::byte, 64> inner_buf{};
+                std::array<std::byte, 128> inner_buf{};
                 std::size_t inner_n = 0;
 
                 while (inner_n < trojan_min)

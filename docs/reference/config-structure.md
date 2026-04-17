@@ -24,12 +24,7 @@ struct limit limit;
 
 | 子字段 | 类型 | 默认值 | 说明 |
 |--------|------|--------|------|
-| `concurrences` | `std::uint32_t` | `20` | 最大并发连接数，0 表示无限制 |
 | `blacklist` | `bool` | `true` | 是否启用黑名单过滤 |
-
-**注意事项**:
-- 并发限制作用于全局所有工作线程
-- 设置过小的并发数可能导致服务拒绝合法连接
 
 ---
 
@@ -264,8 +259,14 @@ Trojan 协议配置，控制能力开关和 UDP 参数。
 protocol::vless::config vless;
 ```
 
-VLESS 协议配置。当前配置结构为空，用户认证已统一到 `authentication.users[].uuid` 字段，
+VLESS 协议配置，控制能力开关和 UDP 参数。用户认证已统一到 `authentication.users[].uuid` 字段，
 启动时由 `loader::build_account_directory()` 自动注册到 `account::directory`。
+
+| 子字段 | 类型 | 默认值 | 说明 |
+|--------|------|--------|------|
+| `enable_udp` | `bool` | `false` | 是否允许 UDP 命令（UDP over TLS） |
+| `udp_idle_timeout` | `std::uint32_t` | `60` | UDP 会话空闲超时（秒） |
+| `udp_max_datagram` | `std::uint32_t` | `65535` | UDP 数据报最大长度 |
 
 **说明**: VLESS 协议已集成到分发逻辑中，`register_handlers()` 注册了 `Vless` handler。
 
@@ -300,7 +301,7 @@ Shadowsocks 2022 (SIP022) 协议配置，控制 AEAD 加密参数。
 
 **源码位置**: [config.hpp](../../include/prism/agent/config.hpp)
 
-**协议配置定义**: [protocol/reality/config.hpp](../../include/prism/protocol/reality/config.hpp)
+**协议配置定义**: [stealth/reality/config.hpp](../../include/prism/stealth/reality/config.hpp)
 
 ```cpp
 protocol::reality::config reality;

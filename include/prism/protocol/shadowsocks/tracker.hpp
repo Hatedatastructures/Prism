@@ -2,9 +2,8 @@
  * @file tracker.hpp
  * @brief SS2022 UDP 会话跟踪器
  * @details 按 SessionID 跟踪 UDP 客户端地址，管理 AEAD 派生密钥缓存
- * 和 PacketID 滑动窗口。每个 worker 持有独立实例，无需线程同步。
+ * 和 PacketID 滑动窗口。每个 worker 持有独立实例，无需线程同步
  */
-
 #pragma once
 
 #include <prism/protocol/shadowsocks/constants.hpp>
@@ -27,37 +26,27 @@ namespace psm::protocol::shadowsocks
     /**
      * @struct udp_session_entry
      * @brief 单个 UDP 会话的运行时状态
+     * @details 包含客户端端点、AEAD 上下文缓存、PacketID 滑动窗口等
      */
     struct udp_session_entry
     {
-        /// 客户端最新端点地址（NAT 遍历用）
-        net::ip::udp::endpoint client_endpoint;
-
-        /// 最后活跃时间
-        std::chrono::steady_clock::time_point last_seen;
-
-        /// 缓存的 AEAD 上下文（AES-GCM 变体用派生密钥）
-        std::unique_ptr<crypto::aead_context> aead_ctx;
-
-        /// 缓存的 XChaCha20 AEAD 上下文（避免逐包创建）
-        std::unique_ptr<crypto::aead_context> chacha20_ctx;
-
-        /// PacketID 滑动窗口重放过滤器
-        replay_window packet_ids;
-
-        /// 服务端 PacketID 计数器
-        std::uint64_t server_packet_id{0};
+        net::ip::udp::endpoint client_endpoint; // 客户端最新端点地址（NAT 遍历用）
+        std::chrono::steady_clock::time_point last_seen; // 最后活跃时间
+        std::unique_ptr<crypto::aead_context> aead_ctx; // 缓存的 AEAD 上下文（AES-GCM 变体用派生密钥）
+        std::unique_ptr<crypto::aead_context> chacha20_ctx; // 缓存的 XChaCha20 AEAD 上下文（避免逐包创建）
+        replay_window packet_ids; // PacketID 滑动窗口重放过滤器
+        std::uint64_t server_packet_id{0}; // 服务端 PacketID 计数器
     };
 
     /**
      * @class session_tracker
      * @brief UDP 会话管理器
      * @details 按 SessionID 管理所有活跃 UDP 会话，提供 TTL 自动过期。
-     * 每个 worker 线程持有独立实例，无需线程同步。
+     * 每个 worker 线程持有独立实例，无需线程同步
+     * @note 使用固定 8 字节 array 作为 key，避免 string 堆分配
      */
     class session_tracker
     {
-        // 使用固定 8 字节 array 作为 key，避免 string 堆分配
         using session_key = std::array<std::uint8_t, session_id_len>;
 
         struct key_hash
@@ -75,6 +64,10 @@ namespace psm::protocol::shadowsocks
         };
 
     public:
+        /**
+         * @brief 构造会话跟踪器
+         * @param ttl_seconds 会话空闲超时时间（秒）
+         */
         explicit session_tracker(std::int64_t ttl_seconds = 60)
             : ttl_(std::chrono::seconds(ttl_seconds))
         {
@@ -82,6 +75,8 @@ namespace psm::protocol::shadowsocks
 
         /**
          * @brief 查找或创建会话
+         * @details 如果会话已存在则更新端点和活跃时间并返回，
+         * 否则创建新会话。AES-GCM 变体需要派生会话子密钥
          * @param session_id 8 字节 SessionID
          * @param endpoint 客户端端点
          * @param psk PSK 字节
@@ -125,6 +120,8 @@ namespace psm::protocol::shadowsocks
 
         /**
          * @brief 查找已有会话（不创建）
+         * @param session_id 8 字节 SessionID
+         * @return 会话条目共享指针，不存在则返回 nullptr
          */
         auto find(const std::array<std::uint8_t, session_id_len> &session_id)
             -> std::shared_ptr<udp_session_entry>
@@ -138,6 +135,7 @@ namespace psm::protocol::shadowsocks
 
         /**
          * @brief 清理过期会话
+         * @details 移除超过 TTL 的会话条目
          */
         void cleanup()
         {
@@ -156,7 +154,14 @@ namespace psm::protocol::shadowsocks
         }
 
     private:
-        /// 为 AES-GCM 会话派生 AEAD 上下文
+        /**
+         * @brief 为 AES-GCM 会话派生 AEAD 上下文
+         * @details 密钥材料为 PSK + SessionID，使用 BLAKE3 KDF 派生
+         * @param session_id 8 字节 SessionID
+         * @param psk PSK 字节
+         * @param method 加密方法
+         * @return AEAD 上下文智能指针
+         */
         static auto derive_session_aead(const std::array<std::uint8_t, session_id_len> &session_id,
                                         const std::vector<std::uint8_t> &psk,
                                         cipher_method method)
@@ -182,8 +187,8 @@ namespace psm::protocol::shadowsocks
 
         std::unordered_map<session_key, std::shared_ptr<udp_session_entry>,
                            key_hash>
-            sessions_;
-        std::chrono::seconds ttl_;
-        std::chrono::steady_clock::time_point last_cleanup_{};
+            sessions_; // 会话映射表
+        std::chrono::seconds ttl_; // 会话 TTL
+        std::chrono::steady_clock::time_point last_cleanup_{}; // 上次清理时间
     };
 } // namespace psm::protocol::shadowsocks

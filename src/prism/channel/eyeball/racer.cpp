@@ -1,7 +1,9 @@
 #include <prism/channel/eyeball/racer.hpp>
 
+#include <prism/memory/container.hpp>
 #include <prism/trace.hpp>
 
+#include <atomic>
 #include <memory>
 
 namespace psm::channel::eyeball

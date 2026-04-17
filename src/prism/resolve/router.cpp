@@ -1,4 +1,5 @@
 #include <prism/resolve/router.hpp>
+#include <prism/channel/eyeball/racer.hpp>
 
 #include <prism/channel/transport/reliable.hpp>
 #include <prism/exception.hpp>

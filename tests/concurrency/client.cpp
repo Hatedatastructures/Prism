@@ -32,7 +32,7 @@ using tcp = net::ip::tcp;
  * @param msg 系统错误消息（可能是本地编码）
  * @return UTF-8 编码的错误消息
  */
-std::string to_utf8_message(const std::string &msg)
+std::string ToUtf8Message(const std::string &msg)
 {
     if (msg.empty())
         return msg;
@@ -131,7 +131,7 @@ public:
         psm::trace::info("  重连延迟: {}毫秒", config_.reconnect_delay_ms);
         psm::trace::info("  调试输出: {}", config_.debug_output ? "开启" : "关闭");
 
-        net::co_spawn(ioc_, print_stats(), net::detached);
+        net::co_spawn(ioc_, PrintStats(), net::detached);
 
         for (std::size_t i = 0; i < config_.concurrency; ++i)
         {
@@ -171,7 +171,7 @@ private:
      * @details 每秒打印一次实时统计信息，包括 QPS、带宽、成功率、延迟等。
      * @return 协程任务
      */
-    net::awaitable<void> print_stats()
+    net::awaitable<void> PrintStats()
     {
         auto timer = net::steady_timer(co_await net::this_coro::executor);
         std::size_t last_requests = 0;
@@ -245,11 +245,11 @@ private:
 
             if (!is_connected)
             {
-                if (!co_await connect_to_proxy(resolver, socket))
+                if (!co_await ConnectToProxy(resolver, socket))
                 {
                     consecutive_failures++;
-                    int delay_ms = calculate_backoff_delay(consecutive_failures);
-                    co_await async_sleep(std::chrono::milliseconds(delay_ms));
+                    int delay_ms = CalculateBackoffDelay(consecutive_failures);
+                    co_await AsyncSleep(std::chrono::milliseconds(delay_ms));
                     continue;
                 }
                 is_connected = true;
@@ -257,7 +257,7 @@ private:
             }
 
             boost::system::error_code ec;
-            auto request_data = build_request(mr);
+            auto request_data = BuildRequest(mr);
 
             if (config_.debug_output)
             {
@@ -273,7 +273,7 @@ private:
             if (ec)
             {
                 psm::trace::error("[错误] 发送请求失败: {}", ec.message());
-                handle_error(socket, is_connected, ec);
+                HandleError(socket, is_connected, ec);
                 continue;
             }
 
@@ -281,11 +281,11 @@ private:
 
             if (is_stress_mode)
             {
-                co_await handle_stress_mode(socket, is_connected, mr, request_start);
+                co_await HandleStressMode(socket, is_connected, mr, request_start);
             }
             else
             {
-                co_await handle_normal_mode(socket, is_connected, mr, request_start);
+                co_await HandleNormalMode(socket, is_connected, mr, request_start);
             }
         }
     }
@@ -295,7 +295,7 @@ private:
      * @param consecutive_failures 连续失败次数
      * @return 延迟毫秒数
      */
-    int calculate_backoff_delay(int consecutive_failures)
+    int CalculateBackoffDelay(int consecutive_failures)
     {
         constexpr int min_delay = 100;
         constexpr int max_delay = 5000;
@@ -319,7 +319,7 @@ private:
      * @param socket TCP 套接字
      * @return 连接是否成功
      */
-    net::awaitable<bool> connect_to_proxy(tcp::resolver &resolver, tcp::socket &socket)
+    net::awaitable<bool> ConnectToProxy(tcp::resolver &resolver, tcp::socket &socket)
     {
         boost::system::error_code ec;
 
@@ -335,7 +335,7 @@ private:
         {
             if (config_.debug_output)
             {
-                psm::trace::debug("[连接] DNS 解析失败: {}", to_utf8_message(ec.message()));
+                psm::trace::debug("[连接] DNS 解析失败: {}", ToUtf8Message(ec.message()));
             }
             stats_.connection_errors.fetch_add(1, std::memory_order_relaxed);
             co_return false;
@@ -346,7 +346,7 @@ private:
         {
             if (config_.debug_output)
             {
-                psm::trace::debug("[连接] 连接失败: {}", to_utf8_message(ec.message()));
+                psm::trace::debug("[连接] 连接失败: {}", ToUtf8Message(ec.message()));
             }
             socket.close(ignore_ec);
             stats_.connection_errors.fetch_add(1, std::memory_order_relaxed);
@@ -368,7 +368,7 @@ private:
      * @param mr 内存资源
      * @return 序列化后的请求数据
      */
-    memory::string build_request(memory::resource_pointer mr)
+    memory::string BuildRequest(memory::resource_pointer mr)
     {
         memory::string req(mr);
         req.append("GET http://");
@@ -395,8 +395,8 @@ private:
      * @param mr 内存资源
      * @param request_start 请求开始时间
      */
-    net::awaitable<void> handle_stress_mode(tcp::socket &socket, bool &is_connected,
-                                            memory::resource_pointer mr, std::chrono::steady_clock::time_point request_start)
+    net::awaitable<void> HandleStressMode(tcp::socket &socket, bool &is_connected,
+                                          memory::resource_pointer mr, std::chrono::steady_clock::time_point request_start)
     {
         std::array<char, 8192> buf{};
 
@@ -423,7 +423,7 @@ private:
                     {
                         psm::trace::debug("stress mode: server closed connection");
                     }
-                    handle_disconnect(socket, is_connected);
+                    HandleDisconnect(socket, is_connected);
                     co_return;
                 }
                 used += n;
@@ -458,7 +458,7 @@ private:
             auto request_end = std::chrono::steady_clock::now();
             auto latency_ms = static_cast<std::uint64_t>(
                 std::chrono::duration_cast<std::chrono::milliseconds>(request_end - request_start).count());
-            update_latency_stats(latency_ms);
+            UpdateLatencyStats(latency_ms);
             request_start = request_end;
 
             if (config_.debug_output)
@@ -475,13 +475,13 @@ private:
             co_await net::async_write(socket, net::buffer(ack_data), token);
             if (ec)
             {
-                handle_disconnect(socket, is_connected);
+                HandleDisconnect(socket, is_connected);
                 co_return;
             }
 
             if (stats_.total_requests.load(std::memory_order_relaxed) >= config_.total_requests)
             {
-                handle_disconnect(socket, is_connected);
+                HandleDisconnect(socket, is_connected);
                 co_return;
             }
         }
@@ -495,8 +495,8 @@ private:
      * @param mr 内存资源
      * @param request_start 请求开始时间
      */
-    net::awaitable<void> handle_normal_mode(tcp::socket &socket, bool &is_connected,
-                                            memory::resource_pointer mr, std::chrono::steady_clock::time_point request_start)
+    net::awaitable<void> HandleNormalMode(tcp::socket &socket, bool &is_connected,
+                                          memory::resource_pointer mr, std::chrono::steady_clock::time_point request_start)
     {
         // 读取 HTTP 响应头
         std::array<char, 8192> buf{};
@@ -517,7 +517,7 @@ private:
             if (ec)
             {
                 psm::trace::error("[错误] 读取响应失败");
-                handle_error(socket, is_connected, ec);
+                HandleError(socket, is_connected, ec);
                 co_return;
             }
             used += n;
@@ -602,7 +602,7 @@ private:
         {
             stats_.success_requests.fetch_add(1, std::memory_order_relaxed);
             stats_.bytes_received.fetch_add(body_size, std::memory_order_relaxed);
-            update_latency_stats(latency_ms);
+            UpdateLatencyStats(latency_ms);
         }
         else
         {
@@ -612,7 +612,7 @@ private:
 
         if (!keep_alive)
         {
-            handle_disconnect(socket, is_connected);
+            HandleDisconnect(socket, is_connected);
         }
     }
 
@@ -620,7 +620,7 @@ private:
      * @brief 更新延迟统计
      * @param latency_ms 本次延迟（毫秒）
      */
-    void update_latency_stats(std::uint64_t latency_ms)
+    void UpdateLatencyStats(std::uint64_t latency_ms)
     {
         stats_.total_latency_ms.fetch_add(latency_ms, std::memory_order_relaxed);
 
@@ -644,7 +644,7 @@ private:
      * @param ec 错误码
      * @details 根据错误类型更新统计信息并断开连接。
      */
-    void handle_error(tcp::socket &socket, bool &is_connected, const boost::system::error_code &ec)
+    void HandleError(tcp::socket &socket, bool &is_connected, const boost::system::error_code &ec)
     {
         stats_.failed_requests.fetch_add(1, std::memory_order_relaxed);
 
@@ -666,7 +666,7 @@ private:
             stats_.protocol_errors.fetch_add(1, std::memory_order_relaxed);
         }
 
-        handle_disconnect(socket, is_connected);
+        HandleDisconnect(socket, is_connected);
     }
 
     /**
@@ -675,7 +675,7 @@ private:
      * @param is_connected 连接状态标志
      * @details 关闭套接字并更新活跃连接数。
      */
-    void handle_disconnect(tcp::socket &socket, bool &is_connected)
+    void HandleDisconnect(tcp::socket &socket, bool &is_connected)
     {
         if (is_connected)
         {
@@ -692,7 +692,7 @@ private:
      * @param duration 休眠时长
      * @return 协程任务
      */
-    static net::awaitable<void> async_sleep(std::chrono::milliseconds duration)
+    static net::awaitable<void> AsyncSleep(std::chrono::milliseconds duration)
     {
         net::steady_timer timer(co_await net::this_coro::executor);
         timer.expires_after(duration);

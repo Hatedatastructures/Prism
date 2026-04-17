@@ -1,4 +1,5 @@
 #include <prism/resolve/resolver.hpp>
+#include <prism/trace.hpp>
 
 #include <algorithm>
 #include <atomic>
@@ -301,7 +302,7 @@ namespace psm::resolve
         boost::system::error_code ec;
         auto token = net::redirect_error(net::use_awaitable, ec);
         memory::vector<uint8_t> response_buf(mr_);
-        response_buf.resize(512);
+        response_buf.resize(4096);
 
         // 发送查询
         arm();

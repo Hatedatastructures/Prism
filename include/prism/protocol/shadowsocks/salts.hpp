@@ -2,7 +2,7 @@
  * @file salts.hpp
  * @brief SS2022 Salt 重放保护池
  * @details SIP022 规范要求精确匹配的 salt 重放检测，禁止使用 Bloom filter。
- * 每个 salt 在 TTL 内只能出现一次。该池为 worker 线程独占，无需锁。
+ * 每个 salt 在 TTL 内只能出现一次。该池为 worker 线程独占，无需锁
  */
 
 #pragma once
@@ -20,7 +20,8 @@ namespace psm::protocol::shadowsocks
      * @class salt_pool
      * @brief Salt 重放检测池
      * @details 维护已见 salt 的精确集合，配合 TTL 自动过期清理。
-     * 每个 worker 线程持有独立实例（thread_local），无需线程同步。
+     * 每个 worker 线程持有独立实例（thread_local），无需线程同步
+     * @note 使用异构查找避免 string 构造开销
      */
     class salt_pool
     {

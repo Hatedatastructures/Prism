@@ -69,27 +69,28 @@ namespace srv
                 co_return;
             }
 
-            const auto mode = detect_mode(req.target);
+            const auto mode = DetectMode(req.target);
 
             if (mode == srv::mode::stress)
             {
                 psm::trace::info("stress mode activated");
-                co_await handle_stress(socket_, psm::memory::current_resource());
+                co_await HandleStress(socket_, psm::memory::current_resource());
             }
             else
             {
-                co_await handle_concurrent();
+                co_await HandleConcurrent();
             }
 
             socket_.close(ec);
         }
 
-        boost::asio::awaitable<void> handle_concurrent()
+        boost::asio::awaitable<void> HandleConcurrent()
         {
-            const auto response_data = build_http_response(
+            const auto response_data = BuildHttpResponse(
                 200, "OK", JSON_CONTENT,
                 R"({"code":0,"message":"success"})");
             co_await net::async_write(socket_, net::buffer(response_data), net::use_awaitable);
+            co_return;
         }
 
         boost::asio::ip::tcp::socket socket_;

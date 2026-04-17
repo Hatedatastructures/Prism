@@ -17,7 +17,6 @@
 #include <array>
 #include <charconv>
 #include <functional>
-#include <string>
 
 #include <boost/asio.hpp>
 #include <boost/asio/experimental/awaitable_operators.hpp>
@@ -33,11 +32,6 @@
 #include <prism/agent/account/entry.hpp>
 #include <prism/agent/account/directory.hpp>
 #include <prism/crypto/sha224.hpp>
-
-namespace psm::agent::account
-{
-    class directory;
-}
 
 namespace psm::protocol::socks5
 {
@@ -78,8 +72,7 @@ namespace psm::protocol::socks5
          * 调用者不应再使用原指针
          * @note 底层传输层必须已建立连接，否则后续操作将失败
          */
-        explicit relay(shared_transmission next_layer,
-                       const config &cfg = {},
+        explicit relay(shared_transmission next_layer, const config &cfg = {},
                        psm::agent::account::directory *account_dir = nullptr)
             : next_layer_(std::move(next_layer)), config_(cfg), account_directory_(account_dir)
         {
@@ -163,7 +156,7 @@ namespace psm::protocol::socks5
         auto async_associate(const request &request_info, route_callback route_callback) const
             -> net::awaitable<fault::code>
         {
-            if (!config_.enable_udp || request_info.form != psm::protocol::form::datagram)
+            if (!config_.enable_udp || request_info.form != form::datagram)
             {
                 co_return fault::code::not_supported;
             }
@@ -950,19 +943,10 @@ namespace psm::protocol::socks5
             co_return total;
         }
 
-        // 底层传输层指针，所有权通过 unique_ptr 管理
-        // 构造时转移所有权，生命周期与 stream 对象绑定
-        // close() 后仍有效，析构时自动释放
-        shared_transmission next_layer_;
-
-        // SOCKS5 协议配置，构造时传入，运行时只读
-        config config_;
-
-        // 账户目录指针，用于认证验证，不持有所有权
-        psm::agent::account::directory *account_directory_;
-
-        // 账户连接租约，认证成功后持有，会话结束时自动释放
-        psm::agent::account::lease account_lease_;
+        shared_transmission next_layer_;                    // 底层传输层指针，所有权通过 unique_ptr 管理
+        config config_;                                     // SOCKS5 协议配置，构造时传入，运行时只读
+        psm::agent::account::directory *account_directory_; // 账户目录指针，用于认证验证，不持有所有权
+        psm::agent::account::lease account_lease_;          // 账户连接租约，认证成功后持有，会话结束时释放
     };
 
     /**
@@ -980,8 +964,7 @@ namespace psm::protocol::socks5
      * @return shared_relay 中继器对象共享指针
      * @details 工厂函数，封装 std::make_shared 调用，简化对象创建。
      */
-    inline shared_relay make_relay(shared_transmission next_layer,
-                                   const config &cfg = {},
+    inline shared_relay make_relay(shared_transmission next_layer, const config &cfg = {},
                                    psm::agent::account::directory *account_dir = nullptr)
     {
         return std::make_shared<relay>(std::move(next_layer), cfg, account_dir);

@@ -2,6 +2,8 @@
 #include <cctype>
 #include <numeric>
 
+#include <prism/trace.hpp>
+
 #include <boost/asio/experimental/awaitable_operators.hpp>
 
 #include <prism/resolve/recursor.hpp>
@@ -206,8 +208,19 @@ namespace psm::resolve
             co_return std::make_pair(fault::code::dns_failed, memory::vector<net::ip::address>(mr_));
         }
 
-        // 4：上游查询
-        auto result = co_await upstream_.resolve(qname, qt);
+        // 4：上游查询（异常安全：确保等待者不被永久阻塞）
+        resolve_result result(mr_);
+        try
+        {
+            result = co_await upstream_.resolve(qname, qt);
+        }
+        catch (...)
+        {
+            flight_it->ready = true;
+            flight_it->timer.cancel();
+            coalescer::cleanup_flight(flight_it);
+            throw;
+        }
 
         // 通知所有等待者
         flight_it->ready = true;
@@ -215,7 +228,7 @@ namespace psm::resolve
         coalescer::cleanup_flight(flight_it);
 
         // 5：IP 过滤（按查询类型过滤地址族 + 黑名单）
-        if (succeeded(result.error) && !result.ips.empty())
+        if (fault::succeeded(result.error) && !result.ips.empty())
         {
             memory::vector<net::ip::address> filtered(mr_);
             filtered.reserve(result.ips.size());
@@ -241,7 +254,7 @@ namespace psm::resolve
         }
 
         // 6：TTL 钳制 + 缓存存储
-        if (config_.cache_enabled && succeeded(result.error) && !result.ips.empty())
+        if (config_.cache_enabled && fault::succeeded(result.error) && !result.ips.empty())
         {
             // 取所有 answer 记录的最小 TTL
             auto ttl = std::uint32_t{0};
@@ -257,18 +270,18 @@ namespace psm::resolve
                 cache_.put(qname, qt, result.ips, ttl);
             }
         }
-        else if (config_.cache_enabled && failed(result.error))
+        else if (config_.cache_enabled && fault::failed(result.error))
         {
             // 负缓存
             cache_.put_negative(qname, qt, config_.negative_ttl);
         }
-        else if (config_.cache_enabled && succeeded(result.error) && result.ips.empty())
+        else if (config_.cache_enabled && fault::succeeded(result.error) && result.ips.empty())
         {
             // 上游返回成功但无 IP（如 CNAME 委托），写负缓存避免合并等待者反复查询
             cache_.put_negative(qname, qt, config_.negative_ttl);
         }
 
-        if (succeeded(result.error))
+        if (fault::succeeded(result.error))
         {
             trace::debug("[Resolve] {} -> {} IPs in {}ms via {}",
                          qname, result.ips.size(), result.rtt_ms, result.server_addr);
@@ -286,16 +299,13 @@ namespace psm::resolve
     {
         // 并行查询 A 和 AAAA（禁用 IPv6 时跳过 AAAA）
         using namespace boost::asio::experimental::awaitable_operators;
-        using result_t = std::pair<fault::code, memory::vector<net::ip::address>>;
 
-        result_t result6{fault::code::success, memory::vector<net::ip::address>(mr_)};
         if (config_.disable_ipv6)
         {
             auto result4 = co_await query_pipeline(host, qtype::a);
             co_return std::move(result4);
         }
-        auto [result4, result6_out] = co_await (query_pipeline(host, qtype::a) && query_pipeline(host, qtype::aaaa));
-        result6 = std::move(result6_out);
+        auto [result4, result6] = co_await (query_pipeline(host, qtype::a) && query_pipeline(host, qtype::aaaa));
 
         // 合并结果
         memory::vector<net::ip::address> all_ips(mr_);
@@ -305,11 +315,6 @@ namespace psm::resolve
 
         if (all_ips.empty())
         {
-            // 至少有一种查询成功才视为成功（但无 IP）
-            if (succeeded(result4.first) || succeeded(result6.first))
-            {
-                co_return std::make_pair(fault::code::dns_failed, std::move(all_ips));
-            }
             co_return std::make_pair(fault::code::dns_failed, std::move(all_ips));
         }
 

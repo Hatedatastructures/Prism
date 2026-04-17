@@ -8,10 +8,6 @@
 
 #pragma once
 
-#include <variant>
-
-#include <boost/asio/ip/address.hpp>
-
 #include <prism/protocol/socks5/constants.hpp>
 #include <prism/protocol/common/form.hpp>
 #include <prism/protocol/common/address.hpp>
@@ -20,10 +16,10 @@
 namespace psm::protocol::socks5
 {
     // 引用共享地址类型
+    using protocol::common::address;
+    using protocol::common::domain_address;
     using protocol::common::ipv4_address;
     using protocol::common::ipv6_address;
-    using protocol::common::domain_address;
-    using protocol::common::address;
 
     /**
      * @struct request

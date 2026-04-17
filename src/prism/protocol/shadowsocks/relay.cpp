@@ -1,4 +1,8 @@
 #include <prism/protocol/shadowsocks/relay.hpp>
+#include <prism/protocol/shadowsocks/format.hpp>
+#include <prism/crypto/blake3.hpp>
+#include <prism/crypto/base64.hpp>
+#include <prism/protocol/common/address.hpp>
 #include <prism/fault/code.hpp>
 #include <prism/trace/spdlog.hpp>
 #include <prism/memory/container.hpp>
@@ -205,7 +209,7 @@ namespace psm::protocol::shadowsocks
         req.port = addr_result.port;
 
         target_ = analysis::target();
-        target_.host = to_string(req.destination_address);
+        target_.host = protocol::common::address_to_string(req.destination_address);
         char port_buf[8];
         const auto [pe, pec] = std::to_chars(port_buf, port_buf + sizeof(port_buf), req.port);
         target_.port.assign(port_buf, std::distance(port_buf, pe));
@@ -222,7 +226,7 @@ namespace psm::protocol::shadowsocks
             {
                 const auto payload_size = var_header_plain.size() - offset;
                 initial_payload_.resize(payload_size);
-                std::memcpy(initial_payload_.data(), var_header_plain.data() + offset,payload_size);
+                std::memcpy(initial_payload_.data(), var_header_plain.data() + offset, payload_size);
             }
         }
 

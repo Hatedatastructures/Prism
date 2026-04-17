@@ -2,14 +2,9 @@
  * @file bootstrap.hpp
  * @brief 多路复用会话引导（sing-mux 协商 + 协议分流）
  * @details 多路复用会话的统一入口，完成 sing-mux 协议协商后根据客户端
- * 选择的协议类型创建对应的 core 子类实例。协商格式：
- *
- * 基本格式（Version == 0）：
- *   [Version 1B][Protocol 1B]
- *
- * 扩展格式（Version > 0）：
- *   [Version 1B][Protocol 1B][PaddingLen 2B BE][Padding N bytes]
- *
+ * 选择的协议类型创建对应的 core 子类实例。协商基本格式（Version==0）：
+ * [Version 1B][Protocol 1B]，扩展格式（Version>0）：
+ * [Version 1B][Protocol 1B][PaddingLen 2B BE][Padding N bytes]。
  * Protocol 字段指示客户端选择的多路复用协议类型（0=smux, 1=yamux）。
  * 协商完成后，transport 上的后续数据由具体 mux 协议帧解释。
  */
@@ -17,7 +12,6 @@
 #pragma once
 
 #include <memory>
-#include <utility>
 
 #include <boost/asio.hpp>
 
@@ -47,7 +41,7 @@ namespace psm::multiplex
      * 指针操作，无需关心具体协议类型。
      */
     [[nodiscard]] auto bootstrap(channel::transport::shared_transmission transport, resolve::router &router,
-                                    const config &cfg, memory::resource_pointer mr = memory::current_resource())
+                                 const config &cfg, memory::resource_pointer mr = memory::current_resource())
         -> net::awaitable<std::shared_ptr<core>>;
 
 } // namespace psm::multiplex

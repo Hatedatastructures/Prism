@@ -4,6 +4,7 @@
 #include <boost/asio.hpp>
 #include <cctype>
 #include <string>
+#include <prism/trace.hpp>
 
 namespace psm::resolve
 {
@@ -125,7 +126,6 @@ namespace psm::resolve
         current->is_end = true;
     }
 
-
     auto domain_trie::search(const std::string_view domain) const -> std::optional<std::any>
     {
         if (domain.empty())
@@ -188,28 +188,21 @@ namespace psm::resolve
         return std::nullopt;
     }
 
-
     auto domain_trie::match(const std::string_view domain) const -> bool
     {
         return search(domain).has_value();
     }
-
-
 
     void rules_engine::add_address_rule(const std::string_view domain, const memory::vector<net::ip::address> &ips)
     {
         address_trie_.insert(domain, std::any(ips));
     }
 
-
-
     void rules_engine::add_negative_rule(const std::string_view domain)
     {
         // 使用空地址列表 + 负标记表示否定规则
         address_trie_.insert(domain, std::any(true));
     }
-
-
 
     void rules_engine::add_cname_rule(const std::string_view domain, const std::string_view target)
     {

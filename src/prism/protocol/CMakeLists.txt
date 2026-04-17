@@ -21,6 +21,7 @@ target_sources(${PROJECT_NAME}_static_library
             ${PROJECT_SOURCE_DIR}/include/prism/protocol/probe.hpp
             ${PROJECT_SOURCE_DIR}/include/prism/protocol/socks5.hpp
             ${PROJECT_SOURCE_DIR}/include/prism/protocol/common/form.hpp
+            ${PROJECT_SOURCE_DIR}/include/prism/protocol/common/udp_relay.hpp
             ${PROJECT_SOURCE_DIR}/include/prism/protocol/socks5/config.hpp
             ${PROJECT_SOURCE_DIR}/include/prism/protocol/socks5/constants.hpp
             ${PROJECT_SOURCE_DIR}/include/prism/protocol/socks5/message.hpp

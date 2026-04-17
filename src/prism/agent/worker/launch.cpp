@@ -1,4 +1,8 @@
 #include <prism/agent/worker/launch.hpp>
+#include <prism/agent/session/session.hpp>
+#include <prism/agent/account/directory.hpp>
+#include <prism/channel/transport/reliable.hpp>
+#include <prism/trace.hpp>
 
 namespace psm::agent::worker::launch
 {

@@ -10,7 +10,6 @@
 #include <cstddef>
 #include <span>
 #include <boost/asio.hpp>
-#include <boost/asio/ssl.hpp>
 #include <prism/agent/context.hpp>
 #include <prism/pipeline/primitives.hpp>
 
@@ -18,7 +17,6 @@ namespace psm::pipeline
 {
     using psm::agent::session_context;
     namespace net = boost::asio;
-    namespace ssl = net::ssl;
 
     /**
      * @brief Trojan 协议处理函数

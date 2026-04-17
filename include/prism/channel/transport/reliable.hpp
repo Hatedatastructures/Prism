@@ -267,8 +267,8 @@ namespace psm::channel::transport
         }
 
     private:
-        std::optional<socket_type> socket_;      ///< 非池连接的 socket 存储
-        psm::channel::pooled_connection pooled_; ///< 池连接，RAII 包装器
+        std::optional<socket_type> socket_;      // 非池连接的 socket 存储
+        psm::channel::pooled_connection pooled_; // 池连接，RAII 包装器
     };
 
     /**

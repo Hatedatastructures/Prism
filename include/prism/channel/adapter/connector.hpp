@@ -1,16 +1,11 @@
 /**
  * @file connector.hpp
  * @brief Socket 异步 IO 适配器
- * @details 统一 TCP 和 UDP 的异步读写接口，屏蔽底层 API 差异。
- * 同时提供将 transmission 接口适配为 Boost.Asio 概念的适配器。
- * 适配器类 connector 将 transmission 接口适配为
- * AsyncReadStream/AsyncWriteStream 概念，支持注入预读数据，
- * 避免协议检测时丢失数据。提供 async_read_some 和 async_write_some
- * 方法，支持协程和回调，兼容 reliable（TCP）和 unreliable（UDP）
- * 传输层。该模块是传输层和上层协议处理之间的适配层，
- * 不应直接用于网络 IO。
- * @note 预读数据注入必须在协议握手之前完成，否则可能导致协议解析失败。
- * @warning 预读数据注入可能导致协议解析失败，请确保在正确的时机注入数据。
+ * @details 统一 TCP 和 UDP 的异步读写接口，将 transmission
+ * 适配为 Boost.Asio 的 AsyncReadStream/AsyncWriteStream
+ * 概念。支持注入预读数据，避免协议检测时丢失数据。
+ * @note 预读数据注入必须在协议握手之前完成。
+ * @warning 预读数据注入时机不当可能导致协议解析失败。
  */
 
 #pragma once
@@ -20,7 +15,6 @@
 #include <utility>
 #include <prism/channel/transport/transmission.hpp>
 #include <prism/memory/container.hpp>
-#include <prism/fault/compatible.hpp>
 
 namespace psm::channel
 {
@@ -30,10 +24,13 @@ namespace psm::channel
      * @class connector
      * @brief Transmission 适配器
      * @details 将 transmission 接口适配为 Boost.Asio 的
-     * AsyncReadStream/AsyncWriteStream 概念，以便与 Boost.Beast、
-     * Boost.Asio.SSL 等库协同工作。该适配器是连接传输层和上层协议处理
-     * 的关键桥梁。内部使用 shared_ptr 持有 transmission，确保
-     * co_spawn(detached) 异步操作期间传输对象不会被提前释放。
+     * AsyncReadStream/AsyncWriteStream 概念。内部使用
+     * shared_ptr 持有 transmission，确保异步操作期间
+     * 传输对象不会被提前释放。支持注入预读数据，
+     * 避免协议检测阶段已读取的数据丢失。
+     * @note 预读数据注入必须在协议握手之前完成。
+     * @warning 预读数据注入时机不当可能导致协议解析失败。
+     * @throws std::bad_alloc 如果内存分配失败
      */
     class connector
     {
@@ -43,6 +40,9 @@ namespace psm::channel
 
         /**
          * @brief 构造函数（传输层指针 + 预读数据）
+         * @details 使用传输层指针和可选的预读数据构造适配器。
+         * 预读数据将在首次 async_read_some 调用时优先返回，
+         * 避免协议检测阶段已读取的数据丢失。
          * @param trans 传输层对象指针，所有权将被转移
          * @param preread 预读数据切片，默认为空
          */
@@ -57,6 +57,8 @@ namespace psm::channel
 
         /**
          * @brief 移动构造函数
+         * @details 转移传输层指针、预读缓冲区和偏移量的所有权。
+         * 移动后源对象的偏移量被重置为零。
          * @param other 要移动的适配器对象
          */
         connector(connector &&other) noexcept
@@ -69,6 +71,8 @@ namespace psm::channel
 
         /**
          * @brief 移动赋值运算符
+         * @details 转移传输层指针、预读缓冲区和偏移量的所有权。
+         * 移动后源对象的偏移量被重置为零。防止自赋值。
          * @param other 要移动的适配器对象
          * @return connector& 当前对象的引用
          */
@@ -86,6 +90,8 @@ namespace psm::channel
 
         /**
          * @brief 获取执行器
+         * @details 返回底层传输层关联的执行器，满足 Boost.Asio 的
+         * AsyncStream 概念要求。
          * @return executor_type 执行器对象
          */
         executor_type get_executor()
@@ -95,6 +101,7 @@ namespace psm::channel
 
         /**
          * @brief 获取执行器
+         * @details 委托给 get_executor()，提供便捷的执行器访问。
          * @return executor_type 执行器对象
          */
         executor_type executor()
@@ -104,6 +111,9 @@ namespace psm::channel
 
         /**
          * @brief 适配 async_read_some
+         * @details 将 Boost.Asio 的 async_read_some 调用适配到 transmission 接口。
+         * 如果存在未消费的预读数据，优先从预读缓冲区拷贝到用户缓冲区，
+         * 避免额外的异步读取操作。预读数据消费完毕后委托给传输层。
          * @tparam MutableBufferSequence 可变缓冲区序列类型
          * @tparam CompletionToken 完成令牌类型（协程、回调等）
          * @param buffers 可变缓冲区序列，用于存储读取的数据
@@ -141,6 +151,7 @@ namespace psm::channel
 
         /**
          * @brief 适配 async_write_some
+         * @details 将 Boost.Asio 的 async_write_some 调用直接委托给传输层。
          * @tparam ConstBufferSequence 常量缓冲区序列类型
          * @tparam CompletionToken 完成令牌类型
          * @param buffers 常量缓冲区序列，包含要写入的数据
@@ -185,6 +196,8 @@ namespace psm::channel
 
         /**
          * @brief 获取底层对象
+         * @details 返回 connector 自身的引用，满足 Boost.Asio 的
+         * lowest_layer 访问要求。
          * @return lowest_layer_type& 当前对象的引用
          */
         lowest_layer_type &lowest_layer()
@@ -194,25 +207,29 @@ namespace psm::channel
 
         /**
          * @brief 获取底层对象（常量版本）
+         * @details 返回 connector 自身的常量引用，满足 Boost.Asio 的
+         * lowest_layer 常量访问要求。
          * @return const lowest_layer_type& 当前对象的常量引用
          */
-        const lowest_layer_type &lowest_layer() const
+        [[nodiscard]] const lowest_layer_type &lowest_layer() const
         {
             return *this;
         }
 
         /**
          * @brief 获取底层传输层对象
+         * @details 返回内部持有的传输层对象的引用，用于直接操作传输层。
          * @return transport::transmission& 传输层对象的引用
          */
-        auto &transmission()
+        auto &transmission() const
         {
             return *trans_;
         }
 
         /**
          * @brief 释放传输层所有权
-         * @return transmission_pointer 传输层对象指针
+         * @details 将内部持有的传输层指针移动返回，调用后对象不再持有传输层。
+         * @return transmission_ptr 传输层对象指针
          */
         transmission_ptr release()
         {
@@ -220,8 +237,8 @@ namespace psm::channel
         }
 
     private:
-        transmission_ptr trans_;
-        memory::vector<std::byte> preread_buffer_;
-        std::size_t preread_offset_ = 0;
-    };
-}
+        transmission_ptr trans_;                   // 传输层对象的共享指针
+        memory::vector<std::byte> preread_buffer_; // 预读数据缓冲区
+        std::size_t preread_offset_ = 0;           // 预读数据当前消费偏移量
+    }; // class connector
+} // namespace psm::channel

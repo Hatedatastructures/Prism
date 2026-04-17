@@ -21,26 +21,26 @@ namespace
     int passed = 0;
     int failed = 0;
 
-    auto log_pass(const std::string &msg) -> void
+    auto LogPass(const std::string &msg) -> void
     {
         ++passed;
         psm::trace::info("[Reality] PASS: {}", msg);
     }
 
-    auto log_fail(const std::string &msg) -> void
+    auto LogFail(const std::string &msg) -> void
     {
         ++failed;
         psm::trace::error("[Reality] FAIL: {}", msg);
     }
 
-    auto read_u24(const std::uint8_t *p) -> std::size_t
+    auto ReadU24(const std::uint8_t *p) -> std::size_t
     {
         return (static_cast<std::size_t>(p[0]) << 16) |
                (static_cast<std::size_t>(p[1]) << 8) |
                static_cast<std::size_t>(p[2]);
     }
 
-    auto extract_leaf_cert_der(std::span<const std::uint8_t> handshake_plaintext)
+    auto ExtractLeafCertDer(std::span<const std::uint8_t> handshake_plaintext)
         -> psm::memory::vector<std::uint8_t>
     {
         psm::memory::vector<std::uint8_t> cert_der;
@@ -49,7 +49,7 @@ namespace
         while (offset + 4 <= handshake_plaintext.size())
         {
             const auto msg_type = handshake_plaintext[offset];
-            const auto msg_len = read_u24(handshake_plaintext.data() + offset + 1);
+            const auto msg_len = ReadU24(handshake_plaintext.data() + offset + 1);
             offset += 4;
             if (offset + msg_len > handshake_plaintext.size())
             {
@@ -76,14 +76,14 @@ namespace
             }
             pos += context_len;
 
-            const auto cert_list_len = read_u24(body.data() + pos);
+            const auto cert_list_len = ReadU24(body.data() + pos);
             pos += 3;
             if (pos + cert_list_len > body.size() || cert_list_len < 5)
             {
                 return {};
             }
 
-            const auto cert_len = read_u24(body.data() + pos);
+            const auto cert_len = ReadU24(body.data() + pos);
             pos += 3;
             if (pos + cert_len + 2 > body.size())
             {
@@ -143,14 +143,14 @@ void TestRealityCertificateParsesAsEd25519()
 
     if (fault::failed(ec))
     {
-        log_fail("generate_server_hello failed");
+        LogFail("generate_server_hello failed");
         return;
     }
 
-    const auto cert_der = extract_leaf_cert_der(sh.encrypted_handshake_plaintext);
+    const auto cert_der = ExtractLeafCertDer(sh.encrypted_handshake_plaintext);
     if (cert_der.empty())
     {
-        log_fail("failed to extract leaf certificate DER from handshake plaintext");
+        LogFail("failed to extract leaf certificate DER from handshake plaintext");
         return;
     }
 
@@ -158,7 +158,7 @@ void TestRealityCertificateParsesAsEd25519()
     X509 *x509 = d2i_X509(nullptr, &p, static_cast<long>(cert_der.size()));
     if (!x509)
     {
-        log_fail("OpenSSL failed to parse generated certificate DER");
+        LogFail("OpenSSL failed to parse generated certificate DER");
         return;
     }
 
@@ -166,7 +166,7 @@ void TestRealityCertificateParsesAsEd25519()
     if (!pkey)
     {
         X509_free(x509);
-        log_fail("X509_get_pubkey returned null");
+        LogFail("X509_get_pubkey returned null");
         return;
     }
 
@@ -175,7 +175,7 @@ void TestRealityCertificateParsesAsEd25519()
     {
         EVP_PKEY_free(pkey);
         X509_free(x509);
-        log_fail("leaf certificate public key is not Ed25519");
+        LogFail("leaf certificate public key is not Ed25519");
         return;
     }
 
@@ -183,13 +183,13 @@ void TestRealityCertificateParsesAsEd25519()
     {
         EVP_PKEY_free(pkey);
         X509_free(x509);
-        log_fail("certificate signature algorithm is not Ed25519");
+        LogFail("certificate signature algorithm is not Ed25519");
         return;
     }
 
     EVP_PKEY_free(pkey);
     X509_free(x509);
-    log_pass("RealityCertificateParsesAsEd25519");
+    LogPass("RealityCertificateParsesAsEd25519");
 }
 
 int main()

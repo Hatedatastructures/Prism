@@ -26,7 +26,6 @@
 #include <utility>
 
 #include <prism/fault/compatible.hpp>
-#include <prism/trace.hpp>
 
 namespace psm::channel::transport
 {

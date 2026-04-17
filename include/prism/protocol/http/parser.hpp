@@ -40,19 +40,19 @@ namespace psm
          */
         struct proxy_request
         {
-            /** @brief 请求方法，如 "CONNECT"、"GET"、"POST" */
+            // 请求方法，如 "CONNECT"、"GET"、"POST"
             std::string_view method;
-            /** @brief 请求目标，绝对 URI 或 host:port (CONNECT) */
+            // 请求目标，绝对 URI 或 host:port (CONNECT)
             std::string_view target;
-            /** @brief Host 头字段值 */
+            // Host 头字段值
             std::string_view host;
-            /** @brief Proxy-Authorization 头字段值 */
+            // Proxy-Authorization 头字段值
             std::string_view authorization;
-            /** @brief HTTP 版本字符串，如 "HTTP/1.1" */
+            // HTTP 版本字符串，如 "HTTP/1.1"
             std::string_view version;
-            /** @brief 请求行末尾 \r\n 之后的偏移量（header 区域起始） */
+            // 请求行末尾 \r\n 之后的偏移量（header 区域起始）
             std::size_t req_line_end{0};
-            /** @brief 完整头部 \r\n\r\n 之后的偏移量（body 区域起始） */
+            // 完整头部 \r\n\r\n 之后的偏移量（body 区域起始）
             std::size_t header_end{0};
         };
 
@@ -87,11 +87,11 @@ namespace psm
          */
         struct auth_result
         {
-            /** @brief 认证是否通过 */
+            // 认证是否通过
             bool authenticated{false};
-            /** @brief 失败时待发送的 HTTP 错误响应，认证通过时为空 */
+            // 失败时待发送的 HTTP 错误响应，认证通过时为空
             std::string_view error_response{};
-            /** @brief 认证通过时获取的连接租约，空租约表示认证未通过 */
+            // 认证通过时获取的连接租约，空租约表示认证未通过
             agent::account::lease lease{};
         };
 

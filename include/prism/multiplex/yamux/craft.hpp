@@ -2,24 +2,15 @@
  * @file craft.hpp
  * @brief yamux 多路复用会话服务端（兼容 Hashicorp/yamux + sing-mux 协商）
  * @details yamux::craft 继承 multiplex::core，实现 yamux 协议服务端逻辑。
- * 与 smux 相比，yamux 提供完整的流量控制（256KB 初始窗口）、标志位系统、心跳机制。
- * 帧格式为 12 字节大端帧头，而非 smux 的 8 字节小端帧头。
- *
- * 流打开流程（sing-mux 协商后）：
- * 1. 客户端发送 WindowUpdate(SYN) → 服务端创建 pending，回复 WindowUpdate(ACK)
- * 2. 客户端发送 Data(none) 携带目标地址 → 服务端解析地址，连接目标
- * 3. 服务端发送 Data(none) 携带 0x00 成功状态 → 创建 duct/parcel
- *
- * 消息类型处理：
- * - Data: 根据 flags 处理 SYN/数据/FIN/RST，dispatch_data 非阻塞分发
- * - WindowUpdate: 流创建（SYN）、确认（ACK）、窗口更新（普通）
- * - Ping: SYN 为请求，回复 ACK
- * - GoAway: 关闭整个会话
- *
- * 发送路径与 smux 相同架构：
- * duct::target_read_loop() → send_data() → push_frame() → channel_ → send_loop() → transport
- * header 与 payload 分离传递，scatter-gather 写入，零拷贝。
- *
+ * 与 smux 相比，yamux 提供完整的流量控制（256KB 初始窗口）、标志位系统、
+ * 心跳机制。帧格式为 12 字节大端帧头，而非 smux 的 8 字节小端帧头。
+ * 流打开流程：客户端发送 WindowUpdate(SYN)，服务端创建 pending 回复
+ * WindowUpdate(ACK)；客户端发送 Data(none) 携带目标地址，服务端解析
+ * 地址连接目标；服务端发送 Data(none) 携带 0x00 成功状态，创建
+ * duct/parcel。消息类型处理：Data 根据 flags 处理 SYN/数据/FIN/RST，
+ * WindowUpdate 处理流创建和窗口更新，Ping 处理心跳，GoAway 关闭会话。
+ * 发送路径与 smux 相同架构，header 与 payload 分离传递，
+ * scatter-gather 写入，零拷贝。
  * @note 通过 core 的虚函数接口发送帧，duct/parcel 无需感知具体协议
  */
 #pragma once
@@ -28,7 +19,6 @@
 #include <atomic>
 #include <cstdint>
 #include <memory>
-#include <unordered_map>
 
 #include <boost/asio/experimental/concurrent_channel.hpp>
 
@@ -90,6 +80,8 @@ namespace psm::multiplex::yamux
     public:
         /**
          * @brief 构造 yamux 会话
+         * @details 初始化传输层、配置和发送通道，会话处于未启动状态，
+         * 调用 start() 后才会进入协议主循环
          * @param transport 已建立的传输层连接（通常是 Trojan 隧道）
          * @param router 路由器引用，用于解析地址并连接目标
          * @param cfg 多路复用配置参数（含 yamux 子配置）
@@ -121,6 +113,7 @@ namespace psm::multiplex::yamux
 
         /**
          * @brief 获取 transport executor
+         * @details 返回传输层连接的执行器，用于 duct/parcel 协程调度
          * @return net::any_io_executor transport 的执行器
          * @note 用于 duct/parcel 协程调度和 co_spawn
          */
@@ -159,11 +152,9 @@ namespace psm::multiplex::yamux
         /**
          * @brief 帧循环主协程
          * @details 循环读取帧头（12 字节）+ 载荷（Data 帧才有），按消息类型分发：
-         * - Data: handle_data 根据 flags 分发
-         * - WindowUpdate: handle_window_update 处理流创建或窗口更新
-         * - Ping: handle_ping 回复 ACK
-         * - GoAway: handle_go_away 关闭会话
-         * 读取失败或无效帧时退出循环。
+         * Data 由 handle_data 根据 flags 分发，WindowUpdate 由 handle_window_update
+         * 处理流创建或窗口更新，Ping 由 handle_ping 回复 ACK，
+         * GoAway 由 handle_go_away 关闭会话。读取失败或无效帧时退出循环。
          */
         auto frame_loop() -> net::awaitable<void>;
 
@@ -217,23 +208,19 @@ namespace psm::multiplex::yamux
 
         /**
          * @brief 尝试激活 pending 流
-         * @param stream_id 流标识符
-         * @param entry pending 条目引用，避免二次查找
          * @details 当 buffer >= 7 字节且未连接时，通过 co_spawn 启动 activate_stream。
          * connecting 标志防止重复激活。
+         * @param stream_id 流标识符
          */
         void try_activate_pending(std::uint32_t stream_id);
 
         /**
          * @brief 处理 WindowUpdate 帧
          * @param hdr 帧头（length 字段为窗口增量）
-         * @details 处理多种情况：
-         * - stream_id == 0：会话级窗口更新，忽略
-         * - RST 标志：重置流
-         * - FIN 标志：半关闭流
-         * - SYN（无 ACK）：客户端打开新流，回复 ACK
-         * - SYN+ACK：确认服务端发起的流（本实现不支持服务端发起）
-         * - 普通：增加 send_window
+         * @details 处理多种情况：stream_id==0 时为会话级窗口更新（忽略），
+         * RST 标志重置流，FIN 标志半关闭流，SYN（无 ACK）为客户端打开新流
+         * （回复 ACK），SYN+ACK 为确认服务端发起的流（本实现不支持服务端发起），
+         * 普通帧增加 send_window
          */
         auto handle_window_update(const frame_header &hdr) -> net::awaitable<void>;
 
@@ -256,8 +243,8 @@ namespace psm::multiplex::yamux
          * @brief 从 pending 解析地址、连接目标、创建 duct/parcel
          * @param stream_id 流标识符
          * @details 解析 SOCKS5 格式目标地址（复用 smux::parse_mux_address），区分 TCP/UDP：
-         * - UDP: 发送 0x00 成功状态 → 创建 parcel → 转发剩余数据
-         * - TCP: 通过 router 连接目标 → 发送 0x00 成功状态 → 创建 duct → 转发剩余数据
+         * UDP 发送 0x00 成功状态后创建 parcel 并转发剩余数据，
+         * TCP 通过 router 连接目标后发送 0x00 成功状态并创建 duct 转发剩余数据。
          * 地址解析失败时发送 0x01 错误状态并 FIN。
          */
         auto activate_stream(std::uint32_t stream_id) -> net::awaitable<void>;
@@ -270,19 +257,20 @@ namespace psm::multiplex::yamux
          */
         void start_pending_timeout(std::uint32_t stream_id);
 
-        // --- 窗口管理 ---
-
         /**
          * @brief 获取或创建流窗口
+         * @details 若 windows_ 中不存在指定流的窗口则创建一个新的，
+         * 窗口信号定时器初始化为永不过期
          * @param stream_id 流标识符
-         * @return 流窗口指针，永不返回 nullptr
+         * @return stream_window* 流窗口指针，永不返回 nullptr
          */
         stream_window *get_or_create_window(std::uint32_t stream_id);
 
         /**
          * @brief 获取流窗口（不创建）
+         * @details 在 windows_ 映射中查找指定流的窗口，不创建新条目
          * @param stream_id 流标识符
-         * @return 流窗口指针，不存在时返回 nullptr
+         * @return stream_window* 流窗口指针，不存在时返回 nullptr
          */
         [[nodiscard]] stream_window *get_window(std::uint32_t stream_id) const;
 
@@ -295,8 +283,6 @@ namespace psm::multiplex::yamux
          */
         auto update_recv_window(std::uint32_t stream_id, std::uint32_t consumed)
             -> net::awaitable<void>;
-
-        // --- 发送 ---
 
         /**
          * @brief 将帧推送到发送通道
@@ -327,7 +313,7 @@ namespace psm::multiplex::yamux
          */
         auto ping_loop() -> net::awaitable<void>;
 
-        /// 发送通道类型
+        // 发送通道类型
         using channel_type = net::experimental::concurrent_channel<void(boost::system::error_code, outbound_frame)>;
         mutable channel_type channel_; // 有界发送通道，串行化多流写入，容量为 max_streams
 

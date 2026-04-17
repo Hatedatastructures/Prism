@@ -3,7 +3,6 @@
  * @brief SHA224 哈希工具
  * @details 提供基于 OpenSSL 的 SHA224 哈希计算功能，用于 Trojan 协议凭据处理。
  */
-
 #pragma once
 
 #include <openssl/sha.h>
@@ -12,11 +11,6 @@
 #include <array>
 #include <cctype>
 
-/**
- * @brief SHA224 哈希工具命名空间
- * @details 提供基于 OpenSSL 的 SHA224 哈希计算功能，用于 Trojan 协议凭据处理。
- * @note 该命名空间仅包含 SHA224 函数，不包含其他相关功能。
- */
 namespace psm::crypto
 {
     /**
@@ -62,7 +56,7 @@ namespace psm::crypto
      * @param credential 凭据字符串（可能是明文或已哈希）
      * @return 56 字节的十六进制哈希字符串
      * @details 如果输入已经是 56 字节的十六进制字符串，直接返回；
-     *          否则计算其 SHA224 哈希值。
+     * 否则计算其 SHA224 哈希值。
      */
     [[nodiscard]] inline auto normalize_credential(const std::string_view credential) -> std::string
     {

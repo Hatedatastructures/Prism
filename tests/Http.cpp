@@ -32,18 +32,18 @@ namespace
     int passed = 0;
     int failed = 0;
 
-    auto log_info(const std::string_view msg) -> void
+    auto LogInfo(const std::string_view msg) -> void
     {
         psm::trace::info("[Http] {}", msg);
     }
 
-    auto log_pass(const std::string_view msg) -> void
+    auto LogPass(const std::string_view msg) -> void
     {
         ++passed;
         psm::trace::info("[Http] PASS: {}", msg);
     }
 
-    auto log_fail(const std::string_view msg) -> void
+    auto LogFail(const std::string_view msg) -> void
     {
         ++failed;
         psm::trace::error("[Http] FAIL: {}", msg);
@@ -66,16 +66,16 @@ net::awaitable<void> DoConnectServer(tcp::acceptor &acceptor)
         auto [ec, req] = co_await relay->handshake();
         if (psm::fault::failed(ec))
         {
-            log_fail(std::format("Server handshake failed: {}", psm::fault::describe(ec)));
+            LogFail(std::format("Server handshake failed: {}", psm::fault::describe(ec)));
             co_return;
         }
 
-        log_info(std::format("Server got {} {}", req.method, req.target));
+        LogInfo(std::format("Server got {} {}", req.method, req.target));
 
         // 验证是 CONNECT 方法
         if (req.method != "CONNECT")
         {
-            log_fail(std::format("Expected CONNECT, got {}", req.method));
+            LogFail(std::format("Expected CONNECT, got {}", req.method));
             co_return;
         }
 
@@ -90,7 +90,7 @@ net::awaitable<void> DoConnectServer(tcp::acceptor &acceptor)
         auto n = co_await trans->async_read_some(std::span(buffer), read_ec);
         if (read_ec || n == 0)
         {
-            log_fail(std::format("Server echo read failed: {}", read_ec.message()));
+            LogFail(std::format("Server echo read failed: {}", read_ec.message()));
             co_return;
         }
 
@@ -99,15 +99,15 @@ net::awaitable<void> DoConnectServer(tcp::acceptor &acceptor)
         co_await trans->async_write(std::span(buffer.data(), n), write_ec);
         if (write_ec)
         {
-            log_fail(std::format("Server echo write failed: {}", write_ec.message()));
+            LogFail(std::format("Server echo write failed: {}", write_ec.message()));
             co_return;
         }
 
-        log_info("Server echo complete");
+        LogInfo("Server echo complete");
     }
     catch (const std::exception &e)
     {
-        log_fail(std::format("Server exception: {}", e.what()));
+        LogFail(std::format("Server exception: {}", e.what()));
     }
 }
 
@@ -116,7 +116,7 @@ net::awaitable<void> DoConnectServer(tcp::acceptor &acceptor)
  */
 void TestConnectTunnel()
 {
-    log_info("=== TestConnectTunnel ===");
+    LogInfo("=== TestConnectTunnel ===");
 
     net::io_context ioc;
     tcp::endpoint endpoint(net::ip::make_address("127.0.0.1"), 0);
@@ -147,7 +147,7 @@ void TestConnectTunnel()
 
                 if (response.find("200") == std::string::npos)
                 {
-                    log_fail(std::format("Expected 200 response, got: {}", response));
+                    LogFail(std::format("Expected 200 response, got: {}", response));
                     co_return;
                 }
 
@@ -161,17 +161,17 @@ void TestConnectTunnel()
 
                 if (received != test_msg)
                 {
-                    log_fail(std::format("Echo mismatch: expected '{}', got '{}'", test_msg, received));
+                    LogFail(std::format("Echo mismatch: expected '{}', got '{}'", test_msg, received));
                     co_return;
                 }
 
-                log_info("CONNECT tunnel echo verified");
+                LogInfo("CONNECT tunnel echo verified");
                 socket.close();
                 *client_ok = true;
             }
             catch (const std::exception &e)
             {
-                log_fail(std::format("Client exception: {}", e.what()));
+                LogFail(std::format("Client exception: {}", e.what()));
             }
         },
         net::detached);
@@ -180,7 +180,7 @@ void TestConnectTunnel()
 
     if (*client_ok)
     {
-        log_pass("ConnectTunnel");
+        LogPass("ConnectTunnel");
     }
 }
 
@@ -206,11 +206,11 @@ net::awaitable<void> DoAuthServer(tcp::acceptor &acceptor, account::directory &d
         }
 
         // 认证成功则不应到达这里（测试场景是认证失败）
-        log_fail("Server handshake succeeded when auth should fail");
+        LogFail("Server handshake succeeded when auth should fail");
     }
     catch (const std::exception &e)
     {
-        log_fail(std::format("Auth server exception: {}", e.what()));
+        LogFail(std::format("Auth server exception: {}", e.what()));
     }
 }
 
@@ -219,7 +219,7 @@ net::awaitable<void> DoAuthServer(tcp::acceptor &acceptor, account::directory &d
  */
 void TestAuthChallenge407()
 {
-    log_info("=== TestAuthChallenge407 ===");
+    LogInfo("=== TestAuthChallenge407 ===");
 
     net::io_context ioc;
     tcp::endpoint endpoint(net::ip::make_address("127.0.0.1"), 0);
@@ -255,23 +255,23 @@ void TestAuthChallenge407()
 
                 if (response.find("407") == std::string::npos)
                 {
-                    log_fail(std::format("Expected 407 response, got: {}", response));
+                    LogFail(std::format("Expected 407 response, got: {}", response));
                     co_return;
                 }
 
                 if (response.find("Proxy-Authenticate") == std::string::npos)
                 {
-                    log_fail("407 response missing Proxy-Authenticate header");
+                    LogFail("407 response missing Proxy-Authenticate header");
                     co_return;
                 }
 
-                log_info("407 challenge verified");
+                LogInfo("407 challenge verified");
                 socket.close();
                 *client_ok = true;
             }
             catch (const std::exception &e)
             {
-                log_fail(std::format("Client exception: {}", e.what()));
+                LogFail(std::format("Client exception: {}", e.what()));
             }
         },
         net::detached);
@@ -280,7 +280,7 @@ void TestAuthChallenge407()
 
     if (*client_ok)
     {
-        log_pass("AuthChallenge407");
+        LogPass("AuthChallenge407");
     }
 }
 
@@ -289,7 +289,7 @@ void TestAuthChallenge407()
  */
 void TestAuthForbidden403()
 {
-    log_info("=== TestAuthForbidden403 ===");
+    LogInfo("=== TestAuthForbidden403 ===");
 
     net::io_context ioc;
     tcp::endpoint endpoint(net::ip::make_address("127.0.0.1"), 0);
@@ -330,17 +330,17 @@ void TestAuthForbidden403()
 
                 if (response.find("403") == std::string::npos)
                 {
-                    log_fail(std::format("Expected 403 response, got: {}", response));
+                    LogFail(std::format("Expected 403 response, got: {}", response));
                     co_return;
                 }
 
-                log_info("403 forbidden verified");
+                LogInfo("403 forbidden verified");
                 socket.close();
                 *client_ok = true;
             }
             catch (const std::exception &e)
             {
-                log_fail(std::format("Client exception: {}", e.what()));
+                LogFail(std::format("Client exception: {}", e.what()));
             }
         },
         net::detached);
@@ -349,7 +349,7 @@ void TestAuthForbidden403()
 
     if (*client_ok)
     {
-        log_pass("AuthForbidden403");
+        LogPass("AuthForbidden403");
     }
 }
 
@@ -364,7 +364,7 @@ int main()
     psm::memory::system::enable_global_pooling();
     psm::trace::init({});
 
-    log_info("Starting HTTP relay tests...");
+    LogInfo("Starting HTTP relay tests...");
 
     try
     {
@@ -374,7 +374,7 @@ int main()
     }
     catch (const std::exception &e)
     {
-        log_fail(std::format("Test threw exception: {}", e.what()));
+        LogFail(std::format("Test threw exception: {}", e.what()));
     }
 
     psm::trace::info("[Http] Results: {} passed, {} failed", passed, failed);
