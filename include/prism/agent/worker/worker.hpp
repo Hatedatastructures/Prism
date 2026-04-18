@@ -18,6 +18,7 @@
 #include <prism/agent/worker/stats.hpp>
 #include <prism/agent/worker/tls.hpp>
 #include <prism/channel/connection/pool.hpp>
+#include <prism/outbound/direct.hpp>
 
 namespace psm::agent::account
 {
@@ -93,12 +94,13 @@ namespace psm::agent::worker
             -> front::worker_load_snapshot;
 
     private:
-        net::io_context ioc_;                   // 事件循环上下文，单线程运行
-        connection_pool pool_;                  // 连接池，管理到后端的连接复用
-        resolve::router router_;                // 路由表，决定请求转发目标
-        std::shared_ptr<ssl::context> ssl_ctx_; // TLS 上下文，为空表示明文模式
-        stats::state metrics_;                  // 统计状态，记录负载指标
-        server_context server_ctx_;             // 服务端全局上下文，包含配置和共享资源
-        worker_context worker_ctx_;             // worker 线程局部上下文，包含事件循环和内存池
+        net::io_context ioc_;                                // 事件循环上下文，单线程运行
+        connection_pool pool_;                               // 连接池，管理到后端的连接复用
+        resolve::router router_;                             // 路由表，决定请求转发目标
+        std::shared_ptr<ssl::context> ssl_ctx_;              // TLS 上下文，为空表示明文模式
+        std::unique_ptr<outbound::direct> outbound_direct_;  // 直连出站代理
+        stats::state metrics_;                               // 统计状态，记录负载指标
+        server_context server_ctx_;                          // 服务端全局上下文，包含配置和共享资源
+        worker_context worker_ctx_;                          // worker 线程局部上下文，包含事件循环和内存池
     };
 }

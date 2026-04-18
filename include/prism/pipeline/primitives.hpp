@@ -25,6 +25,7 @@
 #include <prism/protocol/analysis.hpp>
 #include <prism/channel/transport/transmission.hpp>
 #include <prism/channel/adapter/connector.hpp>
+#include <prism/outbound/proxy.hpp>
 
 namespace psm::pipeline::primitives
 {
@@ -83,6 +84,20 @@ namespace psm::pipeline::primitives
      */
     auto dial(resolve::router &router, std::string_view label,
               const protocol::analysis::target &target, bool allow_reverse, bool require_open)
+        -> net::awaitable<std::pair<fault::code, shared_transmission>>;
+
+    /**
+     * @brief 通过出站代理拨号连接上游
+     * @param outbound_proxy 出站代理引用
+     * @param target 目标地址信息
+     * @param executor 用于创建连接的执行器
+     * @return 协程对象，完成后返回结果码和传输对象的配对
+     * @details 委托给出站代理的 async_connect 方法建立连接。
+     * 这是新的路由路径，通过 outbound 抽象层实现，
+     * 替代直接调用 router 的方式。
+     */
+    auto dial(outbound::proxy &outbound_proxy, const protocol::analysis::target &target,
+              const net::any_io_executor &executor)
         -> net::awaitable<std::pair<fault::code, shared_transmission>>;
 
     /**

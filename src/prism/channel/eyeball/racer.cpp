@@ -55,13 +55,17 @@ namespace psm::channel::eyeball
             co_return conn;
         }
 
-        trace::debug("[Racer] racing {} endpoints", endpoints.size());
+        // 限制最大并发连接数，避免 Windows WSAENOBUFS
+        constexpr std::size_t max_racing = 6;
+        const auto count = std::min(endpoints.size(), max_racing);
+
+        trace::debug("[Racer] racing {} endpoints", count);
 
         auto executor = co_await net::this_coro::executor;
-        auto ctx = std::make_shared<race_context>(endpoints.size(), executor);
+        auto ctx = std::make_shared<race_context>(count, executor);
 
         // 第 1 个端点立即连接，后续按 250ms 间隔递增启动（RFC 8305）
-        for (std::size_t i = 0; i < endpoints.size(); ++i)
+        for (std::size_t i = 0; i < count; ++i)
         {
             const auto delay = (i == 0) ? std::chrono::milliseconds(0) : secondary_delay * static_cast<long>(i);
 

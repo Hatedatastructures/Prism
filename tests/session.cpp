@@ -640,7 +640,7 @@ int main()
         // 构造服务端上下文：配置、SSL、账户存储
         agent::config cfg;
         auto account_store = std::make_shared<agent::account::directory>(psm::memory::system::global_pool());
-        agent::server_context server_ctx{cfg, ssl_ctx, account_store};
+        agent::server_context server_ctx{std::atomic<std::shared_ptr<const agent::config>>{std::make_shared<const agent::config>(cfg)}, ssl_ctx, account_store};
 
         // 构造工作线程上下文：io_context、DNS 路由、线程本地内存池
         auto mr = psm::memory::system::thread_local_pool();

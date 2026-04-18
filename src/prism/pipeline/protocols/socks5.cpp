@@ -8,6 +8,7 @@ constexpr std::string_view Socks5Str = "[Pipeline.Socks5]";
 
 namespace psm::pipeline
 {
+    using primitives::shared_transmission;
     auto socks5(session_context &ctx, const std::span<const std::byte> data)
         -> net::awaitable<void>
     {
@@ -22,7 +23,7 @@ namespace psm::pipeline
 
         // 创建 SOCKS5 中继代理并执行握手
         const auto agent = protocol::socks5::make_relay(
-            std::move(inbound), ctx.server.cfg.socks5, ctx.account_directory_ptr);
+            std::move(inbound), ctx.server.config().socks5, ctx.account_directory_ptr);
         auto [ec, request] = co_await agent->handshake();
         // 协商失败，退出处理流程，agent 对象通过 RAII 自动清理
         if (fault::failed(ec))
@@ -46,7 +47,11 @@ namespace psm::pipeline
             trace::info("{} CONNECT -> {}:{}", Socks5Str, target.host, target.port);
 
             // 先拨号上游 — 失败时返回 SOCKS5 错误码（RFC 1928 语义）
-            auto [dial_ec, outbound] = co_await primitives::dial(ctx.worker.router, "SOCKS5", target, true, true);
+            const auto [dial_ec, outbound] = ctx.outbound_proxy
+                ? co_await primitives::dial(
+                      *ctx.outbound_proxy, target, ctx.worker.io_context.get_executor())
+                : co_await primitives::dial(
+                      ctx.worker.router, "SOCKS5", target, true, true);
             if (fault::failed(dial_ec) || !outbound)
             {
                 if (dial_ec == fault::code::ipv6_disabled)
@@ -82,7 +87,10 @@ namespace psm::pipeline
             trace::info("{} UDP_ASSOCIATE -> {}:{}", Socks5Str, target_host, target_port);
 
             // 启动 UDP 关联处理
-            const auto associate_ec = co_await agent->async_associate(request, primitives::make_datagram_router(ctx.worker.router));
+            auto datagram_router = ctx.outbound_proxy
+                ? ctx.outbound_proxy->make_datagram_router()
+                : primitives::make_datagram_router(ctx.worker.router);
+            const auto associate_ec = co_await agent->async_associate(request, std::move(datagram_router));
             if (fault::failed(associate_ec))
             {
                 trace::warn("{} UDP_ASSOCIATE failed: {}", Socks5Str, fault::describe(associate_ec));

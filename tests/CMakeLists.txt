@@ -40,6 +40,7 @@ forward_add_test(Exception      Exception.cpp)
 	forward_add_test(DnsCache       DnsCache.cpp)
 	forward_add_test(AccountDirectory AccountDirectory.cpp)
 
+
 add_subdirectory(concurrency)
 
 if(MINGW)

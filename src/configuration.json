@@ -40,7 +40,6 @@
         "buffer": {
             "size": 262144
         },
-        "clash": true,
         "socks5": {
             "enable_tcp": true,
             "enable_udp": true,

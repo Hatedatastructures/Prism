@@ -13,13 +13,14 @@ namespace psm::agent::worker
           pool_(ioc_, memory::system::thread_local_pool(), cfg.pool),
           router_(pool_, ioc_, cfg.dns, memory::system::thread_local_pool()),
           ssl_ctx_(tls::make(cfg)),
-          server_ctx_{cfg, ssl_ctx_, std::move(account_store)},
-          worker_ctx_{ioc_, router_, memory::system::thread_local_pool()}
+          outbound_direct_(std::make_unique<outbound::direct>(router_)),
+          server_ctx_{std::atomic<std::shared_ptr<const agent::config>>{std::make_shared<const agent::config>(cfg)}, ssl_ctx_, std::move(account_store)},
+          worker_ctx_{ioc_, router_, memory::system::thread_local_pool(), outbound_direct_.get()}
     {
         // 注册反向代理路由：将虚拟域名映射到实际后端地址。
         // 反向代理模式下，客户端连接代理的 443 端口，代理根据 SNI
         // 将流量透明转发到配置的后端服务。
-        for (const auto &[host, endpoint_config] : server_ctx_.cfg.reverse_map)
+        for (const auto &[host, endpoint_config] : server_ctx_.config().reverse_map)
         {
             boost::system::error_code ec;
             const auto addr = net::ip::make_address(endpoint_config.host, ec);
@@ -35,11 +36,11 @@ namespace psm::agent::worker
 
         // 设置正向代理上游（positive）：如果配置了上游代理服务器，
         // 所有出站流量都通过这个上游代理转发（级联代理）。
-        if (!server_ctx_.cfg.positive.host.empty() && server_ctx_.cfg.positive.port != 0)
+        if (!server_ctx_.config().positive.host.empty() && server_ctx_.config().positive.port != 0)
         {
             router_.set_positive_endpoint(
-                std::string_view(server_ctx_.cfg.positive.host.data(), server_ctx_.cfg.positive.host.size()),
-                server_ctx_.cfg.positive.port);
+                std::string_view(server_ctx_.config().positive.host.data(), server_ctx_.config().positive.host.size()),
+                server_ctx_.config().positive.port);
         }
     }
 

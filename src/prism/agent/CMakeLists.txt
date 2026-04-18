@@ -6,6 +6,7 @@ target_sources(${PROJECT_NAME}_static_library
             ${PROJECT_SOURCE_DIR}/include/prism/agent.hpp
             ${PROJECT_SOURCE_DIR}/include/prism/agent/config.hpp
             ${PROJECT_SOURCE_DIR}/include/prism/agent/context.hpp
+
 )
 
 add_subdirectory(account)
@@ -13,4 +14,3 @@ add_subdirectory(session)
 add_subdirectory(front)
 add_subdirectory(worker)
 add_subdirectory(dispatch)
-

@@ -273,6 +273,24 @@ namespace psm::pipeline::primitives
                  const protocol::analysis::target &target, shared_transmission inbound)
         -> net::awaitable<void>
     {
+        // 新路径：通过 outbound 代理
+        if (ctx.outbound_proxy)
+        {
+            auto [ec, outbound] = co_await dial(*ctx.outbound_proxy, target,
+                                                 ctx.worker.io_context.get_executor());
+            if (fault::failed(ec) || !outbound)
+            {
+                if (ec == fault::code::ipv6_disabled)
+                    trace::debug("{} IPv6 disabled: {}:{}", ForwardStr, target.host, target.port);
+                else
+                    trace::warn("{} dial failed: {}, target: {}:{}", ForwardStr, fault::describe(ec), target.host, target.port);
+                co_return;
+            }
+            co_await tunnel(std::move(inbound), std::move(outbound), ctx);
+            co_return;
+        }
+
+        // 旧路径：通过 router（向后兼容）
         auto [ec, outbound] = co_await dial(ctx.worker.router, label, target, true, true);
         if (fault::failed(ec) || !outbound)
         {
@@ -283,6 +301,22 @@ namespace psm::pipeline::primitives
             co_return;
         }
         co_await tunnel(std::move(inbound), std::move(outbound), ctx);
+    }
+
+    // 通过出站代理拨号连接上游（新路由路径）。
+    // 委托给 outbound::proxy::async_connect，将路由决策封装在代理内部。
+    auto dial(outbound::proxy &outbound_proxy,
+              const protocol::analysis::target &target,
+              const net::any_io_executor &executor)
+        -> net::awaitable<std::pair<fault::code, shared_transmission>>
+    {
+        auto [ec, trans] = co_await outbound_proxy.async_connect(target, executor);
+        if (fault::failed(ec) || !trans)
+        {
+            trace::debug("{} outbound dial failed: {}, target: {}:{}", DialStr,
+                         fault::describe(ec), target.host, target.port);
+        }
+        co_return std::pair{ec, std::move(trans)};
     }
 
     auto is_mux_target(const std::string_view host, const bool mux_enabled) noexcept -> bool

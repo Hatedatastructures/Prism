@@ -7,6 +7,7 @@ constexpr std::string_view HttpStr = "[Pipeline.Http]";
 
 namespace psm::pipeline
 {
+    using primitives::shared_transmission;
     auto http(session_context &ctx, std::span<const std::byte> data)
         -> net::awaitable<void>
     {
@@ -30,7 +31,11 @@ namespace psm::pipeline
         trace::info("{} {} {} -> {}:{}", HttpStr, req.method, req.target, target.host, target.port);
 
         // 连接目标服务器
-        auto [dial_ec, outbound] = co_await primitives::dial(ctx.worker.router, "HTTP", target, true, false);
+        const auto [dial_ec, outbound] = ctx.outbound_proxy
+            ? co_await primitives::dial(
+                  *ctx.outbound_proxy, target, ctx.worker.io_context.get_executor())
+            : co_await primitives::dial(
+                  ctx.worker.router, "HTTP", target, true, false);
         if (fault::failed(dial_ec) || !outbound)
         {
             trace::warn("{} dial failed: {}:{}", HttpStr, target.host, target.port);

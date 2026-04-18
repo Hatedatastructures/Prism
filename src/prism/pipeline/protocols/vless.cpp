@@ -38,7 +38,7 @@ namespace psm::pipeline
         };
 
         // 创建 VLESS 中继代理并执行握手
-        const auto agent = protocol::vless::make_relay(std::move(inbound), ctx.server.cfg.vless, std::move(verifier));
+        const auto agent = protocol::vless::make_relay(std::move(inbound), ctx.server.config().vless, std::move(verifier));
 
         auto [vless_ec, req] = co_await agent->handshake();
         if (fault::failed(vless_ec))
@@ -61,12 +61,12 @@ namespace psm::pipeline
             target.port.assign(port_buf, std::distance(port_buf, pe));
 
             // Mihomo smux 兼容：客户端用 mux 命令或虚假地址标记多路复用连接
-            if (primitives::is_mux_target(target.host, ctx.server.cfg.mux.enabled))
+            if (primitives::is_mux_target(target.host, ctx.server.config().mux.enabled))
             {
                 trace::info("{} mux session started", VlessStr);
                 ctx.active_stream_close = nullptr;
                 ctx.active_stream_cancel = nullptr;
-                auto muxprotocol = co_await multiplex::bootstrap(agent->release(), ctx.worker.router, ctx.server.cfg.mux);
+                auto muxprotocol = co_await multiplex::bootstrap(agent->release(), ctx.worker.router, ctx.server.config().mux);
                 if (muxprotocol)
                 {
                     muxprotocol->start();
@@ -85,7 +85,9 @@ namespace psm::pipeline
         {
             trace::info("{} UDP associate started", VlessStr);
             const auto associate_ec = co_await agent->async_associate(
-                primitives::make_datagram_router(ctx.worker.router));
+                ctx.outbound_proxy
+                    ? ctx.outbound_proxy->make_datagram_router()
+                    : primitives::make_datagram_router(ctx.worker.router));
             if (fault::failed(associate_ec))
             {
                 trace::warn("{} UDP associate failed: {}", VlessStr, fault::describe(associate_ec));

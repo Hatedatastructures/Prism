@@ -8,16 +8,20 @@
  */
 #pragma once
 
+#include <atomic>
+#include <functional>
+#include <memory>
+#include <string_view>
+
+#include <boost/asio.hpp>
+#include <boost/asio/ssl.hpp>
+
 #include <prism/agent/config.hpp>
 #include <prism/resolve/router.hpp>
 #include <prism/agent/account/entry.hpp>
 #include <prism/memory/pool.hpp>
 #include <prism/channel/transport/transmission.hpp>
-#include <boost/asio.hpp>
-#include <boost/asio/ssl.hpp>
-#include <functional>
-#include <memory>
-#include <string_view>
+#include <prism/outbound/proxy.hpp>
 
 namespace psm::agent
 {
@@ -32,28 +36,46 @@ namespace psm::agent
     /**
      * @struct server_context
      * @brief 服务器全局上下文
-     * @details 聚合服务器级别的共享资源，包括配置引用、
+     * @details 聚合服务器级别的共享资源，包括配置、
      * SSL 上下文和账户注册表。该结构在服务器启动时创建，
-     * 被所有工作线程共享。配置对象以常量引用形式存储，
-     * 确保运行时配置不可变。
-     * @note 配置对象的生命周期必须长于 server_context
+     * 被所有工作线程共享。配置对象通过 shared_ptr 管理，
+     * 支持原子交换实现配置热加载。
+     * @note 配置通过 config() 方法访问，swap_config() 原子交换。
      * @warning SSL 上下文和账户注册表使用 shared_ptr
      * 管理，确保跨线程共享安全。
      */
     struct server_context
     {
-        const config &cfg;                                 // 配置对象的常量引用
+        std::atomic<std::shared_ptr<const config>> cfg;    // 配置对象（可原子交换）
         std::shared_ptr<ssl::context> ssl_ctx;             // SSL 上下文
         std::shared_ptr<account::directory> account_store; // 账户注册表
+
+        /**
+         * @brief 获取当前配置（无锁读取）
+         * @return 配置对象的常量引用
+         */
+        [[nodiscard]] auto config() const -> const agent::config &
+        {
+            return *cfg.load();
+        }
+
+        /**
+         * @brief 原子交换配置（热加载用）
+         * @param new_cfg 新配置对象
+         */
+        void swap_config(std::shared_ptr<const agent::config> new_cfg)
+        {
+            cfg.store(std::move(new_cfg));
+        }
     }; // struct server_context
 
     /**
      * @struct worker_context
      * @brief 工作线程上下文
      * @details 封装单个工作线程的独立资源，包括
-     * io_context 引用、路由器和内存池。每个工作线程
-     * 拥有独立的 worker_context 实例，实现线程间的
-     * 资源隔离和避免锁竞争。
+     * io_context 引用、路由器、内存池和出站代理。
+     * 每个工作线程拥有独立的 worker_context 实例，
+     * 实现线程间的资源隔离和避免锁竞争。
      * @note io_context 的生命周期由工作线程管理
      * @warning 内存池资源指针用于 PMR 分配，应确保
      * 线程安全
@@ -63,6 +85,7 @@ namespace psm::agent
         net::io_context &io_context;          // I/O 上下文引用
         resolve::router &router;              // 路由器引用
         memory::resource_pointer memory_pool; // 内存池资源指针
+        outbound::proxy *outbound{nullptr};   // 出站代理指针（由 worker 拥有）
     }; // struct worker_context
 
     /**
@@ -101,6 +124,7 @@ namespace psm::agent
         std::uint32_t buffer_size;                                 // 数据传输缓冲区大小（字节）
         shared_transmission inbound;                               // 入站传输对象
         shared_transmission outbound;                              // 出站传输对象
+        outbound::proxy *outbound_proxy{nullptr};                  // 出站代理指针（由 worker 设置）
         account::lease account_lease;                              // 账户连接租约
         std::function<void()> active_stream_cancel;                // 活跃流取消回调
         std::function<void()> active_stream_close;                 // 活跃流关闭回调

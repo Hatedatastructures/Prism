@@ -40,7 +40,7 @@ namespace psm::pipeline
         };
 
         // 创建 Trojan 中继代理并执行握手
-        const auto agent = protocol::trojan::make_relay(std::move(inbound), ctx.server.cfg.trojan, std::move(verifier));
+        const auto agent = protocol::trojan::make_relay(std::move(inbound), ctx.server.config().trojan, std::move(verifier));
 
         auto [trojan_ec, req] = co_await agent->handshake();
         if (fault::failed(trojan_ec))
@@ -62,14 +62,14 @@ namespace psm::pipeline
             target.port.assign(port_buf, std::distance(port_buf, pe));
 
             // Mihomo smux 兼容：客户端用 CONNECT + 虚假地址标记 mux 连接
-            if (primitives::is_mux_target(target.host, ctx.server.cfg.mux.enabled))
+            if (primitives::is_mux_target(target.host, ctx.server.config().mux.enabled))
             {
                 trace::info("{} mux session started", TrojanStr);
                 // 清除 session 流关闭回调，transport 生命周期由 multiplexer 接管
                 ctx.active_stream_close = nullptr;
                 ctx.active_stream_cancel = nullptr;
                 // 创建多路复用会话（内部执行 sing-mux 协商，根据客户端选择协议）
-                auto muxprotocol = co_await multiplex::bootstrap(agent->release(), ctx.worker.router, ctx.server.cfg.mux);
+                auto muxprotocol = co_await multiplex::bootstrap(agent->release(), ctx.worker.router, ctx.server.config().mux);
                 if (muxprotocol)
                 {
                     muxprotocol->start();
@@ -89,7 +89,10 @@ namespace psm::pipeline
             trace::info("{} UDP_ASSOCIATE started", TrojanStr);
 
             // 启动 UDP 关联处理
-            const auto associate_ec = co_await agent->async_associate(primitives::make_datagram_router(ctx.worker.router));
+            auto datagram_router = ctx.outbound_proxy
+                ? ctx.outbound_proxy->make_datagram_router()
+                : primitives::make_datagram_router(ctx.worker.router);
+            const auto associate_ec = co_await agent->async_associate(std::move(datagram_router));
             if (fault::failed(associate_ec))
             {
                 trace::warn("{} UDP_ASSOCIATE failed: {}", TrojanStr, fault::describe(associate_ec));
@@ -107,7 +110,7 @@ namespace psm::pipeline
             ctx.active_stream_close = nullptr;
             ctx.active_stream_cancel = nullptr;
             auto muxprotocol = co_await multiplex::bootstrap(
-                agent->release(), ctx.worker.router, ctx.server.cfg.mux);
+                agent->release(), ctx.worker.router, ctx.server.config().mux);
             if (muxprotocol)
             {
                 muxprotocol->start();

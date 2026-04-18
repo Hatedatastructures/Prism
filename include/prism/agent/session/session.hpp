@@ -144,6 +144,18 @@ namespace psm::agent::session
         void close();
 
         /**
+         * @brief 设置出站代理
+         * @param proxy 出站代理指针（由 worker 拥有，非拥有指针）
+         * @details 设置出站代理后，pipeline 中的 dial/forward 调用
+         * 将通过此代理建立上游连接。如果未设置，pipeline 回退到
+         * 直接使用 router 的旧路径。
+         */
+        void set_outbound_proxy(outbound::proxy *proxy) noexcept
+        {
+            ctx_.outbound_proxy = proxy;
+        }
+
+        /**
          * @brief 设置用户凭证验证回调
          * @details 设置用于验证用户凭证的回调函数。该函数在需要验证用户
          * 身份时被调用，例如 SOCKS5 或 HTTP 代理认证场景。验证函数接收

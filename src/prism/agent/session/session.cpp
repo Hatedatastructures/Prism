@@ -14,7 +14,7 @@ namespace dispatch = psm::agent::dispatch;
 namespace psm::agent::session
 {
     session::session(session_params params)
-        : id_(detail::generate_session_id()), ctx_{id_, params.server, params.worker, frame_arena_, nullptr, nullptr, params.server.cfg.buffer.size, std::move(params.inbound)}
+        : id_(detail::generate_session_id()), ctx_{id_, params.server, params.worker, frame_arena_, nullptr, nullptr, params.server.config().buffer.size, std::move(params.inbound)}
     {
     }
 
@@ -169,10 +169,10 @@ namespace psm::agent::session
         if (detect_result.type == protocol::protocol_type::tls)
         {
             // 判断是否需要走标准 TLS 剥离路径
-            bool need_standard_tls = !ctx_.server.cfg.reality.enabled();
+            bool need_standard_tls = !ctx_.server.config().reality.enabled();
 
             // Reality 路径（如果配置了 Reality）
-            if (ctx_.server.cfg.reality.enabled())
+            if (ctx_.server.config().reality.enabled())
             {
                 auto result = co_await stealth::handshake(ctx_, span);
                 switch (result.type)
