@@ -5,7 +5,7 @@
 #include <algorithm>
 #include <cstring>
 
-namespace psm::stealth
+namespace psm::stealth::reality
 {
     constexpr std::string_view AuthTag = "[Stealth.Auth]";
 
@@ -215,4 +215,4 @@ namespace psm::stealth
             return c - 'A' + 10;
         return -1;
     }
-} // namespace psm::stealth
+} // namespace psm::stealth::reality

@@ -6,6 +6,8 @@ target_sources(${PROJECT_NAME}_static_library
         reality/response.cpp
         reality/seal.cpp
         reality/handshake.cpp
+        shadowtls/auth.cpp
+        shadowtls/handshake.cpp
 )
 
 target_sources(${PROJECT_NAME}_static_library
@@ -22,4 +24,8 @@ target_sources(${PROJECT_NAME}_static_library
             ${PROJECT_SOURCE_DIR}/include/prism/stealth/reality/response.hpp
             ${PROJECT_SOURCE_DIR}/include/prism/stealth/reality/seal.hpp
             ${PROJECT_SOURCE_DIR}/include/prism/stealth/reality/handshake.hpp
+            ${PROJECT_SOURCE_DIR}/include/prism/stealth/shadowtls/config.hpp
+            ${PROJECT_SOURCE_DIR}/include/prism/stealth/shadowtls/constants.hpp
+            ${PROJECT_SOURCE_DIR}/include/prism/stealth/shadowtls/auth.hpp
+            ${PROJECT_SOURCE_DIR}/include/prism/stealth/shadowtls/handshake.hpp
 )

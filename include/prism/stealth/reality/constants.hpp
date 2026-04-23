@@ -11,7 +11,7 @@
 #include <cstdint>
 #include <prism/memory/container.hpp>
 
-namespace psm::stealth::tls
+namespace psm::stealth::reality::tls
 {
     // TLS 记录头长度（字节）：ContentType(1) + Version(2) + Length(2)
     constexpr std::size_t RECORD_HEADER_LEN = 5;
@@ -91,4 +91,4 @@ namespace psm::stealth::tls
         buf.push_back(static_cast<std::uint8_t>((val >> 8) & 0xFF));
         buf.push_back(static_cast<std::uint8_t>(val & 0xFF));
     }
-} // namespace psm::stealth::tls
+} // namespace psm::stealth::reality::tls

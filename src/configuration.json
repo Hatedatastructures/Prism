@@ -66,6 +66,19 @@
             "private_key": "cGAv/vuH9mRJmvo4lqOwMZgR56mL4vMjBAwmVMS69Fw=",
             "short_ids": ["45587ac66ce007e4"]
         },
+        "shadowtls": {
+            "version": 3,
+            "password": "",
+            "users": [
+                {
+                    "name": "user1",
+                    "password": "shadowtls_password"
+                }
+            ],
+            "handshake_dest": "www.google.com:443",
+            "strict_mode": true,
+            "handshake_timeout_ms": 5000
+        },
         "shadowsocks": {
             "psk": "5n5ESu953i/pjIp02oZvHA==",
             "method": "2022-blake3-aes-128-gcm",

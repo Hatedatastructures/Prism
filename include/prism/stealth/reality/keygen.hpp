@@ -18,7 +18,7 @@
 #include <prism/crypto/hkdf.hpp>
 #include <prism/stealth/reality/constants.hpp>
 
-namespace psm::stealth
+namespace psm::stealth::reality
 {
     using constspan = std::span<const std::uint8_t>;
 
@@ -74,4 +74,4 @@ namespace psm::stealth
      */
     [[nodiscard]] auto compute_finished_verify_data(constspan finished_key, constspan transcript_hash)
         -> std::array<std::uint8_t, crypto::SHA256_LEN>;
-} // namespace psm::stealth
+} // namespace psm::stealth::reality

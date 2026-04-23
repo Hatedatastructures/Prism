@@ -24,7 +24,7 @@
 #include <string>
 #include <charconv>
 
-namespace psm::stealth
+namespace psm::stealth::reality
 {
     constexpr std::string_view HsTag = "[Stealth.Handshake]";
 
@@ -615,4 +615,4 @@ namespace psm::stealth
         trace::info("{} handshake completed successfully", HsTag);
         co_return result;
     }
-} // namespace psm::stealth
+} // namespace psm::stealth::reality

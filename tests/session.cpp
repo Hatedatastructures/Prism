@@ -10,7 +10,7 @@
 #include <prism/agent/config.hpp>
 #include <prism/agent/context.hpp>
 #include <prism/agent/account/directory.hpp>
-#include <prism/agent/dispatch/handlers.hpp>
+#include <prism/agent/dispatch/table.hpp>
 #include <prism/agent/session/session.hpp>
 #include <prism/channel/connection/pool.hpp>
 #include <prism/channel/transport/reliable.hpp>
@@ -620,8 +620,7 @@ int main()
         psm::memory::system::enable_global_pooling();
         // 初始化日志系统，使用默认配置
         psm::trace::init({});
-        // 注册所有协议处理器（HTTP/SOCKS5/Trojan/VLESS/Shadowsocks/Unknown）
-        psm::agent::dispatch::register_handlers();
+        // handler_table 为编译期常量数组，无需运行时注册
 
         // 创建单线程 io_context 驱动所有测试协程
         const auto ioc_ptr = std::make_unique<net::io_context>();

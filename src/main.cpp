@@ -8,7 +8,7 @@
 
 #include <prism/agent.hpp>
 #include <prism/agent/account/directory.hpp>
-#include <prism/agent/dispatch/handlers.hpp>
+#include <prism/agent/dispatch/table.hpp>
 #include <prism/agent/front/balancer.hpp>
 #include <prism/agent/front/listener.hpp>
 #include <prism/memory.hpp>
@@ -55,8 +55,7 @@ int main(int argc, char *argv[])
         auto [agent, trace] = psm::loader::load(configuration_path.string());
         psm::trace::init(trace);
 
-        // 注册协议检测与处理函数（Trojan、SOCKS5、HTTP、VLESS、Shadowsocks）
-        psm::agent::dispatch::register_handlers();
+        // handler_table 为编译期常量数组，无需运行时注册
 
         // 从认证配置构建共享账户目录
         const auto account_store = psm::loader::build_account_directory(agent.authentication);

@@ -21,7 +21,7 @@
 #include <prism/stealth/reality/keygen.hpp>
 #include <boost/asio.hpp>
 
-namespace psm::stealth
+namespace psm::stealth::reality
 {
     namespace net = boost::asio;
 
@@ -157,4 +157,4 @@ namespace psm::stealth
         memory::vector<std::uint8_t> write_ciphertext_buf_; // 写入密文缓冲区
         memory::vector<std::byte> scatter_buf_;             // scatter-gather 拼接缓冲区
     };
-} // namespace psm::stealth
+} // namespace psm::stealth::reality

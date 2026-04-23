@@ -18,7 +18,7 @@
 #include <prism/stealth/reality/request.hpp>
 #include <prism/stealth/reality/constants.hpp>
 
-namespace psm::stealth
+namespace psm::stealth::reality
 {
     struct key_material;
 
@@ -88,4 +88,4 @@ namespace psm::stealth
         std::uint8_t content_type,
         std::span<const std::uint8_t> plaintext)
         -> std::pair<fault::code, memory::vector<std::uint8_t>>;
-} // namespace psm::stealth
+} // namespace psm::stealth::reality

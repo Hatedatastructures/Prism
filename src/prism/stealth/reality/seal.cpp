@@ -3,7 +3,7 @@
 #include <cstring>
 #include <algorithm>
 
-namespace psm::stealth
+namespace psm::stealth::reality
 {
     constexpr std::string_view SessTag = "[Stealth.Session]";
 
@@ -321,4 +321,4 @@ namespace psm::stealth
 
         co_return data.size();
     }
-} // namespace psm::stealth
+} // namespace psm::stealth::reality

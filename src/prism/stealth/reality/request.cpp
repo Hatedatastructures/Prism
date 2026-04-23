@@ -5,7 +5,7 @@
 #include <prism/trace.hpp>
 #include <cstring>
 
-namespace psm::stealth
+namespace psm::stealth::reality
 {
     constexpr std::string_view ChTag = "[Stealth.ClientHello]";
 
@@ -308,4 +308,4 @@ namespace psm::stealth
 
         return {fault::code::success, std::move(info)};
     }
-} // namespace psm::stealth
+} // namespace psm::stealth::reality

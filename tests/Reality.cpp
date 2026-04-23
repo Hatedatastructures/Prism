@@ -56,7 +56,7 @@ namespace
                 return {};
             }
 
-            if (msg_type != psm::stealth::tls::HANDSHAKE_TYPE_CERTIFICATE)
+            if (msg_type != psm::stealth::reality::tls::HANDSHAKE_TYPE_CERTIFICATE)
             {
                 offset += msg_len;
                 continue;
@@ -102,7 +102,7 @@ namespace
 void TestRealityCertificateParsesAsEd25519()
 {
     using namespace psm;
-    using namespace psm::stealth;
+    using namespace psm::stealth::reality;
 
     client_hello_info client_hello;
     client_hello.session_id = {0x01, 0x02, 0x03, 0x04};

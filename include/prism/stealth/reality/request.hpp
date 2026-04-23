@@ -23,7 +23,7 @@ namespace psm::channel::transport
     class transmission;
 } // namespace psm::channel::transport
 
-namespace psm::stealth
+namespace psm::stealth::reality
 {
     namespace net = boost::asio;
 
@@ -63,4 +63,4 @@ namespace psm::stealth
      */
     [[nodiscard]] auto parse_client_hello(std::span<const std::uint8_t> raw_tls_record)
         -> std::pair<fault::code, client_hello_info>;
-} // namespace psm::stealth
+} // namespace psm::stealth::reality

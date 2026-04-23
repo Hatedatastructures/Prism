@@ -11,7 +11,7 @@
 
 #include <prism/memory/container.hpp>
 
-namespace psm::stealth
+namespace psm::stealth::reality
 {
     /**
      * @struct config
@@ -38,4 +38,4 @@ namespace psm::stealth
             return !dest.empty() && !private_key.empty() && !server_names.empty();
         }
     };
-} // namespace psm::stealth
+} // namespace psm::stealth::reality

@@ -15,8 +15,7 @@
 #include <prism/agent/config.hpp>
 #include <prism/agent/session/session.hpp>
 #include <prism/agent/context.hpp>
-#include <prism/agent/dispatch/handler.hpp>
-#include <prism/agent/dispatch/handlers.hpp>
+#include <prism/agent/dispatch/table.hpp>
 #include <prism/resolve/router.hpp>
 #include <prism/resolve/transparent.hpp>
 #include <prism/agent/front/balancer.hpp>

@@ -2,7 +2,7 @@
 #include <prism/trace.hpp>
 #include <cstring>
 
-namespace psm::stealth
+namespace psm::stealth::reality
 {
     constexpr std::string_view KsTag = "[Stealth.KeySchedule]";
 
@@ -168,4 +168,4 @@ namespace psm::stealth
     {
         return crypto::hmac_sha256(finished_key, transcript_hash);
     }
-} // namespace psm::stealth
+} // namespace psm::stealth::reality

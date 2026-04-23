@@ -19,7 +19,7 @@
 #include <prism/stealth/reality/request.hpp>
 #include <prism/stealth/reality/constants.hpp>
 
-namespace psm::stealth
+namespace psm::stealth::reality
 {
     /**
      * @struct auth_result
@@ -82,4 +82,4 @@ namespace psm::stealth
      * @return 对应的数值，非法字符返回 -1
      */
     [[nodiscard]] auto hex_digit(char c) -> int;
-} // namespace psm::stealth
+} // namespace psm::stealth::reality

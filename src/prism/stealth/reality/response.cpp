@@ -13,7 +13,7 @@
 #include <openssl/err.h>
 #include <openssl/curve25519.h>
 
-namespace psm::stealth
+namespace psm::stealth::reality
 {
     constexpr std::string_view ShTag = "[Stealth.ServerHello]";
 
@@ -363,4 +363,4 @@ namespace psm::stealth
         trace::debug("{} generated ServerHello + encrypted handshake", ShTag);
         return {fault::code::success, std::move(result)};
     }
-} // namespace psm::stealth
+} // namespace psm::stealth::reality

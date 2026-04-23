@@ -15,6 +15,7 @@
 #include <prism/protocol/vless/config.hpp>
 #include <prism/protocol/shadowsocks/config.hpp>
 #include <prism/stealth/reality/config.hpp>
+#include <prism/stealth/shadowtls/config.hpp>
 #include <prism/channel/connection/pool.hpp>
 #include <prism/multiplex/config.hpp>
 
@@ -153,7 +154,8 @@ namespace psm::agent
         protocol::trojan::config trojan;                   // Trojan 协议配置
         protocol::vless::config vless;                     // VLESS 协议配置
         protocol::shadowsocks::config shadowsocks;         // Shadowsocks 协议配置
-        stealth::config reality;                           // Reality TLS 伪装配置
+        stealth::reality::config reality;                           // Reality TLS 伪装配置
+        stealth::shadowtls::config shadowtls;              // ShadowTLS v3 伪装配置
         multiplex::config mux;                             // 多路复用配置
         resolve::config dns;                               // DNS 解析器配置
     }; // struct config

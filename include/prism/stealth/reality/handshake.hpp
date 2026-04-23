@@ -20,7 +20,7 @@ namespace psm::resolve
     class router;
 } // namespace psm::resolve
 
-namespace psm::stealth
+namespace psm::stealth::reality
 {
     namespace net = boost::asio;
 
@@ -99,4 +99,4 @@ namespace psm::stealth
      */
     auto fetch_dest_certificate(std::string_view host, std::uint16_t port, resolve::router &router)
         -> net::awaitable<std::pair<fault::code, memory::vector<std::uint8_t>>>;
-} // namespace psm::stealth
+} // namespace psm::stealth::reality
