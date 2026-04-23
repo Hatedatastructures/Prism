@@ -103,15 +103,15 @@ namespace psm::pipeline::primitives
     /**
      * @brief 执行 TLS 服务端握手
      * @param ctx 会话上下文，包含入站传输和 SSL 配置
-     * @param data 预读数据，协议检测时读取的初始数据
      * @return 协程对象，完成后返回错误码和 TLS 流的共享指针
      * @details 将入站传输层包装为 connector，执行 TLS 服务端握手，
      * 返回可用于后续协议处理的 TLS 流。该函数是所有需要 TLS 的协议
      * 的通用握手入口，支持 HTTPS、Trojan over TLS 等场景。
+     * @note 调用方应确保入站传输已包装 preview（如有预读数据）。
      * @note 返回的 TLS 流通过 shared_ptr 管理，可被多个组件共享。
      * @warning 调用后 ctx.inbound 的所有权被转移，调用者不应再使用。
      */
-    auto ssl_handshake(session_context &ctx, std::span<const std::byte> data)
+    auto ssl_handshake(session_context &ctx)
         -> net::awaitable<std::pair<fault::code, shared_ssl_stream>>;
 
     /**

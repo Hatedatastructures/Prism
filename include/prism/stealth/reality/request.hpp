@@ -45,13 +45,13 @@ namespace psm::stealth::reality
 
     /**
      * @brief 读取完整的 TLS 记录
-     * @details 从传输层读取完整的 TLS 记录，处理已预读的初始数据和剩余数据
-     * @param transport 底层 TCP 传输
-     * @param initial_data probe 阶段已读取的前 24 字节
+     * @details 从传输层读取完整的 TLS 记录。调用方应确保 transport
+     * 已包装 preview（如有预读数据）。
+     * @param transport 底层传输（应包含预读数据）
      * @return net::awaitable<std::pair<fault::code, memory::vector<std::uint8_t>>>
      * 异步操作，返回错误码和完整 TLS 记录（含 5 字节 record header）
      */
-    auto read_tls_record(channel::transport::transmission &transport, std::span<const std::byte> initial_data)
+    auto read_tls_record(channel::transport::transmission &transport)
         -> net::awaitable<std::pair<fault::code, memory::vector<std::uint8_t>>>;
 
     /**

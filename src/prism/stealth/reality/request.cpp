@@ -22,19 +22,29 @@ namespace psm::stealth::reality
                static_cast<std::size_t>(data[offset + 2]);
     }
 
-    auto read_tls_record(channel::transport::transmission &transport,
-                         const std::span<const std::byte> initial_data)
+    auto read_tls_record(channel::transport::transmission &transport)
         -> net::awaitable<std::pair<fault::code, memory::vector<std::uint8_t>>>
     {
-        if (initial_data.size() < tls::RECORD_HEADER_LEN)
+        // 1. 读取 TLS 记录头（5 字节）
+        std::array<std::byte, tls::RECORD_HEADER_LEN> header{};
+        std::size_t header_read = 0;
+        while (header_read < tls::RECORD_HEADER_LEN)
         {
-            trace::error("{} initial data too short: {}", ChTag, initial_data.size());
-            co_return std::pair{fault::code::reality_tls_record_error, memory::vector<std::uint8_t>{}};
+            std::error_code ec;
+            auto buf_span = std::span<std::byte>(header.data() + header_read,
+                                                  tls::RECORD_HEADER_LEN - header_read);
+            const auto n = co_await transport.async_read_some(buf_span, ec);
+            if (ec || n == 0)
+            {
+                trace::error("{} read record header failed: {}", ChTag, ec.message());
+                co_return std::pair{fault::to_code(ec), memory::vector<std::uint8_t>{}};
+            }
+            header_read += n;
         }
 
-        const auto *raw = reinterpret_cast<const std::uint8_t *>(initial_data.data());
+        const auto *raw = reinterpret_cast<const std::uint8_t *>(header.data());
         const auto content_type = raw[0];
-        const auto record_length = read_u16({raw, initial_data.size()}, 3);
+        const auto record_length = read_u16({raw, tls::RECORD_HEADER_LEN}, 3);
 
         if (content_type != tls::CONTENT_TYPE_HANDSHAKE)
         {
@@ -48,29 +58,25 @@ namespace psm::stealth::reality
             co_return std::pair{fault::code::reality_tls_record_error, memory::vector<std::uint8_t>{}};
         }
 
+        // 2. 读取记录体
         const std::size_t total = tls::RECORD_HEADER_LEN + record_length;
         memory::vector<std::uint8_t> record(total);
+        std::memcpy(record.data(), raw, tls::RECORD_HEADER_LEN);
 
-        const auto copy_len = std::min(initial_data.size(), total);
-        std::memcpy(record.data(), raw, copy_len);
-
-        if (copy_len < total)
+        std::size_t read_offset = tls::RECORD_HEADER_LEN;
+        while (read_offset < total)
         {
-            std::size_t read_offset = copy_len;
-            while (read_offset < total)
+            std::error_code ec;
+            auto buf_span = std::span<std::byte>(
+                reinterpret_cast<std::byte *>(record.data() + read_offset),
+                total - read_offset);
+            const auto n = co_await transport.async_read_some(buf_span, ec);
+            if (ec || n == 0)
             {
-                std::error_code ec;
-                auto buf_span = std::span<std::byte>(
-                    reinterpret_cast<std::byte *>(record.data() + read_offset),
-                    total - read_offset);
-                const auto n = co_await transport.async_read_some(buf_span, ec);
-                if (ec || n == 0)
-                {
-                    trace::error("{} read failed at offset {}: {}", ChTag, read_offset, ec.message());
-                    co_return std::pair{fault::to_code(ec), memory::vector<std::uint8_t>{}};
-                }
-                read_offset += n;
+                trace::error("{} read failed at offset {}: {}", ChTag, read_offset, ec.message());
+                co_return std::pair{fault::to_code(ec), memory::vector<std::uint8_t>{}};
             }
+            read_offset += n;
         }
 
         co_return std::pair{fault::code::success, std::move(record)};

@@ -394,7 +394,7 @@ namespace psm::stealth::reality
     // handshake 主入口
     // ============================================================
 
-    auto handshake(psm::agent::session_context &ctx, const std::span<const std::byte> preread)
+    auto handshake(psm::agent::session_context &ctx)
         -> net::awaitable<handshake_result>
     {
         handshake_result result;
@@ -408,7 +408,7 @@ namespace psm::stealth::reality
         const auto &reality_cfg = ctx.server.config().reality;
 
         // 1. 读取 ClientHello
-        auto [read_ec, raw_record] = co_await read_tls_record(*ctx.inbound, preread);
+        auto [read_ec, raw_record] = co_await read_tls_record(*ctx.inbound);
         if (fault::failed(read_ec))
         {
             trace::warn("{} failed to read TLS record: {}", HsTag, fault::describe(read_ec));

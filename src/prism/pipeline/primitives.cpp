@@ -22,10 +22,9 @@ namespace psm::pipeline::primitives
     // 概念的对象。但我们的传输层是自定义的 transmission 接口。
     // ssl_connector 把 transmission 适配成 Boost.Asio 能理解的流式接口。
     //
-    // data 参数：握手前已经读走的预读数据（如协议探测时读的前 N 字节），
-    // ssl_connector 会把这些数据缓存起来，ssl_stream 先消费预读数据，
-    // 预读消费完后再从底层传输层读取新数据。
-    auto ssl_handshake(session_context &ctx, const std::span<const std::byte> data)
+    // 预读数据：调用方应在调用前用 preview 包装入站传输。
+    // ssl_connector 会从 preview 中读取预读数据，无需单独传递。
+    auto ssl_handshake(session_context &ctx)
         -> net::awaitable<std::pair<fault::code, shared_ssl_stream>>
     {
 
@@ -42,7 +41,7 @@ namespace psm::pipeline::primitives
         }
 
         // 层叠包装：transmission → ssl_connector(适配器) → ssl_stream(TLS 层)
-        ssl_connector connector(std::move(ctx.inbound), data);
+        ssl_connector connector(std::move(ctx.inbound), {});
         auto stream = std::make_shared<ssl_stream>(std::move(connector), *ctx.server.ssl_ctx);
 
         boost::system::error_code ec;

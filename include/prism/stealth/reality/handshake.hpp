@@ -60,10 +60,9 @@ namespace psm::stealth::reality
      * @details 读取 ClientHello，尝试 Reality 认证，成功则建立加密传输层，
      * 失败则回退到 dest 服务器的标准 TLS 或直接透传
      * @param ctx 会话上下文
-     * @param preread 预读的初始数据
      * @return net::awaitable<handshake_result> 异步操作，返回握手结果
      */
-    auto handshake(psm::agent::session_context &ctx, std::span<const std::byte> preread)
+    auto handshake(psm::agent::session_context &ctx)
         -> net::awaitable<handshake_result>;
 
     /**

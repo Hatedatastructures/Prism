@@ -1,7 +1,7 @@
 /**
  * @file session.cpp
  * @brief 连接会话编排模块实现
- * @details 会话通过 Stage Chain 执行 TLS 处理链路（Reality → ShadowTLS → Standard TLS），
+ * @details 会话通过 Stealth 方案管道执行 TLS 处理链路（Reality → ShadowTLS → Standard TLS），
  * 然后通过 handler_table 直接分发到协议处理函数。无虚函数、无工厂模式。
  */
 
@@ -10,10 +10,7 @@
 #include <prism/pipeline/primitives.hpp>
 #include <prism/protocol/probe.hpp>
 #include <prism/protocol/analysis.hpp>
-#include <prism/agent/pipeline/chain.hpp>
-#include <prism/agent/pipeline/stages/reality.hpp>
-#include <prism/agent/pipeline/stages/shadowtls.hpp>
-#include <prism/agent/pipeline/stages/standard.hpp>
+#include <prism/stealth.hpp>
 #include <prism/trace.hpp>
 #include <prism/exception.hpp>
 
@@ -144,30 +141,63 @@ namespace psm::agent::session
 
         auto span = std::span<const std::byte>(detect_result.pre_read_data.data(), detect_result.pre_read_size);
 
-        // 2：TLS → Stage Chain（Reality → ShadowTLS → Standard TLS）
+        // 2：TLS → Stealth 方案管道（Reality → ShadowTLS → Standard TLS）
         if (detect_result.type == protocol::protocol_type::tls)
         {
-            pipeline::stage_chain chain;
-            chain.push_back(std::make_shared<pipeline::stages::reality_stage>());
-            chain.push_back(std::make_shared<pipeline::stages::shadowtls_stage>());
-            chain.push_back(std::make_shared<pipeline::stages::standard_tls_stage>());
+            // 用 preview 包装 inbound，使所有 scheme 都能读到预读数据
+            ctx_.inbound = std::make_shared<pipeline::primitives::preview>(
+                std::move(ctx_.inbound), span, ctx_.frame_arena.get());
 
-            auto stage_result = co_await chain.execute(ctx_, detect_result, span);
+            std::vector<std::shared_ptr<stealth::stealth_scheme>> schemes;
+            schemes.push_back(std::make_shared<stealth::reality::scheme>());
+            schemes.push_back(std::make_shared<stealth::shadowtls::scheme>());
+            schemes.push_back(std::make_shared<stealth::schemes::native>());
 
-            switch (stage_result.type)
+            for (const auto &scheme : schemes)
             {
-            case pipeline::stage_result_type::success:
-                trace::debug("[Session] [{}] Stage chain succeeded, protocol: {}",
-                             id_, protocol::to_string_view(detect_result.type));
-                break;
-            case pipeline::stage_result_type::fallback_complete:
-                co_return;
-            case pipeline::stage_result_type::failed:
-                trace::warn("[Session] [{}] Stage chain failed", id_);
-                co_return;
-            case pipeline::stage_result_type::not_applicable:
-                trace::warn("[Session] [{}] No applicable stage found", id_);
-                co_return;
+                if (!scheme->is_enabled(ctx_.server.config()))
+                {
+                    trace::debug("[Session] [{}] Scheme '{}' disabled, skipping", id_, scheme->name());
+                    continue;
+                }
+
+                trace::debug("[Session] [{}] Executing scheme '{}'", id_, scheme->name());
+
+                auto res = co_await scheme->execute(stealth::scheme_context{
+                    .inbound = std::move(ctx_.inbound),
+                    .cfg = &ctx_.server.config(),
+                    .router = &ctx_.worker.router,
+                    .session = &ctx_});
+
+                if (res.transport)
+                    ctx_.inbound = std::move(res.transport);
+                if (res.detected != protocol::protocol_type::unknown)
+                    detect_result.type = res.detected;
+                if (!res.preread.empty())
+                {
+                    span = std::span<const std::byte>(res.preread.data(), res.preread.size());
+                    // 为下一个 scheme 重新包装 preview
+                    if (ctx_.inbound && detect_result.type == protocol::protocol_type::tls)
+                    {
+                        ctx_.inbound = std::make_shared<pipeline::primitives::preview>(
+                            std::move(ctx_.inbound), span, ctx_.frame_arena.get());
+                    }
+                }
+
+                if (fault::failed(res.error))
+                {
+                    trace::warn("[Session] [{}] Scheme '{}' failed: {}",
+                                id_, scheme->name(), fault::describe(res.error));
+                    co_return;
+                }
+
+                if (detect_result.type != protocol::protocol_type::tls &&
+                    detect_result.type != protocol::protocol_type::unknown)
+                {
+                    trace::debug("[Session] [{}] Scheme '{}' succeeded, protocol: {}",
+                                 id_, scheme->name(), protocol::to_string_view(detect_result.type));
+                    break;
+                }
             }
         }
 

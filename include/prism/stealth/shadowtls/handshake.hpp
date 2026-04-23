@@ -44,11 +44,8 @@ namespace psm::stealth::shadowtls
      * 4. 处理握手阶段数据帧
      * @param ctx 会话上下文
      * @param cfg ShadowTLS 配置
-     * @param pre_read_data 预读数据（如果有）
      * @return 握手结果
      */
-    auto handshake(agent::session_context &ctx,
-                   const config &cfg,
-                   std::span<const std::byte> pre_read_data = {})
+    auto handshake(agent::session_context &ctx, const config &cfg)
         -> net::awaitable<handshake_result>;
 } // namespace psm::stealth::shadowtls

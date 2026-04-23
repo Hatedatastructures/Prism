@@ -325,8 +325,7 @@ namespace psm::stealth::shadowtls
     // 主握手函数
     // ═══════════════════════════════════════════════════════════
 
-    auto handshake(agent::session_context &ctx, const config &cfg,
-                   [[maybe_unused]] std::span<const std::byte> pre_read_data)
+    auto handshake(agent::session_context &ctx, const config &cfg)
         -> net::awaitable<handshake_result>
     {
         handshake_result result;
