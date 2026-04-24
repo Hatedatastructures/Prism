@@ -9,9 +9,9 @@
  * @note 当前 wildcard 断言以仓库现实现行为为准：`*.example.com` 也会命中 `example.com`。
  */
 
-#include <prism/resolve/rules.hpp>
-#include <prism/resolve/utility.hpp>
-#include <prism/resolve/transparent.hpp>
+#include <prism/resolve/dns/detail/rules.hpp>
+#include <prism/resolve/dns/detail/utility.hpp>
+#include <prism/resolve/dns/detail/transparent.hpp>
 #include <prism/memory.hpp>
 #include <prism/trace/spdlog.hpp>
 
@@ -67,7 +67,7 @@ void TestTrieExactMatch()
 {
     LogInfo("=== TestTrieExactMatch ===");
 
-    psm::resolve::domain_trie trie;
+    psm::resolve::dns::detail::domain_trie trie;
 
     // 插入精确域名，绑定整数值 42
     trie.insert("example.com", 42);
@@ -110,7 +110,7 @@ void TestTrieWildcardMatch()
 {
     LogInfo("=== TestTrieWildcardMatch ===");
 
-    psm::resolve::domain_trie trie;
+    psm::resolve::dns::detail::domain_trie trie;
 
     // 插入通配符规则，匹配所有 example.com 子域
     trie.insert("*.example.com", 100);
@@ -176,7 +176,7 @@ void TestTrieCaseInsensitive()
 {
     LogInfo("=== TestTrieCaseInsensitive ===");
 
-    psm::resolve::domain_trie trie;
+    psm::resolve::dns::detail::domain_trie trie;
 
     // 以大写形式插入域名
     trie.insert("Example.COM", 77);
@@ -210,7 +210,7 @@ void TestTrieNoMatch()
 
     // 空 trie 的查询应返回空
     {
-        psm::resolve::domain_trie trie;
+        psm::resolve::dns::detail::domain_trie trie;
 
         auto result = trie.search("anything");
         if (result.has_value())
@@ -222,7 +222,7 @@ void TestTrieNoMatch()
 
     // 不同域名不应互相匹配
     {
-        psm::resolve::domain_trie trie;
+        psm::resolve::dns::detail::domain_trie trie;
         trie.insert("a.com", 1);
 
         auto result = trie.search("b.com");
@@ -243,7 +243,7 @@ void TestTrieMatchBoolean()
 {
     LogInfo("=== TestTrieMatchBoolean ===");
 
-    psm::resolve::domain_trie trie;
+    psm::resolve::dns::detail::domain_trie trie;
     trie.insert("test.com", 99);
 
     // match() 只关心是否存在匹配，不返回值
@@ -274,7 +274,7 @@ void TestRulesAddressRule()
 {
     LogInfo("=== TestRulesAddressRule ===");
 
-    psm::resolve::rules_engine engine;
+    psm::resolve::dns::detail::rules_engine engine;
 
     // 为域名添加静态 IP 地址规则（DNS 劫持/静态解析）
     {
@@ -319,7 +319,7 @@ void TestRulesNegativeRule()
 {
     LogInfo("=== TestRulesNegativeRule ===");
 
-    psm::resolve::rules_engine engine;
+    psm::resolve::dns::detail::rules_engine engine;
 
     // 添加否定规则（屏蔽/阻止域名）
     engine.add_negative_rule("evil.com");
@@ -350,7 +350,7 @@ void TestRulesCnameRule()
 {
     LogInfo("=== TestRulesCnameRule ===");
 
-    psm::resolve::rules_engine engine;
+    psm::resolve::dns::detail::rules_engine engine;
 
     // 添加 CNAME 别名规则：alias.com → real.com
     engine.add_cname_rule("alias.com", "real.com");
@@ -381,7 +381,7 @@ void TestRulesCombinedPriority()
 {
     LogInfo("=== TestRulesCombinedPriority ===");
 
-    psm::resolve::rules_engine engine;
+    psm::resolve::dns::detail::rules_engine engine;
 
     // 先添加地址规则：test.com → 10.0.0.1
     {
@@ -428,7 +428,7 @@ void TestParsePortValid()
 
     // HTTP 标准端口
     {
-        auto r = psm::resolve::parse_port("80");
+        auto r = psm::resolve::dns::detail::parse_port("80");
         if (!r || *r != 80)
         {
             LogFail("parse_port(\"80\") should return 80");
@@ -438,7 +438,7 @@ void TestParsePortValid()
 
     // HTTPS 标准端口
     {
-        auto r = psm::resolve::parse_port("443");
+        auto r = psm::resolve::dns::detail::parse_port("443");
         if (!r || *r != 443)
         {
             LogFail("parse_port(\"443\") should return 443");
@@ -448,7 +448,7 @@ void TestParsePortValid()
 
     // 端口 0（通常用于系统分配）
     {
-        auto r = psm::resolve::parse_port("0");
+        auto r = psm::resolve::dns::detail::parse_port("0");
         if (!r || *r != 0)
         {
             LogFail("parse_port(\"0\") should return 0");
@@ -458,7 +458,7 @@ void TestParsePortValid()
 
     // 最大有效端口号
     {
-        auto r = psm::resolve::parse_port("65535");
+        auto r = psm::resolve::dns::detail::parse_port("65535");
         if (!r || *r != 65535)
         {
             LogFail("parse_port(\"65535\") should return 65535");
@@ -477,35 +477,35 @@ void TestParsePortInvalid()
     LogInfo("=== TestParsePortInvalid ===");
 
     // 空串不是有效端口号
-    if (psm::resolve::parse_port("").has_value())
+    if (psm::resolve::dns::detail::parse_port("").has_value())
     {
         LogFail("parse_port(\"\") should return nullopt");
         return;
     }
 
     // 非数字字符
-    if (psm::resolve::parse_port("abc").has_value())
+    if (psm::resolve::dns::detail::parse_port("abc").has_value())
     {
         LogFail("parse_port(\"abc\") should return nullopt");
         return;
     }
 
     // 超出 16 位范围（65535 + 1）
-    if (psm::resolve::parse_port("65536").has_value())
+    if (psm::resolve::dns::detail::parse_port("65536").has_value())
     {
         LogFail("parse_port(\"65536\") should return nullopt");
         return;
     }
 
     // 负数
-    if (psm::resolve::parse_port("-1").has_value())
+    if (psm::resolve::dns::detail::parse_port("-1").has_value())
     {
         LogFail("parse_port(\"-1\") should return nullopt");
         return;
     }
 
     // 超长数字（>5 位）
-    if (psm::resolve::parse_port("123456").has_value())
+    if (psm::resolve::dns::detail::parse_port("123456").has_value())
     {
         LogFail("parse_port(\"123456\") should return nullopt (>5 chars)");
         return;
@@ -523,7 +523,7 @@ void TestParsePortBoundary()
 
     // 上边界：65535 是最大合法端口
     {
-        auto r = psm::resolve::parse_port("65535");
+        auto r = psm::resolve::dns::detail::parse_port("65535");
         if (!r || *r != 65535)
         {
             LogFail("parse_port(\"65535\") should return 65535 (valid boundary)");
@@ -533,7 +533,7 @@ void TestParsePortBoundary()
 
     // 越界：65536 不合法
     {
-        auto r = psm::resolve::parse_port("65536");
+        auto r = psm::resolve::dns::detail::parse_port("65536");
         if (r.has_value())
         {
             LogFail("parse_port(\"65536\") should return nullopt (invalid boundary)");
@@ -555,7 +555,7 @@ void TestTransparentHashDeterminism()
 {
     LogInfo("=== TestTransparentHashDeterminism ===");
 
-    psm::resolve::transparent_hash h;
+    psm::resolve::dns::detail::transparent_hash h;
 
     // 相同内容多次哈希结果应一致
     auto v1 = h(std::string_view("test"));
@@ -587,7 +587,7 @@ void TestTransparentEqualCrossType()
 {
     LogInfo("=== TestTransparentEqualCrossType ===");
 
-    psm::resolve::transparent_equal eq;
+    psm::resolve::dns::detail::transparent_equal eq;
 
     std::string_view sv("hello");
     psm::memory::string ms("hello");

@@ -5,8 +5,8 @@
 #include <prism/protocol/vless/format.hpp>
 #include <prism/protocol/shadowsocks/format.hpp>
 #include <prism/protocol/analysis.hpp>
-#include <prism/resolve/packet.hpp>
-#include <prism/resolve/rules.hpp>
+#include <prism/resolve/dns/detail/format.hpp>
+#include <prism/resolve/dns/detail/rules.hpp>
 #include <prism/crypto/sha224.hpp>
 #include <prism/crypto/base64.hpp>
 #include <array>
@@ -15,6 +15,17 @@
 #include <string_view>
 
 using namespace psm;
+
+namespace psm::resolve
+{
+    using dns::detail::message;
+    using dns::detail::qtype;
+    using dns::detail::domain_trie;
+    using dns::detail::rules_engine;
+    using dns::detail::rule_result;
+    using dns::detail::record;
+    using dns::detail::question;
+}
 
 // HTTP Benchmark
 static const std::string http_get_request =

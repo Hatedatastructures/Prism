@@ -23,7 +23,7 @@ namespace psm::pipeline
 
         // 创建 SOCKS5 中继代理并执行握手
         const auto agent = protocol::socks5::make_relay(
-            std::move(inbound), ctx.server.config().socks5, ctx.account_directory_ptr);
+            std::move(inbound), ctx.server.config().protocol.socks5, ctx.account_directory_ptr);
         auto [ec, request] = co_await agent->handshake();
         // 协商失败，退出处理流程，agent 对象通过 RAII 自动清理
         if (fault::failed(ec))

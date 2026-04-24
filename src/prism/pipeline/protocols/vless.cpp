@@ -38,7 +38,7 @@ namespace psm::pipeline
         };
 
         // 创建 VLESS 中继代理并执行握手
-        const auto agent = protocol::vless::make_relay(std::move(inbound), ctx.server.config().vless, std::move(verifier));
+        const auto agent = protocol::vless::make_relay(std::move(inbound), ctx.server.config().protocol.vless, std::move(verifier));
 
         auto [vless_ec, req] = co_await agent->handshake();
         if (fault::failed(vless_ec))

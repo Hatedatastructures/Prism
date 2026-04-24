@@ -11,7 +11,7 @@
 
 namespace psm::stealth::shadowtls
 {
-    auto scheme::is_enabled([[maybe_unused]] const agent::config &cfg) const noexcept -> bool
+    auto scheme::is_enabled([[maybe_unused]] const psm::config &cfg) const noexcept -> bool
     {
         // 暂时禁用：ShadowTLS v3 尚未调通，后续完善
         return false;
@@ -33,7 +33,7 @@ namespace psm::stealth::shadowtls
             co_return result;
         }
 
-        auto hs = co_await stealth::shadowtls::handshake(*ctx.session, ctx.cfg->shadowtls);
+        auto hs = co_await stealth::shadowtls::handshake(*ctx.session, ctx.cfg->stealth.shadowtls);
 
         if (hs.authenticated)
         {

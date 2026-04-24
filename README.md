@@ -168,20 +168,11 @@ Prism/
 
 ## 文档
 
-**教程**
-- [快速开始](docs/tutorial/getting-started.md) · [配置详解](docs/tutorial/configuration.md) · [故障排除](docs/tutorial/troubleshooting.md) · [FAQ](docs/tutorial/faq.md)
+**新手教程**
+- [快速开始](docs/tutorial/getting-started.md) · [配置详解](docs/tutorial/configuration.md) · [部署指南](docs/tutorial/deployment.md) · [故障排除](docs/tutorial/troubleshooting.md) · [常见问题](docs/tutorial/faq.md)
 
-**技术手册**
-- [架构设计](docs/manual/architecture.md) · [模块设计](docs/manual/modules.md) · [运行时流程](docs/manual/runtime.md) · [路由与分发](docs/manual/routing.md)
-
-**协议规范**
-- [HTTP](docs/protocols/http.md) · [SOCKS5](docs/protocols/socks5.md) · [Trojan](docs/protocols/trojan.md) · [VLESS](docs/protocols/vless.md) · [SS2022](docs/protocols/shadowsocks.md) · [TLS](docs/protocols/tls.md)
-
-**TLS 伪装**
-- [Reality](docs/protocols/reality.md)
-
-**参考资料**
-- [配置结构体](docs/reference/config-structure.md) · [依赖关系](docs/reference/dependencies.md) · [多路复用](docs/multiplex/overview.md)
+**开发者文档**
+- [文档入口](docs/index.md) · [agent](docs/prism/agent.md) · [channel](docs/prism/channel.md) · [resolve](docs/prism/resolve.md) · [Trojan](docs/prism/protocol/trojan.md) · [VLESS](docs/prism/protocol/vless.md) · [smux](docs/prism/multiplex/smux.md) · [Reality](docs/prism/stealth/reality.md)
 
 ---
 

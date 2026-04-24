@@ -1,7 +1,7 @@
 /**
  * @file DnsPacket.cpp
  * @brief DNS 报文编解码单元测试
- * @details 测试 psm::resolve::message 的序列化/反序列化、
+ * @details 测试 psm::resolve::dns::detail::message 的序列化/反序列化、
  * IPv4/IPv6 地址提取、TTL 计算以及 TCP 帧封装等功能。
  * 覆盖以下测试用例：
  * 1. 构造递归查询报文 (TestMakeQuery)
@@ -15,7 +15,7 @@
  */
 
 #include <prism/memory.hpp>
-#include <prism/resolve/packet.hpp>
+#include <prism/resolve/dns/detail/format.hpp>
 #include <prism/trace/spdlog.hpp>
 
 #include <cstdint>
@@ -70,7 +70,7 @@ void TestMakeQuery()
     psm::memory::resource_pointer mr = psm::memory::current_resource();
 
     // 构造 A 记录递归查询
-    auto msg = psm::resolve::message::make_query("example.com", psm::resolve::qtype::a, mr);
+    auto msg = psm::resolve::dns::detail::message::make_query("example.com", psm::resolve::dns::detail::qtype::a, mr);
 
     // id 初始为 0，由上层分配实际事务 ID
     if (msg.id != 0)
@@ -108,7 +108,7 @@ void TestMakeQuery()
     }
 
     // 查询类型应为 A (IPv4)
-    if (msg.questions[0].qtype != psm::resolve::qtype::a)
+    if (msg.questions[0].qtype != psm::resolve::dns::detail::qtype::a)
     {
         LogFail("question qtype should be A (1)");
         return;
@@ -128,11 +128,11 @@ void TestPackUnpackRoundTrip()
 
     // === 测试查询报文的序列化/反序列化往返 ===
     {
-        auto original = psm::resolve::message::make_query("example.com", psm::resolve::qtype::a, mr);
+        auto original = psm::resolve::dns::detail::message::make_query("example.com", psm::resolve::dns::detail::qtype::a, mr);
         // 序列化为线格式字节流
         auto wire = original.pack();
 
-        auto opt = psm::resolve::message::unpack(
+        auto opt = psm::resolve::dns::detail::message::unpack(
             std::span<const std::uint8_t>(wire.data(), wire.size()), mr);
         if (!opt)
         {
@@ -161,7 +161,7 @@ void TestPackUnpackRoundTrip()
             return;
         }
 
-        if (restored.questions[0].qtype != psm::resolve::qtype::a)
+        if (restored.questions[0].qtype != psm::resolve::dns::detail::qtype::a)
         {
             LogFail("query: question qtype mismatch after round trip");
             return;
@@ -170,22 +170,22 @@ void TestPackUnpackRoundTrip()
 
     // === 测试带应答记录的响应报文往返 ===
     {
-        psm::resolve::message msg(mr);
+        psm::resolve::dns::detail::message msg(mr);
         msg.id = 0x1234;  // 事务 ID
         msg.qr = true;     // 响应标志
         msg.rd = true;     // 递归请求已被设置
         msg.ra = true;     // 递归可用
 
         // 构造问题段
-        psm::resolve::question q(mr);
+        psm::resolve::dns::detail::question q(mr);
         q.name = "example.com";
-        q.qtype = psm::resolve::qtype::a;
+        q.qtype = psm::resolve::dns::detail::qtype::a;
         msg.questions.push_back(std::move(q));
 
         // 构造应答记录：example.com → 8.8.8.8，TTL=300 秒
-        psm::resolve::record ans(mr);
+        psm::resolve::dns::detail::record ans(mr);
         ans.name = "example.com";
-        ans.type = psm::resolve::qtype::a;
+        ans.type = psm::resolve::dns::detail::qtype::a;
         ans.ttl = 300;
         // rdata 为 4 字节 IPv4 地址 8.8.8.8
         ans.rdata = {8, 8, 8, 8};
@@ -194,7 +194,7 @@ void TestPackUnpackRoundTrip()
         auto wire = msg.pack();
 
         // 从线格式恢复响应报文
-        auto opt = psm::resolve::message::unpack(
+        auto opt = psm::resolve::dns::detail::message::unpack(
             std::span<const std::uint8_t>(wire.data(), wire.size()), mr);
         if (!opt)
         {
@@ -233,7 +233,7 @@ void TestPackUnpackRoundTrip()
         }
 
         // 应答记录类型
-        if (restored.answers[0].type != psm::resolve::qtype::a)
+        if (restored.answers[0].type != psm::resolve::dns::detail::qtype::a)
         {
             LogFail("response: answer type mismatch");
             return;
@@ -271,12 +271,12 @@ void TestExtractIPv4()
     // 测试公网地址 8.8.8.8（Google DNS）
     {
         psm::memory::resource_pointer mr = psm::memory::current_resource();
-        psm::resolve::record rec(mr);
-        rec.type = psm::resolve::qtype::a;
+        psm::resolve::dns::detail::record rec(mr);
+        rec.type = psm::resolve::dns::detail::qtype::a;
         // 4 字节 rdata 对应 IPv4 地址
         rec.rdata = {8, 8, 8, 8};
 
-        auto result = psm::resolve::extract_ipv4(rec);
+        auto result = psm::resolve::dns::detail::extract_ipv4(rec);
         if (!result)
         {
             LogFail("extract_ipv4 returned nullopt for 8.8.8.8");
@@ -295,11 +295,11 @@ void TestExtractIPv4()
     // 测试私有地址 192.168.1.1
     {
         psm::memory::resource_pointer mr = psm::memory::current_resource();
-        psm::resolve::record rec(mr);
-        rec.type = psm::resolve::qtype::a;
+        psm::resolve::dns::detail::record rec(mr);
+        rec.type = psm::resolve::dns::detail::qtype::a;
         rec.rdata = {192, 168, 1, 1};
 
-        auto result = psm::resolve::extract_ipv4(rec);
+        auto result = psm::resolve::dns::detail::extract_ipv4(rec);
         if (!result)
         {
             LogFail("extract_ipv4 returned nullopt for 192.168.1.1");
@@ -325,12 +325,12 @@ void TestExtractIPv6()
     LogInfo("=== Testing extract_ipv6 ===");
 
     psm::memory::resource_pointer mr = psm::memory::current_resource();
-    psm::resolve::record rec(mr);
-    rec.type = psm::resolve::qtype::aaaa;
+    psm::resolve::dns::detail::record rec(mr);
+    rec.type = psm::resolve::dns::detail::qtype::aaaa;
     // IPv6 环回地址 ::1 = 15 字节零 + 末字节 1（共 16 字节）
     rec.rdata = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1};
 
-    auto result = psm::resolve::extract_ipv6(rec);
+    auto result = psm::resolve::dns::detail::extract_ipv6(rec);
     if (!result)
     {
         LogFail("extract_ipv6 returned nullopt for ::1");
@@ -359,10 +359,10 @@ void TestExtractIPv4BadLength()
 
     // rdata 仅 3 字节，不足 IPv4 所需的 4 字节
     {
-        psm::resolve::record rec(mr);
+        psm::resolve::dns::detail::record rec(mr);
         rec.rdata = {1, 2, 3};
 
-        auto result = psm::resolve::extract_ipv4(rec);
+        auto result = psm::resolve::dns::detail::extract_ipv4(rec);
         if (result.has_value())
         {
             LogFail("extract_ipv4 should return nullopt for 3-byte rdata");
@@ -372,10 +372,10 @@ void TestExtractIPv4BadLength()
 
     // rdata 有 5 字节，超出 IPv4 长度
     {
-        psm::resolve::record rec(mr);
+        psm::resolve::dns::detail::record rec(mr);
         rec.rdata = {1, 2, 3, 4, 5};
 
-        auto result = psm::resolve::extract_ipv4(rec);
+        auto result = psm::resolve::dns::detail::extract_ipv4(rec);
         if (result.has_value())
         {
             LogFail("extract_ipv4 should return nullopt for 5-byte rdata");
@@ -394,13 +394,13 @@ void TestExtractIPs()
     LogInfo("=== Testing extract_ips ===");
 
     psm::memory::resource_pointer mr = psm::memory::current_resource();
-    psm::resolve::message msg(mr);
+    psm::resolve::dns::detail::message msg(mr);
 
     // A 记录：Cloudflare DNS 1.1.1.1（4 字节 rdata）
     {
-        psm::resolve::record rec(mr);
+        psm::resolve::dns::detail::record rec(mr);
         rec.name = "example.com";
-        rec.type = psm::resolve::qtype::a;
+        rec.type = psm::resolve::dns::detail::qtype::a;
         rec.ttl = 300;
         rec.rdata = {1, 1, 1, 1};
         msg.answers.push_back(std::move(rec));
@@ -408,9 +408,9 @@ void TestExtractIPs()
 
     // AAAA 记录：IPv6 环回地址 ::1（16 字节 rdata）
     {
-        psm::resolve::record rec(mr);
+        psm::resolve::dns::detail::record rec(mr);
         rec.name = "example.com";
-        rec.type = psm::resolve::qtype::aaaa;
+        rec.type = psm::resolve::dns::detail::qtype::aaaa;
         rec.ttl = 300;
         rec.rdata = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1};
         msg.answers.push_back(std::move(rec));
@@ -438,17 +438,17 @@ void TestMinTtl()
 
     // 三条记录，TTL 分别为 300、600、60，取最小值
     {
-        psm::resolve::message msg(mr);
+        psm::resolve::dns::detail::message msg(mr);
 
-        psm::resolve::record r1(mr);
+        psm::resolve::dns::detail::record r1(mr);
         r1.ttl = 300;
         msg.answers.push_back(std::move(r1));
 
-        psm::resolve::record r2(mr);
+        psm::resolve::dns::detail::record r2(mr);
         r2.ttl = 600;
         msg.answers.push_back(std::move(r2));
 
-        psm::resolve::record r3(mr);
+        psm::resolve::dns::detail::record r3(mr);
         r3.ttl = 60;
         msg.answers.push_back(std::move(r3));
 
@@ -462,9 +462,9 @@ void TestMinTtl()
 
     // 单条记录，TTL=3600（1 小时）
     {
-        psm::resolve::message msg(mr);
+        psm::resolve::dns::detail::message msg(mr);
 
-        psm::resolve::record r(mr);
+        psm::resolve::dns::detail::record r(mr);
         r.ttl = 3600;
         msg.answers.push_back(std::move(r));
 
@@ -487,7 +487,7 @@ void TestPackUnpackTcp()
 
     psm::memory::resource_pointer mr = psm::memory::current_resource();
 
-    auto original = psm::resolve::message::make_query("test.org", psm::resolve::qtype::aaaa, mr);
+    auto original = psm::resolve::dns::detail::message::make_query("test.org", psm::resolve::dns::detail::qtype::aaaa, mr);
     auto wire = original.pack();
 
     // 手动构建 TCP 帧：2 字节大端长度前缀 + DNS 线格式数据
@@ -501,7 +501,7 @@ void TestPackUnpackTcp()
     tcp_frame.insert(tcp_frame.end(), wire.begin(), wire.end());
 
     // 解析 TCP 帧，分离长度前缀后还原报文
-    auto opt = psm::resolve::unpack_tcp(
+    auto opt = psm::resolve::dns::detail::unpack_tcp(
         std::span<const std::uint8_t>(tcp_frame.data(), tcp_frame.size()), mr);
     if (!opt)
     {
@@ -529,7 +529,7 @@ void TestPackUnpackTcp()
         return;
     }
 
-    if (restored.questions[0].qtype != psm::resolve::qtype::aaaa)
+    if (restored.questions[0].qtype != psm::resolve::dns::detail::qtype::aaaa)
     {
         LogFail("TCP round trip: question qtype mismatch");
         return;

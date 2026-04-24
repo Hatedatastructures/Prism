@@ -8,26 +8,26 @@ namespace psm::agent::front
     // 构造 Listener：解析监听地址，打开 acceptor 并绑定端口。
     // ioc_(1) 表示独立线程的事件循环，不和其他 Worker 共享。
     // backpressure_delay_ 默认 2ms，全局背压时用这个延迟暂停接受。
-    listener::listener(const config &cfg, balancer &dispatcher)
+    listener::listener(const psm::config &cfg, balancer &dispatcher)
         : ioc_(1),acceptor_(ioc_),dispatcher_(dispatcher),
           buffer_size_(cfg.buffer.size),backpressure_delay_(2)
     {
         net::ip::address addr;
         boost::system::error_code ec;
-        addr = net::ip::make_address(cfg.addressable.host, ec);
+        addr = net::ip::make_address(cfg.agent.addressable.host, ec);
         if (ec)
-        {   // 目前不支持 IPv6 地址，仅支持 IPv4 地址
-            if (cfg.addressable.host == "localhost")
+        {   // 目前不支持 IPv6 地址，仅支持 IPv4 地址，仅支持 IPv4 地址
+            if (cfg.agent.addressable.host == "localhost")
             {   // 如果为 localhost，则使用回环地址 127.0.0.1
                 addr = net::ip::address_v4::loopback();
             }
-            else if (cfg.addressable.host == "0.0.0.0" || cfg.addressable.host.empty())
+            else if (cfg.agent.addressable.host == "0.0.0.0" || cfg.agent.addressable.host.empty())
             {   // 如果为 0.0.0.0 或空字符串，则使用所有接口
                 addr = net::ip::address_v4::any();
             }
             else
             {
-                throw std::system_error(ec, "Invalid listen address: " + std::string(cfg.addressable.host) +
+                throw std::system_error(ec, "Invalid listen address: " + std::string(cfg.agent.addressable.host) +
                     ". Use IP address (e.g., 0.0.0.0, 127.0.0.1, ::) instead of hostname.");
             }
         }
@@ -35,7 +35,7 @@ namespace psm::agent::front
         // 设置 socket 选项：
         // - reuse_address：允许端口复用（重启时不用等 TIME_WAIT 过期）
         // - 收发缓冲区大小：从配置中读取，影响吞吐量
-        const tcp::endpoint endpoint(addr, cfg.addressable.port);
+        const tcp::endpoint endpoint(addr, cfg.agent.addressable.port);
         acceptor_.open(endpoint.protocol());
         acceptor_.set_option(net::socket_base::reuse_address(true));
         acceptor_.set_option(net::socket_base::receive_buffer_size(cfg.buffer.size));

@@ -8,7 +8,7 @@
 #include <prism/channel/connection/pool.hpp>
 #include <prism/memory/pool.hpp>
 #include <prism/resolve/router.hpp>
-#include <prism/resolve/config.hpp>
+#include <prism/resolve/dns/config.hpp>
 #include <prism/trace/spdlog.hpp>
 
 #include "common/test_runner.hpp"

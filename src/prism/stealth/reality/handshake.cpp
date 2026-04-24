@@ -122,7 +122,7 @@ namespace psm::stealth::reality
     auto fallback_to_dest(psm::agent::session_context &ctx, const std::span<const std::uint8_t> raw_record)
         -> net::awaitable<fault::code>
     {
-        const auto &reality_cfg = ctx.server.config().reality;
+        const auto &reality_cfg = ctx.server.config().stealth.reality;
 
         std::string dest_host;
         std::uint16_t dest_port = 443;
@@ -405,7 +405,7 @@ namespace psm::stealth::reality
             co_return result;
         }
 
-        const auto &reality_cfg = ctx.server.config().reality;
+        const auto &reality_cfg = ctx.server.config().stealth.reality;
 
         // 1. 读取 ClientHello
         auto [read_ec, raw_record] = co_await read_tls_record(*ctx.inbound);

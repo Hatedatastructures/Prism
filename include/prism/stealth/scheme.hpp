@@ -24,9 +24,13 @@ namespace psm::resolve
     class router;
 } // namespace psm::resolve
 
-namespace psm::agent
+namespace psm
 {
     struct config;
+} // namespace psm
+
+namespace psm::agent
+{
     struct session_context;
 } // namespace psm::agent
 
@@ -57,7 +61,7 @@ namespace psm::stealth
     struct scheme_context
     {
         shared_transmission inbound;                       // 当前传输层（应包含预读数据）
-        const agent::config *cfg{nullptr};                 // 服务器配置
+        const psm::config *cfg{nullptr};                   // 服务器配置
         resolve::router *router{nullptr};                  // 路由器（fallback 用）
         agent::session_context *session{nullptr};          // 会话上下文
     };
@@ -76,7 +80,7 @@ namespace psm::stealth
          * @param cfg 服务器配置
          * @return true 如果启用
          */
-        [[nodiscard]] virtual auto is_enabled(const agent::config &cfg) const noexcept -> bool = 0;
+        [[nodiscard]] virtual auto is_enabled(const psm::config &cfg) const noexcept -> bool = 0;
 
         /**
          * @brief 执行方案处理

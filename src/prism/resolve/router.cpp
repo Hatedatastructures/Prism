@@ -3,7 +3,7 @@
 
 #include <prism/channel/transport/reliable.hpp>
 #include <prism/exception.hpp>
-#include <prism/resolve/utility.hpp>
+#include <prism/resolve/dns/detail/utility.hpp>
 #include <prism/trace.hpp>
 
 #include <algorithm>
@@ -12,11 +12,13 @@
 
 namespace psm::resolve
 {
-    router::router(connection_pool &pool, net::io_context &ioc, config dns_cfg,
+    using dns::detail::parse_port;
+
+    router::router(connection_pool &pool, net::io_context &ioc, dns::config dns_cfg,
                    const memory::resource_pointer mr)
         : pool_(pool),
           mr_(mr ? mr : memory::current_resource()),
-          dns_(ioc, std::move(dns_cfg), mr_),
+          dns_(dns::make_resolver(ioc, std::move(dns_cfg), mr_)),
           reverse_map_(mr_),
           executor_(ioc.get_executor())
     {
@@ -82,7 +84,7 @@ namespace psm::resolve
         }
 
         // 非字面量：需要进行 DNS 解析
-        auto [resolve_ec, endpoints] = co_await dns_.resolve_tcp(host, port);
+        auto [resolve_ec, endpoints] = co_await dns_->resolve_tcp(host, port);
         if (fault::failed(resolve_ec) || endpoints.empty())
         {
             trace::warn("[Resolve] DNS resolve {}:{} failed", host, port);
@@ -161,7 +163,7 @@ namespace psm::resolve
             }
             else
             {
-                const auto [resolve_ec, resolved] = co_await dns_.resolve_udp(host, port);
+                const auto [resolve_ec, resolved] = co_await dns_->resolve_udp(host, port);
                 if (fault::failed(resolve_ec))
                 {
                     co_return std::pair{resolve_ec, net::ip::udp::socket{executor_}};
@@ -190,7 +192,7 @@ namespace psm::resolve
                 co_return std::make_pair(fault::code::success, net::ip::udp::endpoint(addr, port_num));
             }
         }
-        co_return co_await dns_.resolve_udp(host, port);
+        co_return co_await dns_->resolve_udp(host, port);
     }
 
 } // namespace psm::resolve

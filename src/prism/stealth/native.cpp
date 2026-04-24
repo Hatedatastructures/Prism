@@ -12,7 +12,7 @@
 
 namespace psm::stealth::schemes
 {
-    auto native::is_enabled([[maybe_unused]] const agent::config &cfg) const noexcept -> bool
+    auto native::is_enabled([[maybe_unused]] const psm::config &cfg) const noexcept -> bool
     {
         return true;
     }

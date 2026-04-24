@@ -6,13 +6,14 @@
 #pragma once
 
 #include <prism/stealth/scheme.hpp>
+#include <prism/config.hpp>
 
 namespace psm::stealth::shadowtls
 {
     class scheme final : public stealth_scheme
     {
     public:
-        [[nodiscard]] auto is_enabled(const agent::config &cfg) const noexcept -> bool override;
+        [[nodiscard]] auto is_enabled(const psm::config &cfg) const noexcept -> bool override;
         [[nodiscard]] auto execute(scheme_context ctx) -> net::awaitable<scheme_result> override;
         [[nodiscard]] auto name() const noexcept -> std::string_view override;
     };

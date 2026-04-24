@@ -8,13 +8,14 @@
  */
 #pragma once
 
+#include <memory>
 #include <optional>
 #include <string_view>
 #include <utility>
 
 #include <boost/asio.hpp>
 
-#include <prism/resolve/recursor.hpp>
+#include <prism/resolve/dns/dns.hpp>
 #include <prism/channel/connection/pool.hpp>
 #include <prism/fault/code.hpp>
 #include <prism/memory/container.hpp>
@@ -111,7 +112,7 @@ namespace psm::resolve
          * @param dns_cfg DNS 解析器配置
          * @param mr 内存资源，用于内部存储分配
          */
-        explicit router(connection_pool &pool, net::io_context &ioc, config dns_cfg,
+        explicit router(connection_pool &pool, net::io_context &ioc, dns::config dns_cfg,
                         memory::resource_pointer mr = memory::current_resource());
 
         /**
@@ -144,7 +145,7 @@ namespace psm::resolve
          * @details 委托给内部 DNS 解析器的配置查询。
          * @return 禁用 IPv6 返回 true，否则返回 false
          */
-        [[nodiscard]] auto ipv6_disabled() const noexcept -> bool { return dns_.ipv6_disabled(); }
+        [[nodiscard]] auto ipv6_disabled() const noexcept -> bool { return dns_->ipv6_disabled(); }
 
         /**
          * @brief 异步路由直连 TCP 端点
@@ -207,13 +208,13 @@ namespace psm::resolve
         [[nodiscard]] auto connect_with_retry(std::span<const tcp::endpoint> endpoints)
             -> net::awaitable<pooled_connection>;
 
-        connection_pool &pool_;                       // 共享 TCP 传输源
-        memory::resource_pointer mr_;                 // 内存资源
-        recursor dns_;                                // DNS 解析器
-        reverse_map reverse_map_;                     // 反向路由表
-        net::any_io_executor executor_;               // 执行器（用于创建 UDP socket）
-        std::optional<memory::string> positive_host_; // 正向代理主机名
-        std::uint16_t positive_port_{0};              // 正向代理端口
+        connection_pool &pool_;                             // 共享 TCP 传输源
+        memory::resource_pointer mr_;                       // 内存资源
+        std::unique_ptr<dns::resolver> dns_;                  // DNS 解析器
+        reverse_map reverse_map_;                           // 反向路由表
+        net::any_io_executor executor_;                     // 执行器（用于创建 UDP socket）
+        std::optional<memory::string> positive_host_;       // 正向代理主机名
+        std::uint16_t positive_port_{0};                    // 正向代理端口
     };
 
     /**

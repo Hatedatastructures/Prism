@@ -17,6 +17,7 @@
 #include <boost/asio/ssl.hpp>
 
 #include <prism/agent/config.hpp>
+#include <prism/config.hpp>
 #include <prism/resolve/router.hpp>
 #include <prism/agent/account/entry.hpp>
 #include <prism/memory/pool.hpp>
@@ -46,7 +47,7 @@ namespace psm::agent
      */
     struct server_context
     {
-        std::atomic<std::shared_ptr<const config>> cfg;    // 配置对象（可原子交换）
+        std::atomic<std::shared_ptr<const psm::config>> cfg;    // 配置对象（可原子交换）
         std::shared_ptr<ssl::context> ssl_ctx;             // SSL 上下文
         std::shared_ptr<account::directory> account_store; // 账户注册表
 
@@ -54,7 +55,7 @@ namespace psm::agent
          * @brief 获取当前配置（无锁读取）
          * @return 配置对象的常量引用
          */
-        [[nodiscard]] auto config() const -> const agent::config &
+        [[nodiscard]] auto config() const -> const psm::config &
         {
             return *cfg.load();
         }
@@ -63,7 +64,7 @@ namespace psm::agent
          * @brief 原子交换配置（热加载用）
          * @param new_cfg 新配置对象
          */
-        void swap_config(std::shared_ptr<const agent::config> new_cfg)
+        void swap_config(std::shared_ptr<const psm::config> new_cfg)
         {
             cfg.store(std::move(new_cfg));
         }

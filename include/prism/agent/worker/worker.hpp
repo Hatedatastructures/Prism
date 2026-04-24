@@ -15,6 +15,7 @@
 #include <prism/agent/front/balancer.hpp>
 #include <prism/resolve/router.hpp>
 #include <prism/agent/context.hpp>
+#include <prism/config.hpp>
 #include <prism/agent/worker/stats.hpp>
 #include <prism/agent/worker/tls.hpp>
 #include <prism/channel/connection/pool.hpp>
@@ -63,7 +64,7 @@ namespace psm::agent::worker
          * @param account_store 账户注册表，用于认证功能
          * @throws std::bad_alloc 如果内存分配失败
          */
-        explicit worker(const agent::config &cfg, std::shared_ptr<account::directory> account_store);
+        explicit worker(const psm::config &cfg, std::shared_ptr<account::directory> account_store);
 
         /**
          * @brief 启动 worker 事件循环

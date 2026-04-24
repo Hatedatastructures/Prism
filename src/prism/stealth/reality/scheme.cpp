@@ -4,15 +4,16 @@
  */
 
 #include <prism/stealth/reality/scheme.hpp>
+#include <prism/config.hpp>
 #include <prism/stealth/reality/handshake.hpp>
 #include <prism/pipeline/primitives.hpp>
 #include <prism/trace.hpp>
 
 namespace psm::stealth::reality
 {
-    auto scheme::is_enabled(const agent::config &cfg) const noexcept -> bool
+    auto scheme::is_enabled(const psm::config &cfg) const noexcept -> bool
     {
-        return cfg.reality.enabled();
+        return cfg.stealth.reality.enabled();
     }
 
     auto scheme::name() const noexcept -> std::string_view

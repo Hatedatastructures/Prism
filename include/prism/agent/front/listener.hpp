@@ -15,6 +15,7 @@
 #include <boost/asio.hpp>
 
 #include <prism/agent/config.hpp>
+#include <prism/config.hpp>
 #include <prism/agent/front/balancer.hpp>
 
 namespace psm::agent::front
@@ -44,7 +45,7 @@ namespace psm::agent::front
          * 方法启动接受循环。配置中的监听地址必须有效，否则启动时将抛出
          * 异常。
          */
-        explicit listener(const agent::config &cfg, balancer &dispatcher);
+        explicit listener(const psm::config &cfg, balancer &dispatcher);
 
         /**
          * @brief 启动监听

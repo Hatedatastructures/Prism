@@ -17,7 +17,6 @@
 #include <prism/agent/context.hpp>
 #include <prism/agent/dispatch/table.hpp>
 #include <prism/resolve/router.hpp>
-#include <prism/resolve/transparent.hpp>
 #include <prism/agent/front/balancer.hpp>
 #include <prism/agent/front/listener.hpp>
 #include <prism/pipeline/primitives.hpp>

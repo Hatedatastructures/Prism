@@ -132,7 +132,7 @@ namespace psm::agent::session
         }
 
         // 1：外层协议探测
-        auto detect_result = co_await protocol::probe(*ctx_.inbound, 24);
+        auto detect_result = co_await psm::protocol::probe(*ctx_.inbound, 24);
         if (fault::failed(detect_result.ec))
         {
             trace::warn("[Session] [{}] Protocol detection failed: {}.", id_, fault::describe(detect_result.ec));
@@ -142,16 +142,16 @@ namespace psm::agent::session
         auto span = std::span<const std::byte>(detect_result.pre_read_data.data(), detect_result.pre_read_size);
 
         // 2：TLS → Stealth 方案管道（Reality → ShadowTLS → Standard TLS）
-        if (detect_result.type == protocol::protocol_type::tls)
+        if (detect_result.type == psm::protocol::protocol_type::tls)
         {
             // 用 preview 包装 inbound，使所有 scheme 都能读到预读数据
             ctx_.inbound = std::make_shared<pipeline::primitives::preview>(
                 std::move(ctx_.inbound), span, ctx_.frame_arena.get());
 
-            std::vector<std::shared_ptr<stealth::stealth_scheme>> schemes;
-            schemes.push_back(std::make_shared<stealth::reality::scheme>());
-            schemes.push_back(std::make_shared<stealth::shadowtls::scheme>());
-            schemes.push_back(std::make_shared<stealth::schemes::native>());
+            std::vector<std::shared_ptr<psm::stealth::stealth_scheme>> schemes;
+            schemes.push_back(std::make_shared<psm::stealth::reality::scheme>());
+            schemes.push_back(std::make_shared<psm::stealth::shadowtls::scheme>());
+            schemes.push_back(std::make_shared<psm::stealth::schemes::native>());
 
             for (const auto &scheme : schemes)
             {
@@ -163,7 +163,7 @@ namespace psm::agent::session
 
                 trace::debug("[Session] [{}] Executing scheme '{}'", id_, scheme->name());
 
-                auto res = co_await scheme->execute(stealth::scheme_context{
+                auto res = co_await scheme->execute(psm::stealth::scheme_context{
                     .inbound = std::move(ctx_.inbound),
                     .cfg = &ctx_.server.config(),
                     .router = &ctx_.worker.router,
@@ -171,13 +171,13 @@ namespace psm::agent::session
 
                 if (res.transport)
                     ctx_.inbound = std::move(res.transport);
-                if (res.detected != protocol::protocol_type::unknown)
+                if (res.detected != psm::protocol::protocol_type::unknown)
                     detect_result.type = res.detected;
                 if (!res.preread.empty())
                 {
                     span = std::span<const std::byte>(res.preread.data(), res.preread.size());
                     // 为下一个 scheme 重新包装 preview
-                    if (ctx_.inbound && detect_result.type == protocol::protocol_type::tls)
+                    if (ctx_.inbound && detect_result.type == psm::protocol::protocol_type::tls)
                     {
                         ctx_.inbound = std::make_shared<pipeline::primitives::preview>(
                             std::move(ctx_.inbound), span, ctx_.frame_arena.get());
@@ -191,18 +191,18 @@ namespace psm::agent::session
                     co_return;
                 }
 
-                if (detect_result.type != protocol::protocol_type::tls &&
-                    detect_result.type != protocol::protocol_type::unknown)
+                if (detect_result.type != psm::protocol::protocol_type::tls &&
+                    detect_result.type != psm::protocol::protocol_type::unknown)
                 {
                     trace::debug("[Session] [{}] Scheme '{}' succeeded, protocol: {}",
-                                 id_, scheme->name(), protocol::to_string_view(detect_result.type));
+                                 id_, scheme->name(), psm::protocol::to_string_view(detect_result.type));
                     break;
                 }
             }
         }
 
         // 3：直接分发表分发 — 无虚函数、无工厂
-        trace::debug("[Session] [{}] Dispatching to {}", id_, protocol::to_string_view(detect_result.type));
+        trace::debug("[Session] [{}] Dispatching to {}", id_, psm::protocol::to_string_view(detect_result.type));
         co_await dispatch::dispatch(ctx_, detect_result.type, span);
     }
 

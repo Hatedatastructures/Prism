@@ -51,25 +51,25 @@ int main(int argc, char *argv[])
             throw psm::exception::security("system error : {}", "core acquisition failed");
         }
 
-        // 加载配置并拆分为 agent 配置和日志配置
-        auto [agent, trace] = psm::loader::load(configuration_path.string());
-        psm::trace::init(trace);
+        // 加载配置
+        const auto full_config = psm::loader::load(configuration_path.string());
+        psm::trace::init(full_config.trace);
 
         // handler_table 为编译期常量数组，无需运行时注册
 
         // 从认证配置构建共享账户目录
-        const auto account_store = psm::loader::build_account_directory(agent.authentication);
+        const auto account_store = psm::loader::build_account_directory(full_config.agent.authentication);
 
         // worker 线程数 = CPU 核心数 - 1（保留一个核心给监听线程），至少 1 个
         const std::uint32_t workers_count = threads_count > 1U ? threads_count - 1U : 1U;
-        const agent::config &agent_config = agent;
+        const psm::config &config_ref = full_config;
 
         // 创建 worker 实例池，每个 worker 持有独立的 io_context 和协议处理管线
         psm::memory::vector<std::unique_ptr<agent::worker::worker>> workers;
         workers.reserve(workers_count);
         for (std::uint32_t index = 0; index < workers_count; ++index)
         {
-            workers.emplace_back(std::make_unique<agent::worker::worker>(agent_config, account_store));
+            workers.emplace_back(std::make_unique<agent::worker::worker>(config_ref, account_store));
         }
 
         // 将 worker 绑定到负载均衡器，提供连接分发和负载快照回调
@@ -90,7 +90,7 @@ int main(int argc, char *argv[])
         }
 
         agent::front::balancer dispatcher(std::move(bindings));
-        agent::front::listener service_listener(agent_config, dispatcher);
+        agent::front::listener service_listener(config_ref, dispatcher);
 
         // 启动所有线程：worker 线程运行 io_context 事件循环，监听线程接受新连接
         psm::memory::vector<std::jthread> threads;

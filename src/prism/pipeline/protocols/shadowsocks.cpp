@@ -15,11 +15,11 @@ namespace psm::pipeline
 
         // worker 线程独占 salt pool（thread_local 保证每个工作线程独立实例，无需锁）
         thread_local auto worker_salt_pool = std::make_shared<protocol::shadowsocks::salt_pool>(
-            ctx.server.config().shadowsocks.salt_pool_ttl);
+            ctx.server.config().protocol.shadowsocks.salt_pool_ttl);
 
         // 创建 SS2022 relay
         auto agent = protocol::shadowsocks::make_relay(
-            std::move(inbound), ctx.server.config().shadowsocks, worker_salt_pool);
+            std::move(inbound), ctx.server.config().protocol.shadowsocks, worker_salt_pool);
 
         // 执行握手：解密请求、验证时间戳、解析地址
         auto [ec, req] = co_await agent->handshake();

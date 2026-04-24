@@ -45,7 +45,7 @@ namespace psm::agent::dispatch
      * @details 数组索引对应 protocol_type 枚举值。
      * 编译期常量，无运行时初始化开销。
      */
-    inline constexpr std::array<handler_func *, static_cast<std::size_t>(protocol::protocol_type::tls) + 1>
+    inline constexpr std::array<handler_func *, static_cast<std::size_t>(::psm::protocol::protocol_type::tls) + 1>
         handler_table{
             /* unknown     */ handle_unknown,
             /* http        */ pipeline::http,
@@ -63,7 +63,7 @@ namespace psm::agent::dispatch
      * @param data 预读数据
      * @return 协程
      */
-    inline auto dispatch(session_context &ctx, protocol::protocol_type type, std::span<const std::byte> data)
+    inline auto dispatch(session_context &ctx, psm::protocol::protocol_type type, std::span<const std::byte> data)
         -> net::awaitable<void>
     {
         auto idx = static_cast<std::size_t>(type);
@@ -74,7 +74,7 @@ namespace psm::agent::dispatch
         else
         {
             // Fallback to unknown
-            co_await handler_table[static_cast<std::size_t>(protocol::protocol_type::unknown)](ctx, data);
+            co_await handler_table[static_cast<std::size_t>(psm::protocol::protocol_type::unknown)](ctx, data);
         }
     }
 } // namespace psm::agent::dispatch

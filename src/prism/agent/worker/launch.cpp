@@ -64,7 +64,7 @@ namespace psm::agent::worker::launch
             shared_session->set_on_closed(std::move(on_closed));
 
             // 判断是否启用认证：检查统一用户列表是否非空
-            const bool auth_enabled = !server.config().authentication.users.empty();
+            const bool auth_enabled = !server.config().agent.authentication.users.empty();
             auto account_store = server.account_store;
 
             // 设置账户目录，认证禁用时传入 nullptr

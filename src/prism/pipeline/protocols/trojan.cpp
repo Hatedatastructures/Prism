@@ -40,7 +40,7 @@ namespace psm::pipeline
         };
 
         // 创建 Trojan 中继代理并执行握手
-        const auto agent = protocol::trojan::make_relay(std::move(inbound), ctx.server.config().trojan, std::move(verifier));
+        const auto agent = protocol::trojan::make_relay(std::move(inbound), ctx.server.config().protocol.trojan, std::move(verifier));
 
         auto [trojan_ec, req] = co_await agent->handshake();
         if (fault::failed(trojan_ec))

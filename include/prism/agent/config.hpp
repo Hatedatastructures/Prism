@@ -8,7 +8,6 @@
  */
 #pragma once
 
-#include <prism/resolve/config.hpp>
 #include <prism/memory/container.hpp>
 #include <prism/protocol/socks5/config.hpp>
 #include <prism/protocol/trojan/config.hpp>
@@ -16,8 +15,6 @@
 #include <prism/protocol/shadowsocks/config.hpp>
 #include <prism/stealth/reality/config.hpp>
 #include <prism/stealth/shadowtls/config.hpp>
-#include <prism/channel/connection/pool.hpp>
-#include <prism/multiplex/config.hpp>
 
 namespace psm::agent
 {
@@ -111,8 +108,6 @@ namespace psm::agent
         memory::vector<user> users; // 统一用户列表
     }; // struct authentication
 
-    using pool_config = channel::config;
-
     /**
      * @struct buffer
      * @brief 缓冲区配置
@@ -127,15 +122,45 @@ namespace psm::agent
     }; // struct buffer
 
     /**
+     * @namespace protocol
+     * @brief 协议配置聚合
+     * @details 聚合所有代理协议的配置项，包括 SOCKS5、
+     * Trojan、VLESS 和 Shadowsocks。每个协议配置
+     * 独立定义能力开关和运行时参数。
+     */
+    namespace protocol
+    {
+        struct config
+        {
+            psm::protocol::socks5::config socks5;
+            psm::protocol::trojan::config trojan;
+            psm::protocol::vless::config vless;
+            psm::protocol::shadowsocks::config shadowsocks;
+        };
+    }
+
+    /**
+     * @namespace stealth
+     * @brief 伪装配置聚合
+     * @details 聚合 Reality TLS 伪装和 ShadowTLS 伪装的
+     * 配置项。每个伪装方案独立定义其参数和行为。
+     */
+    namespace stealth
+    {
+        struct config
+        {
+            psm::stealth::reality::config reality;
+            psm::stealth::shadowtls::config shadowtls;
+        };
+    }
+
+    /**
      * @struct config
-     * @brief 代理服务全局配置
-     * @details 聚合所有子模块配置，作为代理服务的完整配置
-     * 入口。该结构用于初始化 worker、account::directory
-     * 和 resolve::router。涵盖连接限制、正向代理、监听
-     * 端点、TLS 证书、身份认证、伪装路径、反向代理路由、
-     * 连接池、缓冲区以及协议配置等。
-     * @note 所有配置字段均使用 PMR 容器，支持自定义内存
-     * 分配器。
+     * @brief 代理服务核心配置
+     * @details 仅包含 agent 模块专属的配置项：连接限制、
+     * 正向代理、监听端点、TLS 证书、身份认证、伪装路径、
+     * 反向代理路由。其他模块配置（pool、buffer、protocol、
+     * mux、dns、stealth）已移至顶层 psm::config。
      * @warning 配置对象应在服务启动前完成初始化，运行时
      * 修改可能不会立即生效。
      */
@@ -148,15 +173,84 @@ namespace psm::agent
         authentication authentication;                     // 身份认证配置
         memory::string camouflage;                         // 伪装路径，用于抗探测
         memory::map<memory::string, endpoint> reverse_map; // 反向代理路由表
-        pool_config pool;                                  // 连接池配置
-        buffer buffer;                                     // 缓冲区配置
-        protocol::socks5::config socks5;                   // SOCKS5 协议配置
-        protocol::trojan::config trojan;                   // Trojan 协议配置
-        protocol::vless::config vless;                     // VLESS 协议配置
-        protocol::shadowsocks::config shadowsocks;         // Shadowsocks 协议配置
-        stealth::reality::config reality;                           // Reality TLS 伪装配置
-        stealth::shadowtls::config shadowtls;              // ShadowTLS v3 伪装配置
-        multiplex::config mux;                             // 多路复用配置
-        resolve::config dns;                               // DNS 解析器配置
     }; // struct config
 } // namespace psm::agent
+
+#include <glaze/glaze.hpp>
+
+template <>
+struct glz::meta<psm::agent::endpoint>
+{
+    using T = psm::agent::endpoint;
+    static constexpr auto value = glz::object("host", &T::host, "port", &T::port);
+};
+
+template <>
+struct glz::meta<psm::agent::limit>
+{
+    using T = psm::agent::limit;
+    static constexpr auto value = glz::object("blacklist", &T::blacklist);
+};
+
+template <>
+struct glz::meta<psm::agent::certificate>
+{
+    using T = psm::agent::certificate;
+    static constexpr auto value = glz::object("key", &T::key, "cert", &T::cert);
+};
+
+template <>
+struct glz::meta<psm::agent::authentication::user>
+{
+    using T = psm::agent::authentication::user;
+    static constexpr auto value = glz::object(
+        "password", &T::password, "uuid", &T::uuid, "max_connections", &T::max_connections);
+};
+
+template <>
+struct glz::meta<psm::agent::authentication>
+{
+    using T = psm::agent::authentication;
+    static constexpr auto value = glz::object("users", &T::users);
+};
+
+template <>
+struct glz::meta<psm::agent::buffer>
+{
+    using T = psm::agent::buffer;
+    static constexpr auto value = glz::object("size", &T::size);
+};
+
+template <>
+struct glz::meta<psm::agent::protocol::config>
+{
+    using T = psm::agent::protocol::config;
+    static constexpr auto value = glz::object(
+        "socks5",       &T::socks5,
+        "trojan",       &T::trojan,
+        "vless",        &T::vless,
+        "shadowsocks",  &T::shadowsocks);
+};
+
+template <>
+struct glz::meta<psm::agent::stealth::config>
+{
+    using T = psm::agent::stealth::config;
+    static constexpr auto value = glz::object(
+        "reality",      &T::reality,
+        "shadowtls",    &T::shadowtls);
+};
+
+template <>
+struct glz::meta<psm::agent::config>
+{
+    using T = psm::agent::config;
+    static constexpr auto value = glz::object(
+        "limit",           &T::limit,
+        "positive",        &T::positive,
+        "addressable",     &T::addressable,
+        "certificate",     &T::certificate,
+        "authentication",  &T::authentication,
+        "camouflage",      &T::camouflage,
+        "reverse_map",     &T::reverse_map);
+};

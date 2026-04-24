@@ -73,11 +73,10 @@
 | **dispatch** | handlers | ✅ 100% | HTTP/SOCKS5/Trojan/VLESS/Shadowsocks/Unknown 处理器实现 |
 | **pipeline** | protocols | ✅ 100% | HTTP/SOCKS5/Trojan/VLESS/Shadowsocks 协议处理管道 |
 | **pipeline** | primitives | ✅ 100% | dial、preview、tunnel 原语 |
-| **resolve** | router | ✅ 100% | 统一路由入口，整合解析器、连接池 |
-| **resolve** | recursor | ✅ 100% | DNS 解析门面，六阶段查询管道 |
-| **resolve** | cache | ✅ 100% | DNS 正向/负向缓存，serve-stale |
-| **resolve** | rules | ✅ 100% | 域名规则匹配，静态 IP/CNAME |
-| **resolve** | coalescer | ✅ 100% | DNS 请求合并机制 |
+| **resolve** | router | ✅ 100% | 统一路由入口，整合 DNS resolver、连接池 |
+| **resolve** | dns::resolver | ✅ 100% | DNS 解析器接口，工厂函数创建，查询管道 |
+| **resolve** | dns::upstream | ✅ 100% | DNS 底层查询客户端，UDP/TCP/DoT/DoH |
+| **resolve** | dns::detail/* | ✅ 100% | 内部实现：cache、rules、coalescer、format、transparent |
 | **account** | directory | ✅ 100% | 账户目录，写时复制，无锁读取 |
 | **account** | entry | ✅ 100% | 账户运行时状态，连接数限制 |
 | **account** | lease | ✅ 100% | RAII 连接数管理 |
@@ -247,6 +246,20 @@ curl -v -x socks5://127.0.0.1:8081 http://www.baidu.com
 ---
 
 ## 更新日志
+
+### 2026年4月24日
+
+**DNS 模块命名规范化 + 配置解耦：**
+- DNS 模块重构为 `resolve/dns/` 子模块，内部实现在 `dns/detail/` 目录
+- 类名变更：`recursor` → `dns::resolver`（接口）+ `resolver_impl`（实现）
+- 类名变更：`resolver` → `dns::upstream`（底层查询客户端）
+- 类名变更：`dns_resolver` → `dns::resolver`（抽象接口）
+- 文件名变更：`packet.hpp` → `format.hpp`
+- 目录名变更：`impl/` → `detail/`（C++ 惯例，对标 Boost.Asio）
+- 配置解耦：`agent` 字段缩编为纯代理配置
+- 新增顶层配置 key：`pool`、`buffer`、`protocol`、`multiplex`、`stealth`、`dns`
+- JSON key 变更：`agent.mux` → `multiplex`，`agent.dns` → `dns`
+- 全文档同步更新
 
 ### 2026年4月17日
 
