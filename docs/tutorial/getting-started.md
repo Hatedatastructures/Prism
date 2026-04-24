@@ -11,7 +11,7 @@ cmake --build build_release --config Release
 
 ## 基本配置
 
-配置文件位于 `src/configuration.json`，启动前会被复制到可执行文件同目录。最简配置：
+配置文件位于 `src/configuration.json`。程序启动时会优先查找 exe 同目录下的 `configuration.json`，也可通过命令行参数 `--config <path>` 指定路径。最简配置：
 
 ```json
 {

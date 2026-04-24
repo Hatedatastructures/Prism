@@ -119,7 +119,7 @@ ENTRYPOINT ["/usr/local/bin/prism"]
 
 ```bash
 docker build -t prism .
-docker run -d -p 8081:8081 -v ./config:/etc/prism:ro prism
+docker run -d -p 8081:8081 -v ./config:/etc/prism:ro --log-opt max-size=50m --log-opt max-file=3 prism
 ```
 
 ## TLS 证书

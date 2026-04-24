@@ -90,7 +90,7 @@
 {
   "pool": {
     "max_cache_per_endpoint": 32,
-    "max_idle_seconds": 240,
+    "max_idle_seconds": 30,
     "connect_timeout_ms": 300,
     "cleanup_interval_sec": 20,
     "recv_buffer_size": 65536,

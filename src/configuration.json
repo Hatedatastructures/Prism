@@ -121,7 +121,7 @@
                 "timeout_ms": 1500
             },
             {
-                "address": "119.28.28.28",
+                "address": "119.29.29.29",
                 "port": 53,
                 "protocol": "udp",
                 "timeout_ms": 1500
