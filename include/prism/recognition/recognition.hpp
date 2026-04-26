@@ -2,6 +2,7 @@
  * @file recognition.hpp
  * @brief Recognition 模块聚合头文件
  * @details 引入识别模块所有子模块头文件，提供统一的模块入口和完整的协议识别生命周期。
+ * 新增 recognize() 统一入口，封装外层探测 + TLS 伪装方案识别。
  */
 
 #pragma once
@@ -13,8 +14,13 @@
 #include <prism/recognition/result.hpp>
 #include <prism/channel/transport/transmission.hpp>
 #include <prism/memory/pool.hpp>
+#include <prism/memory/container.hpp>
 #include <prism/protocol/analysis.hpp>
 #include <prism/fault/code.hpp>
+
+// 外层协议探测子模块
+#include <prism/recognition/probe/probe.hpp>
+#include <prism/recognition/probe/analyzer.hpp>
 
 // ClientHello 特征检测子模块
 #include <prism/recognition/clienthello/analyzer.hpp>
@@ -32,6 +38,96 @@
 namespace psm::recognition
 {
     namespace net = boost::asio;
+
+    // ═══════════════════════════════════════════════════════════════════════
+    // 统一入口：recognize()（完整识别流程）
+    // ═══════════════════════════════════════════════════════════════════════
+
+    /**
+     * @struct recognize_context
+     * @brief 完整识别流程输入上下文
+     * @details 包含识别所需的所有输入，统一入口使用。
+     */
+    struct recognize_context
+    {
+        /** @brief 传输层（socket 或已包装的传输） */
+        channel::transport::shared_transmission transport;
+
+        /** @brief 全局配置 */
+        const psm::config *cfg{nullptr};
+
+        /** @brief 路由器（fallback 用） */
+        resolve::router *router{nullptr};
+
+        /** @brief 会话上下文（供方案使用） */
+        agent::session_context *session{nullptr};
+
+        /** @brief 帧内存池（用于预读数据分配） */
+        memory::frame_arena *frame_arena{nullptr};
+    };
+
+    /**
+     * @struct recognize_result
+     * @brief 完整识别流程输出结果
+     * @details 包含识别完成后的所有输出，统一入口使用。
+     */
+    struct recognize_result
+    {
+        /** @brief 最终传输层（可能被加密或包装） */
+        channel::transport::shared_transmission transport;
+
+        /** @brief 检测到的协议类型 */
+        protocol::protocol_type detected{protocol::protocol_type::unknown};
+
+        /** @brief 预读数据 */
+        memory::vector<std::byte> preread;
+
+        /** @brief 执行错误码 */
+        fault::code error{fault::code::success};
+
+        /** @brief 成功执行的方案名称（仅 TLS） */
+        memory::string executed_scheme;
+
+        /** @brief 是否成功识别 */
+        bool success{false};
+    };
+
+    /**
+     * @brief 执行完整协议识别流程
+     * @param ctx 识别上下文
+     * @return 识别结果
+     * @details 封装外层探测 + TLS 伪装方案识别的完整流程：
+     *
+     * **Phase 1: Probe（外层探测）**
+     * - 预读 24 字节
+     * - 检测 HTTP/SOCKS5/TLS/Shadowsocks
+     *
+     * **Phase 2: Identify（仅当 TLS）**
+     * - 读取完整 ClientHello
+     * - 特征分析
+     * - 方案执行
+     *
+     * **使用示例**：
+     * ```cpp
+     * auto result = co_await recognition::recognize({
+     *     .transport = ctx_.inbound,
+     *     .cfg = &ctx_.server.config(),
+     *     .router = &ctx_.worker.router,
+     *     .session = &ctx_,
+     *     .frame_arena = &ctx_.frame_arena
+     * });
+     *
+     * if (result.success) {
+     *     ctx_.inbound = result.transport;
+     * }
+     * co_await dispatch::dispatch(ctx_, result.detected, result.preread);
+     * ```
+     */
+    auto recognize(recognize_context ctx) -> net::awaitable<recognize_result>;
+
+    // ═══════════════════════════════════════════════════════════════════════
+    // 伪装方案识别：identify()（仅 TLS）
+    // ═══════════════════════════════════════════════════════════════════════
 
     /**
      * @struct identify_context

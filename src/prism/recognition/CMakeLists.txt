@@ -11,6 +11,10 @@ target_sources(${PROJECT_NAME}_static_library
             ${PROJECT_SOURCE_DIR}/include/prism/recognition/feature.hpp
             ${PROJECT_SOURCE_DIR}/include/prism/recognition/result.hpp
 
+            # Probe 外层协议探测子模块
+            ${PROJECT_SOURCE_DIR}/include/prism/recognition/probe/probe.hpp
+            ${PROJECT_SOURCE_DIR}/include/prism/recognition/probe/analyzer.hpp
+
             # ClientHello 特征检测子模块
             ${PROJECT_SOURCE_DIR}/include/prism/recognition/clienthello/analyzer.hpp
             ${PROJECT_SOURCE_DIR}/include/prism/recognition/clienthello/registry.hpp
@@ -27,6 +31,9 @@ target_sources(${PROJECT_NAME}_static_library
         PRIVATE
         # 模块入口
         ${PROJECT_SOURCE_DIR}/src/prism/recognition/recognition.cpp
+
+        # Probe 协议探测实现
+        ${PROJECT_SOURCE_DIR}/src/prism/recognition/probe/analyzer.cpp
 
         # ClientHello 分析器实现
         ${PROJECT_SOURCE_DIR}/src/prism/recognition/clienthello/registry.cpp

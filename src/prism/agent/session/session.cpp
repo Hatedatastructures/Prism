@@ -1,17 +1,13 @@
 /**
  * @file session.cpp
  * @brief 连接会话编排模块实现
- * @details 会话通过 Recognition 模块进行智能协议识别（ClientHello 特征分析 + 方案执行），
+ * @details 会话通过 Recognition 模块进行完整协议识别（外层探测 + TLS 伪装方案识别），
  * 然后通过 handler_table 直接分发到协议处理函数。无虚函数、无工厂模式。
  */
 
 #include <prism/agent/session/session.hpp>
 #include <prism/agent/dispatch/table.hpp>
-#include <prism/pipeline/primitives.hpp>
-#include <prism/protocol/probe.hpp>
-#include <prism/protocol/analysis.hpp>
 #include <prism/recognition/recognition.hpp>
-#include <prism/stealth.hpp>
 #include <prism/trace.hpp>
 #include <prism/exception.hpp>
 
@@ -132,48 +128,30 @@ namespace psm::agent::session
             co_return;
         }
 
-        // 1：外层协议探测
-        auto detect_result = co_await psm::protocol::probe(*ctx_.inbound, 24);
-        if (fault::failed(detect_result.ec))
+        // 1. 完整识别流程（统一入口：外层探测 + TLS 伪装方案识别）
+        auto result = co_await recognition::recognize(recognition::recognize_context{
+            .transport = ctx_.inbound,
+            .cfg = &ctx_.server.config(),
+            .router = &ctx_.worker.router,
+            .session = &ctx_,
+            .frame_arena = &ctx_.frame_arena
+        });
+
+        if (!result.success)
         {
-            trace::warn("[Session] [{}] Protocol detection failed: {}.", id_, fault::describe(detect_result.ec));
+            trace::warn("[Session] [{}] Recognition failed: {}", id_, fault::describe(result.error));
             co_return;
         }
 
-        auto span = std::span<const std::byte>(detect_result.pre_read_data.data(), detect_result.pre_read_size);
+        // 2. 更新传输层
+        ctx_.inbound = std::move(result.transport);
 
-        // 2：TLS → Recognition 模块智能识别
-        if (detect_result.type == psm::protocol::protocol_type::tls)
-        {
-            auto result = co_await psm::recognition::identify(psm::recognition::identify_context{
-                .transport = ctx_.inbound,
-                .cfg = &ctx_.server.config(),
-                .preread = span,
-                .router = &ctx_.worker.router,
-                .session = &ctx_,
-                .frame_arena = &ctx_.frame_arena});
+        auto preread_span = std::span<const std::byte>(
+            result.preread.data(), result.preread.size());
 
-            if (result.success)
-            {
-                ctx_.inbound = std::move(result.transport);
-                detect_result.type = result.detected;
-                if (!result.preread.empty())
-                {
-                    span = std::span<const std::byte>(result.preread.data(), result.preread.size());
-                }
-                trace::debug("[Session] [{}] Recognition succeeded: scheme={}, protocol={}",
-                             id_, result.executed_scheme, psm::protocol::to_string_view(detect_result.type));
-            }
-            else
-            {
-                trace::warn("[Session] [{}] Recognition failed: {}", id_, fault::describe(result.error));
-                co_return;
-            }
-        }
-
-        // 3：直接分发表分发 — 无虚函数、无工厂
-        trace::debug("[Session] [{}] Dispatching to {}", id_, psm::protocol::to_string_view(detect_result.type));
-        co_await dispatch::dispatch(ctx_, detect_result.type, span);
+        // 3. 分发到协议处理器
+        trace::debug("[Session] [{}] Dispatching to {}", id_, psm::protocol::to_string_view(result.detected));
+        co_await dispatch::dispatch(ctx_, result.detected, preread_span);
     }
 
     std::shared_ptr<session> make_session(session_params &&params)

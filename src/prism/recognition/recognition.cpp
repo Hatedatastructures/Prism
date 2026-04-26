@@ -250,4 +250,87 @@ namespace psm::recognition
         co_return result;
     }
 
+    // ═══════════════════════════════════════════════════════════════════════
+    // 统一入口：recognize()
+    // ═══════════════════════════════════════════════════════════════════════
+
+    /**
+     * @brief 执行完整协议识别流程
+     * @details 封装外层探测 + TLS 伪装方案识别
+     */
+    auto recognize(recognize_context ctx) -> net::awaitable<recognize_result>
+    {
+        recognize_result result;
+
+        trace::debug("[Recognition] Starting recognize lifecycle");
+
+        // ═══════════════════════════════════════════════════════════════
+        // Phase 1: Probe（外层协议探测）
+        // ═══════════════════════════════════════════════════════════════
+        if (!ctx.transport)
+        {
+            trace::error("[Recognition] transport is null");
+            result.error = fault::code::not_supported;
+            co_return result;
+        }
+
+        auto probe_res = co_await probe::probe(*ctx.transport, 24);
+        if (fault::failed(probe_res.ec))
+        {
+            trace::warn("[Recognition] Probe failed: {}", fault::describe(probe_res.ec));
+            result.error = probe_res.ec;
+            co_return result;
+        }
+
+        trace::debug("[Recognition] Probe result: type={}", protocol::to_string_view(probe_res.type));
+
+        // 保存探测结果
+        result.detected = probe_res.type;
+        result.preread.assign(probe_res.pre_read_data.begin(), probe_res.pre_read_data.begin() + probe_res.pre_read_size);
+
+        // ═══════════════════════════════════════════════════════════════
+        // Phase 2: Identify（仅当 TLS）
+        // ═══════════════════════════════════════════════════════════════
+        if (probe_res.type == protocol::protocol_type::tls)
+        {
+            auto preread_span = probe_res.preload_bytes();
+
+            auto id_result = co_await identify(identify_context{
+                .transport = ctx.transport,
+                .cfg = ctx.cfg,
+                .preread = preread_span,
+                .router = ctx.router,
+                .session = ctx.session,
+                .frame_arena = ctx.frame_arena});
+
+            if (id_result.success)
+            {
+                result.transport = std::move(id_result.transport);
+                result.detected = id_result.detected;
+                result.preread = std::move(id_result.preread);
+                result.executed_scheme = std::move(id_result.executed_scheme);
+                result.success = true;
+
+                trace::debug("[Recognition] Recognize succeeded: scheme={}, protocol={}",
+                             result.executed_scheme, protocol::to_string_view(result.detected));
+            }
+            else
+            {
+                result.error = id_result.error;
+                trace::warn("[Recognition] Identify failed: {}", fault::describe(result.error));
+            }
+        }
+        else
+        {
+            // 非 TLS 协议，探测成功即识别成功
+            result.transport = ctx.transport;
+            result.success = probe_res.success();
+
+            trace::debug("[Recognition] Recognize succeeded (non-TLS): protocol={}",
+                         protocol::to_string_view(result.detected));
+        }
+
+        co_return result;
+    }
+
 } // namespace psm::recognition
