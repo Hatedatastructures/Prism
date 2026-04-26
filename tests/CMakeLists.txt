@@ -39,6 +39,8 @@ forward_add_test(Exception      Exception.cpp)
 	forward_add_test(Balancer       Balancer.cpp)
 	forward_add_test(DnsCache       DnsCache.cpp)
 	forward_add_test(AccountDirectory AccountDirectory.cpp)
+	forward_add_test(Shadowtls      Shadowtls.cpp)
+forward_add_test(Restls         Restls.cpp)
 
 
 add_subdirectory(concurrency)
@@ -48,7 +50,7 @@ if(MINGW)
         Session Connection Transmission Trace
         Http Socks5 Trojan Vless Shadowsocks Regression
         HttpParser Smux Yamux Crypto Aead Reality Blake3 DnsPacket DnsRules Fault Exception ProtocolAnalysis
-        Balancer DnsCache AccountDirectory
+        Balancer DnsCache AccountDirectory Shadowtls Restls
         ConcurrencyServer ConcurrencyClient)
         if(TARGET ${t})
             target_compile_options(${t} PRIVATE -Wa,-mbig-obj)

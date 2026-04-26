@@ -10,6 +10,7 @@ target_sources(${PROJECT_NAME}_static_library
         shadowtls/auth.cpp
         shadowtls/handshake.cpp
         shadowtls/scheme.cpp
+        restls/scheme.cpp
         native.cpp
 )
 
@@ -35,4 +36,7 @@ target_sources(${PROJECT_NAME}_static_library
             ${PROJECT_SOURCE_DIR}/include/prism/stealth/shadowtls/auth.hpp
             ${PROJECT_SOURCE_DIR}/include/prism/stealth/shadowtls/handshake.hpp
             ${PROJECT_SOURCE_DIR}/include/prism/stealth/shadowtls/scheme.hpp
+            ${PROJECT_SOURCE_DIR}/include/prism/stealth/restls/config.hpp
+            ${PROJECT_SOURCE_DIR}/include/prism/stealth/restls/constants.hpp
+            ${PROJECT_SOURCE_DIR}/include/prism/stealth/restls/scheme.hpp
 )

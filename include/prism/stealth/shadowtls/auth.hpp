@@ -40,9 +40,10 @@ namespace psm::stealth::shadowtls
      * @details HMAC-SHA1(password, data)[:4]
      * @param key HMAC 密钥（密码）
      * @param data 要认证的数据
+     * @param data_len 数据长度
      * @return 4 字节 HMAC 标签
      */
-    [[nodiscard]] auto compute_hmac(std::string_view key, std::span<const std::byte> data)
+    [[nodiscard]] auto compute_hmac(std::string_view key, const std::byte *data, std::size_t data_len)
         -> std::array<std::uint8_t, 4>;
 
     /**

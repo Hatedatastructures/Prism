@@ -12,6 +12,7 @@
 #include <cstdint>
 #include <array>
 #include <span>
+#include <memory>
 #include <prism/fault/code.hpp>
 
 // 前向声明，避免暴露 OpenSSL 头文件
@@ -198,7 +199,9 @@ namespace psm::crypto
          */
         void increment_nonce();
 
-        evp_aead_ctx_st *ctx_{nullptr};        // BoringSSL AEAD 上下文指针
+        static void delete_aead_ctx(evp_aead_ctx_st *ctx) noexcept;
+
+        std::unique_ptr<evp_aead_ctx_st, void (*)(evp_aead_ctx_st *) noexcept> ctx_; // BoringSSL AEAD 上下文
         std::array<std::uint8_t, 24> nonce_{}; // 当前 nonce 值（最大 24 字节）
         std::size_t key_length_{0};            // 密钥长度
         std::size_t nonce_len_{12};            // nonce 长度（12 或 24 字节）

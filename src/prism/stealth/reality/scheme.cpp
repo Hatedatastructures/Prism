@@ -60,8 +60,10 @@ namespace psm::stealth::reality
             result.transport = std::move(ctx.session->inbound);
             if (hs.error == fault::code::reality_tls_record_error)
             {
-                result.detected = protocol::protocol_type::shadowsocks;
-                trace::debug("[Reality] TLS record error, fallback to Shadowsocks");
+                // 不假设为 Shadowsocks，继续传递给下一个 scheme
+                result.detected = protocol::protocol_type::tls;
+                result.preread.assign(hs.raw_tls_record.begin(), hs.raw_tls_record.end());
+                trace::debug("[Reality] TLS record error, pass to next scheme");
                 break;
             }
             result.error = hs.error;

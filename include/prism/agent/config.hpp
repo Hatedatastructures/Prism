@@ -15,6 +15,7 @@
 #include <prism/protocol/shadowsocks/config.hpp>
 #include <prism/stealth/reality/config.hpp>
 #include <prism/stealth/shadowtls/config.hpp>
+#include <prism/stealth/restls/config.hpp>
 
 namespace psm::agent
 {
@@ -151,6 +152,7 @@ namespace psm::agent
         {
             psm::stealth::reality::config reality;
             psm::stealth::shadowtls::config shadowtls;
+            psm::stealth::restls::config restls;
         };
     }
 
@@ -238,7 +240,8 @@ struct glz::meta<psm::agent::stealth::config>
     using T = psm::agent::stealth::config;
     static constexpr auto value = glz::object(
         "reality",      &T::reality,
-        "shadowtls",    &T::shadowtls);
+        "shadowtls",    &T::shadowtls,
+        "restls",       &T::restls);
 };
 
 template <>

@@ -19,5 +19,6 @@
 #include <prism/stealth/reality/handshake.hpp>
 #include <prism/stealth/reality/scheme.hpp>
 #include <prism/stealth/shadowtls/scheme.hpp>
+#include <prism/stealth/restls/scheme.hpp>
 #include <prism/stealth/scheme.hpp>
 #include <prism/stealth/native.hpp>

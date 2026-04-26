@@ -1,8 +1,8 @@
 # Fault 模块
 
-**源码位置**: `include/prism/fault/`
+**源码位置**: `include/prism/fault/`（header-only）
 
-错误码体系。热路径使用 `fault::code` 枚举返回错误，不抛异常。
+错误码体系。热路径使用 `fault::code` 枚举返回错误，不抛异常。与 `exception` 模块构成双轨错误处理。
 
 ## 文件结构
 
@@ -17,12 +17,16 @@ fault/
 
 | 类型 | 说明 |
 |------|------|
-| `fault::code` | 错误码枚举 |
-| `fault::describe(code)` | 获取错误描述字符串（定义于 code.hpp） |
-| `fault::succeeded(code)` | 判断是否成功 |
+| `fault::code` | 错误码枚举，覆盖 I/O、网络、协议、安全等 |
+| `fault::describe(code)` | 获取错误描述字符串 |
+| `fault::succeeded(code)` | 判断是否成功（等价于 `code == success`） |
 | `fault::failed(code)` | 判断是否失败 |
 
-完整错误码列表见 `include/prism/fault/code.hpp`，以下为常见值：
+## 使用约定
+
+- **热路径**（数据转发、协议处理）：返回 `fault::code`，不抛异常
+- **判断结果**：使用 `fault::succeeded(ec)` 或 `fault::failed(ec)`
+- **冷路径**（启动配置、证书加载）：使用 `exception` 模块，快速失败
 
 ## 常见错误码
 
@@ -35,4 +39,7 @@ fault/
 | `blocked` | 被规则拦截 |
 | `parse_error` | 解析错误 |
 | `not_supported` | 不支持的操作 |
-| ... | 完整列表见 code.hpp |
+| `crypto_error` | 加密操作失败 |
+| `mux_*` | 多路复用相关错误 |
+
+完整错误码列表见 `include/prism/fault/code.hpp`。

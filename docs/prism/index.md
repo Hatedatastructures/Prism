@@ -12,7 +12,7 @@
 | **channel** | [channel.md](channel.md) | 传输层抽象：接口、连接池、Happy Eyeballs、健康检测 |
 | **resolve** | [resolve.md](resolve.md) | DNS 解析：resolver 接口、upstream 查询、detail 子模块 |
 | **pipeline** | [pipeline.md](pipeline.md) | 协议管道：primitives、tunnel |
-| **protocol** | HTTP · [SOCKS5](protocol/socks5.md) · [Trojan](protocol/trojan.md) · [VLESS](protocol/vless.md) · [SS2022](protocol/shadowsocks.md) | 各协议实现 |
+| **protocol** | [HTTP](protocol/http.md) · [SOCKS5](protocol/socks5.md) · [Trojan](protocol/trojan.md) · [VLESS](protocol/vless.md) · [SS2022](protocol/shadowsocks.md) | 各协议实现 |
 | **stealth** | [Reality](stealth/reality.md) · [ShadowTLS](stealth/shadowtls.md) | TLS 伪装 |
 | **multiplex** | [smux](multiplex/smux.md) · [yamux](multiplex/yamux.md) | 多路复用 |
 

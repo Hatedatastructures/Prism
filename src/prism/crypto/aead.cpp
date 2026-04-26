@@ -1,15 +1,26 @@
 #include <prism/crypto/aead.hpp>
 #include <prism/trace/spdlog.hpp>
 #include <openssl/evp.h>
+#include <memory>
 #include <cstring>
 
 namespace psm::crypto
 {
+    // 删除器实现
+    void aead_context::delete_aead_ctx(evp_aead_ctx_st *ctx) noexcept
+    {
+        if (ctx)
+        {
+            EVP_AEAD_CTX_cleanup(ctx);
+            delete ctx;
+        }
+    }
+
     // 构造时根据算法类型选择对应的 BoringSSL AEAD 实现，并用密钥初始化上下文。
     // AES-GCM 和 ChaCha20 的 nonce 都是 12 字节，XChaCha20 扩展到 24 字节。
-    // EVP_AEAD_CTX 是 BoringSSL 的不透明结构，需要手动 new/delete 管理。
+    // EVP_AEAD_CTX 是 BoringSSL 的不透明结构，用 unique_ptr + 函数指针删除器管理生命周期。
     aead_context::aead_context(const aead_cipher cipher, const std::span<const std::uint8_t> key)
-        : key_length_(key.size())
+        : ctx_(nullptr, &delete_aead_ctx), key_length_(key.size())
     {
         const EVP_AEAD *aead = nullptr;
         switch (cipher)
@@ -41,33 +52,26 @@ namespace psm::crypto
             return;
         }
 
-        ctx_ = new EVP_AEAD_CTX;
-        EVP_AEAD_CTX_zero(ctx_);
-        if (!EVP_AEAD_CTX_init(ctx_, aead, key.data(), key.size(), EVP_AEAD_DEFAULT_TAG_LENGTH, nullptr))
+        auto *raw_ctx = new EVP_AEAD_CTX;
+        EVP_AEAD_CTX_zero(raw_ctx);
+        if (!EVP_AEAD_CTX_init(raw_ctx, aead, key.data(), key.size(), EVP_AEAD_DEFAULT_TAG_LENGTH, nullptr))
         {
             trace::error("[Crypto.AEAD] EVP_AEAD_CTX_init failed");
-            EVP_AEAD_CTX_cleanup(ctx_);
-            delete ctx_;
-            ctx_ = nullptr;
+            EVP_AEAD_CTX_cleanup(raw_ctx);
+            delete raw_ctx;
+            return;
         }
+        ctx_.reset(raw_ctx);
     }
 
-    // 析构时先清理 BoringSSL 内部资源（密钥等敏感数据），再释放内存。
-    aead_context::~aead_context()
-    {
-        if (ctx_)
-        {
-            EVP_AEAD_CTX_cleanup(ctx_);
-            delete ctx_;
-        }
-    }
+    // 析构由 unique_ptr 自动处理，无需手动清理。
+    aead_context::~aead_context() = default;
 
     // 移动构造：转移 ctx_ 所有权后，将源对象置为安全状态（nullptr + 零 nonce），
     // 防止析构时双重释放。
     aead_context::aead_context(aead_context &&other) noexcept
-        : ctx_(other.ctx_), nonce_(other.nonce_), key_length_(other.key_length_), nonce_len_(other.nonce_len_)
+        : ctx_(std::move(other.ctx_)), nonce_(other.nonce_), key_length_(other.key_length_), nonce_len_(other.nonce_len_)
     {
-        other.ctx_ = nullptr;
         other.nonce_.fill(0);
     }
 
@@ -76,16 +80,10 @@ namespace psm::crypto
     {
         if (this != &other)
         {
-            if (ctx_)
-            {
-                EVP_AEAD_CTX_cleanup(ctx_);
-                delete ctx_;
-            }
-            ctx_ = other.ctx_;
+            ctx_ = std::move(other.ctx_);
             nonce_ = other.nonce_;
             key_length_ = other.key_length_;
             nonce_len_ = other.nonce_len_;
-            other.ctx_ = nullptr;
             other.nonce_.fill(0);
         }
         return *this;
@@ -104,7 +102,7 @@ namespace psm::crypto
 
         std::size_t out_len = 0;
         const auto result = EVP_AEAD_CTX_seal(
-            ctx_, out.data(), &out_len, out.size(),
+            ctx_.get(), out.data(), &out_len, out.size(),
             nonce_.data(), nonce_len_,
             plaintext.data(), plaintext.size(),
             ad.data(), ad.size());
@@ -131,7 +129,7 @@ namespace psm::crypto
 
         std::size_t out_len = 0;
         const auto result = EVP_AEAD_CTX_open(
-            ctx_, out.data(), &out_len, out.size(),
+            ctx_.get(), out.data(), &out_len, out.size(),
             nonce_.data(), nonce_len_,
             ciphertext.data(), ciphertext.size(),
             ad.data(), ad.size());
@@ -156,7 +154,7 @@ namespace psm::crypto
 
         std::size_t out_len = 0;
         const auto result = EVP_AEAD_CTX_seal(
-            ctx_, out.data(), &out_len, out.size(),
+            ctx_.get(), out.data(), &out_len, out.size(),
             nonce.data(), nonce.size(),
             plaintext.data(), plaintext.size(),
             ad.data(), ad.size());
@@ -180,7 +178,7 @@ namespace psm::crypto
 
         std::size_t out_len = 0;
         const auto result = EVP_AEAD_CTX_open(
-            ctx_, out.data(), &out_len, out.size(),
+            ctx_.get(), out.data(), &out_len, out.size(),
             nonce.data(), nonce.size(),
             ciphertext.data(), ciphertext.size(),
             ad.data(), ad.size());

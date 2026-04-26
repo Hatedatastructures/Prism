@@ -5,16 +5,21 @@
 
 #include <prism/stealth/shadowtls/scheme.hpp>
 #include <prism/stealth/shadowtls/handshake.hpp>
+#include <prism/channel/transport/reliable.hpp>
 #include <prism/pipeline/primitives.hpp>
 #include <prism/protocol/analysis.hpp>
 #include <prism/trace.hpp>
 
 namespace psm::stealth::shadowtls
 {
-    auto scheme::is_enabled([[maybe_unused]] const psm::config &cfg) const noexcept -> bool
+    auto scheme::is_enabled(const psm::config &cfg) const noexcept -> bool
     {
-        // 暂时禁用：ShadowTLS v3 尚未调通，后续完善
-        return false;
+        const auto &st_cfg = cfg.stealth.shadowtls;
+        // v3: 需要至少一个用户和握手目标
+        if (st_cfg.version == 3)
+            return !st_cfg.users.empty() && !st_cfg.handshake_dest.empty();
+        // v2: 需要密码和握手目标
+        return !st_cfg.password.empty() && !st_cfg.handshake_dest.empty();
     }
 
     auto scheme::name() const noexcept -> std::string_view
@@ -30,6 +35,18 @@ namespace psm::stealth::shadowtls
         if (!ctx.session)
         {
             result.error = fault::code::not_supported;
+            co_return result;
+        }
+
+        // 获取底层 reliable transmission
+        // 如果 inbound 已被 preview 等包装，dynamic_cast 会失败
+        // 这不是致命错误，只是说明 ShadowTLS 无法在此环境下执行
+        auto *rel = dynamic_cast<channel::transport::reliable *>(ctx.session->inbound.get());
+        if (!rel)
+        {
+            trace::debug("[ShadowTlsScheme] Cannot access reliable transport (wrapped by another scheme), pass to next scheme");
+            result.detected = protocol::protocol_type::tls;
+            result.transport = std::move(ctx.inbound);
             co_return result;
         }
 

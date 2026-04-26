@@ -40,7 +40,12 @@ namespace psm::crypto
             EVP_CIPHER_CTX_free(ctx);
             return out;
         }
-        EVP_EncryptFinal_ex(ctx, out.data() + out_len, &out_len);
+        int final_len = 0;
+        if (EVP_EncryptFinal_ex(ctx, out.data() + out_len, &final_len) != 1)
+        {
+            EVP_CIPHER_CTX_free(ctx);
+            return out;
+        }
 
         EVP_CIPHER_CTX_free(ctx);
         return out;
@@ -82,7 +87,12 @@ namespace psm::crypto
             EVP_CIPHER_CTX_free(ctx);
             return out;
         }
-        EVP_DecryptFinal_ex(ctx, out.data() + out_len, &out_len);
+        int final_len = 0;
+        if (EVP_DecryptFinal_ex(ctx, out.data() + out_len, &final_len) != 1)
+        {
+            EVP_CIPHER_CTX_free(ctx);
+            return out;
+        }
 
         EVP_CIPHER_CTX_free(ctx);
         return out;

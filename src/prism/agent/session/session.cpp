@@ -151,6 +151,7 @@ namespace psm::agent::session
             std::vector<std::shared_ptr<psm::stealth::stealth_scheme>> schemes;
             schemes.push_back(std::make_shared<psm::stealth::reality::scheme>());
             schemes.push_back(std::make_shared<psm::stealth::shadowtls::scheme>());
+            schemes.push_back(std::make_shared<psm::stealth::restls::scheme>());
             schemes.push_back(std::make_shared<psm::stealth::schemes::native>());
 
             for (const auto &scheme : schemes)

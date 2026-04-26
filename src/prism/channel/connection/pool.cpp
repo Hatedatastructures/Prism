@@ -225,21 +225,41 @@ namespace psm::channel
             if (config_.tcp_nodelay)
             {
                 sock->set_option(tcp::no_delay(true), opt_ec);
+                if (opt_ec)
+                {
+                    trace::warn("[Pool] failed to set TCP_NODELAY: {}", opt_ec.message());
+                    opt_ec.clear();
+                }
             }
             // 启用 TCP keepalive，检测死连接
             if (config_.keep_alive)
             {
                 sock->set_option(tcp::socket::keep_alive(true), opt_ec);
+                if (opt_ec)
+                {
+                    trace::warn("[Pool] failed to set SO_KEEPALIVE: {}", opt_ec.message());
+                    opt_ec.clear();
+                }
             }
             // 设置接收缓冲区大小
             if (config_.recv_buffer_size > 0)
             {
                 sock->set_option(net::socket_base::receive_buffer_size(config_.recv_buffer_size), opt_ec);
+                if (opt_ec)
+                {
+                    trace::warn("[Pool] failed to set SO_RCVBUF: {}", opt_ec.message());
+                    opt_ec.clear();
+                }
             }
             // 设置发送缓冲区大小
             if (config_.send_buffer_size > 0)
             {
                 sock->set_option(net::socket_base::send_buffer_size(config_.send_buffer_size), opt_ec);
+                if (opt_ec)
+                {
+                    trace::warn("[Pool] failed to set SO_SNDBUF: {}", opt_ec.message());
+                    opt_ec.clear();
+                }
             }
         }
 

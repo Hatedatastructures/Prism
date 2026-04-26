@@ -15,7 +15,7 @@
 
 namespace psm::stealth::shadowtls
 {
-    auto compute_hmac(const std::string_view key, const std::span<const std::byte> data)
+    auto compute_hmac(const std::string_view key, const std::byte *data, const std::size_t data_len)
         -> std::array<std::uint8_t, 4>
     {
         std::array<std::uint8_t, 4> result{};
@@ -23,7 +23,7 @@ namespace psm::stealth::shadowtls
 
         HMAC(EVP_sha1(),
              key.data(), static_cast<int>(key.size()),
-             reinterpret_cast<const unsigned char *>(data.data()), data.size(),
+             reinterpret_cast<const unsigned char *>(data), data_len,
              result.data(), &len);
 
         return result;
@@ -74,8 +74,7 @@ namespace psm::stealth::shadowtls
         std::memset(hmac_data.data() + hmac_offset_in_data, 0, hmac_size);
 
         // 计算 HMAC-SHA1
-        const auto span = std::span(reinterpret_cast<const std::byte *>(hmac_data.data()),hmac_data.size());
-        const auto expected = compute_hmac(password, span);
+        const auto expected = compute_hmac(password, reinterpret_cast<const std::byte *>(hmac_data.data()), hmac_data.size());
 
         // 提取客户端 SessionID 中的 HMAC 标签
         constexpr std::size_t client_hmac_offset = session_id_length_index + 1 + tls_session_id_size - hmac_size;
