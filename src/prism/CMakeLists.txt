@@ -30,4 +30,5 @@ add_subdirectory(pipeline)
 add_subdirectory(agent)
 add_subdirectory(crypto)
 add_subdirectory(multiplex)
+add_subdirectory(recognition)
 

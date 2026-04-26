@@ -1,7 +1,7 @@
 /**
  * @file session.cpp
  * @brief 连接会话编排模块实现
- * @details 会话通过 Stealth 方案管道执行 TLS 处理链路（Reality → ShadowTLS → Standard TLS），
+ * @details 会话通过 Recognition 模块进行智能协议识别（ClientHello 特征分析 + 方案执行），
  * 然后通过 handler_table 直接分发到协议处理函数。无虚函数、无工厂模式。
  */
 
@@ -10,6 +10,7 @@
 #include <prism/pipeline/primitives.hpp>
 #include <prism/protocol/probe.hpp>
 #include <prism/protocol/analysis.hpp>
+#include <prism/recognition/recognition.hpp>
 #include <prism/stealth.hpp>
 #include <prism/trace.hpp>
 #include <prism/exception.hpp>
@@ -141,64 +142,32 @@ namespace psm::agent::session
 
         auto span = std::span<const std::byte>(detect_result.pre_read_data.data(), detect_result.pre_read_size);
 
-        // 2：TLS → Stealth 方案管道（Reality → ShadowTLS → Standard TLS）
+        // 2：TLS → Recognition 模块智能识别
         if (detect_result.type == psm::protocol::protocol_type::tls)
         {
-            // 用 preview 包装 inbound，使所有 scheme 都能读到预读数据
-            ctx_.inbound = std::make_shared<pipeline::primitives::preview>(
-                std::move(ctx_.inbound), span, ctx_.frame_arena.get());
+            auto result = co_await psm::recognition::identify(psm::recognition::identify_context{
+                .transport = ctx_.inbound,
+                .cfg = &ctx_.server.config(),
+                .preread = span,
+                .router = &ctx_.worker.router,
+                .session = &ctx_,
+                .frame_arena = &ctx_.frame_arena});
 
-            std::vector<std::shared_ptr<psm::stealth::stealth_scheme>> schemes;
-            schemes.push_back(std::make_shared<psm::stealth::reality::scheme>());
-            schemes.push_back(std::make_shared<psm::stealth::shadowtls::scheme>());
-            schemes.push_back(std::make_shared<psm::stealth::restls::scheme>());
-            schemes.push_back(std::make_shared<psm::stealth::schemes::native>());
-
-            for (const auto &scheme : schemes)
+            if (result.success)
             {
-                if (!scheme->is_enabled(ctx_.server.config()))
+                ctx_.inbound = std::move(result.transport);
+                detect_result.type = result.detected;
+                if (!result.preread.empty())
                 {
-                    trace::debug("[Session] [{}] Scheme '{}' disabled, skipping", id_, scheme->name());
-                    continue;
+                    span = std::span<const std::byte>(result.preread.data(), result.preread.size());
                 }
-
-                trace::debug("[Session] [{}] Executing scheme '{}'", id_, scheme->name());
-
-                auto res = co_await scheme->execute(psm::stealth::scheme_context{
-                    .inbound = std::move(ctx_.inbound),
-                    .cfg = &ctx_.server.config(),
-                    .router = &ctx_.worker.router,
-                    .session = &ctx_});
-
-                if (res.transport)
-                    ctx_.inbound = std::move(res.transport);
-                if (res.detected != psm::protocol::protocol_type::unknown)
-                    detect_result.type = res.detected;
-                if (!res.preread.empty())
-                {
-                    span = std::span<const std::byte>(res.preread.data(), res.preread.size());
-                    // 为下一个 scheme 重新包装 preview
-                    if (ctx_.inbound && detect_result.type == psm::protocol::protocol_type::tls)
-                    {
-                        ctx_.inbound = std::make_shared<pipeline::primitives::preview>(
-                            std::move(ctx_.inbound), span, ctx_.frame_arena.get());
-                    }
-                }
-
-                if (fault::failed(res.error))
-                {
-                    trace::warn("[Session] [{}] Scheme '{}' failed: {}",
-                                id_, scheme->name(), fault::describe(res.error));
-                    co_return;
-                }
-
-                if (detect_result.type != psm::protocol::protocol_type::tls &&
-                    detect_result.type != psm::protocol::protocol_type::unknown)
-                {
-                    trace::debug("[Session] [{}] Scheme '{}' succeeded, protocol: {}",
-                                 id_, scheme->name(), psm::protocol::to_string_view(detect_result.type));
-                    break;
-                }
+                trace::debug("[Session] [{}] Recognition succeeded: scheme={}, protocol={}",
+                             id_, result.executed_scheme, psm::protocol::to_string_view(detect_result.type));
+            }
+            else
+            {
+                trace::warn("[Session] [{}] Recognition failed: {}", id_, fault::describe(result.error));
+                co_return;
             }
         }
 
