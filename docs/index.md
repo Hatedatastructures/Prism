@@ -18,8 +18,4 @@
 
 面向代码贡献者和深度开发者的技术文档，按源码模块组织。
 
-- [开发者文档入口](prism/) — 按模块分层：agent、channel、resolve、pipeline、protocol、stealth、multiplex、memory、crypto 等
-
-### 项目信息
-
-- [开发进度](project/progress.md)
+- [开发者文档入口](prism/) — 按模块分层：agent、recognition、channel、resolve、pipeline、protocol、stealth、multiplex、memory、crypto 等

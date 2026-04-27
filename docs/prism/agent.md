@@ -40,8 +40,7 @@ src/prism/agent/
 ├── session/
 │   └── session.cpp             # 会话实现
 └── account/
-    ├── directory.cpp           # 账户目录实现
-    └── entry.cpp               # 账户条目实现
+    └── directory.cpp           # 账户目录实现（entry.hpp 是 header-only）
 ```
 
 ### 数据流概览
@@ -56,8 +55,9 @@ listener (接受连接)
    → dispatch()
    → worker (io_context + 池)
    → launch
-   → session (协议检测 + 分派)
-   → handler_table (http/socks5/...)
+   → session
+   → recognition::recognize() (协议探测 + TLS 伪装识别)
+   → dispatch (http/socks5/...)
 ```
 
 ---
@@ -291,7 +291,7 @@ Worker Layer:
 
 Session Layer:
    session (lifecycle + shared_ptr)
-      → probe (24B pre-read)
+      → recognition::recognize() (probe + clienthello + handshake)
       → dispatch::table (compile-time handler array)
 
 Pipeline Layer:
@@ -395,19 +395,28 @@ refresh_state(idx, score)
 ```
 // 会话协议检测
 session.start()
-   → diversion()
-       1. pread inbound (24 bytes)
-       2. analysis::detect(data)
-            HTTP?    → protocol_type::http
-            SOCKS5?  → protocol_type::socks5
-            TLS?     → protocol_type::tls
-            Trojan?  → protocol_type::trojan
-            VLESS?   → protocol_type::vless
-            SS?      → protocol_type::shadowsocks
-            else     → protocol_type::unknown
-       3. dispatch::dispatch(ctx, type, data)
-            → handler_table[type](ctx, data)
-       4. co_await handler
+   → async_forward()
+       1. recognition::recognize(ctx)
+            ├─ probe::probe(inbound, 24)
+            │    → detect(data)
+            │         HTTP?    → protocol_type::http
+            │         SOCKS5?  → protocol_type::socks5
+            │         TLS?     → protocol_type::tls
+            │         SS?      → protocol_type::shadowsocks
+            │         else     → protocol_type::unknown
+            ├─ (仅当 TLS)
+            │    → identify(ctx)
+            │         ├─ read_clienthello()
+            │         ├─ parse_clienthello() → features
+            │         ├─ analyzer_registry::analyze(features, cfg)
+            │         │    → analysis_result{candidates, confidence}
+            │         └─ scheme_executor::execute_by_analysis()
+            │              → stealth::scheme::execute()
+            │              → execution_result{transport, detected}
+            └─ 返回 recognize_result{transport, detected, preread}
+       2. dispatch::dispatch(ctx, detected, preread)
+            → handler_table[detected](ctx, preread)
+       3. co_await handler
 
 handler 执行:
    HTTP:     解析请求 → router.async_forward → tunnel

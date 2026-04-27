@@ -16,14 +16,20 @@ memory/
 
 | 类型 | 说明 |
 |------|------|
+| `memory::resource` | `std::pmr::memory_resource`，内存资源基类 |
+| `memory::resource_pointer` | `std::pmr::memory_resource*`，内存资源指针 |
+| `memory::allocator<T>` | `std::pmr::polymorphic_allocator<T>`，多态分配器模板 |
+| `memory::synchronized_pool` | `std::pmr::synchronized_pool_resource`，线程安全池 |
+| `memory::unsynchronized_pool` | `std::pmr::unsynchronized_pool_resource`，非线程安全池 |
+| `memory::monotonic_buffer` | `std::pmr::monotonic_buffer_resource`，单调增长缓冲区 |
 | `memory::string` | `std::pmr::string`，使用全局池或帧竞技场 |
 | `memory::vector<T>` | `std::pmr::vector<T>` |
 | `memory::map<K,V>` | `std::pmr::map<K,V>` |
 | `memory::unordered_map<K,V>` | `std::pmr::unordered_map<K,V>` |
 | `memory::list<T>` | `std::pmr::list<T>` |
 | `memory::unordered_set<T>` | `std::pmr::unordered_set<T>` |
-| `memory::resource_pointer` | `std::pmr::memory_resource*` |
 | `memory::frame_arena` | 单调增长资源，会话级临时分配 |
+| `memory::current_resource()` | 获取当前默认内存资源 |
 | `memory::system::thread_local_pool()` | 线程独占内存池 |
 
 ## 使用约定

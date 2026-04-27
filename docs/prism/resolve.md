@@ -24,7 +24,7 @@ include/prism/resolve/
 src/prism/resolve/
 ├── router.cpp                # 路由器实现
 └── dns/
-    ├── dns.cpp               # resolver 实现（make_resolver）
+    ├── resolver.cpp          # resolver 实现（make_resolver）
     ├── upstream.cpp          # 上游查询客户端实现
     └── detail/
         ├── cache.cpp         # 缓存实现

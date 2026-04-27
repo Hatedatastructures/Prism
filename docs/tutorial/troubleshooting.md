@@ -44,11 +44,9 @@ netstat -ano | findstr :8081
 
 ```json
 {
-  "agent": {
-    "pool": {
-      "max_cache_per_endpoint": 64,
-      "max_idle_seconds": 30
-    }
+  "pool": {
+    "max_cache_per_endpoint": 64,
+    "max_idle_seconds": 30
   }
 }
 ```

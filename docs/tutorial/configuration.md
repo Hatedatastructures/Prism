@@ -295,6 +295,9 @@
     "shadowtls": {
       "version": 3,
       "password": "",
+      "users": [
+        { "name": "user1", "password": "secret1" }
+      ],
       "handshake_dest": "www.google.com:443",
       "strict_mode": true,
       "handshake_timeout_ms": 5000
@@ -302,6 +305,44 @@
   }
 }
 ```
+
+| 字段 | 默认值 | 说明 |
+|------|--------|------|
+| `version` | `3` | 协议版本（2 或 3） |
+| `password` | - | v2 兼容密码 |
+| `users` | `[]` | v3 多用户列表（name + password） |
+| `handshake_dest` | - | 握手后端目标 host:port |
+| `strict_mode` | `true` | 严格模式：仅 TLS 1.3 |
+| `handshake_timeout_ms` | `5000` | 握手超时（毫秒） |
+
+### stealth.restls
+
+```json
+{
+  "stealth": {
+    "restls": {
+      "host": "www.bing.com:443",
+      "password": "secret",
+      "version_hint": "tls13",
+      "restls_script": "300?100<1",
+      "handshake_timeout_ms": 5000
+    }
+  }
+}
+```
+
+| 字段 | 默认值 | 说明 |
+|------|--------|------|
+| `host` | - | TLS 后端目标 host:port |
+| `password` | - | 认证密码 |
+| `version_hint` | - | 版本提示：`tls12` 或 `tls13` |
+| `restls_script` | - | 流量控制脚本（见下方说明） |
+| `handshake_timeout_ms` | `5000` | 握手超时（毫秒） |
+
+**Restls Script 语法**：
+- `300?100`: 发送 300 字节，等待 100ms
+- `400~100`: 等待 100ms 后发送 400 字节
+- `<1`: 等待客户端数据
 
 ---
 

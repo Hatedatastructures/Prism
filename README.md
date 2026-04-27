@@ -95,15 +95,17 @@ proxies:
 Prism/
 ├── include/prism/
 │   ├── agent/            # 代理核心（listener, balancer, worker, session）
+│   ├── recognition/      # 协议智能识别（probe, clienthello, handshake）
 │   ├── channel/          # 传输层（reliable, encrypted, connection pool, eyeball）
 │   ├── crypto/           # 加密（AEAD, SHA224, BLAKE3, X25519, HKDF, Base64）
 │   ├── fault/            # 错误码体系
 │   ├── memory/           # PMR 内存管理（pool, arena, container）
 │   ├── multiplex/        # 多路复用（smux, yamux, duct, parcel）
+│   ├── outbound/         # 出站代理接口
 │   ├── pipeline/         # 协议管道（primitives, tunnel）
 │   ├── protocol/         # 协议实现（http, socks5, trojan, vless, shadowsocks）
-│   ├── stealth/          # TLS 伪装层（reality/）
-│   └── resolve/          # DNS（router, recursor, cache, resolver, rules）
+│   ├── stealth/          # TLS 伪装层（reality, shadowtls, restls, native）
+│   └── resolve/          # DNS（router, dns resolver, cache, rules）
 ├── src/                  # 源文件 + 入口
 ├── tests/                # 单元测试（25 个）
 ├── benchmarks/           # 基准测试
@@ -142,6 +144,8 @@ Prism/
 | 伪装 | 状态 | 说明 |
 |------|------|------|
 | *Reality* | 已完成 | TLS 指纹伪装，X25519 密钥交换，可叠加任意内层协议 |
+| *ShadowTLS v3* | 开发中 | HMAC-SHA1 SessionID 认证，多用户支持 |
+| *RestLS* | 开发中 | TLS 1.2/1.3 指纹模拟 |
 
 | Mux | 状态 | 说明 |
 |-----|------|------|
@@ -152,14 +156,17 @@ Prism/
 
 ## 开发路线
 
-- [x] 五协议完整实现（*HTTP* / *SOCKS5* / *Trojan* / *VLESS* / *SS2022*）+ *Reality* TLS 伪装
+- [x] 五协议完整实现（*HTTP* / *SOCKS5* / *Trojan* / *VLESS* / *SS2022*）
 - [x] TLS 透明剥离 + 二次协议探测
+- [x] Recognition 模块（协议智能识别 + 伪装方案特征分析）
 - [x] *smux* / *yamux* 多路复用
 - [x] Happy Eyeballs（RFC 8305）
 - [x] 7 阶段 DNS 管道（UDP/TCP/DoT/DoH + 缓存 + 规则）
 - [x] 连接池 + 健康检查
 - [x] 加权负载均衡 + 过载反压
 - [x] 每用户连接数限制 + 凭据认证
+- [x] *Reality* TLS 伪装
+- [ ] *ShadowTLS v3* / *RestLS* TLS 伪装（开发中）
 - [ ] *QUIC* / *Hysteria2*
 - [ ] *smux* v2
 - [ ] *WebSocket*
@@ -172,7 +179,7 @@ Prism/
 - [快速开始](docs/tutorial/getting-started.md) · [配置详解](docs/tutorial/configuration.md) · [部署指南](docs/tutorial/deployment.md) · [故障排除](docs/tutorial/troubleshooting.md) · [常见问题](docs/tutorial/faq.md)
 
 **开发者文档**
-- [文档入口](docs/index.md) · [agent](docs/prism/agent.md) · [channel](docs/prism/channel.md) · [resolve](docs/prism/resolve.md) · [Trojan](docs/prism/protocol/trojan.md) · [VLESS](docs/prism/protocol/vless.md) · [smux](docs/prism/multiplex/smux.md) · [Reality](docs/prism/stealth/reality.md)
+- [文档入口](docs/index.md) · [agent](docs/prism/agent.md) · [recognition](docs/prism/recognition.md) · [channel](docs/prism/channel.md) · [resolve](docs/prism/resolve.md) · [Trojan](docs/prism/protocol/trojan.md) · [VLESS](docs/prism/protocol/vless.md) · [smux](docs/prism/multiplex/smux.md) · [Reality](docs/prism/stealth/reality.md)
 
 ---
 
