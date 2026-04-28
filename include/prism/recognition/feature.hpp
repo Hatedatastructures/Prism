@@ -14,12 +14,12 @@
 namespace psm::recognition
 {
     /**
-     * @struct clienthello_features
+     * @struct arrival_features
      * @brief 从 ClientHello 提取的关键特征
      * @details 包含 SNI、session_id、key_share、支持的版本、ECH 等特征。
      * 各方案分析器可基于这些特征判断置信度。
      */
-    struct clienthello_features
+    struct arrival_features
     {
         /** @brief SNI 服务器名称 */
         memory::string server_name;
@@ -52,7 +52,7 @@ namespace psm::recognition
         memory::vector<std::uint8_t> session_id;
 
         /** @brief 原始 ClientHello 记录（含 TLS record header） */
-        memory::vector<std::byte> raw_clienthello;
+        memory::vector<std::byte> raw_arrival;
 
         /** @brief 原始握手消息（不含 TLS record header） */
         memory::vector<std::uint8_t> raw_handshake_message;

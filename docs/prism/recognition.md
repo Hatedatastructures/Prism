@@ -15,7 +15,7 @@ include/prism/recognition/
 ├── probe/
 │   ├── probe.hpp               # 外层协议探测（24 字节预读）
 │   └── analyzer.hpp            # 协议检测函数 detect() / detect_tls()
-├── clienthello/
+├── arrival/
 │   ├── analyzer.hpp            # 特征分析器虚基类
 │   ├── registry.hpp            # 分析器注册表（单例，插件架构）
 │   ├── reality.hpp             # Reality 方案分析器
@@ -29,7 +29,7 @@ src/prism/recognition/
 ├── recognition.cpp             # recognize() / identify() 实现
 ├── probe/
 │   └── analyzer.cpp            # detect() 实现
-├── clienthello/
+├── arrival/
 │   ├── registry.cpp            # 注册表实现
 │   └── reality.cpp             # Reality 分析器实现
 └── handshake/
@@ -44,10 +44,10 @@ probe::probe(transport, 24)     → detect() → protocol_type
        │ (仅当 TLS)
        ▼
 identify():
-  read_clienthello()            → raw_clienthello
+  read_arrival()            → raw_arrival
        │
        ▼
-  parse_clienthello()           → clienthello_features
+  parse_arrival()           → arrival_features
        │
        ▼
   analyzer_registry::analyze()  → analysis_result{candidates, confidence}
@@ -105,8 +105,8 @@ detect(peek_data) → protocol_type
 ```
 identify(ctx)
    │
-   ├─ read_clienthello()    → raw_clienthello
-   ├─ parse_clienthello()   → clienthello_features
+   ├─ read_arrival()    → raw_arrival
+   ├─ parse_arrival()   → arrival_features
    ├─ analyze(features)     → analysis_result
    └─ execute_by_analysis() → execution_result
 ```
@@ -124,7 +124,7 @@ enum class confidence : uint8
 ### 2.3 ClientHello 特征结构
 
 ```
-struct clienthello_features          // 从 ClientHello 提取的特征
+struct arrival_features          // 从 ClientHello 提取的特征
 ├── server_name           : string           // SNI
 ├── session_id_len        : uint8            // session_id 长度（0-32）
 ├── has_x25519_key_share  : bool             // 是否存在 X25519 key_share
@@ -135,7 +135,7 @@ struct clienthello_features          // 从 ClientHello 提取的特征
 ├── alpn_protocols        : vector<string>   // ALPN 协议列表
 ├── random                : array<byte,32>   // 客户端随机数
 ├── session_id            : vector<uint8>    // session_id 数据
-├── raw_clienthello       : vector<byte>     // 原始 ClientHello 记录
+├── raw_arrival       : vector<byte>     // 原始 ClientHello 记录
 └── raw_handshake_message : vector<uint8>    // 原始握手消息
 ```
 
@@ -143,8 +143,8 @@ struct clienthello_features          // 从 ClientHello 提取的特征
 
 | 项目 | 详情 |
 |------|------|
-| 头文件 | `include/prism/recognition/clienthello/analyzer.hpp` |
-| 命名空间 | `psm::recognition::clienthello` |
+| 头文件 | `include/prism/recognition/arrival/analyzer.hpp` |
+| 命名空间 | `psm::recognition::arrival` |
 
 ```
 class feature_analyzer                 // 虚基类
@@ -168,8 +168,8 @@ class reality_analyzer final : feature_analyzer
 
 | 项目 | 详情 |
 |------|------|
-| 头文件 | `include/prism/recognition/clienthello/registry.hpp` |
-| 命名空间 | `psm::recognition::clienthello` |
+| 头文件 | `include/prism/recognition/arrival/registry.hpp` |
+| 命名空间 | `psm::recognition::arrival` |
 
 ```
 class analyzer_registry               // 单例，线程安全
@@ -180,7 +180,7 @@ class analyzer_registry               // 单例，线程安全
 └── get_all_analyzers()   : vector<shared_analyzer>
 
 // 注册宏
-REGISTER_CLIENTHELLO_ANALYZER(reality_analyzer)  // 文件末尾一行注册
+REGISTER_ARRIVAL_ANALYZER(reality_analyzer)  // 文件末尾一行注册
 ```
 
 ### 2.6 方案执行器 scheme_executor
@@ -225,7 +225,7 @@ execute_by_analysis()
    └─ is_enabled() → 配置检查
 
 2. 在实现文件末尾注册
-   REGISTER_CLIENTHELLO_ANALYZER(ech_analyzer)
+   REGISTER_ARRIVAL_ANALYZER(ech_analyzer)
 
 3. 实现 stealth::scheme 执行逻辑
    (stealth/ech/scheme.hpp)
@@ -290,8 +290,8 @@ recognition::recognize({
    │   └─ 非 TLS → 返回 {success=true, detected=type}
    │
    ├─ Phase 2: identify() (仅 TLS)
-   │   ├─ read_clienthello() → raw
-   │   ├─ parse_clienthello() → features
+   │   ├─ read_arrival() → raw
+   │   ├─ parse_arrival() → features
    │   ├─ analyzer_registry::analyze(features, cfg)
    │   │   ├─ reality_analyzer::analyze() → confidence
    │   │   ├─ shadowtls_analyzer::analyze() → confidence

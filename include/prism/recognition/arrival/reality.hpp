@@ -6,9 +6,9 @@
 
 #pragma once
 
-#include <prism/recognition/clienthello/analyzer.hpp>
+#include <prism/recognition/arrival/analyzer.hpp>
 
-namespace psm::recognition::clienthello
+namespace psm::recognition::arrival
 {
     /**
      * @class reality_analyzer
@@ -26,7 +26,7 @@ namespace psm::recognition::clienthello
      *
      * **性能优化**：
      * - 仅检查 SNI 和特征，不做任何 I/O
-     * - 可直接复用已解析的 clienthello_features
+     * - 可直接复用已解析的 arrival_features
      * - 判断成本约 1-2 次字符串比较
      */
     class reality_analyzer final : public feature_analyzer
@@ -47,16 +47,15 @@ namespace psm::recognition::clienthello
          * @param cfg 全局配置
          * @return 置信度判定
          */
-        [[nodiscard]] auto analyze(
-            const clienthello_features &features,
-            const psm::config &cfg) const -> confidence override;
+        [[nodiscard]] auto analyze(const arrival_features &features,const config &cfg) const
+        -> confidence override;
 
         /**
          * @brief 检查 Reality 方案是否启用
          * @param cfg 全局配置
          * @return 如果 cfg.stealth.reality.enabled() 返回 true
          */
-        [[nodiscard]] auto is_enabled(const psm::config &cfg) const noexcept -> bool override;
+        [[nodiscard]] auto is_enabled(const config &cfg) const noexcept -> bool override;
 
     private:
         /**
@@ -65,8 +64,7 @@ namespace psm::recognition::clienthello
          * @param server_names 配置的服务器名称列表
          * @return 如果匹配返回 true
          */
-        [[nodiscard]] static auto check_sni_match(
-            std::string_view sni,
-            const memory::vector<memory::string> &server_names) -> bool;
+        [[nodiscard]] static auto check_sni_match(std::string_view sni,const memory::vector<memory::string> &server_names)
+            -> bool;
     };
-} // namespace psm::recognition::clienthello
+} // namespace psm::recognition::arrival

@@ -3,14 +3,14 @@
  * @brief Reality 方案特征分析器实现
  */
 
-#include <prism/recognition/clienthello/reality.hpp>
-#include <prism/recognition/clienthello/registry.hpp>
+#include <prism/recognition/arrival/reality.hpp>
+#include <prism/recognition/arrival/registry.hpp>
 #include <prism/config.hpp>
 #include <prism/trace.hpp>
 
-namespace psm::recognition::clienthello
+namespace psm::recognition::arrival
 {
-    auto reality_analyzer::analyze(const clienthello_features &features, const psm::config &cfg) const
+    auto reality_analyzer::analyze(const arrival_features &features, const config &cfg) const
         -> confidence
     {
         // Reality 必须匹配配置的 server_names
@@ -44,14 +44,13 @@ namespace psm::recognition::clienthello
         return confidence::low;
     }
 
-    auto reality_analyzer::is_enabled(const psm::config &cfg) const noexcept -> bool
+    auto reality_analyzer::is_enabled(const config &cfg) const noexcept -> bool
     {
         return cfg.stealth.reality.enabled();
     }
 
-    auto reality_analyzer::check_sni_match(
-        std::string_view sni,
-        const memory::vector<memory::string> &server_names) -> bool
+    auto reality_analyzer::check_sni_match(const std::string_view sni, const memory::vector<memory::string> &server_names)
+        -> bool
     {
         if (sni.empty() || server_names.empty())
             return false;
@@ -64,7 +63,7 @@ namespace psm::recognition::clienthello
 
         return false;
     }
-} // namespace psm::recognition::clienthello
+} // namespace psm::recognition::arrival
 
 // 注册 Reality 分析器
-REGISTER_CLIENTHELLO_ANALYZER(psm::recognition::clienthello::reality_analyzer)
+REGISTER_ARRIVAL_ANALYZER(psm::recognition::arrival::reality_analyzer)

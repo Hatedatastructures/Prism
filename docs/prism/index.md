@@ -9,7 +9,7 @@
 | 模块 | 文档 | 说明 |
 |------|------|------|
 | **agent** | [agent.md](agent.md) | 代理核心：front/listener、balancer、worker、session、dispatch、account |
-| **recognition** | [recognition.md](recognition.md) | 协议智能识别：probe 探测、clienthello 分析、handshake 执行 |
+| **recognition** | [recognition.md](recognition.md) | 协议智能识别：probe 探测、arrival 分析、handshake 执行 |
 | **channel** | [channel.md](channel.md) | 传输层抽象：接口、连接池、Happy Eyeballs、健康检测 |
 | **resolve** | [resolve.md](resolve.md) | DNS 解析：resolver 接口、upstream 查询、detail 子模块 |
 | **pipeline** | [pipeline.md](pipeline.md) | 协议管道：primitives、tunnel |

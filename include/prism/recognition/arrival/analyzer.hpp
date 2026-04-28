@@ -18,7 +18,7 @@ namespace psm
     struct config;
 } // namespace psm
 
-namespace psm::recognition::clienthello
+namespace psm::recognition::arrival
 {
     /**
      * @class feature_analyzer
@@ -38,7 +38,7 @@ namespace psm::recognition::clienthello
      * {
      * public:
      *     auto name() const noexcept -> std::string_view override { return "reality"; }
-     *     auto analyze(const clienthello_features &f, const psm::config &cfg) const
+     *     auto analyze(const arrival_features &f, const psm::config &cfg) const
      *         -> confidence override
      *     {
      *         // Reality 特征：SNI 匹配 + 32字节 session_id + X25519
@@ -48,7 +48,7 @@ namespace psm::recognition::clienthello
      *     }
      * };
      *
-     * REGISTER_CLIENTHELLO_ANALYZER(reality_analyzer)
+     * REGISTER_ARRIVAL_ANALYZER(reality_analyzer)
      * ```
      */
     class feature_analyzer
@@ -73,9 +73,7 @@ namespace psm::recognition::clienthello
          * 返回 confidence::low 表示可能有匹配，但不确定；
          * 返回 confidence::none 表示不匹配。
          */
-        [[nodiscard]] virtual auto analyze(
-            const clienthello_features &features,
-            const psm::config &cfg) const -> confidence = 0;
+        [[nodiscard]] virtual auto analyze(const arrival_features &features,const config &cfg) const -> confidence = 0;
 
         /**
          * @brief 分析器是否启用（对应方案是否配置）
@@ -83,8 +81,8 @@ namespace psm::recognition::clienthello
          * @return 如果对应方案在配置中启用，返回 true
          * @details 例如 reality_analyzer 应检查 cfg.stealth.reality.enabled()。
          */
-        [[nodiscard]] virtual auto is_enabled(const psm::config &cfg) const noexcept -> bool = 0;
+        [[nodiscard]] virtual auto is_enabled(const config &cfg) const noexcept -> bool = 0;
     };
 
     using shared_analyzer = std::shared_ptr<feature_analyzer>;
-} // namespace psm::recognition::clienthello
+} // namespace psm::recognition::arrival

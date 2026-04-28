@@ -7,9 +7,9 @@
 
 #pragma once
 
-#include <prism/recognition/clienthello/analyzer.hpp>
+#include <prism/recognition/arrival/analyzer.hpp>
 
-namespace psm::recognition::clienthello
+namespace psm::recognition::arrival
 {
     /**
      * @class ech_analyzer
@@ -32,9 +32,8 @@ namespace psm::recognition::clienthello
             return "ech";
         }
 
-        [[nodiscard]] auto analyze(
-            const clienthello_features &features,
-            const psm::config &cfg) const -> confidence override
+        [[nodiscard]] auto analyze(const arrival_features &features,const config &cfg) const
+            -> confidence override
         {
             // ECH 特征：has_ech_extension == true
             if (features.has_ech_extension)
@@ -44,14 +43,14 @@ namespace psm::recognition::clienthello
             return confidence::none;
         }
 
-        [[nodiscard]] auto is_enabled(const psm::config &cfg) const noexcept -> bool override
+        [[nodiscard]] auto is_enabled(const config &cfg) const noexcept -> bool override
         {
             // ECH 方案当前未实现，暂不启用
             // 未来实现后检查 cfg.stealth.ech.enabled()
             return false;
         }
     };
-} // namespace psm::recognition::clienthello
+} // namespace psm::recognition::arrival
 
 // ECH 分析器暂不注册，待实现后启用
-// REGISTER_CLIENTHELLO_ANALYZER(ech_analyzer)
+// REGISTER_ARRIVAL_ANALYZER(ech_analyzer)

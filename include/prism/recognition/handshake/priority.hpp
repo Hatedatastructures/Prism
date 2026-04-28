@@ -52,8 +52,7 @@ namespace psm::recognition::handshake
             return execution_priority{
                 .mode = priority_mode::hybrid,
                 .order = {"reality", "shadowtls", "restls", "native"},
-                .skip_low_confidence = false
-            };
+                .skip_low_confidence = false};
         }
     };
 } // namespace psm::recognition::handshake

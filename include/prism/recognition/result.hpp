@@ -28,7 +28,7 @@ namespace psm::recognition
         confidence confidence{confidence::none};
 
         /** @brief 提取的 ClientHello 特征 */
-        clienthello_features features;
+        arrival_features features;
 
         /** @brief 解析错误码 */
         fault::code error{fault::code::success};

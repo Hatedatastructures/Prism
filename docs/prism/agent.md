@@ -291,7 +291,7 @@ Worker Layer:
 
 Session Layer:
    session (lifecycle + shared_ptr)
-      → recognition::recognize() (probe + clienthello + handshake)
+      → recognition::recognize() (probe + arrival + handshake)
       → dispatch::table (compile-time handler array)
 
 Pipeline Layer:
@@ -406,8 +406,8 @@ session.start()
             │         else     → protocol_type::unknown
             ├─ (仅当 TLS)
             │    → identify(ctx)
-            │         ├─ read_clienthello()
-            │         ├─ parse_clienthello() → features
+            │         ├─ read_arrival()
+            │         ├─ parse_arrival() → features
             │         ├─ analyzer_registry::analyze(features, cfg)
             │         │    → analysis_result{candidates, confidence}
             │         └─ scheme_executor::execute_by_analysis()

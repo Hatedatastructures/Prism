@@ -56,9 +56,8 @@ namespace psm::recognition::handshake
          * @return 执行结果
          * @details 按 analysis.candidates 顺序执行方案。
          */
-        auto execute_by_analysis(
-            const analysis_result &analysis,
-            stealth::scheme_context ctx) -> net::awaitable<execution_result>;
+        [[nodiscard]] auto execute_by_analysis(const analysis_result &analysis, stealth::scheme_context ctx) const
+            -> net::awaitable<execution_result>;
 
         /**
          * @brief 按配置优先级执行方案
@@ -67,9 +66,8 @@ namespace psm::recognition::handshake
          * @return 执行结果
          * @details 按 priority.order 顺序执行方案。
          */
-        auto execute_by_priority(
-            const execution_priority &priority,
-            stealth::scheme_context ctx) -> net::awaitable<execution_result>;
+        [[nodiscard]] auto execute_by_priority(const execution_priority &priority, stealth::scheme_context ctx) const
+            -> net::awaitable<execution_result>;
 
         /**
          * @brief 注册方案
@@ -100,8 +98,7 @@ namespace psm::recognition::handshake
          * @param ctx 执行上下文
          * @return 执行结果
          */
-        auto execute_single(
-            stealth::shared_scheme scheme,
-            stealth::scheme_context ctx) -> net::awaitable<execution_result>;
+        static auto execute_single(stealth::shared_scheme scheme, stealth::scheme_context ctx)
+            -> net::awaitable<execution_result>;
     };
 } // namespace psm::recognition::handshake

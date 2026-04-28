@@ -12,7 +12,7 @@ namespace psm::recognition::probe
     namespace
     {
         /// HTTP 方法列表（最短 4 字节 "GET "）
-        static constexpr std::array<std::string_view, 9> http_methods = {
+        constexpr std::array<std::string_view, 9> http_methods = {
             "GET ", "POST ", "HEAD ", "PUT ", "DELETE ",
             "CONNECT ", "OPTIONS ", "TRACE ", "PATCH "};
 
@@ -32,7 +32,7 @@ namespace psm::recognition::probe
         }
     }
 
-    auto detect(std::string_view peek_data) -> protocol::protocol_type
+    auto detect(const std::string_view peek_data) -> protocol::protocol_type
     {
         if (peek_data.empty())
             return protocol::protocol_type::unknown;

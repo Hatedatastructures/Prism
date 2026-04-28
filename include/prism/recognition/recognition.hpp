@@ -23,17 +23,17 @@
 #include <prism/recognition/probe/analyzer.hpp>
 
 // ClientHello 特征检测子模块
-#include <prism/recognition/clienthello/analyzer.hpp>
-#include <prism/recognition/clienthello/registry.hpp>
-#include <prism/recognition/clienthello/reality.hpp>
+#include <prism/recognition/arrival/analyzer.hpp>
+#include <prism/recognition/arrival/registry.hpp>
+#include <prism/recognition/arrival/reality.hpp>
 
 // 握手后方案执行子模块
 #include <prism/recognition/handshake/priority.hpp>
 #include <prism/recognition/handshake/executor.hpp>
 
 // 预留扩展（ECH, AnyTLS）
-// #include <prism/recognition/clienthello/ech.hpp>
-// #include <prism/recognition/clienthello/anytls.hpp>
+// #include <prism/recognition/arrival/ech.hpp>
+// #include <prism/recognition/arrival/anytls.hpp>
 
 namespace psm::recognition
 {
@@ -228,12 +228,12 @@ namespace psm::recognition
 
     /**
      * @brief 解析 TLS ClientHello 并提取特征
-     * @param raw_clienthello 完整的 TLS ClientHello 记录（含 5 字节 header）
+     * @param raw_arrival 完整的 TLS ClientHello 记录（含 5 字节 header）
      * @return 提取的特征结构
      * @details 复用 stealth/reality/request.cpp 的解析逻辑。
      */
-    [[nodiscard]] auto parse_clienthello(std::span<const std::uint8_t> raw_clienthello)
-        -> clienthello_features;
+    [[nodiscard]] auto parse_arrival(std::span<const std::uint8_t> raw_arrival)
+        -> arrival_features;
 
     /**
      * @brief 读取完整 TLS ClientHello 记录
@@ -242,7 +242,7 @@ namespace psm::recognition
      * @return {错误码, ClientHello 数据}
      * @details 复用 stealth/reality/request.cpp 的读取逻辑。
      */
-    auto read_clienthello(channel::transport::shared_transmission transport, std::span<const std::byte> preread)
+    auto read_arrival(channel::transport::shared_transmission transport, std::span<const std::byte> preread)
         -> net::awaitable<std::pair<fault::code, memory::vector<std::uint8_t>>>;
 
 } // namespace psm::recognition

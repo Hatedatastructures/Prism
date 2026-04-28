@@ -16,11 +16,11 @@ target_sources(${PROJECT_NAME}_static_library
             ${PROJECT_SOURCE_DIR}/include/prism/recognition/probe/analyzer.hpp
 
             # ClientHello 特征检测子模块
-            ${PROJECT_SOURCE_DIR}/include/prism/recognition/clienthello/analyzer.hpp
-            ${PROJECT_SOURCE_DIR}/include/prism/recognition/clienthello/registry.hpp
-            ${PROJECT_SOURCE_DIR}/include/prism/recognition/clienthello/reality.hpp
-            ${PROJECT_SOURCE_DIR}/include/prism/recognition/clienthello/ech.hpp
-            ${PROJECT_SOURCE_DIR}/include/prism/recognition/clienthello/anytls.hpp
+            ${PROJECT_SOURCE_DIR}/include/prism/recognition/arrival/analyzer.hpp
+            ${PROJECT_SOURCE_DIR}/include/prism/recognition/arrival/registry.hpp
+            ${PROJECT_SOURCE_DIR}/include/prism/recognition/arrival/reality.hpp
+            ${PROJECT_SOURCE_DIR}/include/prism/recognition/arrival/ech.hpp
+            ${PROJECT_SOURCE_DIR}/include/prism/recognition/arrival/anytls.hpp
 
             # Handshake 执行子模块
             ${PROJECT_SOURCE_DIR}/include/prism/recognition/handshake/priority.hpp
@@ -36,8 +36,8 @@ target_sources(${PROJECT_NAME}_static_library
         ${PROJECT_SOURCE_DIR}/src/prism/recognition/probe/analyzer.cpp
 
         # ClientHello 分析器实现
-        ${PROJECT_SOURCE_DIR}/src/prism/recognition/clienthello/registry.cpp
-        ${PROJECT_SOURCE_DIR}/src/prism/recognition/clienthello/reality.cpp
+        ${PROJECT_SOURCE_DIR}/src/prism/recognition/arrival/registry.cpp
+        ${PROJECT_SOURCE_DIR}/src/prism/recognition/arrival/reality.cpp
 
         # Handshake 执行器实现
         ${PROJECT_SOURCE_DIR}/src/prism/recognition/handshake/executor.cpp

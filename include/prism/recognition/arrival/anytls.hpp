@@ -7,9 +7,9 @@
 
 #pragma once
 
-#include <prism/recognition/clienthello/analyzer.hpp>
+#include <prism/recognition/arrival/analyzer.hpp>
 
-namespace psm::recognition::clienthello
+namespace psm::recognition::arrival
 {
     /**
      * @class anytls_analyzer
@@ -34,7 +34,7 @@ namespace psm::recognition::clienthello
         }
 
         [[nodiscard]] auto analyze(
-            [[maybe_unused]] const clienthello_features &features,
+            [[maybe_unused]] const arrival_features &features,
             [[maybe_unused]] const psm::config &cfg) const -> confidence override
         {
             // AnyTLS 在 ClientHello 中无明显特征
@@ -42,14 +42,14 @@ namespace psm::recognition::clienthello
             return confidence::none;
         }
 
-        [[nodiscard]] auto is_enabled(const psm::config &cfg) const noexcept -> bool override
+        [[nodiscard]] auto is_enabled(const config &cfg) const noexcept -> bool override
         {
             // AnyTLS 方案当前未实现，暂不启用
             // 未来实现后检查 cfg.stealth.anytls.enabled()
             return false;
         }
     };
-} // namespace psm::recognition::clienthello
+} // namespace psm::recognition::arrival
 
 // AnyTLS 分析器暂不注册，ClientHello 中无法识别
 // AnyTLS 方案应在 stealth/anytls/ 中实现 scheme，

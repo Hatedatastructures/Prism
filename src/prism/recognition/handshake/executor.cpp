@@ -16,7 +16,7 @@ namespace psm::recognition::handshake
     {
     }
 
-    auto scheme_executor::execute_by_analysis(const analysis_result &analysis, stealth::scheme_context ctx)
+    auto scheme_executor::execute_by_analysis(const analysis_result &analysis, stealth::scheme_context ctx) const
         -> net::awaitable<execution_result>
     {
         execution_result result;
@@ -32,14 +32,14 @@ namespace psm::recognition::handshake
 
             // 默认执行顺序：reality → shadowtls → restls → native
             memory::vector<memory::string> default_order;
-            default_order.push_back("reality");
-            default_order.push_back("shadowtls");
-            default_order.push_back("restls");
-            default_order.push_back("native");
+            default_order.emplace_back("reality");
+            default_order.emplace_back("shadowtls");
+            default_order.emplace_back("restls");
+            default_order.emplace_back("native");
 
             for (const auto &name : default_order)
             {
-                auto scheme = find_scheme(name);
+                const auto scheme = find_scheme(name);
                 if (!scheme)
                 {
                     trace::warn("[SchemeExecutor] Scheme '{}' not found", name);
@@ -100,7 +100,7 @@ namespace psm::recognition::handshake
         // 按候选顺序执行
         for (const auto &name : candidates)
         {
-            auto scheme = find_scheme(name);
+            const auto scheme = find_scheme(name);
             if (!scheme)
             {
                 trace::warn("[SchemeExecutor] Scheme '{}' not found", name);
@@ -155,8 +155,7 @@ namespace psm::recognition::handshake
 
         // 所有候选方案都失败，执行 Native 兜底
         trace::debug("[SchemeExecutor] All candidates failed, executing native fallback");
-        auto native = find_scheme("native");
-        if (native)
+        if (const auto native = find_scheme("native"))
         {
             co_return co_await execute_single(native, std::move(ctx));
         }
@@ -165,7 +164,7 @@ namespace psm::recognition::handshake
         co_return result;
     }
 
-    auto scheme_executor::execute_by_priority(const execution_priority &priority, stealth::scheme_context ctx)
+    auto scheme_executor::execute_by_priority(const execution_priority &priority, stealth::scheme_context ctx) const
         -> net::awaitable<execution_result>
     {
         execution_result result;
@@ -173,7 +172,7 @@ namespace psm::recognition::handshake
         // 按配置顺序执行
         for (const auto &name : priority.order)
         {
-            auto scheme = find_scheme(name);
+            const auto scheme = find_scheme(name);
             if (!scheme)
             {
                 trace::warn("[SchemeExecutor] Scheme '{}' not found in priority order", name);
@@ -198,7 +197,7 @@ namespace psm::recognition::handshake
             }
 
             // "不是我"则继续
-            if (result.scheme_result.detected == psm::protocol::protocol_type::tls)
+            if (result.scheme_result.detected == protocol::protocol_type::tls)
             {
                 if (result.scheme_result.transport)
                     ctx.inbound = result.scheme_result.transport;
@@ -232,15 +231,16 @@ namespace psm::recognition::handshake
     auto scheme_executor::create_default() -> std::unique_ptr<scheme_executor>
     {
         std::vector<stealth::shared_scheme> schemes;
-        schemes.push_back(std::make_shared<psm::stealth::reality::scheme>());
-        schemes.push_back(std::make_shared<psm::stealth::shadowtls::scheme>());
-        schemes.push_back(std::make_shared<psm::stealth::restls::scheme>());
-        schemes.push_back(std::make_shared<psm::stealth::schemes::native>());
+        schemes.push_back(std::make_shared<stealth::reality::scheme>());
+        schemes.push_back(std::make_shared<stealth::shadowtls::scheme>());
+        schemes.push_back(std::make_shared<stealth::restls::scheme>());
+        schemes.push_back(std::make_shared<stealth::schemes::native>());
 
         return std::make_unique<scheme_executor>(std::move(schemes));
     }
 
-    auto scheme_executor::find_scheme(std::string_view name) const -> stealth::shared_scheme
+    auto scheme_executor::find_scheme(const std::string_view name) const
+    -> stealth::shared_scheme
     {
         for (const auto &scheme : schemes_)
         {
@@ -250,7 +250,7 @@ namespace psm::recognition::handshake
         return nullptr;
     }
 
-    auto scheme_executor::execute_single(stealth::shared_scheme scheme, stealth::scheme_context ctx)
+    auto scheme_executor::execute_single(const stealth::shared_scheme scheme, stealth::scheme_context ctx)
         -> net::awaitable<execution_result>
     {
         execution_result result;
@@ -260,8 +260,8 @@ namespace psm::recognition::handshake
         result.scheme_result = std::move(scheme_result);
 
         // 判断成功：协议已识别且不是 TLS/unknown
-        if (result.scheme_result.detected != psm::protocol::protocol_type::tls &&
-            result.scheme_result.detected != psm::protocol::protocol_type::unknown &&
+        if (result.scheme_result.detected != protocol::protocol_type::tls &&
+            result.scheme_result.detected != protocol::protocol_type::unknown &&
             result.scheme_result.transport &&
             !fault::failed(result.scheme_result.error))
         {
