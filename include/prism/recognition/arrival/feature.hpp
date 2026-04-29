@@ -1,7 +1,7 @@
 /**
- * @file analyzer.hpp
+ * @file feature.hpp
  * @brief ClientHello 特征分析器虚基类
- * @details 定义 feature_analyzer 抽象基类，每个伪装方案可注册一个分析器，
+ * @details 定义 feature 抽象基类，每个伪装方案可注册一个分析器，
  * 声明其 ClientHello 特征。分析器仅解析字节，不做任何网络 I/O，实现零成本预识别。
  */
 
@@ -21,7 +21,7 @@ namespace psm
 namespace psm::recognition::arrival
 {
     /**
-     * @class feature_analyzer
+     * @class feature
      * @brief ClientHello 特征分析器虚基类
      * @details 每个伪装方案可注册一个分析器，声明其 ClientHello 特征。
      * 分析器仅解析 ClientHello 字节特征，不做任何网络 I/O 操作，
@@ -34,7 +34,7 @@ namespace psm::recognition::arrival
      *
      * **使用示例**：
      * ```cpp
-     * class reality_analyzer final : public feature_analyzer
+     * class reality final : public feature
      * {
      * public:
      *     auto name() const noexcept -> std::string_view override { return "reality"; }
@@ -48,13 +48,13 @@ namespace psm::recognition::arrival
      *     }
      * };
      *
-     * REGISTER_ARRIVAL_ANALYZER(reality_analyzer)
+     * REGISTER_ARRIVAL(reality)
      * ```
      */
-    class feature_analyzer
+    class feature
     {
     public:
-        virtual ~feature_analyzer() = default;
+        virtual ~feature() = default;
 
         /**
          * @brief 分析器名称（对应伪装方案名称）
@@ -79,10 +79,10 @@ namespace psm::recognition::arrival
          * @brief 分析器是否启用（对应方案是否配置）
          * @param cfg 全局配置
          * @return 如果对应方案在配置中启用，返回 true
-         * @details 例如 reality_analyzer 应检查 cfg.stealth.reality.enabled()。
+         * @details 例如 reality 应检查 cfg.stealth.reality.enabled()。
          */
         [[nodiscard]] virtual auto is_enabled(const config &cfg) const noexcept -> bool = 0;
     };
 
-    using shared_analyzer = std::shared_ptr<feature_analyzer>;
+    using shared_feature = std::shared_ptr<feature>;
 } // namespace psm::recognition::arrival

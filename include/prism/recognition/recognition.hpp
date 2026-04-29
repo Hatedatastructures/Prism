@@ -23,7 +23,7 @@
 #include <prism/recognition/probe/analyzer.hpp>
 
 // ClientHello 特征检测子模块
-#include <prism/recognition/arrival/analyzer.hpp>
+#include <prism/recognition/arrival/feature.hpp>
 #include <prism/recognition/arrival/registry.hpp>
 #include <prism/recognition/arrival/reality.hpp>
 
@@ -196,7 +196,7 @@ namespace psm::recognition
      * - 提取 SNI、session_id、key_share 等特征
      *
      * **Phase 3: Analyze（分析）**
-     * - 遍历所有 feature_analyzer
+     * - 遍历所有 feature
      * - 判断各方案置信度
      * - 生成候选方案列表
      *

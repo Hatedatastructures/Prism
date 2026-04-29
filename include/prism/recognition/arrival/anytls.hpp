@@ -7,12 +7,12 @@
 
 #pragma once
 
-#include <prism/recognition/arrival/analyzer.hpp>
+#include <prism/recognition/arrival/feature.hpp>
 
 namespace psm::recognition::arrival
 {
     /**
-     * @class anytls_analyzer
+     * @class anytls
      * @brief AnyTLS 方案特征分析器（预留）
      * @details AnyTLS 特征：
      * - ClientHello 中无明显特征（与标准 TLS 相似）
@@ -25,7 +25,7 @@ namespace psm::recognition::arrival
      * **实现状态**：预留接口，AnyTLS 需在 stealth 模块实现 scheme，
      * 然后在 handshake::executor 中注册。
      */
-    class anytls_analyzer final : public feature_analyzer
+    class anytls final : public feature
     {
     public:
         [[nodiscard]] auto name() const noexcept -> std::string_view override
@@ -51,6 +51,4 @@ namespace psm::recognition::arrival
     };
 } // namespace psm::recognition::arrival
 
-// AnyTLS 分析器暂不注册，ClientHello 中无法识别
-// AnyTLS 方案应在 stealth/anytls/ 中实现 scheme，
-// 然后在 handshake::executor::create_default() 中注册
+// REGISTER_ARRIVAL(anytls)

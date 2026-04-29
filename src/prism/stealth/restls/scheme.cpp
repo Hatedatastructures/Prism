@@ -8,7 +8,6 @@
  */
 
 #include <prism/stealth/restls/scheme.hpp>
-#include <prism/stealth/restls/constants.hpp>
 #include <prism/channel/transport/reliable.hpp>
 #include <prism/pipeline/primitives.hpp>
 #include <prism/protocol/analysis.hpp>

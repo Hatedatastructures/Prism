@@ -46,10 +46,11 @@ namespace psm::stealth
      */
     struct scheme_result
     {
-        shared_transmission transport;       // 最终传输层
-        protocol::protocol_type detected;    // 检测到的内层协议
-        memory::vector<std::byte> preread;   // 内层预读数据
+        shared_transmission transport;            // 最终传输层
+        protocol::protocol_type detected;         // 检测到的内层协议
+        memory::vector<std::byte> preread;        // 内层预读数据
         fault::code error = fault::code::success; // 错误码
+        memory::string executed_scheme;           // 成功执行的方案名
     };
 
     /**
@@ -60,10 +61,10 @@ namespace psm::stealth
      */
     struct scheme_context
     {
-        shared_transmission inbound;                       // 当前传输层（应包含预读数据）
-        const psm::config *cfg{nullptr};                   // 服务器配置
-        resolve::router *router{nullptr};                  // 路由器（fallback 用）
-        agent::session_context *session{nullptr};          // 会话上下文
+        shared_transmission inbound;              // 当前传输层（应包含预读数据）
+        const psm::config *cfg{nullptr};          // 服务器配置
+        resolve::router *router{nullptr};         // 路由器（fallback 用）
+        agent::session_context *session{nullptr}; // 会话上下文
     };
 
     /**

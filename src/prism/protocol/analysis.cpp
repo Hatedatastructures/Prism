@@ -95,39 +95,6 @@ namespace psm::protocol
         }
     }
 
-    auto analysis::detect(const std::string_view peek_data)
-        -> protocol_type
-    {
-        if (peek_data.empty())
-            return protocol_type::unknown;
-
-        // 1. 检查 SOCKS5 (0x05)
-        if (peek_data[0] == 0x05)
-        {
-            return protocol_type::socks5;
-        }
-
-        // 2. 检查 TLS (0x16 0x03)
-        // TLS 记录格式: ContentType(1) + ProtocolVersion(2)，版本高字节固定 0x03
-        // 必须检查两字节，否则 SS2022 的随机 salt 约有 1/256 概率首字节为 0x16
-        if (peek_data.size() >= 2 && peek_data[0] == 0x16 && peek_data[1] == 0x03)
-        {
-            return protocol_type::tls;
-        }
-
-        // 3. 检查 HTTP
-        if (is_http_request(peek_data))
-        {
-            return protocol_type::http;
-        }
-
-        // 4. SS2022 fallback
-        // SS2022 数据全是 AEAD 加密随机字节（salt + 加密头），无特征可识别。
-        // 排除 SOCKS5(0x05)、TLS(0x16)、HTTP 后，尝试 SS2022。
-        // relay 的 handshake() 会通过 AEAD 解密验证来确认。
-        return protocol_type::shadowsocks;
-    }
-
     auto analysis::detect_tls(const std::string_view peek_data)
         -> protocol_type
     {

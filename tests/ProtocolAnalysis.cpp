@@ -1,12 +1,13 @@
 /**
  * @file ProtocolAnalysis.cpp
  * @brief 协议分析模块单元测试
- * @details 测试 protocol::analysis::detect() 和 detect_tls() 函数，
+ * @details 测试 recognition::probe::detect() 和 protocol::analysis::detect_tls() 函数，
  * 覆盖 SOCKS5/TLS/HTTP/VLESS/Trojan/Shadowsocks 各协议的探测路径、
  * 边界条件和排除法 fallback 逻辑。
  */
 
 #include <prism/protocol/analysis.hpp>
+#include <prism/recognition/probe/analyzer.hpp>
 #include <prism/memory.hpp>
 #include <prism/trace/spdlog.hpp>
 #include "common/test_runner.hpp"
@@ -21,46 +22,46 @@ namespace protocol = psm::protocol;
 using psm::protocol::protocol_type;
 
 /**
- * @brief 测试 analysis::detect() 外层协议探测
+ * @brief 测试 recognition::probe::detect() 外层协议探测
  */
 void TestDetect(psm::testing::TestRunner &runner)
 {
     runner.LogInfo("=== TestDetect ===");
 
     // 空数据 -> unknown
-    runner.Check(protocol::analysis::detect("") == protocol_type::unknown,
+    runner.Check(psm::recognition::probe::detect("") == protocol_type::unknown,
                  "detect: empty data -> unknown");
 
     // SOCKS5 (0x05)
     std::string socks5_data = "\x05\x01\x00";
-    runner.Check(protocol::analysis::detect(socks5_data) == protocol_type::socks5,
+    runner.Check(psm::recognition::probe::detect(socks5_data) == protocol_type::socks5,
                  "detect: 0x05 -> socks5");
 
     // TLS (0x16 0x03)
     std::string tls_data = "\x16\x03\x01\x00\x05";
-    runner.Check(protocol::analysis::detect(tls_data) == protocol_type::tls,
+    runner.Check(psm::recognition::probe::detect(tls_data) == protocol_type::tls,
                  "detect: 0x16 0x03 -> tls");
 
     // 单字节 0x16（非 TLS，需 2 字节验证） -> shadowsocks fallback
     std::string not_tls = "\x16\x00";
-    runner.Check(protocol::analysis::detect(not_tls) == protocol_type::shadowsocks,
+    runner.Check(psm::recognition::probe::detect(not_tls) == protocol_type::shadowsocks,
                  "detect: 0x16 0x00 -> shadowsocks (not TLS)");
 
     // HTTP GET
-    runner.Check(protocol::analysis::detect("GET / HTTP/1.1\r\n") == protocol_type::http,
+    runner.Check(psm::recognition::probe::detect("GET / HTTP/1.1\r\n") == protocol_type::http,
                  "detect: GET -> http");
 
     // HTTP POST
-    runner.Check(protocol::analysis::detect("POST /api HTTP/1.1\r\n") == protocol_type::http,
+    runner.Check(psm::recognition::probe::detect("POST /api HTTP/1.1\r\n") == protocol_type::http,
                  "detect: POST -> http");
 
     // HTTP CONNECT
-    runner.Check(protocol::analysis::detect("CONNECT host:443 HTTP/1.1\r\n") == protocol_type::http,
+    runner.Check(psm::recognition::probe::detect("CONNECT host:443 HTTP/1.1\r\n") == protocol_type::http,
                  "detect: CONNECT -> http");
 
     // 随机字节 -> shadowsocks fallback
     std::string random_data = "\x42\x00\xFF\xAB\xCD";
-    runner.Check(protocol::analysis::detect(random_data) == protocol_type::shadowsocks,
+    runner.Check(psm::recognition::probe::detect(random_data) == protocol_type::shadowsocks,
                  "detect: random bytes -> shadowsocks fallback");
 }
 

@@ -7,12 +7,12 @@
 
 #pragma once
 
-#include <prism/recognition/arrival/analyzer.hpp>
+#include <prism/recognition/arrival/feature.hpp>
 
 namespace psm::recognition::arrival
 {
     /**
-     * @class ech_analyzer
+     * @class ech
      * @brief ECH 方案特征分析器（预留）
      * @details ECH (Encrypted Client Hello) 特征：
      * - ClientHello 中存在 ECH 扩展（扩展类型 0xfe0d）
@@ -24,7 +24,7 @@ namespace psm::recognition::arrival
      *
      * **实现状态**：预留接口，待后续完善
      */
-    class ech_analyzer final : public feature_analyzer
+    class ech final : public feature
     {
     public:
         [[nodiscard]] auto name() const noexcept -> std::string_view override
@@ -53,4 +53,4 @@ namespace psm::recognition::arrival
 } // namespace psm::recognition::arrival
 
 // ECH 分析器暂不注册，待实现后启用
-// REGISTER_ARRIVAL_ANALYZER(ech_analyzer)
+// REGISTER_ARRIVAL(ech)

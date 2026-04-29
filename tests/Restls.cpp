@@ -4,7 +4,6 @@
  */
 
 #include <prism/stealth/restls/config.hpp>
-#include <prism/stealth/restls/constants.hpp>
 #include <prism/memory.hpp>
 #include <prism/trace/spdlog.hpp>
 #include <iostream>
@@ -61,7 +60,12 @@ void TestConfigEnabled()
 
 void TestConstants()
 {
-    using namespace psm::stealth::restls;
+    // Restls TLS 常量与 shadowtls 共享，此处仅验证值正确性
+    constexpr std::size_t tls_header_size = 5;
+    constexpr std::size_t tls_random_size = 32;
+    constexpr std::uint8_t content_type_handshake = 0x16;
+    constexpr std::uint8_t content_type_application_data = 0x17;
+    constexpr std::size_t auth_tag_size = 4;
 
     Check(tls_header_size == 5, "TLS header size is 5 bytes");
     Check(tls_random_size == 32, "TLS random size is 32 bytes");

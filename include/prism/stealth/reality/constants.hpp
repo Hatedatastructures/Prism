@@ -35,35 +35,25 @@ namespace psm::stealth::reality::tls
 
     // Extension Type
     constexpr std::uint16_t EXT_SERVER_NAME = 0x0000;
-    constexpr std::uint16_t EXT_SUPPORTED_GROUPS = 0x000A;
-    constexpr std::uint16_t EXT_SIGNATURE_ALGORITHMS = 0x000D;
     constexpr std::uint16_t EXT_KEY_SHARE = 0x0033;
     constexpr std::uint16_t EXT_SUPPORTED_VERSIONS = 0x002B;
-    constexpr std::uint16_t EXT_PSK_KEY_EXCHANGE_MODES = 0x002D;
-    constexpr std::uint16_t EXT_ALPN = 0x0010;
 
     // Named Groups
-    constexpr std::uint16_t NAMED_GROUP_SECP256R1 = 0x0017;
-    constexpr std::uint16_t NAMED_GROUP_SECP384R1 = 0x0018;
     constexpr std::uint16_t NAMED_GROUP_X25519 = 0x001D;
     constexpr std::uint16_t NAMED_GROUP_X25519_MLKEM768 = 0x11EC;
 
     // TLS Version
-    constexpr std::uint16_t VERSION_TLS10 = 0x0301;
     constexpr std::uint16_t VERSION_TLS12 = 0x0303;
     constexpr std::uint16_t VERSION_TLS13 = 0x0304;
 
     // Cipher Suite (TLS 1.3)
     constexpr std::uint16_t CIPHER_AES_128_GCM_SHA256 = 0x1301;
-    constexpr std::uint16_t CIPHER_AES_256_GCM_SHA384 = 0x1302;
-    constexpr std::uint16_t CIPHER_CHACHA20_POLY1305_SHA256 = 0x1303;
 
     // Server Name Type
     constexpr std::uint8_t SERVER_NAME_TYPE_HOSTNAME = 0x00;
 
     // Reality 认证
     constexpr std::size_t REALITY_KEY_LEN = 32;    // X25519 密钥/公钥长度
-    constexpr std::size_t SHORT_ID_MAX_LEN = 16;   // Reality short ID 最大长度
     constexpr std::size_t SESSION_ID_MAX_LEN = 32; // TLS session_id 最大长度
     constexpr std::size_t AEAD_TAG_LEN = 16;       // AEAD tag 长度
     constexpr std::size_t AEAD_NONCE_LEN = 12;     // AEAD nonce 长度

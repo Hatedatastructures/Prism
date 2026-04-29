@@ -11,16 +11,16 @@ include/prism/recognition/
 ├── recognition.hpp             # 模块聚合头文件 + 统一入口 recognize()
 ├── confidence.hpp              # 置信度枚举（high/medium/low/none）
 ├── feature.hpp                 # ClientHello 特征结构
-├── result.hpp                  # 分析结果 + 执行结果结构
+├── result.hpp                  # analysis_result 分析结果
 ├── probe/
-│   ├── probe.hpp               # 外层协议探测（24 字节预读）
-│   └── analyzer.hpp            # 协议检测函数 detect() / detect_tls()
+│   ├── probe.hpp               # 外层协议探测（24 字节预读 + 协程）
+│   └── analyzer.hpp            # detect() 纯函数检测
 ├── arrival/
-│   ├── analyzer.hpp            # 特征分析器虚基类
-│   ├── registry.hpp            # 分析器注册表（单例，插件架构）
-│   ├── reality.hpp             # Reality 方案分析器
-│   ├── ech.hpp                 # ECH 分析器（预留）
-│   └── anytls.hpp              # AnyTLS 分析器（预留）
+│   ├── feature.hpp             # feature 虚基类
+│   ├── registry.hpp            # 注册表（单例，插件架构）
+│   ├── reality.hpp             # Reality 方案 feature
+│   ├── ech.hpp                 # ECH feature（预留）
+│   └── anytls.hpp              # AnyTLS feature（预留）
 └── handshake/
     ├── executor.hpp            # 方案执行器
     └── priority.hpp            # 执行优先级配置
@@ -31,16 +31,16 @@ src/prism/recognition/
 │   └── analyzer.cpp            # detect() 实现
 ├── arrival/
 │   ├── registry.cpp            # 注册表实现
-│   └── reality.cpp             # Reality 分析器实现
+│   └── reality.cpp             # Reality feature 实现
 └── handshake/
-    └── executor.cpp            # 执行器实现
+    ├── executor.cpp            # 执行器实现
     └── priority.cpp            # 优先级配置
 ```
 
 ### 三阶段流水线
 
 ```
-probe::probe(transport, 24)     → detect() → protocol_type
+probe::probe(transport, 24)     → probe_result{protocol_type}
        │ (仅当 TLS)
        ▼
 identify():
@@ -50,10 +50,10 @@ identify():
   parse_arrival()           → arrival_features
        │
        ▼
-  analyzer_registry::analyze()  → analysis_result{candidates, confidence}
+  registry::analyze()       → analysis_result{candidates, confidence}
        │
        ▼
-  scheme_executor::execute()    → execution_result{transport, detected}
+  scheme_executor::execute() → scheme_result{transport, detected}
 ```
 
 ---
@@ -107,18 +107,18 @@ identify(ctx)
    │
    ├─ read_arrival()    → raw_arrival
    ├─ parse_arrival()   → arrival_features
-   ├─ analyze(features)     → analysis_result
-   └─ execute_by_analysis() → execution_result
+   ├─ registry::analyze(features) → analysis_result
+   └─ executor::execute_by_analysis() → scheme_result
 ```
 
 ### 2.2 置信度枚举 confidence
 
 ```
-enum class confidence : uint8
+enum class confidence : uint8_t
 ├── high     // 特征完全匹配，可直接执行
 ├── medium   // 特征部分匹配，需完整验证
 ├── low      // 特征部分匹配但不确定
-└── none      // 无特征，Native 兜底
+└── none     // 无特征，Native 兜底
 ```
 
 ### 2.3 ClientHello 特征结构
@@ -135,25 +135,25 @@ struct arrival_features          // 从 ClientHello 提取的特征
 ├── alpn_protocols        : vector<string>   // ALPN 协议列表
 ├── random                : array<byte,32>   // 客户端随机数
 ├── session_id            : vector<uint8>    // session_id 数据
-├── raw_arrival       : vector<byte>     // 原始 ClientHello 记录
+├── raw_arrival           : vector<byte>     // 原始 ClientHello 记录
 └── raw_handshake_message : vector<uint8>    // 原始握手消息
 ```
 
-### 2.4 特征分析器 feature_analyzer
+### 2.4 特征分析器 feature
 
 | 项目 | 详情 |
 |------|------|
-| 头文件 | `include/prism/recognition/arrival/analyzer.hpp` |
+| 头文件 | `include/prism/recognition/arrival/feature.hpp` |
 | 命名空间 | `psm::recognition::arrival` |
 
 ```
-class feature_analyzer                 // 虚基类
+class feature                        // 虚基类
 ├── name()               : string_view        // 方案名称
 ├── analyze(features, cfg): confidence        // 分析置信度
 └── is_enabled(cfg)      : bool               // 方案是否启用
 
-// Reality 分析器示例
-class reality_analyzer final : feature_analyzer
+// Reality feature 示例
+class reality final : feature
 ├── name()               → "reality"
 ├── analyze(features, cfg)
 │   ├─ SNI 匹配 server_names → 继续
@@ -164,7 +164,7 @@ class reality_analyzer final : feature_analyzer
 └── is_enabled(cfg)      → cfg.stealth.reality.enabled()
 ```
 
-### 2.5 分析器注册表 analyzer_registry
+### 2.5 注册表 registry
 
 | 项目 | 详情 |
 |------|------|
@@ -172,18 +172,31 @@ class reality_analyzer final : feature_analyzer
 | 命名空间 | `psm::recognition::arrival` |
 
 ```
-class analyzer_registry               // 单例，线程安全
+class registry               // 单例，运行时只读
 ├── instance()            : registry&         // 获取单例
-├── register_analyzer(analyzer): void         // 注册分析器
-├── analyze(features, cfg): analysis_result   // 执行所有分析器
-├── get_enabled_analyzers(cfg): vector<shared_analyzer>
-└── get_all_analyzers()   : vector<shared_analyzer>
+├── add(f)                : void              // 注册 feature
+├── analyze(features, cfg): analysis_result   // 执行所有 feature，按置信度排序
+└── features()            : vector<shared_feature>  // 获取所有已注册
 
 // 注册宏
-REGISTER_ARRIVAL_ANALYZER(reality_analyzer)  // 文件末尾一行注册
+REGISTER_ARRIVAL(reality)  // 文件末尾一行注册
 ```
 
-### 2.6 方案执行器 scheme_executor
+### 2.6 分析结果 analysis_result
+
+| 项目 | 详情 |
+|------|------|
+| 头文件 | `include/prism/recognition/result.hpp` |
+
+```
+struct analysis_result
+├── candidates       : vector<string>   // 候选方案名，按置信度排序（high 在前）
+├── confidence       : confidence       // 最高置信度
+├── features         : arrival_features // 原始特征
+└── error            : fault::code      // 错误码
+```
+
+### 2.7 方案执行器 scheme_executor
 
 | 项目 | 详情 |
 |------|------|
@@ -192,23 +205,22 @@ REGISTER_ARRIVAL_ANALYZER(reality_analyzer)  // 文件末尾一行注册
 
 ```
 class scheme_executor
-├── execute_by_analysis(analysis, ctx): awaitable<execution_result>
-├── execute_by_priority(priority, ctx): awaitable<execution_result>
+├── execute_by_analysis(analysis, ctx): awaitable<scheme_result>
+├── execute_by_priority(priority, ctx): awaitable<scheme_result>
 ├── register_scheme(scheme): void
-├── create_default()      : unique_ptr<executor>  // 注册所有默认方案
+├── create_default()      : unique_ptr<executor>
 └── find_scheme(name)     : shared_scheme
 
-// 执行流程
-execute_by_analysis()
+// 核心管道
+execute_pipeline(names[], ctx)
    │
-   ├─ 获取候选方案列表（按置信度排序）
-   ├─ 无候选 → 默认顺序 ["reality", "shadowtls", "restls", "native"]
-   ├─ 按顺序执行每个方案
+   ├─ for name in names:
+   │   ├─ find_scheme(name)
    │   ├─ is_enabled() → false 则跳过
    │   ├─ execute() → 成功则返回
-   │   ├─ detected == tls → "不是我"，继续下一个
+   │   ├─ detected == tls → "不是我"，更新 ctx 继续下一个
    │   └─ 其他错误 → 终止执行
-   └─ 所有候选失败 → Native 兜底
+   └─ 全部失败 → not_supported
 ```
 
 ---
@@ -219,13 +231,13 @@ execute_by_analysis()
 
 ```
 // 新伪装方案接入流程
-1. 实现 feature_analyzer 子类
+1. 实现 feature 子类
    ├─ name() → 方案名称
    ├─ analyze() → 置信度判断
    └─ is_enabled() → 配置检查
 
 2. 在实现文件末尾注册
-   REGISTER_ARRIVAL_ANALYZER(ech_analyzer)
+   REGISTER_ARRIVAL(ech)
 
 3. 实现 stealth::scheme 执行逻辑
    (stealth/ech/scheme.hpp)
@@ -256,14 +268,25 @@ execute_by_analysis()
 scheme.execute()
    │
    ├─ 成功 → detected = vless/trojan/...
-   │         返回 execution_result{success=true}
+   │         返回 scheme_result{transport, detected}
    │
    ├─ "不是我" → detected = tls
-   │              更新 ctx.transport
+   │              更新 ctx.inbound（pass_through）
    │              继续下一个候选
    │
    └─ 错误 → 其他错误码
              终止执行，返回失败
+```
+
+### 3.4 executor 内部结构
+
+```
+scheme_executor
+├── schemes_       : vector<shared_scheme>   // 注册的所有方案
+├── create_default()                        // reality → shadowtls → restls → native
+├── execute_pipeline()                      // 核心：遍历执行
+├── execute_single()                        // 单个方案执行 + 写入 name
+└── pass_through()                          // transport/preread 传递
 ```
 
 ---
@@ -292,14 +315,14 @@ recognition::recognize({
    ├─ Phase 2: identify() (仅 TLS)
    │   ├─ read_arrival() → raw
    │   ├─ parse_arrival() → features
-   │   ├─ analyzer_registry::analyze(features, cfg)
-   │   │   ├─ reality_analyzer::analyze() → confidence
-   │   │   ├─ shadowtls_analyzer::analyze() → confidence
+   │   ├─ registry::analyze(features, cfg)
+   │   │   ├─ reality::analyze() → confidence
+   │   │   ├─ ech::analyze() → confidence
    │   │   └─ 按置信度排序 → candidates
-   │   ├─ scheme_executor::execute_by_analysis(analysis, ctx)
+   │   ├─ scheme_executor::execute_by_analysis()
    │   │   ├─ reality::scheme::execute() → result
    │   │   ├─ shadowtls::scheme::execute() → result
-   │   │   └─ native::execute() → 兜底
+   │   │   └─ native::scheme::execute() → 兜底
    │   └─ 返回 {transport, detected, executed_scheme}
    │
    ▼
@@ -314,7 +337,7 @@ dispatch::dispatch(ctx, result.detected, result.preread)
 
 ```
 // 特征分析器仅解析 ClientHello 字节特征
-feature_analyzer::analyze()
+feature::analyze()
    ├─ 无协程、无异步 I/O
    ├─ 纯内存操作
    ├─ 判断成本约 1-2 次字符串比较
@@ -325,15 +348,28 @@ feature_analyzer::analyze()
 
 ```
 // 分析器负责决策（不执行）
-feature_analyzer::analyze() → confidence
+feature::analyze() → confidence
 
 // 执行器负责执行（调用 stealth::scheme）
-scheme_executor::execute() → execution_result
+scheme_executor::execute_pipeline() → scheme_result
 
 // 分离的好处
 ├─ 分析器可快速判断，无副作用
 ├─ 执行器可灵活调整顺序
 ├─ 支持配置驱动和分析驱动两种模式
+└─ pass_through() 保证数据在方案间无损传递
+```
+
+### 5.3 注册表只读
+
+```
+// 注册仅在静态初始化阶段
+REGISTER_ARRIVAL(reality)
+   └→ registry::instance().add()  // 单线程，无锁
+
+// 运行时 analyze() 只读遍历
+registry::analyze()
+   └→ for f in features_ { ... }  // 无锁，只读
 ```
 
 ---

@@ -408,11 +408,11 @@ session.start()
             │    → identify(ctx)
             │         ├─ read_arrival()
             │         ├─ parse_arrival() → features
-            │         ├─ analyzer_registry::analyze(features, cfg)
+            │         ├─ registry::analyze(features, cfg)
             │         │    → analysis_result{candidates, confidence}
             │         └─ scheme_executor::execute_by_analysis()
             │              → stealth::scheme::execute()
-            │              → execution_result{transport, detected}
+            │              → scheme_result{transport, detected}
             └─ 返回 recognize_result{transport, detected, preread}
        2. dispatch::dispatch(ctx, detected, preread)
             → handler_table[detected](ctx, preread)

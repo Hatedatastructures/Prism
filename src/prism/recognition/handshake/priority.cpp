@@ -7,5 +7,5 @@
 
 namespace psm::recognition::handshake
 {
-    // 默认配置已在 priority.hpp 中实现为 inline 函数
+    // default_order() 在 priority.hpp 中实现为 inline
 } // namespace psm::recognition::handshake

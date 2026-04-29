@@ -1,7 +1,6 @@
 /**
  * @file recognition.cpp
  * @brief Recognition 模块入口
- * @details 实现完整的协议识别生命周期：读取 → 解析 → 分析 → 分流 → 执行。
  */
 
 #include <prism/recognition/recognition.hpp>
@@ -17,9 +16,7 @@ namespace psm::recognition
 {
     namespace tls = stealth::reality::tls;
 
-    /**
-     * @brief 读取完整 TLS ClientHello 记录
-     */
+    // 解析 TLS 记录头获取 payload 长度，不足时补读。
     auto read_arrival(const channel::transport::shared_transmission transport, const std::span<const std::byte> preread)
         -> net::awaitable<std::pair<fault::code, memory::vector<std::uint8_t>>>
     {
@@ -29,7 +26,6 @@ namespace psm::recognition
             co_return std::pair{fault::code::not_supported, memory::vector<std::uint8_t>{}};
         }
 
-        // 如果预读数据不足 5 字节，先补读
         if (constexpr std::size_t MIN_HEADER_SIZE = 5; preread.size() < MIN_HEADER_SIZE)
         {
             trace::debug("[Recognition] preread too small ({} bytes), need at least 5", preread.size());
@@ -71,7 +67,6 @@ namespace psm::recognition
             co_return std::pair{fault::code::success, std::move(buffer)};
         }
 
-        // 预读数据已足够解析 header
         const auto *raw = reinterpret_cast<const std::uint8_t *>(preread.data());
 
         if (const auto content_type = raw[0]; content_type != tls::CONTENT_TYPE_HANDSHAKE)
@@ -90,7 +85,6 @@ namespace psm::recognition
 
         const std::size_t total = tls::RECORD_HEADER_LEN + record_length;
 
-        // 预读数据已包含完整 ClientHello
         if (preread.size() >= total)
         {
             trace::debug("[Recognition] preread contains full ClientHello ({} bytes)", total);
@@ -99,7 +93,6 @@ namespace psm::recognition
             co_return std::pair{fault::code::success, std::move(buffer)};
         }
 
-        // 需要补读剩余数据
         trace::debug("[Recognition] preread partial ({} bytes), need {} total", preread.size(), total);
 
         memory::vector<std::uint8_t> buffer(total);
@@ -122,9 +115,7 @@ namespace psm::recognition
         co_return std::pair{fault::code::success, std::move(buffer)};
     }
 
-    /**
-     * @brief 解析 TLS ClientHello 并提取特征
-     */
+    // 复用 stealth::reality::parse_client_hello 解析结果映射到 arrival_features
     [[nodiscard]] auto parse_arrival(const std::span<const std::uint8_t> raw_arrival)
         -> arrival_features
     {
@@ -158,18 +149,12 @@ namespace psm::recognition
         return features;
     }
 
-    /**
-     * @brief 执行完整的协议识别生命周期
-     */
     auto identify(identify_context ctx) -> net::awaitable<identify_result>
     {
         identify_result result;
 
         trace::debug("[Recognition] Starting identify lifecycle");
 
-        // ═══════════════════════════════════════════════════════════════
-        // Phase 1: Read（读取 ClientHello）
-        // ═══════════════════════════════════════════════════════════════
         auto [read_ec, raw_arrival] = co_await read_arrival(ctx.transport, ctx.preread);
         if (fault::failed(read_ec))
         {
@@ -180,9 +165,6 @@ namespace psm::recognition
 
         trace::debug("[Recognition] Read {} bytes ClientHello", raw_arrival.size());
 
-        // ═══════════════════════════════════════════════════════════════
-        // Phase 2: Parse（解析特征）
-        // ═══════════════════════════════════════════════════════════════
         auto features = parse_arrival(raw_arrival);
         if (features.server_name.empty() && features.raw_arrival.empty())
         {
@@ -191,21 +173,14 @@ namespace psm::recognition
             co_return result;
         }
 
-        // ═══════════════════════════════════════════════════════════════
-        // Phase 3: Analyze（分析置信度）
-        // ═══════════════════════════════════════════════════════════════
-        auto &registry = arrival::analyzer_registry::instance();
-        auto analysis = registry.analyze(features, *ctx.cfg);
+        auto &reg = arrival::registry::instance();
+        auto analysis = reg.analyze(features, *ctx.cfg);
 
         trace::debug("[Recognition] Analysis result: confidence={}, candidates={}",
                      static_cast<int>(analysis.confidence), analysis.candidates.size());
 
-        // ═══════════════════════════════════════════════════════════════
-        // Phase 4: 构建执行上下文
-        // ═══════════════════════════════════════════════════════════════
         auto preread_span = std::span(reinterpret_cast<const std::byte *>(raw_arrival.data()), raw_arrival.size());
 
-        // 包装传输层，包含已读取的 ClientHello
         auto preview_transport = std::make_shared<pipeline::primitives::preview>(
             ctx.transport, preread_span, ctx.frame_arena ? ctx.frame_arena->get() : memory::current_resource());
 
@@ -215,21 +190,15 @@ namespace psm::recognition
             .router = ctx.router,
             .session = ctx.session};
 
-        // ═══════════════════════════════════════════════════════════════
-        // Phase 5: Dispatch & Execute（分流执行）
-        // ═══════════════════════════════════════════════════════════════
         auto executor = handshake::scheme_executor::create_default();
-        auto [scheme_result, executed_scheme, success] = co_await executor->execute_by_analysis(analysis, std::move(scheme_ctx));
+        auto scheme_result = co_await executor->execute_by_analysis(analysis, std::move(scheme_ctx));
 
-        // ═══════════════════════════════════════════════════════════════
-        // Phase 6: 返回结果
-        // ═══════════════════════════════════════════════════════════════
         result.transport = std::move(scheme_result.transport);
         result.detected = scheme_result.detected;
         result.preread = std::move(scheme_result.preread);
         result.error = scheme_result.error;
-        result.executed_scheme = std::move(executed_scheme);
-        result.success = success;
+        result.executed_scheme = std::move(scheme_result.executed_scheme);
+        result.success = !fault::failed(scheme_result.error);
 
         if (result.success)
         {
@@ -244,23 +213,12 @@ namespace psm::recognition
         co_return result;
     }
 
-    // ═══════════════════════════════════════════════════════════════════════
-    // 统一入口：recognize()
-    // ═══════════════════════════════════════════════════════════════════════
-
-    /**
-     * @brief 执行完整协议识别流程
-     * @details 封装外层探测 + TLS 伪装方案识别
-     */
     auto recognize(const recognize_context ctx) -> net::awaitable<recognize_result>
     {
         recognize_result result;
 
         trace::debug("[Recognition] Starting recognize lifecycle");
 
-        // ═══════════════════════════════════════════════════════════════
-        // Phase 1: Probe（外层协议探测）
-        // ═══════════════════════════════════════════════════════════════
         if (!ctx.transport)
         {
             trace::error("[Recognition] transport is null");
@@ -278,13 +236,9 @@ namespace psm::recognition
 
         trace::debug("[Recognition] Probe result: type={}", protocol::to_string_view(probe_res.type));
 
-        // 保存探测结果
         result.detected = probe_res.type;
         result.preread.assign(probe_res.pre_read_data.begin(), probe_res.pre_read_data.begin() + probe_res.pre_read_size);
 
-        // ═══════════════════════════════════════════════════════════════
-        // Phase 2: Identify（仅当 TLS）
-        // ═══════════════════════════════════════════════════════════════
         if (probe_res.type == protocol::protocol_type::tls)
         {
             const auto preread_span = probe_res.preload_bytes();
@@ -316,7 +270,6 @@ namespace psm::recognition
         }
         else
         {
-            // 非 TLS 协议，探测成功即识别成功
             result.transport = ctx.transport;
             result.success = probe_res.success();
 

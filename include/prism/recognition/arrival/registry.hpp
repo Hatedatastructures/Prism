@@ -1,15 +1,14 @@
 /**
  * @file registry.hpp
  * @brief ClientHello 特征分析器注册表
- * @details 单例模式，管理所有 feature_analyzer 的注册和执行。
- * 线程安全设计，支持静态注册和动态查询。
+ * @details 单例模式，管理所有 feature 的注册和执行。
+ * 注册仅在启动阶段（静态初始化），运行时只读，无需同步。
  */
 
 #pragma once
 
 #include <vector>
-#include <mutex>
-#include <prism/recognition/arrival/analyzer.hpp>
+#include <prism/recognition/arrival/feature.hpp>
 #include <prism/recognition/result.hpp>
 
 // 前置声明
@@ -21,88 +20,68 @@ namespace psm
 namespace psm::recognition::arrival
 {
     /**
-     * @class analyzer_registry
-     * @brief 特征分析器注册表（单例，线程安全）
-     * @details 管理所有 ClientHello 特征分析器的注册和执行。
-     * 启动时各方案通过 REGISTER_ARRIVAL_ANALYZER 宏注册分析器，
-     * session 调用 analyze() 执行所有启用的分析器并合并结果。
+     * @class registry
+     * @brief 特征注册表（单例）
+     * @details 管理所有 feature 的注册和执行。
+     * 启动时各方案通过 REGISTER_ARRIVAL 宏注册，
+     * session 调用 analyze() 执行所有启用的 feature 并合并结果。
      *
      * **使用流程**：
-     * 1. 各方案实现 feature_analyzer 子类
-     * 2. 在实现文件末尾使用 REGISTER_ARRIVAL_ANALYZER 宏注册
-     * 3. session 调用 analyzer_registry::instance().analyze(features, cfg)
+     * 1. 各方案实现 feature 子类
+     * 2. 在实现文件末尾使用 REGISTER_ARRIVAL 宏注册
+     * 3. session 调用 registry::instance().analyze(features, cfg)
      * 4. 根据返回的 analysis_result 执行方案
-     *
-     * **线程安全**：
-     * - 注册操作使用 mutex 保护（启动阶段）
-     * - 分析操作只读，无锁
      */
-    class analyzer_registry
+    class registry
     {
     public:
-        /**
-         * @brief 获取单例实例
-         * @return 注册表单例引用
-         */
-        static auto instance() -> analyzer_registry &;
+        static auto instance() -> registry &;
 
         /**
-         * @brief 注册分析器
-         * @param analyzer 分析器实例
-         * @details 启动阶段调用，添加分析器到注册表。
-         * 使用 REGISTER_ARRIVAL_ANALYZER 宏自动注册。
+         * @brief 注册 feature
+         * @param f feature 实例
+         * @details 启动阶段调用，使用 REGISTER_ARRIVAL 宏自动注册。
          */
-        auto register_analyzer(shared_analyzer analyzer) -> void;
+        auto add(shared_feature f) -> void;
 
         /**
-         * @brief 执行所有启用的分析器
+         * @brief 执行所有启用的 feature
          * @param features 已提取的 ClientHello 特征
          * @param cfg 全局配置
-         * @return 合并的分析结果
-         * @details 按置信度排序候选方案，高置信度在前。
+         * @return 合并的分析结果，按置信度排序
          */
         [[nodiscard]] auto analyze(const arrival_features &features,const config &cfg) const
             -> analysis_result;
 
         /**
-         * @brief 获取所有启用的分析器
-         * @param cfg 全局配置
-         * @return 启用的分析器列表
+         * @brief 获取所有注册的 feature
+         * @return feature 列表的 const 引用
          */
-        [[nodiscard]] auto get_enabled_analyzers(const config &cfg) const
-            -> std::vector<shared_analyzer>;
-
-        /**
-         * @brief 获取所有注册的分析器
-         * @return 所有分析器列表
-         */
-        [[nodiscard]] auto get_all_analyzers() const -> const std::vector<shared_analyzer> &;
+        [[nodiscard]] auto features() const -> const std::vector<shared_feature> &;
 
     private:
-        analyzer_registry() = default;
-        std::vector<shared_analyzer> analyzers_;
-        std::mutex mutex_; // 保护注册操作
+        registry() = default;
+        std::vector<shared_feature> features_;
     };
 
     /**
-     * @def REGISTER_ARRIVAL_ANALYZER
-     * @brief 注册分析器的便捷宏
-     * @details 新方案只需在实现文件末尾添加一行注册。
-     * 使用静态初始化在程序启动时自动注册。
+     * @def REGISTER_ARRIVAL
+     * @brief 注册 feature 的便捷宏
+     * @details 新方案只需在实现文件末尾添加一行。
      *
      * **使用示例**：
      * ```cpp
      * // reality.cpp 末尾
-     * REGISTER_ARRIVAL_ANALYZER(psm::recognition::arrival::reality_analyzer)
+     * REGISTER_ARRIVAL(psm::recognition::arrival::reality)
      * ```
      */
-    #define REGISTER_ARRIVAL_ANALYZER(AnalyzerClass)                           \
-        namespace                                                                   \
-        {                                                                           \
-            inline const bool &_analyzer_registered_ = [] {                         \
-                psm::recognition::arrival::analyzer_registry::instance()        \
-                    .register_analyzer(std::make_shared<AnalyzerClass>());          \
-                return true;                                                         \
-            }();                                                                     \
+    #define REGISTER_ARRIVAL(FeatureClass)                           \
+        namespace                                                          \
+        {                                                                  \
+            inline const bool &_feature_registered_ = [] {                \
+                psm::recognition::arrival::registry::instance()       \
+                    .add(std::make_shared<FeatureClass>());               \
+                return true;                                                \
+            }();                                                            \
         }
 } // namespace psm::recognition::arrival

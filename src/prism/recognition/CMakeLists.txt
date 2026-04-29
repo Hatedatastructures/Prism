@@ -16,7 +16,7 @@ target_sources(${PROJECT_NAME}_static_library
             ${PROJECT_SOURCE_DIR}/include/prism/recognition/probe/analyzer.hpp
 
             # ClientHello 特征检测子模块
-            ${PROJECT_SOURCE_DIR}/include/prism/recognition/arrival/analyzer.hpp
+            ${PROJECT_SOURCE_DIR}/include/prism/recognition/arrival/feature.hpp
             ${PROJECT_SOURCE_DIR}/include/prism/recognition/arrival/registry.hpp
             ${PROJECT_SOURCE_DIR}/include/prism/recognition/arrival/reality.hpp
             ${PROJECT_SOURCE_DIR}/include/prism/recognition/arrival/ech.hpp

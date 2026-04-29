@@ -183,39 +183,12 @@ namespace psm::protocol
             -> target;
 
         /**
-         * @brief 探测协议类型
-         * @details 通过预读的数据判断连接所使用的应用层协议类型。该方法
-         * 采用白名单检测法，依次检查是否符合已知协议特征。探测算法首先
-         * 检查是否以 GET、POST、CONNECT 等 HTTP 方法开头，然后检查第一
-         * 个字节是否为 0x05 即 SOCKS5 版本号，最后检查是否以 0x16 即
-         * TLS Handshake 开头且第二个字节为 0x03 即 TLS 1.0+。如果不匹配
-         * 任何已知协议，返回 unknown。检测优先级为 HTTP 优先于 SOCKS5，
-         * TLS 检测需要更多数据。HTTP 至少需要 3 字节，SOCKS5 至少需要
-         * 1 字节，TLS 至少需要 5 字节。基于前缀匹配可能误判，需要足够的
-         * 数据长度，无法区分 TLS 子协议。
-         * @param peek_data 预读的数据，通常是连接的前几个字节
-         * @return protocol_type 检测到的协议类型
-         * @note 采用白名单检测法，符合特征即认为是该协议。
-         * @warning 探测结果基于有限数据，后续数据可能推翻当前判断。
-         */
-        static auto detect(std::string_view peek_data)
-            -> protocol_type;
-
-        /**
          * @brief 探测 TLS 内部协议类型
          * @details 在 TLS 握手完成后，探测内部承载的应用层协议类型。
-         * 该方法用于区分 HTTPS 和 Trojan over TLS 等协议。探测策略为
-         * 检查前 56 字节是否全部为有效的十六进制字符（0-9、a-f、A-F），
-         * 如果是则判定为 Trojan 协议（Trojan 凭据为 56 字节十六进制字符串），
-         * 否则判定为 HTTPS 协议。探测逻辑方面，Trojan 协议格式为
-         * 56 字节凭据 + CRLF + 命令 + 地址 + CRLF，凭据是密码的 SHA224
-         * 哈希值。HTTPS 协议以 HTTP 方法开头，如 GET、POST、CONNECT 等。
-         * 误判风险方面，理论上存在极小概率的 HTTP 请求前 56 字节恰好
-         * 全部为十六进制字符，但实际中几乎不可能发生。
+         * 该方法用于区分 HTTPS、Trojan over TLS、VLESS 等协议。
          * @param peek_data TLS 握手后读取的数据，建议至少 60 字节
-         * @return protocol_type 检测到的内部协议类型（http/trojan/unknown）
+         * @return protocol_type 检测到的内部协议类型
          * @note 数据不足 60 字节时返回 protocol_type::unknown。
-         * @warning 探测结果基于有限数据，存在极小概率误判。
          */
         static auto detect_tls(std::string_view peek_data)
             -> protocol_type;

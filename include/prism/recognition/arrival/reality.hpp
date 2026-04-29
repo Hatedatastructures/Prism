@@ -6,12 +6,12 @@
 
 #pragma once
 
-#include <prism/recognition/arrival/analyzer.hpp>
+#include <prism/recognition/arrival/feature.hpp>
 
 namespace psm::recognition::arrival
 {
     /**
-     * @class reality_analyzer
+     * @class reality
      * @brief Reality 方案特征分析器
      * @details 检测 Reality 的 ClientHello 特征：
      * 1. SNI 匹配 server_names 配置
@@ -29,7 +29,7 @@ namespace psm::recognition::arrival
      * - 可直接复用已解析的 arrival_features
      * - 判断成本约 1-2 次字符串比较
      */
-    class reality_analyzer final : public feature_analyzer
+    class reality final : public feature
     {
     public:
         /**

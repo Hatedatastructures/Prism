@@ -18,7 +18,6 @@ target_sources(${PROJECT_NAME}_static_library
             ${PROJECT_SOURCE_DIR}/include/prism/protocol.hpp
             ${PROJECT_SOURCE_DIR}/include/prism/protocol/analysis.hpp
             ${PROJECT_SOURCE_DIR}/include/prism/protocol/http.hpp
-            ${PROJECT_SOURCE_DIR}/include/prism/protocol/probe.hpp
             ${PROJECT_SOURCE_DIR}/include/prism/protocol/socks5.hpp
             ${PROJECT_SOURCE_DIR}/include/prism/protocol/common/form.hpp
             ${PROJECT_SOURCE_DIR}/include/prism/protocol/common/address.hpp
