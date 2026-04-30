@@ -104,29 +104,55 @@ namespace psm::memory
     }; // class system
 
     /**
+     * @enum pool_type
+     * @brief 内存池类型选择
+     * @details 用于 pooled_object 基类选择不同的内存池策略。
+     */
+    enum class pool_type
+    {
+        global, ///< 全局线程安全池，适用于跨线程传递对象
+        local,  ///< 线程局部无锁池，适用于单线程热路径对象
+    }; // enum class pool_type
+
+    /**
      * @class pooled_object
      * @brief 对象池基类模板
      * @tparam T 子类类型，使用 CRTP 惯用法
+     * @tparam Type 池类型，默认 local（热路径优化）
      * @details 通过重载 operator new/delete 使继承类
-     * 自动使用内存池分配。小对象使用 global_pool()，
+     * 自动使用内存池分配。小对象使用指定池，
      * 大对象直通系统堆。
+     * @note 默认改用 thread_local_pool 以消除多线程竞争，
+     * 若对象需跨线程传递请显式指定 pool_type::global
      */
-    template <typename T>
+    template <typename T, pool_type Type = pool_type::local>
     class pooled_object
     {
     public:
         /**
+         * @brief 获取目标内存池
+         * @return 根据池类型返回对应的内存池指针
+         */
+        static resource_pointer get_target_pool()
+        {
+            if (Type == pool_type::global)
+            {
+                return system::global_pool();
+            }
+            return system::thread_local_pool();
+        }
+
+        /**
          * @brief 重载单对象 new 操作符
          * @param count 待分配的字节数
          * @return 分配的内存指针
-         * @details 小对象从 global_pool 分配，大对象直通
-         * 系统堆。
+         * @details 小对象从目标池分配，大对象直通系统堆。
          */
         void *operator new(const std::size_t count)
         {
             if (count <= policy::max_pool_size)
             {
-                return system::global_pool()->allocate(count);
+                return pooled_object::get_target_pool()->allocate(count);
             }
             // 大对象直接走系统堆
             return ::operator new(count);
@@ -136,15 +162,13 @@ namespace psm::memory
          * @brief 重载单对象 delete 操作符
          * @param ptr 待释放的内存指针
          * @param count 待释放的字节数
-         * @details 必须与 operator new 对应，归还到正确的
-         * 位置。
+         * @details 必须与 operator new 对应，归还到正确的位置。
          */
         void operator delete(void *ptr, const std::size_t count)
         {
             if (count <= policy::max_pool_size)
             {
-                // 对应 allocate，必须归还给 global_pool
-                system::global_pool()->deallocate(ptr, count);
+                pooled_object::get_target_pool()->deallocate(ptr, count);
             }
             else
             {
@@ -160,7 +184,9 @@ namespace psm::memory
         void *operator new[](const std::size_t count)
         {
             if (count <= policy::max_pool_size)
-                return system::global_pool()->allocate(count);
+            {
+                return pooled_object::get_target_pool()->allocate(count);
+            }
             return ::operator new[](count);
         }
 
@@ -172,9 +198,13 @@ namespace psm::memory
         void operator delete[](void *ptr, std::size_t count)
         {
             if (count <= policy::max_pool_size)
-                system::global_pool()->deallocate(ptr, count);
+            {
+                pooled_object::get_target_pool()->deallocate(ptr, count);
+            }
             else
+            {
                 ::operator delete[](ptr);
+            }
         }
     }; // class pooled_object
 

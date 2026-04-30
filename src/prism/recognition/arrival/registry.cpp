@@ -23,11 +23,11 @@ namespace psm::recognition::arrival
     }
 
     // 遍历所有 feature，按置信度排序（值越小优先级越高）。
-    auto registry::analyze(const arrival_features &arrival_features, const config &cfg) const
+    auto registry::analyze(const arrival_features &features, const config &cfg) const
         -> analysis_result
     {
         analysis_result result;
-        result.features = arrival_features;
+        result.features = features;
 
         std::vector<std::pair<confidence, memory::string>> scored_candidates;
 
@@ -36,8 +36,7 @@ namespace psm::recognition::arrival
             if (!feature_inst->is_enabled(cfg))
                 continue;
 
-            const auto conf = feature_inst->analyze(arrival_features, cfg);
-            if (conf != confidence::none)
+            if (const auto conf = feature_inst->analyze(features, cfg); conf != confidence::none)
                 scored_candidates.emplace_back(conf, memory::string(feature_inst->name()));
         }
 

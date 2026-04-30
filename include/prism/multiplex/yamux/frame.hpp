@@ -17,6 +17,7 @@
 #include <cstdint>
 #include <optional>
 #include <span>
+#include <vector>
 
 namespace psm::multiplex::yamux
 {
@@ -166,5 +167,46 @@ namespace psm::multiplex::yamux
      * @return 编码后的 12 字节数组
      */
     [[nodiscard]] std::array<std::byte, frame_header_size> build_go_away_frame(go_away_code code) noexcept;
+
+    /**
+     * @struct data_frame
+     * @brief 完整的 Data 帧（12 字节帧头 + 载荷）
+     * @details 用于测试和调试场景，将帧头与载荷打包返回。
+     * 生产环境中 header 与 payload 通过 outbound_frame 分离传递。
+     */
+    struct data_frame
+    {
+        std::array<std::byte, frame_header_size> header{}; // 编码后的帧头
+        std::vector<std::byte> payload;                     // 帧载荷
+    }; // struct data_frame
+
+    /**
+     * @brief 构建 Data 帧（帧头 + 载荷）
+     * @param f 标志位（none/SYN/FIN/RST 或其组合）
+     * @param stream_id 流标识符
+     * @param payload 帧载荷数据（可为空）
+     * @return 包含帧头和载荷的 data_frame 结构
+     */
+    [[nodiscard]] data_frame make_data_frame(flags f, std::uint32_t stream_id,
+                                             std::span<const std::byte> payload) noexcept;
+
+    /**
+     * @brief 构建 Data(SYN) 帧（帧头 + 载荷）
+     * @param stream_id 流标识符
+     * @param payload 帧载荷数据（通常携带目标地址）
+     * @return 包含帧头和载荷的 data_frame 结构
+     * @details 等价于 make_data_frame(flags::syn, stream_id, payload)，
+     * 用于 sing-mux 兼容模式的新流创建。
+     */
+    [[nodiscard]] data_frame make_syn_frame(std::uint32_t stream_id,
+                                            std::span<const std::byte> payload) noexcept;
+
+    /**
+     * @brief 构建 Data(FIN) 帧（仅 12 字节帧头，无载荷）
+     * @param stream_id 流标识符
+     * @return 编码后的 12 字节数组
+     * @details FIN 帧不携带载荷，Length 字段为 0。
+     */
+    [[nodiscard]] std::array<std::byte, frame_header_size> make_fin_frame(std::uint32_t stream_id) noexcept;
 
 } // namespace psm::multiplex::yamux

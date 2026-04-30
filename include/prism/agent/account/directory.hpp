@@ -82,9 +82,11 @@ namespace psm::agent::account
 
         /**
          * @brief 构造账户目录
-         * @param resource 内存池资源指针，默认使用全局内存池
+         * @param resource 内存池资源指针，默认使用线程局部池
+         * @note 默认使用 thread_local_pool 以避免多线程竞争，
+         * 账户目录通常在单线程中构建和使用
          */
-        explicit directory(memory::resource_pointer resource = memory::system::global_pool());
+        explicit directory(memory::resource_pointer resource = memory::system::thread_local_pool());
 
         /**
          * @brief 预留账户条目容量

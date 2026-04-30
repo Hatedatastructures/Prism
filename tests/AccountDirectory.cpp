@@ -7,7 +7,7 @@
 #include <prism/agent/account/directory.hpp>
 #include <prism/memory.hpp>
 #include <prism/trace/spdlog.hpp>
-#include "common/test_runner.hpp"
+#include "common/TestRunner.hpp"
 
 #ifdef WIN32
 #include <windows.h>

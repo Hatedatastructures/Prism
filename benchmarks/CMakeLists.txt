@@ -22,20 +22,26 @@ if(NOT benchmark_FOUND)
     FetchContent_MakeAvailable(benchmark)
 endif()
 
-add_executable(codec_bench CodecBench.cpp)
-target_link_libraries(codec_bench PRIVATE ${PROJECT_NAME}_static_library benchmark::benchmark)
+add_executable(CodecBench CodecBench.cpp)
+target_link_libraries(CodecBench PRIVATE ${PROJECT_NAME}_static_library benchmark::benchmark)
 
-add_executable(memory_bench MemoryBench.cpp)
-target_link_libraries(memory_bench PRIVATE ${PROJECT_NAME}_static_library benchmark::benchmark)
+add_executable(MemoryBench MemoryBench.cpp)
+target_link_libraries(MemoryBench PRIVATE ${PROJECT_NAME}_static_library benchmark::benchmark)
 
-add_executable(mux_bench MuxBench.cpp)
-target_link_libraries(mux_bench PRIVATE ${PROJECT_NAME}_static_library benchmark::benchmark)
+add_executable(MuxBench MuxBench.cpp)
+target_link_libraries(MuxBench PRIVATE ${PROJECT_NAME}_static_library benchmark::benchmark)
 
-add_executable(crypto_bench CryptoBench.cpp)
-target_link_libraries(crypto_bench PRIVATE ${PROJECT_NAME}_static_library benchmark::benchmark)
+add_executable(CryptoBench CryptoBench.cpp)
+target_link_libraries(CryptoBench PRIVATE ${PROJECT_NAME}_static_library benchmark::benchmark)
+
+add_executable(ProtocolBench ProtocolBench.cpp)
+target_link_libraries(ProtocolBench PRIVATE ${PROJECT_NAME}_static_library benchmark::benchmark)
+
+add_executable(TunnelBench TunnelBench.cpp)
+target_link_libraries(TunnelBench PRIVATE ${PROJECT_NAME}_static_library benchmark::benchmark)
 
 if(MINGW)
-    foreach(target_name IN ITEMS codec_bench memory_bench mux_bench crypto_bench)
+    foreach(target_name IN ITEMS CodecBench MemoryBench MuxBench CryptoBench ProtocolBench TunnelBench)
         if(TARGET ${target_name})
             target_compile_options(${target_name} PRIVATE -Wa,-mbig-obj)
         endif()

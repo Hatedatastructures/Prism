@@ -17,22 +17,21 @@ namespace psm::recognition::handshake
     }
 
     // 将 transport 和 preread 数据传递给下一个方案，避免数据丢失
-    auto scheme_executor::pass_through(stealth::scheme_context &ctx, const stealth::scheme_result &res) const
+    auto scheme_executor::pass_through(stealth::scheme_context &ctx, const stealth::scheme_result &res)
         -> void
     {
         if (res.transport)
             ctx.inbound = res.transport;
         if (!res.preread.empty() && ctx.inbound)
         {
-            auto preread_span = std::span<const std::byte>(
-                res.preread.data(), res.preread.size());
+            auto preread_span = std::span(res.preread.data(), res.preread.size());
             ctx.inbound = std::make_shared<pipeline::primitives::preview>(
                 ctx.inbound, preread_span, nullptr);
         }
     }
 
     // 执行单个方案，将 executed_scheme 写入结果
-    auto scheme_executor::execute_single(stealth::shared_scheme scheme, stealth::scheme_context ctx) const
+    auto scheme_executor::execute_single(const stealth::shared_scheme scheme, stealth::scheme_context ctx)
         -> net::awaitable<stealth::scheme_result>
     {
         auto result = co_await scheme->execute(std::move(ctx));

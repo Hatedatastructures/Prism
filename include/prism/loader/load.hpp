@@ -75,7 +75,7 @@ namespace psm::loader
     inline auto build_account_directory(const agent::authentication &auth)
         -> std::shared_ptr<agent::account::directory>
     {
-        const auto dir = std::make_shared<agent::account::directory>(memory::system::global_pool());
+        const auto dir = std::make_shared<agent::account::directory>(memory::system::thread_local_pool());
 
         // 预估总条目数：每个用户可能的 password 和 uuid
         std::size_t entry_count = 0;

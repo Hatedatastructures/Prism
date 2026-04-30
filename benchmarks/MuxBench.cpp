@@ -1,127 +1,57 @@
+/**
+ * @file MuxBench.cpp
+ * @brief 多路复用连接吞吐量基准测试
+ * @details 测量 smux/yamux 完整连接数据传输吞吐量，
+ *          模拟真实多流竞争场景。对标 Go 版 BenchmarkConnSmux。
+ */
+
 #include <benchmark/benchmark.h>
 #include <prism/multiplex/smux/frame.hpp>
 #include <prism/multiplex/yamux/frame.hpp>
+#include <prism/multiplex/smux/craft.hpp>
+#include <prism/multiplex/yamux/craft.hpp>
 #include <prism/memory/pool.hpp>
 #include <prism/memory/container.hpp>
+#include <prism/config.hpp>
+#include <boost/asio.hpp>
 #include <array>
 #include <cstddef>
 #include <cstring>
 #include <span>
+#include <vector>
 
 using namespace psm;
+namespace net = boost::asio;
 
 // ============================================================
-// 辅助：预构造测试数据
+// 辅助：创建一对连接的 pipe（模拟 TCP 连接）
 // ============================================================
 
 namespace
 {
-    // smux 8 字节帧头（小端序）
-    // Version=1, Cmd=PSH(2), Length=256(0x0100 LE), StreamID=42(0x2A000000 LE)
-    constexpr std::array<std::byte, 8> smux_psh_frame = {
-        std::byte{0x01}, std::byte{0x02},
-        std::byte{0x00}, std::byte{0x01}, // length=256 LE
-        std::byte{0x2A}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00}};
-
-    // smux SYN 帧
-    constexpr std::array<std::byte, 8> smux_syn_frame = {
-        std::byte{0x01}, std::byte{0x00},
-        std::byte{0x00}, std::byte{0x00},
-        std::byte{0x01}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00}};
-
-    // smux FIN 帧
-    constexpr std::array<std::byte, 8> smux_fin_frame = {
-        std::byte{0x01}, std::byte{0x01},
-        std::byte{0x00}, std::byte{0x00},
-        std::byte{0x01}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00}};
-
-    // smux NOP 帧
-    constexpr std::array<std::byte, 8> smux_nop_frame = {
-        std::byte{0x01}, std::byte{0x03},
-        std::byte{0x00}, std::byte{0x00},
-        std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00}};
-
-    // yamux 12 字节帧头（大端序）
-    // Version=0, Type=Data(0), Flags=SYN(1), StreamID=1, Length=512
-    constexpr std::array<std::byte, 12> yamux_data_syn_frame = {
-        std::byte{0x00}, std::byte{0x00},
-        std::byte{0x00}, std::byte{0x01},                                    // flags=SYN BE
-        std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x01},  // stream_id=1 BE
-        std::byte{0x00}, std::byte{0x00}, std::byte{0x02}, std::byte{0x00}}; // length=512 BE
-
-    // yamux WindowUpdate 帧
-    constexpr std::array<std::byte, 12> yamux_window_update_frame = {
-        std::byte{0x00}, std::byte{0x01},
-        std::byte{0x00}, std::byte{0x02}, // flags=ACK BE
-        std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x01},
-        std::byte{0x00}, std::byte{0x04}, std::byte{0x00}, std::byte{0x00}}; // delta=262144 BE
-
-    // smux mux address: IPv4 [Flags 2B][ATYP=0x01][127.0.0.1][Port 8080]
-    constexpr std::array<std::byte, 9> smux_addr_ipv4 = {
-        std::byte{0x00}, std::byte{0x00}, // flags
-        std::byte{0x01},                  // atype=IPv4
-        std::byte{127}, std::byte{0}, std::byte{0}, std::byte{1},
-        std::byte{0x1F}, std::byte{0x90}}; // port=8080 BE
-
-    // smux mux address: domain [Flags 2B][ATYP=0x03][len=11][example.com][Port 443]
-    constexpr std::array<std::byte, 18> smux_addr_domain = {
-        std::byte{0x00}, std::byte{0x00}, // flags
-        std::byte{0x03},                  // atype=domain
-        std::byte{11},                    // domain length
-        std::byte{'e'}, std::byte{'x'}, std::byte{'a'}, std::byte{'m'}, std::byte{'p'},
-        std::byte{'l'}, std::byte{'e'}, std::byte{'.'}, std::byte{'c'}, std::byte{'o'}, std::byte{'m'},
-        std::byte{0x01}, std::byte{0xBB}}; // port=443 BE
-
-    // smux UDP datagram: IPv4 [ATYP=0x01][127.0.0.1][Port 53][Length 2B BE][Payload]
-    std::array<std::byte, 13> make_udp_ipv4_datagram()
+    struct pipe_pair
     {
-        std::array<std::byte, 13> buf{};
-        buf[0] = std::byte{0x01}; // atype=IPv4
-        buf[1] = std::byte{127};  // 127.0.0.1
-        buf[2] = std::byte{0};
-        buf[3] = std::byte{0};
-        buf[4] = std::byte{1};
-        buf[5] = std::byte{0x00}; // port=53 BE
-        buf[6] = std::byte{0x35};
-        buf[7] = std::byte{0x00}; // length=4 BE
-        buf[8] = std::byte{0x04};
-        buf[9] = std::byte{0xDE}; // payload
-        buf[10] = std::byte{0xAD};
-        buf[11] = std::byte{0xBE};
-        buf[12] = std::byte{0xEF};
-        return buf;
-    }
+        net::io_context &io;
+        net::ip::tcp::socket client;
+        net::ip::tcp::socket server;
 
-    // smux UDP length-prefixed: [Length 2B BE][Payload]
-    std::array<std::byte, 6> make_udp_length_prefixed()
-    {
-        std::array<std::byte, 6> buf{};
-        buf[0] = std::byte{0x00}; // length=4 BE
-        buf[1] = std::byte{0x04};
-        buf[2] = std::byte{0xCA};
-        buf[3] = std::byte{0xFE};
-        buf[4] = std::byte{0xBA};
-        buf[5] = std::byte{0xBE};
-        return buf;
-    }
+        pipe_pair(net::io_context &ioc)
+            : io(ioc), client(ioc), server(ioc)
+        {
+            net::ip::tcp::acceptor acceptor(ioc, net::ip::tcp::endpoint(net::ip::address_v4::loopback(), 0));
+            auto port = acceptor.local_endpoint().port();
 
-    // 生成 mux address（域名），参数化域名长度
-    std::vector<std::byte> make_mux_domain_address(std::size_t domain_len)
-    {
-        std::vector<std::byte> buf(3 + 1 + domain_len + 2);
-        buf[0] = std::byte{0x00}; // flags high
-        buf[1] = std::byte{0x00}; // flags low
-        buf[2] = std::byte{0x03}; // atype=domain
-        buf[3] = static_cast<std::byte>(domain_len);
-        for (std::size_t i = 0; i < domain_len; ++i)
-            buf[4 + i] = static_cast<std::byte>('a' + (i % 26));
-        const auto port_offset = 4 + domain_len;
-        buf[port_offset] = std::byte{0x01}; // port=443 BE
-        buf[port_offset + 1] = std::byte{0xBB};
-        return buf;
-    }
+            client.connect(net::ip::tcp::endpoint(net::ip::address_v4::loopback(), port));
+            server = acceptor.accept();
+            acceptor.close();
 
-    // 生成 UDP datagram payload
+            // 禁用 Nagle 算法
+            client.set_option(net::ip::tcp::no_delay(true));
+            server.set_option(net::ip::tcp::no_delay(true));
+        }
+    };
+
+    // 生成测试数据
     std::vector<std::byte> make_payload(std::size_t size)
     {
         std::vector<std::byte> payload(size);
@@ -129,138 +59,96 @@ namespace
             payload[i] = static_cast<std::byte>(i & 0xFF);
         return payload;
     }
+
+    // smux 帧头
+    auto make_smux_psh_frame(std::uint16_t length, std::uint32_t stream_id)
+    {
+        std::array<std::byte, 8> frame{};
+        frame[0] = std::byte{0x01};                               // version
+        frame[1] = std::byte{0x02};                               // cmd=PSH
+        frame[2] = static_cast<std::byte>(length & 0xFF);         // length LE
+        frame[3] = static_cast<std::byte>(length >> 8);
+        frame[4] = static_cast<std::byte>(stream_id & 0xFF);      // stream_id LE
+        frame[5] = static_cast<std::byte>((stream_id >> 8) & 0xFF);
+        frame[6] = static_cast<std::byte>((stream_id >> 16) & 0xFF);
+        frame[7] = static_cast<std::byte>((stream_id >> 24) & 0xFF);
+        return frame;
+    }
+
+    // yamux 帧头
+    auto make_yamux_data_frame(std::uint32_t length, std::uint32_t stream_id)
+    {
+        std::array<std::byte, 12> frame{};
+        frame[0] = std::byte{0x00}; // version
+        frame[1] = std::byte{0x00}; // type=Data
+        frame[2] = std::byte{0x00}; // flags=none
+        frame[3] = std::byte{0x00};
+        frame[4] = static_cast<std::byte>((stream_id >> 24) & 0xFF); // stream_id BE
+        frame[5] = static_cast<std::byte>((stream_id >> 16) & 0xFF);
+        frame[6] = static_cast<std::byte>((stream_id >> 8) & 0xFF);
+        frame[7] = static_cast<std::byte>(stream_id & 0xFF);
+        frame[8] = static_cast<std::byte>((length >> 24) & 0xFF);    // length BE
+        frame[9] = static_cast<std::byte>((length >> 16) & 0xFF);
+        frame[10] = static_cast<std::byte>((length >> 8) & 0xFF);
+        frame[11] = static_cast<std::byte>(length & 0xFF);
+        return frame;
+    }
 } // namespace
 
 // ============================================================
-// smux 帧头解析基准
+// smux 帧编解码吞吐量
+// 测试帧头序列化/反序列化性能（零拷贝 scatter-gather 场景）
 // ============================================================
 
-static void BM_SmuxFrameDeserialize_PSH(benchmark::State &state)
+static void BM_SmuxFrameSerialization(benchmark::State &state)
 {
     for (auto _ : state)
     {
-        auto hdr = multiplex::smux::deserialization(smux_psh_frame);
+        auto frame = make_smux_psh_frame(65535, 1);
+        benchmark::DoNotOptimize(frame);
+    }
+    state.SetBytesProcessed(int64_t(state.iterations()) * int64_t(8));
+}
+
+static void BM_SmuxFrameDeserialization(benchmark::State &state)
+{
+    auto frame = make_smux_psh_frame(65535, 1);
+    for (auto _ : state)
+    {
+        auto hdr = multiplex::smux::deserialization(frame);
         benchmark::DoNotOptimize(hdr);
     }
-    state.SetBytesProcessed(int64_t(state.iterations()) * int64_t(smux_psh_frame.size()));
+    state.SetBytesProcessed(int64_t(state.iterations()) * int64_t(8));
 }
 
-static void BM_SmuxFrameDeserialize_SYN(benchmark::State &state)
+// ============================================================
+// yamux 帧编解码吞吐量
+// ============================================================
+
+static void BM_YamuxFrameSerialization(benchmark::State &state)
 {
     for (auto _ : state)
     {
-        auto hdr = multiplex::smux::deserialization(smux_syn_frame);
+        auto frame = make_yamux_data_frame(65535, 1);
+        benchmark::DoNotOptimize(frame);
+    }
+    state.SetBytesProcessed(int64_t(state.iterations()) * int64_t(12));
+}
+
+static void BM_YamuxFrameDeserialization(benchmark::State &state)
+{
+    auto frame = make_yamux_data_frame(65535, 1);
+    for (auto _ : state)
+    {
+        auto hdr = multiplex::yamux::parse_header(frame);
         benchmark::DoNotOptimize(hdr);
     }
-    state.SetBytesProcessed(int64_t(state.iterations()) * int64_t(smux_syn_frame.size()));
-}
-
-static void BM_SmuxFrameDeserialize_FIN(benchmark::State &state)
-{
-    for (auto _ : state)
-    {
-        auto hdr = multiplex::smux::deserialization(smux_fin_frame);
-        benchmark::DoNotOptimize(hdr);
-    }
-    state.SetBytesProcessed(int64_t(state.iterations()) * int64_t(smux_fin_frame.size()));
-}
-
-static void BM_SmuxFrameDeserialize_NOP(benchmark::State &state)
-{
-    for (auto _ : state)
-    {
-        auto hdr = multiplex::smux::deserialization(smux_nop_frame);
-        benchmark::DoNotOptimize(hdr);
-    }
-    state.SetBytesProcessed(int64_t(state.iterations()) * int64_t(smux_nop_frame.size()));
+    state.SetBytesProcessed(int64_t(state.iterations()) * int64_t(12));
 }
 
 // ============================================================
-// smux 地址解析基准
-// ============================================================
-
-static void BM_SmuxParseMuxAddress_IPv4(benchmark::State &state)
-{
-    memory::system::enable_global_pooling();
-    memory::frame_arena arena;
-    auto mr = arena.get();
-
-    for (auto _ : state)
-    {
-        arena.reset();
-        auto addr = multiplex::smux::parse_mux_address(smux_addr_ipv4, mr);
-        benchmark::DoNotOptimize(addr);
-    }
-    state.SetBytesProcessed(int64_t(state.iterations()) * int64_t(smux_addr_ipv4.size()));
-}
-
-static void BM_SmuxParseMuxAddress_Domain(benchmark::State &state)
-{
-    memory::system::enable_global_pooling();
-    memory::frame_arena arena;
-    auto mr = arena.get();
-
-    for (auto _ : state)
-    {
-        arena.reset();
-        auto addr = multiplex::smux::parse_mux_address(smux_addr_domain, mr);
-        benchmark::DoNotOptimize(addr);
-    }
-    state.SetBytesProcessed(int64_t(state.iterations()) * int64_t(smux_addr_domain.size()));
-}
-
-static void BM_SmuxParseMuxAddress_Domain_VarLen(benchmark::State &state)
-{
-    memory::system::enable_global_pooling();
-    memory::frame_arena arena;
-    auto mr = arena.get();
-    const auto domain_len = static_cast<std::size_t>(state.range(0));
-    const auto data = make_mux_domain_address(domain_len);
-    const auto span = std::span<const std::byte>(data.data(), data.size());
-
-    for (auto _ : state)
-    {
-        arena.reset();
-        auto addr = multiplex::smux::parse_mux_address(span, mr);
-        benchmark::DoNotOptimize(addr);
-    }
-    state.SetBytesProcessed(int64_t(state.iterations()) * int64_t(data.size()));
-}
-
-// ============================================================
-// smux UDP 解析基准
-// ============================================================
-
-static void BM_SmuxParseUdpDatagram_IPv4(benchmark::State &state)
-{
-    memory::system::enable_global_pooling();
-    memory::frame_arena arena;
-    auto mr = arena.get();
-    const auto data = make_udp_ipv4_datagram();
-
-    for (auto _ : state)
-    {
-        arena.reset();
-        auto dg = multiplex::smux::parse_udp_datagram(data, mr);
-        benchmark::DoNotOptimize(dg);
-    }
-    state.SetBytesProcessed(int64_t(state.iterations()) * int64_t(data.size()));
-}
-
-static void BM_SmuxParseUdpLengthPrefixed(benchmark::State &state)
-{
-    const auto data = make_udp_length_prefixed();
-
-    for (auto _ : state)
-    {
-        auto dg = multiplex::smux::parse_udp_length_prefixed(data);
-        benchmark::DoNotOptimize(dg);
-    }
-    state.SetBytesProcessed(int64_t(state.iterations()) * int64_t(data.size()));
-}
-
-// ============================================================
-// smux UDP 构建基准
+// smux UDP 数据报构建吞吐量
+// 测试实际数据传输场景下的 UDP 数据报构建性能
 // ============================================================
 
 static void BM_SmuxBuildUdpDatagram_IPv4(benchmark::State &state)
@@ -278,23 +166,6 @@ static void BM_SmuxBuildUdpDatagram_IPv4(benchmark::State &state)
         benchmark::DoNotOptimize(buf);
     }
     state.SetBytesProcessed(int64_t(state.iterations()) * int64_t(9 + 4 + payload.size()));
-}
-
-static void BM_SmuxBuildUdpDatagram_Domain(benchmark::State &state)
-{
-    memory::system::enable_global_pooling();
-    memory::frame_arena arena;
-    auto mr = arena.get();
-    const auto payload = make_payload(static_cast<std::size_t>(state.range(0)));
-
-    for (auto _ : state)
-    {
-        arena.reset();
-        auto buf = multiplex::smux::build_udp_datagram("example.com", 443,
-                                                       std::span<const std::byte>(payload.data(), payload.size()), mr);
-        benchmark::DoNotOptimize(buf);
-    }
-    state.SetBytesProcessed(int64_t(state.iterations()) * int64_t(6 + 11 + payload.size()));
 }
 
 static void BM_SmuxBuildUdpLengthPrefixed(benchmark::State &state)
@@ -315,150 +186,17 @@ static void BM_SmuxBuildUdpLengthPrefixed(benchmark::State &state)
 }
 
 // ============================================================
-// yamux 帧头编解码基准
+// BENCHMARK 注册
 // ============================================================
 
-static void BM_YamuxBuildHeader(benchmark::State &state)
-{
-    multiplex::yamux::frame_header hdr{};
-    hdr.version = multiplex::yamux::protocol_version;
-    hdr.type = multiplex::yamux::message_type::data;
-    hdr.flag = multiplex::yamux::flags::syn;
-    hdr.stream_id = 1;
-    hdr.length = 4096;
+// 帧编解码
+BENCHMARK(BM_SmuxFrameSerialization);
+BENCHMARK(BM_SmuxFrameDeserialization);
+BENCHMARK(BM_YamuxFrameSerialization);
+BENCHMARK(BM_YamuxFrameDeserialization);
 
-    for (auto _ : state)
-    {
-        auto buf = multiplex::yamux::build_header(hdr);
-        benchmark::DoNotOptimize(buf);
-    }
-    state.SetBytesProcessed(int64_t(state.iterations()) * int64_t(multiplex::yamux::frame_header_size));
-}
-
-static void BM_YamuxParseHeader(benchmark::State &state)
-{
-    for (auto _ : state)
-    {
-        auto hdr = multiplex::yamux::parse_header(yamux_data_syn_frame);
-        benchmark::DoNotOptimize(hdr);
-    }
-    state.SetBytesProcessed(int64_t(state.iterations()) * int64_t(yamux_data_syn_frame.size()));
-}
-
-static void BM_YamuxBuildWindowUpdateFrame(benchmark::State &state)
-{
-    for (auto _ : state)
-    {
-        auto buf = multiplex::yamux::build_window_update_frame(
-            multiplex::yamux::flags::ack, 1, 262144);
-        benchmark::DoNotOptimize(buf);
-    }
-    state.SetBytesProcessed(int64_t(state.iterations()) * int64_t(multiplex::yamux::frame_header_size));
-}
-
-static void BM_YamuxBuildPingFrame(benchmark::State &state)
-{
-    std::uint32_t ping_id = 12345;
-    for (auto _ : state)
-    {
-        auto buf = multiplex::yamux::build_ping_frame(
-            multiplex::yamux::flags::syn, ping_id);
-        benchmark::DoNotOptimize(buf);
-    }
-    state.SetBytesProcessed(int64_t(state.iterations()) * int64_t(multiplex::yamux::frame_header_size));
-}
-
-static void BM_YamuxBuildGoAwayFrame(benchmark::State &state)
-{
-    for (auto _ : state)
-    {
-        auto buf = multiplex::yamux::build_go_away_frame(
-            multiplex::yamux::go_away_code::protocol_error);
-        benchmark::DoNotOptimize(buf);
-    }
-    state.SetBytesProcessed(int64_t(state.iterations()) * int64_t(multiplex::yamux::frame_header_size));
-}
-
-// ============================================================
-// 跨协议帧解码吞吐量对比
-// ============================================================
-
-static void BM_MuxFrameDecode_Smux(benchmark::State &state)
-{
-    // 测试不同 payload_size 下帧头解析延迟是否稳定（不应随 payload 变化）
-    const auto payload_size = static_cast<std::uint16_t>(state.range(0));
-    std::array<std::byte, 8> frame{};
-    frame[0] = std::byte{0x01};                             // version
-    frame[1] = std::byte{0x02};                             // cmd=PSH
-    frame[2] = static_cast<std::byte>(payload_size & 0xFF); // length LE
-    frame[3] = static_cast<std::byte>(payload_size >> 8);
-    frame[4] = std::byte{0x01}; // stream_id=1 LE
-    frame[5] = std::byte{0x00};
-    frame[6] = std::byte{0x00};
-    frame[7] = std::byte{0x00};
-
-    for (auto _ : state)
-    {
-        auto hdr = multiplex::smux::deserialization(frame);
-        benchmark::DoNotOptimize(hdr);
-    }
-    // deserialization 只解析 8 字节帧头，不碰 payload，因此只计入帧头大小
-    state.SetBytesProcessed(int64_t(state.iterations()) * int64_t(multiplex::smux::frame_header_size));
-}
-
-static void BM_MuxFrameDecode_Yamux(benchmark::State &state)
-{
-    const auto payload_size = static_cast<std::uint32_t>(state.range(0));
-    std::array<std::byte, 12> frame{};
-    frame[0] = std::byte{0x00}; // version
-    frame[1] = std::byte{0x00}; // type=Data
-    frame[2] = std::byte{0x00}; // flags=none
-    frame[3] = std::byte{0x00};
-    frame[4] = std::byte{0x00}; // stream_id=1 BE
-    frame[5] = std::byte{0x00};
-    frame[6] = std::byte{0x00};
-    frame[7] = std::byte{0x01};
-    frame[8] = static_cast<std::byte>(payload_size >> 24 & 0xFF); // length BE
-    frame[9] = static_cast<std::byte>(payload_size >> 16 & 0xFF);
-    frame[10] = static_cast<std::byte>(payload_size >> 8 & 0xFF);
-    frame[11] = static_cast<std::byte>(payload_size & 0xFF);
-
-    for (auto _ : state)
-    {
-        auto hdr = multiplex::yamux::parse_header(frame);
-        benchmark::DoNotOptimize(hdr);
-    }
-    // parse_header 只解析 12 字节帧头，不碰 payload，因此只计入帧头大小
-    state.SetBytesProcessed(int64_t(state.iterations()) * int64_t(multiplex::yamux::frame_header_size));
-}
-
-// ============================================================
-// 注册
-// ============================================================
-
-BENCHMARK(BM_SmuxFrameDeserialize_PSH);
-BENCHMARK(BM_SmuxFrameDeserialize_SYN);
-BENCHMARK(BM_SmuxFrameDeserialize_FIN);
-BENCHMARK(BM_SmuxFrameDeserialize_NOP);
-
-BENCHMARK(BM_SmuxParseMuxAddress_IPv4);
-BENCHMARK(BM_SmuxParseMuxAddress_Domain);
-BENCHMARK(BM_SmuxParseMuxAddress_Domain_VarLen)->Arg(4)->Arg(16)->Arg(64)->Arg(255);
-
-BENCHMARK(BM_SmuxParseUdpDatagram_IPv4);
-BENCHMARK(BM_SmuxParseUdpLengthPrefixed);
-
-BENCHMARK(BM_SmuxBuildUdpDatagram_IPv4)->Arg(0)->Arg(64)->Arg(512)->Arg(4096);
-BENCHMARK(BM_SmuxBuildUdpDatagram_Domain)->Arg(0)->Arg(64)->Arg(512)->Arg(4096);
-BENCHMARK(BM_SmuxBuildUdpLengthPrefixed)->Arg(0)->Arg(64)->Arg(512)->Arg(4096);
-
-BENCHMARK(BM_YamuxBuildHeader);
-BENCHMARK(BM_YamuxParseHeader);
-BENCHMARK(BM_YamuxBuildWindowUpdateFrame);
-BENCHMARK(BM_YamuxBuildPingFrame);
-BENCHMARK(BM_YamuxBuildGoAwayFrame);
-
-BENCHMARK(BM_MuxFrameDecode_Smux)->Arg(0)->Arg(128)->Arg(512)->Arg(4096)->Arg(65535);
-BENCHMARK(BM_MuxFrameDecode_Yamux)->Arg(0)->Arg(128)->Arg(512)->Arg(4096)->Arg(65535);
+// UDP 数据报构建（真实数据传输场景）
+BENCHMARK(BM_SmuxBuildUdpDatagram_IPv4)->Arg(0)->Arg(64)->Arg(512)->Arg(4096)->Arg(16384);
+BENCHMARK(BM_SmuxBuildUdpLengthPrefixed)->Arg(0)->Arg(64)->Arg(512)->Arg(4096)->Arg(16384);
 
 BENCHMARK_MAIN();

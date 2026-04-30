@@ -59,8 +59,13 @@ namespace psm::recognition::arrival
          */
         [[nodiscard]] auto features() const -> const std::vector<shared_feature> &;
 
-    private:
+    public:
+        /**
+         * @brief 默认构造函数（供测试使用本地实例）
+         */
         registry() = default;
+
+    private:
         std::vector<shared_feature> features_;
     };
 

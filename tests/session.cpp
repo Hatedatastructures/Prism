@@ -20,7 +20,7 @@
 #include <prism/memory.hpp>
 #include <prism/trace/spdlog.hpp>
 
-#include "common/test_runner.hpp"
+#include "common/TestRunner.hpp"
 
 #include <array>
 #include <atomic>

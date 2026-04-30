@@ -154,6 +154,42 @@ Prism/
 
 ---
 
+## 性能
+
+基于 Intel i9-13900K @ 3.0 GHz 测试。
+
+**数据传输吞吐量**
+
+| 操作 | 吞吐量 | 说明 |
+|------|--------|------|
+| AES-128-GCM Seal (64 KiB) | ~249 Mi/s | 持续加密数据流 |
+| AES-256-GCM Seal (64 KiB) | ~215 Mi/s | 持续加密数据流 |
+| X25519 KeyExchange | ~42K ops/s | Reality 握手核心 |
+| BLAKE3 DeriveKey | ~178 Mi/s | SS2022 密钥派生 |
+| smux UDP 数据报 | ~58 Gi/s | 16 KiB payload |
+
+**协议握手**
+
+| 协议 | 吞吐量 | 说明 |
+|------|--------|------|
+| HTTP CONNECT | ~904 Mi/s | 解析请求 + 构建转发行 |
+| SOCKS5 | ~13.6 Gi/s | 头部 + IPv4 + 端口 |
+| Trojan | ~2.2 Gi/s | 凭据 + CRLF + 命令 + 地址 |
+| VLESS | ~2.2 Gi/s | UUID + 命令 + 地址 |
+
+**内存分配吞吐量**
+
+| 分配器 | 吞吐量 | 说明 |
+|--------|--------|------|
+| FrameArena | ~6.4 Gi/s | 线性分配，热路径首选 |
+| ThreadLocalPool | ~1.8 Gi/s | 线程私有，通用场景 |
+| GlobalPool | ~272 Mi/s | 全局共享，跨线程对象 |
+| GlobalPool (4线程竞争) | ~233 Mi/s | 锁竞争严重 |
+
+> 详细报告见 [performance-report.md](docs/prism/performance-report.md)
+
+---
+
 ## 开发路线
 
 - [x] 五协议完整实现（*HTTP* / *SOCKS5* / *Trojan* / *VLESS* / *SS2022*）

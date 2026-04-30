@@ -30,6 +30,35 @@ namespace psm::multiplex::smux
     namespace net = boost::asio;
 
     /**
+     * @brief 构建 DATA (PSH) 帧字节序列
+     * @param stream_id 流标识符
+     * @param payload 数据负载
+     * @return 完整的帧字节序列（8 字节帧头 + payload）
+     * @details 帧格式：[Version 1B][Cmd=PSH 1B][Length 2B LE][StreamID 4B LE][Payload]
+     */
+    [[nodiscard]] auto make_data_frame(std::uint32_t stream_id,
+                                       std::span<const std::byte> payload)
+        -> memory::vector<std::byte>;
+
+    /**
+     * @brief 构建 SYN 帧字节序列
+     * @param stream_id 流标识符
+     * @return 8 字节 SYN 帧头（无 payload）
+     * @details 帧格式：[Version 1B][Cmd=SYN 1B][Length=0 2B LE][StreamID 4B LE]
+     */
+    [[nodiscard]] auto make_syn_frame(std::uint32_t stream_id)
+        -> std::array<std::byte, frame_header_size>;
+
+    /**
+     * @brief 构建 FIN 帧字节序列
+     * @param stream_id 流标识符
+     * @return 8 字节 FIN 帧头（无 payload）
+     * @details 帧格式：[Version 1B][Cmd=FIN 1B][Length=0 2B LE][StreamID 4B LE]
+     */
+    [[nodiscard]] auto make_fin_frame(std::uint32_t stream_id)
+        -> std::array<std::byte, frame_header_size>;
+
+    /**
      * @struct outbound_frame
      * @brief 出站帧结构，header 与 payload 分离传递
      * @details header 为 8 字节编码后的帧头，payload 持有实际数据。

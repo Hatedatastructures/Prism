@@ -7,7 +7,7 @@
 #include <prism/agent/front/balancer.hpp>
 #include <prism/memory.hpp>
 #include <prism/trace/spdlog.hpp>
-#include "common/test_runner.hpp"
+#include "common/TestRunner.hpp"
 #include <set>
 #include <vector>
 

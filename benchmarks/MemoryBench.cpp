@@ -1,3 +1,10 @@
+/**
+ * @file MemoryBench.cpp
+ * @brief 内存管理基准测试
+ * @details 测量 PMR string/vector 分配性能、全局池 vs 线程池对比、
+ *          帧竞技场重置与批量分配性能等指标。
+ */
+
 #include <benchmark/benchmark.h>
 #include <prism/memory/container.hpp>
 #include <prism/memory/pool.hpp>
@@ -10,6 +17,11 @@ static std::string make_payload(std::size_t size, char fill)
 {
     return std::string(size, fill);
 }
+
+// ============================================================
+// 基准测试框架开销测试
+// 测试空循环和 Pause/Resume 计时开销，用于校准其他测试结果
+// ============================================================
 
 static void BM_EmptyLoop(benchmark::State &state)
 {
@@ -32,6 +44,11 @@ static void BM_PauseResumeOnly(benchmark::State &state)
     }
 }
 
+// ============================================================
+// std::string 标准分配测试
+// 测试标准 std::string 的分配和赋值性能（作为对照组）
+// ============================================================
+
 static void BM_StdStringAllocation(benchmark::State &state)
 {
     for (auto _ : state)
@@ -53,6 +70,12 @@ static void BM_StdStringAssign_Size(benchmark::State &state)
     }
     state.SetBytesProcessed(static_cast<std::int64_t>(state.iterations()) * static_cast<std::int64_t>(payload.size()));
 }
+
+// ============================================================
+// PMR string 分配测试
+// 测试 memory::string 使用不同内存资源的分配性能：
+// - 默认资源、new_delete_resource、全局池、线程本地池、帧竞技场
+// ============================================================
 
 static void BM_PmrStringAllocation_DefaultResource(benchmark::State &state)
 {
@@ -122,6 +145,11 @@ static void BM_PmrStringAssign_ThreadLocalPool_Size(benchmark::State &state)
     state.SetBytesProcessed(static_cast<std::int64_t>(state.iterations()) * static_cast<std::int64_t>(payload.size()));
 }
 
+// ============================================================
+// 帧竞技场测试
+// 测试 frame_arena 的重置操作和批量分配性能
+// ============================================================
+
 static void BM_PmrStringAllocation_FrameArena(benchmark::State &state)
 {
     memory::frame_arena arena;
@@ -186,6 +214,11 @@ static void BM_FrameArenaResetOnly(benchmark::State &state)
     }
 }
 
+// ============================================================
+// std::vector 标准分配测试
+// 测试标准 std::vector 的 push_back 性能（作为对照组）
+// ============================================================
+
 static void BM_StdVectorPush(benchmark::State &state)
 {
     const std::size_t count = static_cast<std::size_t>(state.range(0));
@@ -201,6 +234,12 @@ static void BM_StdVectorPush(benchmark::State &state)
     }
     state.SetBytesProcessed(static_cast<std::int64_t>(state.iterations()) * static_cast<std::int64_t>(count * sizeof(std::uint64_t)));
 }
+
+// ============================================================
+// PMR vector 分配测试
+// 测试 memory::vector 使用不同内存资源的 push_back 性能：
+// - new_delete_resource、全局池、线程本地池、默认资源、帧竞技场
+// ============================================================
 
 static void BM_PmrVectorPush_NewDeleteResource(benchmark::State &state)
 {
@@ -293,6 +332,58 @@ static void BM_PmrVectorPush_FrameArena(benchmark::State &state)
     state.SetBytesProcessed(static_cast<std::int64_t>(state.iterations()) * static_cast<std::int64_t>(count * sizeof(std::uint64_t)));
 }
 
+// ============================================================
+// 多线程内存分配竞争测试
+// 测试不同线程数下全局池的分配竞争性能
+// ============================================================
+
+static void BM_MemoryPool_Contention(benchmark::State &state)
+{
+    memory::system::enable_global_pooling();
+    const std::size_t size = 128;
+
+    for (auto _ : state)
+    {
+        memory::string s;
+        s.assign(std::string(size, 'x'));
+        benchmark::DoNotOptimize(s);
+    }
+    state.SetBytesProcessed(static_cast<std::int64_t>(state.iterations()) * static_cast<std::int64_t>(size));
+}
+
+static void BM_GlobalPool_MultiThread(benchmark::State &state)
+{
+    memory::system::enable_global_pooling();
+    auto *mr = memory::system::global_pool();
+    const std::size_t size = 256;
+
+    for (auto _ : state)
+    {
+        memory::string s(mr);
+        s.assign(std::string(size, 'g'));
+        benchmark::DoNotOptimize(s);
+    }
+    state.SetBytesProcessed(static_cast<std::int64_t>(state.iterations()) * static_cast<std::int64_t>(size));
+}
+
+static void BM_ThreadLocalPool_MultiThread(benchmark::State &state)
+{
+    auto *mr = memory::system::thread_local_pool();
+    const std::size_t size = 256;
+
+    for (auto _ : state)
+    {
+        memory::string s(mr);
+        s.assign(std::string(size, 't'));
+        benchmark::DoNotOptimize(s);
+    }
+    state.SetBytesProcessed(static_cast<std::int64_t>(state.iterations()) * static_cast<std::int64_t>(size));
+}
+
+// ============================================================
+// BENCHMARK 注册
+// ============================================================
+
 BENCHMARK(BM_EmptyLoop);
 BENCHMARK(BM_PauseResumeOnly);
 BENCHMARK(BM_StdStringAllocation);
@@ -312,5 +403,10 @@ BENCHMARK(BM_PmrVectorPush_GlobalPool)->Arg(8)->Arg(64)->Arg(256)->Arg(4096);
 BENCHMARK(BM_PmrVectorPush_ThreadLocalPool)->Arg(8)->Arg(64)->Arg(256)->Arg(4096);
 BENCHMARK(BM_PmrVectorPush_DefaultResource)->Arg(8)->Arg(64)->Arg(256)->Arg(4096);
 BENCHMARK(BM_PmrVectorPush_FrameArena)->Arg(8)->Arg(64)->Arg(256)->Arg(4096);
+
+// 多线程测试
+BENCHMARK(BM_MemoryPool_Contention)->Threads(1)->Threads(2)->Threads(4)->Threads(8);
+BENCHMARK(BM_GlobalPool_MultiThread)->Threads(4);
+BENCHMARK(BM_ThreadLocalPool_MultiThread)->Threads(4);
 
 BENCHMARK_MAIN();

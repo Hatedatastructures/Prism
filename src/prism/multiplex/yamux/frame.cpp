@@ -113,4 +113,34 @@ namespace psm::multiplex::yamux
         return build_header(hdr);
     }
 
+    auto make_data_frame(const flags f, const std::uint32_t stream_id,
+                         const std::span<const std::byte> payload) noexcept
+        -> data_frame
+    {
+        frame_header hdr{};
+        hdr.type = message_type::data;
+        hdr.flag = f;
+        hdr.stream_id = stream_id;
+        hdr.length = static_cast<std::uint32_t>(payload.size());
+        return {build_header(hdr), std::vector<std::byte>(payload.begin(), payload.end())};
+    }
+
+    auto make_syn_frame(const std::uint32_t stream_id,
+                        const std::span<const std::byte> payload) noexcept
+        -> data_frame
+    {
+        return make_data_frame(flags::syn, stream_id, payload);
+    }
+
+    auto make_fin_frame(const std::uint32_t stream_id) noexcept
+        -> std::array<std::byte, frame_header_size>
+    {
+        frame_header hdr{};
+        hdr.type = message_type::data;
+        hdr.flag = flags::fin;
+        hdr.stream_id = stream_id;
+        hdr.length = 0;
+        return build_header(hdr);
+    }
+
 } // namespace psm::multiplex::yamux

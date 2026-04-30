@@ -9,7 +9,7 @@
 #include <prism/trace/spdlog.hpp>
 #include <prism/trace/config.hpp>
 
-#include "common/test_runner.hpp"
+#include "common/TestRunner.hpp"
 
 namespace
 {

@@ -9,7 +9,7 @@
 #include <prism/trace/spdlog.hpp>
 #include <prism/multiplex/smux/frame.hpp>
 
-#include "common/test_runner.hpp"
+#include "common/TestRunner.hpp"
 
 #include <array>
 #include <cstring>

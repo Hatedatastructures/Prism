@@ -1,10 +1,15 @@
+/**
+ * @file CodecBench.cpp
+ * @brief 协议编解码基准测试
+ * @details 测量 HTTP 代理请求解析、DNS 报文处理、
+ *          加密工具（SHA224、Base64）、DNS 规则引擎等性能指标。
+ * @note 已移除无参考价值的单字节解析测试（static constexpr 导致编译器常量折叠）
+ */
+
 #include <benchmark/benchmark.h>
 #include <prism/protocol/http/parser.hpp>
-#include <prism/protocol/socks5/wire.hpp>
 #include <prism/protocol/trojan/format.hpp>
-#include <prism/protocol/vless/format.hpp>
 #include <prism/protocol/shadowsocks/format.hpp>
-#include <prism/protocol/analysis.hpp>
 #include <prism/resolve/dns/detail/format.hpp>
 #include <prism/resolve/dns/detail/rules.hpp>
 #include <prism/crypto/sha224.hpp>
@@ -27,7 +32,11 @@ namespace psm::resolve
     using dns::detail::question;
 }
 
-// HTTP Benchmark
+// ============================================================
+// HTTP 协议基准测试
+// 测试 HTTP 代理请求解析（GET/CONNECT/POST）和相对路径提取性能
+// ============================================================
+
 static const std::string http_get_request =
     "GET /index.html HTTP/1.1\r\n"
     "Host: www.example.com\r\n"
@@ -117,123 +126,11 @@ static void BM_HttpExtractRelativePath(benchmark::State &state)
     }
 }
 
-// SOCKS5 Benchmark（纯解析)
-static void BM_Socks5DecodeHeader(benchmark::State &state)
-{
-    static constexpr std::array<std::uint8_t, 4> buffer = {0x05, 0x01, 0x00, 0x01};
-    for (auto _ : state)
-    {
-        auto [ec, header] = protocol::socks5::wire::parse_header(buffer);
-        if (fault::failed(ec))
-        {
-            state.SkipWithError("SOCKS5 header parsing failed");
-        }
-        benchmark::DoNotOptimize(header);
-    }
-    state.SetBytesProcessed(static_cast<std::int64_t>(state.iterations()) * static_cast<std::int64_t>(buffer.size()));
-}
+// ============================================================
+// Trojan 协议基准测试
+// 测试 Trojan 凭据解析（56 字节 SHA224 哈希比对）性能
+// ============================================================
 
-static void BM_Socks5DecodeIPv4(benchmark::State &state)
-{
-    static constexpr std::array<std::uint8_t, 4> buffer = {192, 168, 1, 1};
-    for (auto _ : state)
-    {
-        auto [ec, addr] = protocol::socks5::wire::parse_ipv4(buffer);
-        if (fault::failed(ec))
-        {
-            state.SkipWithError("SOCKS5 ipv4 parsing failed");
-        }
-        benchmark::DoNotOptimize(addr);
-    }
-    state.SetBytesProcessed(static_cast<std::int64_t>(state.iterations()) * static_cast<std::int64_t>(buffer.size()));
-}
-
-static void BM_Socks5DecodeDomain(benchmark::State &state)
-{
-    std::array<std::uint8_t, 12> buffer{};
-    buffer[0] = 11;
-    buffer[1] = 'e';
-    buffer[2] = 'x';
-    buffer[3] = 'a';
-    buffer[4] = 'm';
-    buffer[5] = 'p';
-    buffer[6] = 'l';
-    buffer[7] = 'e';
-    buffer[8] = '.';
-    buffer[9] = 'c';
-    buffer[10] = 'o';
-    buffer[11] = 'm';
-
-    for (auto _ : state)
-    {
-        auto [ec, addr] = protocol::socks5::wire::parse_domain(buffer);
-        if (fault::failed(ec))
-        {
-            state.SkipWithError("SOCKS5 domain parsing failed");
-        }
-        benchmark::DoNotOptimize(addr);
-    }
-    state.SetBytesProcessed(static_cast<std::int64_t>(state.iterations()) * static_cast<std::int64_t>(buffer.size()));
-}
-
-static void BM_Socks5DecodeIPv6(benchmark::State &state)
-{
-    std::array<std::uint8_t, 16> buffer{};
-    for (std::size_t i = 0; i < buffer.size(); ++i)
-    {
-        buffer[i] = static_cast<std::uint8_t>(i);
-    }
-    for (auto _ : state)
-    {
-        auto [ec, addr] = protocol::socks5::wire::parse_ipv6(buffer);
-        if (fault::failed(ec))
-        {
-            state.SkipWithError("SOCKS5 ipv6 parsing failed");
-        }
-        benchmark::DoNotOptimize(addr);
-    }
-    state.SetBytesProcessed(static_cast<std::int64_t>(state.iterations()) * static_cast<std::int64_t>(buffer.size()));
-}
-
-static void BM_Socks5DecodeDomain_VarLen(benchmark::State &state)
-{
-    const std::size_t len = static_cast<std::size_t>(state.range(0));
-    std::array<std::uint8_t, 256> buffer{};
-    buffer[0] = static_cast<std::uint8_t>(len);
-    for (std::size_t i = 0; i < len; ++i)
-    {
-        buffer[1 + i] = static_cast<std::uint8_t>('a' + (i % 26));
-    }
-
-    const auto view = std::span<const std::uint8_t>(buffer.data(), 1 + len);
-    for (auto _ : state)
-    {
-        auto [ec, addr] = protocol::socks5::wire::parse_domain(view);
-        if (fault::failed(ec))
-        {
-            state.SkipWithError("SOCKS5 domain parsing failed");
-        }
-        benchmark::DoNotOptimize(addr);
-    }
-    state.SetBytesProcessed(static_cast<std::int64_t>(state.iterations()) * static_cast<std::int64_t>(view.size()));
-}
-
-static void BM_Socks5DecodePort(benchmark::State &state)
-{
-    static constexpr std::array<std::uint8_t, 2> buffer = {0x1F, 0x90}; // 8080
-    for (auto _ : state)
-    {
-        auto [ec, port] = protocol::socks5::wire::decode_port(buffer);
-        if (fault::failed(ec))
-        {
-            state.SkipWithError("SOCKS5 port parsing failed");
-        }
-        benchmark::DoNotOptimize(port);
-    }
-    state.SetBytesProcessed(static_cast<std::int64_t>(state.iterations()) * static_cast<std::int64_t>(buffer.size()));
-}
-
-// Trojan Benchmark（纯解析）
 static void BM_TrojanDecodeCredential(benchmark::State &state)
 {
     static constexpr std::array<std::uint8_t, 56> buffer =
@@ -255,108 +152,6 @@ static void BM_TrojanDecodeCredential(benchmark::State &state)
     state.SetBytesProcessed(static_cast<std::int64_t>(state.iterations()) * static_cast<std::int64_t>(buffer.size()));
 }
 
-static void BM_TrojanDecodeCrlf(benchmark::State &state)
-{
-    static constexpr std::array<std::uint8_t, 2> buffer = {'\r', '\n'};
-    for (auto _ : state)
-    {
-        auto ec = protocol::trojan::format::parse_crlf(buffer);
-        if (fault::failed(ec))
-        {
-            state.SkipWithError("Trojan CRLF parsing failed");
-        }
-        benchmark::DoNotOptimize(ec);
-    }
-    state.SetBytesProcessed(static_cast<std::int64_t>(state.iterations()) * static_cast<std::int64_t>(buffer.size()));
-}
-
-static void BM_TrojanDecodeCmdAtyp(benchmark::State &state)
-{
-    static constexpr std::array<std::uint8_t, 2> buffer = {0x01, 0x01}; // CONNECT + IPv4
-    for (auto _ : state)
-    {
-        auto [ec, header] = protocol::trojan::format::parse_cmd_atyp(buffer);
-        if (fault::failed(ec))
-        {
-            state.SkipWithError("Trojan cmd/atyp parsing failed");
-        }
-        benchmark::DoNotOptimize(header);
-    }
-    state.SetBytesProcessed(static_cast<std::int64_t>(state.iterations()) * static_cast<std::int64_t>(buffer.size()));
-}
-
-static void BM_TrojanDecodeIPv4(benchmark::State &state)
-{
-    static constexpr std::array<std::uint8_t, 4> buffer = {127, 0, 0, 1};
-    for (auto _ : state)
-    {
-        auto [ec, addr] = protocol::trojan::format::parse_ipv4(buffer);
-        if (fault::failed(ec))
-        {
-            state.SkipWithError("Trojan ipv4 parsing failed");
-        }
-        benchmark::DoNotOptimize(addr);
-    }
-    state.SetBytesProcessed(static_cast<std::int64_t>(state.iterations()) * static_cast<std::int64_t>(buffer.size()));
-}
-
-static void BM_TrojanDecodeIPv6(benchmark::State &state)
-{
-    std::array<std::uint8_t, 16> buffer{};
-    for (std::size_t i = 0; i < buffer.size(); ++i)
-    {
-        buffer[i] = static_cast<std::uint8_t>(0xF0u ^ static_cast<std::uint8_t>(i));
-    }
-    for (auto _ : state)
-    {
-        auto [ec, addr] = protocol::trojan::format::parse_ipv6(buffer);
-        if (fault::failed(ec))
-        {
-            state.SkipWithError("Trojan ipv6 parsing failed");
-        }
-        benchmark::DoNotOptimize(addr);
-    }
-    state.SetBytesProcessed(static_cast<std::int64_t>(state.iterations()) * static_cast<std::int64_t>(buffer.size()));
-}
-
-static void BM_TrojanDecodeDomain_VarLen(benchmark::State &state)
-{
-    const std::size_t len = static_cast<std::size_t>(state.range(0));
-    std::array<std::uint8_t, 256> buffer{};
-    buffer[0] = static_cast<std::uint8_t>(len);
-    for (std::size_t i = 0; i < len; ++i)
-    {
-        buffer[1 + i] = static_cast<std::uint8_t>('b' + (i % 25));
-    }
-
-    const auto view = std::span<const std::uint8_t>(buffer.data(), 1 + len);
-    for (auto _ : state)
-    {
-        auto [ec, addr] = protocol::trojan::format::parse_domain(view);
-        if (fault::failed(ec))
-        {
-            state.SkipWithError("Trojan domain parsing failed");
-        }
-        benchmark::DoNotOptimize(addr);
-    }
-    state.SetBytesProcessed(static_cast<std::int64_t>(state.iterations()) * static_cast<std::int64_t>(view.size()));
-}
-
-static void BM_TrojanDecodePort(benchmark::State &state)
-{
-    static constexpr std::array<std::uint8_t, 2> buffer = {0x00, 0x50}; // 80
-    for (auto _ : state)
-    {
-        auto [ec, port] = protocol::trojan::format::parse_port(buffer);
-        if (fault::failed(ec))
-        {
-            state.SkipWithError("Trojan port parsing failed");
-        }
-        benchmark::DoNotOptimize(port);
-    }
-    state.SetBytesProcessed(static_cast<std::int64_t>(state.iterations()) * static_cast<std::int64_t>(buffer.size()));
-}
-
 static void BM_TrojanDecodeCredential_Invalid(benchmark::State &state)
 {
     std::array<std::uint8_t, 56> buffer{};
@@ -372,7 +167,8 @@ static void BM_TrojanDecodeCredential_Invalid(benchmark::State &state)
 }
 
 // ============================================================
-// DNS Packet Benchmark
+// DNS 报文基准测试
+// 测试 DNS 查询构建、报文打包/解包、IP 提取、TTL 计算性能
 // ============================================================
 
 static void BM_DnsMakeQuery(benchmark::State &state)
@@ -448,7 +244,8 @@ static void BM_DnsMinTtl(benchmark::State &state)
 }
 
 // ============================================================
-// Crypto Benchmark
+// 加密工具基准测试
+// 测试 SHA224 哈希、Base64 解码、凭据规范化性能
 // ============================================================
 
 static void BM_Sha224Short(benchmark::State &state)
@@ -484,7 +281,6 @@ static void BM_Base64DecodeShort(benchmark::State &state)
 
 static void BM_Base64DecodeLong(benchmark::State &state)
 {
-    // 构建 ~1KB base64 输入
     std::string b64_input(1400, 'A');
     for (auto _ : state)
     {
@@ -514,66 +310,8 @@ static void BM_NormalizeCredential_Hashed(benchmark::State &state)
 }
 
 // ============================================================
-// Protocol Analysis Benchmark
-// ============================================================
-
-static void BM_AnalysisResolveIPv4(benchmark::State &state)
-{
-    for (auto _ : state)
-    {
-        auto t = protocol::analysis::resolve("192.168.1.1:443");
-        benchmark::DoNotOptimize(t);
-    }
-}
-
-static void BM_AnalysisResolveIPv6(benchmark::State &state)
-{
-    for (auto _ : state)
-    {
-        auto t = protocol::analysis::resolve("[::1]:443");
-        benchmark::DoNotOptimize(t);
-    }
-}
-
-static void BM_AnalysisDetectInnerHttp(benchmark::State &state)
-{
-    std::string http_request = "GET / HTTP/1.1\r\nHost: example.com\r\n\r\n";
-    for (auto _ : state)
-    {
-        auto result = protocol::analysis::detect_tls(http_request);
-        benchmark::DoNotOptimize(result);
-    }
-    state.SetBytesProcessed(static_cast<std::int64_t>(state.iterations()) * static_cast<std::int64_t>(http_request.size()));
-}
-
-static void BM_AnalysisDetectInnerTrojan(benchmark::State &state)
-{
-    std::string trojan_like(60, 'a');
-    trojan_like[56] = '\r';
-    trojan_like[57] = '\n';
-    trojan_like[58] = 0x01;
-    trojan_like[59] = 0x01;
-    for (auto _ : state)
-    {
-        auto result = protocol::analysis::detect_tls(trojan_like);
-        benchmark::DoNotOptimize(result);
-    }
-    state.SetBytesProcessed(static_cast<std::int64_t>(state.iterations()) * static_cast<std::int64_t>(trojan_like.size()));
-}
-
-static void BM_AnalysisDetectInnerUndetermined(benchmark::State &state)
-{
-    std::string short_data(30, 'a');
-    for (auto _ : state)
-    {
-        auto result = protocol::analysis::detect_tls(short_data);
-        benchmark::DoNotOptimize(result);
-    }
-    state.SetBytesProcessed(static_cast<std::int64_t>(state.iterations()) * static_cast<std::int64_t>(short_data.size()));
-}
-
-// ============================================================
-// DNS Rules Engine Benchmark
+// DNS 规则引擎基准测试
+// 测试域名前缀树查找（精确匹配/通配符/未命中）、规则引擎匹配性能
 // ============================================================
 
 static void BM_DomainTrieSearchHit(benchmark::State &state)
@@ -628,42 +366,52 @@ static void BM_RulesEngineMatch(benchmark::State &state)
 }
 
 // ============================================================
-// VLESS Benchmark
+// 大规模 DomainTrie 测试
+// 测试不同规则数量下的查找性能
 // ============================================================
 
-static void BM_VlessParseRequest(benchmark::State &state)
+static void BM_DomainTrie_LargeDataset(benchmark::State &state)
 {
-    std::array<std::uint8_t, 26> buf{};
-    buf[0] = 0x00;                    // version
-    // UUID 全零 (16 bytes, already zero)
-    buf[17] = 0x00;                   // addnl_len
-    buf[18] = 0x01;                   // cmd = TCP
-    buf[19] = 0x00; buf[20] = 0x50;   // port = 80
-    buf[21] = 0x01;                   // atyp = IPv4
-    buf[22] = 127; buf[23] = 0; buf[24] = 0; buf[25] = 1;
+    const auto rule_count = static_cast<std::size_t>(state.range(0));
+    resolve::domain_trie trie;
 
+    for (std::size_t i = 0; i < rule_count; ++i)
+    {
+        std::string domain = "domain" + std::to_string(i) + ".com";
+        trie.insert(domain, static_cast<std::uint64_t>(i));
+    }
+
+    std::string query_domain = "domain" + std::to_string(rule_count / 2) + ".com";
     for (auto _ : state)
     {
-        auto result = protocol::vless::format::parse_request(buf);
+        auto result = trie.search(query_domain);
         benchmark::DoNotOptimize(result);
     }
-    state.SetBytesProcessed(static_cast<std::int64_t>(state.iterations()) * static_cast<std::int64_t>(buf.size()));
+}
+
+static void BM_DomainTrie_WildcardLarge(benchmark::State &state)
+{
+    const auto rule_count = static_cast<std::size_t>(state.range(0));
+    resolve::domain_trie trie;
+
+    for (std::size_t i = 0; i < rule_count; ++i)
+    {
+        std::string domain = "*.domain" + std::to_string(i) + ".com";
+        trie.insert(domain, static_cast<std::uint64_t>(i));
+    }
+
+    std::string query_domain = "www.domain" + std::to_string(rule_count / 2) + ".com";
+    for (auto _ : state)
+    {
+        auto result = trie.search(query_domain);
+        benchmark::DoNotOptimize(result);
+    }
 }
 
 // ============================================================
-// Shadowsocks Benchmark
+// Shadowsocks SS2022 协议基准测试
+// 测试 PSK Base64 解码性能
 // ============================================================
-
-static void BM_ShadowsocksParseAddressPort(benchmark::State &state)
-{
-    std::array<std::uint8_t, 7> buf = {0x01, 127, 0, 0, 1, 0x1F, 0x90};
-    for (auto _ : state)
-    {
-        auto [ec, result] = protocol::shadowsocks::format::parse_address_port(buf);
-        benchmark::DoNotOptimize(result);
-    }
-    state.SetBytesProcessed(static_cast<std::int64_t>(state.iterations()) * static_cast<std::int64_t>(buf.size()));
-}
 
 static void BM_ShadowsocksDecodePsk(benchmark::State &state)
 {
@@ -684,23 +432,9 @@ BENCHMARK(BM_HttpParseProxyRequest_Connect);
 BENCHMARK(BM_HttpParseProxyRequest_PostBody)->Arg(0)->Arg(32)->Arg(128)->Arg(512)->Arg(4096);
 BENCHMARK(BM_HttpExtractRelativePath);
 
-// SOCKS5
-BENCHMARK(BM_Socks5DecodeHeader);
-BENCHMARK(BM_Socks5DecodeIPv4);
-BENCHMARK(BM_Socks5DecodeDomain);
-BENCHMARK(BM_Socks5DecodeIPv6);
-BENCHMARK(BM_Socks5DecodeDomain_VarLen)->Arg(4)->Arg(16)->Arg(64)->Arg(255);
-BENCHMARK(BM_Socks5DecodePort);
-
 // Trojan
 BENCHMARK(BM_TrojanDecodeCredential);
 BENCHMARK(BM_TrojanDecodeCredential_Invalid);
-BENCHMARK(BM_TrojanDecodeCrlf);
-BENCHMARK(BM_TrojanDecodeCmdAtyp);
-BENCHMARK(BM_TrojanDecodeIPv4);
-BENCHMARK(BM_TrojanDecodeIPv6);
-BENCHMARK(BM_TrojanDecodeDomain_VarLen)->Arg(4)->Arg(16)->Arg(64)->Arg(255);
-BENCHMARK(BM_TrojanDecodePort);
 
 // DNS Packet
 BENCHMARK(BM_DnsMakeQuery);
@@ -717,24 +451,17 @@ BENCHMARK(BM_Base64DecodeLong);
 BENCHMARK(BM_NormalizeCredential_Plain);
 BENCHMARK(BM_NormalizeCredential_Hashed);
 
-// Protocol Analysis
-BENCHMARK(BM_AnalysisResolveIPv4);
-BENCHMARK(BM_AnalysisResolveIPv6);
-BENCHMARK(BM_AnalysisDetectInnerHttp);
-BENCHMARK(BM_AnalysisDetectInnerTrojan);
-BENCHMARK(BM_AnalysisDetectInnerUndetermined);
-
 // DNS Rules
 BENCHMARK(BM_DomainTrieSearchHit);
 BENCHMARK(BM_DomainTrieSearchWildcard);
 BENCHMARK(BM_DomainTrieSearchMiss);
 BENCHMARK(BM_RulesEngineMatch);
 
-// VLESS
-BENCHMARK(BM_VlessParseRequest);
+// DNS Rules 大规模测试
+BENCHMARK(BM_DomainTrie_LargeDataset)->Arg(100)->Arg(1000)->Arg(10000);
+BENCHMARK(BM_DomainTrie_WildcardLarge)->Arg(100)->Arg(1000);
 
 // Shadowsocks
-BENCHMARK(BM_ShadowsocksParseAddressPort);
 BENCHMARK(BM_ShadowsocksDecodePsk);
 
 BENCHMARK_MAIN();

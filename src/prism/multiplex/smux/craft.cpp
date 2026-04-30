@@ -7,6 +7,7 @@
 
 #include <array>
 #include <charconv>
+#include <span>
 #include <boost/asio/co_spawn.hpp>
 
 constexpr std::string_view tag = "[Smux.Craft]";
@@ -31,6 +32,29 @@ namespace psm::multiplex::smux
             };
         }
     } // namespace
+
+    auto make_data_frame(const std::uint32_t stream_id, const std::span<const std::byte> payload)
+        -> memory::vector<std::byte>
+    {
+        memory::vector<std::byte> buf(memory::current_resource());
+        const auto hdr = build_header(command::push, stream_id,
+                                      static_cast<std::uint16_t>(payload.size()));
+        buf.insert(buf.end(), hdr.begin(), hdr.end());
+        buf.insert(buf.end(), payload.begin(), payload.end());
+        return buf;
+    }
+
+    auto make_syn_frame(const std::uint32_t stream_id)
+        -> std::array<std::byte, frame_header_size>
+    {
+        return build_header(command::syn, stream_id, 0);
+    }
+
+    auto make_fin_frame(const std::uint32_t stream_id)
+        -> std::array<std::byte, frame_header_size>
+    {
+        return build_header(command::fin, stream_id, 0);
+    }
 
     craft::craft(channel::transport::shared_transmission transport, resolve::router &router,
                  const multiplex::config &cfg, const memory::resource_pointer mr)

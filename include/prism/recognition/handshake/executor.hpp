@@ -94,7 +94,7 @@ namespace psm::recognition::handshake
          * @return 方案原始执行结果
          * @details 调用 scheme->execute() 完成实际握手，写入 executed_scheme 字段。
          */
-        [[nodiscard]] auto execute_single(stealth::shared_scheme scheme, stealth::scheme_context ctx) const
+        [[nodiscard]] static auto execute_single(stealth::shared_scheme scheme, stealth::scheme_context ctx)
             -> net::awaitable<stealth::scheme_result>;
 
         /**
@@ -103,7 +103,7 @@ namespace psm::recognition::handshake
          * @param res 上一个方案的执行结果
          * @details 使用 preview 原语包装传输层，确保下一个方案能读到已消耗的数据。
          */
-        auto pass_through(stealth::scheme_context &ctx, const stealth::scheme_result &res) const -> void;
+        static auto pass_through(stealth::scheme_context &ctx, const stealth::scheme_result &res) -> void;
 
         /**
          * @brief 核心管道：按名称列表逐个执行方案
