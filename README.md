@@ -3,80 +3,81 @@
 # Prism
 
 ![C++23](https://img.shields.io/badge/Standard-C%2B%2B23-blue.svg?logo=c%2B%2B)
-![Platform](https://img.shields.io/badge/Platform-Windows%2011%20|%20Linux-lightgrey)
+![Platform](https://img.shields.io/badge/Platform-Windows%20|%20Linux-lightgrey)
 ![License](https://img.shields.io/badge/License-MIT-green)
-![Build](https://img.shields.io/badge/Build-CMake-orange)
-
 
 **高性能协程代理引擎** — C++23 纯协程架构，PMR 热路径零堆分配
 
 </div>
 
 ---
+
 ## 概述
 
-Prism 是一个从零构建的服务端代理引擎，用 **C++23 协程** 替代回调、用 **PMR 内存池** 消除堆分配、用 **零拷贝** 减少数据搬移。每个连接由独立协程驱动，per-worker 独占 `io_context` 全链路无锁，请求处理全程零 `malloc`。支持五种代理协议 + Reality TLS 伪装，兼容 Mihomo 内核客户端。
-
+Prism 是从零构建的服务端代理引擎，用 C++23 协程替代回调、PMR 内存池消除堆分配、零拷贝减少数据搬移。每个连接由独立协程驱动，per-worker 独占 io_context 全链路无锁，热路径全程零 malloc。支持五种代理协议 + Reality TLS 伪装，兼容 Mihomo 客户端。
 
 ---
 
 ## 特性
 
 **架构**
-- **无锁协程** — C++23 `co_await` 全链路异步无锁，无回调嵌套
-- **零堆分配** — PMR 全局池 + 线程独占池，热路径全程零 `malloc`
-- **无锁设计** — per-worker 独占 `io_context`，吞吐随 CPU 核心数线性扩展
-- **智能嗅探** — 首包协议检测 + TLS 透明剥离 + 二次探测，一个端口服务所有协议
+- C++23 `co_await` 全链路异步，无回调嵌套
+- PMR 全局池 + 线程独占池，热路径零堆分配
+- per-worker 独占 `io_context`，吞吐随核心数线性扩展
+- 首包协议检测 + TLS 透明剥离 + 二次探测，单端口服务所有协议
 
 **协议**
-- *HTTP* — 正向代理 + `CONNECT` 隧道 + Basic 认证
-- *SOCKS5* — RFC 1928 完整实现，TCP `CONNECT` + UDP `ASSOCIATE`
-- *Trojan* — TLS + SHA224 凭据 + mux
-- *VLESS* — UUID 认证 + mux
-- *SS2022* — SIP022 AEAD（AES-128/256-GCM + XChaCha20-Poly1305），BLAKE3 密钥派生，TCP/UDP 中继 + 抗重放
+- **HTTP** — 正向代理 + CONNECT 隧道 + Basic 认证
+- **SOCKS5** — RFC 1928，TCP CONNECT + UDP ASSOCIATE
+- **Trojan** — TLS + SHA224 凭据 + mux
+- **VLESS** — UUID 认证 + mux
+- **SS2022** — SIP022 AEAD (AES-128/256-GCM + XChaCha20-Poly1305)，BLAKE3 密钥派生，抗重放
 
 **伪装**
-- *Reality* — TLS 指纹伪装，X25519 密钥交换
+- **Reality** — TLS 指纹伪装，X25519 密钥交换
 
 **优化**
-- **Happy Eyeballs** — 多服务器 DNS 竞速 + 多 IP 连接竞速（RFC 8305）
-- **连接池** — 线程级连接复用 + 健康检查 + 自动回收
-- **阶段 DNS** — 规则匹配 → 缓存 → 请求合并 → 上游查询（UDP/TCP/DoT/DoH）→ 黑名单 → TTL 钳制
-- **负载均衡** — 加权评分调度 + 亲和性哈希 + 全局过载反压
+- Happy Eyeballs (RFC 8305) — DNS 竞速 + 多 IP 连接竞速
+- 连接池 — 线程级复用 + 健康检查 + 自动回收
+- DNS 管道 — 规则匹配 → 缓存 → 合并 → 上游(UDP/TCP/DoT/DoH) → 黑名单 → TTL钳制
+- 负载均衡 — 加权评分 + 亲和性哈希 + 过载反压
+
+**多路复用**
+- **smux v1** — 兼容 Mihomo/xtaci，TCP + UDP
+- **yamux** — 窗口流量控制
 
 ---
 
 ## 快速开始
 
-**环境要求：** C++23 / CMake 3.23+ / MinGw工具链，所有依赖自动拉取，无需手动安装。
+环境要求：C++23 / CMake 3.23+ / MinGW 或 GCC 工具链
 
 ```bash
 git clone https://github.com/Hatedatastructures/Prism.git
 cd Prism
 
-cmake -B build_release -G "MinGW Makefiles" -DCMAKE_BUILD_TYPE=Release ## MinGW 工具链
+# 构建
+cmake -B build_release -DCMAKE_BUILD_TYPE=Release
 cmake --build build_release --config Release -j
 
-# 将配置文件复制到可执行文件同目录
+# 配置
 cp src/configuration.json build_release/src/
 
-# 启动（自动加载 exe 同目录的 configuration.json） 启动前先检查配置文件配置的文件路径是否正确
-./build_release/src/prism.exe
-
-# 或指定配置文件绝对路径
-./build_release/src/prism.exe /path/to/config.json
+# 启动
+./build_release/src/prism.exe                    # 自动加载同目录配置
+./build_release/src/prism.exe /path/to/config    # 指定配置路径
 
 # 测试
 ctest --test-dir build_release --output-on-failure
 ```
 
-> **注意：** `configuration.json` 中的文件路径（如 `certificate.key`、`certificate.cert`、`trace.path_name`）需要改为实际部署环境的绝对路径，否则会因路径不存在导致启动失败。
+> 配置文件中的路径需改为绝对路径，详见 [配置详解](docs/tutorial/configuration.md)
 
-**客户端配置（Clash客户端）：**
+**客户端示例**
 
 ```yaml
 proxies:
-  - name: "Prism"
+  - name: "Prism-Trojan"
     type: trojan
     server: 192.168.x.x
     port: 8081
@@ -85,7 +86,60 @@ proxies:
     skip-cert-verify: true
 ```
 
-> 完整配置参考 [**clash配置**](docs/examples/clash/reference.yaml)
+---
+
+## 协议支持
+
+| 协议 | TCP | UDP | 认证 | Mux | 伪装 |
+|------|:---:|:---:|:-----|:---:|:----:|
+| HTTP | ✓ | — | Basic | — | — |
+| SOCKS5 | ✓ | ✓ | User/Pass | — | — |
+| Trojan | ✓ | ✓ | SHA224 | ✓ | Reality |
+| VLESS | ✓ | ✓ | UUID | ✓ | Reality |
+| SS2022 | ✓ | ✓ | PSK/BLAKE3 | — | — |
+
+| 伪装 | 状态 |
+|------|------|
+| Reality | 已完成 — TLS 指纹伪装，可叠加任意内层协议 |
+| ShadowTLS v3 | 开发中 |
+| RestLS | 开发中 |
+
+---
+
+## 性能
+
+Intel i9-13900K + DDR4 64GB，Release (-O3)
+
+**协议握手**
+
+```
+BenchmarkSS2022握手            560000     1.35 us/op    731.4 k/s   纯内存，无网络往返
+BenchmarkTrojan握手              5600     131 us/op      7.63 k/s
+BenchmarkVLESS握手               5600     138 us/op      7.17 k/s
+BenchmarkSOCKS5握手              4480     146 us/op      6.83 k/s   双往返
+BenchmarkHTTP握手                4480     170 us/op      6.10 k/s
+```
+
+**吞吐量**
+
+```
+Benchmark隧道传输/128KB          18667     49.5 us/op     7.11 Gi/s  接近内存带宽
+BenchmarkAES256GCM加密           2358     298 us/op      225 Mi/s   64KB payload
+BenchmarkAES256GCM解密           2358     307 us/op      205 Mi/s
+BenchmarkReality握手            14452     47.6 us/op     22.6 k/s   X25519 占45.8%
+BenchmarkBLAKE3密钥派生        2800000    269 ns/op      144 Mi/s   SS2022 EK派生
+```
+
+**内存分配**
+
+```
+BenchmarkFrameArena           112000000    9.24 ns/op     3.75 Gi/s  帧内临时对象
+BenchmarkThreadLocalPool       37333333    17.7 ns/op     1.70 Gi/s  跨帧持久对象
+BenchmarkGlobalPool             5600000    119 ns/op      260 Mi/s  全局共享
+BenchmarkThreadLocal/4t        22300444    37.5 ns/op     103× vs Global  无竞争
+```
+
+[完整性能报告](docs/prism/performance-report.md)
 
 ---
 
@@ -94,128 +148,66 @@ proxies:
 ```
 Prism/
 ├── include/prism/
-│   ├── agent/            # 代理核心（listener, balancer, worker, session）
-│   ├── recognition/      # 协议智能识别（probe, clienthello, handshake）
-│   ├── channel/          # 传输层（reliable, encrypted, connection pool, eyeball）
-│   ├── crypto/           # 加密（AEAD, SHA224, BLAKE3, X25519, HKDF, Base64）
-│   ├── fault/            # 错误码体系
-│   ├── memory/           # PMR 内存管理（pool, arena, container）
-│   ├── multiplex/        # 多路复用（smux, yamux, duct, parcel）
-│   ├── outbound/         # 出站代理接口
-│   ├── pipeline/         # 协议管道（primitives, tunnel）
-│   ├── protocol/         # 协议实现（http, socks5, trojan, vless, shadowsocks）
-│   ├── stealth/          # TLS 伪装层（reality, shadowtls, restls, native）
-│   └── resolve/          # DNS（router, dns resolver, cache, rules）
-├── src/                  # 源文件 + 入口
-├── tests/                # 单元测试（25 个）
-├── benchmarks/           # 基准测试
-├── stresses/             # 压力测试
-├── docs/                 # 文档
-└── scripts/              # 工具脚本
+│   ├── agent/          # listener · balancer · worker · session
+│   ├── recognition/    # probe · clienthello · handshake
+│   ├── channel/        # reliable · encrypted · connection · eyeball
+│   ├── crypto/         # AEAD · SHA224 · BLAKE3 · X25519 · HKDF · Base64
+│   ├── memory/         # pool · arena · container (PMR)
+│   ├── multiplex/      # smux · yamux · duct · parcel
+│   ├── protocol/       # http · socks5 · trojan · vless · shadowsocks
+│   ├── stealth/        # reality · shadowtls · restls · native
+│   ├── resolve/        # router · recursor · cache · rules · resolver
+│   └── fault/          # 错误码体系
+├── src/                # 模块实现 + 入口
+├── tests/              # 单元测试 (42个)
+├── benchmarks/         # 性能测试
+├── stresses/           # 压力测试
+├── docs/               # 文档
+└── scripts/            # 工具脚本
 ```
 
 ---
 
-## 依赖项
+## 依赖
 
-全部通过 CMake FetchContent 自动拉取，首次拉取构建约 10 分钟，后续复用缓存。
+全部通过 CMake FetchContent 自动拉取，首次构建约 10 分钟。
 
-| 依赖 | 用途 |
-|------|------|
-| Boost 1.89 (Asio) | 协程异步 I/O |
-| BoringSSL | TLS（OpenSSL API 兼容） |
-| spdlog 1.17 | 异步日志 |
-| glaze 6.5 | JSON 序列化 |
-| BLAKE3 1.8 | SS2022 密钥派生 |
-| Google Benchmark 1.9 | 性能测试 |
-
----
-
-## 协议状态
-
-| 协议 | TCP | UDP | 认证 | Mux |
-|------|:---:|:---:|------|:---:|
-| *HTTP* | ✓ | — | Basic | — |
-| *SOCKS5* | ✓ | ✓ | User/Pass | — |
-| *Trojan* | ✓ | ✓ | SHA224 | ✓ |
-| *VLESS* | ✓ | ✓ | UUID | ✓ |
-| *SS2022* | ✓ | ✓ | PSK/BLAKE3 | — |
-
-| 伪装 | 状态 | 说明 |
-|------|------|------|
-| *Reality* | 已完成 | TLS 指纹伪装，X25519 密钥交换，可叠加任意内层协议 |
-| *ShadowTLS v3* | 开发中 | HMAC-SHA1 SessionID 认证，多用户支持 |
-| *RestLS* | 开发中 | TLS 1.2/1.3 指纹模拟 |
-
-| Mux | 状态 | 说明 |
-|-----|------|------|
-| *smux* v1 | 已完成 | 兼容 Mihomo/xtaci，TCP + UDP |
-| *yamux* | 已完成 | 窗口流量控制 |
-
----
-
-## 性能
-
-基于 Intel i9-13900K @ 3.0 GHz 测试。
-
-**数据传输吞吐量**
-
-| 操作 | 吞吐量 | 说明 |
-|------|--------|------|
-| AES-128-GCM Seal (64 KiB) | ~249 Mi/s | 持续加密数据流 |
-| AES-256-GCM Seal (64 KiB) | ~215 Mi/s | 持续加密数据流 |
-| X25519 KeyExchange | ~42K ops/s | Reality 握手核心 |
-| BLAKE3 DeriveKey | ~178 Mi/s | SS2022 密钥派生 |
-| smux UDP 数据报 | ~58 Gi/s | 16 KiB payload |
-
-**协议握手**
-
-| 协议 | 吞吐量 | 说明 |
-|------|--------|------|
-| HTTP CONNECT | ~904 Mi/s | 解析请求 + 构建转发行 |
-| SOCKS5 | ~13.6 Gi/s | 头部 + IPv4 + 端口 |
-| Trojan | ~2.2 Gi/s | 凭据 + CRLF + 命令 + 地址 |
-| VLESS | ~2.2 Gi/s | UUID + 命令 + 地址 |
-
-**内存分配吞吐量**
-
-| 分配器 | 吞吐量 | 说明 |
-|--------|--------|------|
-| FrameArena | ~6.4 Gi/s | 线性分配，热路径首选 |
-| ThreadLocalPool | ~1.8 Gi/s | 线程私有，通用场景 |
-| GlobalPool | ~272 Mi/s | 全局共享，跨线程对象 |
-| GlobalPool (4线程竞争) | ~233 Mi/s | 锁竞争严重 |
-
-> 详细报告见 [performance-report.md](docs/prism/performance-report.md)
+| 库 | 版本 | 用途 |
+|:---|:----:|:-----|
+| Boost.Asio | 1.89 | 协程异步 I/O |
+| BoringSSL | — | TLS (OpenSSL API 兼容) |
+| spdlog | 1.17 | 异步日志 |
+| glaze | 6.5 | JSON 序列化 |
+| BLAKE3 | 1.8 | SS2022 密钥派生 |
+| Google Benchmark | 1.9.5 | 性能测试 |
 
 ---
 
 ## 开发路线
 
-- [x] 五协议完整实现（*HTTP* / *SOCKS5* / *Trojan* / *VLESS* / *SS2022*）
+- [x] 五协议完整实现 (HTTP/SOCKS5/Trojan/VLESS/SS2022)
 - [x] TLS 透明剥离 + 二次协议探测
-- [x] Recognition 模块（协议智能识别 + 伪装方案特征分析）
-- [x] *smux* / *yamux* 多路复用
-- [x] Happy Eyeballs（RFC 8305）
-- [x] 7 阶段 DNS 管道（UDP/TCP/DoT/DoH + 缓存 + 规则）
+- [x] Recognition 模块 (协议智能识别 + 伪装特征分析)
+- [x] smux/yamux 多路复用
+- [x] Happy Eyeballs (RFC 8305)
+- [x] 7阶段 DNS 管道
 - [x] 连接池 + 健康检查
 - [x] 加权负载均衡 + 过载反压
-- [x] 每用户连接数限制 + 凭据认证
-- [x] *Reality* TLS 伪装
-- [ ] *ShadowTLS v3* / *RestLS* TLS 伪装（开发中）
-- [ ] *QUIC* / *Hysteria2*
-- [ ] *smux* v2
-- [ ] *WebSocket*
+- [x] Reality TLS 伪装
+- [ ] ShadowTLS v3 / RestLS
+- [ ] QUIC / Hysteria2
+- [ ] smux v2
+- [ ] WebSocket
 
 ---
 
 ## 文档
 
 **新手教程**
-- [快速开始](docs/tutorial/getting-started.md) · [配置详解](docs/tutorial/configuration.md) · [部署指南](docs/tutorial/deployment.md) · [故障排除](docs/tutorial/troubleshooting.md) · [常见问题](docs/tutorial/faq.md)
+[快速开始](docs/tutorial/getting-started.md) · [配置详解](docs/tutorial/configuration.md) · [部署指南](docs/tutorial/deployment.md) · [故障排查](docs/tutorial/troubleshooting.md) · [常见问题](docs/tutorial/faq.md)
 
 **开发者文档**
-- [文档入口](docs/index.md) · [agent](docs/prism/agent.md) · [recognition](docs/prism/recognition.md) · [channel](docs/prism/channel.md) · [resolve](docs/prism/resolve.md) · [Trojan](docs/prism/protocol/trojan.md) · [VLESS](docs/prism/protocol/vless.md) · [smux](docs/prism/multiplex/smux.md) · [Reality](docs/prism/stealth/reality.md)
+[文档入口](docs/index.md) · [agent](docs/prism/agent.md) · [recognition](docs/prism/recognition.md) · [channel](docs/prism/channel.md) · [resolve](docs/prism/resolve.md) · [Trojan](docs/prism/protocol/trojan.md) · [VLESS](docs/prism/protocol/vless.md) · [smux](docs/prism/multiplex/smux.md) · [Reality](docs/prism/stealth/reality.md)
 
 ---
 

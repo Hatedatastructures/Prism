@@ -19,3 +19,4 @@
 面向代码贡献者和深度开发者的技术文档，按源码模块组织。
 
 - [开发者文档入口](prism/) — 按模块分层：agent、recognition、channel、resolve、pipeline、protocol、stealth、multiplex、memory、crypto 等
+- [性能基准测试报告](prism/performance-report.md) — 协议握手、吞吐量、内存分配等详细性能数据

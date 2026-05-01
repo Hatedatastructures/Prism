@@ -25,6 +25,7 @@
 | **crypto** | [crypto.md](crypto.md) | SHA224、Base64、AEAD、BLAKE3 |
 | **fault** | [fault.md](fault.md) | 错误码体系 |
 | **exception** | [exception.md](exception.md) | 异常继承层次 |
+| **性能** | [performance-report.md](performance-report.md) | 基准测试报告 |
 
 ---
 

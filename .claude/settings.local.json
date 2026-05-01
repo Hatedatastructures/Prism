@@ -1,7 +1,0 @@
-{
-  "permissions": {
-    "allow": [
-      "Read(//c/Users/C1373/go/pkg/mod/github.com/metacubex/**)"
-    ]
-  }
-}
