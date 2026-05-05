@@ -1,5 +1,7 @@
 target_sources(${PROJECT_NAME}_static_library
         PRIVATE
+        registry.cpp
+        executor.cpp
         reality/request.cpp
         reality/auth.cpp
         reality/keygen.cpp
@@ -21,6 +23,8 @@ target_sources(${PROJECT_NAME}_static_library
         FILES
             ${PROJECT_SOURCE_DIR}/include/prism/stealth.hpp
             ${PROJECT_SOURCE_DIR}/include/prism/stealth/scheme.hpp
+            ${PROJECT_SOURCE_DIR}/include/prism/stealth/registry.hpp
+            ${PROJECT_SOURCE_DIR}/include/prism/stealth/executor.hpp
             ${PROJECT_SOURCE_DIR}/include/prism/stealth/native.hpp
             ${PROJECT_SOURCE_DIR}/include/prism/stealth/reality/config.hpp
             ${PROJECT_SOURCE_DIR}/include/prism/stealth/reality/constants.hpp

@@ -16,6 +16,54 @@ namespace psm::stealth::reality
         return cfg.stealth.reality.enabled();
     }
 
+    auto scheme::detect(const protocol::tls::client_hello_features &features, const psm::config &cfg) const
+        -> detection_result
+    {
+        const auto &server_names = cfg.stealth.reality.server_names;
+
+        // SNI 匹配检查
+        bool sni_matched = false;
+        if (!features.server_name.empty() && !server_names.empty())
+        {
+            for (const auto &name : server_names)
+            {
+                if (features.server_name == std::string_view(name))
+                {
+                    sni_matched = true;
+                    break;
+                }
+            }
+        }
+
+        if (!sni_matched)
+        {
+            trace::debug("[Reality] SNI '{}' not matched", features.server_name);
+            return {.confidence = recognition::confidence::none,
+                    .reason = "SNI not matched"};
+        }
+
+        const bool has_full_session_id = features.session_id_len == 32;
+        const bool has_x25519 = features.has_x25519;
+
+        if (has_full_session_id && has_x25519)
+        {
+            trace::debug("[Reality] Full features: session_id=32, x25519=true");
+            return {.confidence = recognition::confidence::high,
+                    .reason = "SNI matched + session_id=32 + X25519"};
+        }
+
+        if (has_x25519)
+        {
+            trace::debug("[Reality] Partial features: x25519=true, session_id={}", features.session_id_len);
+            return {.confidence = recognition::confidence::medium,
+                    .reason = "SNI matched + X25519"};
+        }
+
+        trace::debug("[Reality] SNI matched but no X25519 key_share");
+        return {.confidence = recognition::confidence::low,
+                .reason = "SNI matched but no X25519"};
+    }
+
     auto scheme::name() const noexcept -> std::string_view
     {
         return "reality";

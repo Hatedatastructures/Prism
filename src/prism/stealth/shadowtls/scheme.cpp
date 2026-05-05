@@ -27,6 +27,29 @@ namespace psm::stealth::shadowtls
         return "shadowtls";
     }
 
+    auto scheme::detect(const protocol::tls::client_hello_features &features,
+                        const psm::config &cfg) const -> detection_result
+    {
+        if (!is_enabled(cfg))
+            return {.confidence = recognition::confidence::none,
+                    .reason = "ShadowTLS disabled"};
+
+        // ShadowTLS v3 使用 session_id 携带 HMAC 标记
+        // 仅靠 ClientHello 特征无法完全确认，需要 execute() 阶段验证
+        // 启发式：session_id 非空且长度不是标准 32 字节时可能是 ShadowTLS
+        // 注意：标准 TLS 1.2 实现也可使用 0-32 任意长度的 session_id，因此这只是启发式判断
+        if (!features.session_id.empty() && features.session_id_len != 32)
+        {
+            trace::debug("[ShadowTLS] Non-standard session_id length: {}", features.session_id_len);
+            return {.confidence = recognition::confidence::medium,
+                    .reason = "non-standard session_id length"};
+        }
+
+        // session_id 为空或标准长度时，无法区分
+        return {.confidence = recognition::confidence::low,
+                .reason = "standard TLS, cannot distinguish from ClientHello alone"};
+    }
+
     auto scheme::execute(scheme_context ctx)
         -> net::awaitable<scheme_result>
     {
@@ -68,7 +91,7 @@ namespace psm::stealth::shadowtls
                         std::span<const std::byte>(first_frame.data(), first_frame.size()));
                     result.preread.assign(first_frame.begin(), first_frame.end());
                     trace::debug("[ShadowTlsScheme] Authenticated (user: {}), inner protocol: {}",
-                                hs.matched_user, protocol::to_string_view(result.detected));
+                                 hs.matched_user, protocol::to_string_view(result.detected));
                 }
                 else
                 {

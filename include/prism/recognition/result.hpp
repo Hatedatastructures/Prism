@@ -1,7 +1,7 @@
 /**
  * @file result.hpp
  * @brief 识别模块分析结果结构定义
- * @details 定义 ClientHello 分析结果结构，由 arrival::registry::analyze() 返回。
+ * @details 定义 ClientHello 分析结果结构，由各 scheme 的 detect() 返回。
  * 该结果不包含网络 I/O 相关数据，仅描述特征分析的结论。
  */
 
@@ -9,7 +9,7 @@
 
 #include <prism/memory/container.hpp>
 #include <prism/recognition/confidence.hpp>
-#include <prism/recognition/feature.hpp>
+#include <prism/protocol/tls/types.hpp>
 #include <prism/fault/code.hpp>
 
 namespace psm::recognition
@@ -30,7 +30,7 @@ namespace psm::recognition
         confidence confidence{confidence::none};
 
         /** @brief 提取的 ClientHello 原始特征，供调用方参考 */
-        arrival_features features;
+        protocol::tls::client_hello_features features;
 
         /** @brief 解析错误码，成功时为 fault::code::success */
         fault::code error{fault::code::success};

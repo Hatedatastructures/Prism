@@ -30,7 +30,11 @@ namespace psm::stealth::restls
          * @param cfg 全局配置
          * @return 如果配置有效（host 和 password 非空），返回 true
          */
-        [[nodiscard]] auto is_enabled(const psm::config &cfg) const noexcept -> bool override;
+        [[nodiscard]] auto is_enabled(const psm::config &cfg) const noexcept
+            -> bool override;
+            
+        [[nodiscard]] auto detect(const protocol::tls::client_hello_features &features, const psm::config &cfg) const
+            -> detection_result override;
 
         /**
          * @brief 执行 Restls 处理

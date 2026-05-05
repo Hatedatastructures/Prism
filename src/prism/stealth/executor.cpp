@@ -3,50 +3,46 @@
  * @brief 伪装方案执行器实现
  */
 
-#include <prism/recognition/handshake/executor.hpp>
-#include <prism/stealth.hpp>
+#include <prism/stealth/executor.hpp>
+#include <prism/agent/context.hpp>
 #include <prism/pipeline/primitives.hpp>
 #include <prism/trace.hpp>
 #include <algorithm>
 
-namespace psm::recognition::handshake
+namespace psm::stealth
 {
-    scheme_executor::scheme_executor(std::vector<stealth::shared_scheme> schemes)
-        : schemes_(std::move(schemes))
+    scheme_executor::scheme_executor(const scheme_registry &registry)
+        : schemes_(registry.all().begin(), registry.all().end())
     {
     }
 
-    // 将 transport 和 preread 数据传递给下一个方案，避免数据丢失
-    auto scheme_executor::pass_through(stealth::scheme_context &ctx, const stealth::scheme_result &res)
-        -> void
+    auto scheme_executor::pass_through(scheme_context &ctx, const scheme_result &res) -> void
     {
         if (res.transport)
             ctx.inbound = res.transport;
         if (!res.preread.empty() && ctx.inbound)
         {
             auto preread_span = std::span(res.preread.data(), res.preread.size());
-            ctx.inbound = std::make_shared<pipeline::primitives::preview>(
-                ctx.inbound, preread_span, nullptr);
+            auto *mr = ctx.session ? ctx.session->frame_arena.get() : nullptr;
+            ctx.inbound = std::make_shared<pipeline::primitives::preview>(ctx.inbound, preread_span, mr);
         }
     }
 
-    // 执行单个方案，将 executed_scheme 写入结果
-    auto scheme_executor::execute_single(const stealth::shared_scheme scheme, stealth::scheme_context ctx)
-        -> net::awaitable<stealth::scheme_result>
+    auto scheme_executor::execute_single(const shared_scheme scheme, scheme_context ctx)
+        -> net::awaitable<scheme_result>
     {
         auto result = co_await scheme->execute(std::move(ctx));
         result.executed_scheme = memory::string(scheme->name());
         co_return result;
     }
 
-    // 核心管道：按给定名称列表逐个执行方案
-    auto scheme_executor::execute_pipeline(const memory::vector<memory::string> &order, stealth::scheme_context ctx) const
-        -> net::awaitable<stealth::scheme_result>
+    auto scheme_executor::execute_pipeline(const memory::vector<memory::string> &order, scheme_context ctx) const
+        -> net::awaitable<scheme_result>
     {
-        stealth::scheme_result result;
+        scheme_result result;
 
         for (const auto &name : order)
-        {   // 按照信任程度重试
+        {
             const auto scheme = find_scheme(name);
             if (!scheme)
             {
@@ -62,7 +58,7 @@ namespace psm::recognition::handshake
 
             trace::debug("[SchemeExecutor] Executing scheme '{}'", name);
 
-            auto exec_result = co_await execute_single(scheme, stealth::scheme_context{ctx});
+            auto exec_result = co_await execute_single(scheme, scheme_context{ctx});
 
             // 成功：内层协议已识别
             if (exec_result.detected != protocol::protocol_type::tls &&
@@ -95,19 +91,17 @@ namespace psm::recognition::handshake
         co_return result;
     }
 
-    auto scheme_executor::execute_by_analysis(const analysis_result &analysis, stealth::scheme_context ctx) const
-        -> net::awaitable<stealth::scheme_result>
+    auto scheme_executor::execute_by_analysis(const recognition::analysis_result &analysis, scheme_context ctx) const
+        -> net::awaitable<scheme_result>
     {
-        // 候选为空时回退到默认顺序
+        // 候选为空时按注册顺序执行
         if (analysis.candidates.empty())
         {
             trace::debug("[SchemeExecutor] No candidates from analysis, executing by default priority");
 
-            memory::vector<memory::string> default_order;
-            default_order.emplace_back("reality");
-            default_order.emplace_back("shadowtls");
-            default_order.emplace_back("restls");
-            default_order.emplace_back("native");
+            memory::vector<memory::string> default_order; // 默认顺序
+            for (const auto &scheme : schemes_)
+                default_order.emplace_back(scheme->name());
 
             auto result = co_await execute_pipeline(default_order, std::move(ctx));
 
@@ -126,31 +120,13 @@ namespace psm::recognition::handshake
         co_return co_await execute_pipeline(analysis.candidates, std::move(ctx));
     }
 
-    auto scheme_executor::execute_by_priority(const execution_priority &priority, stealth::scheme_context ctx) const
-        -> net::awaitable<stealth::scheme_result>
+    auto scheme_executor::execute(const memory::vector<memory::string> &candidates, scheme_context ctx) const
+        -> net::awaitable<scheme_result>
     {
-        co_return co_await execute_pipeline(priority.order, std::move(ctx));
+        co_return co_await execute_pipeline(candidates, std::move(ctx));
     }
 
-    auto scheme_executor::register_scheme(stealth::shared_scheme scheme) -> void
-    {
-        schemes_.push_back(std::move(scheme));
-    }
-
-    // 注册顺序即为默认优先级：reality → shadowtls → restls → native
-    auto scheme_executor::create_default() -> std::unique_ptr<scheme_executor>
-    {
-        std::vector<stealth::shared_scheme> schemes;
-        schemes.push_back(std::make_shared<stealth::reality::scheme>());
-        schemes.push_back(std::make_shared<stealth::shadowtls::scheme>());
-        schemes.push_back(std::make_shared<stealth::restls::scheme>());
-        schemes.push_back(std::make_shared<stealth::schemes::native>());
-
-        return std::make_unique<scheme_executor>(std::move(schemes));
-    }
-
-    auto scheme_executor::find_scheme(const std::string_view name) const
-        -> stealth::shared_scheme
+    auto scheme_executor::find_scheme(const std::string_view name) const -> shared_scheme
     {
         for (const auto &scheme : schemes_)
         {
@@ -159,4 +135,5 @@ namespace psm::recognition::handshake
         }
         return nullptr;
     }
-} // namespace psm::recognition::handshake
+
+} // namespace psm::stealth

@@ -9,6 +9,11 @@
 
 #pragma once
 
+#include <prism/stealth/scheme.hpp>
+#include <prism/stealth/registry.hpp>
+#include <prism/stealth/executor.hpp>
+#include <prism/stealth/native.hpp>
+
 #include <prism/stealth/reality/config.hpp>
 #include <prism/stealth/reality/constants.hpp>
 #include <prism/stealth/reality/request.hpp>
@@ -18,7 +23,6 @@
 #include <prism/stealth/reality/seal.hpp>
 #include <prism/stealth/reality/handshake.hpp>
 #include <prism/stealth/reality/scheme.hpp>
+
 #include <prism/stealth/shadowtls/scheme.hpp>
 #include <prism/stealth/restls/scheme.hpp>
-#include <prism/stealth/scheme.hpp>
-#include <prism/stealth/native.hpp>

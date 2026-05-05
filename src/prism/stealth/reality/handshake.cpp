@@ -1,7 +1,7 @@
 #include <prism/stealth/reality/handshake.hpp>
 #include <prism/stealth/reality/constants.hpp>
-#include <prism/stealth/reality/request.hpp>
 #include <prism/stealth/reality/auth.hpp>
+#include <prism/protocol/tls/signal.hpp>
 #include <prism/stealth/reality/keygen.hpp>
 #include <prism/stealth/reality/response.hpp>
 #include <prism/stealth/reality/seal.hpp>
@@ -273,7 +273,7 @@ namespace psm::stealth::reality
                      format_hex_short({verify_data.data(), verify_data.size()}));
 
         memory::vector<std::uint8_t> correct_plaintext(ee_cert_cv.begin(), ee_cert_cv.end());
-        correct_plaintext.push_back(tls::HANDSHAKE_TYPE_FINISHED);
+        correct_plaintext.push_back(protocol::tls::HANDSHAKE_TYPE_FINISHED);
         correct_plaintext.push_back(0x00);
         correct_plaintext.push_back(0x00);
         correct_plaintext.push_back(static_cast<std::uint8_t>(verify_data.size()));
@@ -283,7 +283,7 @@ namespace psm::stealth::reality
             keys.server_handshake_key,
             keys.server_handshake_iv,
             0,
-            tls::CONTENT_TYPE_HANDSHAKE,
+            protocol::tls::CONTENT_TYPE_HANDSHAKE,
             correct_plaintext);
 
         if (fault::failed(enc_ec))
@@ -306,7 +306,7 @@ namespace psm::stealth::reality
         bool consumed = false;
         while (!consumed)
         {
-            std::array<std::byte, tls::RECORD_HEADER_LEN> rec_hdr{};
+            std::array<std::byte, protocol::tls::RECORD_HEADER_LEN> rec_hdr{};
             if (!co_await read_exact(inbound, rec_hdr))
             {
                 trace::warn("{} failed to read client record header", HsTag);
@@ -328,7 +328,7 @@ namespace psm::stealth::reality
                 co_return fault::code::io_error;
             }
 
-            if (rec_content_type == tls::CONTENT_TYPE_CHANGE_CIPHER_SPEC)
+            if (rec_content_type == protocol::tls::CONTENT_TYPE_CHANGE_CIPHER_SPEC)
             {
                 trace::debug("{} skipping client CCS record", HsTag);
                 continue;
@@ -336,8 +336,8 @@ namespace psm::stealth::reality
 
             // 非 CCS 记录：尝试解密以判断是 Finished 还是 Alert
             {
-                std::array<std::uint8_t, tls::AEAD_NONCE_LEN> client_nonce{};
-                std::memcpy(client_nonce.data(), keys.client_handshake_iv.data(), tls::AEAD_NONCE_LEN);
+                std::array<std::uint8_t, protocol::tls::AEAD_NONCE_LEN> client_nonce{};
+                std::memcpy(client_nonce.data(), keys.client_handshake_iv.data(), protocol::tls::AEAD_NONCE_LEN);
 
                 const auto ad_span = std::span<const std::uint8_t>(
                     reinterpret_cast<const std::uint8_t *>(rec_hdr.data()), rec_hdr.size());
@@ -357,7 +357,7 @@ namespace psm::stealth::reality
                 if (!fault::failed(open_ec) && decrypted.size() >= 2)
                 {
                     const auto inner_content_type = decrypted.back();
-                    if (inner_content_type == tls::CONTENT_TYPE_ALERT && decrypted.size() >= 3)
+                    if (inner_content_type == protocol::tls::CONTENT_TYPE_ALERT && decrypted.size() >= 3)
                     {
                         trace::error("{} client sent TLS ALERT: level={}, desc=0x{:02x} — server Finished was rejected",
                                      HsTag,
@@ -370,7 +370,7 @@ namespace psm::stealth::reality
                         trace::debug("{} consumed client Finished record ({} bytes, inner_type=0x{:02x})",
                                      HsTag, rec_len, static_cast<unsigned>(inner_content_type));
                         // 诊断日志：客户端 Finished verify_data
-                        if (inner_content_type == tls::CONTENT_TYPE_HANDSHAKE && decrypted.size() >= 36)
+                        if (inner_content_type == protocol::tls::CONTENT_TYPE_HANDSHAKE && decrypted.size() >= 36)
                         {
                             trace::info("{} client Finished verify_data: {}", HsTag,
                                         format_hex_short({decrypted.data() + 4, 32}));
@@ -408,7 +408,7 @@ namespace psm::stealth::reality
         const auto &reality_cfg = ctx.server.config().stealth.reality;
 
         // 1. 读取 ClientHello
-        auto [read_ec, raw_record] = co_await read_tls_record(*ctx.inbound);
+        auto [read_ec, raw_record] = co_await protocol::tls::read_tls_record(*ctx.inbound);
         if (fault::failed(read_ec))
         {
             trace::warn("{} failed to read TLS record: {}", HsTag, fault::describe(read_ec));
@@ -416,7 +416,7 @@ namespace psm::stealth::reality
             co_return result;
         }
 
-        auto [parse_ec, client_hello] = parse_client_hello(raw_record);
+        auto [parse_ec, ch_features] = protocol::tls::parse_client_hello(raw_record);
         if (fault::failed(parse_ec))
         {
             trace::warn("{} failed to parse ClientHello: {}", HsTag, fault::describe(parse_ec));
@@ -426,12 +426,22 @@ namespace psm::stealth::reality
             co_return result;
         }
 
+        // TODO: 统一 client_hello_features 与 client_hello_info 类型，消除此转换
+        client_hello_info client_hello;
+        client_hello.server_name = std::move(ch_features.server_name);
+        client_hello.session_id = std::move(ch_features.session_id);
+        client_hello.has_client_public_key = ch_features.has_x25519;
+        client_hello.client_public_key = ch_features.x25519_key;
+        client_hello.supported_versions = std::move(ch_features.versions);
+        client_hello.random = ch_features.random;
+        client_hello.raw_message = std::move(ch_features.raw_hs_msg);
+
         trace::debug("{} ClientHello parsed, SNI: {}", HsTag, client_hello.server_name);
 
         // 2. 解码私钥
         const auto private_key_str = std::string(reality_cfg.private_key.data(), reality_cfg.private_key.size());
         auto decoded_key_str = crypto::base64_decode(private_key_str);
-        if (decoded_key_str.size() != tls::REALITY_KEY_LEN)
+        if (decoded_key_str.size() != protocol::tls::REALITY_KEY_LEN)
         {
             trace::warn("{} invalid private key length: {}", HsTag, decoded_key_str.size());
             const auto fb_ec = co_await fallback_to_dest(ctx, raw_record);

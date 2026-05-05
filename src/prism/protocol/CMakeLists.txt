@@ -1,6 +1,7 @@
 target_sources(${PROJECT_NAME}_static_library
         PRIVATE
         analysis.cpp
+        tls/signal.cpp
         trojan/relay.cpp
         trojan/format.cpp
         vless/relay.cpp
@@ -17,6 +18,8 @@ target_sources(${PROJECT_NAME}_static_library
         FILES
             ${PROJECT_SOURCE_DIR}/include/prism/protocol.hpp
             ${PROJECT_SOURCE_DIR}/include/prism/protocol/analysis.hpp
+            ${PROJECT_SOURCE_DIR}/include/prism/protocol/tls/types.hpp
+            ${PROJECT_SOURCE_DIR}/include/prism/protocol/tls/signal.hpp
             ${PROJECT_SOURCE_DIR}/include/prism/protocol/http.hpp
             ${PROJECT_SOURCE_DIR}/include/prism/protocol/socks5.hpp
             ${PROJECT_SOURCE_DIR}/include/prism/protocol/common/form.hpp

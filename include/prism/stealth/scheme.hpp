@@ -18,6 +18,8 @@
 #include <prism/fault/code.hpp>
 #include <prism/memory/container.hpp>
 #include <prism/protocol/analysis.hpp>
+#include <prism/protocol/tls/types.hpp>
+#include <prism/recognition/confidence.hpp>
 
 namespace psm::resolve
 {
@@ -38,6 +40,20 @@ namespace psm::stealth
 {
     namespace net = boost::asio;
     using shared_transmission = channel::transport::shared_transmission;
+
+    /**
+     * @struct detection_result
+     * @brief 伪装方案检测结果
+     * @details 包含置信度和检测原因，用于指导方案执行顺序
+     */
+    struct detection_result
+    {
+        /** @brief 置信度级别 */
+        recognition::confidence confidence{recognition::confidence::none};
+
+        /** @brief 检测原因（用于日志和调试） */
+        memory::string reason;
+    };
 
     /**
      * @struct scheme_result
@@ -82,6 +98,18 @@ namespace psm::stealth
          * @return true 如果启用
          */
         [[nodiscard]] virtual auto is_enabled(const psm::config &cfg) const noexcept -> bool = 0;
+
+        /**
+         * @brief 检测 ClientHello 是否匹配此方案（纯分析，无 I/O）
+         * @param features 已解析的 ClientHello 特征
+         * @param cfg 服务器配置
+         * @return 检测结果，包含置信度和原因
+         * @details 该方法是纯函数，不做任何网络 I/O，可独立测试。
+         * 各方案根据自身特征（如 X25519 key_share、session_id 格式等）
+         * 判断 ClientHello 是否可能属于此方案。
+         */
+        [[nodiscard]] virtual auto detect(const protocol::tls::client_hello_features &features, const psm::config &cfg) const
+            -> detection_result = 0;
 
         /**
          * @brief 执行方案处理

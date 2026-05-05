@@ -10,7 +10,6 @@
 #include <span>
 #include <boost/asio.hpp>
 #include <prism/recognition/confidence.hpp>
-#include <prism/recognition/feature.hpp>
 #include <prism/recognition/result.hpp>
 #include <prism/channel/transport/transmission.hpp>
 #include <prism/memory/pool.hpp>
@@ -22,18 +21,21 @@
 #include <prism/recognition/probe/probe.hpp>
 #include <prism/recognition/probe/analyzer.hpp>
 
-// ClientHello 特征检测子模块
-#include <prism/recognition/arrival/feature.hpp>
-#include <prism/recognition/arrival/registry.hpp>
-#include <prism/recognition/arrival/reality.hpp>
+// 前置声明
+namespace psm
+{
+    struct config;
+}
 
-// 握手后方案执行子模块
-#include <prism/recognition/handshake/priority.hpp>
-#include <prism/recognition/handshake/executor.hpp>
+namespace psm::resolve
+{
+    class router;
+}
 
-// 预留扩展（ECH, AnyTLS）
-// #include <prism/recognition/arrival/ech.hpp>
-// #include <prism/recognition/arrival/anytls.hpp>
+namespace psm::agent
+{
+    struct session_context;
+}
 
 namespace psm::recognition
 {
@@ -106,22 +108,6 @@ namespace psm::recognition
      * - 读取完整 ClientHello
      * - 特征分析
      * - 方案执行
-     *
-     * **使用示例**：
-     * ```cpp
-     * auto result = co_await recognition::recognize({
-     *     .transport = ctx_.inbound,
-     *     .cfg = &ctx_.server.config(),
-     *     .router = &ctx_.worker.router,
-     *     .session = &ctx_,
-     *     .frame_arena = &ctx_.frame_arena
-     * });
-     *
-     * if (result.success) {
-     *     ctx_.inbound = result.transport;
-     * }
-     * co_await dispatch::dispatch(ctx_, result.detected, result.preread);
-     * ```
      */
     auto recognize(recognize_context ctx) -> net::awaitable<recognize_result>;
 
@@ -195,54 +181,15 @@ namespace psm::recognition
      * - 解析 ClientHello 结构
      * - 提取 SNI、session_id、key_share 等特征
      *
-     * **Phase 3: Analyze（分析）**
-     * - 遍历所有 feature
-     * - 判断各方案置信度
-     * - 生成候选方案列表
+     * **Phase 3: Detect（检测）**
+     * - 遍历所有 scheme 的 detect()
+     * - 收集候选方案列表
      *
-     * **Phase 4: Dispatch（分流）**
-     * - 按候选顺序执行方案
+     * **Phase 4: Execute（执行）**
+     * - 按候选顺序执行 scheme
      * - 成功则返回结果
      * - 失败则继续下一个或 fallback
-     *
-     * **Phase 5: Execute（执行）**
-     * - 调用 stealth::scheme::execute()
-     * - 完成具体握手（Reality/ShadowTLS/RestLS/Native）
-     *
-     * **使用示例**：
-     * ```cpp
-     * auto result = co_await recognition::identify({
-     *     .transport = *ctx_.inbound,
-     *     .cfg = &ctx_.server.config(),
-     *     .preread = detect_result.pre_read_data,
-     *     .session = &ctx_
-     * });
-     *
-     * if (result.success) {
-     *     ctx_.inbound = result.transport;
-     *     detect_result.type = result.detected;
-     * }
-     * ```
      */
     auto identify(identify_context ctx) -> net::awaitable<identify_result>;
-
-    /**
-     * @brief 解析 TLS ClientHello 并提取特征
-     * @param raw_arrival 完整的 TLS ClientHello 记录（含 5 字节 header）
-     * @return 提取的特征结构
-     * @details 复用 stealth/reality/request.cpp 的解析逻辑。
-     */
-    [[nodiscard]] auto parse_arrival(std::span<const std::uint8_t> raw_arrival)
-        -> arrival_features;
-
-    /**
-     * @brief 读取完整 TLS ClientHello 记录
-     * @param transport 传输层
-     * @param preread 已预读数据（来自 protocol::probe）
-     * @return {错误码, ClientHello 数据}
-     * @details 复用 stealth/reality/request.cpp 的读取逻辑。
-     */
-    auto read_arrival(channel::transport::shared_transmission transport, std::span<const std::byte> preread)
-        -> net::awaitable<std::pair<fault::code, memory::vector<std::uint8_t>>>;
 
 } // namespace psm::recognition

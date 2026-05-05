@@ -16,6 +16,7 @@
 #include <prism/exception.hpp>
 #include <prism/config.hpp>
 #include <prism/loader/load.hpp>
+#include <prism/stealth/registry.hpp>
 
 namespace agent = psm::agent;
 
@@ -23,6 +24,9 @@ namespace agent = psm::agent;
 int main(int argc, char *argv[])
 {
     psm::memory::system::enable_global_pooling();
+
+    // 注册所有 TLS 伪装方案
+    psm::stealth::register_all_schemes();
 
     // 配置文件路径：命令行参数 > 可执行文件同目录下的 configuration.json
     std::filesystem::path configuration_path;

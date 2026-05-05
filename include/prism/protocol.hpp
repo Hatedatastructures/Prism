@@ -12,6 +12,8 @@
 #pragma once
 
 #include <prism/protocol/analysis.hpp>
+#include <prism/protocol/tls/types.hpp>
+#include <prism/protocol/tls/signal.hpp>
 
 #include <prism/protocol/http.hpp>
 #include <prism/protocol/trojan.hpp>

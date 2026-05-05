@@ -9,6 +9,7 @@
 #include <prism/trace.hpp>
 #include <prism/fault/handling.hpp>
 #include <prism/protocol/analysis.hpp>
+#include <prism/protocol/tls/types.hpp>
 
 namespace psm::stealth::schemes
 {
@@ -20,6 +21,14 @@ namespace psm::stealth::schemes
     auto native::name() const noexcept -> std::string_view
     {
         return "native";
+    }
+
+    auto native::detect([[maybe_unused]] const protocol::tls::client_hello_features &features,[[maybe_unused]] const config &cfg) const
+        -> detection_result
+    {
+        // Native 是兜底方案，始终返回 medium 置信度
+        return {.confidence = recognition::confidence::medium,
+                .reason = "native TLS fallback"};
     }
 
     auto native::execute(scheme_context ctx)
@@ -61,7 +70,7 @@ namespace psm::stealth::schemes
         while (inner_n < trojan_min)
         {
             std::error_code ec;
-            auto buf_span = std::span<std::byte>(inner_buf.data() + inner_n, inner_buf.size() - inner_n);
+            auto buf_span = std::span(inner_buf.data() + inner_n, inner_buf.size() - inner_n);
             const auto n = co_await encrypted_trans->async_read_some(std::move(buf_span), ec);
             if (ec)
             {
@@ -71,8 +80,7 @@ namespace psm::stealth::schemes
             }
             inner_n += n;
 
-            auto inner_view = std::string_view(
-                reinterpret_cast<const char *>(inner_buf.data()), inner_n);
+            const auto inner_view = std::string_view(reinterpret_cast<const char *>(inner_buf.data()), inner_n);
             result.detected = protocol::analysis::detect_tls(inner_view);
             if (result.detected != protocol::protocol_type::unknown)
             {

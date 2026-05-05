@@ -7,6 +7,12 @@ target_sources(${PROJECT_NAME}_static_library
             ${PROJECT_SOURCE_DIR}/include/prism/fault.hpp
             ${PROJECT_SOURCE_DIR}/include/prism/memory.hpp
             ${PROJECT_SOURCE_DIR}/include/prism/transformer.hpp
+            ${PROJECT_SOURCE_DIR}/include/prism/channel.hpp
+            ${PROJECT_SOURCE_DIR}/include/prism/crypto.hpp
+            ${PROJECT_SOURCE_DIR}/include/prism/multiplex.hpp
+            ${PROJECT_SOURCE_DIR}/include/prism/pipeline.hpp
+            ${PROJECT_SOURCE_DIR}/include/prism/recognition.hpp
+            ${PROJECT_SOURCE_DIR}/include/prism/resolve.hpp
             ${PROJECT_SOURCE_DIR}/include/prism/exception/deviant.hpp
             ${PROJECT_SOURCE_DIR}/include/prism/exception/network.hpp
             ${PROJECT_SOURCE_DIR}/include/prism/exception/protocol.hpp
