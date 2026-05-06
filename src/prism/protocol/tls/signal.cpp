@@ -136,7 +136,7 @@ namespace psm::protocol::tls
         while (read_offset < total)
         {
             std::error_code ec;
-            auto buf_span = std::span(reinterpret_cast<std::byte *>(buffer.data() + read_offset), total - read_offset);
+            const auto buf_span = std::span(reinterpret_cast<std::byte *>(buffer.data() + read_offset), total - read_offset);
             const auto n = co_await transport.async_read_some(buf_span, ec);
             if (ec || n == 0)
             {
@@ -190,7 +190,7 @@ namespace psm::protocol::tls
         }
     }
 
-    static auto parse_key_share(std::span<const std::uint8_t> ext_data, client_hello_features &features) -> void
+    static auto parse_key_share(const std::span<const std::uint8_t> ext_data, client_hello_features &features) -> void
     {
         if (ext_data.size() < 2)
             return;
@@ -328,7 +328,7 @@ namespace psm::protocol::tls
         const auto handshake_len = read_u24(record, offset);
         offset += 3;
 
-        const auto msg_start = RECORD_HEADER_LEN;
+        constexpr auto msg_start = RECORD_HEADER_LEN;
         const auto msg_len = 4 + handshake_len;
         if (msg_start + msg_len > record.size())
         {

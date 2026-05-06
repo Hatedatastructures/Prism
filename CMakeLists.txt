@@ -73,9 +73,9 @@ FetchContent_MakeAvailable(glaze)
 # Google 维护的 TLS 库，API 兼容 OpenSSL。项目通过 <openssl/*.h> 头文件和 OpenSSL 风格的
 # CMake 目标（OpenSSL::SSL / OpenSSL::Crypto）使用，代码无需修改。
 # BoringSSL 的 CMake 导出 ssl 和 crypto 目标，此处创建 OpenSSL 兼容别名。
-# MinGW + Windows 下 NASM 汇编存在兼容性问题（fiat_p256_adx 链接失败），
-# 暂时使用 OPENSSL_NO_ASM 纯 C 实现。AES-GCM ~240 Mi/s 对代理场景已足够。
-set(OPENSSL_NO_ASM ON CACHE BOOL "" FORCE)
+# MinGW + Windows 下 fiat_p256_adx 的 .S 文件不支持 PE/COFF 格式，需要 patch 移除。
+# AES-NI 等使用编译器内建汇编（<immintrin.h>）的部分可以正常工作。
+set(OPENSSL_NO_ASM OFF CACHE BOOL "" FORCE)
 # 禁用 BoringSSL 内部的 testing/benchmark，避免与项目自身的 Google Benchmark 目标名冲突
 set(BUILD_TESTING OFF CACHE BOOL "" FORCE)
 # 不编译 BoringSSL 自带的 bssl/decrepit 等工具（项目只需要 ssl/crypto/pki 库）
@@ -86,7 +86,38 @@ FetchContent_Declare(
     URL https://github.com/google/boringssl/archive/beafe3db15e3213bbce1711f85f704b6c00413d1.tar.gz
     DOWNLOAD_EXTRACT_TIMESTAMP TRUE
 )
-FetchContent_MakeAvailable(boringssl)
+FetchContent_Populate(boringssl)
+
+# MinGW patch: 从 BCM_SOURCES_ASM 中移除 fiat_p256_adx 文件
+# 这两个 .S 文件只支持 Apple 和 ELF 格式，不支持 Windows PE/COFF
+# 同时修改 p256_64.h 中的条件编译，避免调用这些未实现的函数
+if(MINGW)
+    # 1. 从 sources.cmake 中移除 fiat_p256_adx 文件
+    set(SOURCES_CMAKE "${boringssl_SOURCE_DIR}/gen/sources.cmake")
+    file(READ ${SOURCES_CMAKE} SOURCES_CONTENT)
+    string(REPLACE "  third_party/fiat/asm/fiat_p256_adx_mul.S\n" "" SOURCES_CONTENT "${SOURCES_CONTENT}")
+    string(REPLACE "  third_party/fiat/asm/fiat_p256_adx_sqr.S\n" "" SOURCES_CONTENT "${SOURCES_CONTENT}")
+    file(WRITE ${SOURCES_CMAKE} "${SOURCES_CONTENT}")
+
+    # 2. 修改 p256_64.h 中的条件编译，添加 !defined(OPENSSL_WINDOWS)
+    set(P256_64_H "${boringssl_SOURCE_DIR}/third_party/fiat/p256_64.h")
+    file(READ ${P256_64_H} P256_CONTENT)
+    string(REPLACE
+        "#if !defined(OPENSSL_NO_ASM) && defined(__GNUC__) && defined(__x86_64__)"
+        "#if !defined(OPENSSL_NO_ASM) && defined(__GNUC__) && defined(__x86_64__) && !defined(OPENSSL_WINDOWS)"
+        P256_CONTENT "${P256_CONTENT}")
+    file(WRITE ${P256_64_H} "${P256_CONTENT}")
+endif()
+
+add_subdirectory(${boringssl_SOURCE_DIR} ${boringssl_BINARY_DIR})
+
+# 创建 OpenSSL 兼容别名
+if(NOT TARGET OpenSSL::SSL AND TARGET ssl)
+    add_library(OpenSSL::SSL ALIAS ssl)
+endif()
+if(NOT TARGET OpenSSL::Crypto AND TARGET crypto)
+    add_library(OpenSSL::Crypto ALIAS crypto)
+endif()
 
 # --- BLAKE3 ---
 # BLAKE3 哈希和密钥派生函数，用于 SS2022 (SIP022) 密钥派生。

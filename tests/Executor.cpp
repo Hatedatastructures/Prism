@@ -124,7 +124,7 @@ void TestExecutorEmptyCandidates(psm::testing::TestRunner &runner)
                      "empty candidates: detected = trojan (mock_b)");
         runner.Check(std::string_view(result.executed_scheme) == "mock_b",
                      "empty candidates: executed_scheme = mock_b");
-        runner.Check(!fault::failed(result.error),
+        runner.Check(!psm::fault::failed(result.error),
                      "empty candidates: no error");
     };
 

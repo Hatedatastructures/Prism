@@ -29,7 +29,7 @@ namespace psm::fault
      */
     [[nodiscard]] inline const std::string &cached_message(code c) noexcept
     {
-        constexpr std::size_t code_count = static_cast<std::size_t>(code::_count);
+        constexpr auto code_count = static_cast<std::size_t>(code::_count);
         static const auto messages = []()
         {
             std::array<std::string, code_count + 1> arr{};

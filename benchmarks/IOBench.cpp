@@ -52,7 +52,7 @@ static void BM_TcpEcho_64B(benchmark::State &state)
     const auto payload = make_payload(64);
     std::vector<std::byte> response(64);
 
-    std::thread server_thread([&pipe, &payload]()
+    std::thread server_thread([&pipe]()
     {
         std::vector<std::byte> buf(64);
         boost::system::error_code ec;
@@ -83,7 +83,7 @@ static void BM_TcpEcho_64B(benchmark::State &state)
     pipe.server.close(ec);
     server_thread.join();
 
-    state.SetBytesProcessed(static_cast<std::int64_t>(state.iterations()) * 64 * 2);
+    state.SetBytesProcessed(state.iterations() * 64 * 2);
 }
 
 static void BM_TcpEcho_1KB(benchmark::State &state)
@@ -123,7 +123,7 @@ static void BM_TcpEcho_1KB(benchmark::State &state)
     pipe.server.close(ec);
     server_thread.join();
 
-    state.SetBytesProcessed(static_cast<std::int64_t>(state.iterations()) * 1024 * 2);
+    state.SetBytesProcessed(state.iterations() * 1024 * 2);
 }
 
 static void BM_TcpEcho_16KB(benchmark::State &state)
@@ -163,7 +163,7 @@ static void BM_TcpEcho_16KB(benchmark::State &state)
     pipe.server.close(ec);
     server_thread.join();
 
-    state.SetBytesProcessed(static_cast<std::int64_t>(state.iterations()) * 16 * 1024 * 2);
+    state.SetBytesProcessed(state.iterations() * 16 * 1024 * 2);
 }
 
 static void BM_TcpEcho_64KB(benchmark::State &state)
@@ -203,7 +203,7 @@ static void BM_TcpEcho_64KB(benchmark::State &state)
     pipe.server.close(ec);
     server_thread.join();
 
-    state.SetBytesProcessed(static_cast<std::int64_t>(state.iterations()) * 64 * 1024 * 2);
+    state.SetBytesProcessed(state.iterations() * 64 * 1024 * 2);
 }
 
 static void BM_TcpEcho_128KB(benchmark::State &state)

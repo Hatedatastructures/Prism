@@ -114,7 +114,7 @@ static void BM_HttpParseProxyRequest_PostBody(benchmark::State &state)
         }
         benchmark::DoNotOptimize(req);
     }
-    state.SetBytesProcessed(int64_t(state.iterations()) * int64_t(payload.size()));
+    state.SetBytesProcessed(state.iterations() * static_cast<int64_t>(payload.size()));
 }
 
 static void BM_HttpExtractRelativePath(benchmark::State &state)
@@ -149,7 +149,7 @@ static void BM_TrojanDecodeCredential(benchmark::State &state)
         }
         benchmark::DoNotOptimize(credential);
     }
-    state.SetBytesProcessed(static_cast<std::int64_t>(state.iterations()) * static_cast<std::int64_t>(buffer.size()));
+    state.SetBytesProcessed(state.iterations() * static_cast<std::int64_t>(buffer.size()));
 }
 
 static void BM_TrojanDecodeCredential_Invalid(benchmark::State &state)
@@ -163,7 +163,7 @@ static void BM_TrojanDecodeCredential_Invalid(benchmark::State &state)
         benchmark::DoNotOptimize(ec);
         benchmark::DoNotOptimize(credential);
     }
-    state.SetBytesProcessed(static_cast<std::int64_t>(state.iterations()) * static_cast<std::int64_t>(buffer.size()));
+    state.SetBytesProcessed(state.iterations() * static_cast<std::int64_t>(buffer.size()));
 }
 
 // ============================================================
@@ -188,7 +188,7 @@ static void BM_DnsPackMessage(benchmark::State &state)
         auto wire = msg.pack();
         benchmark::DoNotOptimize(wire);
     }
-    state.SetBytesProcessed(static_cast<std::int64_t>(state.iterations()) * 64);
+    state.SetBytesProcessed(state.iterations() * 64);
 }
 
 static void BM_DnsUnpackMessage(benchmark::State &state)
@@ -200,7 +200,7 @@ static void BM_DnsUnpackMessage(benchmark::State &state)
         auto opt = resolve::message::unpack(std::span<const std::uint8_t>(wire.data(), wire.size()));
         benchmark::DoNotOptimize(opt);
     }
-    state.SetBytesProcessed(static_cast<std::int64_t>(state.iterations()) * static_cast<std::int64_t>(wire.size()));
+    state.SetBytesProcessed(state.iterations() * static_cast<std::int64_t>(wire.size()));
 }
 
 static void BM_DnsExtractIps(benchmark::State &state)
@@ -255,7 +255,7 @@ static void BM_Sha224Short(benchmark::State &state)
         auto hash = crypto::sha224("abc");
         benchmark::DoNotOptimize(hash);
     }
-    state.SetBytesProcessed(static_cast<std::int64_t>(state.iterations()) * 3);
+    state.SetBytesProcessed(state.iterations() * 3);
 }
 
 static void BM_Sha224Long(benchmark::State &state)
