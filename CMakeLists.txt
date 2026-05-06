@@ -131,21 +131,32 @@ FetchContent_MakeAvailable(blake3)
 
 # BLAKE3 C 库（手动构建，不使用 Rust/Cargo）
 set(BLAKE3_C_DIR "${blake3_SOURCE_DIR}/c")
-add_library(blake3_c STATIC
+set(BLAKE3_SOURCES
     ${BLAKE3_C_DIR}/blake3.c
     ${BLAKE3_C_DIR}/blake3_dispatch.c
     ${BLAKE3_C_DIR}/blake3_portable.c
-    ${BLAKE3_C_DIR}/blake3_sse2.c
-    ${BLAKE3_C_DIR}/blake3_sse41.c
-    ${BLAKE3_C_DIR}/blake3_avx2.c
-    ${BLAKE3_C_DIR}/blake3_avx512.c
 )
+
+# x86/x64 架构添加 SIMD 优化源文件
+if(CMAKE_SYSTEM_PROCESSOR MATCHES "x86_64|AMD64|amd64|i[3-6]86")
+    list(APPEND BLAKE3_SOURCES
+        ${BLAKE3_C_DIR}/blake3_sse2.c
+        ${BLAKE3_C_DIR}/blake3_sse41.c
+        ${BLAKE3_C_DIR}/blake3_avx2.c
+        ${BLAKE3_C_DIR}/blake3_avx512.c
+    )
+endif()
+
+add_library(blake3_c STATIC ${BLAKE3_SOURCES})
 target_include_directories(blake3_c PUBLIC ${BLAKE3_C_DIR})
-# BLAKE3 各 SIMD 源文件需要对应的指令集编译选项（per-file）
-set_source_files_properties(${BLAKE3_C_DIR}/blake3_sse2.c PROPERTIES COMPILE_FLAGS "-msse2")
-set_source_files_properties(${BLAKE3_C_DIR}/blake3_sse41.c PROPERTIES COMPILE_FLAGS "-msse4.1")
-set_source_files_properties(${BLAKE3_C_DIR}/blake3_avx2.c PROPERTIES COMPILE_FLAGS "-mavx2")
-set_source_files_properties(${BLAKE3_C_DIR}/blake3_avx512.c PROPERTIES COMPILE_FLAGS "-mavx512f -mavx512vl")
+
+# x86/x64 架构设置 SIMD 编译选项
+if(CMAKE_SYSTEM_PROCESSOR MATCHES "x86_64|AMD64|amd64|i[3-6]86")
+    set_source_files_properties(${BLAKE3_C_DIR}/blake3_sse2.c PROPERTIES COMPILE_FLAGS "-msse2")
+    set_source_files_properties(${BLAKE3_C_DIR}/blake3_sse41.c PROPERTIES COMPILE_FLAGS "-msse4.1")
+    set_source_files_properties(${BLAKE3_C_DIR}/blake3_avx2.c PROPERTIES COMPILE_FLAGS "-mavx2")
+    set_source_files_properties(${BLAKE3_C_DIR}/blake3_avx512.c PROPERTIES COMPILE_FLAGS "-mavx512f -mavx512vl")
+endif()
 
 # BoringSSL 的 bssl/decrepit 等目标无条件编译，排除出默认构建避免 MinGW 编译错误
 set_target_properties(bssl PROPERTIES EXCLUDE_FROM_ALL TRUE)
