@@ -1,0 +1,36 @@
+# Auto detect text files and perform LF normalization
+* text=auto eol=lf
+
+# Source code files - always LF
+*.cpp text eol=lf
+*.hpp text eol=lf
+*.c text eol=lf
+*.h text eol=lf
+*.asm text eol=lf
+*.S text eol=lf
+
+# CMake files - always LF
+CMakeLists.txt text eol=lf
+*.cmake text eol=lf
+
+# Configuration files - always LF
+*.json text eol=lf
+*.yaml text eol=lf
+*.yml text eol=lf
+*.toml text eol=lf
+*.ini text eol=lf
+*.cfg text eol=lf
+*.conf text eol=lf
+
+# Script files - always LF
+*.sh text eol=lf
+*.ps1 text eol=lf
+*.bat text eol=lf
+
+# Documentation - always LF
+*.md text eol=lf
+*.txt text eol=lf
+
+# Git metadata
+.gitattributes text eol=lf
+.gitignore text eol=lf

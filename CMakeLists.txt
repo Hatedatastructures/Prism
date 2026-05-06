@@ -75,7 +75,93 @@ FetchContent_MakeAvailable(glaze)
 # BoringSSL 的 CMake 导出 ssl 和 crypto 目标，此处创建 OpenSSL 兼容别名。
 # MinGW + Windows 下 fiat_p256_adx 的 .S 文件不支持 PE/COFF 格式，需要 patch 移除。
 # AES-NI 等使用编译器内建汇编（<immintrin.h>）的部分可以正常工作。
-set(OPENSSL_NO_ASM OFF CACHE BOOL "" FORCE)
+
+# 自动获取 NASM 汇编器：先查找系统已安装的，找不到则下载到 _deps/nasm
+# NASM 是 BoringSSL 汇编优化的必需工具
+
+# 先尝试查找系统中的 NASM
+find_program(NASM_PROGRAM nasm)
+if(NASM_PROGRAM)
+    message(STATUS "Found NASM in system: ${NASM_PROGRAM}")
+    set(CMAKE_ASM_NASM_COMPILER "${NASM_PROGRAM}")
+    set(OPENSSL_NO_ASM OFF CACHE BOOL "" FORCE)
+else()
+    # 系统中未找到，根据平台下载 NASM
+    message(STATUS "NASM not found in system")
+
+    # 设置 NASM 安装目录（与其他 FetchContent 依赖放在一起）
+    set(NASM_INSTALL_DIR "${CMAKE_BINARY_DIR}/_deps/nasm")
+    set(NASM_VERSION "2.16.03")
+
+    if(WIN32)
+        set(NASM_URL "https://www.nasm.us/pub/nasm/releasebuilds/${NASM_VERSION}/win64/nasm-${NASM_VERSION}-win64.zip")
+        set(NASM_EXE "${NASM_INSTALL_DIR}/nasm-${NASM_VERSION}/nasm.exe")
+    elseif(LINUX)
+        set(NASM_URL "https://www.nasm.us/pub/nasm/releasebuilds/${NASM_VERSION}/linux/nasm-${NASM_VERSION}-linux-x64.tar.xz")
+        set(NASM_EXE "${NASM_INSTALL_DIR}/nasm-${NASM_VERSION}/nasm")
+    elseif(APPLE)
+        set(NASM_URL "https://www.nasm.us/pub/nasm/releasebuilds/${NASM_VERSION}/macosx/nasm-${NASM_VERSION}-macosx.tar.xz")
+        set(NASM_EXE "${NASM_INSTALL_DIR}/nasm-${NASM_VERSION}/nasm")
+    endif()
+
+    # 检查是否已下载（缓存）
+    if(EXISTS ${NASM_EXE})
+        message(STATUS "Using cached NASM: ${NASM_EXE}")
+        set(CMAKE_ASM_NASM_COMPILER "${NASM_EXE}")
+        set(OPENSSL_NO_ASM OFF CACHE BOOL "" FORCE)
+    elseif(NASM_URL)
+        # 下载并解压
+        message(STATUS "Downloading NASM from ${NASM_URL} ...")
+
+        set(NASM_ARCHIVE "${NASM_INSTALL_DIR}/nasm-archive")
+
+        file(MAKE_DIRECTORY ${NASM_INSTALL_DIR})
+        file(DOWNLOAD ${NASM_URL} ${NASM_ARCHIVE}
+            SHOW_PROGRESS
+            STATUS DOWNLOAD_STATUS
+            TIMEOUT 120
+        )
+
+        list(GET DOWNLOAD_STATUS 0 DOWNLOAD_CODE)
+        if(DOWNLOAD_CODE EQUAL 0)
+            message(STATUS "Extracting NASM ...")
+            # CMake 3.18+ 支持 file(ARCHIVE_EXTRACT)，统一处理 ZIP 和 tar.xz
+            file(ARCHIVE_EXTRACT INPUT ${NASM_ARCHIVE} DESTINATION ${NASM_INSTALL_DIR})
+
+            if(EXISTS ${NASM_EXE})
+                message(STATUS "NASM installed at: ${NASM_EXE}")
+                set(CMAKE_ASM_NASM_COMPILER "${NASM_EXE}")
+                set(OPENSSL_NO_ASM OFF CACHE BOOL "" FORCE)
+                # 清理下载的压缩包
+                file(REMOVE ${NASM_ARCHIVE})
+            else()
+                message(WARNING "NASM extraction failed, disabling assembly optimizations")
+                set(OPENSSL_NO_ASM ON CACHE BOOL "" FORCE)
+            endif()
+        else()
+            list(GET DOWNLOAD_STATUS 1 DOWNLOAD_MSG)
+            message(WARNING "Failed to download NASM: ${DOWNLOAD_MSG}, disabling assembly optimizations")
+            set(OPENSSL_NO_ASM ON CACHE BOOL "" FORCE)
+        endif()
+    else()
+        message(WARNING "Unsupported platform, disabling BoringSSL assembly optimizations")
+        set(OPENSSL_NO_ASM ON CACHE BOOL "" FORCE)
+    endif()
+endif()
+
+# 启用 ASM_NASM 语言（如果编译器可用）
+if(CMAKE_ASM_NASM_COMPILER)
+    enable_language(ASM_NASM OPTIONAL)
+    if(CMAKE_ASM_NASM_COMPILER_WORKS)
+        message(STATUS "NASM assembler enabled: ${CMAKE_ASM_NASM_COMPILER}")
+    else()
+        message(WARNING "NASM compiler test failed, disabling assembly optimizations")
+        set(OPENSSL_NO_ASM ON CACHE BOOL "" FORCE)
+    endif()
+else()
+    message(STATUS "NASM not available, BoringSSL will use C fallback (slower crypto)")
+endif()
+
 # 禁用 BoringSSL 内部的 testing/benchmark，避免与项目自身的 Google Benchmark 目标名冲突
 set(BUILD_TESTING OFF CACHE BOOL "" FORCE)
 # 不编译 BoringSSL 自带的 bssl/decrepit 等工具（项目只需要 ssl/crypto/pki 库）
@@ -86,6 +172,12 @@ FetchContent_Declare(
     URL https://github.com/google/boringssl/archive/beafe3db15e3213bbce1711f85f704b6c00413d1.tar.gz
     DOWNLOAD_EXTRACT_TIMESTAMP TRUE
 )
+
+# CMP0169: 允许在 MinGW patch 场景下使用 FetchContent_Populate
+# 我们需要在 add_subdirectory 之前修改源码，无法使用 MakeAvailable
+if(POLICY CMP0169)
+    cmake_policy(SET CMP0169 OLD)
+endif()
 FetchContent_Populate(boringssl)
 
 # MinGW patch: 从 BCM_SOURCES_ASM 中移除 fiat_p256_adx 文件
@@ -131,44 +223,26 @@ FetchContent_MakeAvailable(blake3)
 
 # BLAKE3 C 库（手动构建，不使用 Rust/Cargo）
 set(BLAKE3_C_DIR "${blake3_SOURCE_DIR}/c")
-set(BLAKE3_SOURCES
+add_library(blake3_c STATIC
     ${BLAKE3_C_DIR}/blake3.c
     ${BLAKE3_C_DIR}/blake3_dispatch.c
     ${BLAKE3_C_DIR}/blake3_portable.c
+    ${BLAKE3_C_DIR}/blake3_sse2.c
+    ${BLAKE3_C_DIR}/blake3_sse41.c
+    ${BLAKE3_C_DIR}/blake3_avx2.c
+    ${BLAKE3_C_DIR}/blake3_avx512.c
 )
-
-# x86/x64 架构添加 SIMD 优化源文件
-if(CMAKE_SYSTEM_PROCESSOR MATCHES "x86_64|AMD64|amd64|i[3-6]86")
-    list(APPEND BLAKE3_SOURCES
-        ${BLAKE3_C_DIR}/blake3_sse2.c
-        ${BLAKE3_C_DIR}/blake3_sse41.c
-        ${BLAKE3_C_DIR}/blake3_avx2.c
-        ${BLAKE3_C_DIR}/blake3_avx512.c
-    )
-endif()
-
-add_library(blake3_c STATIC ${BLAKE3_SOURCES})
 target_include_directories(blake3_c PUBLIC ${BLAKE3_C_DIR})
-
-# x86/x64 架构设置 SIMD 编译选项
-if(CMAKE_SYSTEM_PROCESSOR MATCHES "x86_64|AMD64|amd64|i[3-6]86")
-    set_source_files_properties(${BLAKE3_C_DIR}/blake3_sse2.c PROPERTIES COMPILE_FLAGS "-msse2")
-    set_source_files_properties(${BLAKE3_C_DIR}/blake3_sse41.c PROPERTIES COMPILE_FLAGS "-msse4.1")
-    set_source_files_properties(${BLAKE3_C_DIR}/blake3_avx2.c PROPERTIES COMPILE_FLAGS "-mavx2")
-    set_source_files_properties(${BLAKE3_C_DIR}/blake3_avx512.c PROPERTIES COMPILE_FLAGS "-mavx512f -mavx512vl")
-endif()
+# BLAKE3 各 SIMD 源文件需要对应的指令集编译选项（per-file）
+set_source_files_properties(${BLAKE3_C_DIR}/blake3_sse2.c PROPERTIES COMPILE_FLAGS "-msse2")
+set_source_files_properties(${BLAKE3_C_DIR}/blake3_sse41.c PROPERTIES COMPILE_FLAGS "-msse4.1")
+set_source_files_properties(${BLAKE3_C_DIR}/blake3_avx2.c PROPERTIES COMPILE_FLAGS "-mavx2")
+set_source_files_properties(${BLAKE3_C_DIR}/blake3_avx512.c PROPERTIES COMPILE_FLAGS "-mavx512f -mavx512vl")
 
 # BoringSSL 的 bssl/decrepit 等目标无条件编译，排除出默认构建避免 MinGW 编译错误
 set_target_properties(bssl PROPERTIES EXCLUDE_FROM_ALL TRUE)
 if(TARGET decrepit)
     set_target_properties(decrepit PROPERTIES EXCLUDE_FROM_ALL TRUE)
-endif()
-
-if(NOT TARGET OpenSSL::SSL AND TARGET ssl)
-    add_library(OpenSSL::SSL ALIAS ssl)
-endif()
-if(NOT TARGET OpenSSL::Crypto AND TARGET crypto)
-    add_library(OpenSSL::Crypto ALIAS crypto)
 endif()
 
 enable_testing()

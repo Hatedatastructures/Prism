@@ -17,7 +17,8 @@ jobs:
         uses: egor-tensin/setup-mingw@v2
         with:
           version: 13.2.0
-          static: 0
+          platform: x64
+          static: false
 
       - name: Setup CMake
         uses: lukka/get-cmake@latest
@@ -26,7 +27,7 @@ jobs:
         run: cmake -B build -DCMAKE_BUILD_TYPE=Release -G "MinGW Makefiles"
 
       - name: Build
-        run: cmake --build build --config Release -j1
+        run: cmake --build build --config Release -j4
 
       - name: Run Tests
         run: ctest --test-dir build --output-on-failure
@@ -49,13 +50,13 @@ jobs:
       - name: Install Dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y build-essential cmake
+          sudo apt-get install -y build-essential cmake g++-13
 
       - name: Configure
-        run: cmake -B build -DCMAKE_BUILD_TYPE=Release
+        run: cmake -B build -DCMAKE_BUILD_TYPE=Release -DCMAKE_CXX_COMPILER=g++-13
 
       - name: Build
-        run: cmake --build build --config Release -j1
+        run: cmake --build build --config Release -j$(nproc)
 
       - name: Run Tests
         run: ctest --test-dir build --output-on-failure
@@ -69,53 +70,8 @@ jobs:
             build/src/Prism
             build/benchmarks/*
 
-  build-macos:
-    runs-on: macos-latest
-    strategy:
-      matrix:
-        arch: [x64, arm64]
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Install Dependencies
-        run: brew install cmake
-
-      - name: Configure (x64)
-        if: matrix.arch == 'x64'
-        run: cmake -B build -DCMAKE_BUILD_TYPE=Release -DCMAKE_OSX_ARCHITECTURES=x86_64
-
-      - name: Configure (arm64)
-        if: matrix.arch == 'arm64'
-        run: cmake -B build -DCMAKE_BUILD_TYPE=Release -DCMAKE_OSX_ARCHITECTURES=arm64
-
-      - name: Build
-        run: cmake --build build --config Release -j1
-
-      - name: Run Tests
-        run: ctest --test-dir build --output-on-failure
-        continue-on-error: true
-
-      - name: Upload Artifact (x64)
-        if: matrix.arch == 'x64'
-        uses: actions/upload-artifact@v4
-        with:
-          name: prism-macos-x64
-          path: |
-            build/src/Prism
-            build/benchmarks/*
-
-      - name: Upload Artifact (arm64)
-        if: matrix.arch == 'arm64'
-        uses: actions/upload-artifact@v4
-        with:
-          name: prism-macos-arm64
-          path: |
-            build/src/Prism
-            build/benchmarks/*
-
   release:
-    needs: [build-windows, build-linux, build-macos]
+    needs: [build-windows, build-linux]
     runs-on: ubuntu-latest
     if: startsWith(github.ref, 'refs/tags/v')
     permissions:
@@ -132,8 +88,6 @@ jobs:
           files: |
             artifacts/prism-windows-x64/*
             artifacts/prism-linux-x64/*
-            artifacts/prism-macos-x64/*
-            artifacts/prism-macos-arm64/*
           draft: false
           prerelease: false
           generate_release_notes: true
