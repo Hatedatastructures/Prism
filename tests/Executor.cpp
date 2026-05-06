@@ -16,6 +16,7 @@
 #include <prism/memory.hpp>
 #include <prism/trace.hpp>
 #include <prism/config.hpp>
+#include <prism/channel/transport/transmission.hpp>
 #include "common/TestRunner.hpp"
 
 #include <boost/asio.hpp>
@@ -29,6 +30,49 @@ using psm::recognition::confidence;
 
 namespace
 {
+    /**
+     * @class mock_transport
+     * @brief 用于测试的 mock 传输层
+     * @details 满足 executor 的成功条件检查（transport != nullptr）
+     */
+    class mock_transport final : public psm::channel::transport::transmission
+    {
+    public:
+        explicit mock_transport(net::any_io_executor exec) : exec_(exec)
+        {
+        }
+
+        [[nodiscard]] auto executor() const -> net::any_io_executor override
+        {
+            return exec_;
+        }
+
+        auto async_read_some(std::span<std::byte> /*buffer*/, std::error_code &ec)
+            -> net::awaitable<std::size_t> override
+        {
+            ec = std::make_error_code(std::errc::operation_not_supported);
+            co_return 0;
+        }
+
+        auto async_write_some(std::span<const std::byte> /*buffer*/, std::error_code &ec)
+            -> net::awaitable<std::size_t> override
+        {
+            ec = std::make_error_code(std::errc::operation_not_supported);
+            co_return 0;
+        }
+
+        void close() override
+        {
+        }
+
+        void cancel() override
+        {
+        }
+
+    private:
+        net::any_io_executor exec_;
+    };
+
     /**
      * @class mock_scheme
      * @brief 用于测试的 mock 伪装方案
@@ -62,11 +106,17 @@ namespace
             return {.confidence = confidence::none, .reason = "mock"};
         }
 
-        [[nodiscard]] auto execute([[maybe_unused]] psm::stealth::scheme_context ctx)
+        [[nodiscard]] auto execute(psm::stealth::scheme_context ctx)
             -> net::awaitable<psm::stealth::scheme_result> override
         {
             psm::stealth::scheme_result result;
             result.detected = detected_;
+            // 使用 mock transport 满足 executor 的成功条件检查
+            // executor 要求 transport != nullptr 才认为执行成功
+            if (ctx.inbound)
+                result.transport = ctx.inbound;
+            else
+                result.transport = std::make_shared<mock_transport>(net::system_executor());
             co_return result;
         }
 

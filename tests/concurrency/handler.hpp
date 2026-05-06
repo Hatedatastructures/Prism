@@ -65,7 +65,7 @@ namespace srv
         return mode::concurrent;
     }
 
-    inline auto HandleStress(net::ip::tcp::socket &socket, psm::memory::resource_pointer mr = nullptr)
+    inline auto HandleStress(net::ip::tcp::socket &socket, [[maybe_unused]] psm::memory::resource_pointer mr = nullptr)
         -> net::awaitable<void>
     {
         constexpr std::size_t chunk_size = 4 * 1024;

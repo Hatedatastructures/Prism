@@ -317,7 +317,7 @@ namespace psm::channel
          * @details 返回当前连接池的配置参数。
          * @return const config& 连接池配置的常量引用
          */
-        [[nodiscard]] const config &config() const noexcept { return config_; }
+        [[nodiscard]] const config &get_config() const noexcept { return config_; }
 
     private:
         /**

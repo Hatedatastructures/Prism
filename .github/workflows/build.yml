@@ -33,13 +33,17 @@ jobs:
         run: ctest --test-dir build --output-on-failure
         continue-on-error: true
 
+      - name: Create Archive
+        run: |
+          mkdir -p release
+          cp build/src/Prism.exe release/
+          cd release && 7z a -tzip prism-windows-x64.zip Prism.exe
+
       - name: Upload Artifact
         uses: actions/upload-artifact@v4
         with:
           name: prism-windows-x64
-          path: |
-            build/src/Prism.exe
-            build/benchmarks/*.exe
+          path: release/prism-windows-x64.zip
 
   build-linux:
     runs-on: ubuntu-latest
@@ -50,7 +54,7 @@ jobs:
       - name: Install Dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y build-essential cmake g++-13
+          sudo apt-get install -y build-essential cmake g++-13 nasm
 
       - name: Configure
         run: cmake -B build -DCMAKE_BUILD_TYPE=Release -DCMAKE_CXX_COMPILER=g++-13
@@ -62,13 +66,17 @@ jobs:
         run: ctest --test-dir build --output-on-failure
         continue-on-error: true
 
+      - name: Create Archive
+        run: |
+          mkdir -p release
+          cp build/src/Prism release/
+          cd release && tar -czvf prism-linux-x64.tar.gz Prism
+
       - name: Upload Artifact
         uses: actions/upload-artifact@v4
         with:
           name: prism-linux-x64
-          path: |
-            build/src/Prism
-            build/benchmarks/*
+          path: release/prism-linux-x64.tar.gz
 
   release:
     needs: [build-windows, build-linux]
@@ -86,8 +94,8 @@ jobs:
         uses: softprops/action-gh-release@v1
         with:
           files: |
-            artifacts/prism-windows-x64/*
-            artifacts/prism-linux-x64/*
+            artifacts/prism-windows-x64/prism-windows-x64.zip
+            artifacts/prism-linux-x64/prism-linux-x64.tar.gz
           draft: false
           prerelease: false
           generate_release_notes: true

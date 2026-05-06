@@ -496,7 +496,7 @@ private:
      * @param request_start 请求开始时间
      */
     net::awaitable<void> HandleNormalMode(tcp::socket &socket, bool &is_connected,
-                                          memory::resource_pointer mr, std::chrono::steady_clock::time_point request_start)
+                                          [[maybe_unused]] memory::resource_pointer mr, std::chrono::steady_clock::time_point request_start)
     {
         // 读取 HTTP 响应头
         std::array<char, 8192> buf{};
