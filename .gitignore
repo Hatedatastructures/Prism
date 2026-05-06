@@ -11,6 +11,7 @@ _external/
 \#*\#
 !.github
 !.gitignore
+!.gitattributes
 !.clang-format
 !.claude
 .claude/plan/
