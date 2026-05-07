@@ -39,11 +39,17 @@ jobs:
           cp build/src/Prism.exe release/
           cd release && 7z a -tzip prism-windows-x64.zip Prism.exe
 
-      - name: Upload Artifact
+      - name: Upload Archive
+        uses: actions/upload-artifact@v4
+        with:
+          name: prism-windows-x64-zip
+          path: release/prism-windows-x64.zip
+
+      - name: Upload Executable
         uses: actions/upload-artifact@v4
         with:
           name: prism-windows-x64
-          path: release/prism-windows-x64.zip
+          path: build/src/Prism.exe
 
   build-linux:
     runs-on: ubuntu-latest
@@ -72,11 +78,17 @@ jobs:
           cp build/src/Prism release/
           cd release && tar -czvf prism-linux-x64.tar.gz Prism
 
-      - name: Upload Artifact
+      - name: Upload Archive
+        uses: actions/upload-artifact@v4
+        with:
+          name: prism-linux-x64-tar
+          path: release/prism-linux-x64.tar.gz
+
+      - name: Upload Executable
         uses: actions/upload-artifact@v4
         with:
           name: prism-linux-x64
-          path: release/prism-linux-x64.tar.gz
+          path: build/src/Prism
 
   release:
     needs: [build-windows, build-linux]
@@ -94,8 +106,8 @@ jobs:
         uses: softprops/action-gh-release@v1
         with:
           files: |
-            artifacts/prism-windows-x64/prism-windows-x64.zip
-            artifacts/prism-linux-x64/prism-linux-x64.tar.gz
+            artifacts/prism-windows-x64-zip/prism-windows-x64.zip
+            artifacts/prism-linux-x64-tar/prism-linux-x64.tar.gz
           draft: false
           prerelease: false
           generate_release_notes: true

@@ -49,8 +49,11 @@ target_link_options(${PROJECT_NAME} PRIVATE
 target_compile_options(${PROJECT_NAME} PRIVATE
         -g1
         -O1
-        -fno-keep-inline-dllexport
 )
+
+if(WIN32)
+    target_compile_options(${PROJECT_NAME} PRIVATE -fno-keep-inline-dllexport)
+endif()
 
 target_link_libraries(${PROJECT_NAME}
         PRIVATE
