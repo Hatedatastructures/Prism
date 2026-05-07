@@ -415,7 +415,7 @@ void TestTrojanRelayHandshake()
  */
 int main()
 {
-#ifdef WIN32
+#ifdef _WIN32
     // 设置控制台输出为 UTF-8 编码，确保中文日志正常显示
     SetConsoleOutputCP(CP_UTF8);
 #endif

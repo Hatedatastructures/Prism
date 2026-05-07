@@ -21,7 +21,9 @@
 #include <string>
 #include <thread>
 #include <vector>
+#ifdef _WIN32
 #include <windows.h>
+#endif
 
 namespace net = boost::asio;
 namespace memory = psm::memory;
@@ -34,6 +36,7 @@ using tcp = net::ip::tcp;
  */
 std::string ToUtf8Message(const std::string &msg)
 {
+#ifdef _WIN32
     if (msg.empty())
         return msg;
 
@@ -52,6 +55,9 @@ std::string ToUtf8Message(const std::string &msg)
     WideCharToMultiByte(CP_UTF8, 0, wmsg.c_str(), -1, u8msg.data(), u8len, nullptr, nullptr);
 
     return u8msg;
+#else
+    return msg;
+#endif
 }
 
 /**

@@ -8,7 +8,7 @@
 #include <prism/trace/spdlog.hpp>
 #include "common/TestRunner.hpp"
 
-#ifdef WIN32
+#ifdef _WIN32
 #include <windows.h>
 #endif
 
@@ -72,7 +72,7 @@ void TestSmuxCraftFinFrame()
 
 int main()
 {
-#ifdef WIN32
+#ifdef _WIN32
     SetConsoleOutputCP(CP_UTF8);
 #endif
     psm::memory::system::enable_global_pooling();
