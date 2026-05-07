@@ -31,7 +31,7 @@ namespace psm::agent::front
     {
         const auto session_capacity = std::max(1U, config_.session_capacity);
         const auto pending_capacity = std::max(1U, config_.pending_capacity);
-        const auto lag_capacity = std::max(1ULL, config_.lag_capacity_us);
+        const auto lag_capacity = std::max(std::uint64_t{1}, config_.lag_capacity_us);
 
         const double session_ratio = static_cast<double>(snapshot.active_sessions) / session_capacity;
         const double pending_ratio = static_cast<double>(snapshot.pending_handoffs) / pending_capacity;

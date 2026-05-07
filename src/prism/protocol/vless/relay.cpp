@@ -235,7 +235,7 @@ namespace psm::protocol::vless
         req.cmd = cmd;
         req.port = port;
         req.destination_address = std::move(dest_addr);
-        req.form = (cmd == command::udp) ? psm::protocol::form::datagram : psm::protocol::form::stream;
+        req.transport = (cmd == command::udp) ? psm::protocol::form::datagram : psm::protocol::form::stream;
 
         co_return std::pair{fault::code::success, std::move(req)};
     }

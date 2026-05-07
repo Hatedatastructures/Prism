@@ -108,7 +108,7 @@ void TestMakeQuery()
     }
 
     // 查询类型应为 A (IPv4)
-    if (msg.questions[0].qtype != psm::resolve::dns::detail::qtype::a)
+    if (msg.questions[0].query_type != psm::resolve::dns::detail::qtype::a)
     {
         LogFail("question qtype should be A (1)");
         return;
@@ -161,7 +161,7 @@ void TestPackUnpackRoundTrip()
             return;
         }
 
-        if (restored.questions[0].qtype != psm::resolve::dns::detail::qtype::a)
+        if (restored.questions[0].query_type != psm::resolve::dns::detail::qtype::a)
         {
             LogFail("query: question qtype mismatch after round trip");
             return;
@@ -179,7 +179,7 @@ void TestPackUnpackRoundTrip()
         // 构造问题段
         psm::resolve::dns::detail::question q(mr);
         q.name = "example.com";
-        q.qtype = psm::resolve::dns::detail::qtype::a;
+        q.query_type = psm::resolve::dns::detail::qtype::a;
         msg.questions.push_back(std::move(q));
 
         // 构造应答记录：example.com → 8.8.8.8，TTL=300 秒
@@ -529,7 +529,7 @@ void TestPackUnpackTcp()
         return;
     }
 
-    if (restored.questions[0].qtype != psm::resolve::dns::detail::qtype::aaaa)
+    if (restored.questions[0].query_type != psm::resolve::dns::detail::qtype::aaaa)
     {
         LogFail("TCP round trip: question qtype mismatch");
         return;

@@ -27,7 +27,7 @@ namespace psm::stealth::schemes
         -> detection_result
     {
         // Native 是兜底方案，始终返回 medium 置信度
-        return {.confidence = recognition::confidence::medium,
+        return {.score = recognition::confidence::medium,
                 .reason = "native TLS fallback"};
     }
 

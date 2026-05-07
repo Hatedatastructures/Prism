@@ -294,7 +294,7 @@ namespace psm::protocol::trojan
         req.cmd = header.cmd;
         req.destination_address = dest_addr;
         req.port = port;
-        req.form = req_form;
+        req.transport = req_form;
         std::ranges::copy(credential, req.credential.begin());
 
         co_return std::pair{fault::code::success, req};

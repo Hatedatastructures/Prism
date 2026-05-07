@@ -38,13 +38,13 @@ namespace psm::protocol::vless::format
         switch (cmd)
         {
         case command::tcp:
-            req.form = psm::protocol::form::stream;
+            req.transport = psm::protocol::form::stream;
             break;
         case command::udp:
-            req.form = psm::protocol::form::datagram;
+            req.transport = psm::protocol::form::datagram;
             break;
         case command::mux:
-            req.form = psm::protocol::form::stream;
+            req.transport = psm::protocol::form::stream;
             break;
         default:
             return std::nullopt;

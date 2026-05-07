@@ -130,7 +130,7 @@ void TestRealityDetectHigh(psm::testing::TestRunner &runner)
 
     auto result = scheme.detect(features, cfg);
 
-    runner.Check(result.confidence == confidence::high,
+    runner.Check(result.score == confidence::high,
                  "reality::detect: full features -> high");
 }
 
@@ -152,7 +152,7 @@ void TestRealityDetectMedium(psm::testing::TestRunner &runner)
 
     auto result = scheme.detect(features, cfg);
 
-    runner.Check(result.confidence == confidence::medium,
+    runner.Check(result.score == confidence::medium,
                  "reality::detect: session_id != 32, X25519=true -> medium");
 }
 
@@ -174,7 +174,7 @@ void TestRealityDetectLow(psm::testing::TestRunner &runner)
 
     auto result = scheme.detect(features, cfg);
 
-    runner.Check(result.confidence == confidence::low,
+    runner.Check(result.score == confidence::low,
                  "reality::detect: SNI match, no X25519 -> low");
 }
 
@@ -196,7 +196,7 @@ void TestRealityDetectNone(psm::testing::TestRunner &runner)
 
     auto result = scheme.detect(features, cfg);
 
-    runner.Check(result.confidence == confidence::none,
+    runner.Check(result.score == confidence::none,
                  "reality::detect: SNI mismatch -> none");
 }
 
@@ -240,7 +240,7 @@ void TestRealitySniMatch(psm::testing::TestRunner &runner)
         // server_name 保持默认空值
 
         auto result = scheme.detect(features, cfg);
-        runner.Check(result.confidence == confidence::none,
+        runner.Check(result.score == confidence::none,
                      "reality SNI: empty SNI -> none");
     }
 
@@ -257,7 +257,7 @@ void TestRealitySniMatch(psm::testing::TestRunner &runner)
         features.has_x25519 = true;
 
         auto result = scheme.detect(features, cfg);
-        runner.Check(result.confidence == confidence::none,
+        runner.Check(result.score == confidence::none,
                      "reality SNI: empty server_names -> none");
     }
 
@@ -269,7 +269,7 @@ void TestRealitySniMatch(psm::testing::TestRunner &runner)
         // 无 X25519，因此返回 low
 
         auto result = scheme.detect(features, cfg);
-        runner.Check(result.confidence == confidence::low,
+        runner.Check(result.score == confidence::low,
                      "reality SNI: single match -> low");
     }
 
@@ -282,7 +282,7 @@ void TestRealitySniMatch(psm::testing::TestRunner &runner)
         features.has_x25519 = true;
 
         auto result = scheme.detect(features, cfg);
-        runner.Check(result.confidence == confidence::none,
+        runner.Check(result.score == confidence::none,
                      "reality SNI: no match -> none");
     }
 }
@@ -331,7 +331,7 @@ void TestAnalysisResultDefaults(psm::testing::TestRunner &runner)
 
     psm::recognition::analysis_result result;
 
-    runner.Check(result.confidence == confidence::none,
+    runner.Check(result.score == confidence::none,
                  "analysis_result: default confidence = none");
     runner.Check(result.error == psm::fault::code::success,
                  "analysis_result: default error = success");

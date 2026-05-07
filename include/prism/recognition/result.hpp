@@ -27,7 +27,7 @@ namespace psm::recognition
         memory::vector<memory::string> candidates;
 
         /** @brief 整体置信度，取最高候选的置信度值，无候选时为 none */
-        confidence confidence{confidence::none};
+        confidence score{confidence::none};
 
         /** @brief 提取的 ClientHello 原始特征，供调用方参考 */
         protocol::tls::client_hello_features features;

@@ -168,11 +168,11 @@ namespace psm::agent
      */
     struct config
     {
-        limit limit;                                       // 连接限制配置
+        limit limits;                                      // 连接限制配置
         endpoint positive;                                 // 正向代理端点
         endpoint addressable;                              // 监听端点
-        certificate certificate;                           // SSL/TLS 证书配置
-        authentication authentication;                     // 身份认证配置
+        certificate cert;                                  // SSL/TLS 证书配置
+        authentication auth;                               // 身份认证配置
         memory::string camouflage;                         // 伪装路径，用于抗探测
         memory::map<memory::string, endpoint> reverse_map; // 反向代理路由表
     }; // struct config
@@ -249,11 +249,11 @@ struct glz::meta<psm::agent::config>
 {
     using T = psm::agent::config;
     static constexpr auto value = glz::object(
-        "limit",           &T::limit,
+        "limit",           &T::limits,
         "positive",        &T::positive,
         "addressable",     &T::addressable,
-        "certificate",     &T::certificate,
-        "authentication",  &T::authentication,
+        "certificate",     &T::cert,
+        "authentication",  &T::auth,
         "camouflage",      &T::camouflage,
         "reverse_map",     &T::reverse_map);
 };

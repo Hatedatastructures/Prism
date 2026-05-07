@@ -56,7 +56,7 @@ namespace psm::resolve::dns::detail
     struct question
     {
         memory::string name;     // 域名，小写无末尾点号
-        qtype qtype{};           // 查询类型
+        qtype query_type{};       // 查询类型
         std::uint16_t qclass{1}; // 查询类，默认 IN（Internet）
 
         /**

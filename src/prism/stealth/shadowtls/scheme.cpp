@@ -31,7 +31,7 @@ namespace psm::stealth::shadowtls
                         const psm::config &cfg) const -> detection_result
     {
         if (!is_enabled(cfg))
-            return {.confidence = recognition::confidence::none,
+            return {.score = recognition::confidence::none,
                     .reason = "ShadowTLS disabled"};
 
         // ShadowTLS v3 使用 session_id 携带 HMAC 标记
@@ -41,12 +41,12 @@ namespace psm::stealth::shadowtls
         if (!features.session_id.empty() && features.session_id_len != 32)
         {
             trace::debug("[ShadowTLS] Non-standard session_id length: {}", features.session_id_len);
-            return {.confidence = recognition::confidence::medium,
+            return {.score = recognition::confidence::medium,
                     .reason = "non-standard session_id length"};
         }
 
         // session_id 为空或标准长度时，无法区分
-        return {.confidence = recognition::confidence::low,
+        return {.score = recognition::confidence::low,
                 .reason = "standard TLS, cannot distinguish from ClientHello alone"};
     }
 
