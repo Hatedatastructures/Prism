@@ -4,6 +4,10 @@
 #include <prism/channel/transport/reliable.hpp>
 #include <prism/trace.hpp>
 
+#ifndef _WIN32
+#include <unistd.h>
+#endif
+
 namespace psm::agent::worker::launch
 {
     void prime(tcp::socket &socket, std::uint32_t buffer_size) noexcept
@@ -35,7 +39,11 @@ namespace psm::agent::worker::launch
         {
             trace::error("socket migration failed: {}", ec.message());
             // assign 失败时关闭已 release 的 native handle，防止 fd 泄漏
+#ifdef _WIN32
             ::closesocket(native_handle);
+#else
+            ::close(native_handle);
+#endif
             return std::nullopt;
         }
 

@@ -15,7 +15,7 @@ namespace psm::channel
         boost::system::error_code ec;
         const auto fd = const_cast<net::ip::tcp::socket &>(s).native_handle();
         int error = 0;
-        socklen_t len = sizeof(error);
+        int len = sizeof(error);
         if (::getsockopt(fd, SOL_SOCKET, SO_ERROR, reinterpret_cast<char *>(&error), &len) != 0)
         {
             return socket_state::error;
@@ -78,7 +78,7 @@ namespace psm::channel
         boost::system::error_code ec;
         const auto fd = const_cast<net::ip::tcp::socket &>(s).native_handle();
         int error = 0;
-        socklen_t len = sizeof(error);
+        int len = sizeof(error);
         if (::getsockopt(fd, SOL_SOCKET, SO_ERROR, reinterpret_cast<char *>(&error), &len) != 0)
         {
             return false;
