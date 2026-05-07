@@ -108,6 +108,8 @@ jobs:
           files: |
             artifacts/prism-windows-x64-zip/prism-windows-x64.zip
             artifacts/prism-linux-x64-tar/prism-linux-x64.tar.gz
+            artifacts/prism-windows-x64/Prism.exe
+            artifacts/prism-linux-x64/Prism
           draft: false
           prerelease: false
           generate_release_notes: true

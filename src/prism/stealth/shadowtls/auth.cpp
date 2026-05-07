@@ -18,14 +18,16 @@ namespace psm::stealth::shadowtls
     auto compute_hmac(const std::string_view key, const std::byte *data, const std::size_t data_len)
         -> std::array<std::uint8_t, 4>
     {
-        std::array<std::uint8_t, 4> result{};
+        std::array<std::uint8_t, EVP_MAX_MD_SIZE> md{};
         unsigned int len = 0;
 
         HMAC(EVP_sha1(),
              key.data(), static_cast<int>(key.size()),
              reinterpret_cast<const unsigned char *>(data), data_len,
-             result.data(), &len);
+             md.data(), &len);
 
+        std::array<std::uint8_t, 4> result{};
+        std::memcpy(result.data(), md.data(), hmac_size);
         return result;
     }
 
