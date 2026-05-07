@@ -30,8 +30,11 @@ target_compile_definitions(${PROJECT_NAME}_static_library
         BOOST_ASIO_USE_OPENSSL
         BOOST_ASIO_DISABLE_VISIBILITY       # : 解决 use_awaitable 重复符号问题
 #        BOOST_ASIO_ENABLE_HANDLER_TRACKING  # : 启用处理程序跟踪
-        WIN32_LEAN_AND_MEAN
 )
+
+if(WIN32)
+    target_compile_definitions(${PROJECT_NAME}_static_library PUBLIC WIN32_LEAN_AND_MEAN)
+endif()
 
 add_subdirectory(prism)
 
@@ -42,18 +45,20 @@ add_executable(${PROJECT_NAME}
 
 set_target_properties(${PROJECT_NAME} PROPERTIES OUTPUT_NAME "Prism")
 
-target_link_options(${PROJECT_NAME} PRIVATE
-        -static
-        -static-libgcc
-        -static-libstdc++
-)
+if(MINGW)
+    target_link_options(${PROJECT_NAME} PRIVATE
+            -static
+            -static-libgcc
+            -static-libstdc++
+    )
+endif()
 
 target_compile_options(${PROJECT_NAME} PRIVATE
         -g1
         -O1
 )
 
-if(WIN32)
+if(MINGW)
     target_compile_options(${PROJECT_NAME} PRIVATE -fno-keep-inline-dllexport)
 endif()
 

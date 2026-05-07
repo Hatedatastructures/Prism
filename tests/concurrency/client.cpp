@@ -712,7 +712,9 @@ private:
  */
 int main()
 {
+#ifdef _WIN32
     SetConsoleOutputCP(CP_UTF8);
+#endif
 
     psm::trace::config trace_config;
     trace_config.enable_console = true;

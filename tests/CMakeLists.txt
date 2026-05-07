@@ -1,5 +1,5 @@
 set(TEST_COMPILE_OPTS -g1 -Os)
-if(WIN32)
+if(MINGW)
     list(APPEND TEST_COMPILE_OPTS -fno-keep-inline-dllexport)
 endif()
 
