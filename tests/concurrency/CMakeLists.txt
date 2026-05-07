@@ -15,10 +15,11 @@ target_link_libraries(ConcurrencyServer PRIVATE
     Boost::system
     glaze::glaze
     spdlog::spdlog
-    ws2_32
-    crypt32
-    mswsock
 )
+
+if(WIN32)
+    target_link_libraries(ConcurrencyServer PRIVATE ws2_32 crypt32 mswsock)
+endif()
 
 if(MSVC)
     target_compile_options(ConcurrencyServer PRIVATE /W4 /O2 /DNDEBUG)
@@ -39,10 +40,11 @@ target_link_libraries(ConcurrencyClient PRIVATE
     Boost::system
     glaze::glaze
     spdlog::spdlog
-    ws2_32
-    crypt32
-    mswsock
 )
+
+if(WIN32)
+    target_link_libraries(ConcurrencyClient PRIVATE ws2_32 crypt32 mswsock)
+endif()
 
 if(MSVC)
     target_compile_options(ConcurrencyClient PRIVATE /W4 /O2 /DNDEBUG)
