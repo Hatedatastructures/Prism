@@ -40,7 +40,7 @@ namespace psm::protocol::socks5
         address destination_address;
 
         // 传输形式（stream 或 datagram）
-        form form = form::stream;
+        form transport = form::stream;
     };
 
     /**

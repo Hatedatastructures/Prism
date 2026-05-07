@@ -1,4 +1,7 @@
-set(TEST_COMPILE_OPTS -g1 -Os -fno-keep-inline-dllexport)
+set(TEST_COMPILE_OPTS -g1 -Os)
+if(MINGW)
+    list(APPEND TEST_COMPILE_OPTS -fno-keep-inline-dllexport)
+endif()
 
 function(forward_add_test test_name source_file)
     add_executable(${test_name} ${CMAKE_CURRENT_SOURCE_DIR}/${source_file})

@@ -96,8 +96,7 @@ namespace psm::agent::front
                 trace::warn("[Listener] accept error: {}", ec.message());
 
                 // 致命错误（文件描述符耗尽 / 内存不足）：指数退避，避免 CPU 空转
-                // Windows EMFILE 对应 WSAEMFILE (10024)，ENOMEM 对应 WSAENOBUFS (10055)
-                if (ec.value() == 10024 || ec.value() == 10055 ||
+                if (ec == boost::system::errc::too_many_files_open ||
                     ec == boost::system::errc::not_enough_memory)
                 {
                     static constexpr std::chrono::milliseconds min_delay{10};

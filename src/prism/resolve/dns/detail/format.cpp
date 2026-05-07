@@ -349,8 +349,8 @@ namespace psm::resolve::dns::detail
         for (const auto &q : questions)
         {
             (void)encode_name(q.name, buf, buf.size(), compression);
-            buf.push_back(static_cast<std::uint8_t>(static_cast<std::uint16_t>(q.qtype) >> 8));
-            buf.push_back(static_cast<std::uint8_t>(static_cast<std::uint16_t>(q.qtype) & 0xFF));
+            buf.push_back(static_cast<std::uint8_t>(static_cast<std::uint16_t>(q.query_type) >> 8));
+            buf.push_back(static_cast<std::uint8_t>(static_cast<std::uint16_t>(q.query_type) & 0xFF));
             buf.push_back(static_cast<std::uint8_t>(q.qclass >> 8));
             buf.push_back(static_cast<std::uint8_t>(q.qclass & 0xFF));
         }
@@ -437,7 +437,7 @@ namespace psm::resolve::dns::detail
                 return std::nullopt;
             }
 
-            q.qtype = static_cast<qtype>(read_u16_be(data, offset));
+            q.query_type = static_cast<qtype>(read_u16_be(data, offset));
             q.qclass = read_u16_be(data, offset + 2);
             offset += 4;
 
@@ -513,7 +513,7 @@ namespace psm::resolve::dns::detail
 
         question q(msg.mr_);
         q.name = to_lower_domain(domain, msg.mr_);
-        q.qtype = qt;
+        q.query_type = qt;
         q.qclass = 1; // IN
 
         msg.questions.push_back(std::move(q));

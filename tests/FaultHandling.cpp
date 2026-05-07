@@ -18,7 +18,7 @@
 #include <format>
 #include <string_view>
 
-#ifdef WIN32
+#ifdef _WIN32
 #include <windows.h>
 #endif
 
@@ -103,7 +103,7 @@ void TestToCodeFallback()
  */
 int main()
 {
-#ifdef WIN32
+#ifdef _WIN32
     SetConsoleOutputCP(CP_UTF8);
 #endif
     psm::memory::system::enable_global_pooling();

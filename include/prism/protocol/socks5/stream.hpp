@@ -156,7 +156,7 @@ namespace psm::protocol::socks5
         auto async_associate(const request &request_info, route_callback route_callback) const
             -> net::awaitable<fault::code>
         {
-            if (!config_.enable_udp || request_info.form != form::datagram)
+            if (!config_.enable_udp || request_info.transport != form::datagram)
             {
                 co_return fault::code::not_supported;
             }
@@ -237,7 +237,7 @@ namespace psm::protocol::socks5
                     co_await async_write_error(reply_code::connection_not_allowed);
                     co_return std::pair{fault::code::not_supported, request{}};
                 }
-                req.form = psm::protocol::form::stream;
+                req.transport = psm::protocol::form::stream;
                 break;
             case command::udp_associate:
                 if (!config_.enable_udp)
@@ -245,7 +245,7 @@ namespace psm::protocol::socks5
                     co_await async_write_error(reply_code::connection_not_allowed);
                     co_return std::pair{fault::code::not_supported, request{}};
                 }
-                req.form = psm::protocol::form::datagram;
+                req.transport = psm::protocol::form::datagram;
                 break;
             case command::bind:
                 if (!config_.enable_bind)
@@ -253,7 +253,7 @@ namespace psm::protocol::socks5
                     co_await async_write_error(reply_code::command_not_supported);
                     co_return std::pair{fault::code::unsupported_command, request{}};
                 }
-                req.form = psm::protocol::form::stream;
+                req.transport = psm::protocol::form::stream;
                 break;
             default:
                 co_await async_write_error(reply_code::command_not_supported);

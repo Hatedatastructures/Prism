@@ -37,7 +37,7 @@ namespace psm::protocol::trojan
         uint16_t port;                                          // 目标端口，网络字节序
         address destination_address;                            // 目标地址
         std::array<char, 56> credential;                        // 用户凭据，56 字节 SHA224 哈希
-        psm::protocol::form form = psm::protocol::form::stream; // 传输形式，由命令类型决定
+        psm::protocol::form transport = psm::protocol::form::stream; // 传输形式，由命令类型决定
     };
 
     /**

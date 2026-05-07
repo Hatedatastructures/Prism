@@ -21,7 +21,7 @@
 
 #include <boost/asio.hpp>
 
-#ifdef WIN32
+#ifdef _WIN32
 #include <windows.h>
 #endif
 
@@ -103,7 +103,7 @@ namespace
                                   [[maybe_unused]] const psm::config &cfg) const
             -> psm::stealth::detection_result override
         {
-            return {.confidence = confidence::none, .reason = "mock"};
+            return {.score = confidence::none, .reason = "mock"};
         }
 
         [[nodiscard]] auto execute(psm::stealth::scheme_context ctx)

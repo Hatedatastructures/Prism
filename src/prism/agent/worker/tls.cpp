@@ -69,8 +69,8 @@ namespace psm::agent::worker::tls
     auto make(const agent::config &cfg)
         -> shared_context
     {
-        const auto &cert = cfg.certificate.cert;
-        const auto &key = cfg.certificate.key;
+        const auto &cert = cfg.cert.cert;
+        const auto &key = cfg.cert.key;
 
         // 如果未配置证书或密钥，返回空指针表示运行在纯 HTTP 模式
         if (cert.empty() || key.empty())

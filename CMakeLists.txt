@@ -10,6 +10,10 @@ set(CMAKE_CXX_STANDARD 23)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
+# 全局编译选项：允许成员变量名与类型名相同（Linux GCC 严格要求）
+# -Wno-error=changes-meaning: 确保即使被依赖库强制启用也不会作为错误
+add_compile_options($<$<COMPILE_LANGUAGE:C,CXX>:-Wno-error=changes-meaning>)
+
 # Release 模式优化：-O3 最大优化，-ffunction-sections/-fdata-sections 配合链接器 --gc-sections 裁剪未使用符号
 # 仅对 C/CXX 生效，避免传给 NASM 汇编器导致编译失败
 if(CMAKE_BUILD_TYPE STREQUAL "Release")

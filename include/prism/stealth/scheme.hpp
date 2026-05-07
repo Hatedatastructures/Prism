@@ -49,7 +49,7 @@ namespace psm::stealth
     struct detection_result
     {
         /** @brief 置信度级别 */
-        recognition::confidence confidence{recognition::confidence::none};
+        recognition::confidence score{recognition::confidence::none};
 
         /** @brief 检测原因（用于日志和调试） */
         memory::string reason;

@@ -247,7 +247,7 @@ void TestBlake3EmptyContext()
  */
 int main()
 {
-#ifdef WIN32
+#ifdef _WIN32
     SetConsoleOutputCP(CP_UTF8);
 #endif
     psm::memory::system::enable_global_pooling();

@@ -1,5 +1,11 @@
 #include <prism/channel/health.hpp>
 
+#ifdef _WIN32
+#include <winsock2.h>
+#else
+#include <sys/socket.h>
+#endif
+
 namespace psm::channel
 {
     namespace net = boost::asio;
@@ -15,7 +21,11 @@ namespace psm::channel
         boost::system::error_code ec;
         const auto fd = const_cast<net::ip::tcp::socket &>(s).native_handle();
         int error = 0;
+#ifdef _WIN32
+        int len = sizeof(error);
+#else
         socklen_t len = sizeof(error);
+#endif
         if (::getsockopt(fd, SOL_SOCKET, SO_ERROR, reinterpret_cast<char *>(&error), &len) != 0)
         {
             return socket_state::error;
@@ -78,7 +88,11 @@ namespace psm::channel
         boost::system::error_code ec;
         const auto fd = const_cast<net::ip::tcp::socket &>(s).native_handle();
         int error = 0;
+#ifdef _WIN32
+        int len = sizeof(error);
+#else
         socklen_t len = sizeof(error);
+#endif
         if (::getsockopt(fd, SOL_SOCKET, SO_ERROR, reinterpret_cast<char *>(&error), &len) != 0)
         {
             return false;

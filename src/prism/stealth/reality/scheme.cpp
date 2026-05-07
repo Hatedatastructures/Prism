@@ -38,7 +38,7 @@ namespace psm::stealth::reality
         if (!sni_matched)
         {
             trace::debug("[Reality] SNI '{}' not matched", features.server_name);
-            return {.confidence = recognition::confidence::none,
+            return {.score = recognition::confidence::none,
                     .reason = "SNI not matched"};
         }
 
@@ -48,19 +48,19 @@ namespace psm::stealth::reality
         if (has_full_session_id && has_x25519)
         {
             trace::debug("[Reality] Full features: session_id=32, x25519=true");
-            return {.confidence = recognition::confidence::high,
+            return {.score = recognition::confidence::high,
                     .reason = "SNI matched + session_id=32 + X25519"};
         }
 
         if (has_x25519)
         {
             trace::debug("[Reality] Partial features: x25519=true, session_id={}", features.session_id_len);
-            return {.confidence = recognition::confidence::medium,
+            return {.score = recognition::confidence::medium,
                     .reason = "SNI matched + X25519"};
         }
 
         trace::debug("[Reality] SNI matched but no X25519 key_share");
-        return {.confidence = recognition::confidence::low,
+        return {.score = recognition::confidence::low,
                 .reason = "SNI matched but no X25519"};
     }
 

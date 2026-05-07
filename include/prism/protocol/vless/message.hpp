@@ -35,7 +35,7 @@ namespace psm::protocol::vless
         command cmd;                                            // 命令类型
         uint16_t port;                                          // 目标端口，主机字节序
         address destination_address;                            // 目标地址
-        psm::protocol::form form = psm::protocol::form::stream; // 传输形式，由命令类型决定
+        psm::protocol::form transport = psm::protocol::form::stream; // 传输形式，由命令类型决定
     };
 
     /**

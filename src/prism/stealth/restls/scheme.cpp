@@ -34,12 +34,12 @@ namespace psm::stealth::restls
                         const psm::config &cfg) const -> detection_result
     {
         if (!is_enabled(cfg))
-            return {.confidence = recognition::confidence::none,
+            return {.score = recognition::confidence::none,
                     .reason = "RestLS disabled"};
 
         // RestLS 需要在 TLS 应用数据中验证，仅靠 ClientHello 无法判断
         // 返回 low 置信度，让 execute() 阶段做实际验证
-        return {.confidence = recognition::confidence::low,
+        return {.score = recognition::confidence::low,
                 .reason = "RestLS needs application-layer verification"};
     }
 
