@@ -11,6 +11,8 @@
 #include <prism/trace.hpp>
 #include <prism/pipeline/primitives.hpp>
 
+#include <algorithm>
+
 namespace psm::recognition
 {
     auto identify(identify_context ctx) -> net::awaitable<identify_result>
@@ -83,11 +85,17 @@ namespace psm::recognition
             ctx.transport, preread_span, ctx.frame_arena ? ctx.frame_arena->get() : memory::current_resource());
 
         // Phase 5: 按候选顺序执行 scheme
+        memory::vector<std::byte> preread_bytes(raw_record.size(),
+            ctx.frame_arena ? ctx.frame_arena->get() : memory::current_resource());
+        std::transform(raw_record.begin(), raw_record.end(), preread_bytes.begin(),
+            [](std::uint8_t b) { return static_cast<std::byte>(b); });
+
         stealth::scheme_context scheme_ctx{
             .inbound = preview_transport,
             .cfg = ctx.cfg,
             .router = ctx.router,
-            .session = ctx.session};
+            .session = ctx.session,
+            .preread = std::move(preread_bytes)};
 
         auto executor = stealth::scheme_executor(registry);
 

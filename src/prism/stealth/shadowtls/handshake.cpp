@@ -4,26 +4,22 @@
  * @details 完全参照 sing-shadowtls service.go NewConnection case 3 的逻辑。
  *
  * ShadowTLS v3 服务端完整流程：
- * 1. 从客户端读取 TLS ClientHello 帧
- * 2. 验证 SessionID 中的 HMAC 标签（多用户匹配）
- * 3. 认证成功后 → 建立到后端服务器的 TCP 连接，转发 ClientHello
- * 4. 从后端读取 ServerHello，返回给客户端
- * 5. 从 ServerHello 中提取 ServerRandom（32 字节）
- * 6. 双工转发握手阶段数据：
+ * 1. 接收已读取的 ClientHello（由 Recognition 层预读），验证 HMAC 标签
+ * 2. 认证成功后 → 建立到后端服务器的 TCP 连接，转发 ClientHello
+ * 3. 从后端读取 ServerHello，返回给客户端
+ * 4. 从 ServerHello 中提取 ServerRandom（32 字节）
+ * 5. 双工转发握手阶段数据：
  *    - 客户端→后端：持续读取客户端帧，用 HMAC-SHA1(password, serverRandom+"C") 验证
  *      匹配成功 → 剥离 HMAC 头，作为第一个客户端数据帧返回
  *      不匹配 → 原样转发到后端
  *    - 后端→客户端：读取后端帧，对 Application Data 用 SHA256(password+serverRandom)
  *      XOR 加密 + 添加 HMAC-SHA1(password, serverRandom+"S") 标签
- * 7. 握手完成，返回认证后的客户端首帧
- *
- * 注意：此函数需要直接操作 TCP socket，因此 inbound 必须是 reliable 类型。
+ * 6. 握手完成，返回认证后的客户端首帧
  */
 
 #include <prism/stealth/shadowtls/handshake.hpp>
 #include <prism/stealth/shadowtls/auth.hpp>
 #include <prism/stealth/shadowtls/constants.hpp>
-#include <prism/channel/transport/reliable.hpp>
 #include <prism/trace.hpp>
 #include <prism/fault/code.hpp>
 
@@ -325,36 +321,26 @@ namespace psm::stealth::shadowtls
     // 主握手函数
     // ═══════════════════════════════════════════════════════════
 
-    auto handshake(agent::session_context &ctx, const config &cfg)
+    auto handshake(net::ip::tcp::socket &client_sock,
+                   const config &cfg,
+                   memory::vector<std::byte> client_hello)
         -> net::awaitable<handshake_result>
     {
         handshake_result result;
 
-        // 获取底层 reliable transmission
-        auto *rel = dynamic_cast<channel::transport::reliable *>(ctx.inbound.get());
-        if (!rel)
+        if (client_hello.empty())
         {
-            trace::error("[ShadowTLS] inbound is not reliable, cannot perform ShadowTLS handshake");
-            result.error = std::make_error_code(std::errc::operation_not_supported);
+            trace::warn("[ShadowTLS] Empty ClientHello");
+            result.error = std::make_error_code(std::errc::invalid_argument);
             co_return result;
         }
 
-        auto &client_sock = rel->native_socket();
         auto executor = client_sock.get_executor();
 
-        // Step 1: 读取客户端 ClientHello
-        auto client_hello_opt = co_await read_tls_frame(client_sock);
-        if (!client_hello_opt)
-        {
-            trace::warn("[ShadowTLS] Failed to read ClientHello");
-            result.error = std::make_error_code(std::errc::connection_aborted);
-            co_return result;
-        }
-
-        // Step 2: 验证 ClientHello HMAC（多用户匹配）
+        // Step 1: 验证 ClientHello HMAC（多用户匹配）
         std::string matched_user;
         auto client_hello_span = std::span<const std::byte>(
-            client_hello_opt->data(), client_hello_opt->size());
+            client_hello.data(), client_hello.size());
 
         if (cfg.version == 3)
         {
@@ -438,7 +424,7 @@ namespace psm::stealth::shadowtls
             boost::system::error_code write_ec;
             co_await net::async_write(
                 backend_sock,
-                net::buffer(client_hello_opt->data(), client_hello_opt->size()),
+                net::buffer(client_hello.data(), client_hello.size()),
                 net::redirect_error(net::use_awaitable, write_ec));
             if (write_ec)
             {

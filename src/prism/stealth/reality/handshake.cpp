@@ -477,11 +477,12 @@ namespace psm::stealth::reality
                     reinterpret_cast<const std::byte *>(raw_record.data() + raw_record.size()));
                 co_return result;
             }
-            // SNI 匹配但 auth 失败 → 透传到 dest
-            trace::debug("{} auth failed: {}, falling back to dest", HsTag, fault::describe(auth_ec));
-            const auto fb_ec = co_await fallback_to_dest(ctx, raw_record);
-            result.type = (fault::succeeded(fb_ec)) ? handshake_result_type::fallback : handshake_result_type::failed;
-            result.error = fb_ec;
+            // SNI 匹配但 auth 失败 → 非 Reality 客户端，交给下一个方案处理
+            trace::debug("{} auth failed: {}, not Reality, passing to next scheme", HsTag, fault::describe(auth_ec));
+            result.type = handshake_result_type::not_reality;
+            result.raw_tls_record.assign(
+                reinterpret_cast<const std::byte *>(raw_record.data()),
+                reinterpret_cast<const std::byte *>(raw_record.data() + raw_record.size()));
             co_return result;
         }
 

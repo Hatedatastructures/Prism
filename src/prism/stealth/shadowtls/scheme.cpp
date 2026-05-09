@@ -61,19 +61,23 @@ namespace psm::stealth::shadowtls
             co_return result;
         }
 
-        // 获取底层 reliable transmission
-        // 如果 inbound 已被 preview 等包装，dynamic_cast 会失败
-        // 这不是致命错误，只是说明 ShadowTLS 无法在此环境下执行
+        // 获取底层 reliable transport 的 raw socket
+        // session->inbound 在 identify 阶段未被修改，仍为原始 reliable transport
+        // （preview 仅在 identify() 的局部变量中创建，不影响 session->inbound）
         auto *rel = dynamic_cast<channel::transport::reliable *>(ctx.session->inbound.get());
         if (!rel)
         {
-            trace::debug("[ShadowTlsScheme] Cannot access reliable transport (wrapped by another scheme), pass to next scheme");
+            trace::debug("[ShadowTlsScheme] Cannot access reliable transport, pass to next scheme");
             result.detected = protocol::protocol_type::tls;
             result.transport = std::move(ctx.inbound);
             co_return result;
         }
 
-        auto hs = co_await stealth::shadowtls::handshake(*ctx.session, ctx.cfg->stealth.shadowtls);
+        // 使用 Recognition 层已读取的 ClientHello（不再从 socket 重复读取）
+        auto hs = co_await stealth::shadowtls::handshake(
+            rel->native_socket(),
+            ctx.cfg->stealth.shadowtls,
+            std::move(ctx.preread));
 
         if (hs.authenticated)
         {

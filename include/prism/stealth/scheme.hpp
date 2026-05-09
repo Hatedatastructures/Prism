@@ -81,6 +81,7 @@ namespace psm::stealth
         const psm::config *cfg{nullptr};          // 服务器配置
         resolve::router *router{nullptr};         // 路由器（fallback 用）
         agent::session_context *session{nullptr}; // 会话上下文
+        memory::vector<std::byte> preread;        // 来自 identify 的 preread 数据（完整 ClientHello）
     };
 
     /**

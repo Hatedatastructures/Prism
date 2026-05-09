@@ -220,8 +220,9 @@ namespace psm::protocol::tls
 
             if (named_group == NAMED_GROUP_X25519_MLKEM768 && key_len >= REALITY_KEY_LEN)
             {
-                const auto x25519_offset = offset + key_len - REALITY_KEY_LEN;
-                std::memcpy(features.x25519_key.data(), ext_data.data() + x25519_offset, REALITY_KEY_LEN);
+                // X25519MLKEM768 格式: X25519(32B) + ML-KEM-768(1184B)
+                // X25519 公钥在前 32 字节
+                std::memcpy(features.x25519_key.data(), ext_data.data() + offset, REALITY_KEY_LEN);
                 features.has_x25519 = true;
                 trace::debug("{} using X25519MLKEM768 hybrid key_share", Tag);
                 return;

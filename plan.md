@@ -64,8 +64,8 @@
 
 | 瓶颈 | 当前值 | 业界标准 | 差距倍数 | 根因 |
 |------|--------|---------|---------|------|
-| **AES-256-GCM 吞吐** | **205 Mi/s** | 2.0+ Gi/s (AES-NI) | **10x** | `CMakeLists.txt:78` 禁用 ASM |
-| X25519 密钥交换 | 81.5 us | ~50 us | 1.6x | EVP_PKEY 高阶 API 开销 |
+| ~~**AES-256-GCM 吞吐**~~ | ~~205 Mi/s~~ **13.7 Gi/s ✅** | 2.0+ Gi/s | — | 已解决 (`a3f3799`) |
+| ~~X25519 密钥交换~~ | ~~81.5 us~~ **21.4 us ✅** | ~50 us | — | 已解决 (`a3f3799`) |
 | 全局内存池 4T | 3530 ns | <100 ns | 35x | `synchronized_pool` 锁竞争 |
 | 连接延迟 P99 | 336 us | <200 us | 1.7x | 健康检查 + DNS 偶发阻塞 |
 | TCP Echo 64B | 20.1 us | ~5 us | 4x | 内核 syscall 开销 |
@@ -97,9 +97,9 @@
 
 | 指标 | Before | 第 2 周目标 | 第 8 周目标 | 业界对标 |
 |------|--------|------------|------------|---------|
-| AES-256-GCM | 205 Mi/s | **2.0+ Gi/s** | 2.0+ Gi/s | shadowsocks-rust 1-2 Gi/s |
-| AES-128-GCM | 245 Mi/s | **1.5+ Gi/s** | 1.5+ Gi/s | — |
-| X25519 交换 | 81.5 us | 45-55 us | 45-55 us | WireGuard ~40 us |
+| AES-256-GCM | 205 Mi/s | ~~2.0+ Gi/s~~ **13.7 Gi/s ✅** | 13.7 Gi/s | shadowsocks-rust 1-2 Gi/s |
+| AES-128-GCM | 245 Mi/s | ~~1.5+ Gi/s~~ **16.9 Gi/s ✅** | 16.9 Gi/s | — |
+| X25519 交换 | 81.5 us | ~~45-55 us~~ **21.4 us ✅** | 21.4 us | WireGuard ~40 us |
 | 全局池 4T | 3530 ns | <150 ns | <100 ns | — |
 | 连接 P50 | 95 us | 90 us | 85 us | Envoy ~100 us |
 | 连接 P99 | 336 us | <250 us | <200 us | — |
@@ -115,92 +115,17 @@
 
 ### 第 1 周
 
-#### 任务 1.1: 启用 BoringSSL AES-NI 汇编【优先级: CRITICAL — 最大性能瓶颈】
+#### ~~任务 1.1: 启用 BoringSSL AES-NI 汇编~~ ✅ 已完成
 
-**根因定位**: `CMakeLists.txt:76-78`
-
-```cmake
-# 当前 (行 76-78):
-# MinGW + Windows 下 NASM 汇编存在兼容性问题（fiat_p256_adx 链接失败），
-# 暂时使用 OPENSSL_NO_ASM 纯 C 实现。AES-GCM ~240 Mi/s 对代理场景已足够。
-set(OPENSSL_NO_ASM ON CACHE BOOL "" FORCE)
-```
-
-这行代码禁用了 **所有** BoringSSL 汇编优化，包括：
-- AES-NI (编译器内建汇编，不依赖 NASM)
-- SHA extensions
-- ADX/AVX2 优化
-
-实际上 `fiat_p256_adx` 链接失败仅影响 ADX 扩展的 NASM 汇编文件，不影响 AES-NI 的编译器内建汇编（`<wmmintrin.h>` / `<immintrin.h>`）。
-
-**修改方案**: 将 `CMakeLists.txt:76-78` 替换为平台感知策略：
-
-```cmake
-# BoringSSL 汇编启用策略
-# MinGW 下 NASM 与 fiat_p256_adx 不兼容，但 AES-NI 使用编译器内建汇编不受影响
-# 因此仅 MinGW 保持纯 C，其他平台全开 ASM
-if(MINGW)
-    # MinGW: NASM 兼容性问题，保持纯 C 实现 (~240 Mi/s)
-    set(OPENSSL_NO_ASM ON CACHE BOOL "" FORCE)
-elseif(MSVC)
-    # MSVC: BoringSSL 支持 Go 汇编生成器，无需 NASM
-    set(OPENSSL_NO_ASM OFF CACHE BOOL "" FORCE)
-else()
-    # Linux/Clang: 完整 ASM 支持
-    set(OPENSSL_NO_ASM OFF CACHE BOOL "" FORCE)
-endif()
-```
-
-**复用现有**: `benchmarks/CryptoBench.cpp` 已有 AEAD 吞吐量基准，可直接验证。
-
-**预期效果**: AES-256-GCM 从 205 Mi/s → 2.0+ Gi/s（约 10 倍提升）
-
-**验证步骤**:
-1. 删除 `build_release/`，重新配置 `cmake -B build_release -DCMAKE_BUILD_TYPE=Release`
-2. `cmake --build build_release --config Release`
-3. 观察 BoringSSL 编译输出中是否包含 `aesni-gcm-avx2-x86_64.s` 或 `ghash-ssse3-x86_64.s`
-4. 运行 `build_release/benchmarks/CryptoBench.exe`，确认 AEAD throughput >2 Gi/s
-
-**风险**: 如果在 MSVC 下 Go 汇编生成器仍有问题，备选方案是使用 OpenSSL 替代 BoringSSL（需修改 CMake 依赖和 `#include` 路径）。
+- **提交**: `a3f3799` — MinGW 兼容性 patch
+- **结果**: AES-256-GCM 205 Mi/s → **13.7 Gi/s** (67x 提升)
 
 ---
 
-#### 任务 1.2: X25519 密钥交换优化
+#### ~~任务 1.2: X25519 密钥交换优化~~ ✅ 已完成
 
-**涉及文件**:
-- `src/prism/crypto/x25519.cpp` — 当前使用 `EVP_PKEY` 高阶 API
-- `include/prism/crypto/x25519.hpp` — 公开接口
-- `benchmarks/CryptoBench.cpp` — X25519 基准
-
-**当前实现分析**: 使用 `EVP_PKEY_CTX_new()`, `EVP_PKEY_keygen_init()`, `EVP_PKEY_derive()` 等 OpenSSL 高阶 API，每次调用涉及：
-- `EVP_PKEY` 对象分配
-- `EVP_PKEY_CTX` 上下文初始化
-- 参数编码/解码
-
-这些在 ASM 启用后标量乘法本身会加速，但 EVP 层开销仍存在。
-
-**优化方案**（在任务 1.1 完成后评估是否需要）:
-
-1. 先运行 1.1 后的基准测试，如果 X25519 已 <50 us 则跳过。
-2. 若仍高于 50 us，将 `x25519.cpp` 中的 EVP_PKEY 替换为 BoringSSL 低层 API：
-
-```cpp
-// 替换前 (EVP_PKEY):
-EVP_PKEY_CTX *ctx = EVP_PKEY_CTX_new_id(EVP_PKEY_X25519, nullptr);
-EVP_PKEY_derive_init(ctx);
-EVP_PKEY_derive(ctx, out, &out_len);
-
-// 替换后 (低层 X25519):
-#include <openssl/curve25519.h>
-if (!X25519(shared.data(), private_key.data(), peer_public_key.data()))
-    return {fault::code::crypto_error, {}};
-```
-
-3. `generate_x25519_keypair()` 同样替换为 `X25519_keypair(pub, priv)`。
-
-**预期效果**: 81.5 us → 45-55 us（若 ASM 已启用，可能已达标）
-
-**验证**: `build_release/benchmarks/CryptoBench.exe --benchmark_filter=*X25519*`
+- **提交**: `a3f3799` — AES-NI 启用后 BoringSSL 内部优化自动生效
+- **结果**: X25519 密钥交换 81.5 us → **21.4 us** (3.8x 提升，远超 50 us 目标)
 
 ---
 
@@ -1117,9 +1042,9 @@ ls -la build_release/src/Prism.exe
 
 ```
 第 1 周 (性能修复):
-  ┌─ 1.1 AES-NI (CMakeLists.txt:78) ──────┐
+  ┌─ ~~1.1 AES-NI~~ ✅ ──────────────────────┐
   │                                       │
-  ├─ 1.2 X25519 优化 ── 依赖 1.1 结果 ─────┤
+  ├─ ~~1.2 X25519~~ ✅ ─────────────────────┤
   │                                       │
   ├─ 1.3 全局池分片化 (pool.hpp) ──────────┤  可并行
   │                                       │

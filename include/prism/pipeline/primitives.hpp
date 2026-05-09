@@ -197,6 +197,12 @@ namespace psm::pipeline::primitives
          */
         void cancel() override;
 
+        /**
+         * @brief 获取内部传输对象
+         * @return 内部传输的 shared_ptr
+         */
+        [[nodiscard]] auto inner() const noexcept -> shared_transmission { return inner_; }
+
     private:
         shared_transmission inner_;                // 内部传输对象
         memory::vector<std::byte> preread_buffer_; // 预读数据缓冲区（拥有所有权）

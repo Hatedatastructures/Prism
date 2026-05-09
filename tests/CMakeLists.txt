@@ -53,6 +53,7 @@ forward_add_test(Balancer       Balancer.cpp)
 forward_add_test(DnsCache       DnsCache.cpp)
 forward_add_test(AccountDirectory AccountDirectory.cpp)
 forward_add_test(Shadowtls      Shadowtls.cpp)
+forward_add_test(ShadowTlsE2E   ShadowTlsE2E.cpp)
 forward_add_test(Restls         Restls.cpp)
 forward_add_test(Config         Config.cpp)
 forward_add_test(Base64Encode   Base64Encode.cpp)
@@ -70,7 +71,7 @@ if(MINGW)
         Session Connection Transmission Trace
         Http Socks5 Trojan Vless Shadowsocks Regression
         HttpParser Smux SmuxCraft Yamux YamuxCraft MultiplexDuct Crypto Hkdf Block Aead Reality Blake3 X25519 DnsPacket DnsRules Fault Exception ProtocolAnalysis ProtocolToString
-        Balancer DnsCache AccountDirectory Shadowtls Restls Base64Encode MemoryArena Config PipelinePrimitives Recognition Executor FaultHandling E2E
+        Balancer DnsCache AccountDirectory Shadowtls ShadowTlsE2E Restls Base64Encode MemoryArena Config PipelinePrimitives Recognition Executor FaultHandling E2E
         ConcurrencyServer ConcurrencyClient)
         if(TARGET ${t})
             target_compile_options(${t} PRIVATE -Wa,-mbig-obj)
