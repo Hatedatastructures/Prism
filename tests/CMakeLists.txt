@@ -23,6 +23,9 @@ forward_add_test(Trojan         Trojan.cpp)
 forward_add_test(Vless          Vless.cpp)
 forward_add_test(Shadowsocks    Shadowsocks.cpp)
 
+# ─── 端到端集成测试 ──────────────────────────────
+forward_add_test(E2E             E2E.cpp)
+
 # ─── 回归 ────────────────────────────────────────
 forward_add_test(Regression     Regression.cpp)
 
@@ -67,7 +70,7 @@ if(MINGW)
         Session Connection Transmission Trace
         Http Socks5 Trojan Vless Shadowsocks Regression
         HttpParser Smux SmuxCraft Yamux YamuxCraft MultiplexDuct Crypto Hkdf Block Aead Reality Blake3 X25519 DnsPacket DnsRules Fault Exception ProtocolAnalysis ProtocolToString
-        Balancer DnsCache AccountDirectory Shadowtls Restls Base64Encode MemoryArena Config PipelinePrimitives Recognition Executor FaultHandling
+        Balancer DnsCache AccountDirectory Shadowtls Restls Base64Encode MemoryArena Config PipelinePrimitives Recognition Executor FaultHandling E2E
         ConcurrencyServer ConcurrencyClient)
         if(TARGET ${t})
             target_compile_options(${t} PRIVATE -Wa,-mbig-obj)

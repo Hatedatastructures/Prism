@@ -44,3 +44,4 @@ compile_commands.json
 # Ignore Bzlmod lock file until it is more stable
 MODULE.bazel.lock
 CLAUDE.md
+.claude/settings.local.json
