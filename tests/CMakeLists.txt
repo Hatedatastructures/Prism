@@ -7,6 +7,9 @@ function(forward_add_test test_name source_file)
     add_executable(${test_name} ${CMAKE_CURRENT_SOURCE_DIR}/${source_file})
     target_compile_options(${test_name} PRIVATE ${TEST_COMPILE_OPTS})
     target_link_libraries(${test_name} PRIVATE ${PROJECT_NAME}_static_library)
+    if(MINGW)
+        target_link_options(${test_name} PRIVATE -static -static-libgcc -static-libstdc++)
+    endif()
     add_test(NAME ${test_name} COMMAND ${test_name})
 endfunction()
 
@@ -62,6 +65,8 @@ forward_add_test(PipelinePrimitives PipelinePrimitives.cpp)
 forward_add_test(Recognition    Recognition.cpp)
 forward_add_test(Executor       Executor.cpp)
 forward_add_test(FaultHandling  FaultHandling.cpp)
+forward_add_test(SchemeRouteTable SchemeRouteTable.cpp)
+forward_add_test(FeatureBitmap  FeatureBitmap.cpp)
 
 
 add_subdirectory(concurrency)
@@ -72,6 +77,7 @@ if(MINGW)
         Http Socks5 Trojan Vless Shadowsocks Regression
         HttpParser Smux SmuxCraft Yamux YamuxCraft MultiplexDuct Crypto Hkdf Block Aead Reality Blake3 X25519 DnsPacket DnsRules Fault Exception ProtocolAnalysis ProtocolToString
         Balancer DnsCache AccountDirectory Shadowtls ShadowTlsE2E Restls Base64Encode MemoryArena Config PipelinePrimitives Recognition Executor FaultHandling E2E
+        SchemeRouteTable FeatureBitmap
         ConcurrencyServer ConcurrencyClient)
         if(TARGET ${t})
             target_compile_options(${t} PRIVATE -Wa,-mbig-obj)

@@ -1,6 +1,7 @@
 /**
  * @file native.cpp
  * @brief 原生 TLS 伪装方案实现（兜底）
+ * @details Native 是 Tier 2 方案，作为兜底处理无法匹配其他方案的 TLS 连接。
  */
 
 #include <prism/stealth/native.hpp>
@@ -13,9 +14,9 @@
 
 namespace psm::stealth::schemes
 {
-    auto native::is_enabled([[maybe_unused]] const psm::config &cfg) const noexcept -> bool
+    auto native::active([[maybe_unused]] const psm::config &cfg) const noexcept -> bool
     {
-        return true;
+        return true;  // Native 始终启用，作为兜底
     }
 
     auto native::name() const noexcept -> std::string_view
@@ -23,18 +24,20 @@ namespace psm::stealth::schemes
         return "native";
     }
 
-    auto native::detect([[maybe_unused]] const protocol::tls::client_hello_features &features,[[maybe_unused]] const config &cfg) const
-        -> detection_result
+    auto native::guess(const psm::config &cfg) const
+        -> verify_result
     {
-        // Native 是兜底方案，始终返回 medium 置信度
-        return {.score = recognition::confidence::medium,
-                .reason = "native TLS fallback"};
+        // Native 是兜底方案，返回最低分
+        return {
+            .score = 50,  // 最低分，排在所有其他方案之后
+            .solo_flag = 0,
+            .note = "native TLS fallback"};
     }
 
-    auto native::execute(scheme_context ctx)
-        -> net::awaitable<scheme_result>
+    auto native::handshake(stealth::handshake_context ctx)
+        -> net::awaitable<stealth::handshake_result>
     {
-        scheme_result result;
+        stealth::handshake_result result;
 
         if (!ctx.session)
         {
@@ -42,11 +45,11 @@ namespace psm::stealth::schemes
             co_return result;
         }
 
-        ctx.session->inbound = std::move(ctx.inbound);
-
-        auto [ssl_ec, ssl_stream] = co_await pipeline::primitives::ssl_handshake(*ctx.session);
+        auto [ssl_ec, ssl_stream, recovered] = co_await pipeline::primitives::ssl_handshake(
+            std::move(ctx.inbound), *ctx.session->server.ssl_ctx);
         if (fault::failed(ssl_ec) || !ssl_stream)
         {
+            ctx.inbound = std::move(recovered);
             result.error = ssl_ec;
             trace::warn("[Native] TLS handshake failed: {}", fault::describe(ssl_ec));
             co_return result;

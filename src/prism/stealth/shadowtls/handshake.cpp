@@ -24,6 +24,7 @@
 #include <prism/fault/code.hpp>
 
 #include <boost/asio.hpp>
+#include <openssl/hmac.h>
 
 #include <cstring>
 #include <algorithm>
@@ -173,6 +174,12 @@ namespace psm::stealth::shadowtls
      * @param server_random ServerRandom
      * @return 认证成功返回首帧数据，失败返回 nullopt
      */
+    /**
+     * @brief 读取客户端帧直到 HMAC 匹配
+     * @details 读取客户端发送的 TLS 记录。非 Application Data 和 HMAC 不匹配的帧
+     * 转发到后端（如 TLS 握手记录）。HMAC 匹配的 Application Data 帧
+     * 是客户端的首帧认证数据，剥离 HMAC 后返回。
+     */
     static auto read_until_hmac_match(net::ip::tcp::socket &client_sock,
                                       net::ip::tcp::socket &backend_sock,
                                       std::string_view password,
@@ -190,6 +197,14 @@ namespace psm::stealth::shadowtls
             auto &frame = *frame_opt;
             const auto *raw = reinterpret_cast<const std::uint8_t *>(frame.data());
 
+            trace::info("[ShadowTLS] relay read: type=0x{:02x}, size={}, hex={:02x}{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}",
+                raw[0], frame.size(),
+                frame.size() > 0 ? raw[0] : 0, frame.size() > 1 ? raw[1] : 0,
+                frame.size() > 2 ? raw[2] : 0, frame.size() > 3 ? raw[3] : 0,
+                frame.size() > 4 ? raw[4] : 0, frame.size() > 5 ? raw[5] : 0,
+                frame.size() > 6 ? raw[6] : 0, frame.size() > 7 ? raw[7] : 0,
+                frame.size() > 8 ? raw[8] : 0, frame.size() > 9 ? raw[9] : 0);
+
             // 检查是否为 Application Data 且长度足够包含 HMAC
             if (raw[0] == content_type_application_data &&
                 frame.size() > tls_hmac_header_size)
@@ -198,7 +213,12 @@ namespace psm::stealth::shadowtls
                 std::array<std::uint8_t, 4> client_hmac{};
                 std::memcpy(client_hmac.data(), raw + tls_header_size, hmac_size);
 
-                // payload 是 HMAC 之后的数据
+                // HMAC 输入 = TLS header 之后的全部数据（含 HMAC + payload）
+                // 与 Go 服务端 copyByFrameUntilHMACMatches 一致：
+                // hmacVerify.Write(frame[tlsHmacHeaderSize:]) → offset 9 开始
+                // 但 Go 的 verifyClientHello 用的是 frame[5:hmacIndex] + 0000 + frame[hmacIndex+4:]
+                // 而 relay 阶段用的是：HMAC-SHA1(password, serverRandom + "C" + payload)
+                // 其中 payload = frame[tlsHmacHeaderSize:] (offset 9, 不含 TLS header)
                 auto payload = std::span<const std::byte>(
                     frame.data() + tls_hmac_header_size,
                     frame.size() - tls_hmac_header_size);
@@ -207,9 +227,7 @@ namespace psm::stealth::shadowtls
                 {
                     // HMAC 匹配！返回去掉 HMAC 头的帧
                     std::vector<std::byte> result(frame.size() - hmac_size);
-                    // 复制 TLS header
                     std::memcpy(result.data(), raw, tls_header_size);
-                    // 复制 payload（跳过 HMAC）
                     std::memcpy(result.data() + tls_header_size,
                                 frame.data() + tls_hmac_header_size,
                                 frame.size() - tls_hmac_header_size);
@@ -232,21 +250,15 @@ namespace psm::stealth::shadowtls
     }
 
     /**
-     * @brief 转发后端服务器握手数据到客户端（带 XOR + HMAC 修改）
-     * @details 对 Application Data 帧：
-     * 1. 用 SHA256(password+serverRandom) XOR 加密 payload
-     * 2. 添加 HMAC-SHA1(password, serverRandom+"S"+modified_payload) 标签
-     * 3. 修改 TLS header 中的长度字段
-     * 对其他类型的帧原样转发
+     * @brief 转发后端服务器握手数据到客户端（透传，不修改）
+     * @details 握手阶段所有后端记录原样转发到客户端，不做 XOR/HMAC 修改。
+     * TLS 1.3 AEAD 要求密文长度精确匹配，修改会破坏解密。
+     * XOR+HMAC 包装是数据阶段的事，不是握手阶段的。
      */
-    static auto relay_backend_to_client_modified(
+    static auto relay_backend_to_client_passthrough(
         net::ip::tcp::socket &backend_sock,
-        net::ip::tcp::socket &client_sock,
-        std::string_view password,
-        std::span<const std::byte> server_random) -> net::awaitable<void>
+        net::ip::tcp::socket &client_sock) -> net::awaitable<void>
     {
-        auto write_key = compute_write_key(password, server_random);
-
         while (true)
         {
             auto frame_opt = co_await read_tls_frame(backend_sock);
@@ -256,63 +268,14 @@ namespace psm::stealth::shadowtls
             }
 
             auto &frame = *frame_opt;
-            auto *raw = reinterpret_cast<std::uint8_t *>(frame.data());
-
-            if (raw[0] == content_type_application_data && frame.size() > tls_header_size)
+            boost::system::error_code write_ec;
+            co_await net::async_write(
+                client_sock,
+                net::buffer(frame.data(), frame.size()),
+                net::redirect_error(net::use_awaitable, write_ec));
+            if (write_ec)
             {
-                // XOR 加密 payload
-                auto payload = std::span<std::byte>(
-                    frame.data() + tls_header_size,
-                    frame.size() - tls_header_size);
-                xor_with_key(payload, write_key);
-
-                // 计算 HMAC
-                auto hmac_tag = compute_write_hmac(
-                    password, server_random,
-                    std::span<const std::byte>(
-                        frame.data() + tls_header_size,
-                        frame.size() - tls_header_size));
-
-                // 构建新帧: TLS header + HMAC(4) + modified payload
-                // 需要先写入原 socket，使用 scatter-gather
-                std::array<std::byte, tls_header_size> header{};
-                std::memcpy(header.data(), frame.data(), tls_header_size);
-
-                // 更新长度字段
-                const auto new_length = static_cast<std::uint16_t>(
-                    frame.size() - tls_header_size + hmac_size);
-                auto *header_raw = reinterpret_cast<std::uint8_t *>(header.data());
-                header_raw[3] = static_cast<std::uint8_t>(new_length >> 8);
-                header_raw[4] = static_cast<std::uint8_t>(new_length & 0xFF);
-
-                std::array<std::byte, hmac_size> hmac_bytes;
-                std::memcpy(hmac_bytes.data(), hmac_tag.data(), hmac_size);
-
-                boost::system::error_code write_ec;
-                const std::array<net::const_buffer, 3> bufs = {
-                    net::const_buffer(header.data(), header.size()),
-                    net::const_buffer(hmac_bytes.data(), hmac_bytes.size()),
-                    net::const_buffer(frame.data() + tls_header_size,
-                                      frame.size() - tls_header_size)};
-                co_await net::async_write(client_sock, bufs,
-                                          net::redirect_error(net::use_awaitable, write_ec));
-                if (write_ec)
-                {
-                    co_return;
-                }
-            }
-            else
-            {
-                // 非 Application Data，原样转发
-                boost::system::error_code write_ec;
-                co_await net::async_write(
-                    client_sock,
-                    net::buffer(frame.data(), frame.size()),
-                    net::redirect_error(net::use_awaitable, write_ec));
-                if (write_ec)
-                {
-                    co_return;
-                }
+                co_return;
             }
         }
     }
@@ -479,15 +442,19 @@ namespace psm::stealth::shadowtls
             co_return result;
         }
 
-        trace::debug("[ShadowTLS] ServerRandom extracted, TLS 1.3 supported: {}",
-                     is_server_hello_tls13(server_hello_span));
+        auto *sr_raw = reinterpret_cast<const std::uint8_t *>(server_random_opt->data());
+        trace::info("[ShadowTLS] ServerRandom: {:02x}{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}, TLS1.3={}",
+                    sr_raw[0], sr_raw[1], sr_raw[2], sr_raw[3],
+                    sr_raw[4], sr_raw[5], sr_raw[6], sr_raw[7],
+                    is_server_hello_tls13(server_hello_span));
 
         // Step 8: 双工握手阶段数据转发
         // 启动后台协程：后端 → 客户端（带 XOR + HMAC 修改）
-        auto backend_relay = [&, &password = password]() -> net::awaitable<void>
+        auto relay_done = std::make_shared<bool>(false);
+        auto backend_relay = [&]() -> net::awaitable<void>
         {
-            co_await relay_backend_to_client_modified(
-                backend_sock, client_sock, password, server_random);
+            co_await relay_backend_to_client_passthrough(backend_sock, client_sock);
+            *relay_done = true;
         };
         net::co_spawn(executor, std::move(backend_relay), net::detached);
 
@@ -495,18 +462,26 @@ namespace psm::stealth::shadowtls
         auto first_frame_opt = co_await read_until_hmac_match(
             client_sock, backend_sock, password, server_random);
 
+        // 关闭后端 socket，让 relay 协程退出
+        {
+            boost::system::error_code close_ec;
+            backend_sock.shutdown(net::ip::tcp::socket::shutdown_both, close_ec);
+            backend_sock.close(close_ec);
+        }
+
+        // 等待 relay 协程退出（最多 1 秒）
+        for (int i = 0; i < 100 && !*relay_done; ++i)
+        {
+            net::steady_timer timer(executor);
+            timer.expires_after(std::chrono::milliseconds(10));
+            co_await timer.async_wait(net::use_awaitable);
+        }
+
         if (!first_frame_opt)
         {
             trace::warn("[ShadowTLS] HMAC match failed during handshake relay");
             result.error = std::make_error_code(std::errc::protocol_error);
             co_return result;
-        }
-
-        // 握手完成！关闭后端 socket（后续流量不经过后端了）
-        {
-            boost::system::error_code close_ec;
-            backend_sock.shutdown(net::ip::tcp::socket::shutdown_both, close_ec);
-            backend_sock.close(close_ec);
         }
 
         trace::debug("[ShadowTLS] Handshake complete, returning first authenticated frame");

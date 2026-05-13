@@ -26,3 +26,7 @@
 
 #include <prism/stealth/shadowtls/scheme.hpp>
 #include <prism/stealth/restls/scheme.hpp>
+#include <prism/stealth/anytls/scheme.hpp>
+#include <prism/stealth/trusttunnel/scheme.hpp>
+#include <prism/stealth/ech/config.hpp>
+#include <prism/stealth/ech/decrypt.hpp>

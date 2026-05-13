@@ -21,6 +21,12 @@
 #include <prism/recognition/probe/probe.hpp>
 #include <prism/recognition/probe/analyzer.hpp>
 
+// SNI 路由表
+#include <prism/recognition/scheme_route_table.hpp>
+
+// 分层检测管道
+#include <prism/recognition/layered_pipeline.hpp>
+
 // 前置声明
 namespace psm
 {

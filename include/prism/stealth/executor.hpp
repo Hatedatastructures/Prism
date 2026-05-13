@@ -42,8 +42,8 @@ namespace psm::stealth
          * @details 候选为空时按注册顺序执行；全部失败则执行 native 兜底。
          * 每个方案返回 TLS 表示 "不是我"，transport 和 preread 数据传递给下一个方案。
          */
-        [[nodiscard]] auto execute_by_analysis(const recognition::analysis_result &analysis, scheme_context ctx) const
-            -> net::awaitable<scheme_result>;
+        [[nodiscard]] auto execute_by_analysis(const recognition::analysis_result &analysis, handshake_context ctx) const
+            -> net::awaitable<handshake_result>;
 
         /**
          * @brief 按候选列表执行方案管道
@@ -51,21 +51,25 @@ namespace psm::stealth
          * @param ctx 方案执行上下文
          * @return 执行结果
          */
-        [[nodiscard]] auto execute(const memory::vector<memory::string> &candidates, scheme_context ctx) const
-            -> net::awaitable<scheme_result>;
+        [[nodiscard]] auto execute(const memory::vector<memory::string> &candidates, handshake_context ctx) const
+            -> net::awaitable<handshake_result>;
 
     private:
         std::vector<shared_scheme> schemes_;
 
         [[nodiscard]] auto find_scheme(std::string_view name) const -> shared_scheme;
 
-        [[nodiscard]] static auto execute_single(shared_scheme scheme, scheme_context ctx)
-            -> net::awaitable<scheme_result>;
+        [[nodiscard]] static auto execute_single(shared_scheme scheme, handshake_context ctx)
+            -> net::awaitable<handshake_result>;
 
-        static auto pass_through(scheme_context &ctx, const scheme_result &res) -> void;
+        static auto pass_through(handshake_context &ctx, const handshake_result &res) -> void;
 
-        [[nodiscard]] auto execute_pipeline(const memory::vector<memory::string> &order, scheme_context ctx) const
-            -> net::awaitable<scheme_result>;
+        static auto ensure_snapshot(handshake_context &ctx) -> void;
+
+        static auto try_rewind(handshake_context &ctx) -> bool;
+
+        [[nodiscard]] auto execute_pipeline(const memory::vector<memory::string> &order, handshake_context ctx) const
+            -> net::awaitable<handshake_result>;
     };
 
 } // namespace psm::stealth

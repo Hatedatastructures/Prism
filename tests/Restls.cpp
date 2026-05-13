@@ -53,6 +53,7 @@ void TestConfigEnabled()
 
     // 有效配置应该返回 true
     config cfg3;
+    cfg3.server_names.push_back("example.com");
     cfg3.host = "www.microsoft.com:443";
     cfg3.password = "test_password";
     Check(cfg3.enabled(), "Config enabled with valid host and password");

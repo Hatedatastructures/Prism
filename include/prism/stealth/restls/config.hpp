@@ -19,6 +19,7 @@ namespace psm::stealth::restls
      * @details 包含 TLS 后端目标、认证密码、版本提示和流量控制脚本。
      *
      * **配置项说明**：
+     * - `server_names`: SNI 白名单，只有匹配的 ClientHello 才会执行认证
      * - `host`: TLS 后端目标服务器（必须是 TLS 1.2 或 TLS 1.3 服务器）
      * - `password`: 认证密码
      * - `version_hint`: 版本提示，"tls12" 或 "tls13"
@@ -31,19 +32,35 @@ namespace psm::stealth::restls
      */
     struct config
     {
-        memory::string host;              ///< TLS 后端目标 host:port
-        memory::string password;          ///< 认证密码
-        memory::string version_hint;      ///< 版本提示: "tls12" 或 "tls13"
-        memory::string restls_script;     ///< 流量控制脚本
-        std::uint32_t handshake_timeout_ms{5000}; ///< 握手超时（毫秒）
+        memory::vector<memory::string> server_names;     ///< SNI 白名单
+        memory::string host;                             ///< TLS 后端目标 host:port
+        memory::string password;                         ///< 认证密码
+        memory::string version_hint;                     ///< 版本提示: "tls12" 或 "tls13"
+        memory::string restls_script;                    ///< 流量控制脚本
+        std::uint32_t handshake_timeout_ms{5000};        ///< 握手超时（毫秒）
 
         /**
          * @brief 检查配置是否有效
-         * @return 如果 host 和 password 都非空，返回 true
+         * @return 如果 server_names、host 和 password 都非空，返回 true
          */
         [[nodiscard]] auto enabled() const noexcept -> bool
         {
-            return !host.empty() && !password.empty();
+            return !server_names.empty() && !host.empty() && !password.empty();
         }
     }; // struct config
 } // namespace psm::stealth::restls
+
+#include <glaze/glaze.hpp>
+
+template <>
+struct glz::meta<psm::stealth::restls::config>
+{
+    using T = psm::stealth::restls::config;
+    static constexpr auto value = glz::object(
+        "server_names",         &T::server_names,
+        "host",                 &T::host,
+        "password",             &T::password,
+        "version_hint",         &T::version_hint,
+        "restls_script",        &T::restls_script,
+        "handshake_timeout_ms", &T::handshake_timeout_ms);
+};

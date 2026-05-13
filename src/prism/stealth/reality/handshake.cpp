@@ -119,10 +119,12 @@ namespace psm::stealth::reality
     // fallback_to_dest
     // ============================================================
 
-    auto fallback_to_dest(psm::agent::session_context &ctx, const std::span<const std::uint8_t> raw_record)
+    auto fallback_to_dest(psm::agent::session_context &session,
+                          channel::transport::shared_transmission inbound,
+                          const std::span<const std::uint8_t> raw_record)
         -> net::awaitable<fault::code>
     {
-        const auto &reality_cfg = ctx.server.config().stealth.reality;
+        const auto &reality_cfg = session.server.config().stealth.reality;
 
         std::string dest_host;
         std::uint16_t dest_port = 443;
@@ -136,7 +138,7 @@ namespace psm::stealth::reality
 
         char dest_port_buf[8];
         const auto [dest_port_end, dest_port_ec] = std::to_chars(dest_port_buf, dest_port_buf + sizeof(dest_port_buf), dest_port);
-        auto [connect_ec, dest_conn] = co_await ctx.worker.router.async_forward(dest_host, std::string_view(dest_port_buf, std::distance(dest_port_buf, dest_port_end)));
+        auto [connect_ec, dest_conn] = co_await session.worker.router.async_forward(dest_host, std::string_view(dest_port_buf, std::distance(dest_port_buf, dest_port_end)));
         if (fault::failed(connect_ec) || !dest_conn.valid())
         {
             trace::warn("{} connect to dest failed: {}", HsTag, fault::describe(connect_ec));
@@ -155,7 +157,7 @@ namespace psm::stealth::reality
         }
 
         auto dest_trans = channel::transport::make_reliable(std::move(*dest_socket_raw));
-        co_await pipeline::primitives::tunnel(ctx.inbound, std::move(dest_trans), ctx);
+        co_await pipeline::primitives::tunnel(inbound, std::move(dest_trans), session);
 
         trace::debug("{} fallback tunnel completed", HsTag);
         co_return fault::code::success;
@@ -394,21 +396,23 @@ namespace psm::stealth::reality
     // handshake 主入口
     // ============================================================
 
-    auto handshake(psm::agent::session_context &ctx)
+    auto handshake(channel::transport::shared_transmission inbound,
+                   const psm::config &cfg,
+                   psm::agent::session_context &session)
         -> net::awaitable<handshake_result>
     {
         handshake_result result;
 
-        if (!ctx.inbound)
+        if (!inbound)
         {
             result.error = fault::code::io_error;
             co_return result;
         }
 
-        const auto &reality_cfg = ctx.server.config().stealth.reality;
+        const auto &reality_cfg = cfg.stealth.reality;
 
         // 1. 读取 ClientHello
-        auto [read_ec, raw_record] = co_await protocol::tls::read_tls_record(*ctx.inbound);
+        auto [read_ec, raw_record] = co_await protocol::tls::read_tls_record(*inbound);
         if (fault::failed(read_ec))
         {
             trace::warn("{} failed to read TLS record: {}", HsTag, fault::describe(read_ec));
@@ -420,7 +424,7 @@ namespace psm::stealth::reality
         if (fault::failed(parse_ec))
         {
             trace::warn("{} failed to parse ClientHello: {}", HsTag, fault::describe(parse_ec));
-            const auto fb_ec = co_await fallback_to_dest(ctx, raw_record);
+            const auto fb_ec = co_await fallback_to_dest(session, inbound, raw_record);
             result.type = (fault::succeeded(fb_ec)) ? handshake_result_type::fallback : handshake_result_type::failed;
             result.error = fb_ec;
             co_return result;
@@ -444,7 +448,7 @@ namespace psm::stealth::reality
         if (decoded_key_str.size() != protocol::tls::REALITY_KEY_LEN)
         {
             trace::warn("{} invalid private key length: {}", HsTag, decoded_key_str.size());
-            const auto fb_ec = co_await fallback_to_dest(ctx, raw_record);
+            const auto fb_ec = co_await fallback_to_dest(session, inbound, raw_record);
             result.type = (fault::succeeded(fb_ec)) ? handshake_result_type::fallback : handshake_result_type::failed;
             result.error = fb_ec;
             co_return result;
@@ -557,7 +561,7 @@ namespace psm::stealth::reality
                     reinterpret_cast<const std::byte *>(sh_result.encrypted_handshake_record.data()),
                     sh_result.encrypted_handshake_record.size()),
             };
-            co_await ctx.inbound->async_write_scatter(handshake_parts, 3, write_ec);
+            co_await inbound->async_write_scatter(handshake_parts, 3, write_ec);
             if (write_ec)
             {
                 trace::warn("{} failed to send handshake records: {}", HsTag, write_ec.message());
@@ -567,7 +571,7 @@ namespace psm::stealth::reality
         }
 
         // 8. 消费客户端 CCS + Finished
-        const auto consumed_ec = co_await consume_client_finished(*ctx.inbound, keys);
+        const auto consumed_ec = co_await consume_client_finished(*inbound, keys);
         if (fault::failed(consumed_ec))
         {
             result.error = consumed_ec;
@@ -603,7 +607,7 @@ namespace psm::stealth::reality
 
         // 10. 创建加密传输层 + 预读内层数据
         auto reality_session = std::make_shared<seal>(
-            std::move(ctx.inbound), std::move(keys));
+            std::move(inbound), std::move(keys));
 
         constexpr std::size_t preread_size = 64;
         memory::vector<std::byte> inner_buf(preread_size);

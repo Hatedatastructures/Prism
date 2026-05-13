@@ -7,6 +7,8 @@
 #include <prism/stealth/reality/scheme.hpp>
 #include <prism/stealth/shadowtls/scheme.hpp>
 #include <prism/stealth/restls/scheme.hpp>
+#include <prism/stealth/anytls/scheme.hpp>
+#include <prism/stealth/trusttunnel/scheme.hpp>
 #include <prism/stealth/native.hpp>
 #include <algorithm>
 
@@ -16,10 +18,16 @@ namespace psm::stealth
     {
         auto &reg = scheme_registry::instance();
 
-        // 注册顺序即为默认优先级：reality → shadowtls → restls → native
+        // 注册顺序即为默认优先级：
+        // Layer 0: reality (独占特征)
+        // Layer 1: shadowtls (HMAC 验证)
+        // Layer 2: restls, anytls, trusttunnel (模糊匹配)
+        // 兜底: native
         reg.add(std::make_shared<reality::scheme>());
         reg.add(std::make_shared<shadowtls::scheme>());
         reg.add(std::make_shared<restls::scheme>());
+        reg.add(std::make_shared<anytls::scheme>());
+        reg.add(std::make_shared<trusttunnel::scheme>());
         reg.add(std::make_shared<schemes::native>());
     }
 

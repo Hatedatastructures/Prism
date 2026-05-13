@@ -1,6 +1,7 @@
 /**
  * @file scheme.cpp
  * @brief Reality 伪装方案实现
+ * @details Reality 是 Tier 0 方案，使用 session_id 标记作为独占特征。
  */
 
 #include <prism/stealth/reality/scheme.hpp>
@@ -11,57 +12,97 @@
 
 namespace psm::stealth::reality
 {
-    auto scheme::is_enabled(const psm::config &cfg) const noexcept -> bool
+    auto scheme::active(const psm::config &cfg) const noexcept -> bool
     {
         return cfg.stealth.reality.enabled();
     }
 
-    auto scheme::detect(const protocol::tls::client_hello_features &features, const psm::config &cfg) const
-        -> detection_result
+    auto scheme::snis(const psm::config &cfg) const
+        -> memory::vector<memory::string>
     {
-        const auto &server_names = cfg.stealth.reality.server_names;
+        memory::vector<memory::string> names;
+        for (const auto &name : cfg.stealth.reality.server_names)
+            names.push_back(memory::string(name));
+        return names;
+    }
 
-        // SNI 匹配检查
-        bool sni_matched = false;
-        if (!features.server_name.empty() && !server_names.empty())
+    auto scheme::sniff(std::uint32_t bitmap,
+                       const protocol::tls::client_hello_features &features) const
+        -> sniff_result
+    {
+        using namespace protocol::tls;
+
+        // Tier 0: Reality 独占标记检查（零成本字节比较）
+        // session_id[0] == 0x01, session_id[1] == 0x08, session_id[2] == 0x02
+        if (has_feature(bitmap, reality_marker_01_08_02))
         {
-            for (const auto &name : server_names)
-            {
-                if (features.server_name == std::string_view(name))
-                {
-                    sni_matched = true;
-                    break;
-                }
-            }
+            trace::debug("[Reality] Sniff: exclusive marker [01:08:02] found");
+            return {
+                .hit = true,
+                .solo = true,  // 独占！命中则跳过其他方案
+                .hint = 950,
+                .note = "Reality marker [01:08:02] detected"};
         }
 
-        if (!sni_matched)
+        // 有 X25519 + session_id=32 → high confidence candidate
+        // 不独占，可能被 ShadowTLS HMAC 验证后抢走
+        if (has_all_features(bitmap, has_x25519 | has_full_session_id))
         {
-            trace::debug("[Reality] SNI '{}' not matched", features.server_name);
-            return {.score = recognition::confidence::none,
-                    .reason = "SNI not matched"};
+            trace::debug("[Reality] Sniff: has X25519 + session_id=32, no marker");
+            return {
+                .hit = true,
+                .solo = false,
+                .hint = 450,
+                .note = "Has X25519 + session_id=32"};
         }
 
-        const bool has_full_session_id = features.session_id_len == 32;
-        const bool has_x25519 = features.has_x25519;
-
-        if (has_full_session_id && has_x25519)
+        // 有 X25519 + session_id 非标准 → medium confidence
+        // Reality 客户端可能使用非标准 session_id
+        if (has_feature(bitmap, has_x25519) && has_feature(bitmap, session_id_non_standard))
         {
-            trace::debug("[Reality] Full features: session_id=32, x25519=true");
-            return {.score = recognition::confidence::high,
-                    .reason = "SNI matched + session_id=32 + X25519"};
+            trace::debug("[Reality] Sniff: has X25519 + non-standard session_id");
+            return {
+                .hit = true,
+                .solo = false,
+                .hint = 400,
+                .note = "Has X25519 + non-standard session_id"};
         }
 
-        if (has_x25519)
+        // 有 X25519 但 session_id 标准长度（无标记）→ medium-low
+        if (has_feature(bitmap, has_x25519))
         {
-            trace::debug("[Reality] Partial features: x25519=true, session_id={}", features.session_id_len);
-            return {.score = recognition::confidence::medium,
-                    .reason = "SNI matched + X25519"};
+            trace::debug("[Reality] Sniff: has X25519 only");
+            return {
+                .hit = true,
+                .solo = false,
+                .hint = 200,
+                .note = "Has X25519"};
         }
 
-        trace::debug("[Reality] SNI matched but no X25519 key_share");
-        return {.score = recognition::confidence::low,
-                .reason = "SNI matched but no X25519"};
+        // 无 X25519 但有 SNI + session_id=32 → low confidence
+        // 需要 SNI 匹配（在 route_table 层检查）
+        if (has_all_features(bitmap, has_sni | has_full_session_id))
+        {
+            trace::debug("[Reality] Sniff: has SNI + session_id=32, no X25519");
+            return {
+                .hit = true,
+                .solo = false,
+                .hint = 100,
+                .note = "Has SNI + session_id=32"};
+        }
+
+        // 只有 SNI → low confidence (SNI 匹配已在上层检查)
+        if (has_feature(bitmap, has_sni))
+        {
+            trace::debug("[Reality] Sniff: has SNI only");
+            return {
+                .hit = true,
+                .solo = false,
+                .hint = 100,
+                .note = "Has SNI"};
+        }
+
+        return {.hit = false};
     }
 
     auto scheme::name() const noexcept -> std::string_view
@@ -69,10 +110,10 @@ namespace psm::stealth::reality
         return "reality";
     }
 
-    auto scheme::execute(scheme_context ctx)
-        -> net::awaitable<scheme_result>
+    auto scheme::handshake(stealth::handshake_context ctx)
+        -> net::awaitable<stealth::handshake_result>
     {
-        scheme_result result;
+        stealth::handshake_result result;
 
         if (!ctx.session)
         {
@@ -80,9 +121,9 @@ namespace psm::stealth::reality
             co_return result;
         }
 
-        ctx.session->inbound = std::move(ctx.inbound);
+        const auto &cfg = ctx.session->server.config();
 
-        auto hs = co_await stealth::reality::handshake(*ctx.session);
+        auto hs = co_await stealth::reality::handshake(ctx.inbound, cfg, *ctx.session);
 
         switch (hs.type)
         {
@@ -94,7 +135,7 @@ namespace psm::stealth::reality
             break;
 
         case stealth::reality::handshake_result_type::not_reality:
-            result.transport = std::move(ctx.session->inbound);
+            result.transport = std::move(ctx.inbound);
             result.preread.assign(hs.raw_tls_record.begin(), hs.raw_tls_record.end());
             result.detected = protocol::protocol_type::tls;
             trace::debug("[Reality] Not Reality, pass to next scheme");
@@ -105,10 +146,9 @@ namespace psm::stealth::reality
             break;
 
         case stealth::reality::handshake_result_type::failed:
-            result.transport = std::move(ctx.session->inbound);
+            result.transport = std::move(ctx.inbound);
             if (hs.error == fault::code::reality_tls_record_error)
             {
-                // 不假设为 Shadowsocks，继续传递给下一个 scheme
                 result.detected = protocol::protocol_type::tls;
                 result.preread.assign(hs.raw_tls_record.begin(), hs.raw_tls_record.end());
                 trace::debug("[Reality] TLS record error, pass to next scheme");

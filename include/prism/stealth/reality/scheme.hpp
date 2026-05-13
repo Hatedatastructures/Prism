@@ -2,6 +2,7 @@
  * @file scheme.hpp
  * @brief Reality 伪装方案类
  * @details 封装 Reality TLS 握手和协议检测逻辑，继承 stealth_scheme 基类。
+ * Reality 是 Tier 0 方案，有独占特征（session_id 标记）。
  */
 #pragma once
 
@@ -13,13 +14,34 @@ namespace psm::stealth::reality
     class scheme final : public stealth_scheme
     {
     public:
-        [[nodiscard]] auto is_enabled(const psm::config &cfg) const noexcept
-            -> bool override;
-        [[nodiscard]] auto detect(const protocol::tls::client_hello_features &features, const psm::config &cfg) const
-            -> detection_result override;
-        [[nodiscard]] auto execute(scheme_context ctx)
-            -> net::awaitable<scheme_result> override;
+        // === 基本信息 ===
         [[nodiscard]] auto name() const noexcept
             -> std::string_view override;
+        [[nodiscard]] auto tier() const noexcept
+            -> std::uint8_t override { return 0; }
+        [[nodiscard]] auto unique() const noexcept
+            -> bool override { return true; }
+
+        // === 配置检查 ===
+        [[nodiscard]] auto active(const psm::config &cfg) const noexcept
+            -> bool override;
+        [[nodiscard]] auto snis(const psm::config &cfg) const
+            -> memory::vector<memory::string> override;
+
+        // === Tier 0: 快速检测 ===
+        [[nodiscard]] auto sniff(std::uint32_t bitmap,
+                                  const protocol::tls::client_hello_features &features) const
+            -> sniff_result override;
+
+        // === Tier 1/2: 使用默认实现 ===
+        // Reality 不需要 verify 和 guess
+
+        // === 执行 ===
+        [[nodiscard]] auto handshake(stealth::handshake_context ctx)
+            -> net::awaitable<stealth::handshake_result> override;
+
+    protected:
+        [[nodiscard]] auto weight() const noexcept
+            -> std::uint16_t override { return 450; }
     };
 } // namespace psm::stealth::reality

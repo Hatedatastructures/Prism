@@ -91,7 +91,9 @@ namespace psm::stealth::shadowtls
                            const std::span<const std::byte> payload,
                            const std::span<const std::uint8_t, 4> client_hmac) -> bool
     {
-        // HMAC-SHA1(password, serverRandom + "C" + payload)[:4]
+        // HMAC-SHA1(password, serverRandom + payload)[:4]
+        // 注意：mihomo sing-shadowtls 客户端的 streamWrapper.readHMAC 不包含 "C" 标签
+        // Go 服务端的 hmacVerifyReset 包含 "C"，但客户端不包含，导致 HMAC 不匹配
         HMAC_CTX *ctx = HMAC_CTX_new();
         if (!ctx)
         {
@@ -100,9 +102,6 @@ namespace psm::stealth::shadowtls
 
         HMAC_Init_ex(ctx, password.data(), static_cast<int>(password.size()), EVP_sha1(), nullptr);
         HMAC_Update(ctx, reinterpret_cast<const unsigned char *>(server_random.data()), server_random.size());
-
-        constexpr unsigned char tag_c = 'C';
-        HMAC_Update(ctx, &tag_c, 1);
 
         HMAC_Update(ctx, reinterpret_cast<const unsigned char *>(payload.data()), payload.size());
 

@@ -13,6 +13,9 @@ target_sources(${PROJECT_NAME}_static_library
         shadowtls/handshake.cpp
         shadowtls/scheme.cpp
         restls/scheme.cpp
+        anytls/scheme.cpp
+        trusttunnel/scheme.cpp
+        ech/decrypt.cpp
         native.cpp
 )
 
@@ -42,4 +45,10 @@ target_sources(${PROJECT_NAME}_static_library
             ${PROJECT_SOURCE_DIR}/include/prism/stealth/shadowtls/scheme.hpp
             ${PROJECT_SOURCE_DIR}/include/prism/stealth/restls/config.hpp
             ${PROJECT_SOURCE_DIR}/include/prism/stealth/restls/scheme.hpp
+            ${PROJECT_SOURCE_DIR}/include/prism/stealth/anytls/config.hpp
+            ${PROJECT_SOURCE_DIR}/include/prism/stealth/anytls/scheme.hpp
+            ${PROJECT_SOURCE_DIR}/include/prism/stealth/trusttunnel/config.hpp
+            ${PROJECT_SOURCE_DIR}/include/prism/stealth/trusttunnel/scheme.hpp
+            ${PROJECT_SOURCE_DIR}/include/prism/stealth/ech/config.hpp
+            ${PROJECT_SOURCE_DIR}/include/prism/stealth/ech/decrypt.hpp
 )

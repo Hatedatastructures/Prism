@@ -6,6 +6,7 @@
 #include <prism/stealth/executor.hpp>
 #include <prism/agent/context.hpp>
 #include <prism/pipeline/primitives.hpp>
+#include <prism/channel/transport/snapshot.hpp>
 #include <prism/trace.hpp>
 #include <algorithm>
 
@@ -16,7 +17,7 @@ namespace psm::stealth
     {
     }
 
-    auto scheme_executor::pass_through(scheme_context &ctx, const scheme_result &res) -> void
+    auto scheme_executor::pass_through(handshake_context &ctx, const handshake_result &res) -> void
     {
         if (res.transport)
             ctx.inbound = res.transport;
@@ -28,18 +29,38 @@ namespace psm::stealth
         }
     }
 
-    auto scheme_executor::execute_single(const shared_scheme scheme, scheme_context ctx)
-        -> net::awaitable<scheme_result>
+    auto scheme_executor::ensure_snapshot(handshake_context &ctx) -> void
     {
-        auto result = co_await scheme->execute(std::move(ctx));
-        result.executed_scheme = memory::string(scheme->name());
+        if (!ctx.inbound)
+            return;
+        if (dynamic_cast<channel::transport::snapshot *>(ctx.inbound.get()))
+            return;
+        ctx.inbound = channel::transport::make_snapshot(std::move(ctx.inbound));
+    }
+
+    auto scheme_executor::try_rewind(handshake_context &ctx) -> bool
+    {
+        if (!ctx.inbound)
+            return false;
+        auto *snap = dynamic_cast<channel::transport::snapshot *>(ctx.inbound.get());
+        if (!snap || !snap->can_rewind())
+            return false;
+        snap->rewind();
+        return true;
+    }
+
+    auto scheme_executor::execute_single(const shared_scheme scheme, handshake_context ctx)
+        -> net::awaitable<handshake_result>
+    {
+        auto result = co_await scheme->handshake(std::move(ctx));
+        result.scheme = memory::string(scheme->name());
         co_return result;
     }
 
-    auto scheme_executor::execute_pipeline(const memory::vector<memory::string> &order, scheme_context ctx) const
-        -> net::awaitable<scheme_result>
+    auto scheme_executor::execute_pipeline(const memory::vector<memory::string> &order, handshake_context ctx) const
+        -> net::awaitable<handshake_result>
     {
-        scheme_result result;
+        handshake_result result;
 
         for (const auto &name : order)
         {
@@ -50,15 +71,18 @@ namespace psm::stealth
                 continue;
             }
 
-            if (!scheme->is_enabled(*ctx.cfg))
+            if (!scheme->active(*ctx.cfg))
             {
                 trace::debug("[SchemeExecutor] Scheme '{}' disabled, skipping", name);
                 continue;
             }
 
+            // 包装 snapshot，使失败时可以 rewind
+            ensure_snapshot(ctx);
+
             trace::debug("[SchemeExecutor] Executing scheme '{}'", name);
 
-            auto exec_result = co_await execute_single(scheme, scheme_context{ctx});
+            auto exec_result = co_await execute_single(scheme, handshake_context{ctx});
 
             // 成功：内层协议已识别
             if (exec_result.detected != protocol::protocol_type::tls &&
@@ -70,29 +94,39 @@ namespace psm::stealth
                 co_return exec_result;
             }
 
-            // 返回 TLS 表示"不是我"，传递上下文继续下一个
+            // 返回 TLS 表示"不是我"，尝试 rewind 后继续下一个
             if (exec_result.detected == protocol::protocol_type::tls)
             {
                 trace::debug("[SchemeExecutor] Scheme '{}' returned TLS, continuing to next", name);
-                pass_through(ctx, exec_result);
+                if (!try_rewind(ctx))
+                    pass_through(ctx, exec_result);
                 continue;
             }
 
-            // 其他错误，终止
+            // 其他错误，尝试 rewind 后继续，不能 rewind 则终止
             if (fault::failed(exec_result.error))
             {
+                if (try_rewind(ctx))
+                {
+                    trace::debug("[SchemeExecutor] Scheme '{}' failed but snapshot rewound, trying next", name);
+                    continue;
+                }
                 trace::warn("[SchemeExecutor] Scheme '{}' failed with error: {}",
                             name, fault::describe(exec_result.error));
                 co_return exec_result;
             }
+
+            // detected == unknown：尝试 rewind
+            if (!try_rewind(ctx))
+                pass_through(ctx, exec_result);
         }
 
         result.error = fault::code::not_supported;
         co_return result;
     }
 
-    auto scheme_executor::execute_by_analysis(const recognition::analysis_result &analysis, scheme_context ctx) const
-        -> net::awaitable<scheme_result>
+    auto scheme_executor::execute_by_analysis(const recognition::analysis_result &analysis, handshake_context ctx) const
+        -> net::awaitable<handshake_result>
     {
         // 候选为空时按注册顺序执行
         if (analysis.candidates.empty())
@@ -120,8 +154,8 @@ namespace psm::stealth
         co_return co_await execute_pipeline(analysis.candidates, std::move(ctx));
     }
 
-    auto scheme_executor::execute(const memory::vector<memory::string> &candidates, scheme_context ctx) const
-        -> net::awaitable<scheme_result>
+    auto scheme_executor::execute(const memory::vector<memory::string> &candidates, handshake_context ctx) const
+        -> net::awaitable<handshake_result>
     {
         co_return co_await execute_pipeline(candidates, std::move(ctx));
     }

@@ -108,15 +108,47 @@
                 }
             ],
             "handshake_dest": "www.microsoft.com:443",
+            "server_names": ["shadowtls.example.com"],
             "strict_mode": true,
             "handshake_timeout_ms": 5000
         },
         "restls": {
+            "server_names": ["restls.example.com"],
             "host": "www.microsoft.com:443",
             "password": "restls_password",
             "version_hint": "tls13",
             "restls_script": "300?100<1,400~100,350~100,600~100,300~200,300~100",
             "handshake_timeout_ms": 5000
+        },
+        "anytls": {
+            "server_names": ["anytls.example.com"],
+            "certificate": "C:\\Users\\C1373\\Desktop\\code\\prism\\cert.pem",
+            "private_key": "C:\\Users\\C1373\\Desktop\\code\\prism\\key.pem",
+            "users": [
+                {
+                    "username": "user1",
+                    "password": "anytls_password"
+                }
+            ],
+            "ech_key": "",
+            "padding_scheme": "300?100<1,400~100,350~100",
+            "handshake_timeout_ms": 5000,
+            "idle_session_timeout_ms": 30000
+        },
+        "trusttunnel": {
+            "server_names": ["trusttunnel.example.com"],
+            "certificate": "C:\\Users\\C1373\\Desktop\\code\\prism\\cert.pem",
+            "private_key": "C:\\Users\\C1373\\Desktop\\code\\prism\\key.pem",
+            "users": [
+                {
+                    "username": "user1",
+                    "password": "trusttunnel_password"
+                }
+            ],
+            "network": "both",
+            "congestion": "bbr",
+            "handshake_timeout_ms": 5000,
+            "idle_timeout_ms": 30000
         }
     },
     "dns": {

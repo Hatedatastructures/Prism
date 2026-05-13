@@ -151,8 +151,17 @@ namespace psm::fault
         /** @brief UDP PacketID 重放检测 */
         packet_replay_detected = 59,
 
+        /** @brief ECH payload 无效 */
+        ech_payload_invalid = 60,
+        /** @brief ECH version 不匹配 */
+        ech_version_mismatch = 61,
+        /** @brief ECH 解密失败 */
+        ech_decrypt_failed = 62,
+        /** @brief ECH config_id 不匹配 */
+        ech_config_mismatch = 63,
+
         /** @brief 错误码总数，仅供内部使用 */
-        _count = 60
+        _count = 64
     }; // enum class code
 
     /**
@@ -288,6 +297,14 @@ namespace psm::fault
             return "udp_session_expired";
         case code::packet_replay_detected:
             return "packet_replay_detected";
+        case code::ech_payload_invalid:
+            return "ech_payload_invalid";
+        case code::ech_version_mismatch:
+            return "ech_version_mismatch";
+        case code::ech_decrypt_failed:
+            return "ech_decrypt_failed";
+        case code::ech_config_mismatch:
+            return "ech_config_mismatch";
         default:
             return "unknown";
         }

@@ -2,6 +2,7 @@
  * @file scheme.cpp
  * @brief Restls 伪装方案实现
  * @details Restls 通过模拟真实 TLS 流量来隐藏代理特征。
+ * Restls 是 Tier 2 方案，无 ClientHello 独占特征，依赖 SNI 匹配。
  *
  * **当前状态**：基础框架已实现，认证逻辑待完善。
  * Restls 协议规范参照: https://github.com/3andne/restls
@@ -20,7 +21,7 @@ namespace psm::stealth::restls
 {
     namespace net = boost::asio;
 
-    auto scheme::is_enabled(const psm::config &cfg) const noexcept -> bool
+    auto scheme::active(const psm::config &cfg) const noexcept -> bool
     {
         return cfg.stealth.restls.enabled();
     }
@@ -30,22 +31,29 @@ namespace psm::stealth::restls
         return "restls";
     }
 
-    auto scheme::detect([[maybe_unused]] const protocol::tls::client_hello_features &features,
-                        const psm::config &cfg) const -> detection_result
+    auto scheme::snis(const psm::config &cfg) const
+        -> memory::vector<memory::string>
     {
-        if (!is_enabled(cfg))
-            return {.score = recognition::confidence::none,
-                    .reason = "RestLS disabled"};
-
-        // RestLS 需要在 TLS 应用数据中验证，仅靠 ClientHello 无法判断
-        // 返回 low 置信度，让 execute() 阶段做实际验证
-        return {.score = recognition::confidence::low,
-                .reason = "RestLS needs application-layer verification"};
+        memory::vector<memory::string> names;
+        for (const auto &name : cfg.stealth.restls.server_names)
+            names.push_back(memory::string(name));
+        return names;
     }
 
-    auto scheme::execute(scheme_context ctx) -> net::awaitable<scheme_result>
+    auto scheme::guess(const psm::config &cfg) const
+        -> verify_result
     {
-        scheme_result result;
+        // Restls 无 ClientHello 独占特征，依赖 SNI 匹配
+        // SNI 路由阶段已过滤，这里只需要返回基础分
+        return {
+            .score = 100,
+            .solo_flag = 0,
+            .note = "Restls: rely on SNI match"};
+    }
+
+    auto scheme::handshake(stealth::handshake_context ctx) -> net::awaitable<stealth::handshake_result>
+    {
+        stealth::handshake_result result;
 
         if (!ctx.session)
         {
@@ -54,9 +62,8 @@ namespace psm::stealth::restls
         }
 
         // 获取底层 reliable transmission
-        // 如果 inbound 已被 preview 等包装，dynamic_cast 会失败
-        // 这不是致命错误，只是说明 Restls 无法在此环境下执行
-        auto *rel = dynamic_cast<channel::transport::reliable *>(ctx.session->inbound.get());
+        // 穿透 snapshot/preview 包装层找到底层 TCP socket
+        auto *rel = pipeline::primitives::find_reliable(ctx.inbound);
         if (!rel)
         {
             trace::debug("[Restls] Cannot access reliable transport (wrapped by another scheme), pass to next scheme");

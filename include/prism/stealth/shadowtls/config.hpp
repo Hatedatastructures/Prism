@@ -20,23 +20,63 @@ namespace psm::stealth::shadowtls
      */
     struct user
     {
-        std::string name;     // 用户名称
-        std::string password; // 认证密码
+        std::string name;     ///< 用户名称
+        std::string password; ///< 认证密码
     };
 
     /**
      * @struct config
      * @brief ShadowTLS v3 服务端配置
-     * @details 包含用户列表、握手目标和严格模式。
+     * @details 包含用户列表、握手目标、SNI 白名单和严格模式。
      * v3 版本必须配置至少一个用户，v2 兼容模式使用单一 password。
+     * server_names 为 SNI 白名单，只有匹配的 ClientHello 才会执行认证。
      */
     struct config
     {
-        int version{3};                                  // 协议版本 (2 或 3)
-        std::string password;                            // v2 兼容密码
-        std::vector<user> users;                         // v3 多用户
-        std::string handshake_dest;                      // 握手后端目标 host:port
-        bool strict_mode{true};                          // 严格模式：仅 TLS 1.3
-        std::uint32_t handshake_timeout_ms{5000};        // 握手超时（毫秒）
-    }; // struct config
+        int version{3};                                  ///< 协议版本 (2 或 3)
+        std::string password;                            ///< v2 兼容密码
+        std::vector<user> users;                         ///< v3 多用户
+        std::string handshake_dest;                      ///< 握手后端目标 host:port
+        std::vector<std::string> server_names;           ///< SNI 白名单
+        bool strict_mode{true};                          ///< 严格模式：仅 TLS 1.3
+        std::uint32_t handshake_timeout_ms{5000};        ///< 握手超时（毫秒）
+
+        /**
+         * @brief 检查配置是否启用
+         * @return 配置完整返回 true
+         * @details v3 需要 users + handshake_dest + server_names
+         *          v2 需要 password + handshake_dest + server_names
+         */
+        [[nodiscard]] auto enabled() const noexcept -> bool
+        {
+            if (version == 3)
+                return !users.empty() && !handshake_dest.empty() && !server_names.empty();
+            return !password.empty() && !handshake_dest.empty() && !server_names.empty();
+        }
+    };
 } // namespace psm::stealth::shadowtls
+
+#include <glaze/glaze.hpp>
+
+template <>
+struct glz::meta<psm::stealth::shadowtls::user>
+{
+    using T = psm::stealth::shadowtls::user;
+    static constexpr auto value = glz::object(
+        "name",     &T::name,
+        "password", &T::password);
+};
+
+template <>
+struct glz::meta<psm::stealth::shadowtls::config>
+{
+    using T = psm::stealth::shadowtls::config;
+    static constexpr auto value = glz::object(
+        "version",              &T::version,
+        "password",             &T::password,
+        "users",                &T::users,
+        "handshake_dest",       &T::handshake_dest,
+        "server_names",         &T::server_names,
+        "strict_mode",          &T::strict_mode,
+        "handshake_timeout_ms", &T::handshake_timeout_ms);
+};

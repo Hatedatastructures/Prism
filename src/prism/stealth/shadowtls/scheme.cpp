@@ -1,10 +1,12 @@
 /**
  * @file scheme.cpp
  * @brief ShadowTLS v3 伪装方案实现
+ * @details ShadowTLS 是 Tier 1 方案，需要 HMAC 验证确认身份。
  */
 
 #include <prism/stealth/shadowtls/scheme.hpp>
 #include <prism/stealth/shadowtls/handshake.hpp>
+#include <prism/stealth/shadowtls/auth.hpp>
 #include <prism/channel/transport/reliable.hpp>
 #include <prism/pipeline/primitives.hpp>
 #include <prism/protocol/analysis.hpp>
@@ -12,14 +14,14 @@
 
 namespace psm::stealth::shadowtls
 {
-    auto scheme::is_enabled(const psm::config &cfg) const noexcept -> bool
+    auto scheme::active(const psm::config &cfg) const noexcept -> bool
     {
         const auto &st_cfg = cfg.stealth.shadowtls;
-        // v3: 需要至少一个用户和握手目标
+        // v3: 需要至少一个用户、握手目标和 SNI 白名单
         if (st_cfg.version == 3)
-            return !st_cfg.users.empty() && !st_cfg.handshake_dest.empty();
-        // v2: 需要密码和握手目标
-        return !st_cfg.password.empty() && !st_cfg.handshake_dest.empty();
+            return !st_cfg.users.empty() && !st_cfg.handshake_dest.empty() && !st_cfg.server_names.empty();
+        // v2: 需要密码、握手目标和 SNI 白名单
+        return !st_cfg.password.empty() && !st_cfg.handshake_dest.empty() && !st_cfg.server_names.empty();
     }
 
     auto scheme::name() const noexcept -> std::string_view
@@ -27,33 +29,82 @@ namespace psm::stealth::shadowtls
         return "shadowtls";
     }
 
-    auto scheme::detect(const protocol::tls::client_hello_features &features,
-                        const psm::config &cfg) const -> detection_result
+    auto scheme::snis(const psm::config &cfg) const
+        -> memory::vector<memory::string>
     {
-        if (!is_enabled(cfg))
-            return {.score = recognition::confidence::none,
-                    .reason = "ShadowTLS disabled"};
-
-        // ShadowTLS v3 使用 session_id 携带 HMAC 标记
-        // 仅靠 ClientHello 特征无法完全确认，需要 execute() 阶段验证
-        // 启发式：session_id 非空且长度不是标准 32 字节时可能是 ShadowTLS
-        // 注意：标准 TLS 1.2 实现也可使用 0-32 任意长度的 session_id，因此这只是启发式判断
-        if (!features.session_id.empty() && features.session_id_len != 32)
-        {
-            trace::debug("[ShadowTLS] Non-standard session_id length: {}", features.session_id_len);
-            return {.score = recognition::confidence::medium,
-                    .reason = "non-standard session_id length"};
-        }
-
-        // session_id 为空或标准长度时，无法区分
-        return {.score = recognition::confidence::low,
-                .reason = "standard TLS, cannot distinguish from ClientHello alone"};
+        memory::vector<memory::string> names;
+        for (const auto &name : cfg.stealth.shadowtls.server_names)
+            names.push_back(memory::string(name));
+        return names;
     }
 
-    auto scheme::execute(scheme_context ctx)
-        -> net::awaitable<scheme_result>
+    auto scheme::sniff(std::uint32_t bitmap,
+                       const protocol::tls::client_hello_features &features) const
+        -> sniff_result
     {
-        scheme_result result;
+        using namespace protocol::tls;
+
+        // Tier 0: 非标准 session_id 长度（零成本）
+        if (has_feature(bitmap, session_id_non_standard))
+        {
+            return {
+                .hit = true,
+                .solo = false,  // 不能独占，需要 Tier 1 HMAC 验证
+                .hint = 150,
+                .note = "non-standard session_id length"};
+        }
+
+        return {.hit = false};
+    }
+
+    auto scheme::verify(const protocol::tls::client_hello_features &features,
+                         std::span<const std::byte> raw,
+                         const psm::config &cfg) const
+        -> verify_result
+    {
+        const auto &st_cfg = cfg.stealth.shadowtls;
+
+        // Tier 1: HMAC 验证（延迟执行）
+        // 需要 session_id_len == 32 且 raw_client_hello >= 76 字节
+        if (raw.size() >= 76 && features.session_id_len == 32)
+        {
+            if (st_cfg.version == 3)
+            {
+                for (const auto &user : st_cfg.users)
+                {
+                    if (user.password.empty())
+                        continue;
+                    if (verify_client_hello(raw, user.password))
+                    {
+                        trace::debug("[ShadowTLS] HMAC verified, user: {}", user.name);
+                        return {
+                            .score = 900,
+                            .solo_flag = 0xFFFF,  // 独占
+                            .note = memory::string("HMAC verified, user: ") + memory::string(user.name)};
+                    }
+                }
+            }
+            else if (!st_cfg.password.empty())
+            {
+                if (verify_client_hello(raw, st_cfg.password))
+                {
+                    trace::debug("[ShadowTLS] HMAC verified (v2)");
+                    return {
+                        .score = 900,
+                        .solo_flag = 0xFFFF,
+                        .note = "HMAC verified"};
+                }
+            }
+        }
+
+        // HMAC 不匹配
+        return {.score = 50, .solo_flag = 0, .note = "HMAC not verified"};
+    }
+
+    auto scheme::handshake(stealth::handshake_context ctx)
+        -> net::awaitable<stealth::handshake_result>
+    {
+        stealth::handshake_result result;
 
         if (!ctx.session)
         {
@@ -62,9 +113,8 @@ namespace psm::stealth::shadowtls
         }
 
         // 获取底层 reliable transport 的 raw socket
-        // session->inbound 在 identify 阶段未被修改，仍为原始 reliable transport
-        // （preview 仅在 identify() 的局部变量中创建，不影响 session->inbound）
-        auto *rel = dynamic_cast<channel::transport::reliable *>(ctx.session->inbound.get());
+        // 穿透 snapshot/preview 包装层找到底层 TCP socket
+        auto *rel = pipeline::primitives::find_reliable(ctx.inbound);
         if (!rel)
         {
             trace::debug("[ShadowTlsScheme] Cannot access reliable transport, pass to next scheme");
@@ -91,7 +141,7 @@ namespace psm::stealth::shadowtls
                 if (result.detected != protocol::protocol_type::unknown)
                 {
                     result.transport = std::make_shared<pipeline::primitives::preview>(
-                        std::move(ctx.session->inbound),
+                        std::move(ctx.inbound),
                         std::span<const std::byte>(first_frame.data(), first_frame.size()));
                     result.preread.assign(first_frame.begin(), first_frame.end());
                     trace::debug("[ShadowTlsScheme] Authenticated (user: {}), inner protocol: {}",

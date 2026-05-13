@@ -2,9 +2,15 @@
  * @file scheme.hpp
  * @brief Stealth 模块伪装方案基类
  * @details 定义 stealth_scheme 抽象基类，每个方案代表一种传输层伪装方式
- * （如 Reality、ShadowTLS、Standard TLS）。调用方通过 execute() 接口
+ * （如 Reality、ShadowTLS、Standard TLS）。调用方通过 handshake() 接口
  * 完成握手和协议检测，获得最终传输层和检测到的协议类型。
- * 新增伪装方案只需继承基类并实现虚函数，无需修改 session 代码。
+ *
+ * **分层检测架构**：
+ * - SNI 路由（scheme_route_table）确定候选方案
+ * - Tier 0: sniff() - 零成本字节比较（Reality session_id 标记）
+ * - Tier 1: verify() - 有成本验证（ShadowTLS HMAC）
+ * - Tier 2: guess() - 模糊匹配（Restls/TrustTunnel）
+ * - handshake() 执行握手，失败则 fallback 到真实 TLS
  */
 #pragma once
 
@@ -19,7 +25,7 @@
 #include <prism/memory/container.hpp>
 #include <prism/protocol/analysis.hpp>
 #include <prism/protocol/tls/types.hpp>
-#include <prism/recognition/confidence.hpp>
+#include <prism/protocol/tls/feature_bitmap.hpp>
 
 namespace psm::resolve
 {
@@ -41,89 +47,202 @@ namespace psm::stealth
     namespace net = boost::asio;
     using shared_transmission = channel::transport::shared_transmission;
 
+    // ═══════════════════════════════════════════════════════════════════════
+    // 快速检测结果（Tier 0）
+    // ═══════════════════════════════════════════════════════════════════════
+
     /**
-     * @struct detection_result
-     * @brief 伪装方案检测结果
-     * @details 包含置信度和检测原因，用于指导方案执行顺序
+     * @struct sniff_result
+     * @brief Tier 0 快速检测结果
+     * @details 零成本字节比较，返回是否命中和是否独占。
      */
-    struct detection_result
+    struct sniff_result
     {
-        /** @brief 置信度级别 */
-        recognition::confidence score{recognition::confidence::none};
+        /** @brief 是否命中此方案 */
+        bool hit{false};
+
+        /** @brief 是否独占命中（命中则不再检测其他方案） */
+        bool solo{false};
+
+        /** @brief 评分提示（供 Tier 2 参考，范围 0-1000） */
+        std::uint16_t hint{0};
 
         /** @brief 检测原因（用于日志和调试） */
-        memory::string reason;
+        memory::string note;
     };
 
+    // ═══════════════════════════════════════════════════════════════════════
+    // 详细检测结果（Tier 1）
+    // ═══════════════════════════════════════════════════════════════════════
+
     /**
-     * @struct scheme_result
+     * @struct verify_result
+     * @brief 伪装方案检测结果（评分制）
+     * @details 使用评分制，支持优先级排序。
+     * solo_flag 非零表示独占命中，不再检测其他方案。
+     */
+    struct verify_result
+    {
+        /** @brief 评分（0-1000，越高越确定） */
+        std::uint16_t score{0};
+
+        /** @brief 独占标记（非零表示独占，跳过其他方案） */
+        std::uint16_t solo_flag{0};
+
+        /** @brief 检测原因（用于日志和调试） */
+        memory::string note;
+    };
+
+    // ═══════════════════════════════════════════════════════════════════════
+    // 执行结果和上下文
+    // ═══════════════════════════════════════════════════════════════════════
+
+    /**
+     * @struct handshake_result
      * @brief 伪装方案执行结果
      * @details 包含执行后的传输层、检测到的内层协议和预读数据
      */
-    struct scheme_result
+    struct handshake_result
     {
-        shared_transmission transport;            // 最终传输层
-        protocol::protocol_type detected;         // 检测到的内层协议
-        memory::vector<std::byte> preread;        // 内层预读数据
-        fault::code error = fault::code::success; // 错误码
-        memory::string executed_scheme;           // 成功执行的方案名
+        shared_transmission transport;            ///< 最终传输层
+        protocol::protocol_type detected;         ///< 检测到的内层协议
+        memory::vector<std::byte> preread;        ///< 内层预读数据
+        fault::code error = fault::code::success; ///< 错误码
+        memory::string scheme;                    ///< 成功执行的方案名
     };
 
     /**
-     * @struct scheme_context
+     * @struct handshake_context
      * @brief 伪装方案执行上下文
-     * @details 封装 execute() 所需的所有参数，避免参数过长。
+     * @details 封装 handshake() 所需的所有参数，避免参数过长。
      * 调用方应在调用前用 preview 包装 inbound（如有预读数据）。
      */
-    struct scheme_context
+    struct handshake_context
     {
-        shared_transmission inbound;              // 当前传输层（应包含预读数据）
-        const psm::config *cfg{nullptr};          // 服务器配置
-        resolve::router *router{nullptr};         // 路由器（fallback 用）
-        agent::session_context *session{nullptr}; // 会话上下文
-        memory::vector<std::byte> preread;        // 来自 identify 的 preread 数据（完整 ClientHello）
+        shared_transmission inbound;              ///< 当前传输层（应包含预读数据）
+        const psm::config *cfg{nullptr};          ///< 服务器配置
+        resolve::router *router{nullptr};         ///< 路由器（fallback 用）
+        agent::session_context *session{nullptr}; ///< 会话上下文
+        memory::vector<std::byte> preread;        ///< 来自 identify 的 preread 数据（完整 ClientHello）
     };
+
+    // ═══════════════════════════════════════════════════════════════════════
+    // 方案基类
+    // ═══════════════════════════════════════════════════════════════════════
 
     /**
      * @class stealth_scheme
      * @brief 传输层伪装方案抽象基类
+     * @details 支持分层检测：
+     * - Tier 0: sniff() - 零成本字节比较
+     * - Tier 1: verify() - 有成本验证（HMAC/解密）
+     * - Tier 2: guess() - 模糊匹配（SNI 路由）
+     * - handshake() 执行握手，失败则 fallback 到真实 TLS
      */
     class stealth_scheme
     {
     public:
         virtual ~stealth_scheme() = default;
 
-        /**
-         * @brief 判断此方案是否在当前配置下启用
-         * @param cfg 服务器配置
-         * @return true 如果启用
-         */
-        [[nodiscard]] virtual auto is_enabled(const psm::config &cfg) const noexcept -> bool = 0;
+        // === 身份 ===
+
+        /// 方案名称（用于日志）
+        [[nodiscard]] virtual auto name() const noexcept -> std::string_view = 0;
+
+        /// 检测层级（0-2），Tier 0 有独占特征，Tier 2 依赖 SNI
+        [[nodiscard]] virtual auto tier() const noexcept -> std::uint8_t
+        {
+            return 2; // 默认 Tier 2（模糊）
+        }
+
+        /// 是否有独占特征（命中时跳过其他方案）
+        [[nodiscard]] virtual auto unique() const noexcept -> bool
+        {
+            return false; // 默认无独占特征
+        }
+
+        // === 配置 ===
+
+        /// 判断此方案是否在当前配置下启用
+        [[nodiscard]] virtual auto active(const psm::config &cfg) const noexcept -> bool = 0;
+
+        /// 获取 SNI 白名单
+        [[nodiscard]] virtual auto snis(const psm::config &cfg) const
+            -> memory::vector<memory::string>
+        {
+            return {}; // 默认无 SNI 白名单
+        }
+
+        // === Tier 0: 快速检测（零成本）===
 
         /**
-         * @brief 检测 ClientHello 是否匹配此方案（纯分析，无 I/O）
-         * @param features 已解析的 ClientHello 特征
-         * @param cfg 服务器配置
-         * @return 检测结果，包含置信度和原因
-         * @details 该方法是纯函数，不做任何网络 I/O，可独立测试。
-         * 各方案根据自身特征（如 X25519 key_share、session_id 格式等）
-         * 判断 ClientHello 是否可能属于此方案。
+         * @brief 快速检测（零成本，Tier 0）
+         * @param bitmap 特征位图
+         * @param features ClientHello 特征结构
+         * @return 快速检测结果
+         * @details 只做字节比较，不涉及 HMAC 或解密。
+         * 例如 Reality 检查 session_id[0:3] == [0x01, 0x08, 0x02]。
          */
-        [[nodiscard]] virtual auto detect(const protocol::tls::client_hello_features &features, const psm::config &cfg) const
-            -> detection_result = 0;
+        [[nodiscard]] virtual auto sniff(std::uint32_t bitmap,
+                                          const protocol::tls::client_hello_features &features) const
+            -> sniff_result
+        {
+            // 默认：不支持快速检测
+            return {.hit = false, .solo = false, .hint = 0, .note = "no sniff"};
+        }
+
+        // === Tier 1: 详细检测（有成本）===
 
         /**
-         * @brief 执行方案处理
+         * @brief 详细检测（有成本，Tier 1）
+         * @param features ClientHello 特征结构
+         * @param raw 原始 ClientHello 字节
+         * @param cfg 服务器配置
+         * @return 详细检测结果
+         * @details 涉及 HMAC 验证或解密，延迟执行。
+         * 例如 ShadowTLS HMAC 验证、AnyTLS ECH 解密。
+         */
+        [[nodiscard]] virtual auto verify(const protocol::tls::client_hello_features &features,
+                                           std::span<const std::byte> raw,
+                                           const psm::config &cfg) const
+            -> verify_result
+        {
+            // 默认：不支持详细检测
+            return {.score = 0, .solo_flag = 0, .note = "no verify"};
+        }
+
+        // === Tier 2: 模糊检测（兜底）===
+
+        /**
+         * @brief 模糊检测（Tier 2）
+         * @param cfg 服务器配置
+         * @return 模糊检测结果
+         * @details 无 ClientHello 独占特征，依赖 SNI 匹配。
+         * 例如 Restls、TrustTunnel、Native。
+         */
+        [[nodiscard]] virtual auto guess(const psm::config &cfg) const
+            -> verify_result
+        {
+            // 默认：返回权重分
+            return {.score = weight(), .solo_flag = 0, .note = "guess"};
+        }
+
+        // === 执行 ===
+
+        /**
+         * @brief 执行握手
          * @param ctx 执行上下文（传输层、预读数据、配置、路由器、会话）
          * @return 处理结果
          */
-        [[nodiscard]] virtual auto execute(scheme_context ctx)
-            -> net::awaitable<scheme_result> = 0;
+        [[nodiscard]] virtual auto handshake(handshake_context ctx)
+            -> net::awaitable<handshake_result> = 0;
 
-        /**
-         * @brief 方案名称（用于日志）
-         */
-        [[nodiscard]] virtual auto name() const noexcept -> std::string_view = 0;
+    protected:
+        /// 权重分（Tier 2 使用）
+        [[nodiscard]] virtual auto weight() const noexcept -> std::uint16_t
+        {
+            return 100;
+        }
     };
 
     using shared_scheme = std::shared_ptr<stealth_scheme>;

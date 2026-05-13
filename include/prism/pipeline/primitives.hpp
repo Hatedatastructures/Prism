@@ -24,6 +24,8 @@
 #include <prism/memory/container.hpp>
 #include <prism/protocol/analysis.hpp>
 #include <prism/channel/transport/transmission.hpp>
+#include <prism/channel/transport/reliable.hpp>
+#include <prism/channel/transport/snapshot.hpp>
 #include <prism/channel/adapter/connector.hpp>
 #include <prism/outbound/proxy.hpp>
 
@@ -102,17 +104,16 @@ namespace psm::pipeline::primitives
 
     /**
      * @brief 执行 TLS 服务端握手
-     * @param ctx 会话上下文，包含入站传输和 SSL 配置
-     * @return 协程对象，完成后返回错误码和 TLS 流的共享指针
-     * @details 将入站传输层包装为 connector，执行 TLS 服务端握手，
-     * 返回可用于后续协议处理的 TLS 流。该函数是所有需要 TLS 的协议
-     * 的通用握手入口，支持 HTTPS、Trojan over TLS 等场景。
+     * @param inbound 入站传输层（所有权被转移）
+     * @param ssl_ctx SSL 上下文
+     * @return 协程对象，完成后返回：错误码、TLS 流（成功时）、
+     * 失败时从 connector 恢复的传输层（成功时为 nullptr）
+     * @details 将入站传输层包装为 connector，执行 TLS 服务端握手。
+     * 握手失败时从 connector 释放传输层所有权，避免 transport 丢失。
      * @note 调用方应确保入站传输已包装 preview（如有预读数据）。
-     * @note 返回的 TLS 流通过 shared_ptr 管理，可被多个组件共享。
-     * @warning 调用后 ctx.inbound 的所有权被转移，调用者不应再使用。
      */
-    auto ssl_handshake(session_context &ctx)
-        -> net::awaitable<std::pair<fault::code, shared_ssl_stream>>;
+    auto ssl_handshake(shared_transmission inbound, ssl::context &ssl_ctx)
+        -> net::awaitable<std::tuple<fault::code, shared_ssl_stream, shared_transmission>>;
 
     /**
      * @class preview
@@ -289,4 +290,23 @@ namespace psm::pipeline::primitives
     auto make_datagram_router(resolve::router &router)
         -> std::function<net::awaitable<std::pair<fault::code, net::ip::udp::endpoint>>(
             std::string_view, std::string_view)>;
+
+    /**
+     * @brief 从传输层包装链中解包找到底层 reliable 传输
+     * @details 穿透 snapshot/preview 等装饰层，找到底层的 TCP socket 传输。
+     * 用于 ShadowTLS/Restls 等需要直接操作 raw socket 的 scheme。
+     * @param trans 传输层智能指针（可能被 snapshot/preview 包装）
+     * @return reliable 传输的裸指针，找不到返回 nullptr
+     */
+    inline auto find_reliable(shared_transmission &trans) noexcept
+        -> psm::channel::transport::reliable *
+    {
+        psm::channel::transport::transmission *raw = trans.get();
+        if (auto *p = dynamic_cast<preview *>(raw))
+            raw = p->inner().get();
+        if (auto *s = dynamic_cast<channel::transport::snapshot *>(raw))
+            raw = s->inner().get();
+        return dynamic_cast<channel::transport::reliable *>(raw);
+    }
+
 } // namespace psm::pipeline::primitives

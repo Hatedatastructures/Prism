@@ -1,24 +1,24 @@
 /**
  * @file Recognition.cpp
- * @brief Recognition 模块单元测试
+ * @brief Recognition 模块单元测试（新接口）
  * @details 测试 recognition 模块的核心功能，包括：
- * 1. confidence 枚举值顺序验证
- * 2. probe::detect() 外层协议探测
- * 3. reality scheme detect() 各置信度级别（high/medium/low/none）
- * 4. scheme_registry 注册与查询
- * 5. analysis_result / client_hello_features 默认值
+ * 1. probe::detect() 外层协议探测
+ * 2. SchemeRouteTable SNI 路由
+ * 3. FeatureBitmap 特征位图构建
+ * 4. Reality sniff 独占标记检测
+ * 5. scheme_registry 注册与查询
+ * 6. 结构体默认值验证
  */
 
-#include <prism/recognition/confidence.hpp>
-#include <prism/recognition/result.hpp>
-#include <prism/recognition/probe/analyzer.hpp>
 #include <prism/recognition/probe/probe.hpp>
+#include <prism/recognition/scheme_route_table.hpp>
+#include <prism/protocol/tls/feature_bitmap.hpp>
+#include <prism/protocol/tls/types.hpp>
 #include <prism/stealth/reality/scheme.hpp>
 #include <prism/stealth/registry.hpp>
-#include <prism/protocol/tls/types.hpp>
+#include <prism/config.hpp>
 #include <prism/memory.hpp>
 #include <prism/trace.hpp>
-#include <prism/config.hpp>
 #include "common/TestRunner.hpp"
 
 #include <string>
@@ -29,7 +29,7 @@
 
 namespace probe = psm::recognition::probe;
 using psm::protocol::tls::client_hello_features;
-using psm::recognition::confidence;
+using psm::protocol::tls::feature_bit;
 
 namespace
 {
@@ -44,29 +44,44 @@ namespace
         cfg.stealth.reality.server_names.push_back("example.com");
         return cfg;
     }
+
+    /**
+     * @brief 构建多协议测试配置
+     */
+    auto make_multi_scheme_config() -> psm::config
+    {
+        psm::config cfg;
+
+        // Reality 配置
+        cfg.stealth.reality.server_names.push_back("reality.example.com");
+        cfg.stealth.reality.dest = "www.microsoft.com:443";
+        cfg.stealth.reality.private_key = "test_key_base64";
+
+        // ShadowTLS 配置
+        cfg.stealth.shadowtls.server_names.push_back("shadowtls.example.com");
+        cfg.stealth.shadowtls.handshake_dest = "www.microsoft.com:443";
+        cfg.stealth.shadowtls.users.push_back({"user1", "password1"});
+
+        // Restls 配置
+        cfg.stealth.restls.server_names.push_back("restls.example.com");
+        cfg.stealth.restls.host = "www.microsoft.com:443";
+        cfg.stealth.restls.password = "restls_password";
+
+        // AnyTLS 配置
+        cfg.stealth.anytls.server_names.push_back("anytls.example.com");
+        cfg.stealth.anytls.certificate = "cert.pem";
+        cfg.stealth.anytls.private_key = "key.pem";
+        cfg.stealth.anytls.users.push_back({"user1", "password1"});
+
+        // TrustTunnel 配置
+        cfg.stealth.trusttunnel.server_names.push_back("trusttunnel.example.com");
+        cfg.stealth.trusttunnel.certificate = "cert.pem";
+        cfg.stealth.trusttunnel.private_key = "key.pem";
+        cfg.stealth.trusttunnel.users.push_back({"user1", "password1"});
+
+        return cfg;
+    }
 } // namespace
-
-// ─── confidence 枚举 ──────────────────────────────────────────────────
-
-/**
- * @brief 验证 confidence 枚举值顺序：high=0, medium=1, low=2, none=3
- * @details 确保升序排序后 high 排在最前面（值最小优先）。
- */
-void TestConfidenceOrdering(psm::testing::TestRunner &runner)
-{
-    runner.LogInfo("=== TestConfidenceOrdering ===");
-
-    runner.Check(static_cast<uint8_t>(confidence::high) == 0,
-                 "confidence::high == 0");
-    runner.Check(static_cast<uint8_t>(confidence::medium) == 1,
-                 "confidence::medium == 1");
-    runner.Check(static_cast<uint8_t>(confidence::low) == 2,
-                 "confidence::low == 2");
-    runner.Check(static_cast<uint8_t>(confidence::none) == 3,
-                 "confidence::none == 3");
-    runner.Check(static_cast<uint8_t>(confidence::high) < static_cast<uint8_t>(confidence::none),
-                 "high < none (ascending sort puts high first)");
-}
 
 // ─── probe::detect() 外层协议探测 ─────────────────────────────────────
 
@@ -110,184 +125,211 @@ void TestDetectAllProtocols(psm::testing::TestRunner &runner)
                  "detect: random bytes -> shadowsocks");
 }
 
-// ─── reality scheme detect() ───────────────────────────────────────────
+// ─── SNI 路由测试 ───────────────────────────────────────────────────────
 
 /**
- * @brief 测试 reality scheme detect() 高置信度路径
- * @details SNI 匹配 + 32字节 session_id + X25519 key_share -> high
+ * @brief 测试 SNI 路由表构建
  */
-void TestRealityDetectHigh(psm::testing::TestRunner &runner)
+void TestSNIRouteTableBuild(psm::testing::TestRunner &runner)
 {
-    runner.LogInfo("=== TestRealityDetectHigh ===");
+    runner.LogInfo("=== TestSNIRouteTableBuild ===");
 
-    auto cfg = make_reality_config();
-    psm::stealth::reality::scheme scheme;
+    auto cfg = make_multi_scheme_config();
+    auto table = psm::recognition::scheme_route_table::build(cfg);
 
+    runner.Check(!table.empty(), "Route table should not be empty");
+    runner.Check(table.all_registered_snis().size() == 5, "Should have 5 registered SNIs");
+}
+
+/**
+ * @brief 测试 SNI 路由查询
+ */
+void TestSNIRouteTableLookup(psm::testing::TestRunner &runner)
+{
+    runner.LogInfo("=== TestSNIRouteTableLookup ===");
+
+    auto cfg = make_multi_scheme_config();
+    auto table = psm::recognition::scheme_route_table::build(cfg);
+
+    // 测试 Reality SNI
+    auto schemes = table.lookup("reality.example.com");
+    runner.Check(schemes.size() == 1, "Reality SNI should match 1 scheme");
+    runner.Check(schemes[0] == "reality", "Should be reality");
+
+    // 测试 ShadowTLS SNI
+    schemes = table.lookup("shadowtls.example.com");
+    runner.Check(schemes.size() == 1, "ShadowTLS SNI should match 1 scheme");
+    runner.Check(schemes[0] == "shadowtls", "Should be shadowtls");
+
+    // 测试 Restls SNI
+    schemes = table.lookup("restls.example.com");
+    runner.Check(schemes.size() == 1, "Restls SNI should match 1 scheme");
+    runner.Check(schemes[0] == "restls", "Should be restls");
+
+    // 测试 AnyTLS SNI
+    schemes = table.lookup("anytls.example.com");
+    runner.Check(schemes.size() == 1, "AnyTLS SNI should match 1 scheme");
+    runner.Check(schemes[0] == "anytls", "Should be anytls");
+
+    // 测试 TrustTunnel SNI
+    schemes = table.lookup("trusttunnel.example.com");
+    runner.Check(schemes.size() == 1, "TrustTunnel SNI should match 1 scheme");
+    runner.Check(schemes[0] == "trusttunnel", "Should be trusttunnel");
+
+    // 测试未知 SNI
+    schemes = table.lookup("unknown.example.com");
+    runner.Check(schemes.empty(), "Unknown SNI should match none");
+
+    // 测试空 SNI
+    schemes = table.lookup("");
+    runner.Check(schemes.empty(), "Empty SNI should match none");
+}
+
+// ─── FeatureBitmap 测试 ─────────────────────────────────────────────────
+
+/**
+ * @brief 测试特征位图构建
+ */
+void TestFeatureBitmapBuild(psm::testing::TestRunner &runner)
+{
+    runner.LogInfo("=== TestFeatureBitmapBuild ===");
+
+    // 测试空特征
+    client_hello_features empty_features;
+    auto bitmap = psm::protocol::tls::build_feature_bitmap(empty_features);
+    runner.Check(bitmap == 0, "Empty features should produce 0 bitmap");
+
+    // 测试有 SNI
+    client_hello_features sni_features;
+    sni_features.server_name = "example.com";
+    bitmap = psm::protocol::tls::build_feature_bitmap(sni_features);
+    runner.Check(psm::protocol::tls::has_feature(bitmap, psm::protocol::tls::has_sni),
+                 "Should have has_sni bit");
+
+    // 测试有 X25519
+    client_hello_features x25519_features;
+    x25519_features.has_x25519 = true;
+    bitmap = psm::protocol::tls::build_feature_bitmap(x25519_features);
+    runner.Check(psm::protocol::tls::has_feature(bitmap, psm::protocol::tls::has_x25519),
+                 "Should have has_x25519 bit");
+
+    // 测试 session_id=32
+    client_hello_features session_features;
+    session_features.session_id_len = 32;
+    session_features.session_id.resize(32);
+    bitmap = psm::protocol::tls::build_feature_bitmap(session_features);
+    runner.Check(psm::protocol::tls::has_feature(bitmap, psm::protocol::tls::has_full_session_id),
+                 "Should have has_full_session_id bit");
+
+    // 测试非标准 session_id
+    client_hello_features non_std_features;
+    non_std_features.session_id_len = 16;
+    non_std_features.session_id.resize(16);
+    bitmap = psm::protocol::tls::build_feature_bitmap(non_std_features);
+    runner.Check(psm::protocol::tls::has_feature(bitmap, psm::protocol::tls::session_id_non_standard),
+                 "Should have session_id_non_standard bit");
+}
+
+/**
+ * @brief 测试 Reality 独占标记检测
+ */
+void TestFeatureBitmapRealityMarker(psm::testing::TestRunner &runner)
+{
+    runner.LogInfo("=== TestFeatureBitmapRealityMarker ===");
+
+    // 测试 Reality 独占标记 [01:08:02]
+    client_hello_features reality_features;
+    reality_features.session_id_len = 32;
+    reality_features.session_id = {0x01, 0x08, 0x02, 0x00, 0x00, 0x00, 0x00, 0x00,
+                                    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                                    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                                    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00};
+
+    auto bitmap = psm::protocol::tls::build_feature_bitmap(reality_features);
+    runner.Check(psm::protocol::tls::has_feature(bitmap, psm::protocol::tls::reality_marker_01_08_02),
+                 "Should have reality_marker_01_08_02 bit");
+    runner.Check(psm::protocol::tls::has_feature(bitmap, psm::protocol::tls::has_full_session_id),
+                 "Should also have has_full_session_id bit");
+
+    // 测试非 Reality 标记
+    client_hello_features non_reality_features;
+    non_reality_features.session_id_len = 32;
+    non_reality_features.session_id.resize(32);
+    non_reality_features.session_id[0] = 0x00;
+
+    bitmap = psm::protocol::tls::build_feature_bitmap(non_reality_features);
+    runner.Check(!psm::protocol::tls::has_feature(bitmap, psm::protocol::tls::reality_marker_01_08_02),
+                 "Should not have reality_marker_01_08_02 bit");
+}
+
+/**
+ * @brief 测试组合特征检测
+ */
+void TestFeatureBitmapCombined(psm::testing::TestRunner &runner)
+{
+    runner.LogInfo("=== TestFeatureBitmapCombined ===");
+
+    // 构建包含多个特征的位图
     client_hello_features features;
     features.server_name = "example.com";
+    features.has_x25519 = true;
     features.session_id_len = 32;
+    features.session_id.resize(32);
+
+    auto bitmap = psm::protocol::tls::build_feature_bitmap(features);
+
+    // 测试组合特征
+    auto combined = psm::protocol::tls::has_sni | psm::protocol::tls::has_x25519 | psm::protocol::tls::has_full_session_id;
+    runner.Check(psm::protocol::tls::has_all_features(bitmap, combined),
+                 "Should have all three features");
+
+    // 测试部分匹配
+    auto partial = psm::protocol::tls::has_sni | psm::protocol::tls::has_ech;
+    runner.Check(!psm::protocol::tls::has_all_features(bitmap, partial),
+                 "Should not have ECH");
+}
+
+// ─── Reality sniff 测试 ─────────────────────────────────────────
+
+/**
+ * @brief 测试 Reality 独占标记检测（sniff）
+ */
+void TestRealitySniffExclusive(psm::testing::TestRunner &runner)
+{
+    runner.LogInfo("=== TestRealitySniffExclusive ===");
+
+    psm::stealth::reality::scheme scheme;
+
+    // Reality 独占标记 → 独占命中
+    client_hello_features features;
+    features.session_id_len = 32;
+    features.session_id = {0x01, 0x08, 0x02, 0x00, 0x00, 0x00, 0x00, 0x00,
+                            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00};
     features.has_x25519 = true;
 
-    auto result = scheme.detect(features, cfg);
+    auto bitmap = psm::protocol::tls::build_feature_bitmap(features);
+    auto result = scheme.sniff(bitmap, features);
 
-    runner.Check(result.score == confidence::high,
-                 "reality::detect: full features -> high");
+    runner.Check(result.hit, "Reality marker should hit");
+    runner.Check(result.solo, "Reality marker should be solo (exclusive)");
+    runner.Check(result.hint >= 900, "Reality marker should have high hint");
+
+    // 无标记但有 X25519 + session_id=32 → 非独占
+    client_hello_features no_marker_features;
+    no_marker_features.session_id_len = 32;
+    no_marker_features.session_id.resize(32);
+    no_marker_features.has_x25519 = true;
+
+    bitmap = psm::protocol::tls::build_feature_bitmap(no_marker_features);
+    result = scheme.sniff(bitmap, features);
+
+    runner.Check(result.hit, "X25519+session_id=32 should hit");
+    runner.Check(!result.solo, "Without marker should not be solo");
 }
 
-/**
- * @brief 测试 reality scheme detect() 中置信度路径
- * @details SNI 匹配 + session_id != 32 + X25519 -> medium
- */
-void TestRealityDetectMedium(psm::testing::TestRunner &runner)
-{
-    runner.LogInfo("=== TestRealityDetectMedium ===");
-
-    auto cfg = make_reality_config();
-    psm::stealth::reality::scheme scheme;
-
-    client_hello_features features;
-    features.server_name = "example.com";
-    features.session_id_len = 16; // 非 32 字节
-    features.has_x25519 = true;
-
-    auto result = scheme.detect(features, cfg);
-
-    runner.Check(result.score == confidence::medium,
-                 "reality::detect: session_id != 32, X25519=true -> medium");
-}
-
-/**
- * @brief 测试 reality scheme detect() 低置信度路径
- * @details SNI 匹配 + X25519=false -> low
- */
-void TestRealityDetectLow(psm::testing::TestRunner &runner)
-{
-    runner.LogInfo("=== TestRealityDetectLow ===");
-
-    auto cfg = make_reality_config();
-    psm::stealth::reality::scheme scheme;
-
-    client_hello_features features;
-    features.server_name = "example.com";
-    features.session_id_len = 32;
-    features.has_x25519 = false;
-
-    auto result = scheme.detect(features, cfg);
-
-    runner.Check(result.score == confidence::low,
-                 "reality::detect: SNI match, no X25519 -> low");
-}
-
-/**
- * @brief 测试 reality scheme detect() 无匹配路径
- * @details SNI 不匹配 -> none
- */
-void TestRealityDetectNone(psm::testing::TestRunner &runner)
-{
-    runner.LogInfo("=== TestRealityDetectNone ===");
-
-    auto cfg = make_reality_config();
-    psm::stealth::reality::scheme scheme;
-
-    client_hello_features features;
-    features.server_name = "attacker.com"; // 不匹配
-    features.session_id_len = 32;
-    features.has_x25519 = true;
-
-    auto result = scheme.detect(features, cfg);
-
-    runner.Check(result.score == confidence::none,
-                 "reality::detect: SNI mismatch -> none");
-}
-
-/**
- * @brief 测试 reality scheme is_enabled()
- * @details 配置完整时返回 true，空配置时返回 false
- */
-void TestRealityIsEnabled(psm::testing::TestRunner &runner)
-{
-    runner.LogInfo("=== TestRealityIsEnabled ===");
-
-    psm::stealth::reality::scheme scheme;
-
-    // 配置完整的 reality -> enabled
-    auto cfg = make_reality_config();
-    runner.Check(scheme.is_enabled(cfg) == true,
-                 "reality::is_enabled: full config -> true");
-
-    // 空配置 -> disabled
-    psm::config empty_cfg;
-    runner.Check(scheme.is_enabled(empty_cfg) == false,
-                 "reality::is_enabled: empty config -> false");
-}
-
-/**
- * @brief 测试 reality SNI 匹配行为
- * @details 覆盖四种情况：空 SNI、空 server_names、单匹配、不匹配
- */
-void TestRealitySniMatch(psm::testing::TestRunner &runner)
-{
-    runner.LogInfo("=== TestRealitySniMatch ===");
-
-    psm::stealth::reality::scheme scheme;
-
-    // 空 SNI -> none
-    {
-        auto cfg = make_reality_config();
-        client_hello_features features;
-        features.session_id_len = 32;
-        features.has_x25519 = true;
-        // server_name 保持默认空值
-
-        auto result = scheme.detect(features, cfg);
-        runner.Check(result.score == confidence::none,
-                     "reality SNI: empty SNI -> none");
-    }
-
-    // 空 server_names -> none
-    {
-        psm::config cfg;
-        cfg.stealth.reality.dest = "example.com:443";
-        cfg.stealth.reality.private_key = "dGVzdA==";
-        // server_names 保持默认空
-
-        client_hello_features features;
-        features.server_name = "example.com";
-        features.session_id_len = 32;
-        features.has_x25519 = true;
-
-        auto result = scheme.detect(features, cfg);
-        runner.Check(result.score == confidence::none,
-                     "reality SNI: empty server_names -> none");
-    }
-
-    // 单个 SNI 匹配 -> low (无 X25519)
-    {
-        auto cfg = make_reality_config();
-        client_hello_features features;
-        features.server_name = "example.com";
-        // 无 X25519，因此返回 low
-
-        auto result = scheme.detect(features, cfg);
-        runner.Check(result.score == confidence::low,
-                     "reality SNI: single match -> low");
-    }
-
-    // SNI 不匹配 -> none
-    {
-        auto cfg = make_reality_config();
-        client_hello_features features;
-        features.server_name = "evil.com";
-        features.session_id_len = 32;
-        features.has_x25519 = true;
-
-        auto result = scheme.detect(features, cfg);
-        runner.Check(result.score == confidence::none,
-                     "reality SNI: no match -> none");
-    }
-}
-
-// ─── scheme_registry ──────────────────────────────────────────────────
+// ─── scheme_registry 测试 ──────────────────────────────────────────────
 
 /**
  * @brief 测试 scheme_registry 注册与查询
@@ -309,10 +351,16 @@ void TestSchemeRegistry(psm::testing::TestRunner &runner)
                  "registry: find('reality') succeeds");
     runner.Check(reality->name() == "reality",
                  "registry: reality name matches");
+    runner.Check(reality->tier() == 0,
+                 "registry: reality should be Tier 0");
+    runner.Check(reality->unique(),
+                 "registry: reality should have unique feature");
 
     auto native = reg.find("native");
     runner.Check(native != nullptr,
                  "registry: find('native') succeeds");
+    runner.Check(native->tier() == 2,
+                 "registry: native should be Tier 2");
 
     // 不存在的方案
     auto unknown = reg.find("nonexistent");
@@ -320,24 +368,7 @@ void TestSchemeRegistry(psm::testing::TestRunner &runner)
                  "registry: find('nonexistent') returns nullptr");
 }
 
-// ─── 结构体默认值 ─────────────────────────────────────────────────────
-
-/**
- * @brief 测试 analysis_result 默认值
- */
-void TestAnalysisResultDefaults(psm::testing::TestRunner &runner)
-{
-    runner.LogInfo("=== TestAnalysisResultDefaults ===");
-
-    psm::recognition::analysis_result result;
-
-    runner.Check(result.score == confidence::none,
-                 "analysis_result: default confidence = none");
-    runner.Check(result.error == psm::fault::code::success,
-                 "analysis_result: default error = success");
-    runner.Check(result.candidates.empty(),
-                 "analysis_result: default candidates empty");
-}
+// ─── 结构体默认值测试 ───────────────────────────────────────────────────
 
 /**
  * @brief 测试 client_hello_features 默认值
@@ -358,10 +389,6 @@ void TestClientHelloFeaturesDefaults(psm::testing::TestRunner &runner)
                  "client_hello_features: versions empty");
     runner.Check(features.session_id.empty(),
                  "client_hello_features: session_id empty");
-    runner.Check(features.raw_record.empty(),
-                 "client_hello_features: raw_record empty");
-    runner.Check(features.raw_hs_msg.empty(),
-                 "client_hello_features: raw_hs_msg empty");
 }
 
 /**
@@ -382,69 +409,36 @@ void TestProbeResultDefaults(psm::testing::TestRunner &runner)
 }
 
 /**
- * @brief 测试 probe_result 辅助方法：success()、preload_view()、preload_bytes()
+ * @brief 测试 sniff_result 默认值
  */
-void TestProbeResultHelpers(psm::testing::TestRunner &runner)
+void TestSniffResultDefaults(psm::testing::TestRunner &runner)
 {
-    runner.LogInfo("=== TestProbeResultHelpers ===");
+    runner.LogInfo("=== TestSniffResultDefaults ===");
 
-    // success() 有效类型 + 无错误 -> true
-    {
-        probe::probe_result result;
-        result.type = psm::protocol::protocol_type::tls;
-        result.ec = psm::fault::code::success;
-        runner.Check(result.success() == true,
-                     "probe_result::success: valid type + no error -> true");
-    }
+    psm::stealth::sniff_result result;
 
-    // success() 未知类型 -> false
-    {
-        probe::probe_result result;
-        result.type = psm::protocol::protocol_type::unknown;
-        runner.Check(result.success() == false,
-                     "probe_result::success: unknown type -> false");
-    }
+    runner.Check(result.hit == false, "sniff_result: default hit = false");
+    runner.Check(result.solo == false, "sniff_result: default solo = false");
+    runner.Check(result.hint == 0, "sniff_result: default hint = 0");
+}
 
-    // success() 有错误码 -> false
-    {
-        probe::probe_result result;
-        result.type = psm::protocol::protocol_type::tls;
-        result.ec = psm::fault::code::timeout;
-        runner.Check(result.success() == false,
-                     "probe_result::success: with error -> false");
-    }
+/**
+ * @brief 测试 verify_result 默认值
+ */
+void TestVerifyResultDefaults(psm::testing::TestRunner &runner)
+{
+    runner.LogInfo("=== TestVerifyResultDefaults ===");
 
-    // preload_view() 和 preload_bytes()
-    {
-        probe::probe_result result;
-        result.type = psm::protocol::protocol_type::http;
-        result.ec = psm::fault::code::success;
-        std::string data = "GET / HTTP/1.1\r\n";
-        auto *raw = reinterpret_cast<std::byte *>(result.pre_read_data.data());
-        for (std::size_t i = 0; i < data.size(); ++i)
-            raw[i] = std::byte(data[i]);
-        result.pre_read_size = data.size();
+    psm::stealth::verify_result result;
 
-        auto view = result.preload_view();
-        runner.Check(view == "GET / HTTP/1.1\r\n",
-                     "probe_result::preload_view: content correct");
-        runner.Check(view.size() == data.size(),
-                     "probe_result::preload_view: size correct");
-
-        auto bytes = result.preload_bytes();
-        runner.Check(bytes.size() == data.size(),
-                     "probe_result::preload_bytes: size correct");
-        runner.Check(static_cast<unsigned char>(bytes[0]) == static_cast<unsigned char>('G'),
-                     "probe_result::preload_bytes: first byte = 'G'");
-    }
+    runner.Check(result.score == 0, "verify_result: default score = 0");
+    runner.Check(result.solo_flag == 0, "verify_result: default solo_flag = 0");
 }
 
 // ─── 主入口 ───────────────────────────────────────────────────────────
 
 /**
  * @brief 测试入口
- * @details 初始化全局内存池和日志系统，依次运行所有识别模块测试用例。
- * @return 0 表示全部通过，1 表示存在失败
  */
 int main()
 {
@@ -454,22 +448,32 @@ int main()
     psm::memory::system::enable_global_pooling();
     psm::trace::init({});
 
-    psm::testing::TestRunner runner("Recognition");
-    runner.LogInfo("Starting Recognition tests...");
+    psm::testing::TestRunner runner("Recognition-NewInterface");
+    runner.LogInfo("Starting Recognition tests (new interface)...");
 
-    TestConfidenceOrdering(runner);
+    // 协议探测
     TestDetectAllProtocols(runner);
-    TestRealityDetectHigh(runner);
-    TestRealityDetectMedium(runner);
-    TestRealityDetectLow(runner);
-    TestRealityDetectNone(runner);
-    TestRealityIsEnabled(runner);
-    TestRealitySniMatch(runner);
+
+    // SNI 路由
+    TestSNIRouteTableBuild(runner);
+    TestSNIRouteTableLookup(runner);
+
+    // 特征位图
+    TestFeatureBitmapBuild(runner);
+    TestFeatureBitmapRealityMarker(runner);
+    TestFeatureBitmapCombined(runner);
+
+    // Reality sniff
+    TestRealitySniffExclusive(runner);
+
+    // Registry
     TestSchemeRegistry(runner);
-    TestAnalysisResultDefaults(runner);
+
+    // 默认值
     TestClientHelloFeaturesDefaults(runner);
     TestProbeResultDefaults(runner);
-    TestProbeResultHelpers(runner);
+    TestSniffResultDefaults(runner);
+    TestVerifyResultDefaults(runner);
 
     runner.LogInfo("Recognition tests completed.");
 

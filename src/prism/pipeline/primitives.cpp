@@ -24,25 +24,21 @@ namespace psm::pipeline::primitives
     //
     // 预读数据：调用方应在调用前用 preview 包装入站传输。
     // ssl_connector 会从 preview 中读取预读数据，无需单独传递。
-    auto ssl_handshake(session_context &ctx)
-        -> net::awaitable<std::pair<fault::code, shared_ssl_stream>>
+    //
+    // 失败恢复：握手失败时从 connector::release() 恢复 transport 所有权，
+    // 避免 transport 被 connector 析构吞掉。
+    auto ssl_handshake(shared_transmission inbound, ssl::context &ssl_ctx)
+        -> net::awaitable<std::tuple<fault::code, shared_ssl_stream, shared_transmission>>
     {
-
-        if (!ctx.server.ssl_ctx)
-        {
-            trace::warn("{} No SSL context configured", SslStr);
-            co_return std::make_pair(fault::code::not_supported, nullptr);
-        }
-
-        if (!ctx.inbound)
+        if (!inbound)
         {
             trace::warn("{} No inbound transmission for TLS handshake", SslStr);
-            co_return std::make_pair(fault::code::io_error, nullptr);
+            co_return std::make_tuple(fault::code::io_error, nullptr, nullptr);
         }
 
         // 层叠包装：transmission → ssl_connector(适配器) → ssl_stream(TLS 层)
-        ssl_connector connector(std::move(ctx.inbound), {});
-        auto stream = std::make_shared<ssl_stream>(std::move(connector), *ctx.server.ssl_ctx);
+        ssl_connector connector(std::move(inbound), {});
+        auto stream = std::make_shared<ssl_stream>(std::move(connector), ssl_ctx);
 
         boost::system::error_code ec;
         auto token = net::redirect_error(net::use_awaitable, ec);
@@ -50,11 +46,13 @@ namespace psm::pipeline::primitives
         if (ec)
         {
             trace::warn("{} TLS handshake failed: {} ({})", SslStr, ec.message(), ec.value());
-            co_return std::make_pair(fault::to_code(ec), nullptr);
+            // 从 connector 恢复 transport 所有权，避免丢失
+            auto recovered = stream->lowest_layer().release();
+            co_return std::make_tuple(fault::to_code(ec), nullptr, std::move(recovered));
         }
 
         trace::debug("{} TLS handshake succeeded", SslStr);
-        co_return std::make_pair(fault::code::success, stream);
+        co_return std::make_tuple(fault::code::success, stream, nullptr);
     }
 
     // 检查目标地址是否为 IPv6 字面量（如 "::1"、"fe80::1"）

@@ -4,6 +4,8 @@
  */
 
 #include <prism/recognition/recognition.hpp>
+#include <prism/recognition/scheme_route_table.hpp>
+#include <prism/recognition/layered_pipeline.hpp>
 #include <prism/stealth.hpp>
 #include <prism/stealth/registry.hpp>
 #include <prism/stealth/executor.hpp>
@@ -41,56 +43,44 @@ namespace psm::recognition
             co_return result;
         }
 
-        // Phase 3: 让每个 scheme 做 detect()
+        // Phase 3: SNI 路由（新增）
+        auto route_table = scheme_route_table::build(*ctx.cfg);
+        auto matched_scheme_names = route_table.lookup(features.server_name);
+        trace::debug("[Recognition] SNI '{}' matched {} schemes",
+                     features.server_name, matched_scheme_names.size());
+
+        // 从 registry 获取匹配的 scheme 实例
         auto &registry = stealth::scheme_registry::instance();
-
-        // 收集候选方案及其置信度
-        struct candidate_entry
+        std::vector<stealth::shared_scheme> matched_schemes;
+        for (const auto &name : matched_scheme_names)
         {
-            memory::string name;
-            confidence conf;
-        };
-        memory::vector<candidate_entry> entries;
-
-        for (const auto &scheme : registry.all())
-        {
-            if (!scheme->is_enabled(*ctx.cfg))
-                continue;
-
-            auto [confidence, reason] = scheme->detect(features, *ctx.cfg);
-            trace::debug("[Recognition] Scheme '{}': confidence={}, reason={}",
-                         scheme->name(), static_cast<int>(confidence), reason);
-
-            // confidence 枚举：high=0, medium=1, low=2, none=3
-            // 只排除 none（值最大）
-            if (confidence != confidence::none)
-                entries.push_back({memory::string(scheme->name()), confidence});
+            auto scheme = registry.find(std::string_view(name));
+            if (scheme && scheme->active(*ctx.cfg))
+                matched_schemes.push_back(scheme);
         }
-        auto func = [](const auto &a, const auto &b)
-        {
-            return a.conf < b.conf;
-        };
 
-        // 按置信度排序（值小的在前：high → medium → low）
-        std::ranges::sort(entries, std::move(func));
+        // Phase 4: 分层检测
+        auto raw_ch_span = std::span<const std::byte>(
+            reinterpret_cast<const std::byte *>(raw_record.data()), raw_record.size());
+        auto bitmap = protocol::tls::build_feature_bitmap(features);
 
-        memory::vector<memory::string> candidates;
-        candidates.reserve(entries.size());
-        for (auto &[name, conf] : entries)
-            candidates.push_back(std::move(name));
+        // 使用分层检测管道
+        auto pipeline = layered_detection_pipeline(registry.all());
+        auto pipeline_result = pipeline.detect(bitmap, features, raw_ch_span, *ctx.cfg, matched_schemes);
 
-        // Phase 4: 构建 preview transport
+        // Phase 5: 构建 preview transport
         auto preread_span = std::span(reinterpret_cast<const std::byte *>(raw_record.data()), raw_record.size());
         auto preview_transport = std::make_shared<pipeline::primitives::preview>(
             ctx.transport, preread_span, ctx.frame_arena ? ctx.frame_arena->get() : memory::current_resource());
 
-        // Phase 5: 按候选顺序执行 scheme
+        // Phase 6: 按候选顺序执行 scheme
         memory::vector<std::byte> preread_bytes(raw_record.size(),
-            ctx.frame_arena ? ctx.frame_arena->get() : memory::current_resource());
+                                                ctx.frame_arena ? ctx.frame_arena->get() : memory::current_resource());
         std::transform(raw_record.begin(), raw_record.end(), preread_bytes.begin(),
-            [](std::uint8_t b) { return static_cast<std::byte>(b); });
+                       [](std::uint8_t b)
+                       { return static_cast<std::byte>(b); });
 
-        stealth::scheme_context scheme_ctx{
+        stealth::handshake_context scheme_ctx{
             .inbound = preview_transport,
             .cfg = ctx.cfg,
             .router = ctx.router,
@@ -98,6 +88,29 @@ namespace psm::recognition
             .preread = std::move(preread_bytes)};
 
         auto executor = stealth::scheme_executor(registry);
+
+        // 确定性命中：直接执行
+        if (pipeline_result.deterministic_hit)
+        {
+            trace::debug("[Recognition] Deterministic hit: {}", pipeline_result.exclusive_scheme);
+            memory::vector<memory::string> single_candidate;
+            single_candidate.push_back(pipeline_result.exclusive_scheme);
+
+            auto scheme_result = co_await executor.execute(single_candidate, std::move(scheme_ctx));
+            result.transport = std::move(scheme_result.transport);
+            result.detected = scheme_result.detected;
+            result.preread = std::move(scheme_result.preread);
+            result.error = scheme_result.error;
+            result.executed_scheme = std::move(scheme_result.scheme);
+            result.success = !fault::failed(scheme_result.error);
+            co_return result;
+        }
+
+        // 多候选：按顺序执行
+        memory::vector<memory::string> candidates;
+        candidates.reserve(pipeline_result.candidates.size());
+        for (const auto &entry : pipeline_result.candidates)
+            candidates.push_back(entry.name);
 
         analysis_result analysis;
         analysis.candidates = std::move(candidates);
@@ -108,7 +121,7 @@ namespace psm::recognition
         result.detected = scheme_result.detected;
         result.preread = std::move(scheme_result.preread);
         result.error = scheme_result.error;
-        result.executed_scheme = std::move(scheme_result.executed_scheme);
+        result.executed_scheme = std::move(scheme_result.scheme);
         result.success = !fault::failed(scheme_result.error);
 
         if (result.success)

@@ -14,4 +14,5 @@
 #include <prism/channel/transport/transmission.hpp>
 #include <prism/channel/transport/reliable.hpp>
 #include <prism/channel/transport/encrypted.hpp>
+#include <prism/channel/transport/snapshot.hpp>
 #include <prism/channel/transport/unreliable.hpp>
