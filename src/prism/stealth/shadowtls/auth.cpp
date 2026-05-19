@@ -7,6 +7,7 @@
 
 #include <prism/stealth/shadowtls/auth.hpp>
 #include <prism/stealth/shadowtls/constants.hpp>
+#include <prism/trace.hpp>
 #include <openssl/hmac.h>
 #include <openssl/sha.h>
 #include <openssl/crypto.h>
@@ -83,6 +84,12 @@ namespace psm::stealth::shadowtls
         std::array<std::uint8_t, 4> client_tag{};
         std::memcpy(client_tag.data(), raw + client_hmac_offset, hmac_size);
 
+        // 调试日志
+        trace::info("[ShadowTLS] verify_client_hello: expected={:02x}{:02x}{:02x}{:02x}, client={:02x}{:02x}{:02x}{:02x}, data_size={}, hmac_offset={}, ch_size={}",
+            expected[0], expected[1], expected[2], expected[3],
+            client_tag[0], client_tag[1], client_tag[2], client_tag[3],
+            data_size, hmac_offset_in_data, client_hello.size());
+
         // 恒定时间比较
         return CRYPTO_memcmp(expected.data(), client_tag.data(), hmac_size) == 0;
     }
@@ -91,9 +98,8 @@ namespace psm::stealth::shadowtls
                            const std::span<const std::byte> payload,
                            const std::span<const std::uint8_t, 4> client_hmac) -> bool
     {
-        // HMAC-SHA1(password, serverRandom + payload)[:4]
-        // 注意：mihomo sing-shadowtls 客户端的 streamWrapper.readHMAC 不包含 "C" 标签
-        // Go 服务端的 hmacVerifyReset 包含 "C"，但客户端不包含，导致 HMAC 不匹配
+        // HMAC-SHA1(password, serverRandom + "C" + payload)[:4]
+        // 参照 sing-shadowtls hmacVerify（含 "C" 标签）
         HMAC_CTX *ctx = HMAC_CTX_new();
         if (!ctx)
         {
@@ -102,6 +108,9 @@ namespace psm::stealth::shadowtls
 
         HMAC_Init_ex(ctx, password.data(), static_cast<int>(password.size()), EVP_sha1(), nullptr);
         HMAC_Update(ctx, reinterpret_cast<const unsigned char *>(server_random.data()), server_random.size());
+
+        constexpr unsigned char tag_c = 'C';
+        HMAC_Update(ctx, &tag_c, 1);
 
         HMAC_Update(ctx, reinterpret_cast<const unsigned char *>(payload.data()), payload.size());
 
@@ -118,6 +127,7 @@ namespace psm::stealth::shadowtls
         -> std::array<std::uint8_t, 4>
     {
         // HMAC-SHA1(password, serverRandom + "S" + payload)[:4]
+        // 参照 sing-shadowtls hmacAdd（含 "S" 标签，用于 post-handshake 写入）
         HMAC_CTX *ctx = HMAC_CTX_new();
         if (!ctx)
         {

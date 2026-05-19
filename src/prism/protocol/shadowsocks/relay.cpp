@@ -91,9 +91,22 @@ namespace psm::protocol::shadowsocks
         std::memcpy(material_buf.data(), psk_.data(), psk_.size());
         std::memcpy(material_buf.data() + psk_.size(), salt.data(), salt.size());
 
+        // DEBUG: 打印密钥材料
+        trace::debug("{} derive_key: psk_size={}, salt_size={}, material_len={}",
+                    tag, psk_.size(), salt.size(), material_len);
+        trace::debug("{} psk: {:02x}{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}...",
+                    tag, psk_[0], psk_[1], psk_[2], psk_[3], psk_[4], psk_[5], psk_[6], psk_[7]);
+        trace::debug("{} salt: {:02x}{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}...",
+                    tag, salt[0], salt[1], salt[2], salt[3], salt[4], salt[5], salt[6], salt[7]);
+
         constexpr auto ctx = kdf_context; // SIP022: "shadowsocks 2022 session subkey"
         const auto key = crypto::derive_key(
             ctx, std::span<const std::uint8_t>(material_buf.data(), material_len), key_salt_length_);
+
+        // DEBUG: 打印派生的密钥
+        trace::debug("{} derived_key ({} bytes): {:02x}{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}",
+                    tag, key.size(), key[0], key[1], key[2], key[3], key[4], key[5], key[6], key[7],
+                    key[8], key[9], key[10], key[11], key[12], key[13], key[14], key[15]);
 
         crypto::aead_cipher cipher;
         switch (method_)
@@ -130,14 +143,39 @@ namespace psm::protocol::shadowsocks
             co_return fail(fault::code::connection_reset);
         }
 
+        // DEBUG: 打印加密头的 hex dump
+        trace::debug("{} fixed_header_enc ({} bytes): {:02x}{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}...",
+                    tag, fixed_header_size,
+                    static_cast<unsigned char>(header_enc[0]), static_cast<unsigned char>(header_enc[1]),
+                    static_cast<unsigned char>(header_enc[2]), static_cast<unsigned char>(header_enc[3]),
+                    static_cast<unsigned char>(header_enc[4]), static_cast<unsigned char>(header_enc[5]),
+                    static_cast<unsigned char>(header_enc[6]), static_cast<unsigned char>(header_enc[7]),
+                    static_cast<unsigned char>(header_enc[8]), static_cast<unsigned char>(header_enc[9]),
+                    static_cast<unsigned char>(header_enc[10]), static_cast<unsigned char>(header_enc[11]),
+                    static_cast<unsigned char>(header_enc[12]), static_cast<unsigned char>(header_enc[13]),
+                    static_cast<unsigned char>(header_enc[14]), static_cast<unsigned char>(header_enc[15]));
+
+        // DEBUG: 打印 nonce 状态
+        const auto &nonce = decrypt_ctx_->nonce();
+        trace::debug("{} decrypt_nonce: {:02x}{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}",
+                    tag, nonce[0], nonce[1], nonce[2], nonce[3], nonce[4], nonce[5],
+                    nonce[6], nonce[7], nonce[8], nonce[9], nonce[10], nonce[11]);
+
         // AEAD 解密
         std::array<std::uint8_t, fixed_header_plain> header_plain{};
+        trace::debug("{} attempting decrypt with nonce={:02x}{:02x}{:02x}{:02x}...",
+                    tag, nonce[0], nonce[1], nonce[2], nonce[3]);
         if (const auto r = decrypt_ctx_->open(header_plain, as_u8(header_enc));
             r != fault::code::success)
         {
-            trace::warn("{} decrypt fixed header failed: {}", tag, fault::describe(r));
+            trace::warn("{} decrypt fixed header failed: {} (expected {} plain bytes, got {} enc bytes)",
+                        tag, fault::describe(r), fixed_header_plain, fixed_header_size);
             co_return fail(fault::code::auth_failed);
         }
+        // 打印解密后 nonce 状态
+        const auto &nonce_after = decrypt_ctx_->nonce();
+        trace::debug("{} fixed_header decrypt success, nonce after={:02x}{:02x}{:02x}{:02x}...",
+                    tag, nonce_after[0], nonce_after[1], nonce_after[2], nonce_after[3]);
 
         // 验证请求类型
         if (header_plain[0] != request_type)
@@ -189,12 +227,18 @@ namespace psm::protocol::shadowsocks
 
         // AEAD 解密
         memory::vector<std::uint8_t> var_header_plain(var_header_len);
+        const auto &nonce_before_var = decrypt_ctx_->nonce();
+        trace::debug("{} var_header decrypt nonce before={:02x}{:02x}{:02x}{:02x}...",
+                    tag, nonce_before_var[0], nonce_before_var[1], nonce_before_var[2], nonce_before_var[3]);
         if (const auto r = decrypt_ctx_->open(var_header_plain, as_u8(var_header_enc));
             r != fault::code::success)
         {
             trace::warn("{} decrypt variable header failed: {}", tag, fault::describe(r));
             co_return fault::code::auth_failed;
         }
+        const auto &nonce_after_var = decrypt_ctx_->nonce();
+        trace::debug("{} var_header decrypt success, nonce after={:02x}{:02x}{:02x}{:02x}",
+                    tag, nonce_after_var[0], nonce_after_var[1], nonce_after_var[2], nonce_after_var[3]);
 
         // 解析地址和端口
         const auto [addr_ec, addr_result] = format::parse_address_port(
@@ -310,6 +354,9 @@ namespace psm::protocol::shadowsocks
 
         std::error_code ec;
 
+        trace::debug("{} handshake start: method={}, key_salt_length={}, psk_size={}",
+                    tag, static_cast<int>(method_), key_salt_length_, psk_.size());
+
         // 1. 读取 client salt
         memory::vector<std::uint8_t> client_salt(key_salt_length_);
         co_await next_layer_->async_read(std::as_writable_bytes(std::span(client_salt)), ec);
@@ -318,6 +365,11 @@ namespace psm::protocol::shadowsocks
             trace::warn("{} read client salt failed: {}", tag, ec.message());
             co_return std::pair{fault::code::connection_reset, req};
         }
+
+        trace::info("{} client_salt: {:02x}{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}, size={}",
+                   tag, client_salt[0], client_salt[1], client_salt[2], client_salt[3],
+                   client_salt[4], client_salt[5], client_salt[6], client_salt[7],
+                   client_salt.size());
 
         // 2. Salt 重放检查
         if (salt_pool_ && !salt_pool_->check_and_insert(client_salt))
@@ -331,6 +383,7 @@ namespace psm::protocol::shadowsocks
 
         // 3. 派生解密上下文
         decrypt_ctx_ = derive_aead_context(client_salt);
+        trace::debug("{} derived decrypt context from salt", tag);
 
         // 4. 读取并验证固定头
         auto [header_ec, var_header_len, now] = co_await read_fixed_header();
@@ -422,6 +475,12 @@ namespace psm::protocol::shadowsocks
 
     auto relay::fetch_chunk(std::error_code &ec) -> net::awaitable<void>
     {
+        // 打印当前 nonce 状态
+        const auto &nonce_before = decrypt_ctx_->nonce();
+        trace::debug("{} fetch_chunk: nonce before={:02x}{:02x}{:02x}{:02x}, initial_offset={}, initial_payload_size={}",
+                    tag, nonce_before[0], nonce_before[1], nonce_before[2], nonce_before[3],
+                    initial_offset_, initial_payload_.size());
+
         // 读取加密长度块（18 字节）
         co_await next_layer_->async_read(length_buf_, ec);
         if (ec)
@@ -429,12 +488,26 @@ namespace psm::protocol::shadowsocks
             co_return;
         }
 
+        // DEBUG: 打印长度块
+        trace::debug("{} length_buf (18 bytes): {:02x}{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}...",
+                    tag,
+                    static_cast<unsigned char>(length_buf_[0]), static_cast<unsigned char>(length_buf_[1]),
+                    static_cast<unsigned char>(length_buf_[2]), static_cast<unsigned char>(length_buf_[3]),
+                    static_cast<unsigned char>(length_buf_[4]), static_cast<unsigned char>(length_buf_[5]),
+                    static_cast<unsigned char>(length_buf_[6]), static_cast<unsigned char>(length_buf_[7]),
+                    static_cast<unsigned char>(length_buf_[8]), static_cast<unsigned char>(length_buf_[9]),
+                    static_cast<unsigned char>(length_buf_[10]), static_cast<unsigned char>(length_buf_[11]),
+                    static_cast<unsigned char>(length_buf_[12]), static_cast<unsigned char>(length_buf_[13]),
+                    static_cast<unsigned char>(length_buf_[14]), static_cast<unsigned char>(length_buf_[15]));
+
         // 解密长度
         std::array<std::uint8_t, 2> len_plain{};
         if (const auto r = decrypt_ctx_->open(len_plain, as_u8(length_buf_));
             r != fault::code::success)
         {
-            trace::warn("{} decrypt length block failed", tag);
+            const auto &nonce_fail = decrypt_ctx_->nonce();
+            trace::warn("{} decrypt length block failed, nonce={:02x}{:02x}{:02x}{:02x}",
+                        tag, nonce_fail[0], nonce_fail[1], nonce_fail[2], nonce_fail[3]);
             ec = std::make_error_code(std::errc::protocol_error);
             co_return;
         }
@@ -479,6 +552,8 @@ namespace psm::protocol::shadowsocks
         ec.clear();
         const auto chunk_len = std::min(data.size(), static_cast<std::size_t>(max_chunk_size));
 
+        trace::debug("{} send_chunk: chunk_len={}, data_size={}", tag, chunk_len, data.size());
+
         // 加密长度块
         std::array len_plain{
             static_cast<std::uint8_t>(chunk_len >> 8 & 0xFF),
@@ -503,9 +578,15 @@ namespace psm::protocol::shadowsocks
             co_return 0;
         }
 
+        trace::debug("{} send_chunk: len_enc_size={}, payload_enc_size={}, calling async_write_scatter",
+                    tag, len_enc.size(), payload_enc_buf_.size());
+
         // scatter-gather 写入
         const std::span<const std::byte> parts[] = {to_bytes(len_enc), to_bytes(payload_enc_buf_)};
         co_await next_layer_->async_write_scatter(parts, 2, ec);
+
+        trace::debug("{} send_chunk: async_write_scatter completed, ec={}, returned {}",
+                    tag, ec.message(), ec ? 0 : chunk_len);
 
         co_return ec ? 0 : chunk_len;
     }

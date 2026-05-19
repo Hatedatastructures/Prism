@@ -302,10 +302,20 @@ namespace psm::pipeline::primitives
         -> psm::channel::transport::reliable *
     {
         psm::channel::transport::transmission *raw = trans.get();
-        if (auto *p = dynamic_cast<preview *>(raw))
-            raw = p->inner().get();
-        if (auto *s = dynamic_cast<channel::transport::snapshot *>(raw))
-            raw = s->inner().get();
+        while (raw)
+        {
+            if (auto *p = dynamic_cast<preview *>(raw))
+            {
+                raw = p->inner().get();
+                continue;
+            }
+            if (auto *s = dynamic_cast<channel::transport::snapshot *>(raw))
+            {
+                raw = s->inner().get();
+                continue;
+            }
+            break;
+        }
         return dynamic_cast<channel::transport::reliable *>(raw);
     }
 

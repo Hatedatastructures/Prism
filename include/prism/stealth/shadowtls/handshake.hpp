@@ -15,22 +15,40 @@
 #include <boost/asio.hpp>
 #include <prism/stealth/shadowtls/config.hpp>
 #include <prism/memory/container.hpp>
+#include <openssl/hmac.h>
 #include <vector>
 #include <cstddef>
+#include <memory>
 
 namespace psm::stealth::shadowtls
 {
     namespace net = boost::asio;
+
+    /// HMAC 上下文删除器
+    struct hmac_ctx_deleter
+    {
+        void operator()(HMAC_CTX *ctx) const { HMAC_CTX_free(ctx); }
+    };
+
     /**
      * @struct handshake_result
      * @brief ShadowTLS 握手结果
+     * @details 参照 sing-shadowtls service.go case 3：
+     * - hmac_write_ctx: 写入方向累积 HMAC，初始状态 = password + serverRandom + "S"
+     *   （注意：sing-shadowtls 用 hmacAdd 传给 verifiedConn）
+     * - hmac_read_ctx: 读取方向累积 HMAC，初始状态 = password + serverRandom + "C" + first_frame_payload + HMAC[:4]
+     *   （握手阶段 copyByFrameUntilHMACMatches 验证成功后 hmacVerify 的状态）
      */
     struct handshake_result
     {
         bool authenticated{false};                 // 是否认证成功
         std::error_code error;                     // 错误码
-        std::vector<std::byte> client_first_frame; // 客户端首帧数据（认证后）
+        std::vector<std::byte> client_first_frame; // 客户端首帧数据（认证后，TLS header + payload）
         std::string_view matched_user;             // 匹配的用户名
+        std::string matched_password;              // 匹配的密码（用于后续 HMAC 计算）
+        std::array<std::byte, 32> server_random{}; // ServerHello 的 ServerRandom（用于后续 HMAC 和 XOR）
+        std::shared_ptr<HMAC_CTX> hmac_write_ctx;  // 写入方向累积 HMAC（初始：password + SR + "S"）
+        std::shared_ptr<HMAC_CTX> hmac_read_ctx;   // 读取方向累积 HMAC（初始：password + SR + "C" + payload + HMAC[:4]）
     };
 
     /**

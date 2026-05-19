@@ -266,6 +266,30 @@ namespace psm::channel::transport
             return *socket_;
         }
 
+        /**
+         * @brief 释放底层 socket 的所有权
+         * @details 将 socket 从 reliable transport 中移出，transport 变为无效状态。
+         * 用于 ShadowTLS/Restls 等需要接管 socket 所有权的场景。
+         * @return socket_type socket（可能已移动），池连接或无 socket 时返回 std::nullopt
+         * @warning 调用后 reliable transport 不再可用
+         */
+        std::optional<socket_type> release_socket() noexcept
+        {
+            if (pooled_.valid())
+            {
+                // 池连接不能释放所有权
+                return std::nullopt;
+            }
+            if (socket_)
+            {
+                auto s = std::move(*socket_);
+                socket_.reset();
+                return s;
+            }
+            // 没有 socket
+            return std::nullopt;
+        }
+
     private:
         std::optional<socket_type> socket_;      // 非池连接的 socket 存储
         psm::channel::pooled_connection pooled_; // 池连接，RAII 包装器

@@ -223,20 +223,34 @@ namespace psm::pipeline::primitives
         auto forward = [complete_write, &total_bytes](forward_context context)
             -> net::awaitable<void>
         {
+            const bool is_download = (context.idx == 1);
+            trace::debug("{} forward[{}]: started, complete_write={}",
+                        TunnelStr, is_download ? "download" : "upload", complete_write);
+
             std::error_code ec;
             while (true)
             {
                 const auto transferred = co_await context.from->async_read_some(context.scratch, ec);
                 if (ec || transferred == 0)
+                {
+                    trace::debug("{} forward[{}]: read done, transferred={}, ec={}",
+                                TunnelStr, is_download ? "download" : "upload", transferred, ec.message());
                     co_return;
+                }
 
                 total_bytes[context.idx] += transferred;
+                trace::debug("{} forward[{}]: read {} bytes, total now {}",
+                            TunnelStr, is_download ? "download" : "upload", transferred, total_bytes[context.idx]);
 
                 const auto data = context.scratch.first(transferred);
                 std::size_t written;
                 if (complete_write)
                 {
+                    trace::debug("{} forward[{}]: calling async_write({} bytes)",
+                                TunnelStr, is_download ? "download" : "upload", data.size());
                     written = co_await context.to->async_write(data, ec);
+                    trace::debug("{} forward[{}]: async_write returned written={}, ec={}",
+                                TunnelStr, is_download ? "download" : "upload", written, ec.message());
                 }
                 else
                 {
@@ -244,7 +258,11 @@ namespace psm::pipeline::primitives
                 }
 
                 if (ec || (complete_write && written < transferred))
+                {
+                    trace::debug("{} forward[{}]: write done/failed, written={}, expected={}",
+                                TunnelStr, is_download ? "download" : "upload", written, transferred);
                     co_return;
+                }
             }
         };
 

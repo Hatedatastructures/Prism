@@ -143,6 +143,7 @@ namespace
      * @brief 构造带 HMAC 的 Application Data 帧
      * @details TLS header(5) + HMAC(4) + payload
      * HMAC = HMAC-SHA1(password, serverRandom + "C" + payload)[:4]
+     * @note 参照 sing-shadowtls hmacVerify（含 "C" 标签）
      */
     auto build_app_data_frame(const std::string &password,
                               const std::array<std::byte, 32> &server_random,

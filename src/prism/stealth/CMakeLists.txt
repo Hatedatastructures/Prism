@@ -12,6 +12,7 @@ target_sources(${PROJECT_NAME}_static_library
         shadowtls/auth.cpp
         shadowtls/handshake.cpp
         shadowtls/scheme.cpp
+        shadowtls/transport.cpp
         restls/scheme.cpp
         anytls/scheme.cpp
         trusttunnel/scheme.cpp
@@ -43,6 +44,7 @@ target_sources(${PROJECT_NAME}_static_library
             ${PROJECT_SOURCE_DIR}/include/prism/stealth/shadowtls/auth.hpp
             ${PROJECT_SOURCE_DIR}/include/prism/stealth/shadowtls/handshake.hpp
             ${PROJECT_SOURCE_DIR}/include/prism/stealth/shadowtls/scheme.hpp
+            ${PROJECT_SOURCE_DIR}/include/prism/stealth/shadowtls/transport.hpp
             ${PROJECT_SOURCE_DIR}/include/prism/stealth/restls/config.hpp
             ${PROJECT_SOURCE_DIR}/include/prism/stealth/restls/scheme.hpp
             ${PROJECT_SOURCE_DIR}/include/prism/stealth/anytls/config.hpp

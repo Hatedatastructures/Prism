@@ -99,16 +99,17 @@ void TestFrameHMACVerification()
     for (std::size_t i = 0; i < payload.size(); ++i)
         payload[i] = static_cast<std::byte>(0x10 + i);
 
-    // compute_write_hmac 使用 "S" 标签（服务端写入方向）
+    // compute_write_hmac：服务端→客户端方向，不含后缀
     const auto write_hmac = compute_write_hmac(password, server_random, payload);
 
-    // verify_frame_hmac 使用 "C" 标签（客户端写入方向）
-    // 所以用 write_hmac 去 verify 应该失败（标签不同）
+    // compute_write_hmac 使用 "S" 标签（服务端→客户端方向）
+    // verify_frame_hmac 使用 "C" 标签（客户端→服务端方向）
+    // 两者标签不同，write_hmac 不应该通过 verify
     Check(!verify_frame_hmac(password, server_random, payload, write_hmac),
-          "Frame HMAC with cross-direction tag should fail");
+          "Write HMAC ('S' tag) should fail against verify ('C' tag)");
 
-    // 手动构建 "C" 方向的 HMAC 来验证 verify_frame_hmac 正确性
-    // 使用 HMAC_CTX 手动计算 "C" 标签的 HMAC
+    // 手动构建含 "C" 标签的客户端 HMAC（参照 sing-shadowtls hmacVerify）
+    // HMAC-SHA1(password, serverRandom + "C" + payload)[:4]
     HMAC_CTX *ctx = HMAC_CTX_new();
     HMAC_Init_ex(ctx, password.data(), static_cast<int>(password.size()), EVP_sha1(), nullptr);
     HMAC_Update(ctx, reinterpret_cast<const unsigned char *>(server_random.data()), server_random.size());
@@ -124,7 +125,7 @@ void TestFrameHMACVerification()
     std::memcpy(read_hmac.data(), md.data(), 4);
 
     Check(verify_frame_hmac(password, server_random, payload, read_hmac),
-          "Frame HMAC verification with correct read-direction HMAC");
+          "Frame HMAC verification with correct client HMAC ('C' tag)");
 }
 
 void TestClientHelloVerification()

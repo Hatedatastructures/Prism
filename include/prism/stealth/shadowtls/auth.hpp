@@ -7,9 +7,10 @@
  * 认证算法（sing-shadowtls v3_server.go verifyClientHello）：
  *   HMAC = HMAC-SHA1(password, ClientHello[10:hmac_index] + 00000000 + ClientHello[hmac_index+4:])[:4]
  *
- * 握手完成后的数据帧处理：
- *   HMAC_Verify = HMAC-SHA1(password, serverRandom + "C")
- *   HMAC_Write = HMAC-SHA1(password, serverRandom + "S")
+ * 握手完成后的数据帧处理（参照 sing-shadowtls）：
+ *   客户端→服务端: HMAC_Verify = HMAC-SHA1(password, serverRandom + "C" + payload)[:4]
+ *   服务端→客户端: HMAC_Write = HMAC-SHA1(password, serverRandom + "S" + payload)[:4]
+ *   Relay (后端→客户端): HMAC = HMAC-SHA1(password, serverRandom + payload)[:4]（累积，无后缀）
  *   WriteKey = SHA256(password + serverRandom)
  */
 #pragma once
@@ -47,9 +48,10 @@ namespace psm::stealth::shadowtls
         -> std::array<std::uint8_t, 4>;
 
     /**
-     * @brief 验证握手后的数据帧 HMAC
-     * @details HMAC-SHA1(password, serverRandom + "C" + payload)[:4]
-     * 与服务端收到的帧头 4 字节比较。
+     * @brief 验证握手后的数据帧 HMAC（客户端→服务端方向，单帧独立）
+     * @details HMAC-SHA1(password, serverRandom + payload)[:4]
+     * 参照 sing-shadowtls verifyApplicationData（无后缀）。
+     * @note 此函数用于单帧独立 HMAC。handshake.cpp 中使用累积 HMAC 模式。
      * @param password 密码
      * @param server_random TLS ServerRandom（32 字节）
      * @param payload 数据帧 payload（不含 TLS header 和 HMAC）
@@ -62,8 +64,10 @@ namespace psm::stealth::shadowtls
                                           std::span<const std::uint8_t, 4> client_hmac) -> bool;
 
     /**
-     * @brief 生成数据帧的 HMAC 标签（服务端写入方向）
-     * @details HMAC-SHA1(password, serverRandom + "S" + modified_payload)[:4]
+     * @brief 生成数据帧的 HMAC 标签（服务端→客户端方向）
+     * @details HMAC-SHA1(password, serverRandom + modified_payload)[:4]
+     * 参照 sing-shadowtls hmacWrite 初始化（不含后缀）。
+     * @note 此函数用于单帧独立 HMAC。relay 中使用累积 HMAC 模式。
      * @param password 密码
      * @param server_random TLS ServerRandom
      * @param payload 修改后的 payload

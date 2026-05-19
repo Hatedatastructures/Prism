@@ -6,6 +6,7 @@ bind-address: '*'              # 监听所有网卡
 mode: rule
 log-level: info
 external-controller: 127.0.0.1:9090
+global-client-fingerprint: none  # 禁用全局 uTLS 指纹模拟，ShadowTLS 需要标准 TLS
 
 # DNS 设置
 # 测试：当前开发环境没有ipv6，只能使用v4
@@ -24,11 +25,23 @@ dns:
   #   geoip: true  # 现在禁用掉，避免误伤国内IP导致无法访问国内站点
   #   geoip-code: CN
 
+# ---------- SNI 路由说明 ----------
+# Prism 使用 SNI 路由表进行协议识别：
+#   - www.microsoft.com   → Reality
+#   - www.apple.com       → ShadowTLS
+#   - www.nvidia.com      → Restls
+#   - www.cloudflare.com  → AnyTLS
+#   - www.amazon.com      → TrustTunnel
+#
+# 每个协议使用不同的 SNI，确保单端口多协议确定性识别。
+# 所有 SNI 都是真实可访问的大厂域名，支持主动探测回退。
+# 客户端 sni/servername 必须与服务端 server_names 配置一致！
+
 # ---------- 协议测试节点 ----------
 proxies:
   - name: "Smux UCUS TCP"
     type: trojan
-    server: 192.168.137.1
+    server: 127.0.0.1
     port: 8081
     password: "prism"
     udp: false
@@ -36,11 +49,11 @@ proxies:
     smux:
       enabled: true
       protocol: smux
-      only-tcp: true 
+      only-tcp: true
 
   - name: "Smux UCUS UDP"
     type: trojan
-    server: 192.168.137.1
+    server: 127.0.0.1
     port: 8081
     password: "prism"
     udp: false
@@ -48,11 +61,11 @@ proxies:
     smux:
       enabled: true
       protocol: smux
-      only-tcp: false 
+      only-tcp: false
 
   - name: "Smux 4C64S TCP"
     type: trojan
-    server: 192.168.137.1
+    server: 127.0.0.1
     port: 8081
     password: "prism"
     udp: false
@@ -60,13 +73,13 @@ proxies:
     smux:
       enabled: true
       protocol: smux
-      only-tcp: true              
-      max-streams: 64             
+      only-tcp: true
+      max-streams: 64
       max-conn: 4
 
   - name: "Smux 4C64S UDP"
     type: trojan
-    server: 192.168.137.1
+    server: 127.0.0.1
     port: 8081
     password: "prism"
     udp: false
@@ -74,13 +87,13 @@ proxies:
     smux:
       enabled: true
       protocol: smux
-      only-tcp: false              
-      max-streams: 64             
+      only-tcp: false
+      max-streams: 64
       max-conn: 4
 
   - name: "Smux 1C256S TCP"
     type: trojan
-    server: 192.168.137.1
+    server: 127.0.0.1
     port: 8081
     password: "prism"
     udp: false
@@ -88,13 +101,13 @@ proxies:
     smux:
       enabled: true
       protocol: smux
-      only-tcp: true              
-      max-streams: 256             
-      max-conn: 1   
+      only-tcp: true
+      max-streams: 256
+      max-conn: 1
 
   - name: "Smux 1C256S UDP"
     type: trojan
-    server: 192.168.137.1
+    server: 127.0.0.1
     port: 8081
     password: "prism"
     udp: false
@@ -108,7 +121,7 @@ proxies:
 
   - name: "Yamux UCUS TCP"
     type: trojan
-    server: 192.168.137.1
+    server: 127.0.0.1
     port: 8081
     password: "prism"
     udp: false
@@ -120,7 +133,7 @@ proxies:
 
   - name: "Yamux UCUS UDP"
     type: trojan
-    server: 192.168.137.1
+    server: 127.0.0.1
     port: 8081
     password: "prism"
     udp: false
@@ -132,7 +145,7 @@ proxies:
 
   - name: "Yamux 4C64S TCP"
     type: trojan
-    server: 192.168.137.1
+    server: 127.0.0.1
     port: 8081
     password: "prism"
     udp: false
@@ -146,7 +159,7 @@ proxies:
 
   - name: "Yamux 4C64S UDP"
     type: trojan
-    server: 192.168.137.1
+    server: 127.0.0.1
     port: 8081
     password: "prism"
     udp: false
@@ -160,7 +173,7 @@ proxies:
 
   - name: "Yamux 1C256S TCP"
     type: trojan
-    server: 192.168.137.1
+    server: 127.0.0.1
     port: 8081
     password: "prism"
     udp: false
@@ -174,7 +187,7 @@ proxies:
 
   - name: "Yamux 1C256S UDP"
     type: trojan
-    server: 192.168.137.1
+    server: 127.0.0.1
     port: 8081
     password: "prism"
     udp: false
@@ -188,30 +201,30 @@ proxies:
 
 
   # SOCKS5 代理
-  - name: "SOCKS5 UDP"         
+  - name: "SOCKS5 UDP"
     type: socks5
-    server: 192.168.137.1
+    server: 127.0.0.1
     port: 8081
     udp: true
 
   # 启用认证后无认证不可用，所以不单独测试无认证的情况了
   - name: "SOCKS5 UDP Cert"
     type: socks5
-    server: 192.168.137.1
+    server: 127.0.0.1
     port: 8081
     username: "admin"
     password: "prism"
     udp: true
 
-  - name: "SOCKS5 TCP"         
+  - name: "SOCKS5 TCP"
     type: socks5
-    server: 192.168.137.1
+    server: 127.0.0.1
     port: 8081
     udp: false
 
   - name: "SOCKS5 TCP Cert"
     type: socks5
-    server: 192.168.137.1
+    server: 127.0.0.1
     port: 8081
     username: "admin"
     password: "prism"
@@ -220,16 +233,16 @@ proxies:
   # http
   - name: "Http"
     type: http
-    server: 192.168.137.1
+    server: 127.0.0.1
     port: 8081
-    username: username         
-    password: prism            
+    username: username
+    password: prism
 
 
   # https (TLS 内层协议检测已由 session 层自动完成)
   - name: "Https"
     type: http
-    server: 192.168.137.1
+    server: 127.0.0.1
     port: 8081
     username: username
     password: prism
@@ -237,17 +250,17 @@ proxies:
     skip-cert-verify: true # 跳过证书验证，避免测试环境自签证书不受信任导致连接失败
     # sni: custom.com
 
-  - name: "Trojan TCP"          
+  - name: "Trojan TCP"
     type: trojan
-    server: 192.168.137.1
+    server: 127.0.0.1
     port: 8081
     password: "prism"
     udp: false
-    skip-cert-verify: true               
+    skip-cert-verify: true
 
   - name: "Trojan UDP"
     type: trojan
-    server: 192.168.137.1
+    server: 127.0.0.1
     port: 8081
     password: "prism"
     udp: true
@@ -260,76 +273,108 @@ proxies:
   # password 为 base64 编码的随机密钥（16 字节对应 AES-128，32 字节对应 AES-256）
   - name: "SS2022 TCP"
     type: ss
-    server: 192.168.137.1
+    server: 127.0.0.1
     port: 8081
     cipher: 2022-blake3-aes-128-gcm
     password: "5n5ESu953i/pjIp02oZvHA=="
 
   # SS2022 + ShadowTLS (SS2022 嵌入 ShadowTLS v3 的 TLS 伪装层)
   # ShadowTLS 通过 HMAC-SHA1 认证，将 SS2022 流量包装成标准 TLS 连接
+  # SNI 必须与服务端 server_names 配置一致: www.apple.com
+  # 注意: client-fingerprint 在代理顶层（用于 TLS 指纹伪装）
+  #       plugin-opts 中不要放 fingerprint（那是用于证书 pinning 的）
   - name: "SS2022 ShadowTLS TCP"
     type: ss
-    server: 192.168.137.1
+    server: 127.0.0.1
     port: 8081
     cipher: 2022-blake3-aes-128-gcm
     password: "5n5ESu953i/pjIp02oZvHA=="
     plugin: shadow-tls
     plugin-opts:
-      host: "www.microsoft.com"
-      password: "shadowtls_password"
+      host: "www.apple.com"              # SNI: 与服务端 server_names 一致
+      password: "shadowtls_password"      # HMAC 密码: 与服务端 users.password 一致
       version: 3
 
   - name: "SS2022 ShadowTLS UDP"
     type: ss
-    server: 192.168.137.1
+    server: 127.0.0.1
     port: 8081
     cipher: 2022-blake3-aes-128-gcm
     password: "5n5ESu953i/pjIp02oZvHA=="
     plugin: shadow-tls
     plugin-opts:
-      host: "www.microsoft.com"
+      host: "www.apple.com"              # SNI: 与服务端 server_names 一致
+      password: "shadowtls_password"      # HMAC 密码: 与服务端 users.password 一致
+      version: 3
+
+  # Trojan + ShadowTLS (Trojan 嵌入 ShadowTLS v3 的 TLS 伪装层)
+  # 验证 ShadowTLS 伪装层与非 SS2022 内层协议的兼容性
+  - name: "Trojan ShadowTLS TCP"
+    type: trojan
+    server: 127.0.0.1
+    port: 8081
+    password: "prism"
+    skip-cert-verify: true
+    plugin: shadow-tls
+    plugin-opts:
+      host: "www.apple.com"
+      password: "shadowtls_password"
+      version: 3
+
+  - name: "Trojan ShadowTLS UDP"
+    type: trojan
+    server: 127.0.0.1
+    port: 8081
+    password: "prism"
+    skip-cert-verify: true
+    udp: true
+    plugin: shadow-tls
+    plugin-opts:
+      host: "www.apple.com"
       password: "shadowtls_password"
       version: 3
 
   # SS2022 + Restls TLS13 (SS2022 嵌入 Restls 的 TLS 1.3 伪装层)
   # Restls 通过 TLS 应用数据中的认证信息验证客户端
   # restls-script 用于控制握手后的流量模式，隐藏代理特征
+  # SNI 必须与服务端 server_names 配置一致: www.nvidia.com
   - name: "SS2022 Restls TLS13 TCP"
     type: ss
-    server: 192.168.137.1
+    server: 127.0.0.1
     port: 8081
     cipher: 2022-blake3-aes-128-gcm
     password: "5n5ESu953i/pjIp02oZvHA=="
     plugin: restls
     plugin-opts:
-      host: "www.microsoft.com"
-      password: "restls_password"
+      host: "www.nvidia.com"             # SNI: 与服务端 server_names 一致
+      password: "restls_password"        # 认证密码: 与服务端 password 一致
       version-hint: "tls13"
       restls-script: "300?100<1,400~100,350~100,600~100,300~200,300~100"
 
   - name: "SS2022 Restls TLS13 UDP"
     type: ss
-    server: 192.168.137.1
+    server: 127.0.0.1
     port: 8081
     cipher: 2022-blake3-aes-128-gcm
     password: "5n5ESu953i/pjIp02oZvHA=="
     plugin: restls
     plugin-opts:
-      host: "www.microsoft.com"
-      password: "restls_password"
+      host: "www.nvidia.com"             # SNI: 与服务端 server_names 一致
+      password: "restls_password"        # 认证密码: 与服务端 password 一致
       version-hint: "tls13"
       restls-script: "300?100<1,400~100,350~100,600~100,300~200,300~100"
 
   # SS2022 + Restls TLS12 (使用 TLS 1.2 后端服务器)
+  # 注意: TLS12 版本需要不同的 restls-script
   - name: "SS2022 Restls TLS12 TCP"
     type: ss
-    server: 192.168.137.1
+    server: 127.0.0.1
     port: 8081
     cipher: 2022-blake3-aes-128-gcm
     password: "5n5ESu953i/pjIp02oZvHA=="
     plugin: restls
     plugin-opts:
-      host: "www.apple.com:443"
+      host: "www.nvidia.com"             # SNI: 与服务端 server_names 一致
       password: "restls_password"
       version-hint: "tls12"
       restls-script: "1000?100<1,500~100,350~100,600~100,400~200"
@@ -337,7 +382,7 @@ proxies:
   # VLESS
   - name: "VLESS TCP"
     type: vless
-    server: 192.168.137.1
+    server: 127.0.0.1
     port: 8081
     uuid: "123e4567-e89b-12d3-a456-426614174000"
     tls: true
@@ -345,7 +390,7 @@ proxies:
 
   - name: "VLESS UDP"
     type: vless
-    server: 192.168.137.1
+    server: 127.0.0.1
     port: 8081
     uuid: "123e4567-e89b-12d3-a456-426614174000"
     tls: true
@@ -354,7 +399,7 @@ proxies:
 
   - name: "VLESS Smux TCP"
     type: vless
-    server: 192.168.137.1
+    server: 127.0.0.1
     port: 8081
     uuid: "123e4567-e89b-12d3-a456-426614174000"
     tls: true
@@ -366,7 +411,7 @@ proxies:
 
   - name: "VLESS Smux UDP"
     type: vless
-    server: 192.168.137.1
+    server: 127.0.0.1
     port: 8081
     uuid: "123e4567-e89b-12d3-a456-426614174000"
     tls: true
@@ -378,7 +423,7 @@ proxies:
 
   - name: "VLESS Yamux TCP"
     type: vless
-    server: 192.168.137.1
+    server: 127.0.0.1
     port: 8081
     uuid: "123e4567-e89b-12d3-a456-426614174000"
     tls: true
@@ -390,7 +435,7 @@ proxies:
 
   - name: "VLESS Yamux UDP"
     type: vless
-    server: 192.168.137.1
+    server: 127.0.0.1
     port: 8081
     uuid: "123e4567-e89b-12d3-a456-426614174000"
     tls: true
@@ -401,16 +446,17 @@ proxies:
       only-tcp: false
 
   # VLESS + Reality（无需自签证书，使用目标网站真实证书）
+  # servername (SNI) 必须与服务端 server_names 配置一致: www.microsoft.com
   - name: "VLESS Reality TCP"
     type: vless
-    server: 192.168.137.1
+    server: 127.0.0.1
     port: 8081
     uuid: "123e4567-e89b-12d3-a456-426614174000"
     network: tcp
     tls: true
     udp: false
     skip-cert-verify: true
-    servername: www.microsoft.com
+    servername: www.microsoft.com      # SNI: 与服务端 reality.server_names 一致
     client-fingerprint: chrome
     reality-opts:
       public-key: "BkKPzEJtz8Qv1yR_cTydzm5mmfiui8OL2Zqd9dV--To"
@@ -418,14 +464,14 @@ proxies:
 
   - name: "VLESS Reality UDP"
     type: vless
-    server: 192.168.137.1
+    server: 127.0.0.1
     port: 8081
     uuid: "123e4567-e89b-12d3-a456-426614174000"
     network: tcp
     tls: true
     udp: true
     skip-cert-verify: true
-    servername: www.microsoft.com
+    servername: www.microsoft.com      # SNI: 与服务端 reality.server_names 一致
     client-fingerprint: chrome
     reality-opts:
       public-key: "BkKPzEJtz8Qv1yR_cTydzm5mmfiui8OL2Zqd9dV--To"
@@ -433,14 +479,14 @@ proxies:
 
   - name: "VLESS Reality Smux TCP"
     type: vless
-    server: 192.168.137.1
+    server: 127.0.0.1
     port: 8081
     uuid: "123e4567-e89b-12d3-a456-426614174000"
     network: tcp
     tls: true
     udp: false
     skip-cert-verify: true
-    servername: www.microsoft.com
+    servername: www.microsoft.com      # SNI: 与服务端 reality.server_names 一致
     client-fingerprint: chrome
     reality-opts:
       public-key: "BkKPzEJtz8Qv1yR_cTydzm5mmfiui8OL2Zqd9dV--To"
@@ -452,14 +498,14 @@ proxies:
 
   - name: "VLESS Reality Smux UDP"
     type: vless
-    server: 192.168.137.1
+    server: 127.0.0.1
     port: 8081
     uuid: "123e4567-e89b-12d3-a456-426614174000"
     network: tcp
     tls: true
     udp: false
     skip-cert-verify: true
-    servername: www.microsoft.com
+    servername: www.microsoft.com      # SNI: 与服务端 reality.server_names 一致
     client-fingerprint: chrome
     reality-opts:
       public-key: "BkKPzEJtz8Qv1yR_cTydzm5mmfiui8OL2Zqd9dV--To"
@@ -471,14 +517,14 @@ proxies:
 
   - name: "VLESS Reality Yamux TCP"
     type: vless
-    server: 192.168.137.1
+    server: 127.0.0.1
     port: 8081
     uuid: "123e4567-e89b-12d3-a456-426614174000"
     network: tcp
     tls: true
     udp: false
     skip-cert-verify: true
-    servername: www.microsoft.com
+    servername: www.microsoft.com      # SNI: 与服务端 reality.server_names 一致
     client-fingerprint: chrome
     reality-opts:
       public-key: "BkKPzEJtz8Qv1yR_cTydzm5mmfiui8OL2Zqd9dV--To"
@@ -490,14 +536,14 @@ proxies:
 
   - name: "VLESS Reality Yamux UDP"
     type: vless
-    server: 192.168.137.1
+    server: 127.0.0.1
     port: 8081
     uuid: "123e4567-e89b-12d3-a456-426614174000"
     network: tcp
     tls: true
     udp: false
     skip-cert-verify: true
-    servername: www.microsoft.com
+    servername: www.microsoft.com      # SNI: 与服务端 reality.server_names 一致
     client-fingerprint: chrome
     reality-opts:
       public-key: "BkKPzEJtz8Qv1yR_cTydzm5mmfiui8OL2Zqd9dV--To"
@@ -506,6 +552,108 @@ proxies:
       enabled: true
       protocol: yamux
       only-tcp: false
+
+  # AnyTLS (Mihomo 支持)
+  # 使用标准 TLS 证书，通过应用层认证实现代理功能
+  # SNI 必须与服务端 server_names 配置一致: www.cloudflare.com
+  - name: "AnyTLS TCP"
+    type: anytls
+    server: 127.0.0.1
+    port: 8081
+    password: "anytls_password"         # 认证密码: 与服务端 users.password 一致
+    sni: "www.cloudflare.com"           # SNI: 与服务端 server_names 一致
+    skip-cert-verify: true
+    udp: false
+
+  - name: "AnyTLS UDP"
+    type: anytls
+    server: 127.0.0.1
+    port: 8081
+    password: "anytls_password"
+    sni: "www.cloudflare.com"           # SNI: 与服务端 server_names 一致
+    skip-cert-verify: true
+    udp: true
+
+  - name: "AnyTLS Smux TCP"
+    type: anytls
+    server: 127.0.0.1
+    port: 8081
+    password: "anytls_password"
+    sni: "www.cloudflare.com"           # SNI: 与服务端 server_names 一致
+    skip-cert-verify: true
+    udp: false
+    smux:
+      enabled: true
+      protocol: smux
+      only-tcp: true
+
+  - name: "AnyTLS Smux UDP"
+    type: anytls
+    server: 127.0.0.1
+    port: 8081
+    password: "anytls_password"
+    sni: "www.cloudflare.com"           # SNI: 与服务端 server_names 一致
+    skip-cert-verify: true
+    udp: false
+    smux:
+      enabled: true
+      protocol: smux
+      only-tcp: false
+
+  - name: "AnyTLS Yamux TCP"
+    type: anytls
+    server: 127.0.0.1
+    port: 8081
+    password: "anytls_password"
+    sni: "www.cloudflare.com"           # SNI: 与服务端 server_names 一致
+    skip-cert-verify: true
+    udp: false
+    smux:
+      enabled: true
+      protocol: yamux
+      only-tcp: true
+
+  - name: "AnyTLS Yamux UDP"
+    type: anytls
+    server: 127.0.0.1
+    port: 8081
+    password: "anytls_password"
+    sni: "www.cloudflare.com"           # SNI: 与服务端 server_names 一致
+    skip-cert-verify: true
+    udp: false
+    smux:
+      enabled: true
+      protocol: yamux
+      only-tcp: false
+
+  # TrustTunnel (Mihomo 支持)
+  # 使用标准 TLS 证书，支持 TCP 和 UDP 传输
+  # SNI 必须与服务端 server_names 配置一致: www.amazon.com
+  - name: "TrustTunnel TCP"
+    type: tuic                           # Mihomo 使用 tuic 类型作为 TrustTunnel 客户端
+    server: 127.0.0.1
+    port: 8081
+    uuid: "123e4567-e89b-12d3-a456-426614174000"
+    password: "trusttunnel_password"     # 认证密码: 与服务端 users.password 一致
+    alpn:
+      - h3
+    congestion-controller: bbr           # 拥塞控制: 与服务端 congestion 一致
+    sni: "www.amazon.com"                # SNI: 与服务端 server_names 一致
+    skip-cert-verify: true
+    udp: false
+
+  - name: "TrustTunnel UDP"
+    type: tuic
+    server: 127.0.0.1
+    port: 8081
+    uuid: "123e4567-e89b-12d3-a456-426614174000"
+    password: "trusttunnel_password"
+    alpn:
+      - h3
+    congestion-controller: bbr
+    sni: "www.amazon.com"                # SNI: 与服务端 server_names 一致
+    skip-cert-verify: true
+    udp: true
 
 
 # ---------- 策略组 ----------
@@ -548,9 +696,19 @@ proxy-groups:
       - "SS2022 TCP"
       - "SS2022 ShadowTLS TCP"
       - "SS2022 ShadowTLS UDP"
+      - "Trojan ShadowTLS TCP"
+      - "Trojan ShadowTLS UDP"
       - "SS2022 Restls TLS13 TCP"
       - "SS2022 Restls TLS13 UDP"
       - "SS2022 Restls TLS12 TCP"
+      - "AnyTLS TCP"
+      - "AnyTLS UDP"
+      - "AnyTLS Smux TCP"
+      - "AnyTLS Smux UDP"
+      - "AnyTLS Yamux TCP"
+      - "AnyTLS Yamux UDP"
+      - "TrustTunnel TCP"
+      - "TrustTunnel UDP"
 
   - name: "国内延迟测试(xiaomi)"
     type: url-test
@@ -590,9 +748,15 @@ proxy-groups:
       - "SS2022 TCP"
       - "SS2022 ShadowTLS TCP"
       - "SS2022 ShadowTLS UDP"
+      - "Trojan ShadowTLS TCP"
+      - "Trojan ShadowTLS UDP"
       - "SS2022 Restls TLS13 TCP"
       - "SS2022 Restls TLS13 UDP"
       - "SS2022 Restls TLS12 TCP"
+      - "AnyTLS TCP"
+      - "AnyTLS UDP"
+      - "TrustTunnel TCP"
+      - "TrustTunnel UDP"
 
     url: "http://connect.rom.miui.com/generate_204"
     interval: 300
