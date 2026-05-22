@@ -1,12 +1,14 @@
 /**
  * @file ProtocolAnalysis.cpp
  * @brief 协议分析模块单元测试
- * @details 测试 recognition::probe::detect() 和 protocol::analysis::detect_tls() 函数，
+ * @details 测试 recognition::probe::detect() 和 psm::recognition::probe::detect_tls() 函数，
  * 覆盖 SOCKS5/TLS/HTTP/VLESS/Trojan/Shadowsocks 各协议的探测路径、
  * 边界条件和排除法 fallback 逻辑。
  */
 
-#include <prism/protocol/analysis.hpp>
+#include <prism/protocol/protocol_type.hpp>
+#include <prism/protocol/common/target.hpp>
+#include <prism/recognition/target.hpp>
 #include <prism/recognition/probe/analyzer.hpp>
 #include <prism/memory.hpp>
 #include <prism/trace/spdlog.hpp>
@@ -73,11 +75,11 @@ void TestDetectTls(psm::testing::TestRunner &runner)
     runner.LogInfo("=== TestDetectTls ===");
 
     // HTTP over TLS
-    runner.Check(protocol::analysis::detect_tls("GET / HTTP/1.1\r\nHost: example.com\r\n\r\n") == protocol_type::http,
+    runner.Check(psm::recognition::probe::detect_tls("GET / HTTP/1.1\r\nHost: example.com\r\n\r\n") == protocol_type::http,
                  "detect_tls: HTTP GET -> http");
 
     // HTTP 最短前缀 "GET "
-    runner.Check(protocol::analysis::detect_tls("GET ") == protocol_type::http,
+    runner.Check(psm::recognition::probe::detect_tls("GET ") == protocol_type::http,
                  "detect_tls: minimal GET -> http");
 
     // VLESS TCP: version=0x00, UUID(16)=zeros, addnl_len=0x00, cmd=0x01, port=0x00 0x50, atyp=0x01, ipv4=127.0.0.1
@@ -90,7 +92,7 @@ void TestDetectTls(psm::testing::TestRunner &runner)
         vless_data[19] = 0x00; // port high
         vless_data[20] = 0x50; // port low (80)
         vless_data[21] = 0x01; // atyp = ipv4
-        runner.Check(protocol::analysis::detect_tls(vless_data) == protocol_type::vless,
+        runner.Check(psm::recognition::probe::detect_tls(vless_data) == protocol_type::vless,
                      "detect_tls: valid VLESS -> vless");
     }
 
@@ -100,7 +102,7 @@ void TestDetectTls(psm::testing::TestRunner &runner)
         vless_data[0] = 0x01; // invalid version
         vless_data[18] = 0x01; // cmd
         vless_data[21] = 0x01; // atyp
-        runner.Check(protocol::analysis::detect_tls(vless_data) != protocol_type::vless,
+        runner.Check(psm::recognition::probe::detect_tls(vless_data) != protocol_type::vless,
                      "detect_tls: invalid version -> not vless");
     }
 
@@ -109,7 +111,7 @@ void TestDetectTls(psm::testing::TestRunner &runner)
         std::string vless_data(22, '\0');
         vless_data[18] = 0x05; // invalid cmd
         vless_data[21] = 0x01; // atyp
-        runner.Check(protocol::analysis::detect_tls(vless_data) != protocol_type::vless,
+        runner.Check(psm::recognition::probe::detect_tls(vless_data) != protocol_type::vless,
                      "detect_tls: invalid cmd -> not vless");
     }
 
@@ -120,7 +122,7 @@ void TestDetectTls(psm::testing::TestRunner &runner)
         trojan_data[57] = '\n';
         trojan_data[58] = 0x01; // cmd = connect
         trojan_data[59] = 0x01; // atyp = ipv4
-        runner.Check(protocol::analysis::detect_tls(trojan_data) == protocol_type::trojan,
+        runner.Check(psm::recognition::probe::detect_tls(trojan_data) == protocol_type::trojan,
                      "detect_tls: valid Trojan -> trojan");
     }
 
@@ -132,7 +134,7 @@ void TestDetectTls(psm::testing::TestRunner &runner)
         trojan_data[57] = '\n';
         trojan_data[58] = 0x01;
         trojan_data[59] = 0x01;
-        runner.Check(protocol::analysis::detect_tls(trojan_data) != protocol_type::trojan,
+        runner.Check(psm::recognition::probe::detect_tls(trojan_data) != protocol_type::trojan,
                      "detect_tls: non-hex char -> not trojan");
     }
 
@@ -143,29 +145,29 @@ void TestDetectTls(psm::testing::TestRunner &runner)
         trojan_data[57] = '\n';
         trojan_data[58] = 0x02; // invalid cmd
         trojan_data[59] = 0x01;
-        runner.Check(protocol::analysis::detect_tls(trojan_data) != protocol_type::trojan,
+        runner.Check(psm::recognition::probe::detect_tls(trojan_data) != protocol_type::trojan,
                      "detect_tls: invalid cmd -> not trojan");
     }
 
     // Short data < 22 bytes -> unknown
     {
         std::string short_data(10, 'x');
-        runner.Check(protocol::analysis::detect_tls(short_data) == protocol_type::unknown,
+        runner.Check(psm::recognition::probe::detect_tls(short_data) == protocol_type::unknown,
                      "detect_tls: 10 bytes -> unknown");
     }
 
     // 22-59 bytes, no match -> unknown
     {
         std::string mid_data(30, 'y');
-        runner.Check(protocol::analysis::detect_tls(mid_data) == protocol_type::unknown,
+        runner.Check(psm::recognition::probe::detect_tls(mid_data) == protocol_type::unknown,
                      "detect_tls: 30 bytes no match -> unknown");
     }
 
-    // 60+ bytes, no match -> shadowsocks fallback
+    // 60+ bytes, no match -> unknown (callers decide fallback)
     {
         std::string long_data(70, 'z');
-        runner.Check(protocol::analysis::detect_tls(long_data) == protocol_type::shadowsocks,
-                     "detect_tls: 70 bytes no match -> shadowsocks fallback");
+        runner.Check(psm::recognition::probe::detect_tls(long_data) == protocol_type::unknown,
+                     "detect_tls: 70 bytes no match -> unknown");
     }
 }
 
@@ -181,7 +183,7 @@ void TestResolve(psm::testing::TestRunner &runner)
         protocol::http::proxy_request req;
         req.method = "CONNECT";
         req.target = "example.com:443";
-        auto t = protocol::analysis::resolve(req);
+        auto t = psm::recognition::resolve(req);
         runner.Check(t.host == "example.com", "resolve: CONNECT host");
         runner.Check(t.port == "443", "resolve: CONNECT port");
         runner.Check(t.positive == true, "resolve: CONNECT positive");
@@ -192,7 +194,7 @@ void TestResolve(psm::testing::TestRunner &runner)
         protocol::http::proxy_request req;
         req.method = "GET";
         req.target = "http://example.com:8080/path";
-        auto t = protocol::analysis::resolve(req);
+        auto t = psm::recognition::resolve(req);
         runner.Check(t.host == "example.com", "resolve: absolute URI host");
         runner.Check(t.port == "8080", "resolve: absolute URI port");
         runner.Check(t.positive == true, "resolve: absolute URI positive");
@@ -203,7 +205,7 @@ void TestResolve(psm::testing::TestRunner &runner)
         protocol::http::proxy_request req;
         req.method = "CONNECT";
         req.target = "example.com";
-        auto t = protocol::analysis::resolve(req);
+        auto t = psm::recognition::resolve(req);
         runner.Check(t.port == "443", "resolve: CONNECT no port -> 443");
     }
 }

@@ -15,17 +15,15 @@
 #include <cstddef>
 #include <string_view>
 #include <prism/fault/code.hpp>
-#include <prism/agent/account/entry.hpp>
+#include <prism/account/entry.hpp>
+#include <prism/account/directory.hpp>
 #include <prism/memory/container.hpp>
 
 namespace psm
 {
-    namespace agent
+    namespace account
     {
-        namespace account
-        {
-            class directory;
-        }
+        class directory;
     }
 
     namespace protocol::http
@@ -92,7 +90,7 @@ namespace psm
             // 失败时待发送的 HTTP 错误响应，认证通过时为空
             std::string_view error_response{};
             // 认证通过时获取的连接租约，空租约表示认证未通过
-            agent::account::lease lease{};
+            account::lease lease{};
         };
 
         /**
@@ -107,7 +105,7 @@ namespace psm
          */
         [[nodiscard]] auto authenticate_proxy_request(
             std::string_view authorization,
-            agent::account::directory &directory) -> auth_result;
+            account::directory &directory) -> auth_result;
 
         /**
          * @brief 构建正向代理转发请求行

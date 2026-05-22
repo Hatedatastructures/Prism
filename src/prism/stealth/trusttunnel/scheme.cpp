@@ -7,9 +7,10 @@
  * **当前状态**：基础框架已实现，认证逻辑待完善。
  */
 #include <prism/stealth/trusttunnel/scheme.hpp>
-#include <prism/pipeline/primitives.hpp>
-#include <prism/channel/transport/encrypted.hpp>
-#include <prism/protocol/analysis.hpp>
+#include <prism/connect.hpp>
+#include <prism/config.hpp>
+#include <prism/transport/encrypted.hpp>
+#include <prism/protocol/protocol_type.hpp>
 #include <prism/trace.hpp>
 #include <prism/fault/handling.hpp>
 
@@ -28,10 +29,7 @@ namespace psm::stealth::trusttunnel
     auto scheme::snis(const psm::config &cfg) const
         -> memory::vector<memory::string>
     {
-        memory::vector<memory::string> names;
-        for (const auto &name : cfg.stealth.trusttunnel.server_names)
-            names.push_back(memory::string(name));
-        return names;
+        return make_sni_list(cfg.stealth.trusttunnel.server_names);
     }
 
     auto scheme::guess(const psm::config &cfg) const

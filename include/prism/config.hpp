@@ -8,8 +8,8 @@
  */
 #pragma once
 
-#include <prism/agent/config.hpp>
-#include <prism/channel/connection/pool.hpp>
+#include <prism/instance/config.hpp>
+#include <prism/connect/pool/pool.hpp>
 #include <prism/multiplex/config.hpp>
 #include <prism/resolve/dns/config.hpp>
 #include <prism/trace/config.hpp>
@@ -25,18 +25,19 @@ namespace psm
      */
     struct config
     {
-        agent::config agent;              // 代理服务核心配置
-        channel::config pool;             // 连接池配置
-        agent::buffer buffer;             // 缓冲区配置
-        agent::protocol::config protocol; // 协议配置 (socks5/trojan/vless/shadowsocks)
-        multiplex::config mux;            // 多路复用配置
-        agent::stealth::config stealth;   // 伪装配置 (reality/shadowtls)
-        resolve::dns::config dns;         // DNS 解析器配置
-        trace::config trace;              // 日志追踪配置
+        instance::config instance;              // 代理服务核心配置
+        connect::config pool;                   // 连接池配置
+        instance::buffer buffer;                // 缓冲区配置
+        instance::protocol::config protocol;    // 协议配置 (socks5/trojan/vless/shadowsocks)
+        multiplex::config mux;                  // 多路复用配置
+        instance::stealth::config stealth;      // 伪装配置 (reality/shadowtls)
+        resolve::dns::config dns;               // DNS 解析器配置
+        trace::config trace;                    // 日志追踪配置
     };
 
 } // namespace psm
 
+#include <prism/stealth/glaze_meta.hpp>
 #include <glaze/glaze.hpp>
 
 template <>
@@ -44,7 +45,7 @@ struct glz::meta<psm::config>
 {
     using T = psm::config;
     static constexpr auto value = glz::object(
-        "agent",    &T::agent,
+        "agent",    &T::instance,
         "pool",     &T::pool,
         "buffer",   &T::buffer,
         "protocol", &T::protocol,

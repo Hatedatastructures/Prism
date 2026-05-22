@@ -5,15 +5,19 @@
  */
 
 #include <prism/stealth/native.hpp>
-#include <prism/pipeline/primitives.hpp>
-#include <prism/channel/transport/encrypted.hpp>
+#include <prism/connect.hpp>
+#include <prism/transport/encrypted.hpp>
+#include <prism/transport/preview.hpp>
 #include <prism/trace.hpp>
 #include <prism/fault/handling.hpp>
-#include <prism/protocol/analysis.hpp>
+#include <prism/protocol/protocol_type.hpp>
+#include <prism/recognition/probe/analyzer.hpp>
 #include <prism/protocol/tls/types.hpp>
 
-namespace psm::stealth::schemes
+namespace psm::stealth::native
 {
+    namespace net = boost::asio;
+    namespace ssl = net::ssl;
     auto native::active([[maybe_unused]] const psm::config &cfg) const noexcept -> bool
     {
         return true;  // Native 始终启用，作为兜底
@@ -41,12 +45,62 @@ namespace psm::stealth::schemes
 
         if (!ctx.session)
         {
+            trace::warn("[Native] No session context, aborting");
             result.error = fault::code::not_supported;
             co_return result;
         }
 
-        auto [ssl_ec, ssl_stream, recovered] = co_await pipeline::primitives::ssl_handshake(
-            std::move(ctx.inbound), *ctx.session->server.ssl_ctx);
+        if (!ctx.session->server_ctx.ssl_ctx)
+        {
+            trace::warn("[Native] No SSL context configured, aborting");
+            result.error = fault::code::not_supported;
+            co_return result;
+        }
+
+        if (!ctx.inbound)
+        {
+            trace::warn("[Native] No inbound transport, aborting");
+            result.error = fault::code::not_supported;
+            co_return result;
+        }
+
+        // 解包 snapshot/preview 层，提取底层原始传输
+        // native 不能在 snapshot 上做 SSL 握手：snapshot 的回放机制与
+        // BoringSSL SSL_accept 的读写交替流程冲突
+        auto raw = ctx.inbound;
+        while (raw)
+        {
+            if (auto *p = dynamic_cast<transport::preview *>(raw.get()))
+            {
+                raw = p->inner();
+                continue;
+            }
+            if (auto *s = dynamic_cast<transport::snapshot *>(raw.get()))
+            {
+                raw = s->inner();
+                continue;
+            }
+            break;
+        }
+
+        if (!raw)
+        {
+            trace::warn("[Native] Unwrap exhausted all layers, no raw transport");
+            result.error = fault::code::not_supported;
+            co_return result;
+        }
+
+        trace::debug("[Native] Unwrap complete, preread={} bytes, raw={}",
+                     ctx.preread.size(), fmt::ptr(raw.get()));
+
+        // 用 preread（ClientHello 完整数据）创建干净的 preview 包装
+        auto preread_span = std::span<const std::byte>(ctx.preread.data(), ctx.preread.size());
+        auto clean_inbound = transport::wrap_with_preview(
+            std::move(raw), preread_span, ctx.session->frame_arena.get());
+
+        trace::debug("[Native] Starting SSL handshake");
+        auto [ssl_ec, ssl_stream, recovered] = co_await transport::encrypted::ssl_handshake(
+            std::move(clean_inbound), *ctx.session->server_ctx.ssl_ctx);
         if (fault::failed(ssl_ec) || !ssl_stream)
         {
             ctx.inbound = std::move(recovered);
@@ -55,7 +109,7 @@ namespace psm::stealth::schemes
             co_return result;
         }
 
-        auto encrypted_trans = std::make_shared<channel::transport::encrypted>(ssl_stream);
+        auto encrypted_trans = std::make_shared<transport::encrypted>(ssl_stream);
 
         ctx.session->active_stream_cancel = [ssl = ssl_stream]() noexcept
         {
@@ -84,18 +138,18 @@ namespace psm::stealth::schemes
             inner_n += n;
 
             const auto inner_view = std::string_view(reinterpret_cast<const char *>(inner_buf.data()), inner_n);
-            result.detected = protocol::analysis::detect_tls(inner_view);
+            result.detected = recognition::probe::detect_tls(inner_view);
             if (result.detected != protocol::protocol_type::unknown)
             {
                 break;
             }
         }
 
+        // 60+ 字节仍无法识别，排除法 fallback 到 SS2022
         if (result.detected == protocol::protocol_type::unknown)
         {
-            result.error = fault::code::protocol_error;
-            trace::warn("[Native] Cannot determine inner protocol");
-            co_return result;
+            result.detected = protocol::protocol_type::shadowsocks;
+            trace::debug("[Native] No known protocol matched, fallback to shadowsocks");
         }
 
         trace::debug("[Native] Inner protocol: {}",
@@ -106,4 +160,4 @@ namespace psm::stealth::schemes
 
         co_return result;
     }
-} // namespace psm::stealth::schemes
+} // namespace psm::stealth::native

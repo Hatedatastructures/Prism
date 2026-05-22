@@ -20,32 +20,32 @@
 #include <memory>
 #include <string_view>
 
-#include <prism/channel/transport/transmission.hpp>
+#include <prism/transport/transmission.hpp>
 #include <prism/fault/code.hpp>
 #include <prism/memory/container.hpp>
-#include <prism/protocol/analysis.hpp>
+#include <prism/protocol/protocol_type.hpp>
 #include <prism/protocol/tls/types.hpp>
-#include <prism/protocol/tls/feature_bitmap.hpp>
+#include <prism/recognition/tls/feature_bitmap.hpp>
 
-namespace psm::resolve
+namespace psm::connect
 {
     class router;
-} // namespace psm::resolve
+} // namespace psm::connect
 
 namespace psm
 {
     struct config;
 } // namespace psm
 
-namespace psm::agent
+namespace psm::context
 {
-    struct session_context;
-} // namespace psm::agent
+    struct session;
+} // namespace psm::context
 
 namespace psm::stealth
 {
     namespace net = boost::asio;
-    using shared_transmission = channel::transport::shared_transmission;
+    using shared_transmission = transport::shared_transmission;
 
     // ═══════════════════════════════════════════════════════════════════════
     // 快速检测结果（Tier 0）
@@ -121,8 +121,8 @@ namespace psm::stealth
     {
         shared_transmission inbound;              ///< 当前传输层（应包含预读数据）
         const psm::config *cfg{nullptr};          ///< 服务器配置
-        resolve::router *router{nullptr};         ///< 路由器（fallback 用）
-        agent::session_context *session{nullptr}; ///< 会话上下文
+        connect::router *router{nullptr};         ///< 路由器（fallback 用）
+        context::session *session{nullptr}; ///< 会话上下文
         memory::vector<std::byte> preread;        ///< 来自 identify 的 preread 数据（完整 ClientHello）
     };
 
@@ -242,6 +242,17 @@ namespace psm::stealth
         [[nodiscard]] virtual auto weight() const noexcept -> std::uint16_t
         {
             return 100;
+        }
+
+        /// 辅助方法：将任意范围的字符串转换为 SNI 白名单
+        template <typename StringRange>
+        [[nodiscard]] static auto make_sni_list(const StringRange &names)
+            -> memory::vector<memory::string>
+        {
+            memory::vector<memory::string> result;
+            for (const auto &name : names)
+                result.push_back(memory::string(name));
+            return result;
         }
     };
 

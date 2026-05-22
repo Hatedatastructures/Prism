@@ -6,18 +6,21 @@
 
 #include <prism/stealth/shadowtls/scheme.hpp>
 #include <prism/stealth/shadowtls/handshake.hpp>
-#include <prism/stealth/shadowtls/auth.hpp>
+#include <prism/stealth/shadowtls/util/auth.hpp>
 #include <prism/stealth/shadowtls/transport.hpp>
-#include <prism/channel/transport/reliable.hpp>
-#include <prism/channel/transport/snapshot.hpp>
-#include <prism/pipeline/primitives.hpp>
-#include <prism/protocol/analysis.hpp>
+#include <prism/transport/reliable.hpp>
+#include <prism/transport/snapshot.hpp>
+#include <prism/transport/preview.hpp>
+#include <prism/connect/util.hpp>
+#include <prism/protocol/protocol_type.hpp>
+#include <prism/recognition/probe/analyzer.hpp>
+#include <prism/recognition/tls/feature_bitmap.hpp>
 #include <prism/trace.hpp>
-
-#include <typeinfo>
 
 namespace psm::stealth::shadowtls
 {
+    using namespace recognition::tls;
+
     auto scheme::active(const psm::config &cfg) const noexcept -> bool
     {
         const auto &st_cfg = cfg.stealth.shadowtls;
@@ -36,10 +39,7 @@ namespace psm::stealth::shadowtls
     auto scheme::snis(const psm::config &cfg) const
         -> memory::vector<memory::string>
     {
-        memory::vector<memory::string> names;
-        for (const auto &name : cfg.stealth.shadowtls.server_names)
-            names.push_back(memory::string(name));
-        return names;
+        return make_sni_list(cfg.stealth.shadowtls.server_names);
     }
 
     auto scheme::sniff(std::uint32_t bitmap,
@@ -116,39 +116,8 @@ namespace psm::stealth::shadowtls
             co_return result;
         }
 
-        // === 调试日志：确认 inbound 类型、preread 数据 ===
-        trace::info("[ShadowTlsScheme] ctx.preread size={}", ctx.preread.size());
-        if (ctx.preread.size() > 0)
-        {
-            const auto *raw = reinterpret_cast<const std::uint8_t *>(ctx.preread.data());
-            trace::info("[ShadowTlsScheme] ctx.preread[0:5] = {:02x}{:02x}{:02x}{:02x}{:02x}",
-                raw[0], raw[1], raw[2], raw[3], raw[4]);
-        }
-
-        // 调试：确认 inbound 实际类型
-        trace::info("[ShadowTlsScheme] inbound type_name: {}", typeid(*ctx.inbound).name());
-        if (ctx.inbound.use_count() > 0)
-        {
-            auto *inner_check = ctx.inbound.get();
-            trace::info("[ShadowTlsScheme] inbound get() type_name: {}", typeid(*inner_check).name());
-            // 检查是否能 dynamic_cast 到 preview
-            if (auto *p = dynamic_cast<pipeline::primitives::preview *>(inner_check))
-            {
-                trace::info("[ShadowTlsScheme] IS preview, inner type: {}", typeid(*p->inner()).name());
-            }
-        if (auto *s = dynamic_cast<channel::transport::snapshot *>(inner_check))
-            {
-                trace::info("[ShadowTlsScheme] IS snapshot, inner type: {}", typeid(*s->inner()).name());
-            }
-            if (dynamic_cast<channel::transport::reliable *>(inner_check))
-            {
-                trace::info("[ShadowTlsScheme] IS reliable");
-            }
-        }
-
         // 获取底层 reliable transport 的 raw socket
-        auto *rel = pipeline::primitives::find_reliable(ctx.inbound);
-        trace::info("[ShadowTlsScheme] find_reliable returned={}", rel ? "yes" : "nullptr");
+        auto *rel = connect::find_reliable(ctx.inbound);
 
         if (!rel)
         {
@@ -159,82 +128,85 @@ namespace psm::stealth::shadowtls
         }
 
         // 使用 Recognition 层已读取的 ClientHello（不再从 socket 重复读取）
-        auto hs = co_await stealth::shadowtls::handshake(
+        handshake_detail detail;
+        auto hs_result = co_await stealth::shadowtls::handshake(
             rel->native_socket(),
             ctx.cfg->stealth.shadowtls,
-            std::move(ctx.preread));
+            std::move(ctx.preread),
+            detail);
 
-        if (hs.authenticated)
+        if (fault::succeeded(hs_result.error) && !detail.client_first_frame.empty())
         {
-            auto &first_frame = hs.client_first_frame;
-            if (!first_frame.empty())
+            auto &first_frame = detail.client_first_frame;
+            // ShadowTLS v3: first_frame 格式是 TLS header(5) + payload
+            // 需要剥离 TLS header，只保留 payload 作为内层协议数据
+            constexpr std::size_t tls_header_size = 5;
+            if (first_frame.size() > tls_header_size)
             {
-                // ShadowTLS v3: first_frame 格式是 TLS header(5) + payload
-                // 需要剥离 TLS header，只保留 payload 作为内层协议数据
-                constexpr std::size_t tls_header_size = 5;
-                if (first_frame.size() > tls_header_size)
+                // 剥离 TLS header，提取真正的 payload
+                auto payload = std::span<const std::byte>(
+                    first_frame.data() + tls_header_size,
+                    first_frame.size() - tls_header_size);
+
+                trace::debug("[ShadowTlsScheme] first_frame TLS header stripped, payload_size={}", payload.size());
+
+                // 使用 payload（不含 TLS header）进行协议检测
+                auto inner_view = std::string_view(
+                    reinterpret_cast<const char *>(payload.data()), payload.size());
+                result.detected = recognition::probe::detect_tls(inner_view);
+
+                // detect_tls() 不再自动 fallback 到 shadowsocks，
+                // 对于 ShadowTLS 场景，数据已足够多（payload 通常数百字节），
+                // 如果不是 HTTP/VLESS/Trojan，则排除法认为是 SS2022
+                if (result.detected == protocol::protocol_type::unknown)
                 {
-                    // 剥离 TLS header，提取真正的 payload
-                    auto payload = std::span<const std::byte>(
-                        first_frame.data() + tls_header_size,
-                        first_frame.size() - tls_header_size);
-
-                    trace::debug("[ShadowTlsScheme] first_frame TLS header stripped, payload_size={}", payload.size());
-
-                    // 使用 payload（不含 TLS header）进行协议检测
-                    auto inner_view = std::string_view(
-                        reinterpret_cast<const char *>(payload.data()), payload.size());
-                    result.detected = protocol::analysis::detect_tls(inner_view);
-
-                    // 如果不是 TLS，可能是 SS2022
-                    if (result.detected == protocol::protocol_type::unknown)
-                    {
-                        result.detected = protocol::protocol_type::shadowsocks;
-                    }
-
-                    // 从 reliable transport 中释放 socket 的所有权
-                    auto raw_socket_opt = rel->release_socket();
-                    if (!raw_socket_opt)
-                    {
-                        trace::warn("[ShadowTlsScheme] Cannot release socket from reliable transport");
-                        result.detected = protocol::protocol_type::tls;
-                        result.transport = std::move(ctx.inbound);
-                        co_return result;
-                    }
-                    auto raw_socket = std::move(*raw_socket_opt);
-                    trace::debug("[ShadowTlsScheme] socket released from reliable transport");
-
-                    // 创建 ShadowTLS transport wrapper，持续处理 ShadowTLS 协议
-                    // 使用 handshake 阶段累积的 HMAC 上下文，确保 HMAC 状态连续
-                    // hmac_write_ctx: 写入方向（初始 = password + SR + "S")
-                    // hmac_read_ctx: 读取方向（初始 = password + SR + "C" + first_frame_payload + HMAC[:4])
-                    auto shadowtls_trans = std::make_shared<shadowtls_transport>(
-                        std::move(raw_socket),
-                        hs.matched_password,
-                        std::span<const std::byte>(hs.server_random.data(), hs.server_random.size()),
-                        payload,
-                        std::move(hs.hmac_write_ctx),
-                        std::move(hs.hmac_read_ctx));
-
-                    // ShadowTLS.Transport 管理初始数据，不放入 preread 避免数据重复
-                    result.transport = shadowtls_trans;
-                    result.scheme = "shadowtls";
-
-                    trace::debug("[ShadowTlsScheme] Authenticated (user: {}), inner protocol: {}, shadowtls_transport created (HMAC inherited)",
-                                 hs.matched_user, protocol::to_string_view(result.detected));
+                    result.detected = protocol::protocol_type::shadowsocks;
+                    trace::debug("[ShadowTlsScheme] no known protocol matched, fallback to shadowsocks");
                 }
-                else
+
+                // 从 reliable transport 中释放 socket 的所有权
+                auto raw_socket_opt = rel->release_socket();
+                if (!raw_socket_opt)
                 {
-                    // first_frame 太小，无法剥离 TLS header
-                    trace::warn("[ShadowTlsScheme] first_frame too small to strip TLS header: size={}", first_frame.size());
+                    trace::warn("[ShadowTlsScheme] Cannot release socket from reliable transport");
                     result.detected = protocol::protocol_type::tls;
                     result.transport = std::move(ctx.inbound);
+                    co_return result;
                 }
+                auto raw_socket = std::move(*raw_socket_opt);
+                trace::debug("[ShadowTlsScheme] socket released from reliable transport");
+
+                // 创建 ShadowTLS transport wrapper，持续处理 ShadowTLS 协议
+                // 使用 handshake 阶段累积的 HMAC 上下文，确保 HMAC 状态连续
+                // hmac_write_ctx: 写入方向（初始 = password + SR + "S")
+                // hmac_read_ctx: 读取方向（初始 = password + SR + "C" + first_frame_payload + HMAC[:4])
+                auto shadowtls_trans = std::make_shared<shadowtls_transport>(
+                    std::move(raw_socket),
+                    detail.matched_password,
+                    std::span<const std::byte>(detail.server_random.data(), detail.server_random.size()),
+                    payload,
+                    std::move(detail.hmac_write_ctx),
+                    std::move(detail.hmac_read_ctx));
+
+                // ShadowTLS.Transport 管理初始数据，不放入 preread 避免数据重复
+                result.transport = shadowtls_trans;
+                result.scheme = "shadowtls";
+
+                trace::debug("[ShadowTlsScheme] Authenticated (user: {}), inner protocol: {}, shadowtls_transport created (HMAC inherited)",
+                             detail.matched_user, protocol::to_string_view(result.detected));
+            }
+            else
+            {
+                // first_frame 太小，无法剥离 TLS header
+                trace::warn("[ShadowTlsScheme] first_frame too small to strip TLS header: size={}", first_frame.size());
+                result.detected = protocol::protocol_type::tls;
+                result.transport = std::move(ctx.inbound);
             }
         }
         else
         {
             result.detected = protocol::protocol_type::tls;
+            result.error = hs_result.error;
             trace::debug("[ShadowTlsScheme] Not ShadowTLS, pass to next scheme");
         }
 

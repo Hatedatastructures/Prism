@@ -10,13 +10,13 @@
 #include <prism/stealth/registry.hpp>
 #include <prism/stealth/scheme.hpp>
 #include <prism/recognition/result.hpp>
-#include <prism/protocol/analysis.hpp>
+#include <prism/protocol/protocol_type.hpp>
 #include <prism/fault/code.hpp>
 #include <prism/fault/handling.hpp>
 #include <prism/memory.hpp>
 #include <prism/trace.hpp>
 #include <prism/config.hpp>
-#include <prism/channel/transport/transmission.hpp>
+#include <prism/transport/transmission.hpp>
 #include "common/TestRunner.hpp"
 
 #include <boost/asio.hpp>
@@ -34,7 +34,7 @@ namespace
      * @brief 用于测试的 mock 传输层
      * @details 满足 executor 的成功条件检查（transport != nullptr）
      */
-    class mock_transport final : public psm::channel::transport::transmission
+    class mock_transport final : public psm::transport::transmission
     {
     public:
         explicit mock_transport(net::any_io_executor exec) : exec_(exec)

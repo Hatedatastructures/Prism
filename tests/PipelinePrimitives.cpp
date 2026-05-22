@@ -1,14 +1,15 @@
 /**
  * @file PipelinePrimitives.cpp
  * @brief 管道原语单元测试
- * @details 验证 psm::pipeline::primitives 命名空间下的核心功能，包括：
+ * @details 验证 psm::connect 和 psm::transport 命名空间下的核心功能，包括：
  * 1. is_mux_target() 对 mux 标记地址的检测逻辑
  * 2. preview 预读回放包装器的构造与基本属性
  * 3. probe_result 探测结果辅助方法的正确性
  */
 
 #include <prism/memory.hpp>
-#include <prism/pipeline/primitives.hpp>
+#include <prism/connect/util.hpp>
+#include <prism/transport/preview.hpp>
 #include <prism/recognition/probe/probe.hpp>
 #include <prism/trace/spdlog.hpp>
 
@@ -44,7 +45,7 @@ void TestIsMuxTarget()
 {
     runner.LogInfo("=== TestIsMuxTarget ===");
 
-    using psm::pipeline::primitives::is_mux_target;
+    using psm::connect::is_mux_target;
 
     // mux 启用 + 匹配的 mux 标记地址 -> true
     runner.Check(
@@ -108,7 +109,7 @@ void TestIsMuxTarget()
  * @details 提供最小的 transmission 实现，仅返回一个 valid executor，
  * 不涉及任何网络 I/O。
  */
-class mock_transmission final : public psm::channel::transport::transmission
+class mock_transmission final : public psm::transport::transmission
 {
 public:
     explicit mock_transmission(net::io_context &ioc)
@@ -153,7 +154,7 @@ void TestPreviewConstruction()
 {
     runner.LogInfo("=== TestPreviewConstruction ===");
 
-    namespace pp = psm::pipeline::primitives;
+    namespace pp = psm::transport;
 
     net::io_context ioc;
 
@@ -340,7 +341,7 @@ void TestShutCloseNullptr()
     runner.LogInfo("=== TestShutCloseNullptr ===");
 
     // 对空指针调用 shut_close 不应崩溃
-    psm::pipeline::primitives::shut_close(nullptr);
+    psm::connect::shut_close(nullptr);
     runner.LogPass("shut_close(nullptr) is safe");
 }
 

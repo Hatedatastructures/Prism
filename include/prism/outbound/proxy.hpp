@@ -18,13 +18,14 @@
 
 #include <boost/asio.hpp>
 #include <prism/fault/code.hpp>
-#include <prism/channel/transport/transmission.hpp>
-#include <prism/protocol/analysis.hpp>
+#include <prism/transport/transmission.hpp>
+#include <prism/protocol/protocol_type.hpp>
+#include <prism/protocol/common/target.hpp>
 
 namespace psm::outbound
 {
     namespace net = boost::asio;
-    using shared_transmission = channel::transport::shared_transmission;
+    using shared_transmission = transport::shared_transmission;
 
     /// UDP 数据报路由回调类型
     using datagram_router_fn = std::function<net::awaitable<std::pair<fault::code,
@@ -59,7 +60,7 @@ namespace psm::outbound
          * @details 实现类内部决定路由策略：直连走 DNS 解析 + 连接池，
          * 代理走上游协议握手，代理组走子代理选择。
          */
-        virtual auto async_connect(const protocol::analysis::target &target, const net::any_io_executor &executor)
+        virtual auto async_connect(const protocol::target &target, const net::any_io_executor &executor)
             -> net::awaitable<std::pair<fault::code, shared_transmission>> = 0;
 
         /**

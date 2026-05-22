@@ -5,7 +5,7 @@
  */
 
 #include <prism/protocol/tls/signal.hpp>
-#include <prism/channel/transport/transmission.hpp>
+#include <prism/transport/transmission.hpp>
 #include <prism/fault/handling.hpp>
 #include <prism/trace.hpp>
 #include <cstring>
@@ -35,7 +35,7 @@ namespace psm::protocol::tls
     // read_tls_record
     // ═══════════════════════════════════════════════════════════════════════
 
-    auto read_tls_record(channel::transport::transmission &transport)
+    auto read_tls_record(transport::transmission &transport)
         -> net::awaitable<std::pair<fault::code, memory::vector<std::uint8_t>>>
     {
         // 1. 读取 TLS 记录头（5 字节）
@@ -92,7 +92,7 @@ namespace psm::protocol::tls
         co_return std::pair{fault::code::success, std::move(record)};
     }
 
-    auto read_tls_record(channel::transport::transmission &transport, const std::span<const std::byte> preread)
+    auto read_tls_record(transport::transmission &transport, const std::span<const std::byte> preread)
         -> net::awaitable<std::pair<fault::code, memory::vector<std::uint8_t>>>
     {
         if (preread.size() < RECORD_HEADER_LEN)
@@ -150,6 +150,25 @@ namespace psm::protocol::tls
     }
 
     // ═══════════════════════════════════════════════════════════════════════
+    // GREASE 检测
+    // ═══════════════════════════════════════════════════════════════════════
+
+    [[nodiscard]] static auto is_grease(std::uint16_t val) noexcept -> bool
+    {
+        // RFC 8701 GREASE values: {0x0A0A, 0x1A1A, ..., 0xFAFA}
+        switch (val)
+        {
+        case 0x0A0A: case 0x1A1A: case 0x2A2A: case 0x3A3A:
+        case 0x4A4A: case 0x5A5A: case 0x6A6A: case 0x7A7A:
+        case 0x8A8A: case 0x9A9A: case 0xAAAA: case 0xBABA:
+        case 0xCACA: case 0xDADA: case 0xEAEA: case 0xFAFA:
+            return true;
+        default:
+            return false;
+        }
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════
     // 内部解析函数
     // ═══════════════════════════════════════════════════════════════════════
 
@@ -199,6 +218,7 @@ namespace psm::protocol::tls
         const auto list_len = read_u16(ext_data, offset);
         offset += 2;
 
+        int entry_count = 0;
         const std::size_t end = std::min(offset + list_len, ext_data.size());
         while (offset + 4 <= end)
         {
@@ -210,26 +230,33 @@ namespace psm::protocol::tls
             if (offset + key_len > end)
                 break;
 
+            ++entry_count;
+
             if (named_group == NAMED_GROUP_X25519 && key_len == REALITY_KEY_LEN)
             {
                 std::memcpy(features.x25519_key.data(), ext_data.data() + offset, REALITY_KEY_LEN);
                 features.has_x25519 = true;
                 trace::debug("{} using pure X25519 key_share", Tag);
-                return;
+                // 不 return，继续计数以检测是否有多个条目
             }
-
-            if (named_group == NAMED_GROUP_X25519_MLKEM768 && key_len >= REALITY_KEY_LEN)
+            else if (named_group == NAMED_GROUP_X25519_MLKEM768 && key_len >= REALITY_KEY_LEN)
             {
                 // X25519MLKEM768 格式: X25519(32B) + ML-KEM-768(1184B)
                 // X25519 公钥在前 32 字节
-                std::memcpy(features.x25519_key.data(), ext_data.data() + offset, REALITY_KEY_LEN);
-                features.has_x25519 = true;
-                trace::debug("{} using X25519MLKEM768 hybrid key_share", Tag);
-                return;
+                if (!features.has_x25519)
+                {
+                    std::memcpy(features.x25519_key.data(), ext_data.data() + offset, REALITY_KEY_LEN);
+                    features.has_x25519 = true;
+                    trace::debug("{} using X25519MLKEM768 hybrid key_share", Tag);
+                }
+                // 不 return，继续计数
             }
 
             offset += key_len;
         }
+
+        if (entry_count > 1)
+            features.key_share_multiple = true;
     }
 
     static auto parse_versions(const std::span<const std::uint8_t> ext_data, client_hello_features &features) -> void
@@ -280,9 +307,31 @@ namespace psm::protocol::tls
             case EXT_SUPPORTED_VERSIONS:
                 parse_versions(ext_payload, features);
                 break;
+            case EXT_ALPN:
+                features.has_alpn = true;
+                break;
+            case EXT_PRE_SHARED_KEY:
+                features.has_psk = true;
+                break;
+            case EXT_ENCRYPTED_CLIENT_HELLO:
+                features.has_ech = true;
+                break;
+            case EXT_ESNI:
+                features.has_esni = true;
+                break;
+            case EXT_SIGNATURE_ALGORITHMS:
+                features.has_signature_algorithms = true;
+                break;
+            case EXT_EARLY_DATA:
+                features.early_data_attempt = true;
+                break;
             default:
                 break;
             }
+
+            // GREASE 检测（RFC 8701）
+            if (is_grease(ext_type))
+                features.greased_extensions = true;
 
             offset += ext_len;
         }

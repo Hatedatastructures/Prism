@@ -14,11 +14,11 @@
 #include <span>
 #include <memory>
 #include <system_error>
-#include <prism/channel/transport/transmission.hpp>
+#include <prism/transport/transmission.hpp>
 #include <prism/crypto/aead.hpp>
 #include <prism/memory/container.hpp>
-#include <prism/stealth/reality/constants.hpp>
-#include <prism/stealth/reality/keygen.hpp>
+#include <prism/protocol/tls/types.hpp>
+#include <prism/stealth/reality/util/keygen.hpp>
 #include <boost/asio.hpp>
 
 namespace psm::stealth::reality
@@ -33,7 +33,7 @@ namespace psm::stealth::reality
      * 写入时将明文加密为 TLS 记录后写入底层传输。
      * 使用 AES-128-GCM AEAD 加密，nonce 由 IV 和序列号异或生成。
      */
-    class seal final : public channel::transport::transmission
+    class seal final : public transport::transmission
     {
     public:
         /**
@@ -43,7 +43,7 @@ namespace psm::stealth::reality
          * @details 使用密钥材料初始化加密和解密上下文，
          * 服务端密钥用于加密（写入），客户端密钥用于解密（读取）
          */
-        explicit seal(channel::transport::shared_transmission transport,
+        explicit seal(transport::shared_transmission transport,
                       key_material keys);
 
         /**
@@ -126,17 +126,7 @@ namespace psm::stealth::reality
         auto write_encrypted_record(std::span<const std::byte> data, std::error_code &ec)
             -> net::awaitable<std::size_t>;
 
-        /**
-         * @brief 生成 AEAD nonce
-         * @details 将 IV 和序列号按字节异或生成 nonce
-         * @param iv 初始化向量
-         * @param sequence 序列号
-         * @return 生成的 nonce
-         */
-        [[nodiscard]] auto make_nonce(std::span<const std::uint8_t> iv, std::uint64_t sequence) const
-            -> std::array<std::uint8_t, tls::AEAD_NONCE_LEN>;
-
-        channel::transport::shared_transmission transport_; // 底层传输连接
+        transport::shared_transmission transport_; // 底层传输连接
         key_material keys_;                                 // TLS 1.3 密钥材料
 
         crypto::aead_context server_encryptor_; // 服务端加密上下文（用于写入）

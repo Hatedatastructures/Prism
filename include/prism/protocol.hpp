@@ -11,9 +11,10 @@
  */
 #pragma once
 
-#include <prism/protocol/analysis.hpp>
+#include <prism/protocol/protocol_type.hpp>
+#include <prism/protocol/common/target.hpp>
+#include <prism/protocol/common/mux.hpp>
 #include <prism/protocol/tls/types.hpp>
-#include <prism/protocol/tls/signal.hpp>
 
 #include <prism/protocol/http.hpp>
 #include <prism/protocol/trojan.hpp>

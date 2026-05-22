@@ -2,13 +2,16 @@
  * @file Regression.cpp
  * @brief 回归测试：验证关键修复点
  * @details 测试以下关键修复：
- * 1. IPv6 host:port 解析 (analysis::resolve)
- * 2. TLS 内层协议探测 (analysis::detect_tls)
+ * 1. IPv6 host:port 解析 (recognition::resolve)
+ * 2. TLS 内层协议探测 (recognition::probe::detect_tls)
  * 3. Trojan lease 持有和释放 (account::directory)
  */
 
-#include <prism/protocol/analysis.hpp>
-#include <prism/agent/account/directory.hpp>
+#include <prism/protocol/protocol_type.hpp>
+#include <prism/protocol/common/target.hpp>
+#include <prism/recognition/target.hpp>
+#include <prism/recognition/probe/analyzer.hpp>
+#include <prism/account/directory.hpp>
 #include <prism/memory.hpp>
 #include <prism/trace/spdlog.hpp>
 
@@ -63,7 +66,7 @@ void TestIPv6Parsing()
     // 封装解析逻辑，返回 {host, port} 便于断言
     auto parse = [&](const std::string_view input) -> std::pair<psm::memory::string, psm::memory::string>
     {
-        psm::protocol::analysis::target t = psm::protocol::analysis::resolve(input, mr);
+        psm::protocol::target t = psm::recognition::resolve(input, mr);
         return {t.host, t.port};
     };
 
@@ -132,7 +135,7 @@ void TestInnerProtocolDetection()
     // 完整 HTTP 请求应被识别为 HTTP 协议
     {
         std::string http_request = "GET / HTTP/1.1\r\nHost: example.com\r\n\r\n";
-        auto result = psm::protocol::analysis::detect_tls(http_request);
+        auto result = psm::recognition::probe::detect_tls(http_request);
         if (result != psm::protocol::protocol_type::http)
         {
             LogFail("HTTP detection");
@@ -143,7 +146,7 @@ void TestInnerProtocolDetection()
     // 部分数据也能通过前缀 "GET " 识别为 HTTP
     {
         std::string partial_data = "GET ";
-        auto result = psm::protocol::analysis::detect_tls(partial_data);
+        auto result = psm::recognition::probe::detect_tls(partial_data);
         if (result != psm::protocol::protocol_type::http)
         {
             LogFail("partial HTTP detection");
@@ -154,7 +157,7 @@ void TestInnerProtocolDetection()
     // 数据过短且无已知前缀，返回 unknown（等待更多数据）
     {
         std::string short_data(30, 'a');
-        auto result = psm::protocol::analysis::detect_tls(short_data);
+        auto result = psm::recognition::probe::detect_tls(short_data);
         if (result != psm::protocol::protocol_type::unknown)
         {
             LogFail("short data should be unknown (insufficient for detection)");
@@ -162,13 +165,13 @@ void TestInnerProtocolDetection()
         }
     }
 
-    // 60+ 字节无已知前缀，排除法回退为 shadowsocks
+    // 60+ 字节无已知前缀，返回 unknown（调用者决定 fallback）
     {
         std::string long_data(70, 'b');
-        auto result = psm::protocol::analysis::detect_tls(long_data);
-        if (result != psm::protocol::protocol_type::shadowsocks)
+        auto result = psm::recognition::probe::detect_tls(long_data);
+        if (result != psm::protocol::protocol_type::unknown)
         {
-            LogFail("long unrecognized data should be shadowsocks (exclusion fallback)");
+            LogFail("long unrecognized data should be unknown");
             return;
         }
     }
@@ -180,7 +183,7 @@ void TestInnerProtocolDetection()
         trojan_like[57] = '\n';
         trojan_like[58] = 0x01;
         trojan_like[59] = 0x01;
-        auto result = psm::protocol::analysis::detect_tls(trojan_like);
+        auto result = psm::recognition::probe::detect_tls(trojan_like);
         if (result != psm::protocol::protocol_type::trojan)
         {
             LogFail("Trojan detection");
@@ -188,14 +191,14 @@ void TestInnerProtocolDetection()
         }
     }
 
-    // 同样长度但 CRLF 位置不是有效 Trojan 格式，排除法回退为 shadowsocks
+    // 同样长度但 CRLF 位置不是有效 Trojan 格式，返回 unknown
     {
         std::string invalid_trojan(60, 'a');
         invalid_trojan[56] = 'x';
-        auto result = psm::protocol::analysis::detect_tls(invalid_trojan);
-        if (result != psm::protocol::protocol_type::shadowsocks)
+        auto result = psm::recognition::probe::detect_tls(invalid_trojan);
+        if (result != psm::protocol::protocol_type::unknown)
         {
-            LogFail("invalid Trojan should be shadowsocks (exclusion fallback)");
+            LogFail("invalid Trojan should be unknown");
             return;
         }
     }
@@ -211,13 +214,13 @@ void TestTrojanLease()
     LogInfo("=== TestTrojanLease ===");
 
     // 回归背景：早期 lease 析构时未正确递减活跃连接数
-    psm::agent::account::directory dir;
+    psm::account::directory dir;
     // 插入凭据，最大并发连接数限制为 2
     dir.upsert("test_credential", 2);
 
     {
         // 获取第一个 lease，应成功
-        auto lease1 = psm::agent::account::try_acquire(dir, "test_credential");
+        auto lease1 = psm::account::try_acquire(dir, "test_credential");
         if (!lease1)
         {
             LogFail("first lease acquire");
@@ -233,7 +236,7 @@ void TestTrojanLease()
         }
 
         // 获取第二个 lease，未达上限，应成功
-        auto lease2 = psm::agent::account::try_acquire(dir, "test_credential");
+        auto lease2 = psm::account::try_acquire(dir, "test_credential");
         if (!lease2)
         {
             LogFail("second lease acquire");
@@ -248,7 +251,7 @@ void TestTrojanLease()
         }
 
         // 超过并发限制，第三次获取应失败
-        auto lease3 = psm::agent::account::try_acquire(dir, "test_credential");
+        auto lease3 = psm::account::try_acquire(dir, "test_credential");
         if (lease3)
         {
             LogFail("third lease should fail (limit=2)");

@@ -23,7 +23,7 @@
 #include <boost/asio.hpp>
 #include <boost/asio/experimental/concurrent_channel.hpp>
 
-#include <prism/channel/transport/transmission.hpp>
+#include <prism/transport/transmission.hpp>
 #include <prism/memory/container.hpp>
 
 namespace psm::multiplex
@@ -67,7 +67,7 @@ namespace psm::multiplex
          * @note 方法定义在 duct.cpp 中
          */
         duct(std::uint32_t stream_id, std::shared_ptr<core> owner,
-             channel::transport::shared_transmission target,
+             transport::shared_transmission target,
              std::uint32_t buffer_size, memory::resource_pointer mr);
 
         ~duct();
@@ -146,7 +146,7 @@ namespace psm::multiplex
         std::uint32_t id_;                               // 流标识符，由 mux SYN 帧分配
         std::weak_ptr<core> owner_;                      // 所属 core 的弱引用，不构成循环引用
         memory::resource_pointer mr_;                    // PMR 内存资源，用于读缓冲分配
-        channel::transport::shared_transmission target_; // 已连接的目标传输层
+        transport::shared_transmission target_; // 已连接的目标传输层
         bool closed_ = false;                            // 关闭标志，close() 幂等性保证
         std::size_t read_size_ = 0;                      // 单次从 target 读取上限，不超过 mux 帧最大载荷
         std::atomic<bool> mux_closed_{false};            // mux 端已半关闭，on_mux_fin 设为 true
@@ -164,7 +164,7 @@ namespace psm::multiplex
      * @return duct 的共享指针
      */
     [[nodiscard]] inline auto make_duct(std::uint32_t stream_id, std::shared_ptr<core> owner,
-                                        channel::transport::shared_transmission target,
+                                        transport::shared_transmission target,
                                         std::uint32_t buffer_size, memory::resource_pointer mr = {})
         -> std::shared_ptr<duct>
     {

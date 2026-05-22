@@ -4,27 +4,9 @@
  */
 
 #include <prism/recognition/probe/analyzer.hpp>
-#include <array>
 
 namespace psm::recognition::probe
 {
-    namespace
-    {
-        constexpr std::array<std::string_view, 9> http_methods = {
-            "GET ", "POST ", "HEAD ", "PUT ", "DELETE ",
-            "CONNECT ", "OPTIONS ", "TRACE ", "PATCH "};
-
-        bool is_http_request(const std::string_view data) noexcept
-        {
-            for (const auto &method : http_methods)
-            {
-                if (data.size() >= method.size() && data.substr(0, method.size()) == method)
-                    return true;
-            }
-            return false;
-        }
-    }
-
     auto detect(const std::string_view peek_data) -> protocol::protocol_type
     {
         if (peek_data.empty())

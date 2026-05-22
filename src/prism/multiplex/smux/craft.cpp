@@ -1,8 +1,9 @@
 #include <prism/multiplex/smux/craft.hpp>
 #include <prism/multiplex/duct.hpp>
 #include <prism/multiplex/parcel.hpp>
-#include <prism/channel/transport/reliable.hpp>
-#include <prism/resolve/router.hpp>
+#include <prism/transport/reliable.hpp>
+#include <prism/connect/dial/router.hpp>
+#include <prism/connect/dial/dial.hpp>
 #include <prism/trace.hpp>
 
 #include <array>
@@ -56,7 +57,7 @@ namespace psm::multiplex::smux
         return build_header(command::fin, stream_id, 0);
     }
 
-    craft::craft(channel::transport::shared_transmission transport, resolve::router &router,
+    craft::craft(transport::shared_transmission transport, connect::router &router,
                  const multiplex::config &cfg, const memory::resource_pointer mr)
         : core(std::move(transport), router, cfg, mr),
           channel_(transport_->executor(), cfg.smux.max_streams)
@@ -396,7 +397,7 @@ namespace psm::multiplex::smux
         // 通过路由器连接目标
         char port_buf[8];
         const auto [port_end, port_ec] = std::to_chars(port_buf, port_buf + sizeof(port_buf), port);
-        auto [code, conn] = co_await router_.async_forward(host, std::string_view(port_buf, std::distance(port_buf, port_end)));
+        auto [code, conn] = co_await connect::async_forward(router_, host, std::string_view(port_buf, std::distance(port_buf, port_end)));
 
         // 连接失败处理
         if (code != fault::code::success || !conn.valid())
@@ -418,7 +419,7 @@ namespace psm::multiplex::smux
         pending_.erase(stream_id);
 
         // 创建 TCP duct 进行双向转发
-        auto target = channel::transport::make_reliable(std::move(conn));
+        auto target = transport::make_reliable(std::move(conn));
         const auto p = make_duct(stream_id, shared_from_this(), std::move(target), config_.smux.buffer_size, mr_);
         ducts_[stream_id] = p;
 

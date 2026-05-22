@@ -5,8 +5,8 @@
  * 不走完整 TLS 握手（需要自定义 BIO，过于复杂），直接测试认证和帧处理。
  */
 
-#include <prism/stealth/shadowtls/auth.hpp>
-#include <prism/stealth/shadowtls/constants.hpp>
+#include <prism/stealth/shadowtls/util/auth.hpp>
+#include <prism/stealth/shadowtls/util/constants.hpp>
 #include <prism/stealth/shadowtls/config.hpp>
 #include <prism/stealth/shadowtls/handshake.hpp>
 #include <prism/memory.hpp>

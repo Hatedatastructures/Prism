@@ -1,18 +1,20 @@
 #include <prism/stealth/reality/handshake.hpp>
-#include <prism/stealth/reality/constants.hpp>
-#include <prism/stealth/reality/auth.hpp>
-#include <prism/protocol/tls/signal.hpp>
-#include <prism/stealth/reality/keygen.hpp>
-#include <prism/stealth/reality/response.hpp>
+#include <prism/stealth/reality/util/auth.hpp>
+#include <prism/recognition/tls/signal.hpp>
+#include <prism/stealth/reality/util/keygen.hpp>
+#include <prism/stealth/reality/util/response.hpp>
 #include <prism/stealth/reality/seal.hpp>
 #include <prism/stealth/reality/config.hpp>
-#include <prism/resolve/router.hpp>
+#include <prism/connect/dial/router.hpp>
+#include <prism/connect/dial/dial.hpp>
+#include <prism/connect/tunnel/tunnel.hpp>
 #include <prism/crypto/base64.hpp>
 #include <prism/crypto/x25519.hpp>
 #include <prism/crypto/hkdf.hpp>
 #include <prism/crypto/aead.hpp>
-#include <prism/pipeline/primitives.hpp>
-#include <prism/channel/transport/reliable.hpp>
+#include <prism/connect.hpp>
+#include <prism/config.hpp>
+#include <prism/transport/reliable.hpp>
 #include <prism/trace.hpp>
 #include <boost/asio.hpp>
 #include <boost/asio/ssl.hpp>
@@ -29,28 +31,10 @@ namespace psm::stealth::reality
     constexpr std::string_view HsTag = "[Stealth.Handshake]";
 
     // ============================================================
-    // 诊断工具
-    // ============================================================
-
-    static auto format_hex_short(const std::span<const std::uint8_t> data, const std::size_t max_bytes = 16) -> std::string
-    {
-        std::string result;
-        result.reserve(max_bytes * 2);
-        const auto n = std::min(data.size(), max_bytes);
-        for (std::size_t i = 0; i < n; ++i)
-        {
-            constexpr char hex[] = "0123456789abcdef";
-            result.push_back(hex[data[i] >> 4]);
-            result.push_back(hex[data[i] & 0x0F]);
-        }
-        return result;
-    }
-
-    // ============================================================
     // 工具函数
     // ============================================================
 
-    static auto read_exact(channel::transport::transmission &transport, std::span<std::byte> buf)
+    static auto read_exact(transport::transmission &transport, std::span<std::byte> buf)
         -> net::awaitable<bool>
     {
         std::size_t done = 0;
@@ -103,14 +87,11 @@ namespace psm::stealth::reality
         }
 
         host = dest.substr(0, colon_pos);
-        try
         {
             const auto port_sv = dest.substr(colon_pos + 1);
-            std::from_chars(port_sv.data(), port_sv.data() + port_sv.size(), port);
-        }
-        catch (...)
-        {
-            return false;
+            const auto [ptr, fc_ec] = std::from_chars(port_sv.data(), port_sv.data() + port_sv.size(), port);
+            if (fc_ec != std::errc())
+                return false;
         }
         return true;
     }
@@ -119,12 +100,12 @@ namespace psm::stealth::reality
     // fallback_to_dest
     // ============================================================
 
-    auto fallback_to_dest(psm::agent::session_context &session,
-                          channel::transport::shared_transmission inbound,
+    auto fallback_to_dest(psm::context::session &session,
+                          transport::shared_transmission inbound,
                           const std::span<const std::uint8_t> raw_record)
         -> net::awaitable<fault::code>
     {
-        const auto &reality_cfg = session.server.config().stealth.reality;
+        const auto &reality_cfg = session.server_ctx.config().stealth.reality;
 
         std::string dest_host;
         std::uint16_t dest_port = 443;
@@ -138,7 +119,7 @@ namespace psm::stealth::reality
 
         char dest_port_buf[8];
         const auto [dest_port_end, dest_port_ec] = std::to_chars(dest_port_buf, dest_port_buf + sizeof(dest_port_buf), dest_port);
-        auto [connect_ec, dest_conn] = co_await session.worker.router.async_forward(dest_host, std::string_view(dest_port_buf, std::distance(dest_port_buf, dest_port_end)));
+        auto [connect_ec, dest_conn] = co_await connect::async_forward(session.worker_ctx.router, dest_host, std::string_view(dest_port_buf, std::distance(dest_port_buf, dest_port_end)));
         if (fault::failed(connect_ec) || !dest_conn.valid())
         {
             trace::warn("{} connect to dest failed: {}", HsTag, fault::describe(connect_ec));
@@ -156,8 +137,8 @@ namespace psm::stealth::reality
             co_return fault::code::reality_dest_unreachable;
         }
 
-        auto dest_trans = channel::transport::make_reliable(std::move(*dest_socket_raw));
-        co_await pipeline::primitives::tunnel(inbound, std::move(dest_trans), session);
+        auto dest_trans = transport::make_reliable(std::move(*dest_socket_raw));
+        co_await connect::tunnel(inbound, std::move(dest_trans), session);
 
         trace::debug("{} fallback tunnel completed", HsTag);
         co_return fault::code::success;
@@ -167,7 +148,7 @@ namespace psm::stealth::reality
     // fetch_dest_certificate
     // ============================================================
 
-    auto fetch_dest_certificate(const std::string_view host, const std::uint16_t port, resolve::router &router)
+    auto fetch_dest_certificate(const std::string_view host, const std::uint16_t port, connect::router &router)
         -> net::awaitable<std::pair<fault::code, memory::vector<std::uint8_t>>>
     {
         memory::vector<std::uint8_t> empty_cert;
@@ -176,7 +157,7 @@ namespace psm::stealth::reality
         {
             char cert_port_buf[8];
             const auto [cert_port_end, cert_port_ec2] = std::to_chars(cert_port_buf, cert_port_buf + sizeof(cert_port_buf), port);
-            auto [connect_ec, conn] = co_await router.async_forward(host, std::string_view(cert_port_buf, std::distance(cert_port_buf, cert_port_end)));
+            auto [connect_ec, conn] = co_await connect::async_forward(router, host, std::string_view(cert_port_buf, std::distance(cert_port_buf, cert_port_end)));
             if (fault::failed(connect_ec) || !conn.valid())
             {
                 trace::warn("{} connect to dest for cert failed: {}", HsTag, fault::describe(connect_ec));
@@ -268,11 +249,9 @@ namespace psm::stealth::reality
         const auto verify_data = compute_finished_verify_data(
             keys.server_finished_key, transcript_for_finished);
 
-        // 诊断日志：Finished 计算
-        trace::debug("{} server Finished transcript: {}", HsTag,
-                     format_hex_short({transcript_for_finished.data(), transcript_for_finished.size()}));
-        trace::debug("{} server Finished verify_data: {}", HsTag,
-                     format_hex_short({verify_data.data(), verify_data.size()}));
+        // Finished 计算
+        trace::debug("{} server Finished transcript computed", HsTag);
+        trace::debug("{} server Finished verify_data computed", HsTag);
 
         memory::vector<std::uint8_t> correct_plaintext(ee_cert_cv.begin(), ee_cert_cv.end());
         correct_plaintext.push_back(protocol::tls::HANDSHAKE_TYPE_FINISHED);
@@ -301,7 +280,7 @@ namespace psm::stealth::reality
 
     /// 读取并消费客户端 CCS + Finished
     static auto consume_client_finished(
-        channel::transport::transmission &inbound,
+        transport::transmission &inbound,
         const key_material &keys)
         -> net::awaitable<fault::code>
     {
@@ -371,12 +350,6 @@ namespace psm::stealth::reality
                     {
                         trace::debug("{} consumed client Finished record ({} bytes, inner_type=0x{:02x})",
                                      HsTag, rec_len, static_cast<unsigned>(inner_content_type));
-                        // 诊断日志：客户端 Finished verify_data
-                        if (inner_content_type == protocol::tls::CONTENT_TYPE_HANDSHAKE && decrypted.size() >= 36)
-                        {
-                            trace::info("{} client Finished verify_data: {}", HsTag,
-                                        format_hex_short({decrypted.data() + 4, 32}));
-                        }
                     }
                 }
                 else
@@ -396,12 +369,12 @@ namespace psm::stealth::reality
     // handshake 主入口
     // ============================================================
 
-    auto handshake(channel::transport::shared_transmission inbound,
+    auto handshake(transport::shared_transmission inbound,
                    const psm::config &cfg,
-                   psm::agent::session_context &session)
-        -> net::awaitable<handshake_result>
+                   psm::context::session &session)
+        -> net::awaitable<stealth::handshake_result>
     {
-        handshake_result result;
+        stealth::handshake_result result;
 
         if (!inbound)
         {
@@ -412,7 +385,7 @@ namespace psm::stealth::reality
         const auto &reality_cfg = cfg.stealth.reality;
 
         // 1. 读取 ClientHello
-        auto [read_ec, raw_record] = co_await protocol::tls::read_tls_record(*inbound);
+        auto [read_ec, raw_record] = co_await recognition::tls::read_tls_record(*inbound);
         if (fault::failed(read_ec))
         {
             trace::warn("{} failed to read TLS record: {}", HsTag, fault::describe(read_ec));
@@ -420,27 +393,24 @@ namespace psm::stealth::reality
             co_return result;
         }
 
-        auto [parse_ec, ch_features] = protocol::tls::parse_client_hello(raw_record);
+        auto [parse_ec, ch_features] = recognition::tls::parse_client_hello(raw_record);
         if (fault::failed(parse_ec))
         {
             trace::warn("{} failed to parse ClientHello: {}", HsTag, fault::describe(parse_ec));
             const auto fb_ec = co_await fallback_to_dest(session, inbound, raw_record);
-            result.type = (fault::succeeded(fb_ec)) ? handshake_result_type::fallback : handshake_result_type::failed;
-            result.error = fb_ec;
+            if (fault::succeeded(fb_ec))
+            {
+                result.scheme = "reality";
+                result.error = fault::code::success;
+            }
+            else
+            {
+                result.error = fb_ec;
+            }
             co_return result;
         }
 
-        // TODO: 统一 client_hello_features 与 client_hello_info 类型，消除此转换
-        client_hello_info client_hello;
-        client_hello.server_name = std::move(ch_features.server_name);
-        client_hello.session_id = std::move(ch_features.session_id);
-        client_hello.has_client_public_key = ch_features.has_x25519;
-        client_hello.client_public_key = ch_features.x25519_key;
-        client_hello.supported_versions = std::move(ch_features.versions);
-        client_hello.random = ch_features.random;
-        client_hello.raw_message = std::move(ch_features.raw_hs_msg);
-
-        trace::debug("{} ClientHello parsed, SNI: {}", HsTag, client_hello.server_name);
+        trace::debug("{} ClientHello parsed, SNI: {}", HsTag, ch_features.server_name);
 
         // 2. 解码私钥
         const auto private_key_str = std::string(reality_cfg.private_key.data(), reality_cfg.private_key.size());
@@ -449,8 +419,15 @@ namespace psm::stealth::reality
         {
             trace::warn("{} invalid private key length: {}", HsTag, decoded_key_str.size());
             const auto fb_ec = co_await fallback_to_dest(session, inbound, raw_record);
-            result.type = (fault::succeeded(fb_ec)) ? handshake_result_type::fallback : handshake_result_type::failed;
-            result.error = fb_ec;
+            if (fault::succeeded(fb_ec))
+            {
+                result.scheme = "reality";
+                result.error = fault::code::success;
+            }
+            else
+            {
+                result.error = fb_ec;
+            }
             co_return result;
         }
 
@@ -458,33 +435,36 @@ namespace psm::stealth::reality
             reinterpret_cast<const std::uint8_t *>(decoded_key_str.data()), decoded_key_str.size());
 
         // 3. Reality 认证
-        auto [auth_ec, auth_res] = authenticate(reality_cfg, client_hello, decoded_private_key);
+        auto [auth_ec, auth_res] = authenticate(reality_cfg, ch_features, decoded_private_key);
         if (!auth_res.authenticated)
         {
             // SNI 不匹配 → 标准 TLS
             if (auth_ec == fault::code::reality_sni_mismatch)
             {
                 trace::debug("{} SNI mismatch, falling back to standard TLS", HsTag);
-                result.type = handshake_result_type::not_reality;
-                result.raw_tls_record.assign(
+                result.transport = std::move(inbound);
+                result.detected = protocol::protocol_type::tls;
+                result.preread.assign(
                     reinterpret_cast<const std::byte *>(raw_record.data()),
                     reinterpret_cast<const std::byte *>(raw_record.data() + raw_record.size()));
                 co_return result;
             }
             // SNI 为空 + auth 失败 → 非 Reality 客户端
-            if (client_hello.server_name.empty())
+            if (ch_features.server_name.empty())
             {
                 trace::debug("{} auth failed with empty SNI, falling back to standard TLS", HsTag);
-                result.type = handshake_result_type::not_reality;
-                result.raw_tls_record.assign(
+                result.transport = std::move(inbound);
+                result.detected = protocol::protocol_type::tls;
+                result.preread.assign(
                     reinterpret_cast<const std::byte *>(raw_record.data()),
                     reinterpret_cast<const std::byte *>(raw_record.data() + raw_record.size()));
                 co_return result;
             }
             // SNI 匹配但 auth 失败 → 非 Reality 客户端，交给下一个方案处理
             trace::debug("{} auth failed: {}, not Reality, passing to next scheme", HsTag, fault::describe(auth_ec));
-            result.type = handshake_result_type::not_reality;
-            result.raw_tls_record.assign(
+            result.transport = std::move(inbound);
+            result.detected = protocol::protocol_type::tls;
+            result.preread.assign(
                 reinterpret_cast<const std::byte *>(raw_record.data()),
                 reinterpret_cast<const std::byte *>(raw_record.data() + raw_record.size()));
             co_return result;
@@ -497,8 +477,8 @@ namespace psm::stealth::reality
         auto [ephemeral_ec, tls_shared_secret] = crypto::x25519(
             std::span<const std::uint8_t>(auth_res.server_ephemeral_key.private_key.data(),
                                           auth_res.server_ephemeral_key.private_key.size()),
-            std::span<const std::uint8_t>(client_hello.client_public_key.data(),
-                                          client_hello.client_public_key.size()));
+            std::span<const std::uint8_t>(ch_features.x25519_key.data(),
+                                          ch_features.x25519_key.size()));
         if (fault::failed(ephemeral_ec))
         {
             trace::warn("{} ephemeral X25519 key exchange failed", HsTag);
@@ -506,18 +486,14 @@ namespace psm::stealth::reality
             co_return result;
         }
 
-        // 诊断日志：TLS ECDH 共享密钥
-        trace::debug("{} TLS ECDH shared_secret: {}", HsTag,
-                     format_hex_short({tls_shared_secret.data(), tls_shared_secret.size()}));
-
         // 5. 生成 ServerHello + 派生握手密钥
         key_material dummy_keys{};
         auto [sh_ec, sh_result] = generate_server_hello(
-            client_hello,
+            ch_features,
             auth_res.server_ephemeral_key.public_key,
             dummy_keys,
             {}, // 不需要 dest 证书 — Reality 认证客户端使用合成证书
-            client_hello.raw_message,
+            ch_features.raw_hs_msg,
             std::span<const std::uint8_t>(auth_res.auth_key.data(), auth_res.auth_key.size()));
 
         if (fault::failed(sh_ec))
@@ -529,7 +505,7 @@ namespace psm::stealth::reality
 
         auto [ks_ec, keys] = derive_handshake_keys(
             tls_shared_secret,
-            client_hello.raw_message,
+            ch_features.raw_hs_msg,
             sh_result.server_hello_msg);
 
         if (fault::failed(ks_ec))
@@ -540,7 +516,7 @@ namespace psm::stealth::reality
         }
 
         // 6. 用正确密钥重算 Finished
-        const auto finished_ec = derive_and_encrypt_finished(keys, sh_result, client_hello.raw_message);
+        const auto finished_ec = derive_and_encrypt_finished(keys, sh_result, ch_features.raw_hs_msg);
         if (fault::failed(finished_ec))
         {
             result.error = finished_ec;
@@ -580,7 +556,7 @@ namespace psm::stealth::reality
 
         // 9. 派生应用数据密钥
         const auto full_transcript_hash = crypto::sha256(
-            {client_hello.raw_message.data(), client_hello.raw_message.size()},
+            {ch_features.raw_hs_msg.data(), ch_features.raw_hs_msg.size()},
             {sh_result.server_hello_msg.data(), sh_result.server_hello_msg.size()},
             {sh_result.encrypted_handshake_plaintext.data(), sh_result.encrypted_handshake_plaintext.size()});
 
@@ -592,18 +568,6 @@ namespace psm::stealth::reality
             result.error = app_ec;
             co_return result;
         }
-
-        // 诊断日志：应用密钥
-        trace::debug("{} app transcript hash: {}", HsTag,
-                     format_hex_short({full_transcript_hash.data(), full_transcript_hash.size()}));
-        trace::debug("{} server_app_key: {}", HsTag,
-                     format_hex_short({keys.server_app_key.data(), keys.server_app_key.size()}));
-        trace::debug("{} server_app_iv: {}", HsTag,
-                     format_hex_short({keys.server_app_iv.data(), keys.server_app_iv.size()}));
-        trace::debug("{} client_app_key: {}", HsTag,
-                     format_hex_short({keys.client_app_key.data(), keys.client_app_key.size()}));
-        trace::debug("{} client_app_iv: {}", HsTag,
-                     format_hex_short({keys.client_app_iv.data(), keys.client_app_iv.size()}));
 
         // 10. 创建加密传输层 + 预读内层数据
         auto reality_session = std::make_shared<seal>(
@@ -622,9 +586,10 @@ namespace psm::stealth::reality
             co_return result;
         }
 
-        result.type = handshake_result_type::authenticated;
-        result.encrypted_transport = std::move(reality_session);
-        result.inner_preread.assign(inner_buf.begin(), inner_buf.begin() + static_cast<std::ptrdiff_t>(inner_n));
+        result.transport = std::move(reality_session);
+        result.detected = protocol::protocol_type::vless;
+        result.preread.assign(inner_buf.begin(), inner_buf.begin() + static_cast<std::ptrdiff_t>(inner_n));
+        result.scheme = "reality";
         result.error = fault::code::success;
 
         trace::info("{} handshake completed successfully", HsTag);

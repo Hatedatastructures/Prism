@@ -156,6 +156,31 @@ namespace psm::protocol::tls
         if (!features.versions.empty())
             bitmap |= has_supported_versions;
 
+        // 新增扩展特征
+        if (features.has_alpn)
+            bitmap |= feature_bit::has_alpn;
+
+        if (features.has_psk)
+            bitmap |= feature_bit::has_psk;
+
+        if (features.has_signature_algorithms)
+            bitmap |= feature_bit::has_signature_algorithms;
+
+        if (features.key_share_multiple)
+            bitmap |= feature_bit::key_share_multiple;
+
+        if (features.early_data_attempt)
+            bitmap |= feature_bit::early_data_attempt;
+
+        if (features.has_ech)
+            bitmap |= feature_bit::has_ech;
+
+        if (features.has_esni)
+            bitmap |= feature_bit::has_esni;
+
+        if (features.greased_extensions)
+            bitmap |= feature_bit::greased_extensions;
+
         return bitmap;
     }
 

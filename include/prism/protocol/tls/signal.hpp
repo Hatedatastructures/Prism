@@ -17,10 +17,10 @@
 #include <prism/fault/code.hpp>
 #include <boost/asio.hpp>
 
-namespace psm::channel::transport
+namespace psm::transport
 {
     class transmission;
-} // namespace psm::channel::transport
+} // namespace psm::transport
 
 namespace psm::protocol::tls
 {
@@ -33,7 +33,7 @@ namespace psm::protocol::tls
      * @param transport 底层传输（应包含预读数据）
      * @return 异步操作，返回错误码和完整 TLS 记录
      */
-    auto read_tls_record(channel::transport::transmission &transport)
+    auto read_tls_record(transport::transmission &transport)
         -> net::awaitable<std::pair<fault::code, memory::vector<std::uint8_t>>>;
 
     /**
@@ -43,7 +43,7 @@ namespace psm::protocol::tls
      * @param preread 已预读的数据
      * @return 异步操作，返回错误码和完整 TLS 记录
      */
-    auto read_tls_record(channel::transport::transmission &transport, std::span<const std::byte> preread)
+    auto read_tls_record(transport::transmission &transport, std::span<const std::byte> preread)
         -> net::awaitable<std::pair<fault::code, memory::vector<std::uint8_t>>>;
 
     /**

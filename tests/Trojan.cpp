@@ -8,10 +8,10 @@
  */
 
 #include <prism/protocol/trojan.hpp>
-#include <prism/protocol/trojan/format.hpp>
+#include <prism/protocol/trojan/framing.hpp>
 #include <prism/exception/network.hpp>
 #include <prism/fault/code.hpp>
-#include <prism/channel/transport/reliable.hpp>
+#include <prism/transport/reliable.hpp>
 #include <prism/memory.hpp>
 #include <prism/trace/spdlog.hpp>
 #include <boost/asio.hpp>
@@ -23,7 +23,7 @@
 
 namespace net = boost::asio;
 namespace protocol = psm::protocol;
-namespace transport = psm::channel::transport;
+namespace transport = psm::transport;
 using tcp = net::ip::tcp;
 
 namespace
@@ -85,9 +85,9 @@ net::awaitable<void> DoTrojanServer(tcp::acceptor &acceptor, const std::string &
         };
 
         // 将 TCP socket 包装为可靠传输层
-        auto trans = psm::channel::transport::make_reliable(std::move(socket));
+        auto trans = psm::transport::make_reliable(std::move(socket));
         // 基于传输层和凭据验证器创建 Trojan 中继实例
-        auto trojan = psm::protocol::trojan::make_relay(std::move(trans), {}, user_credential_verifier);
+        auto trojan = psm::protocol::trojan::make_conn(std::move(trans), {}, user_credential_verifier);
 
         // 执行 Trojan 握手（读取凭据 + 解析 CMD/ATYP/ADDR/PORT）
         LogInfo("Server starting Trojan handshake...");
@@ -111,13 +111,13 @@ net::awaitable<void> DoTrojanServer(tcp::acceptor &acceptor, const std::string &
         try
         {
             // 从 Trojan 隧道中异步读取客户端发送的数据
-            std::size_t n = co_await psm::channel::transport::async_read_some(trojan, buf, net::use_awaitable);
+            std::size_t n = co_await psm::transport::async_read_some(trojan, buf, net::use_awaitable);
             std::string received_msg(buffer.data(), n);
 
             LogInfo(std::format("Server received message: {}", received_msg));
 
             // 将收到的数据通过同一 Trojan 隧道回写给客户端
-            co_await psm::channel::transport::async_write_some(trojan, net::buffer(received_msg), net::use_awaitable);
+            co_await psm::transport::async_write_some(trojan, net::buffer(received_msg), net::use_awaitable);
         }
         catch (const std::exception &e)
         {

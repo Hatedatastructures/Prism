@@ -19,8 +19,9 @@
  */
 
 #include <prism/stealth/shadowtls/handshake.hpp>
-#include <prism/stealth/shadowtls/auth.hpp>
-#include <prism/stealth/shadowtls/constants.hpp>
+#include <prism/stealth/shadowtls/util/auth.hpp>
+#include <prism/stealth/shadowtls/util/constants.hpp>
+#include <prism/stealth/common.hpp>
 #include <prism/trace.hpp>
 #include <prism/fault/code.hpp>
 
@@ -29,58 +30,13 @@
 #include <openssl/crypto.h>
 
 #include <atomic>
+#include <charconv>
 #include <cstring>
 #include <algorithm>
 
 namespace psm::stealth::shadowtls
 {
     namespace net = boost::asio;
-
-    // ═══════════════════════════════════════════════════════════
-    // TLS 帧读取
-    // ═══════════════════════════════════════════════════════════
-
-    /**
-     * @brief 从 socket 读取一个完整的 TLS 记录帧
-     * @return TLS 记录帧（含 5 字节 header），失败返回空
-     */
-    static auto read_tls_frame(net::ip::tcp::socket &sock)
-        -> net::awaitable<std::optional<std::vector<std::byte>>>
-    {
-        std::array<std::byte, tls_header_size> header{};
-
-        boost::system::error_code header_ec;
-        auto header_n = co_await net::async_read(
-            sock, net::buffer(header.data(), tls_header_size),
-            net::redirect_error(net::use_awaitable, header_ec));
-
-        if (header_ec || header_n < tls_header_size)
-        {
-            co_return std::nullopt;
-        }
-
-        const auto *raw = reinterpret_cast<const std::uint8_t *>(header.data());
-        const std::uint16_t record_length = (static_cast<std::uint16_t>(raw[3]) << 8) | raw[4];
-
-        std::vector<std::byte> frame(tls_header_size + record_length);
-        std::memcpy(frame.data(), header.data(), tls_header_size);
-
-        if (record_length > 0)
-        {
-            auto payload = std::span<std::byte>(frame.data() + tls_header_size, record_length);
-            boost::system::error_code payload_ec;
-            auto payload_n = co_await net::async_read(
-                sock, net::buffer(payload.data(), payload.size()),
-                net::redirect_error(net::use_awaitable, payload_ec));
-
-            if (payload_ec || payload_n < record_length)
-            {
-                co_return std::nullopt;
-            }
-        }
-
-        co_return frame;
-    }
 
     // ═══════════════════════════════════════════════════════════
     // ServerHello 解析
@@ -151,19 +107,6 @@ namespace psm::stealth::shadowtls
     }
 
     // ═══════════════════════════════════════════════════════════
-    // XOR 辅助函数
-    // ═══════════════════════════════════════════════════════════
-
-    static void xor_with_key(std::span<std::byte> data, std::span<const std::uint8_t> key)
-    {
-        for (std::size_t i = 0; i < data.size(); ++i)
-        {
-            data[i] = static_cast<std::byte>(
-                static_cast<std::uint8_t>(data[i]) ^ key[i % key.size()]);
-        }
-    }
-
-    // ═══════════════════════════════════════════════════════════
     // 握手阶段数据帧处理（sing-shadowtls copyByFrameUntilHMACMatches）
     // ═══════════════════════════════════════════════════════════
 
@@ -181,15 +124,16 @@ namespace psm::stealth::shadowtls
                                       std::string_view password,
                                       std::span<const std::byte> server_random,
                                       std::shared_ptr<HMAC_CTX> &hmac_verify_out)
-        -> net::awaitable<std::optional<std::vector<std::byte>>>
+        -> net::awaitable<std::optional<memory::vector<std::byte>>>
     {
         auto sr_data = reinterpret_cast<const unsigned char *>(server_random.data());
         constexpr unsigned char tag_c = 'C';
 
         while (true)
         {
-            auto frame_opt = co_await read_tls_frame(client_sock);
-            if (!frame_opt)
+            std::error_code frame_ec;
+            auto frame_opt = co_await common::read_raw_tls_frame(client_sock, frame_ec);
+            if (frame_ec || !frame_opt)
             {
                 trace::warn("[ShadowTLS.Relay] read_tls_frame from client returned nullopt");
                 co_return std::nullopt;
@@ -224,15 +168,11 @@ namespace psm::stealth::shadowtls
                     HMAC_CTX_free(h);
                 }
 
-                bool match = CRYPTO_memcmp(md.data(), client_hmac.data(), hmac_size) == 0;
-                trace::debug("[ShadowTLS.Relay] client frame HMAC: client={:02x}{:02x}{:02x}{:02x}, expected={:02x}{:02x}{:02x}{:02x}, match={}, frame_size={}, payload_size={}",
-                    client_hmac[0], client_hmac[1], client_hmac[2], client_hmac[3],
-                    md[0], md[1], md[2], md[3], match,
-                    frame.size(), payload.size());
+                const bool match = CRYPTO_memcmp(md.data(), client_hmac.data(), hmac_size) == 0;
 
                 if (match)
                 {
-                    trace::info("[ShadowTLS.Relay] client first frame HMAC matched, payload_size={}", payload.size());
+                    trace::debug("[ShadowTLS.Relay] client first frame HMAC matched, payload_size={}", payload.size());
 
                     // 参照 sing-shadowtls copyByFrameUntilHMACMatches:
                     // 匹配成功后，重置 HMAC，写入 payload + HMAC[:4]
@@ -252,7 +192,7 @@ namespace psm::stealth::shadowtls
                         trace::debug("[ShadowTLS.Relay] initialized hmac_verify for transport phase");
                     }
 
-                    std::vector<std::byte> result(frame.size() - hmac_size);
+                    memory::vector<std::byte> result(frame.size() - hmac_size);
                     std::memcpy(result.data(), raw, tls_header_size);
                     std::memcpy(result.data() + tls_header_size,
                                 frame.data() + tls_hmac_header_size,
@@ -321,8 +261,9 @@ namespace psm::stealth::shadowtls
 
         while (true)
         {
-            auto frame_opt = co_await read_tls_frame(backend_sock);
-            if (!frame_opt)
+            std::error_code frame_ec;
+            auto frame_opt = co_await common::read_raw_tls_frame(backend_sock, frame_ec);
+            if (frame_ec || !frame_opt)
             {
                 trace::warn("[ShadowTLS.Relay] backend closed (nullopt), total_frames={}, total_payload_bytes={}",
                            frame_count, total_payload_bytes);
@@ -346,7 +287,7 @@ namespace psm::stealth::shadowtls
                 trace::debug("[ShadowTLS.Relay] frame #{} is ApplicationData, payload_size={}", frame_count, payload.size());
 
                 // 1. XOR 加密（Go: xorSlice）
-                xor_with_key(payload, write_key);
+                common::xor_with_key(payload, write_key);
 
                 // 2. 累积 HMAC：将 XOR'd payload 加入主 HMAC 状态
                 HMAC_Update(hmac_main.get(), reinterpret_cast<const unsigned char *>(payload.data()), payload.size());
@@ -366,10 +307,6 @@ namespace psm::stealth::shadowtls
 
                 std::array<std::uint8_t, 4> hmac_tag{};
                 std::memcpy(hmac_tag.data(), md.data(), hmac_size);
-
-                trace::info("[ShadowTLS.Relay] frame #{} cumulative HMAC: {:02x}{:02x}{:02x}{:02x}, cumulative_payload_bytes={}",
-                           frame_count, hmac_tag[0], hmac_tag[1], hmac_tag[2], hmac_tag[3],
-                           total_payload_bytes);
 
                 // 构建新帧：[TLS Header(5)] [HMAC(4)] [XOR'd payload(N)]
                 const std::uint16_t new_payload_len = static_cast<std::uint16_t>(hmac_size + payload.size());
@@ -408,7 +345,7 @@ namespace psm::stealth::shadowtls
                     co_return;
                 }
 
-                trace::info("[ShadowTLS.Relay] sent passthrough frame #{} to client, type=0x{:02x}, size={}",
+                trace::debug("[ShadowTLS.Relay] sent passthrough frame #{} to client, type=0x{:02x}, size={}",
                            frame_count, raw[0], frame.size());
             }
         }
@@ -420,19 +357,20 @@ namespace psm::stealth::shadowtls
 
     auto handshake(net::ip::tcp::socket &client_sock,
                    const config &cfg,
-                   memory::vector<std::byte> client_hello)
-        -> net::awaitable<handshake_result>
+                   memory::vector<std::byte> client_hello,
+                   handshake_detail &detail)
+        -> net::awaitable<stealth::handshake_result>
     {
-        handshake_result result;
+        stealth::handshake_result result;
 
         if (client_hello.empty())
         {
             trace::warn("[ShadowTLS] Empty ClientHello");
-            result.error = std::make_error_code(std::errc::invalid_argument);
+            result.error = fault::code::bad_message;
             co_return result;
         }
 
-        trace::info("[ShadowTLS] handshake start, client_hello size={}", client_hello.size());
+        trace::debug("[ShadowTLS] handshake start, client_hello size={}", client_hello.size());
         auto executor = client_sock.get_executor();
 
         // Step 1: 验证 ClientHello HMAC（多用户匹配）
@@ -449,7 +387,6 @@ namespace psm::stealth::shadowtls
                 if (verify_client_hello(client_hello_span, u.password))
                 {
                     matched_user = u.name;
-                    result.matched_user = matched_user;
                     break;
                 }
             }
@@ -466,7 +403,7 @@ namespace psm::stealth::shadowtls
         if (matched_user.empty())
         {
             trace::debug("[ShadowTLS] ClientHello HMAC verification failed");
-            result.error = std::make_error_code(std::errc::permission_denied);
+            result.error = fault::code::auth_failed;
             co_return result;
         }
 
@@ -478,7 +415,7 @@ namespace psm::stealth::shadowtls
         {
             for (const auto &u : cfg.users)
             {
-                if (u.name == matched_user)
+                if (std::string_view(u.name) == matched_user)
                 {
                     password = u.password;
                     break;
@@ -491,11 +428,20 @@ namespace psm::stealth::shadowtls
         }
 
         // Step 3: 建立到后端服务器的连接
-        std::string backend_host = cfg.handshake_dest;
+        std::string backend_host(cfg.handshake_dest.begin(), cfg.handshake_dest.end());
         std::uint16_t backend_port = 443;
         if (auto pos = backend_host.find(':'); pos != std::string::npos)
         {
-            backend_port = static_cast<std::uint16_t>(std::stoi(backend_host.substr(pos + 1)));
+            const auto port_sv = std::string_view(backend_host).substr(pos + 1);
+            std::uint16_t port_tmp = 0;
+            const auto [ptr, fc_ec] = std::from_chars(port_sv.data(), port_sv.data() + port_sv.size(), port_tmp);
+            if (fc_ec != std::errc())
+            {
+                trace::error("[ShadowTLS] invalid backend port: {}", port_sv);
+                result.error = fault::code::bad_message;
+                co_return result;
+            }
+            backend_port = port_tmp;
             backend_host = backend_host.substr(0, pos);
         }
 
@@ -514,7 +460,7 @@ namespace psm::stealth::shadowtls
         if (connect_ec)
         {
             trace::warn("[ShadowTLS] Backend connection failed: {}", connect_ec.message());
-            result.error = std::make_error_code(std::errc::connection_refused);
+            result.error = fault::code::connection_refused;
             co_return result;
         }
 
@@ -530,7 +476,7 @@ namespace psm::stealth::shadowtls
             if (write_ec)
             {
                 trace::warn("[ShadowTLS] write ClientHello to backend failed: {}", write_ec.message());
-                result.error = std::make_error_code(std::errc::connection_aborted);
+                result.error = fault::code::connection_refused;
                 co_return result;
             }
         }
@@ -538,11 +484,12 @@ namespace psm::stealth::shadowtls
         trace::debug("[ShadowTLS] sent ClientHello to backend");
 
         // Step 5: 读取后端 ServerHello
-        auto server_hello_opt = co_await read_tls_frame(backend_sock);
-        if (!server_hello_opt)
+        std::error_code server_hello_ec;
+        auto server_hello_opt = co_await common::read_raw_tls_frame(backend_sock, server_hello_ec);
+        if (server_hello_ec || !server_hello_opt)
         {
             trace::warn("[ShadowTLS] Failed to read ServerHello from backend");
-            result.error = std::make_error_code(std::errc::connection_aborted);
+            result.error = fault::code::connection_refused;
             co_return result;
         }
 
@@ -558,7 +505,7 @@ namespace psm::stealth::shadowtls
             if (write_ec)
             {
                 trace::warn("[ShadowTLS] write ServerHello to client failed: {}", write_ec.message());
-                result.error = std::make_error_code(std::errc::connection_aborted);
+                result.error = fault::code::connection_refused;
                 co_return result;
             }
         }
@@ -573,7 +520,7 @@ namespace psm::stealth::shadowtls
         if (!server_random_opt)
         {
             trace::warn("[ShadowTLS] Failed to extract ServerRandom");
-            result.error = std::make_error_code(std::errc::protocol_error);
+            result.error = fault::code::protocol_error;
             co_return result;
         }
 
@@ -584,14 +531,11 @@ namespace psm::stealth::shadowtls
         if (cfg.strict_mode && !is_server_hello_tls13(server_hello_span))
         {
             trace::warn("[ShadowTLS] Backend does not support TLS 1.3, strict mode enabled");
-            result.error = std::make_error_code(std::errc::protocol_not_supported);
+            result.error = fault::code::protocol_error;
             co_return result;
         }
 
-        auto *sr_raw = reinterpret_cast<const std::uint8_t *>(server_random_opt->data());
-        trace::info("[ShadowTLS] ServerRandom: {:02x}{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}, TLS1.3={}",
-                    sr_raw[0], sr_raw[1], sr_raw[2], sr_raw[3],
-                    sr_raw[4], sr_raw[5], sr_raw[6], sr_raw[7],
+        trace::debug("[ShadowTLS] ServerRandom extracted, TLS1.3={}",
                     is_server_hello_tls13(server_hello_span));
 
         // Step 8: 双工握手阶段数据转发
@@ -634,11 +578,11 @@ namespace psm::stealth::shadowtls
         cancel_signal->emit(net::cancellation_type::all);
 
         // 等待 relay 协程退出（最多 500ms）
-        for (int i = 0; i < 50 && !relay_done->load(); ++i)
         {
-            net::steady_timer timer(executor);
-            timer.expires_after(std::chrono::milliseconds(10));
-            co_await timer.async_wait(net::use_awaitable);
+            net::steady_timer exit_timer(executor);
+            exit_timer.expires_after(std::chrono::milliseconds(500));
+            boost::system::error_code wait_ec;
+            co_await exit_timer.async_wait(net::redirect_error(net::use_awaitable, wait_ec));
         }
 
         if (!relay_done->load())
@@ -653,16 +597,17 @@ namespace psm::stealth::shadowtls
         if (!first_frame_opt || !hmac_verify_ctx)
         {
             trace::warn("[ShadowTLS] HMAC match failed during handshake relay");
-            result.error = std::make_error_code(std::errc::protocol_error);
+            result.error = fault::code::protocol_error;
             co_return result;
         }
 
-        trace::info("[ShadowTLS] Handshake complete, first_frame_size={}", first_frame_opt->size());
-        result.authenticated = true;
-        result.client_first_frame = std::move(*first_frame_opt);
-        // 保存 server_random 和 matched_password 用于后续 ShadowTLS transport
-        std::memcpy(result.server_random.data(), server_random.data(), 32);
-        result.matched_password = std::string(password);
+        trace::debug("[ShadowTLS] Handshake complete, first_frame_size={}", first_frame_opt->size());
+
+        // 填充 detail 输出参数
+        detail.client_first_frame = std::move(*first_frame_opt);
+        detail.matched_user = matched_user;
+        detail.matched_password = std::string(password);
+        std::memcpy(detail.server_random.data(), server_random.data(), 32);
 
         // 参照 sing-shadowtls service.go case 3:
         // 传输阶段 hmacWrite (hmacAdd): password + serverRandom + "S"
@@ -678,9 +623,15 @@ namespace psm::stealth::shadowtls
             HMAC_Update(hmac_write_transport.get(), &tag_s, 1);
             trace::debug("[ShadowTLS] initialized hmac_write_ctx for transport: password + SR + 'S'");
         }
-        result.hmac_write_ctx = hmac_write_transport;
-        result.hmac_read_ctx = hmac_verify_ctx;
-        trace::debug("[ShadowTLS] HMAC contexts transferred to result");
+        detail.hmac_write_ctx = hmac_write_transport;
+        detail.hmac_read_ctx = hmac_verify_ctx;
+
+        // 填充 stealth::handshake_result
+        result.error = fault::code::success;
+        result.detected = protocol::protocol_type::tls;
+        result.scheme = "shadowtls";
+
+        trace::debug("[ShadowTLS] HMAC contexts transferred to detail");
         co_return result;
     }
 } // namespace psm::stealth::shadowtls

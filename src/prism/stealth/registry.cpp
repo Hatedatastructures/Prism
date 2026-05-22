@@ -28,7 +28,7 @@ namespace psm::stealth
         reg.add(std::make_shared<restls::scheme>());
         reg.add(std::make_shared<anytls::scheme>());
         reg.add(std::make_shared<trusttunnel::scheme>());
-        reg.add(std::make_shared<schemes::native>());
+        reg.add(std::make_shared<native::native>());
     }
 
     auto scheme_registry::instance() -> scheme_registry &

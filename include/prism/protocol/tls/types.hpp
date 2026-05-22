@@ -50,8 +50,14 @@ namespace psm::protocol::tls
     // ═══════════════════════════════════════════════════════════════════════
 
     constexpr std::uint16_t EXT_SERVER_NAME = 0x0000;
-    constexpr std::uint16_t EXT_KEY_SHARE = 0x0033;
+    constexpr std::uint16_t EXT_SIGNATURE_ALGORITHMS = 0x000D;
+    constexpr std::uint16_t EXT_ALPN = 0x0010;
     constexpr std::uint16_t EXT_SUPPORTED_VERSIONS = 0x002B;
+    constexpr std::uint16_t EXT_EARLY_DATA = 0x002A;
+    constexpr std::uint16_t EXT_PRE_SHARED_KEY = 0x0029;
+    constexpr std::uint16_t EXT_KEY_SHARE = 0x0033;
+    constexpr std::uint16_t EXT_ENCRYPTED_CLIENT_HELLO = 0xFE0D;
+    constexpr std::uint16_t EXT_ESNI = 0xFFCE;
 
     // ═══════════════════════════════════════════════════════════════════════
     // Named Groups
@@ -160,6 +166,30 @@ namespace psm::protocol::tls
 
         /** @brief 客户端随机数（32 字节） */
         std::array<std::uint8_t, 32> random{};
+
+        // ALPN 协议列表（仅记录是否存在，不存储具体值）
+        bool has_alpn{false};
+
+        // PSK (pre_shared_key) 扩展存在
+        bool has_psk{false};
+
+        // ECH (encrypted_client_hello) 扩展存在
+        bool has_ech{false};
+
+        // ESNI (encrypted_server_name) 扩展存在
+        bool has_esni{false};
+
+        // GREASE 扩展存在（客户端随机填充，用于兼容性测试）
+        bool greased_extensions{false};
+
+        // signature_algorithms 扩展存在
+        bool has_signature_algorithms{false};
+
+        // key_share 包含多个条目（非仅 X25519）
+        bool key_share_multiple{false};
+
+        // early_data 扩展存在（客户端尝试 0-RTT）
+        bool early_data_attempt{false};
 
         /** @brief 原始握手消息（不含 TLS record header） */
         memory::vector<std::uint8_t> raw_hs_msg;

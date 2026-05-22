@@ -12,6 +12,13 @@ target_sources(${PROJECT_NAME}_static_library
             ${PROJECT_SOURCE_DIR}/include/prism/recognition/scheme_route_table.hpp
             ${PROJECT_SOURCE_DIR}/include/prism/recognition/layered_pipeline.hpp
 
+            # TLS 特征分析子模块
+            ${PROJECT_SOURCE_DIR}/include/prism/recognition/tls/signal.hpp
+            ${PROJECT_SOURCE_DIR}/include/prism/recognition/tls/feature_bitmap.hpp
+
+            # 目标地址解析
+            ${PROJECT_SOURCE_DIR}/include/prism/recognition/target.hpp
+
             # Probe 外层协议探测子模块
             ${PROJECT_SOURCE_DIR}/include/prism/recognition/probe/probe.hpp
             ${PROJECT_SOURCE_DIR}/include/prism/recognition/probe/analyzer.hpp
@@ -27,6 +34,12 @@ target_sources(${PROJECT_NAME}_static_library
 
         # 分层检测管道
         ${PROJECT_SOURCE_DIR}/src/prism/recognition/layered_pipeline.cpp
+
+        # TLS 信号解析
+        ${PROJECT_SOURCE_DIR}/src/prism/recognition/tls/signal.cpp
+
+        # 目标地址解析实现
+        ${PROJECT_SOURCE_DIR}/src/prism/recognition/target.cpp
 
         # Probe 协议探测实现
         ${PROJECT_SOURCE_DIR}/src/prism/recognition/probe/analyzer.cpp

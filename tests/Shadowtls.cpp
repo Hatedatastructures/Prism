@@ -3,7 +3,7 @@
  * @brief ShadowTLS v3 测试
  */
 
-#include <prism/stealth/shadowtls/auth.hpp>
+#include <prism/stealth/shadowtls/util/auth.hpp>
 #include <prism/memory.hpp>
 #include <prism/trace/spdlog.hpp>
 #include <openssl/hmac.h>

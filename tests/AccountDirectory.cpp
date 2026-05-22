@@ -4,7 +4,7 @@
  * @details 测试账户目录的 upsert、连接限制、lease RAII、多凭据别名等核心逻辑。
  */
 
-#include <prism/agent/account/directory.hpp>
+#include <prism/account/directory.hpp>
 #include <prism/memory.hpp>
 #include <prism/trace/spdlog.hpp>
 #include "common/TestRunner.hpp"
@@ -13,7 +13,7 @@
 #include <windows.h>
 #endif
 
-namespace account = psm::agent::account;
+namespace account = psm::account;
 
 /// 辅助函数：将 lease 转为 bool（因为 explicit operator bool 不能隐式转换）
 static auto IsValid(const account::lease &l) -> bool

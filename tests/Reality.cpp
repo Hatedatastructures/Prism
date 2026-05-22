@@ -5,9 +5,8 @@
  * 使用 OpenSSL 解析叶子证书，验证 DER 是否可被正常解析且公钥类型为 Ed25519。
  */
 
-#include <prism/stealth/reality/response.hpp>
-#include <prism/stealth/reality/request.hpp>
-#include <prism/stealth/reality/keygen.hpp>
+#include <prism/stealth/reality/util/response.hpp>
+#include <prism/stealth/reality/util/keygen.hpp>
 #include <prism/crypto/x25519.hpp>
 #include <prism/trace/spdlog.hpp>
 #include <openssl/x509.h>
@@ -56,7 +55,7 @@ namespace
                 return {};
             }
 
-            if (msg_type != psm::stealth::reality::tls::HANDSHAKE_TYPE_CERTIFICATE)
+            if (msg_type != psm::protocol::tls::HANDSHAKE_TYPE_CERTIFICATE)
             {
                 offset += msg_len;
                 continue;
@@ -104,9 +103,9 @@ void TestRealityCertificateParsesAsEd25519()
     using namespace psm;
     using namespace psm::stealth::reality;
 
-    client_hello_info client_hello;
+    protocol::tls::client_hello_features client_hello;
     client_hello.session_id = {0x01, 0x02, 0x03, 0x04};
-    client_hello.raw_message = {
+    client_hello.raw_hs_msg = {
         0x01, 0x00, 0x00, 0x05,
         0x03, 0x03, 0x00, 0x00, 0x00
     };
@@ -138,7 +137,7 @@ void TestRealityCertificateParsesAsEd25519()
         std::span<const std::uint8_t>(eph.public_key.data(), eph.public_key.size()),
         keys,
         {},
-        std::span<const std::uint8_t>(client_hello.raw_message.data(), client_hello.raw_message.size()),
+        std::span<const std::uint8_t>(client_hello.raw_hs_msg.data(), client_hello.raw_hs_msg.size()),
         std::span<const std::uint8_t>(auth_key.data(), auth_key.size()));
 
     if (fault::failed(ec))

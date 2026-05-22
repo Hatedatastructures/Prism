@@ -4,9 +4,9 @@
  */
 
 #include <prism/stealth/executor.hpp>
-#include <prism/agent/context.hpp>
-#include <prism/pipeline/primitives.hpp>
-#include <prism/channel/transport/snapshot.hpp>
+#include <prism/context/context.hpp>
+#include <prism/transport/preview.hpp>
+#include <prism/transport/snapshot.hpp>
 #include <prism/trace.hpp>
 #include <algorithm>
 
@@ -25,7 +25,7 @@ namespace psm::stealth
         {
             auto preread_span = std::span(res.preread.data(), res.preread.size());
             auto *mr = ctx.session ? ctx.session->frame_arena.get() : nullptr;
-            ctx.inbound = std::make_shared<pipeline::primitives::preview>(ctx.inbound, preread_span, mr);
+            ctx.inbound = std::make_shared<transport::preview>(ctx.inbound, preread_span, mr);
         }
     }
 
@@ -33,16 +33,16 @@ namespace psm::stealth
     {
         if (!ctx.inbound)
             return;
-        if (dynamic_cast<channel::transport::snapshot *>(ctx.inbound.get()))
+        if (dynamic_cast<transport::snapshot *>(ctx.inbound.get()))
             return;
-        ctx.inbound = channel::transport::make_snapshot(std::move(ctx.inbound));
+        ctx.inbound = transport::make_snapshot(std::move(ctx.inbound));
     }
 
     auto scheme_executor::try_rewind(handshake_context &ctx) -> bool
     {
         if (!ctx.inbound)
             return false;
-        auto *snap = dynamic_cast<channel::transport::snapshot *>(ctx.inbound.get());
+        auto *snap = dynamic_cast<transport::snapshot *>(ctx.inbound.get());
         if (!snap || !snap->can_rewind())
             return false;
         snap->rewind();
@@ -137,6 +137,8 @@ namespace psm::stealth
             for (const auto &scheme : schemes_)
                 default_order.emplace_back(scheme->name());
 
+            // 保留 ctx 副本用于 native 兜底（execute_pipeline 会 move ctx）
+            auto native_ctx = handshake_context{ctx};
             auto result = co_await execute_pipeline(default_order, std::move(ctx));
 
             // 全部失败则 native 兜底
@@ -144,7 +146,7 @@ namespace psm::stealth
             {
                 trace::debug("[SchemeExecutor] All candidates failed, executing native fallback");
                 if (const auto native = find_scheme("native"))
-                    co_return co_await execute_single(native, std::move(ctx));
+                    co_return co_await execute_single(native, std::move(native_ctx));
             }
 
             co_return result;

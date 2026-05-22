@@ -7,11 +7,13 @@
 #include <prism/stealth/reality/scheme.hpp>
 #include <prism/config.hpp>
 #include <prism/stealth/reality/handshake.hpp>
-#include <prism/pipeline/primitives.hpp>
+#include <prism/recognition/tls/feature_bitmap.hpp>
 #include <prism/trace.hpp>
 
 namespace psm::stealth::reality
 {
+    using namespace recognition::tls;
+
     auto scheme::active(const psm::config &cfg) const noexcept -> bool
     {
         return cfg.stealth.reality.enabled();
@@ -20,10 +22,7 @@ namespace psm::stealth::reality
     auto scheme::snis(const psm::config &cfg) const
         -> memory::vector<memory::string>
     {
-        memory::vector<memory::string> names;
-        for (const auto &name : cfg.stealth.reality.server_names)
-            names.push_back(memory::string(name));
-        return names;
+        return make_sni_list(cfg.stealth.reality.server_names);
     }
 
     auto scheme::sniff(std::uint32_t bitmap,
@@ -121,43 +120,9 @@ namespace psm::stealth::reality
             co_return result;
         }
 
-        const auto &cfg = ctx.session->server.config();
+        const auto &cfg = ctx.session->server_ctx.config();
 
-        auto hs = co_await stealth::reality::handshake(ctx.inbound, cfg, *ctx.session);
-
-        switch (hs.type)
-        {
-        case stealth::reality::handshake_result_type::authenticated:
-            result.transport = std::move(hs.encrypted_transport); // seal
-            result.detected = protocol::protocol_type::vless;
-            result.preread.assign(hs.inner_preread.begin(), hs.inner_preread.end());
-            trace::debug("[Reality] Authenticated, dispatching to VLESS");
-            break;
-
-        case stealth::reality::handshake_result_type::not_reality:
-            result.transport = std::move(ctx.inbound);
-            result.preread.assign(hs.raw_tls_record.begin(), hs.raw_tls_record.end());
-            result.detected = protocol::protocol_type::tls;
-            trace::debug("[Reality] Not Reality, pass to next scheme");
-            break;
-
-        case stealth::reality::handshake_result_type::fallback:
-            trace::debug("[RealityScheme] Fallback complete");
-            break;
-
-        case stealth::reality::handshake_result_type::failed:
-            result.transport = std::move(ctx.inbound);
-            if (hs.error == fault::code::reality_tls_record_error)
-            {
-                result.detected = protocol::protocol_type::tls;
-                result.preread.assign(hs.raw_tls_record.begin(), hs.raw_tls_record.end());
-                trace::debug("[Reality] TLS record error, pass to next scheme");
-                break;
-            }
-            result.error = hs.error;
-            trace::warn("[Reality] Handshake failed: {}", fault::describe(hs.error));
-            break;
-        }
+        result = co_await stealth::reality::handshake(ctx.inbound, cfg, *ctx.session);
 
         co_return result;
     }

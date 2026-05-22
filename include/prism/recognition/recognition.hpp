@@ -11,10 +11,11 @@
 #include <boost/asio.hpp>
 #include <prism/recognition/confidence.hpp>
 #include <prism/recognition/result.hpp>
-#include <prism/channel/transport/transmission.hpp>
+#include <prism/transport/transmission.hpp>
 #include <prism/memory/pool.hpp>
 #include <prism/memory/container.hpp>
-#include <prism/protocol/analysis.hpp>
+#include <prism/protocol/protocol_type.hpp>
+#include <prism/protocol/common/target.hpp>
 #include <prism/fault/code.hpp>
 
 // 外层协议探测子模块
@@ -33,14 +34,14 @@ namespace psm
     struct config;
 }
 
-namespace psm::resolve
+namespace psm::connect
 {
     class router;
 }
 
-namespace psm::agent
+namespace psm::context
 {
-    struct session_context;
+    struct session;
 }
 
 namespace psm::recognition
@@ -59,16 +60,16 @@ namespace psm::recognition
     struct recognize_context
     {
         /** @brief 传输层（socket 或已包装的传输） */
-        channel::transport::shared_transmission transport;
+        transport::shared_transmission transport;
 
         /** @brief 全局配置 */
         const psm::config *cfg{nullptr};
 
         /** @brief 路由器（fallback 用） */
-        resolve::router *router{nullptr};
+        connect::router *router{nullptr};
 
         /** @brief 会话上下文（供方案使用） */
-        agent::session_context *session{nullptr};
+        context::session *session{nullptr};
 
         /** @brief 帧内存池（用于预读数据分配） */
         memory::frame_arena *frame_arena{nullptr};
@@ -82,7 +83,7 @@ namespace psm::recognition
     struct recognize_result
     {
         /** @brief 最终传输层（可能被加密或包装） */
-        channel::transport::shared_transmission transport;
+        transport::shared_transmission transport;
 
         /** @brief 检测到的协议类型 */
         protocol::protocol_type detected{protocol::protocol_type::unknown};
@@ -129,7 +130,7 @@ namespace psm::recognition
     struct identify_context
     {
         /** @brief 传输层（socket 或已包装的传输） */
-        channel::transport::shared_transmission transport;
+        transport::shared_transmission transport;
 
         /** @brief 全局配置 */
         const psm::config *cfg{nullptr};
@@ -138,10 +139,10 @@ namespace psm::recognition
         std::span<const std::byte> preread;
 
         /** @brief 路由器（fallback 用） */
-        resolve::router *router{nullptr};
+        connect::router *router{nullptr};
 
         /** @brief 会话上下文（可选，供方案使用） */
-        agent::session_context *session{nullptr};
+        context::session *session{nullptr};
 
         /** @brief 帧内存池（用于预读数据分配） */
         memory::frame_arena *frame_arena{nullptr};
@@ -155,7 +156,7 @@ namespace psm::recognition
     struct identify_result
     {
         /** @brief 最终传输层（可能被加密或包装） */
-        channel::transport::shared_transmission transport;
+        transport::shared_transmission transport;
 
         /** @brief 检测到的协议类型 */
         protocol::protocol_type detected{protocol::protocol_type::unknown};

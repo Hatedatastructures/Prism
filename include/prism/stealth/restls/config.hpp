@@ -49,18 +49,3 @@ namespace psm::stealth::restls
         }
     }; // struct config
 } // namespace psm::stealth::restls
-
-#include <glaze/glaze.hpp>
-
-template <>
-struct glz::meta<psm::stealth::restls::config>
-{
-    using T = psm::stealth::restls::config;
-    static constexpr auto value = glz::object(
-        "server_names",         &T::server_names,
-        "host",                 &T::host,
-        "password",             &T::password,
-        "version_hint",         &T::version_hint,
-        "restls_script",        &T::restls_script,
-        "handshake_timeout_ms", &T::handshake_timeout_ms);
-};

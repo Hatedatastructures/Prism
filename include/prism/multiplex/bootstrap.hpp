@@ -17,10 +17,10 @@
 
 #include <prism/multiplex/config.hpp>
 #include <prism/multiplex/core.hpp>
-#include <prism/channel/transport/transmission.hpp>
+#include <prism/transport/transmission.hpp>
 #include <prism/memory/pool.hpp>
 
-namespace psm::resolve
+namespace psm::connect
 {
     class router;
 }
@@ -40,7 +40,7 @@ namespace psm::multiplex
      * 选择 smux 或 yamux 协议创建对应实例。调用者通过 core 基类
      * 指针操作，无需关心具体协议类型。
      */
-    [[nodiscard]] auto bootstrap(channel::transport::shared_transmission transport, resolve::router &router,
+    [[nodiscard]] auto bootstrap(transport::shared_transmission transport, connect::router &router,
                                  const config &cfg, memory::resource_pointer mr = memory::current_resource())
         -> net::awaitable<std::shared_ptr<core>>;
 

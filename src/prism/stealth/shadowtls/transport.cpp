@@ -4,6 +4,7 @@
  */
 
 #include <prism/stealth/shadowtls/transport.hpp>
+#include <prism/stealth/common.hpp>
 #include <prism/trace.hpp>
 #include <openssl/hmac.h>
 #include <openssl/sha.h>
@@ -31,16 +32,6 @@ namespace psm::stealth::shadowtls
             SHA256_Final(key.data(), &sha_ctx);
             return key;
         }
-
-        /// XOR 加密/解密数据
-        void xor_with_key(std::span<std::byte> data, std::span<const std::uint8_t> key)
-        {
-            for (std::size_t i = 0; i < data.size(); ++i)
-            {
-                data[i] = static_cast<std::byte>(
-                    static_cast<std::uint8_t>(data[i]) ^ key[i % key.size()]);
-            }
-        }
     } // namespace
 
     shadowtls_transport::shadowtls_transport(net::ip::tcp::socket socket,
@@ -50,13 +41,10 @@ namespace psm::stealth::shadowtls
                                              std::shared_ptr<HMAC_CTX> hmac_write_ctx,
                                              std::shared_ptr<HMAC_CTX> hmac_read_ctx)
         : socket_(std::move(socket))
-        , password_(password)
         , write_key_(compute_write_key(password, server_random))
         , initial_buffer_(initial_data.begin(), initial_data.end())
-        , hmac_write_ctx_(hmac_write_ctx.get())
-        , hmac_write_ctx_owner_(hmac_write_ctx)
-        , hmac_read_ctx_(hmac_read_ctx.get())
-        , hmac_read_ctx_owner_(hmac_read_ctx)
+        , hmac_write_ctx_(hmac_write_ctx)
+        , hmac_read_ctx_(hmac_read_ctx)
     {
         // 存储 server_random
         std::memcpy(server_random_.data(), server_random.data(), server_random.size());
@@ -214,7 +202,7 @@ namespace psm::stealth::shadowtls
         }
 
         // 累积 HMAC：写入 actual_data
-        HMAC_Update(hmac_read_ctx_,
+        HMAC_Update(hmac_read_ctx_.get(),
                    reinterpret_cast<const unsigned char *>(actual_data.data()),
                    actual_data.size());
 
@@ -223,7 +211,7 @@ namespace psm::stealth::shadowtls
         unsigned int md_len = 0;
         {
             HMAC_CTX *hmac_copy = HMAC_CTX_new();
-            HMAC_CTX_copy(hmac_copy, hmac_read_ctx_);
+            HMAC_CTX_copy(hmac_copy, hmac_read_ctx_.get());
             HMAC_Final(hmac_copy, md.data(), &md_len);
             HMAC_CTX_free(hmac_copy);
         }
@@ -234,15 +222,13 @@ namespace psm::stealth::shadowtls
         // 验证 HMAC
         if (CRYPTO_memcmp(client_hmac.data(), expected_hmac.data(), hmac_size) != 0)
         {
-            trace::warn("{} HMAC mismatch: client={:02x}{:02x}{:02x}{:02x}, expected={:02x}{:02x}{:02x}{:02x}",
-                        tag, client_hmac[0], client_hmac[1], client_hmac[2], client_hmac[3],
-                        expected_hmac[0], expected_hmac[1], expected_hmac[2], expected_hmac[3]);
+            trace::warn("{} HMAC mismatch in transport read_tls_frame", tag);
             ec = std::make_error_code(std::errc::protocol_error);
             co_return std::nullopt;
         }
 
         // 验证成功，将 HMAC[:4] 也加入累积状态（参照 sing-shadowtls verifyApplicationData update=true）
-        HMAC_Update(hmac_read_ctx_, client_hmac.data(), hmac_size);
+        HMAC_Update(hmac_read_ctx_.get(), client_hmac.data(), hmac_size);
 
         trace::debug("{} TLS frame verified (cumulative HMAC), payload_size={}, added HMAC to cumulative state",
                     tag, actual_data.size());
@@ -281,7 +267,7 @@ namespace psm::stealth::shadowtls
         // 注意：XOR 加密只在握手阶段使用，传输阶段发送 plain payload
 
         // 累积 HMAC：写入 plain payload
-        HMAC_Update(hmac_write_ctx_,
+        HMAC_Update(hmac_write_ctx_.get(),
                    reinterpret_cast<const unsigned char *>(payload.data()),
                    payload.size());
 
@@ -289,7 +275,7 @@ namespace psm::stealth::shadowtls
         // 参照 sing-shadowtls verifiedConn.write: hmacHash := c.hmacAdd.Sum(nil)[:hmacSize]
         // Sum 不改变状态，用 HMAC_CTX_copy 实现
         HMAC_CTX *hmac_copy = HMAC_CTX_new();
-        HMAC_CTX_copy(hmac_copy, hmac_write_ctx_);
+        HMAC_CTX_copy(hmac_copy, hmac_write_ctx_.get());
         std::array<std::uint8_t, EVP_MAX_MD_SIZE> md{};
         unsigned int md_len = 0;
         HMAC_Final(hmac_copy, md.data(), &md_len);
@@ -300,10 +286,9 @@ namespace psm::stealth::shadowtls
 
         // 参照 sing-shadowtls verifiedConn.write: c.hmacAdd.Write(hmacHash)
         // 将 HMAC[:4] 也加入累积状态！
-        HMAC_Update(hmac_write_ctx_, hmac_tag.data(), hmac_size);
+        HMAC_Update(hmac_write_ctx_.get(), hmac_tag.data(), hmac_size);
 
-        trace::debug("{} write_tls_frame: HMAC={:02x}{:02x}{:02x}{:02x}, added to cumulative state",
-                    tag, hmac_tag[0], hmac_tag[1], hmac_tag[2], hmac_tag[3]);
+        trace::debug("{} write_tls_frame: HMAC computed for frame", tag);
 
         // 构建 TLS frame：header(5) + HMAC(4) + plain payload
         // 参照 sing-shadowtls verifiedConn.write: 发送 plain payload，不 XOR

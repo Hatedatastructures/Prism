@@ -14,8 +14,8 @@
 #include <boost/asio.hpp>
 #include <prism/fault/code.hpp>
 #include <prism/fault/handling.hpp>
-#include <prism/protocol/analysis.hpp>
-#include <prism/channel/transport/transmission.hpp>
+#include <prism/protocol/protocol_type.hpp>
+#include <prism/transport/transmission.hpp>
 #include <prism/memory/container.hpp>
 #include <prism/recognition/probe/analyzer.hpp>
 
@@ -70,7 +70,7 @@ namespace psm::recognition::probe
      * @return 探测结果
      * @details 预读数据并调用 detect() 检测协议类型
      */
-    inline auto probe(channel::transport::transmission &transport, const std::size_t max_peek_size = 24)
+    inline auto probe(transport::transmission &transport, const std::size_t max_peek_size = 24)
         -> net::awaitable<probe_result>
     {
         probe_result result;

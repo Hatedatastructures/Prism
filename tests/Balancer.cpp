@@ -4,7 +4,8 @@
  * @details 测试负载均衡器的评分、过载滞后、空绑定、一致性哈希等核心逻辑。
  */
 
-#include <prism/agent/front/balancer.hpp>
+#include <prism/instance/front/balancer.hpp>
+#include <prism/stats/snapshot.hpp>
 #include <prism/memory.hpp>
 #include <prism/trace/spdlog.hpp>
 #include "common/TestRunner.hpp"
@@ -15,7 +16,7 @@
 #include <windows.h>
 #endif
 
-namespace front = psm::agent::front;
+namespace front = psm::instance::front;
 
 /**
  * @brief 创建 mock worker binding
@@ -28,7 +29,7 @@ static auto MakeBinding(std::uint32_t sessions, std::uint32_t pending, std::uint
 {
     return {
         .dispatch = [](front::tcp::socket) {},
-        .snapshot = [=]() -> front::worker_load_snapshot
+        .snapshot = [=]() -> psm::stats::worker_load_snapshot
         {
             return {sessions, pending, lag_us};
         }};

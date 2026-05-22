@@ -8,11 +8,11 @@
  * 4. 403 认证失败（错误凭证）
  */
 
-#include <prism/protocol/http/relay.hpp>
+#include <prism/protocol/http/conn.hpp>
 #include <prism/protocol/http/parser.hpp>
-#include <prism/agent/account/directory.hpp>
+#include <prism/account/directory.hpp>
 #include <prism/crypto/sha224.hpp>
-#include <prism/channel/transport/reliable.hpp>
+#include <prism/transport/reliable.hpp>
 #include <prism/memory.hpp>
 #include <prism/trace/spdlog.hpp>
 #include <boost/asio.hpp>
@@ -22,9 +22,9 @@
 #include <array>
 
 namespace net = boost::asio;
-namespace transport = psm::channel::transport;
+namespace transport = psm::transport;
 namespace http = psm::protocol::http;
-namespace account = psm::agent::account;
+namespace account = psm::account;
 using tcp = net::ip::tcp;
 
 namespace
@@ -61,9 +61,9 @@ net::awaitable<void> DoConnectServer(tcp::acceptor &acceptor)
     {
         auto socket = co_await acceptor.async_accept(net::use_awaitable);
         auto reliable = transport::make_reliable(std::move(socket));
-        auto relay = http::make_relay(std::move(reliable));
+        auto nego = http::make_conn(std::move(reliable));
 
-        auto [ec, req] = co_await relay->handshake();
+        auto [ec, req] = co_await nego->handshake();
         if (psm::fault::failed(ec))
         {
             LogFail(std::format("Server handshake failed: {}", psm::fault::describe(ec)));
@@ -80,10 +80,10 @@ net::awaitable<void> DoConnectServer(tcp::acceptor &acceptor)
         }
 
         // 发送 200 响应
-        co_await relay->write_connect_success();
+        co_await nego->write_connect_success();
 
         // 释放传输层进行 echo
-        auto trans = relay->release();
+        auto trans = nego->release();
 
         std::array<std::byte, 1024> buffer{};
         std::error_code read_ec;
@@ -194,9 +194,9 @@ net::awaitable<void> DoAuthServer(tcp::acceptor &acceptor, account::directory &d
     {
         auto socket = co_await acceptor.async_accept(net::use_awaitable);
         auto reliable = transport::make_reliable(std::move(socket));
-        auto relay = http::make_relay(std::move(reliable), &dir);
+        auto nego = http::make_conn(std::move(reliable), &dir);
 
-        auto [ec, req] = co_await relay->handshake();
+        auto [ec, req] = co_await nego->handshake();
 
         // 认证失败时 handshake 内部已发送错误响应，release 传输层读取客户端后续数据
         if (psm::fault::failed(ec))

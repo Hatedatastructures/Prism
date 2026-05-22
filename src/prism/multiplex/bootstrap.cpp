@@ -5,7 +5,7 @@
 
 constexpr std::string_view tag = "[Mux.Bootstrap]";
 
-using transmission = psm::channel::transport::transmission;
+using transmission = psm::transport::transmission;
 
 namespace psm::multiplex
 {
@@ -72,7 +72,7 @@ namespace psm::multiplex
         }
     } // namespace
 
-    auto bootstrap(channel::transport::shared_transmission transport, resolve::router &router, const config &cfg, memory::resource_pointer mr)
+    auto bootstrap(transport::shared_transmission transport, connect::router &router, const config &cfg, memory::resource_pointer mr)
         -> net::awaitable<std::shared_ptr<core>>
     {
         // 执行 sing-mux 协商，获取客户端选择的协议类型

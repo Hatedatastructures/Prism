@@ -7,14 +7,14 @@
  * 3. 客户端关闭后上游检测到 (TestSessionClientClose)
  */
 
-#include <prism/agent/config.hpp>
-#include <prism/agent/context.hpp>
-#include <prism/agent/account/directory.hpp>
-#include <prism/agent/dispatch/table.hpp>
-#include <prism/agent/session/session.hpp>
-#include <prism/channel/connection/pool.hpp>
-#include <prism/channel/transport/reliable.hpp>
-#include <prism/resolve/router.hpp>
+#include <prism/instance/config.hpp>
+#include <prism/config.hpp>
+#include <prism/context/context.hpp>
+#include <prism/account/directory.hpp>
+#include <prism/instance/session/session.hpp>
+#include <prism/connect/pool/pool.hpp>
+#include <prism/transport/reliable.hpp>
+#include <prism/connect/dial/router.hpp>
 #include <prism/exception/network.hpp>
 #include <prism/fault/code.hpp>
 #include <prism/memory.hpp>
@@ -37,7 +37,7 @@ namespace net = boost::asio;
 namespace ssl = boost::asio::ssl;
 using tcp = net::ip::tcp;
 
-namespace agent = psm::agent;
+namespace agent = psm::instance;
 
 namespace
 {
@@ -97,8 +97,8 @@ net::awaitable<void> EchoServer(tcp::acceptor acceptor)
  * @param worker_ctx 工作线程上下文（io_context、DNS 路由、PMR 资源）
  * @return net::awaitable<void>
  */
-net::awaitable<void> ProxyAcceptOne(tcp::acceptor acceptor, agent::server_context &server_ctx,
-                                    agent::worker_context &worker_ctx)
+net::awaitable<void> ProxyAcceptOne(tcp::acceptor acceptor, psm::context::server &server_ctx,
+                                    psm::context::worker &worker_ctx)
 {
     // 将错误码重定向到 accept_ec，避免 accept 失败时抛异常
     boost::system::error_code accept_ec;
@@ -110,7 +110,7 @@ net::awaitable<void> ProxyAcceptOne(tcp::acceptor acceptor, agent::server_contex
         co_return;
     }
     // 将裸 socket 包装为 reliable 传输层，提供统一的读写接口
-    auto inbound = psm::channel::transport::make_reliable(std::move(socket));
+    auto inbound = psm::transport::make_reliable(std::move(socket));
 
     // 组装会话参数：服务端上下文、工作线程上下文、入站传输层
     agent::session::session_params params{server_ctx, worker_ctx, std::move(inbound)};
@@ -469,7 +469,7 @@ net::awaitable<void> ProxyConnectClientThenClose(const tcp::endpoint proxy_ep, c
  * @param worker_ctx 工作线程上下文
  * @return net::awaitable<void>
  */
-net::awaitable<void> TestSessionEcho(agent::server_context &server_ctx, agent::worker_context &worker_ctx)
+net::awaitable<void> TestSessionEcho(psm::context::server &server_ctx, psm::context::worker &worker_ctx)
 {
     runner.LogInfo("=== TestSessionEcho ===");
 
@@ -506,7 +506,7 @@ net::awaitable<void> TestSessionEcho(agent::server_context &server_ctx, agent::w
  * @param worker_ctx 工作线程上下文
  * @return net::awaitable<void>
  */
-net::awaitable<void> TestSessionUpstreamClose(agent::server_context &server_ctx, agent::worker_context &worker_ctx)
+net::awaitable<void> TestSessionUpstreamClose(psm::context::server &server_ctx, psm::context::worker &worker_ctx)
 {
     runner.LogInfo("=== TestSessionUpstreamClose ===");
 
@@ -543,7 +543,7 @@ net::awaitable<void> TestSessionUpstreamClose(agent::server_context &server_ctx,
  * @param worker_ctx 工作线程上下文
  * @return net::awaitable<void>
  */
-net::awaitable<void> TestSessionClientClose(agent::server_context &server_ctx, agent::worker_context &worker_ctx)
+net::awaitable<void> TestSessionClientClose(psm::context::server &server_ctx, psm::context::worker &worker_ctx)
 {
     runner.LogInfo("=== TestSessionClientClose ===");
 
@@ -588,7 +588,7 @@ net::awaitable<void> TestSessionClientClose(agent::server_context &server_ctx, a
  * @param worker_ctx 工作线程上下文
  * @return net::awaitable<void>
  */
-net::awaitable<void> RunAllTests(agent::server_context &server_ctx, agent::worker_context &worker_ctx)
+net::awaitable<void> RunAllTests(psm::context::server &server_ctx, psm::context::worker &worker_ctx)
 {
     // 顺序执行三个测试场景，确保互不干扰
     co_await TestSessionEcho(server_ctx, worker_ctx);
@@ -627,10 +627,10 @@ int main()
         auto &ioc = *ioc_ptr;
 
         // 创建连接池，管理到上游的出站连接
-        const auto pool = std::make_unique<psm::channel::connection_pool>(ioc);
+        const auto pool = std::make_unique<psm::connect::connection_pool>(ioc);
         // 使用空 DNS 配置创建路由器（测试中使用直连，无需上游 DNS）
         psm::resolve::dns::config dns_cfg;
-        auto dist = std::make_unique<psm::resolve::router>(*pool, ioc, std::move(dns_cfg));
+        auto dist = std::make_unique<psm::connect::router>(*pool, ioc, std::move(dns_cfg));
 
         // 创建 SSL 上下文，测试中跳过证书验证
         auto ssl_ctx = std::make_shared<ssl::context>(ssl::context::tlsv12);
@@ -638,12 +638,12 @@ int main()
 
         // 构造服务端上下文：配置、SSL、账户存储
         psm::config cfg;
-        auto account_store = std::make_shared<agent::account::directory>(psm::memory::system::global_pool());
-        agent::server_context server_ctx{std::atomic<std::shared_ptr<const psm::config>>{std::make_shared<const psm::config>(cfg)}, ssl_ctx, account_store};
+        auto account_store = std::make_shared<psm::account::directory>(psm::memory::system::global_pool());
+        psm::context::server server_ctx{std::atomic<std::shared_ptr<const psm::config>>{std::make_shared<const psm::config>(cfg)}, ssl_ctx, account_store};
 
         // 构造工作线程上下文：io_context、DNS 路由、线程本地内存池
         auto mr = psm::memory::system::thread_local_pool();
-        agent::worker_context worker_ctx{ioc, *dist, mr};
+        psm::context::worker worker_ctx{ioc, *dist, mr};
 
         // 预分配帧竞技场（测试中未使用，但 worker_context 可能需要）
         psm::memory::frame_arena dummy_arena;

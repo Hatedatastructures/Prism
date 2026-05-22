@@ -5,9 +5,9 @@
  * 测试使用回显服务器作为测试桩，通过协程驱动所有异步操作。
  */
 
-#include <prism/channel/connection/pool.hpp>
+#include <prism/connect/pool/pool.hpp>
 #include <prism/memory/pool.hpp>
-#include <prism/resolve/router.hpp>
+#include <prism/connect/dial/router.hpp>
 #include <prism/resolve/dns/config.hpp>
 #include <prism/trace/spdlog.hpp>
 
@@ -90,7 +90,7 @@ net::awaitable<void> TestPoolAcquireAndRelease(net::io_context &ioc, unsigned sh
     {
         tcp::endpoint endpoint(net::ip::make_address("127.0.0.1"), echo_port);
 
-        psm::channel::connection_pool pool(ioc);
+        psm::connect::connection_pool pool(ioc);
 
         // 步骤 1：从连接池获取一个新连接
         runner.LogInfo("Step 1: Acquire connection");
@@ -110,7 +110,7 @@ net::awaitable<void> TestPoolAcquireAndRelease(net::io_context &ioc, unsigned sh
 
         // 步骤 2：将连接置空，触发析构并归还到连接池
         runner.LogInfo("Step 2: Recycle connection (by destruction)");
-        c1 = psm::channel::pooled_connection{};
+        c1 = psm::connect::pooled_connection{};
 
         // 步骤 3：再次获取，应命中池中回收的同一连接
         runner.LogInfo("Step 3: Acquire again (should reuse)");
@@ -133,7 +133,7 @@ net::awaitable<void> TestPoolAcquireAndRelease(net::io_context &ioc, unsigned sh
         }
 
         // 测试通过后释放连接
-        c2 = psm::channel::pooled_connection{};
+        c2 = psm::connect::pooled_connection{};
 
         runner.LogPass("TestPoolAcquireAndRelease");
     }
@@ -153,7 +153,7 @@ net::awaitable<void> TestPoolRecycling(net::io_context &ioc, unsigned short echo
     {
         tcp::endpoint endpoint(net::ip::make_address("127.0.0.1"), echo_port);
 
-        psm::channel::connection_pool pool(ioc);
+        psm::connect::connection_pool pool(ioc);
 
         // 获取第一个连接，记录其指针
         runner.LogInfo("Acquire first connection for recycling test");
@@ -173,7 +173,7 @@ net::awaitable<void> TestPoolRecycling(net::io_context &ioc, unsigned short echo
 
         // 释放连接，触发池回收
         runner.LogInfo("Release connection back to pool");
-        c1 = psm::channel::pooled_connection{};
+        c1 = psm::connect::pooled_connection{};
 
         // 再次获取，应命中回收的连接
         runner.LogInfo("Acquire recycled connection");
@@ -196,7 +196,7 @@ net::awaitable<void> TestPoolRecycling(net::io_context &ioc, unsigned short echo
         }
 
         // 释放连接
-        c2 = psm::channel::pooled_connection{};
+        c2 = psm::connect::pooled_connection{};
 
         runner.LogPass("TestPoolRecycling");
     }

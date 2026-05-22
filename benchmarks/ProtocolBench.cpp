@@ -7,10 +7,10 @@
 
 #include <benchmark/benchmark.h>
 #include <prism/protocol/http/parser.hpp>
-#include <prism/protocol/socks5/wire.hpp>
-#include <prism/protocol/trojan/format.hpp>
-#include <prism/protocol/vless/format.hpp>
-#include <prism/protocol/shadowsocks/format.hpp>
+#include <prism/protocol/socks5/framing.hpp>
+#include <prism/protocol/trojan/framing.hpp>
+#include <prism/protocol/vless/framing.hpp>
+#include <prism/protocol/shadowsocks/framing.hpp>
 #include <prism/crypto/sha224.hpp>
 #include <prism/crypto/base64.hpp>
 #include <prism/memory/pool.hpp>

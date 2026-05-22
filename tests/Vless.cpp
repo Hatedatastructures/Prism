@@ -6,11 +6,11 @@
  */
 
 #include <prism/protocol/vless.hpp>
-#include <prism/protocol/vless/format.hpp>
-#include <prism/protocol/vless/message.hpp>
+#include <prism/protocol/vless/framing.hpp>
+#include <prism/protocol/vless/packet.hpp>
 #include <prism/protocol/vless/constants.hpp>
-#include <prism/protocol/vless/relay.hpp>
-#include <prism/channel/transport/reliable.hpp>
+#include <prism/protocol/vless/conn.hpp>
+#include <prism/transport/reliable.hpp>
 #include <prism/memory.hpp>
 #include <prism/trace/spdlog.hpp>
 #include <prism/fault.hpp>
@@ -25,7 +25,7 @@
 
 namespace net = boost::asio;
 namespace protocol = psm::protocol;
-namespace transport = psm::channel::transport;
+namespace transport = psm::transport;
 using tcp = net::ip::tcp;
 
 namespace
@@ -588,7 +588,7 @@ net::awaitable<void> DoVlessServer(tcp::acceptor &acceptor)
         };
 
         auto trans = transport::make_reliable(std::move(socket));
-        auto vless = protocol::vless::make_relay(std::move(trans), {}, verifier);
+        auto vless = protocol::vless::make_conn(std::move(trans), {}, verifier);
 
         LogInfo("Server starting VLESS handshake...");
         auto [ec, req] = co_await vless->handshake();

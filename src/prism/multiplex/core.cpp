@@ -11,7 +11,7 @@ constexpr std::string_view tag = "[Mux.Core]";
 
 namespace psm::multiplex
 {
-    core::core(channel::transport::shared_transmission transport, resolve::router &router,
+    core::core(transport::shared_transmission transport, connect::router &router,
                const config &cfg, const memory::resource_pointer mr)
         : transport_(std::move(transport)), router_(router), config_(cfg),      
           mr_(mr ? mr : memory::current_resource()),

@@ -25,7 +25,7 @@
 #include <prism/memory/container.hpp>
 
 // 前向声明
-namespace psm::resolve
+namespace psm::connect
 {
     class router;
 }
@@ -75,7 +75,7 @@ namespace psm::multiplex
          * @note 方法定义在 parcel.cpp 中
          */
         parcel(std::uint32_t stream_id, std::shared_ptr<core> owner,
-               resolve::router &router,
+               connect::router &router,
                std::uint32_t udp_idle_timeout, std::uint32_t udp_max_dg,
                memory::resource_pointer mr, bool packet_addr = false);
 
@@ -196,7 +196,7 @@ namespace psm::multiplex
 
         std::uint32_t id_;                   // 流标识符，由 mux SYN 帧分配
         std::weak_ptr<core> owner_;          // 所属 core 的弱引用，不构成循环引用
-        resolve::router &router_;            // 路由器引用，用于 DNS 解析目标主机名
+        connect::router &router_;            // 路由器引用，用于 DNS 解析目标主机名
         net::any_io_executor executor_;      // 缓存的 executor，core 销毁后仍可用
         std::uint32_t udp_idle_timeout_ms_;  // UDP 管道空闲超时（毫秒）
         std::uint32_t udp_max_datagram_;     // UDP 数据报最大长度（字节）
@@ -229,7 +229,7 @@ namespace psm::multiplex
      * @return parcel 的共享指针
      */
     [[nodiscard]] inline auto make_parcel(std::uint32_t stream_id, std::shared_ptr<core> owner,
-                                          resolve::router &router, std::uint32_t udp_idle_timeout, std::uint32_t udp_max_dg,
+                                          connect::router &router, std::uint32_t udp_idle_timeout, std::uint32_t udp_max_dg,
                                           memory::resource_pointer mr = {}, bool packet_addr = false)
         -> std::shared_ptr<parcel>
     {

@@ -9,9 +9,10 @@
  */
 
 #include <prism/stealth/restls/scheme.hpp>
-#include <prism/channel/transport/reliable.hpp>
-#include <prism/pipeline/primitives.hpp>
-#include <prism/protocol/analysis.hpp>
+#include <prism/config.hpp>
+#include <prism/transport/reliable.hpp>
+#include <prism/connect/util.hpp>
+#include <prism/protocol/protocol_type.hpp>
 #include <prism/trace.hpp>
 #include <prism/fault/code.hpp>
 
@@ -34,10 +35,7 @@ namespace psm::stealth::restls
     auto scheme::snis(const psm::config &cfg) const
         -> memory::vector<memory::string>
     {
-        memory::vector<memory::string> names;
-        for (const auto &name : cfg.stealth.restls.server_names)
-            names.push_back(memory::string(name));
-        return names;
+        return make_sni_list(cfg.stealth.restls.server_names);
     }
 
     auto scheme::guess(const psm::config &cfg) const
@@ -63,7 +61,7 @@ namespace psm::stealth::restls
 
         // 获取底层 reliable transmission
         // 穿透 snapshot/preview 包装层找到底层 TCP socket
-        auto *rel = pipeline::primitives::find_reliable(ctx.inbound);
+        auto *rel = connect::find_reliable(ctx.inbound);
         if (!rel)
         {
             trace::debug("[Restls] Cannot access reliable transport (wrapped by another scheme), pass to next scheme");

@@ -9,9 +9,9 @@
 #include <prism/stealth.hpp>
 #include <prism/stealth/registry.hpp>
 #include <prism/stealth/executor.hpp>
-#include <prism/protocol/tls/signal.hpp>
+#include <prism/recognition/tls/signal.hpp>
 #include <prism/trace.hpp>
-#include <prism/pipeline/primitives.hpp>
+#include <prism/transport/preview.hpp>
 
 #include <algorithm>
 
@@ -24,7 +24,7 @@ namespace psm::recognition
         trace::debug("[Recognition] Starting identify lifecycle");
 
         // Phase 1: 读取完整 ClientHello
-        auto [read_ec, raw_record] = co_await protocol::tls::read_tls_record(*ctx.transport, ctx.preread);
+        auto [read_ec, raw_record] = co_await recognition::tls::read_tls_record(*ctx.transport, ctx.preread);
         if (fault::failed(read_ec))
         {
             trace::error("[Recognition] read_tls_record failed: {}", fault::describe(read_ec));
@@ -35,7 +35,7 @@ namespace psm::recognition
         trace::debug("[Recognition] Read {} bytes ClientHello", raw_record.size());
 
         // Phase 2: 解析 ClientHello 特征
-        auto [parse_ec, features] = protocol::tls::parse_client_hello(raw_record);
+        auto [parse_ec, features] = recognition::tls::parse_client_hello(raw_record);
         if (fault::failed(parse_ec))
         {
             trace::error("[Recognition] parse_client_hello failed: {}", fault::describe(parse_ec));
@@ -62,7 +62,7 @@ namespace psm::recognition
         // Phase 4: 分层检测
         auto raw_ch_span = std::span<const std::byte>(
             reinterpret_cast<const std::byte *>(raw_record.data()), raw_record.size());
-        auto bitmap = protocol::tls::build_feature_bitmap(features);
+        auto bitmap = recognition::tls::build_feature_bitmap(features);
 
         // 使用分层检测管道
         auto pipeline = layered_detection_pipeline(registry.all());
@@ -70,7 +70,7 @@ namespace psm::recognition
 
         // Phase 5: 构建 preview transport
         auto preread_span = std::span(reinterpret_cast<const std::byte *>(raw_record.data()), raw_record.size());
-        auto preview_transport = std::make_shared<pipeline::primitives::preview>(
+        auto preview_transport = std::make_shared<transport::preview>(
             ctx.transport, preread_span, ctx.frame_arena ? ctx.frame_arena->get() : memory::current_resource());
 
         // Phase 6: 按候选顺序执行 scheme

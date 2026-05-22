@@ -8,7 +8,7 @@
 
 #include <prism/stealth/scheme.hpp>
 
-namespace psm::stealth::schemes
+namespace psm::stealth::native
 {
     class native final : public stealth_scheme
     {
@@ -37,4 +37,4 @@ namespace psm::stealth::schemes
         [[nodiscard]] auto weight() const noexcept
             -> std::uint16_t override { return 50; }
     };
-} // namespace psm::stealth::schemes
+} // namespace psm::stealth::native

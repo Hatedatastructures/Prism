@@ -3,7 +3,7 @@
  * @brief TLS ClientHello 特征位图单元测试
  */
 
-#include <prism/protocol/tls/feature_bitmap.hpp>
+#include <prism/recognition/tls/feature_bitmap.hpp>
 #include <prism/protocol/tls/types.hpp>
 #include "common/TestRunner.hpp"
 
@@ -13,34 +13,34 @@ void TestFeatureBitmapBuild()
 
     // 测试空特征
     psm::protocol::tls::client_hello_features empty_features;
-    auto bitmap = psm::protocol::tls::build_feature_bitmap(empty_features);
+    auto bitmap = psm::recognition::tls::build_feature_bitmap(empty_features);
     runner.Check(bitmap == 0, "Empty features should produce 0 bitmap");
 
     // 测试有 SNI
     psm::protocol::tls::client_hello_features sni_features;
     sni_features.server_name = "example.com";
-    bitmap = psm::protocol::tls::build_feature_bitmap(sni_features);
-    runner.Check(psm::protocol::tls::has_feature(bitmap, psm::protocol::tls::has_sni), "Should have has_sni bit");
+    bitmap = psm::recognition::tls::build_feature_bitmap(sni_features);
+    runner.Check(psm::recognition::tls::has_feature(bitmap, psm::recognition::tls::has_sni), "Should have has_sni bit");
 
     // 测试有 X25519
     psm::protocol::tls::client_hello_features x25519_features;
     x25519_features.has_x25519 = true;
-    bitmap = psm::protocol::tls::build_feature_bitmap(x25519_features);
-    runner.Check(psm::protocol::tls::has_feature(bitmap, psm::protocol::tls::has_x25519), "Should have has_x25519 bit");
+    bitmap = psm::recognition::tls::build_feature_bitmap(x25519_features);
+    runner.Check(psm::recognition::tls::has_feature(bitmap, psm::recognition::tls::has_x25519), "Should have has_x25519 bit");
 
     // 测试 session_id=32
     psm::protocol::tls::client_hello_features session_features;
     session_features.session_id_len = 32;
     session_features.session_id.resize(32);
-    bitmap = psm::protocol::tls::build_feature_bitmap(session_features);
-    runner.Check(psm::protocol::tls::has_feature(bitmap, psm::protocol::tls::has_full_session_id), "Should have has_full_session_id bit");
+    bitmap = psm::recognition::tls::build_feature_bitmap(session_features);
+    runner.Check(psm::recognition::tls::has_feature(bitmap, psm::recognition::tls::has_full_session_id), "Should have has_full_session_id bit");
 
     // 测试非标准 session_id
     psm::protocol::tls::client_hello_features non_std_features;
     non_std_features.session_id_len = 16;
     non_std_features.session_id.resize(16);
-    bitmap = psm::protocol::tls::build_feature_bitmap(non_std_features);
-    runner.Check(psm::protocol::tls::has_feature(bitmap, psm::protocol::tls::session_id_non_standard), "Should have session_id_non_standard bit");
+    bitmap = psm::recognition::tls::build_feature_bitmap(non_std_features);
+    runner.Check(psm::recognition::tls::has_feature(bitmap, psm::recognition::tls::session_id_non_standard), "Should have session_id_non_standard bit");
 
     runner.Summary();
 }
@@ -57,10 +57,10 @@ void TestFeatureBitmapRealityMarker()
                                     0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
                                     0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00};
 
-    auto bitmap = psm::protocol::tls::build_feature_bitmap(reality_features);
-    runner.Check(psm::protocol::tls::has_feature(bitmap, psm::protocol::tls::reality_marker_01_08_02),
+    auto bitmap = psm::recognition::tls::build_feature_bitmap(reality_features);
+    runner.Check(psm::recognition::tls::has_feature(bitmap, psm::recognition::tls::reality_marker_01_08_02),
                  "Should have reality_marker_01_08_02 bit");
-    runner.Check(psm::protocol::tls::has_feature(bitmap, psm::protocol::tls::has_full_session_id),
+    runner.Check(psm::recognition::tls::has_feature(bitmap, psm::recognition::tls::has_full_session_id),
                  "Should also have has_full_session_id bit");
 
     // 测试非 Reality 标记
@@ -69,8 +69,8 @@ void TestFeatureBitmapRealityMarker()
     non_reality_features.session_id.resize(32);
     non_reality_features.session_id[0] = 0x00;
 
-    bitmap = psm::protocol::tls::build_feature_bitmap(non_reality_features);
-    runner.Check(!psm::protocol::tls::has_feature(bitmap, psm::protocol::tls::reality_marker_01_08_02),
+    bitmap = psm::recognition::tls::build_feature_bitmap(non_reality_features);
+    runner.Check(!psm::recognition::tls::has_feature(bitmap, psm::recognition::tls::reality_marker_01_08_02),
                  "Should not have reality_marker_01_08_02 bit");
 
     runner.Summary();
@@ -87,15 +87,15 @@ void TestFeatureBitmapHasAllFeatures()
     features.session_id_len = 32;
     features.session_id.resize(32);
 
-    auto bitmap = psm::protocol::tls::build_feature_bitmap(features);
+    auto bitmap = psm::recognition::tls::build_feature_bitmap(features);
 
     // 测试组合特征
-    auto combined = psm::protocol::tls::has_sni | psm::protocol::tls::has_x25519 | psm::protocol::tls::has_full_session_id;
-    runner.Check(psm::protocol::tls::has_all_features(bitmap, combined), "Should have all three features");
+    auto combined = psm::recognition::tls::has_sni | psm::recognition::tls::has_x25519 | psm::recognition::tls::has_full_session_id;
+    runner.Check(psm::recognition::tls::has_all_features(bitmap, combined), "Should have all three features");
 
     // 测试部分匹配
-    auto partial = psm::protocol::tls::has_sni | psm::protocol::tls::has_ech;
-    runner.Check(!psm::protocol::tls::has_all_features(bitmap, partial), "Should not have ECH");
+    auto partial = psm::recognition::tls::has_sni | psm::recognition::tls::has_ech;
+    runner.Check(!psm::recognition::tls::has_all_features(bitmap, partial), "Should not have ECH");
 
     runner.Summary();
 }

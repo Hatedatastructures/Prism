@@ -2,8 +2,9 @@
 #include <prism/multiplex/duct.hpp>
 #include <prism/multiplex/parcel.hpp>
 #include <prism/multiplex/smux/frame.hpp>
-#include <prism/channel/transport/reliable.hpp>
-#include <prism/resolve/router.hpp>
+#include <prism/transport/reliable.hpp>
+#include <prism/connect/dial/router.hpp>
+#include <prism/connect/dial/dial.hpp>
 #include <prism/trace.hpp>
 
 #include <array>
@@ -17,7 +18,7 @@ constexpr std::size_t max_frame_payload = 65535;
 
 namespace psm::multiplex::yamux
 {
-    craft::craft(channel::transport::shared_transmission transport, resolve::router &router,
+    craft::craft(transport::shared_transmission transport, connect::router &router,
                  const multiplex::config &cfg, const memory::resource_pointer mr)
         : core(std::move(transport), router, cfg, mr),
           channel_(transport_->executor(), cfg.yamux.max_streams),
@@ -610,7 +611,7 @@ namespace psm::multiplex::yamux
 
         char port_buf[8];
         const auto [port_end, port_ec] = std::to_chars(port_buf, port_buf + sizeof(port_buf), port);
-        auto [code, conn] = co_await router_.async_forward(host, std::string_view(port_buf, std::distance(port_buf, port_end)));
+        auto [code, conn] = co_await connect::async_forward(router_, host, std::string_view(port_buf, std::distance(port_buf, port_end)));
 
         if (code != fault::code::success || !conn.valid())
         {
@@ -631,7 +632,7 @@ namespace psm::multiplex::yamux
         pending_.erase(stream_id);
 
         // 创建 duct 并启动双向转发
-        auto target = channel::transport::make_reliable(std::move(conn));
+        auto target = transport::make_reliable(std::move(conn));
         const auto p = make_duct(stream_id, shared_from_this(), std::move(target), config_.yamux.buffer_size, mr_);
         ducts_[stream_id] = p;
 

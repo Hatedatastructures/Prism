@@ -45,3 +45,4 @@ compile_commands.json
 MODULE.bazel.lock
 CLAUDE.md
 .claude/settings.local.json
+docs/superpowers/

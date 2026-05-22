@@ -1,7 +1,8 @@
 target_sources(${PROJECT_NAME}_static_library
         PRIVATE
         parser.cpp
-        relay.cpp
+        conn.cpp
+        process.cpp
 )
 
 target_sources(${PROJECT_NAME}_static_library
@@ -10,5 +11,6 @@ target_sources(${PROJECT_NAME}_static_library
         BASE_DIRS ${PROJECT_SOURCE_DIR}/include
         FILES
             ${PROJECT_SOURCE_DIR}/include/prism/protocol/http/parser.hpp
-            ${PROJECT_SOURCE_DIR}/include/prism/protocol/http/relay.hpp
+            ${PROJECT_SOURCE_DIR}/include/prism/protocol/http/conn.hpp
+            ${PROJECT_SOURCE_DIR}/include/prism/protocol/http/process.hpp
 )

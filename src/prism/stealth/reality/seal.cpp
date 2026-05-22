@@ -1,13 +1,16 @@
 #include <prism/stealth/reality/seal.hpp>
+#include <prism/stealth/common.hpp>
 #include <prism/trace.hpp>
 #include <cstring>
 #include <algorithm>
 
 namespace psm::stealth::reality
 {
+    using namespace psm::protocol;
+
     constexpr std::string_view SessTag = "[Stealth.Session]";
 
-    seal::seal(channel::transport::shared_transmission transport, key_material keys)
+    seal::seal(transport::shared_transmission transport, key_material keys)
         : transport_(std::move(transport)),
           keys_(std::move(keys)),
           server_encryptor_(crypto::aead_cipher::aes_128_gcm, keys_.server_app_key),
@@ -130,19 +133,6 @@ namespace psm::stealth::reality
             transport_->cancel();
     }
 
-    auto seal::make_nonce(const std::span<const std::uint8_t> iv, const std::uint64_t sequence) const
-        -> std::array<std::uint8_t, tls::AEAD_NONCE_LEN>
-    {
-        std::array<std::uint8_t, tls::AEAD_NONCE_LEN> nonce{};
-        std::memcpy(nonce.data(), iv.data(), tls::AEAD_NONCE_LEN);
-
-        for (int i = 0; i < 8; ++i)
-        {
-            nonce[tls::AEAD_NONCE_LEN - 1 - i] ^= static_cast<std::uint8_t>((sequence >> (8 * i)) & 0xFF);
-        }
-        return nonce;
-    }
-
     auto seal::read_encrypted_record(std::error_code &ec)
         -> net::awaitable<std::size_t>
     {
@@ -198,15 +188,12 @@ namespace psm::stealth::reality
         }
 
         // 4. AEAD 解密
-        const auto nonce = make_nonce(keys_.client_app_iv, read_sequence_);
+        const auto nonce = common::make_aead_nonce(
+            std::span<const std::uint8_t>(keys_.client_app_iv.data(), keys_.client_app_iv.size()),
+            read_sequence_);
         ++read_sequence_;
 
-        std::array<std::uint8_t, tls::RECORD_HEADER_LEN> ad{};
-        ad[0] = tls::CONTENT_TYPE_APPLICATION_DATA;
-        ad[1] = 0x03;
-        ad[2] = 0x03;
-        ad[3] = raw[3];
-        ad[4] = raw[4];
+        const auto ad = common::make_record_ad((static_cast<std::uint16_t>(raw[3]) << 8) | raw[4]);
 
         const auto ciphertext = std::span<const std::uint8_t>(
             reinterpret_cast<const std::uint8_t *>(record_body.data()), record_len);
@@ -220,10 +207,8 @@ namespace psm::stealth::reality
         if (!first_read_logged_)
         {
             first_read_logged_ = true;
-            trace::info("{} first decrypt: seq={}, nonce={:02x}{:02x}..{:02x}{:02x}, cipher_len={}",
-                        SessTag, read_sequence_ - 1,
-                        nonce[0], nonce[1], nonce[10], nonce[11],
-                        ciphertext.size());
+            trace::debug("{} first decrypt: seq={}, cipher_len={}",
+                        SessTag, read_sequence_ - 1, ciphertext.size());
         }
         if (fault::failed(dec_ec))
         {
@@ -264,16 +249,13 @@ namespace psm::stealth::reality
         write_plain_buf_[data.size()] = tls::CONTENT_TYPE_APPLICATION_DATA;
         auto &inner = write_plain_buf_;
 
-        const auto nonce = make_nonce(keys_.server_app_iv, write_sequence_);
+        const auto nonce = common::make_aead_nonce(
+            std::span<const std::uint8_t>(keys_.server_app_iv.data(), keys_.server_app_iv.size()),
+            write_sequence_);
         ++write_sequence_;
 
-        const auto encrypted_len = inner.size() + tls::AEAD_TAG_LEN;
-        std::array<std::uint8_t, tls::RECORD_HEADER_LEN> ad{};
-        ad[0] = tls::CONTENT_TYPE_APPLICATION_DATA;
-        ad[1] = 0x03;
-        ad[2] = 0x03;
-        ad[3] = static_cast<std::uint8_t>((encrypted_len >> 8) & 0xFF);
-        ad[4] = static_cast<std::uint8_t>(encrypted_len & 0xFF);
+        const auto encrypted_len = static_cast<std::uint16_t>(inner.size() + tls::AEAD_TAG_LEN);
+        const auto ad = common::make_record_ad(encrypted_len);
 
         write_ciphertext_buf_.resize(encrypted_len);
         auto &ciphertext = write_ciphertext_buf_;
@@ -283,17 +265,7 @@ namespace psm::stealth::reality
         if (!first_write_logged_)
         {
             first_write_logged_ = true;
-            trace::info("{} first encrypt: seq={}, nonce={:02x}{:02x}..{:02x}{:02x}, plain_len={}",
-                        SessTag, write_sequence_ - 1,
-                        nonce[0], nonce[1], nonce[10], nonce[11],
-                        inner.size());
-            if (inner.size() >= 8)
-            {
-                trace::info("{} first encrypt plain[0..7]: {:02x}{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}",
-                            SessTag,
-                            inner[0], inner[1], inner[2], inner[3],
-                            inner[4], inner[5], inner[6], inner[7]);
-            }
+            trace::debug("{} first encrypt: seq={}, plain_len={}", SessTag, write_sequence_ - 1, inner.size());
         }
         if (fault::failed(enc_ec))
         {

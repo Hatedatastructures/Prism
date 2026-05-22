@@ -9,51 +9,21 @@
 
 #include <cstdint>
 #include <span>
-#include <prism/agent/context.hpp>
-#include <prism/channel/transport/transmission.hpp>
+#include <prism/context/context.hpp>
+#include <prism/transport/transmission.hpp>
 #include <prism/fault/code.hpp>
 #include <prism/memory/container.hpp>
+#include <prism/stealth/scheme.hpp>
 #include <boost/asio.hpp>
 
-namespace psm::resolve
+namespace psm::connect
 {
     class router;
-} // namespace psm::resolve
+} // namespace psm::connect
 
 namespace psm::stealth::reality
 {
     namespace net = boost::asio;
-
-    /**
-     * @enum handshake_result_type
-     * @brief 握手结果类型
-     */
-    enum class handshake_result_type
-    {
-        /** @brief Reality 认证成功，返回加密传输层 */
-        authenticated,
-        /** @brief 非 Reality 客户端（SNI 不匹配），应走标准 TLS */
-        not_reality,
-        /** @brief 回退到 dest 服务器，透明代理已完成 */
-        fallback,
-        /** @brief 错误 */
-        failed
-    };
-
-    /**
-     * @struct handshake_result
-     * @brief 握手结果
-     * @details 包含握手结果类型、加密传输层（认证成功时）、
-     * 内层预读数据、原始 TLS 记录（非 Reality 时）和错误码
-     */
-    struct handshake_result
-    {
-        handshake_result_type type = handshake_result_type::failed;  // 握手结果类型
-        channel::transport::shared_transmission encrypted_transport; // type==authenticated 时为加密传输层
-        memory::vector<std::byte> inner_preread;                     // type==authenticated 时为内层预读数据
-        memory::vector<std::byte> raw_tls_record;                    // type==not_reality 时为原始 ClientHello TLS record
-        fault::code error = fault::code::success;                    // 错误码
-    };
 
     /**
      * @brief 执行 Reality 握手
@@ -62,12 +32,12 @@ namespace psm::stealth::reality
      * @param inbound 入站传输层（不转移所有权，仅使用）
      * @param cfg 服务器配置
      * @param session 会话上下文（用于 fallback 等需要 router 的场景）
-     * @return net::awaitable<handshake_result> 异步操作，返回握手结果
+     * @return net::awaitable<stealth::handshake_result> 异步操作，返回握手结果
      */
-    auto handshake(channel::transport::shared_transmission inbound,
+    auto handshake(transport::shared_transmission inbound,
                    const psm::config &cfg,
-                   psm::agent::session_context &session)
-        -> net::awaitable<handshake_result>;
+                   psm::context::session &session)
+        -> net::awaitable<stealth::handshake_result>;
 
     /**
      * @brief 执行回退：连接 dest 服务器并透明代理
@@ -78,8 +48,8 @@ namespace psm::stealth::reality
      * @param raw_record 原始 ClientHello TLS 记录字节
      * @return net::awaitable<fault::code> 异步操作，返回错误码
      */
-    auto fallback_to_dest(psm::agent::session_context &session,
-                          channel::transport::shared_transmission inbound,
+    auto fallback_to_dest(psm::context::session &session,
+                          transport::shared_transmission inbound,
                           std::span<const std::uint8_t> raw_record)
         -> net::awaitable<fault::code>;
 
@@ -103,6 +73,6 @@ namespace psm::stealth::reality
      * @return net::awaitable<std::pair<fault::code, memory::vector<std::uint8_t>>>
      * 异步操作，返回错误码和 DER 格式证书
      */
-    auto fetch_dest_certificate(std::string_view host, std::uint16_t port, resolve::router &router)
+    auto fetch_dest_certificate(std::string_view host, std::uint16_t port, connect::router &router)
         -> net::awaitable<std::pair<fault::code, memory::vector<std::uint8_t>>>;
 } // namespace psm::stealth::reality

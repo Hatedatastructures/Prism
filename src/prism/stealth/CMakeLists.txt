@@ -1,22 +1,23 @@
 target_sources(${PROJECT_NAME}_static_library
         PRIVATE
         registry.cpp
+        common.cpp
         executor.cpp
-        reality/request.cpp
-        reality/auth.cpp
-        reality/keygen.cpp
-        reality/response.cpp
+
+        reality/util/auth.cpp
+        reality/util/keygen.cpp
+        reality/util/response.cpp
         reality/seal.cpp
         reality/handshake.cpp
         reality/scheme.cpp
-        shadowtls/auth.cpp
+        shadowtls/util/auth.cpp
         shadowtls/handshake.cpp
         shadowtls/scheme.cpp
         shadowtls/transport.cpp
         restls/scheme.cpp
         anytls/scheme.cpp
         trusttunnel/scheme.cpp
-        ech/decrypt.cpp
+        ech/util/decrypt.cpp
         native.cpp
 )
 
@@ -26,22 +27,21 @@ target_sources(${PROJECT_NAME}_static_library
         BASE_DIRS ${PROJECT_SOURCE_DIR}/include
         FILES
             ${PROJECT_SOURCE_DIR}/include/prism/stealth.hpp
+            ${PROJECT_SOURCE_DIR}/include/prism/stealth/common.hpp
             ${PROJECT_SOURCE_DIR}/include/prism/stealth/scheme.hpp
             ${PROJECT_SOURCE_DIR}/include/prism/stealth/registry.hpp
             ${PROJECT_SOURCE_DIR}/include/prism/stealth/executor.hpp
             ${PROJECT_SOURCE_DIR}/include/prism/stealth/native.hpp
             ${PROJECT_SOURCE_DIR}/include/prism/stealth/reality/config.hpp
-            ${PROJECT_SOURCE_DIR}/include/prism/stealth/reality/constants.hpp
-            ${PROJECT_SOURCE_DIR}/include/prism/stealth/reality/request.hpp
-            ${PROJECT_SOURCE_DIR}/include/prism/stealth/reality/auth.hpp
-            ${PROJECT_SOURCE_DIR}/include/prism/stealth/reality/keygen.hpp
-            ${PROJECT_SOURCE_DIR}/include/prism/stealth/reality/response.hpp
+            ${PROJECT_SOURCE_DIR}/include/prism/stealth/reality/util/auth.hpp
+            ${PROJECT_SOURCE_DIR}/include/prism/stealth/reality/util/keygen.hpp
+            ${PROJECT_SOURCE_DIR}/include/prism/stealth/reality/util/response.hpp
             ${PROJECT_SOURCE_DIR}/include/prism/stealth/reality/seal.hpp
             ${PROJECT_SOURCE_DIR}/include/prism/stealth/reality/handshake.hpp
             ${PROJECT_SOURCE_DIR}/include/prism/stealth/reality/scheme.hpp
             ${PROJECT_SOURCE_DIR}/include/prism/stealth/shadowtls/config.hpp
-            ${PROJECT_SOURCE_DIR}/include/prism/stealth/shadowtls/constants.hpp
-            ${PROJECT_SOURCE_DIR}/include/prism/stealth/shadowtls/auth.hpp
+            ${PROJECT_SOURCE_DIR}/include/prism/stealth/shadowtls/util/constants.hpp
+            ${PROJECT_SOURCE_DIR}/include/prism/stealth/shadowtls/util/auth.hpp
             ${PROJECT_SOURCE_DIR}/include/prism/stealth/shadowtls/handshake.hpp
             ${PROJECT_SOURCE_DIR}/include/prism/stealth/shadowtls/scheme.hpp
             ${PROJECT_SOURCE_DIR}/include/prism/stealth/shadowtls/transport.hpp
@@ -52,5 +52,5 @@ target_sources(${PROJECT_NAME}_static_library
             ${PROJECT_SOURCE_DIR}/include/prism/stealth/trusttunnel/config.hpp
             ${PROJECT_SOURCE_DIR}/include/prism/stealth/trusttunnel/scheme.hpp
             ${PROJECT_SOURCE_DIR}/include/prism/stealth/ech/config.hpp
-            ${PROJECT_SOURCE_DIR}/include/prism/stealth/ech/decrypt.hpp
+            ${PROJECT_SOURCE_DIR}/include/prism/stealth/ech/util/decrypt.hpp
 )

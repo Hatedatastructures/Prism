@@ -5,9 +5,9 @@
  * 验证构造、异步读写、关闭、远端端点等操作的正确性。
  */
 
-#include <prism/channel/transport/transmission.hpp>
-#include <prism/channel/transport/reliable.hpp>
-#include <prism/channel/transport/unreliable.hpp>
+#include <prism/transport/transmission.hpp>
+#include <prism/transport/reliable.hpp>
+#include <prism/transport/unreliable.hpp>
 #include <prism/memory.hpp>
 #include <prism/trace/spdlog.hpp>
 
@@ -114,7 +114,7 @@ void TestReliableConstructor()
     net::io_context ioc;
     auto executor = ioc.get_executor();
     // 从 executor 构造 reliable 传输层，验证内部 executor 一致性
-    auto reliable = psm::channel::transport::make_reliable(executor);
+    auto reliable = psm::transport::make_reliable(executor);
 
     // 确保构造后的 executor 与传入的相同
     if (reliable->executor() != executor)
@@ -138,7 +138,7 @@ void TestReliableFromSocket()
     // 创建一个未连接的 TCP socket
     net::ip::tcp::socket socket(executor);
     // 从已有 socket 构造 reliable 传输层，验证所有权转移后 executor 一致性
-    auto reliable = psm::channel::transport::make_reliable(std::move(socket));
+    auto reliable = psm::transport::make_reliable(std::move(socket));
 
     if (reliable->executor() != executor)
     {
@@ -229,7 +229,7 @@ net::awaitable<void> TestReliableClose(net::io_context &ioc)
         // 不再接受更多连接，关闭监听器
         acceptor.close();
         // 将已连接的 socket 包装为 reliable 传输层
-        auto transport = psm::channel::transport::make_reliable(std::move(socket));
+        auto transport = psm::transport::make_reliable(std::move(socket));
 
         // 主动关闭传输层
         transport->close();
@@ -292,7 +292,7 @@ void TestUnreliableConstructor()
     net::io_context ioc;
     auto executor = ioc.get_executor();
     // 从 executor 构造 unreliable 传输层（UDP 语义）
-    auto unreliable = std::make_shared<psm::channel::transport::unreliable>(executor);
+    auto unreliable = std::make_shared<psm::transport::unreliable>(executor);
 
     // 验证构造后的 executor 与传入的一致
     if (unreliable->executor() != executor)
@@ -320,7 +320,7 @@ void TestUnreliableSetRemoteEndpoint()
 
     net::io_context ioc;
     auto executor = ioc.get_executor();
-    auto unreliable = std::make_shared<psm::channel::transport::unreliable>(executor);
+    auto unreliable = std::make_shared<psm::transport::unreliable>(executor);
 
     // 构造一个 UDP 端点作为远端目标
     net::ip::udp::endpoint endpoint(net::ip::make_address("127.0.0.1"), 8888);

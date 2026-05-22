@@ -11,7 +11,7 @@
 #include <prism/protocol/socks5.hpp>
 #include <prism/exception/network.hpp>
 #include <prism/fault/code.hpp>
-#include <prism/channel/transport/reliable.hpp>
+#include <prism/transport/reliable.hpp>
 #include <prism/memory.hpp>
 #include <prism/trace/spdlog.hpp>
 #include <boost/asio.hpp>
@@ -24,7 +24,7 @@
 
 namespace net = boost::asio;
 namespace protocol = psm::protocol;
-namespace transport = psm::channel::transport;
+namespace transport = psm::transport;
 using tcp = net::ip::tcp;
 
 namespace
@@ -80,7 +80,7 @@ net::awaitable<void> DoSocks5Server(tcp::acceptor &acceptor)
         // 将原始 TCP socket 包装为可靠传输层
         auto reliable = transport::make_reliable(std::move(socket));
         // 基于 reliable 创建 SOCKS5 中继实例
-        auto socks5 = std::make_shared<protocol::socks5::relay>(std::move(reliable));
+        auto socks5 = std::make_shared<protocol::socks5::conn>(std::move(reliable));
 
         // 执行 SOCKS5 完整握手（方法协商 + CONNECT 请求解析）
         LogInfo("Server starting SOCKS5 handshake...");

@@ -8,7 +8,7 @@
 
 #pragma once
 
-#include <prism/channel/transport/transmission.hpp>
+#include <prism/transport/transmission.hpp>
 #include <prism/memory/container.hpp>
 #include <boost/asio.hpp>
 #include <openssl/hmac.h>
@@ -35,7 +35,7 @@ namespace psm::stealth::shadowtls
      * @note 写入方向 HMAC 初始状态 = password + SR + "S"（从 handshake 阶段继承）
      *       读取方向 HMAC 初始状态 = password + SR + "C" + first_frame_payload + HMAC[:4]（从 handshake 阶段继承）
      */
-    class shadowtls_transport final : public channel::transport::transmission
+    class shadowtls_transport final : public transport::transmission
     {
     public:
         /**
@@ -100,7 +100,6 @@ namespace psm::stealth::shadowtls
             -> net::awaitable<std::size_t>;
 
         net::ip::tcp::socket socket_;
-        std::string password_;
         std::array<std::byte, 32> server_random_;
         memory::vector<std::uint8_t> write_key_; // XOR 密钥：SHA256(password + serverRandom)
 
@@ -113,12 +112,10 @@ namespace psm::stealth::shadowtls
         std::size_t pending_offset_{0};
 
         // 写入方向累积 HMAC 上下文（初始：password + SR + "S"）
-        HMAC_CTX *hmac_write_ctx_{nullptr};
-        std::shared_ptr<HMAC_CTX> hmac_write_ctx_owner_; // shared_ptr 持有所有权
+        std::shared_ptr<HMAC_CTX> hmac_write_ctx_;
 
         // 读取方向累积 HMAC 上下文（初始：password + SR + "C" + payload + HMAC[:4]）
-        HMAC_CTX *hmac_read_ctx_{nullptr};
-        std::shared_ptr<HMAC_CTX> hmac_read_ctx_owner_; // shared_ptr 持有所有权
+        std::shared_ptr<HMAC_CTX> hmac_read_ctx_;
 
         // TLS frame 常量
         static constexpr std::size_t tls_header_size = 5;

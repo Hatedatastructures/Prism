@@ -1,7 +1,7 @@
 /**
  * @file direct.hpp
  * @brief 直连出站代理实现
- * @details 包装现有 resolve::router + channel::connection_pool 的直连行为，
+ * @details 包装现有 connect::router + connect::connection_pool 的直连行为，
  * 作为最简单的 outbound::proxy 实现。所有连接请求直接通过 DNS 解析
  * 和 Happy Eyeballs 建立连接，不经过任何上游代理。
  * 等价于 mihomo 的 adapter/outbound/direct.go。
@@ -14,9 +14,10 @@
 #include <utility>
 
 #include <prism/outbound/proxy.hpp>
-#include <prism/resolve/router.hpp>
-#include <prism/channel/transport/reliable.hpp>
-#include <prism/channel/connection/pool.hpp>
+#include <prism/connect/dial/router.hpp>
+#include <prism/connect/dial/dial.hpp>
+#include <prism/transport/reliable.hpp>
+#include <prism/connect/pool/pool.hpp>
 #include <prism/fault/code.hpp>
 #include <prism/trace.hpp>
 
@@ -25,7 +26,7 @@ namespace psm::outbound
     /**
      * @class direct
      * @brief 直连出站代理
-     * @details 将 outbound::proxy 接口映射到现有的 resolve::router 路由。
+     * @details 将 outbound::proxy 接口映射到现有的 connect::router 路由。
      * 路由策略：
      * - target.positive == false 时尝试反向路由（域名 → 预配置后端）
      * - 否则走正向路由（DNS 解析 + TCP 连接）
@@ -40,12 +41,12 @@ namespace psm::outbound
          * @brief 构造直连出站代理
          * @param router 路由器引用，用于 DNS 解析和连接建立
          */
-        explicit direct(resolve::router &router)
+        explicit direct(connect::router &router)
             : router_(router)
         {
         }
 
-        auto async_connect(const protocol::analysis::target &target, const net::any_io_executor &executor)
+        auto async_connect(const protocol::target &target, const net::any_io_executor &executor)
             -> net::awaitable<std::pair<fault::code, shared_transmission>> override
         {
             // 拒绝 IPv6 地址字面量（仅在禁用 IPv6 时）
@@ -57,7 +58,7 @@ namespace psm::outbound
 
             // 路由到目标
             fault::code ec;
-            channel::pooled_connection conn;
+            psm::connect::pooled_connection conn;
 
             if (!target.positive)
             {
@@ -69,7 +70,7 @@ namespace psm::outbound
             else
             {
                 // 正向代理：域名 → DNS 解析 → TCP 连接
-                auto result = co_await router_.async_forward(target.host, target.port);
+                auto result = co_await connect::async_forward(router_, target.host, target.port);
                 ec = result.first;
                 conn = std::move(result.second);
             }
@@ -89,21 +90,21 @@ namespace psm::outbound
 
             trace::info("[Outbound.Direct] success, target: {}:{}", target.host, target.port);
             co_return std::pair{fault::code::success,
-                                channel::transport::make_reliable(std::move(conn))};
+                                transport::make_reliable(std::move(conn))};
         }
 
         auto make_datagram_router()
             -> std::function<net::awaitable<std::pair<fault::code, net::ip::udp::endpoint>>(
                 std::string_view, std::string_view)> override
         {
-            const auto ptr = std::shared_ptr<resolve::router>(&router_, []([[maybe_unused]] resolve::router *p)
+            const auto ptr = std::shared_ptr<connect::router>(&router_, []([[maybe_unused]] connect::router *p)
                                                               {
                                                                   // 非拥有指针，空删除器
                                                               });
             return [ptr](const std::string_view host, const std::string_view port)
                        -> net::awaitable<std::pair<fault::code, net::ip::udp::endpoint>>
             {
-                co_return co_await ptr->resolve_datagram_target(host, port);
+                co_return co_await connect::resolve_datagram_target(*ptr, host, port);
             };
         }
 
@@ -125,7 +126,7 @@ namespace psm::outbound
             return !ec && addr.is_v6();
         }
 
-        resolve::router &router_;
+        connect::router &router_;
     };
 
 } // namespace psm::outbound

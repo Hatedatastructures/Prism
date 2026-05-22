@@ -1,0 +1,53 @@
+/**
+ * @file common.cpp
+ * @brief 伪装层共享工具函数实现
+ * @details 实现 read_raw_tls_frame 等需要协程支持的工具函数。
+ */
+
+#include <prism/stealth/common.hpp>
+#include <cstring>
+
+namespace psm::stealth::common
+{
+    auto read_raw_tls_frame(net::ip::tcp::socket &sock, std::error_code &ec_out)
+        -> net::awaitable<std::optional<memory::vector<std::byte>>>
+    {
+        ec_out.clear();
+
+        // 读取 5 字节 TLS 记录头
+        boost::system::error_code ec;
+        std::array<std::byte, 5> header{};
+        auto header_n = co_await net::async_read(
+            sock, net::buffer(header.data(), 5),
+            net::redirect_error(net::use_awaitable, ec));
+
+        if (ec || header_n < 5)
+        {
+            ec_out = ec;
+            co_return std::nullopt;
+        }
+
+        const auto *raw = reinterpret_cast<const std::uint8_t *>(header.data());
+        const std::uint16_t record_length = (static_cast<std::uint16_t>(raw[3]) << 8) | raw[4];
+
+        // 分配 header + payload 完整帧
+        memory::vector<std::byte> frame(5 + record_length);
+        std::memcpy(frame.data(), header.data(), 5);
+
+        if (record_length > 0)
+        {
+            auto payload = std::span<std::byte>(frame.data() + 5, record_length);
+            auto payload_n = co_await net::async_read(
+                sock, net::buffer(payload.data(), payload.size()),
+                net::redirect_error(net::use_awaitable, ec));
+
+            if (ec || payload_n < record_length)
+            {
+                ec_out = ec;
+                co_return std::nullopt;
+            }
+        }
+
+        co_return frame;
+    }
+} // namespace psm::stealth::common

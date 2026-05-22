@@ -1,5 +1,5 @@
 #include <prism/protocol/http/parser.hpp>
-#include <prism/agent/account/directory.hpp>
+#include <prism/account/directory.hpp>
 #include <prism/crypto/sha224.hpp>
 #include <prism/crypto/base64.hpp>
 #include <cctype>
@@ -95,7 +95,7 @@ namespace psm::protocol::http
         constexpr std::string_view basic_prefix = "Basic ";
     } // namespace
 
-    auto authenticate_proxy_request(const std::string_view authorization, agent::account::directory &directory)
+    auto authenticate_proxy_request(const std::string_view authorization, account::directory &directory)
         -> auth_result
     {
         // 验证 Basic 认证方案前缀（大小写不敏感）
@@ -113,7 +113,7 @@ namespace psm::protocol::http
             // 提取密码并计算 SHA224 哈希
             const auto password = std::string_view(decoded).substr(colon_pos + 1);
             const auto credential = crypto::sha224(password);
-            auto lease = agent::account::try_acquire(directory, credential);
+            auto lease = account::try_acquire(directory, credential);
 
             if (lease)
             {

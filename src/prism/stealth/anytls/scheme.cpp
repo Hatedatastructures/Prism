@@ -7,14 +7,18 @@
  * **当前状态**：基础框架已实现，认证逻辑待完善。
  */
 #include <prism/stealth/anytls/scheme.hpp>
-#include <prism/pipeline/primitives.hpp>
-#include <prism/channel/transport/encrypted.hpp>
-#include <prism/protocol/analysis.hpp>
+#include <prism/connect.hpp>
+#include <prism/config.hpp>
+#include <prism/transport/encrypted.hpp>
+#include <prism/protocol/protocol_type.hpp>
+#include <prism/recognition/tls/feature_bitmap.hpp>
 #include <prism/trace.hpp>
 #include <prism/fault/handling.hpp>
 
 namespace psm::stealth::anytls
 {
+    using namespace recognition::tls;
+
     auto scheme::active(const psm::config &cfg) const noexcept -> bool
     {
         return cfg.stealth.anytls.enabled();
@@ -28,10 +32,7 @@ namespace psm::stealth::anytls
     auto scheme::snis(const psm::config &cfg) const
         -> memory::vector<memory::string>
     {
-        memory::vector<memory::string> names;
-        for (const auto &name : cfg.stealth.anytls.server_names)
-            names.push_back(memory::string(name));
-        return names;
+        return make_sni_list(cfg.stealth.anytls.server_names);
     }
 
     auto scheme::verify(const protocol::tls::client_hello_features &features,

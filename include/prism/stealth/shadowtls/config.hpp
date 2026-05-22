@@ -7,8 +7,7 @@
  */
 #pragma once
 
-#include <string>
-#include <vector>
+#include <prism/memory/container.hpp>
 #include <cstdint>
 
 namespace psm::stealth::shadowtls
@@ -20,8 +19,8 @@ namespace psm::stealth::shadowtls
      */
     struct user
     {
-        std::string name;     ///< 用户名称
-        std::string password; ///< 认证密码
+        memory::string name;     ///< 用户名称
+        memory::string password; ///< 认证密码
     };
 
     /**
@@ -33,13 +32,13 @@ namespace psm::stealth::shadowtls
      */
     struct config
     {
-        int version{3};                                  ///< 协议版本 (2 或 3)
-        std::string password;                            ///< v2 兼容密码
-        std::vector<user> users;                         ///< v3 多用户
-        std::string handshake_dest;                      ///< 握手后端目标 host:port
-        std::vector<std::string> server_names;           ///< SNI 白名单
-        bool strict_mode{true};                          ///< 严格模式：仅 TLS 1.3
-        std::uint32_t handshake_timeout_ms{5000};        ///< 握手超时（毫秒）
+        int version{3};                              ///< 协议版本 (2 或 3)
+        memory::string password;                     ///< v2 兼容密码
+        memory::vector<user> users;                  ///< v3 多用户
+        memory::string handshake_dest;               ///< 握手后端目标 host:port
+        memory::vector<memory::string> server_names; ///< SNI 白名单
+        bool strict_mode{true};                      ///< 严格模式：仅 TLS 1.3
+        std::uint32_t handshake_timeout_ms{5000};    ///< 握手超时（毫秒）
 
         /**
          * @brief 检查配置是否启用
@@ -55,28 +54,3 @@ namespace psm::stealth::shadowtls
         }
     };
 } // namespace psm::stealth::shadowtls
-
-#include <glaze/glaze.hpp>
-
-template <>
-struct glz::meta<psm::stealth::shadowtls::user>
-{
-    using T = psm::stealth::shadowtls::user;
-    static constexpr auto value = glz::object(
-        "name",     &T::name,
-        "password", &T::password);
-};
-
-template <>
-struct glz::meta<psm::stealth::shadowtls::config>
-{
-    using T = psm::stealth::shadowtls::config;
-    static constexpr auto value = glz::object(
-        "version",              &T::version,
-        "password",             &T::password,
-        "users",                &T::users,
-        "handshake_dest",       &T::handshake_dest,
-        "server_names",         &T::server_names,
-        "strict_mode",          &T::strict_mode,
-        "handshake_timeout_ms", &T::handshake_timeout_ms);
-};

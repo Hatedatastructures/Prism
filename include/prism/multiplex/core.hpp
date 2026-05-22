@@ -20,11 +20,11 @@
 #include <boost/asio.hpp>
 
 #include <prism/multiplex/config.hpp>
-#include <prism/channel/transport/transmission.hpp>
+#include <prism/transport/transmission.hpp>
 #include <prism/memory/container.hpp>
 
 // 前向声明
-namespace psm::resolve
+namespace psm::connect
 {
     class router;
 }
@@ -66,7 +66,7 @@ namespace psm::multiplex
          * 调用 start() 后才会进入协议主循环。
          * @note 方法定义在 core.cpp 中
          */
-        core(channel::transport::shared_transmission transport, resolve::router &router,
+        core(transport::shared_transmission transport, connect::router &router,
              const config &cfg, memory::resource_pointer mr = {});
 
         virtual ~core();
@@ -147,8 +147,8 @@ namespace psm::multiplex
          */
         virtual void remove_parcel(std::uint32_t stream_id);
 
-        channel::transport::shared_transmission transport_; // 底层传输连接
-        resolve::router &router_;                           // 路由器引用
+        transport::shared_transmission transport_; // 底层传输连接
+        connect::router &router_;                           // 路由器引用
         const config &config_;                              // mux 配置
         memory::resource_pointer mr_;                       // PMR 内存资源
         std::atomic<bool> active_{false};                   // 会话活跃标志

@@ -71,29 +71,3 @@ namespace psm::stealth::anytls
         }
     };
 } // namespace psm::stealth::anytls
-
-#include <glaze/glaze.hpp>
-
-template <>
-struct glz::meta<psm::stealth::anytls::user>
-{
-    using T = psm::stealth::anytls::user;
-    static constexpr auto value = glz::object(
-        "username", &T::username,
-        "password", &T::password);
-};
-
-template <>
-struct glz::meta<psm::stealth::anytls::config>
-{
-    using T = psm::stealth::anytls::config;
-    static constexpr auto value = glz::object(
-        "server_names",             &T::server_names,
-        "certificate",              &T::certificate,
-        "private_key",              &T::private_key,
-        "users",                    &T::users,
-        "ech_key",                  &T::ech_key,
-        "padding_scheme",           &T::padding_scheme,
-        "handshake_timeout_ms",     &T::handshake_timeout_ms,
-        "idle_session_timeout_ms",  &T::idle_session_timeout_ms);
-};

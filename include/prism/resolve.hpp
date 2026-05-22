@@ -5,8 +5,6 @@
  */
 #pragma once
 
-#include <prism/resolve/router.hpp>
-
 #include <prism/resolve/dns/config.hpp>
 #include <prism/resolve/dns/dns.hpp>
 #include <prism/resolve/dns/upstream.hpp>

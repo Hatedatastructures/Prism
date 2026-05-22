@@ -9,15 +9,16 @@
  * 5. 多连接并发 (E2EConcurrency)
  */
 
-#include <prism/agent/config.hpp>
-#include <prism/agent/context.hpp>
-#include <prism/agent/account/directory.hpp>
-#include <prism/agent/session/session.hpp>
-#include <prism/channel/connection/pool.hpp>
-#include <prism/channel/transport/reliable.hpp>
+#include <prism/instance/config.hpp>
+#include <prism/config.hpp>
+#include <prism/context/context.hpp>
+#include <prism/account/directory.hpp>
+#include <prism/instance/session/session.hpp>
+#include <prism/connect/pool/pool.hpp>
+#include <prism/transport/reliable.hpp>
 #include <prism/crypto/sha224.hpp>
 #include <prism/crypto/base64.hpp>
-#include <prism/resolve/router.hpp>
+#include <prism/connect/dial/router.hpp>
 #include <prism/exception/network.hpp>
 #include <prism/fault/code.hpp>
 #include <prism/memory.hpp>
@@ -41,7 +42,7 @@ namespace net = boost::asio;
 namespace ssl = boost::asio::ssl;
 using tcp = net::ip::tcp;
 
-namespace agent = psm::agent;
+namespace agent = psm::instance;
 
 namespace
 {
@@ -113,8 +114,8 @@ net::awaitable<void> MultiEchoServer(tcp::acceptor acceptor, const int count)
     }
 }
 
-net::awaitable<void> ProxyAcceptOne(tcp::acceptor acceptor, agent::server_context &server_ctx,
-                                    agent::worker_context &worker_ctx)
+net::awaitable<void> ProxyAcceptOne(tcp::acceptor acceptor, psm::context::server &server_ctx,
+                                    psm::context::worker &worker_ctx)
 {
     boost::system::error_code accept_ec;
     auto accept_token = net::redirect_error(net::use_awaitable, accept_ec);
@@ -123,13 +124,13 @@ net::awaitable<void> ProxyAcceptOne(tcp::acceptor acceptor, agent::server_contex
     {
         co_return;
     }
-    auto inbound = psm::channel::transport::make_reliable(std::move(socket));
+    auto inbound = psm::transport::make_reliable(std::move(socket));
 
-    agent::session::session_params params{server_ctx, worker_ctx, std::move(inbound)};
-    auto session_ptr = agent::session::make_session(std::move(params));
+    psm::instance::session::session_params params{server_ctx, worker_ctx, std::move(inbound)};
+    auto session_ptr = psm::instance::session::make_session(std::move(params));
 
     // 设置认证：若配置了用户列表则启用
-    const bool auth_enabled = !server_ctx.config().agent.auth.users.empty();
+    const bool auth_enabled = !server_ctx.config().instance.auth.users.empty();
     auto account_store = server_ctx.account_store;
     session_ptr->set_account_directory(auth_enabled ? account_store.get() : nullptr);
     session_ptr->set_credential_verifier([auth_enabled, account_store](const std::string_view credential) -> bool
@@ -142,13 +143,13 @@ net::awaitable<void> ProxyAcceptOne(tcp::acceptor acceptor, agent::server_contex
         {
             return false;
         }
-        return psm::agent::account::contains(*account_store, credential); });
+        return psm::account::contains(*account_store, credential); });
 
     session_ptr->start();
 }
 
 net::awaitable<void> MultiProxyAccept(tcp::acceptor acceptor, const int count,
-                                      agent::server_context &server_ctx, agent::worker_context &worker_ctx)
+                                      psm::context::server &server_ctx, psm::context::worker &worker_ctx)
 {
     for (int i = 0; i < count; ++i)
     {
@@ -160,9 +161,9 @@ net::awaitable<void> MultiProxyAccept(tcp::acceptor acceptor, const int count,
             co_return;
         }
 
-        auto inbound = psm::channel::transport::make_reliable(std::move(socket));
-        agent::session::session_params params{server_ctx, worker_ctx, std::move(inbound)};
-        auto session_ptr = agent::session::make_session(std::move(params));
+        auto inbound = psm::transport::make_reliable(std::move(socket));
+        psm::instance::session::session_params params{server_ctx, worker_ctx, std::move(inbound)};
+        auto session_ptr = psm::instance::session::make_session(std::move(params));
         session_ptr->set_credential_verifier([](std::string_view) -> bool
                                              { return true; });
         session_ptr->start();
@@ -536,7 +537,7 @@ net::awaitable<void> HttpAuth407Client(tcp::endpoint proxy_ep, const std::string
 // 测试用例
 // ============================================================
 
-net::awaitable<void> E2ESocks5Echo(agent::server_context &server_ctx, agent::worker_context &worker_ctx)
+net::awaitable<void> E2ESocks5Echo(psm::context::server &server_ctx, psm::context::worker &worker_ctx)
 {
     runner.LogInfo("=== E2ESocks5Echo ===");
     try
@@ -561,7 +562,7 @@ net::awaitable<void> E2ESocks5Echo(agent::server_context &server_ctx, agent::wor
     }
 }
 
-net::awaitable<void> E2EHttpConnectEcho(agent::server_context &server_ctx, agent::worker_context &worker_ctx)
+net::awaitable<void> E2EHttpConnectEcho(psm::context::server &server_ctx, psm::context::worker &worker_ctx)
 {
     runner.LogInfo("=== E2EHttpConnectEcho ===");
     try
@@ -586,7 +587,7 @@ net::awaitable<void> E2EHttpConnectEcho(agent::server_context &server_ctx, agent
     }
 }
 
-net::awaitable<void> E2ESocks5Auth(agent::server_context &server_ctx, agent::worker_context &worker_ctx)
+net::awaitable<void> E2ESocks5Auth(psm::context::server &server_ctx, psm::context::worker &worker_ctx)
 {
     runner.LogInfo("=== E2ESocks5Auth ===");
     try
@@ -612,7 +613,7 @@ net::awaitable<void> E2ESocks5Auth(agent::server_context &server_ctx, agent::wor
     }
 }
 
-net::awaitable<void> E2EHttpAuth407(agent::server_context &server_ctx, agent::worker_context &worker_ctx)
+net::awaitable<void> E2EHttpAuth407(psm::context::server &server_ctx, psm::context::worker &worker_ctx)
 {
     runner.LogInfo("=== E2EHttpAuth407 ===");
     try
@@ -634,7 +635,7 @@ net::awaitable<void> E2EHttpAuth407(agent::server_context &server_ctx, agent::wo
     }
 }
 
-net::awaitable<void> E2EConcurrency(agent::server_context &server_ctx, agent::worker_context &worker_ctx)
+net::awaitable<void> E2EConcurrency(psm::context::server &server_ctx, psm::context::worker &worker_ctx)
 {
     runner.LogInfo("=== E2EConcurrency ===");
     try
@@ -703,9 +704,9 @@ int main()
         const auto ioc_ptr = std::make_unique<net::io_context>();
         auto &ioc = *ioc_ptr;
 
-        const auto pool = std::make_unique<psm::channel::connection_pool>(ioc);
+        const auto pool = std::make_unique<psm::connect::connection_pool>(ioc);
         psm::resolve::dns::config dns_cfg;
-        auto dist = std::make_unique<psm::resolve::router>(*pool, ioc, std::move(dns_cfg));
+        auto dist = std::make_unique<psm::connect::router>(*pool, ioc, std::move(dns_cfg));
 
         auto ssl_ctx = std::make_shared<ssl::context>(ssl::context::tlsv12);
         ssl_ctx->set_verify_mode(ssl::verify_none);
@@ -713,28 +714,28 @@ int main()
         // 默认配置（无认证）
         psm::config no_auth_cfg;
 
-        agent::server_context no_auth_server_ctx{
+        psm::context::server no_auth_server_ctx{
             std::atomic<std::shared_ptr<const psm::config>>{std::make_shared<const psm::config>(no_auth_cfg)},
-            ssl_ctx, std::make_shared<agent::account::directory>(psm::memory::system::global_pool())};
+            ssl_ctx, std::make_shared<psm::account::directory>(psm::memory::system::global_pool())};
 
         // 认证配置: password="test_password", credential=sha224("test_password")
         psm::config auth_cfg;
         auth_cfg.protocol.socks5.enable_auth = true;
-        psm::agent::authentication::user test_user{};
+        psm::instance::authentication::user test_user{};
         test_user.password = "test_password";
         test_user.max_connections = 0;
-        auth_cfg.agent.auth.users.push_back(std::move(test_user));
+        auth_cfg.instance.auth.users.push_back(std::move(test_user));
 
-        auto account_dir = std::make_shared<agent::account::directory>(psm::memory::system::global_pool());
+        auto account_dir = std::make_shared<psm::account::directory>(psm::memory::system::global_pool());
         const auto credential = psm::crypto::sha224("test_password");
         account_dir->upsert(credential, 0);
 
-        agent::server_context auth_server_ctx{
+        psm::context::server auth_server_ctx{
             std::atomic<std::shared_ptr<const psm::config>>{std::make_shared<const psm::config>(auth_cfg)},
             ssl_ctx, account_dir};
 
         auto mr = psm::memory::system::thread_local_pool();
-        agent::worker_context worker_ctx{ioc, *dist, mr};
+        psm::context::worker worker_ctx{ioc, *dist, mr};
 
         std::exception_ptr test_error;
         {

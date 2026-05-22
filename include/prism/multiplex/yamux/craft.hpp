@@ -87,7 +87,7 @@ namespace psm::multiplex::yamux
          * @param cfg 多路复用配置参数（含 yamux 子配置）
          * @param mr PMR 内存资源，为空时使用默认资源
          */
-        craft(channel::transport::shared_transmission transport, resolve::router &router,
+        craft(transport::shared_transmission transport, connect::router &router,
               const multiplex::config &cfg, memory::resource_pointer mr = {});
 
         ~craft() override;

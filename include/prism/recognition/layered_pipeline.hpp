@@ -11,7 +11,7 @@
 
 #include <prism/memory/container.hpp>
 #include <prism/protocol/tls/types.hpp>
-#include <prism/protocol/tls/feature_bitmap.hpp>
+#include <prism/recognition/tls/feature_bitmap.hpp>
 #include <prism/stealth/scheme.hpp>
 #include <cstdint>
 #include <vector>

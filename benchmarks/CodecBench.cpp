@@ -8,8 +8,8 @@
 
 #include <benchmark/benchmark.h>
 #include <prism/protocol/http/parser.hpp>
-#include <prism/protocol/trojan/format.hpp>
-#include <prism/protocol/shadowsocks/format.hpp>
+#include <prism/protocol/trojan/framing.hpp>
+#include <prism/protocol/shadowsocks/framing.hpp>
 #include <prism/resolve/dns/detail/format.hpp>
 #include <prism/resolve/dns/detail/rules.hpp>
 #include <prism/crypto/sha224.hpp>

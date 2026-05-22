@@ -34,14 +34,3 @@ namespace psm::stealth::ech
         }
     };
 } // namespace psm::stealth::ech
-
-#include <glaze/glaze.hpp>
-
-template <>
-struct glz::meta<psm::stealth::ech::config>
-{
-    using T = psm::stealth::ech::config;
-    static constexpr auto value = glz::object(
-        "ech_key",      &T::ech_key,
-        "public_name",  &T::public_name);
-};

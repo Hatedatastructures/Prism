@@ -1,7 +1,8 @@
 #include <prism/multiplex/parcel.hpp>
 #include <prism/multiplex/core.hpp>
 #include <prism/multiplex/smux/frame.hpp>
-#include <prism/resolve/router.hpp>
+#include <prism/connect/dial/router.hpp>
+#include <prism/connect/dial/dial.hpp>
 #include <prism/trace.hpp>
 #include <atomic>
 #include <charconv>
@@ -14,7 +15,7 @@ constexpr std::string_view tag = "[Mux.Parcel]";
 namespace psm::multiplex
 {
     parcel::parcel(const std::uint32_t stream_id, std::shared_ptr<core> owner,
-                   resolve::router &router, const std::uint32_t udp_idle_timeout, const std::uint32_t udp_max_dg,
+                   connect::router &router, const std::uint32_t udp_idle_timeout, const std::uint32_t udp_max_dg,
                    const memory::resource_pointer mr, const bool packet_addr)
         : id_(stream_id), owner_(owner), router_(router),
           executor_(owner->executor()),
@@ -227,7 +228,7 @@ namespace psm::multiplex
         // 通过路由器解析目标端点
         char port_buf[8];
         const auto [port_end, port_ec] = std::to_chars(port_buf, port_buf + sizeof(port_buf), target_port);
-        const auto [code, target_ep] = co_await router_.resolve_datagram_target(
+        const auto [code, target_ep] = co_await connect::resolve_datagram_target(router_,
             target_host, std::string_view(port_buf, port_end - port_buf));
         if (code != fault::code::success)
         {

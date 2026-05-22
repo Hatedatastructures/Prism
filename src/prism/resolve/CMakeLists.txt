@@ -1,6 +1,5 @@
 target_sources(${PROJECT_NAME}_static_library
         PRIVATE
-        router.cpp
         dns/upstream.cpp
         dns/resolver.cpp
         dns/detail/format.cpp
@@ -22,5 +21,4 @@ target_sources(${PROJECT_NAME}_static_library
             ${PROJECT_SOURCE_DIR}/include/prism/resolve/dns/detail/rules.hpp
             ${PROJECT_SOURCE_DIR}/include/prism/resolve/dns/detail/transparent.hpp
             ${PROJECT_SOURCE_DIR}/include/prism/resolve/dns/detail/utility.hpp
-            ${PROJECT_SOURCE_DIR}/include/prism/resolve/router.hpp
 )
