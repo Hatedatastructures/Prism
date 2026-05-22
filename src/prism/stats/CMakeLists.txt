@@ -1,6 +1,7 @@
 target_sources(${PROJECT_NAME}_static_library
     PRIVATE
-        state.cpp
+        runtime.cpp
+        traffic.cpp
 )
 
 target_sources(${PROJECT_NAME}_static_library
@@ -9,5 +10,9 @@ target_sources(${PROJECT_NAME}_static_library
     FILES
         ${CMAKE_SOURCE_DIR}/include/prism/stats/stats.hpp
         ${CMAKE_SOURCE_DIR}/include/prism/stats/snapshot.hpp
-        ${CMAKE_SOURCE_DIR}/include/prism/stats/state.hpp
+        ${CMAKE_SOURCE_DIR}/include/prism/stats/counter.hpp
+        ${CMAKE_SOURCE_DIR}/include/prism/stats/gauge.hpp
+        ${CMAKE_SOURCE_DIR}/include/prism/stats/runtime.hpp
+        ${CMAKE_SOURCE_DIR}/include/prism/stats/traffic.hpp
+        ${CMAKE_SOURCE_DIR}/include/prism/stats/account.hpp
 )

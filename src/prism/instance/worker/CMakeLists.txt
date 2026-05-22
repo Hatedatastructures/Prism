@@ -1,9 +1,8 @@
 target_sources(${PROJECT_NAME}_static_library
         PRIVATE
-        launch.cpp
-        stats.cpp
-        tls.cpp
-        worker.cpp
+            launch.cpp
+            tls.cpp
+            worker.cpp
 )
 
 target_sources(${PROJECT_NAME}_static_library
@@ -12,7 +11,6 @@ target_sources(${PROJECT_NAME}_static_library
         BASE_DIRS ${PROJECT_SOURCE_DIR}/include
         FILES
             ${PROJECT_SOURCE_DIR}/include/prism/instance/worker/launch.hpp
-            ${PROJECT_SOURCE_DIR}/include/prism/instance/worker/stats.hpp
             ${PROJECT_SOURCE_DIR}/include/prism/instance/worker/tls.hpp
             ${PROJECT_SOURCE_DIR}/include/prism/instance/worker/worker.hpp
 )
