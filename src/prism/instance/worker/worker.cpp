@@ -15,7 +15,7 @@ namespace psm::instance::worker
           ssl_ctx_(tls::make(cfg.instance)),
           outbound_direct_(std::make_unique<outbound::direct>(router_)),
           server_ctx_{std::atomic<std::shared_ptr<const psm::config>>{std::make_shared<const psm::config>(cfg)}, ssl_ctx_, std::move(account_store)},
-          worker_ctx_{ioc_, router_, memory::system::thread_local_pool(), outbound_direct_.get()}
+          worker_ctx_{ioc_, router_, memory::system::thread_local_pool(), outbound_direct_.get(), &traffic_}
     {
         // 注册反向代理路由：将虚拟域名映射到实际后端地址。
         // 反向代理模式下，客户端连接代理的 443 端口，代理根据 SNI
@@ -42,6 +42,9 @@ namespace psm::instance::worker
                 std::string_view(server_ctx_.config().instance.positive.host.data(), server_ctx_.config().instance.positive.host.size()),
                 server_ctx_.config().instance.positive.port);
         }
+
+        // 注册流量统计实例，供全局聚合查询
+        stats::traffic::traffic_state::register_instance(&traffic_);
     }
 
     // 启动 Worker 事件循环。此方法会阻塞调用线程。

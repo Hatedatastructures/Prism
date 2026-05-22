@@ -3,6 +3,8 @@
 #include <prism/memory/container.hpp>
 #include <prism/memory/pool.hpp>
 #include <prism/trace.hpp>
+#include <prism/transport/transmission.hpp>
+#include <prism/account/entry.hpp>
 #include <boost/asio/experimental/awaitable_operators.hpp>
 #include <array>
 #include <chrono>
@@ -62,7 +64,7 @@ namespace psm::connect
                 {
                     trace::debug("{} forward[{}]: calling async_write({} bytes)",
                                 TunnelStr, is_download ? "download" : "upload", data.size());
-                    written = co_await context.to->async_write(data, ec);
+                    written = co_await transport::async_write(*context.to, data, ec);
                     trace::debug("{} forward[{}]: async_write returned written={}, ec={}",
                                 TunnelStr, is_download ? "download" : "upload", written, ec.message());
                 }
@@ -88,6 +90,25 @@ namespace psm::connect
         {
             trace::info("{} [{}] Transfer: Upload {} B, Download {} B, duration: {} ms", TunnelStr, ctx.session_id, up,
                         down, std::chrono::duration_cast<std::chrono::milliseconds>(end_time - start_time).count());
+        }
+
+        // 刷写流量统计并累加账户用量
+        if (ctx.worker_ctx.traffic)
+        {
+            ctx.worker_ctx.traffic->flush_traffic(
+                ctx.detected_protocol, total_bytes[0], total_bytes[1]);
+        }
+
+        if (ctx.account_lease)
+        {
+            if (total_bytes[0] > 0)
+            {
+                account::accumulate_uplink(ctx.account_lease.get(), total_bytes[0]);
+            }
+            if (total_bytes[1] > 0)
+            {
+                account::accumulate_downlink(ctx.account_lease.get(), total_bytes[1]);
+            }
         }
 
         shut_close(inbound);

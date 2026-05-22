@@ -14,7 +14,8 @@
 #include <boost/asio.hpp>
 
 #include <prism/context/context.hpp>
-#include <prism/instance/worker/stats.hpp>
+#include <prism/stats/runtime.hpp>
+#include <prism/stats/traffic.hpp>
 
 namespace psm::instance::worker::launch
 {
@@ -55,7 +56,7 @@ namespace psm::instance::worker::launch
     {
         psm::context::server &server;
         psm::context::worker &worker;
-        stats::state &metrics;
+        stats::runtime::worker_load &metrics;
         tcp::socket socket;
     };
 

@@ -18,6 +18,7 @@
 
 #include <prism/transport/transmission.hpp>
 #include <prism/account/entry.hpp>
+#include <prism/protocol/protocol_type.hpp>
 
 // ═══════════════════════════════════════════════════════════════════
 // 前向声明（零实现模块依赖）
@@ -42,6 +43,11 @@ namespace psm::account
 namespace psm::outbound
 {
     class proxy;
+}
+
+namespace psm::stats::traffic
+{
+    class traffic_state;
 }
 
 namespace psm::memory
@@ -111,6 +117,7 @@ namespace psm::context
         connect::router &router;               // 路由器引用
         memory::resource_pointer memory_pool;  // 内存池资源指针
         outbound::proxy *outbound{nullptr};    // 出站代理指针（由 worker 拥有）
+        stats::traffic::traffic_state *traffic{nullptr}; // 流量统计状态指针
     };
 
     // ═══════════════════════════════════════════════════════════════════
@@ -151,6 +158,7 @@ namespace psm::context
         shared_transmission inbound;                                    // 入站传输对象
         shared_transmission outbound;                                   // 出站传输对象
         outbound::proxy *outbound_proxy{nullptr};                       // 出站代理指针
+        protocol::protocol_type detected_protocol{protocol::protocol_type::unknown}; // 识别出的协议类型
         account::lease account_lease;                                   // 账户连接租约
         std::function<void()> active_stream_cancel;                     // 活跃流取消回调
         std::function<void()> active_stream_close;                      // 活跃流关闭回调

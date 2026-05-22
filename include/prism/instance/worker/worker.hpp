@@ -16,7 +16,8 @@
 #include <prism/connect/dial/router.hpp>
 #include <prism/context/context.hpp>
 #include <prism/config.hpp>
-#include <prism/instance/worker/stats.hpp>
+#include <prism/stats/runtime.hpp>
+#include <prism/stats/traffic.hpp>
 #include <prism/instance/worker/tls.hpp>
 #include <prism/connect/pool/pool.hpp>
 #include <prism/outbound/direct.hpp>
@@ -101,7 +102,8 @@ namespace psm::instance::worker
         connect::router router_;                             // 路由表，决定请求转发目标
         std::shared_ptr<ssl::context> ssl_ctx_;              // TLS 上下文，为空表示明文模式
         std::unique_ptr<outbound::direct> outbound_direct_;  // 直连出站代理
-        stats::state metrics_;                               // 统计状态，记录负载指标
+        stats::runtime::worker_load metrics_;                               // 统计状态，记录负载指标
+        stats::traffic::traffic_state traffic_;                             // 流量统计状态
         ctx::server server_ctx_;                          // 服务端全局上下文，包含配置和共享资源
         ctx::worker worker_ctx_;                          // worker 线程局部上下文，包含事件循环和内存池
     };

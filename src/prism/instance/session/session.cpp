@@ -13,6 +13,7 @@
 #include <prism/protocol/shadowsocks/process.hpp>
 #include <prism/connect/tunnel/tunnel.hpp>
 #include <prism/recognition/recognition.hpp>
+#include <prism/transport/reliable.hpp>
 #include <prism/config.hpp>
 #include <prism/trace.hpp>
 #include <prism/exception.hpp>
@@ -100,6 +101,12 @@ namespace psm::instance::session
             return;
         state_ = state::closed;
 
+        // 通知流量统计连接断开
+        if (ctx_.worker_ctx.traffic && ctx_.detected_protocol != protocol::protocol_type::unknown)
+        {
+            ctx_.worker_ctx.traffic->on_disconnect(ctx_.detected_protocol);
+        }
+
         if (ctx_.active_stream_close)
         {
             ctx_.active_stream_close();
@@ -113,7 +120,10 @@ namespace psm::instance::session
         }
         if (ctx_.outbound)
         {
-            ctx_.outbound->shutdown_write();
+            if (auto *rel = ctx_.outbound->lowest_layer<transport::reliable>())
+            {
+                rel->shutdown_write();
+            }
             ctx_.outbound->close();
             ctx_.outbound.reset();
         }
@@ -147,6 +157,13 @@ namespace psm::instance::session
         {
             trace::warn("[Session] [{}] Recognition failed: {}", id_, fault::describe(result.error));
             co_return;
+        }
+
+        // 记录识别出的协议类型并通知流量统计
+        ctx_.detected_protocol = result.detected;
+        if (ctx_.worker_ctx.traffic)
+        {
+            ctx_.worker_ctx.traffic->on_protocol_detected(result.detected);
         }
 
         // 2. 更新传输层

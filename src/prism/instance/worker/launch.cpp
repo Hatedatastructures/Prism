@@ -71,6 +71,10 @@ namespace psm::instance::worker::launch
 
         // 记录会话开启
         metrics.session_open();
+        if (worker.traffic)
+        {
+            worker.traffic->on_connect();
+        }
         try
         {
             // 设置会话关闭回调
@@ -83,7 +87,8 @@ namespace psm::instance::worker::launch
             // 设置账户目录，认证禁用时传入 nullptr
             shared_session->set_account_directory(auth_enabled ? account_store.get() : nullptr);
 
-            auto credential_function = [auth_enabled, account_store](const std::string_view credential) -> bool
+            auto credential_function = [auth_enabled, account_store, traffic = worker.traffic]
+                (const std::string_view credential) -> bool
             {
                 if (!auth_enabled)
                 {
@@ -91,9 +96,15 @@ namespace psm::instance::worker::launch
                 }
                 if (!account_store)
                 {
+                    if (traffic) { traffic->on_auth_failure(); }
                     return false;
                 }
-                return psm::account::contains(*account_store, credential);
+                const auto result = psm::account::contains(*account_store, credential);
+                if (traffic)
+                {
+                    result ? traffic->on_auth_success() : traffic->on_auth_failure();
+                }
+                return result;
             };
             // 设置凭证验证器，根据认证开关决定是否校验
             shared_session->set_credential_verifier(credential_function);
