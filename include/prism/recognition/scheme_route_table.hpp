@@ -44,7 +44,8 @@ namespace psm::recognition
          * @details 遍历所有 stealth 方案的 server_names，
          * 构建 SNI → 方案名称的映射。
          */
-        static auto build(const psm::config &cfg) -> scheme_route_table;
+        static auto build(const psm::config &cfg)
+            -> scheme_route_table;
 
         /**
          * @brief 根据 SNI 查找匹配方案
@@ -60,7 +61,8 @@ namespace psm::recognition
          * @param sni ClientHello 中的 SNI
          * @return 是否匹配至少一个方案
          */
-        [[nodiscard]] auto matches_any(std::string_view sni) const -> bool;
+        [[nodiscard]] auto matches_any(std::string_view sni) const
+            -> bool;
 
         /**
          * @brief 获取所有已注册的 SNI 列表
@@ -73,7 +75,8 @@ namespace psm::recognition
          * @brief 检查路由表是否为空
          * @return 无任何 SNI 注册时返回 true
          */
-        [[nodiscard]] auto empty() const noexcept -> bool;
+        [[nodiscard]] auto empty() const noexcept
+            -> bool;
 
     private:
         /// SNI → 方案名称列表映射
@@ -84,6 +87,7 @@ namespace psm::recognition
          * @param sni SNI 值
          * @param scheme_name 方案名称
          */
-        auto add_route(std::string_view sni, std::string_view scheme_name) -> void;
+        auto add_route(std::string_view sni, std::string_view scheme_name)
+            -> void;
     };
 } // namespace psm::recognition

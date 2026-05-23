@@ -93,11 +93,11 @@ namespace psm::protocol::common
      * 使用 inet_ntop 进行格式化，域名直接返回原始内容。支持
      * 自定义内存分配器，适用于日志记录和调试输出场景。
      */
-    [[nodiscard]] inline auto address_to_string(const address &addr,
-                                                 memory::resource_pointer mr = memory::current_resource())
+    [[nodiscard]] inline auto address_to_string(const address &addr, memory::resource_pointer mr = memory::current_resource())
         -> memory::string
     {
-        auto translate = [mr]<typename A>(const A &arg) -> memory::string
+        auto translate = [mr]<typename A>(const A &arg)
+            -> memory::string
         {
             using type = std::decay_t<A>;
             if constexpr (std::is_same_v<type, ipv4_address>)

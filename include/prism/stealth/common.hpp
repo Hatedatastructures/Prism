@@ -30,9 +30,7 @@ namespace psm::stealth::common
      * @param sequence 记录序列号
      * @return 12 字节 nonce
      */
-    [[nodiscard]] inline auto make_aead_nonce(
-        std::span<const std::uint8_t> iv,
-        std::uint64_t sequence) noexcept
+    [[nodiscard]] inline auto make_aead_nonce(std::span<const std::uint8_t> iv, std::uint64_t sequence) noexcept
         -> std::array<std::uint8_t, 12>
     {
         std::array<std::uint8_t, 12> nonce{};

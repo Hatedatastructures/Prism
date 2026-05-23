@@ -91,15 +91,15 @@ namespace psm::protocol::shadowsocks
          * @param entry 目标会话条目
          * @return 错误码和密文数据包
          */
-        auto encrypt_outbound(std::span<const std::byte> payload, const std::array<std::uint8_t, session_id_len> &session_id,
-                              const std::shared_ptr<udp_session_entry> &entry)
+        auto encrypt_outbound(std::span<const std::byte> payload, const std::array<std::uint8_t, session_id_len> &session_id, const std::shared_ptr<udp_session_entry> &entry)
             -> std::pair<fault::code, std::vector<std::byte>>;
 
         /**
          * @brief 获取加密方法
          * @return 加密方法枚举
          */
-        [[nodiscard]] auto method() const noexcept -> cipher_method { return method_; }
+        [[nodiscard]] auto method() const noexcept
+            -> cipher_method { return method_; }
 
     private:
         config config_;                                    // SS2022 协议配置
@@ -124,8 +124,7 @@ namespace psm::protocol::shadowsocks
          * @param entry 目标会话条目
          * @return 错误码和密文数据包
          */
-        auto encrypt_aes_gcm(std::span<const std::byte> payload, const std::array<std::uint8_t, session_id_len> &session_id,
-                             const std::shared_ptr<udp_session_entry> &entry)
+        auto encrypt_aes_gcm(std::span<const std::byte> payload, const std::array<std::uint8_t, session_id_len> &session_id, const std::shared_ptr<udp_session_entry> &entry)
             -> std::pair<fault::code, std::vector<std::byte>>;
 
         /**
@@ -144,8 +143,7 @@ namespace psm::protocol::shadowsocks
          * @param entry 目标会话条目
          * @return 错误码和密文数据包
          */
-        auto encrypt_chacha20(std::span<const std::byte> payload, const std::array<std::uint8_t, session_id_len> &session_id,
-                              const std::shared_ptr<udp_session_entry> &entry)
+        auto encrypt_chacha20(std::span<const std::byte> payload, const std::array<std::uint8_t, session_id_len> &session_id, const std::shared_ptr<udp_session_entry> &entry)
             -> std::pair<fault::code, std::vector<std::byte>>;
 
         /**
@@ -155,8 +153,7 @@ namespace psm::protocol::shadowsocks
          * @param packet_id 8 字节 PacketID
          * @return 12 字节 nonce
          */
-        [[nodiscard]] static auto construct_nonce_aes(const std::array<std::uint8_t, session_id_len> &session_id,
-                                                      const std::array<std::uint8_t, packet_id_len> &packet_id)
+        [[nodiscard]] static auto construct_nonce_aes(const std::array<std::uint8_t, session_id_len> &session_id, const std::array<std::uint8_t, packet_id_len> &packet_id)
             -> std::array<std::uint8_t, 12>;
 
         /**
@@ -164,7 +161,8 @@ namespace psm::protocol::shadowsocks
          * @param data 数据指针
          * @uint64_t 大端序转换后的值
          */
-        [[nodiscard]] static auto read_u64_be(const std::uint8_t *data) -> std::uint64_t;
+        [[nodiscard]] static auto read_u64_be(const std::uint8_t *data)
+            -> std::uint64_t;
 
         /**
          * @brief 写入 8 字节大端序 uint64

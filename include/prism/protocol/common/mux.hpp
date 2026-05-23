@@ -19,7 +19,8 @@ namespace psm::protocol
      * @details 检测目标主机名是否以 ".mux.sing-box.arpa" 结尾，
      * 这是 Mihomo/sing-box 兼容的 mux 多路复用标记地址。
      */
-    [[nodiscard]] inline auto is_mux_target(std::string_view host, bool mux_enabled) noexcept -> bool
+    [[nodiscard]] inline auto is_mux_target(std::string_view host, bool mux_enabled) noexcept
+        -> bool
     {
         constexpr std::string_view suffix = ".mux.sing-box.arpa";
         return mux_enabled && host.size() >= suffix.size() && host.substr(host.size() - suffix.size()) == suffix;

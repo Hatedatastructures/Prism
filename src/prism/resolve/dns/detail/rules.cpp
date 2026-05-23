@@ -9,7 +9,8 @@
 namespace psm::resolve::dns::detail
 {
 
-    auto domain_trie::to_lower(const std::string_view s) -> memory::string
+    auto domain_trie::to_lower(const std::string_view s)
+        -> memory::string
     {
         // 使用默认内存资源（静态函数无法访问实例 mr_）
         memory::string result(s.size(), '\0');
@@ -21,7 +22,8 @@ namespace psm::resolve::dns::detail
         return result;
     }
 
-    auto domain_trie::split_labels(const std::string_view domain) -> memory::vector<memory::string>
+    auto domain_trie::split_labels(const std::string_view domain)
+        -> memory::vector<memory::string>
     {
         // 默认分配器用于静态函数
         memory::vector<memory::string> labels;
@@ -126,7 +128,8 @@ namespace psm::resolve::dns::detail
         current->is_end = true;
     }
 
-    auto domain_trie::search(const std::string_view domain) const -> std::optional<std::any>
+    auto domain_trie::search(const std::string_view domain) const
+        -> std::optional<std::any>
     {
         if (domain.empty())
         {
@@ -188,7 +191,8 @@ namespace psm::resolve::dns::detail
         return std::nullopt;
     }
 
-    auto domain_trie::match(const std::string_view domain) const -> bool
+    auto domain_trie::match(const std::string_view domain) const
+        -> bool
     {
         return search(domain).has_value();
     }
@@ -212,7 +216,8 @@ namespace psm::resolve::dns::detail
         cname_trie_.insert(domain, std::any(std::move(target_str)));
     }
 
-    auto rules_engine::match(const std::string_view domain) const -> std::optional<rule_result>
+    auto rules_engine::match(const std::string_view domain) const
+        -> std::optional<rule_result>
     {
         // 在地址规则树中查找
         const auto addr_value = address_trie_.search(domain);

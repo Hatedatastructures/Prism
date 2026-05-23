@@ -7,6 +7,7 @@
 #include <prism/protocol/common/udp_relay.hpp>
 #include <prism/memory/container.hpp>
 #include <prism/trace.hpp>
+#include <prism/stats/traffic.hpp>
 #include <boost/asio/experimental/awaitable_operators.hpp>
 #include <array>
 #include <charconv>
@@ -133,7 +134,8 @@ namespace psm::protocol::trojan
         next_layer_->cancel();
     }
 
-    auto conn::handshake() const -> net::awaitable<std::pair<fault::code, request>>
+    auto conn::handshake() const
+        -> net::awaitable<std::pair<fault::code, request>>
     {
         // 缓冲区足够容纳最大请求
         std::array<std::uint8_t, 320> buffer{};
@@ -263,12 +265,12 @@ namespace psm::protocol::trojan
         co_return std::pair{fault::code::success, req};
     }
 
-    transport::transmission &conn::next_layer() noexcept
+    transport::transmission &conn::underlying() noexcept
     {
         return *next_layer_;
     }
 
-    const transport::transmission &conn::next_layer() const noexcept
+    const transport::transmission &conn::underlying() const noexcept
     {
         return *next_layer_;
     }
@@ -278,12 +280,20 @@ namespace psm::protocol::trojan
         return std::move(next_layer_);
     }
 
-    auto conn::async_associate(route_callback route_cb) const -> net::awaitable<fault::code>
+    auto conn::async_associate(route_callback route_cb) const
+        -> net::awaitable<fault::code>
     {
         if (!config_.enable_udp)
         {
             co_return fault::code::not_supported;
         }
+
+        struct traffic_context
+        {
+            stats::traffic::traffic_state *traffic;
+            protocol::protocol_type proto;
+        };
+        auto *tc = traffic_ ? new traffic_context{traffic_, proto_} : nullptr;
 
         net::steady_timer idle_timer(next_layer_->executor());
 
@@ -296,10 +306,18 @@ namespace psm::protocol::trojan
             format::parse_udp_packet,
             format::build_udp_packet,
             std::move(route_cb),
-            idle_timer,
-            udp_tag,
-            config_.udp_idle_timeout,
-            config_.udp_max_datagram);
+            protocol::common::udp_loop_config{
+                idle_timer,
+                udp_tag,
+                config_.udp_idle_timeout,
+                config_.udp_max_datagram,
+                tc ? [](void *ctx, std::uint64_t up, std::uint64_t down) noexcept {
+                    auto *tc = static_cast<traffic_context*>(ctx);
+                    tc->traffic->flush_traffic(tc->proto, up, down);
+                    delete tc;
+                } : nullptr,
+                tc
+            });
         co_return fault::code::success;
     }
 

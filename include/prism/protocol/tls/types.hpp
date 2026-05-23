@@ -115,18 +115,21 @@ namespace psm::protocol::tls
     // TLS 记录层写入工具
     // ═══════════════════════════════════════════════════════════════════════
 
-    inline auto write_u8(memory::vector<std::uint8_t> &buf, std::uint8_t val) -> void
+    inline auto write_u8(memory::vector<std::uint8_t> &buf, std::uint8_t val)
+        -> void
     {
         buf.push_back(val);
     }
 
-    inline auto write_u16(memory::vector<std::uint8_t> &buf, std::uint16_t val) -> void
+    inline auto write_u16(memory::vector<std::uint8_t> &buf, std::uint16_t val)
+        -> void
     {
         buf.push_back(static_cast<std::uint8_t>((val >> 8) & 0xFF));
         buf.push_back(static_cast<std::uint8_t>(val & 0xFF));
     }
 
-    inline auto write_u24(memory::vector<std::uint8_t> &buf, std::size_t val) -> void
+    inline auto write_u24(memory::vector<std::uint8_t> &buf, std::size_t val)
+        -> void
     {
         buf.push_back(static_cast<std::uint8_t>((val >> 16) & 0xFF));
         buf.push_back(static_cast<std::uint8_t>((val >> 8) & 0xFF));
@@ -138,13 +141,13 @@ namespace psm::protocol::tls
     // ═══════════════════════════════════════════════════════════════════════
 
     /**
-     * @struct client_hello_features
+     * @struct hello_features
      * @brief 从 TLS ClientHello 提取的关键特征
      * @details 包含 SNI、session_id、key_share、支持的版本等特征。
      * 各方案的 detect() 方法基于这些特征判断置信度。
      * 该结构是中立的共享类型，供 recognition 和 stealth 共同使用。
      */
-    struct client_hello_features
+    struct hello_features
     {
         /** @brief SNI 服务器名称 */
         memory::string server_name;

@@ -21,7 +21,8 @@ namespace psm::crypto
          * @brief Base64 解码查找表
          * @details 将 ASCII 字符映射到对应的 6 位值，无效字符映射为 255。
          */
-        constexpr auto make_decode_table() -> std::array<std::uint8_t, 256>
+        constexpr auto make_decode_table()
+            -> std::array<std::uint8_t, 256>
         {
             std::array<std::uint8_t, 256> table{};
             table.fill(255);
@@ -58,7 +59,8 @@ namespace psm::crypto
      * 输入长度不是 4 的倍数时返回空字符串。
      * @note 遵循 RFC 4648 标准 Base64 解码规则。
      */
-    [[nodiscard]] inline auto base64_decode(const std::string_view input) -> std::string
+    [[nodiscard]] inline auto base64_decode(const std::string_view input)
+        -> std::string
     {
         if (input.empty())
         {
@@ -179,7 +181,8 @@ namespace psm::crypto
      * @details 将原始字节编码为标准 Base64 字符串（含 padding）。
      * 遵循 RFC 4648 标准 Base64 编码规则。
      */
-    [[nodiscard]] inline auto base64_encode(std::span<const std::uint8_t> input) -> std::string
+    [[nodiscard]] inline auto base64_encode(std::span<const std::uint8_t> input)
+        -> std::string
     {
         if (input.empty())
         {

@@ -5,6 +5,7 @@
 #include <prism/trace.hpp>
 #include <prism/transport/transmission.hpp>
 #include <prism/account/entry.hpp>
+#include <prism/stats/traffic.hpp>
 #include <boost/asio/experimental/awaitable_operators.hpp>
 #include <array>
 #include <chrono>

@@ -2,6 +2,8 @@
 #include <prism/multiplex/core.hpp>
 #include <prism/fault/handling.hpp>
 #include <prism/trace.hpp>
+#include <prism/transport/transmission.hpp>
+#include <prism/transport/reliable.hpp>
 #include <atomic>
 #include <span>
 
@@ -17,14 +19,13 @@ namespace psm::multiplex
     constexpr std::size_t max_frame_payload = 65535;
 
     duct::duct(const std::uint32_t stream_id, std::shared_ptr<core> owner,
-               transport::shared_transmission target,
-               const std::uint32_t buffer_size, const memory::resource_pointer mr)
-        : id_(stream_id), owner_(owner), mr_(mr),
+               transport::shared_transmission target, stream_options opts)
+        : id_(stream_id), owner_(owner), mr_(opts.mr),
           target_(std::move(target)),
           write_channel_(target_->executor(), 32)
     {
         // 限制读取大小不超过帧载荷上限，防止 send_data 时 uint16_t 溢出
-        read_size_ = std::min(buffer_size, static_cast<std::uint32_t>(max_frame_payload));
+        read_size_ = std::min(opts.buffer_size, static_cast<std::uint32_t>(max_frame_payload));
     }
 
     duct::~duct()
@@ -82,7 +83,8 @@ namespace psm::multiplex
         net::co_spawn(target_->executor(), target_write_loop(), std::move(write_done));
     }
 
-    auto duct::on_mux_data(memory::vector<std::byte> data) -> net::awaitable<void>
+    auto duct::on_mux_data(memory::vector<std::byte> data)
+        -> net::awaitable<void>
     {
         if (closed_)
         {
@@ -106,7 +108,10 @@ namespace psm::multiplex
 
         if (target_)
         {
-            target_->shutdown_write();
+            if (auto *rel = target_->lowest_layer<transport::reliable>())
+            {
+                rel->shutdown_write();
+            }
             trace::debug("{} stream {} mux fin, shutdown target write", tag, id_);
         }
 
@@ -141,6 +146,9 @@ namespace psm::multiplex
         {
             if (auto owner = owner_.lock())
             {
+                owner->accumulate_traffic(
+                    written_bytes_.load(std::memory_order_relaxed),
+                    read_bytes_.load(std::memory_order_relaxed));
                 owner->remove_duct(id_);
             }
         }
@@ -157,7 +165,8 @@ namespace psm::multiplex
      * @details 从 target 读取数据，通过 owner_->send_data 发回 mux 客户端。
      * 数据直接读入 PMR vector 并 move 传递，零额外拷贝。
      */
-    auto duct::target_read_loop() -> net::awaitable<void>
+    auto duct::target_read_loop()
+        -> net::awaitable<void>
     {
         std::error_code ec;
 
@@ -186,6 +195,7 @@ namespace psm::multiplex
                 break;
             }
             data.resize(n);
+            read_bytes_.fetch_add(n, std::memory_order_relaxed);
 
             // 检查 mux 会话是否仍活跃
             auto owner = owner_.lock();
@@ -215,7 +225,8 @@ namespace psm::multiplex
      * @details 从 write_channel_ 取数据写入 target。
      * write_channel_ 解耦帧循环与 target 写入，避免慢速 target 阻塞帧循环。
      */
-    auto duct::target_write_loop() -> net::awaitable<void>
+    auto duct::target_write_loop()
+        -> net::awaitable<void>
     {
         while (!closed_)
         {
@@ -229,13 +240,14 @@ namespace psm::multiplex
             }
 
             std::error_code write_ec;
-            co_await target_->async_write(data, write_ec);
+            co_await transport::async_write(*target_, data, write_ec);
             if (write_ec)
             {
                 trace::debug("{} stream {} write to target failed: {}", tag, id_, write_ec.message());
                 close();
                 break;
             }
+            written_bytes_.fetch_add(data.size(), std::memory_order_relaxed);
         }
     }
 

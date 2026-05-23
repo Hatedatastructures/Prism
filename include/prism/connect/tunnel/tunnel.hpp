@@ -25,8 +25,7 @@ namespace psm::connect
      * 的数据流。任一方向断开即终止整个隧道。隧道结束后自动关闭两端的连接。
      * @note 缓冲区大小至少为 2 字节，实际使用时建议不小于 64KB。
      */
-    auto tunnel(shared_transmission inbound, shared_transmission outbound,
-                const context::session &ctx, bool complete_write = true)
+    auto tunnel(shared_transmission inbound, shared_transmission outbound, const context::session &ctx, bool complete_write = true)
         -> net::awaitable<void>;
 
 } // namespace psm::connect

@@ -16,7 +16,8 @@ namespace psm::instance::front
 
     // splitmix64 哈希函数——将亲和性值（客户端 IP 哈希）均匀打散。
     // 目的：即使客户端 IP 集中在某个子网，分配到 worker 的分布也要尽量均匀。
-    constexpr auto balancer::mix_hash(std::uint64_t value) noexcept -> std::uint64_t
+    constexpr auto balancer::mix_hash(std::uint64_t value) noexcept
+        -> std::uint64_t
     {
         value += 0x9e3779b97f4a7c15ULL;
         value = (value ^ (value >> 30U)) * 0xbf58476d1ce4e5b9ULL;
@@ -28,7 +29,8 @@ namespace psm::instance::front
     // 计算单个 worker 的负载评分（0.0 = 空闲，越高越忙）。
     // 三个维度加权求和：活跃会话数（权重最大）、待处理移交数、事件循环延迟。
     // 用比率而非绝对值，这样不同容量的 worker 可以公平比较。
-    auto balancer::score(const ::psm::stats::worker_load_snapshot &snapshot) const noexcept -> double
+    auto balancer::score(const ::psm::stats::worker_load_snapshot &snapshot) const noexcept
+        -> double
     {
         const auto session_capacity = std::max(1U, config_.session_capacity);
         const auto pending_capacity = std::max(1U, config_.pending_capacity);
@@ -72,7 +74,8 @@ namespace psm::instance::front
     //    - primary 过载 → 选负载更低的那个（primary 或 secondary 都可能）
     // 4. 判断是否触发全局背压：
     //    - 所有 worker 都过载，或最低评分超过全局阈值
-    auto balancer::select(const std::uint64_t affinity_value) noexcept -> select_result
+    auto balancer::select(const std::uint64_t affinity_value) noexcept
+        -> select_result
     {
         if (bindings_.empty())
         {
@@ -151,7 +154,8 @@ namespace psm::instance::front
         bindings_[worker_index].dispatch(std::move(socket));
     }
 
-    auto balancer::size() const noexcept -> std::size_t
+    auto balancer::size() const noexcept
+        -> std::size_t
     {
         return bindings_.size();
     }

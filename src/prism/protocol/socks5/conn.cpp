@@ -1,4 +1,5 @@
 #include <prism/protocol/socks5/conn.hpp>
+#include <prism/stats/traffic.hpp>
 
 namespace psm::protocol::socks5
 {
@@ -289,6 +290,8 @@ namespace psm::protocol::socks5
             co_return;
         }
 
+        udp_uplink_.fetch_add(static_cast<std::uint64_t>(payload.size()), std::memory_order_relaxed);
+
         net::ip::udp::endpoint sender_endpoint;
         const auto target_n = co_await egress_socket.async_receive_from(
             net::buffer(target_buffer.data(), target_buffer.size()), sender_endpoint, token);
@@ -312,6 +315,11 @@ namespace psm::protocol::socks5
         }
 
         co_await ingress_socket.async_send_to(net::buffer(response_datagram.data(), response_datagram.size()), client_endpoint, token);
+
+        if (!io_ec)
+        {
+            udp_downlink_.fetch_add(static_cast<std::uint64_t>(response_datagram.size()), std::memory_order_relaxed);
+        }
     }
 
     auto conn::associate_loop(net::ip::udp::socket &ingress_socket, route_callback &route_callback, net::steady_timer &idle_timer) const
@@ -389,6 +397,14 @@ namespace psm::protocol::socks5
 
         using namespace boost::asio::experimental::awaitable_operators;
         co_await (associate_loop(ingress_socket, route_callback, idle_timer) || wait_control_close(ingress_socket));
+
+        if (traffic_)
+        {
+            const auto up = udp_uplink_.exchange(0, std::memory_order_relaxed);
+            const auto down = udp_downlink_.exchange(0, std::memory_order_relaxed);
+            traffic_->flush_traffic(proto_, up, down);
+        }
+
         co_return fault::code::success;
     }
 

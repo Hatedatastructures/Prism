@@ -600,14 +600,28 @@ net::awaitable<void> DoVlessServer(tcp::acceptor &acceptor)
         LogInfo("Server handshake success");
 
         // Echo 测试
-        std::array<char, 1024> buffer;
+        std::array<std::byte, 1024> byte_buf{};
         try
         {
-            std::size_t n = co_await transport::async_read_some(vless, net::buffer(buffer), net::use_awaitable);
-            std::string received(buffer.data(), n);
+            std::error_code read_ec;
+            std::size_t n = co_await vless->async_read_some(byte_buf, read_ec);
+            if (read_ec)
+            {
+                LogFail(std::format("Server read failed: {}", read_ec.message()));
+                co_return;
+            }
+            std::string received(reinterpret_cast<const char *>(byte_buf.data()), n);
             LogInfo(std::format("Server received: {}", received));
 
-            co_await transport::async_write_some(vless, net::buffer(received), net::use_awaitable);
+            std::error_code write_ec;
+            co_await vless->async_write_some(
+                std::span<const std::byte>(reinterpret_cast<const std::byte *>(received.data()),
+                                           received.size()),
+                write_ec);
+            if (write_ec)
+            {
+                LogFail(std::format("Server write failed: {}", write_ec.message()));
+            }
         }
         catch (const std::exception &e)
         {

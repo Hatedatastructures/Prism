@@ -10,7 +10,8 @@
 
 namespace psm::recognition
 {
-    auto scheme_route_table::build(const psm::config &cfg) -> scheme_route_table
+    auto scheme_route_table::build(const psm::config &cfg)
+        -> scheme_route_table
     {
         scheme_route_table table;
 
@@ -90,7 +91,8 @@ namespace psm::recognition
         return {};
     }
 
-    auto scheme_route_table::matches_any(std::string_view sni) const -> bool
+    auto scheme_route_table::matches_any(std::string_view sni) const
+        -> bool
     {
         if (sni.empty())
             return false;
@@ -110,12 +112,14 @@ namespace psm::recognition
         return snis;
     }
 
-    auto scheme_route_table::empty() const noexcept -> bool
+    auto scheme_route_table::empty() const noexcept
+        -> bool
     {
         return route_map_.empty();
     }
 
-    auto scheme_route_table::add_route(std::string_view sni, std::string_view scheme_name) -> void
+    auto scheme_route_table::add_route(std::string_view sni, std::string_view scheme_name)
+        -> void
     {
         if (sni.empty())
             return;

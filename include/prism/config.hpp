@@ -37,7 +37,9 @@ namespace psm
 
 } // namespace psm
 
-#include <prism/stealth/glaze_meta.hpp>
+#include <prism/stealth/serialize.hpp>
+#include <prism/resolve/dns/serialize.hpp>
+#include <prism/instance/serialize.hpp>
 #include <glaze/glaze.hpp>
 
 template <>

@@ -117,7 +117,10 @@ public:
     {
     }
 
-    [[nodiscard]] bool is_reliable() const noexcept override { return true; }
+    [[nodiscard]] auto transport_type() const noexcept -> psm::transport::transmission::type override
+    {
+        return psm::transport::transmission::type::tcp;
+    }
 
     [[nodiscard]] executor_type executor() const override
     {
@@ -147,7 +150,7 @@ private:
 
 /**
  * @brief 测试 preview 包装器的构造与非协程基本属性
- * @details 验证 preview 可正确构造，is_reliable() 和 executor()
+ * @details 验证 preview 可正确构造，transport_type() 和 executor()
  * 正确委托给内部传输对象。
  */
 void TestPreviewConstruction()
@@ -170,10 +173,10 @@ void TestPreviewConstruction()
     // 构造 preview
     auto preview = std::make_shared<pp::preview>(inner, byte_span);
 
-    // 验证 is_reliable 委托给内部传输
+    // 验证 transport_type 委托给内部传输
     runner.Check(
-        preview->is_reliable() == true,
-        "preview::is_reliable() delegates to inner");
+        preview->transport_type() == psm::transport::transmission::type::tcp,
+        "preview::transport_type() delegates to inner");
 
     // 验证 executor 委托给内部传输
     runner.Check(
@@ -186,8 +189,8 @@ void TestPreviewConstruction()
     auto preview2 = std::make_shared<pp::preview>(inner2, empty_span);
 
     runner.Check(
-        preview2->is_reliable() == true,
-        "preview with empty preread is_reliable()");
+        preview2->transport_type() == psm::transport::transmission::type::tcp,
+        "preview with empty preread transport_type()");
 
     runner.Check(
         preview2->executor() == inner2->executor(),
@@ -201,8 +204,8 @@ void TestPreviewConstruction()
     auto preview3 = std::make_shared<pp::preview>(inner3, data);
 
     runner.Check(
-        preview3->is_reliable() == true,
-        "preview with array data is_reliable()");
+        preview3->transport_type() == psm::transport::transmission::type::tcp,
+        "preview with array data transport_type()");
 
     runner.LogPass("TestPreviewConstruction");
 }

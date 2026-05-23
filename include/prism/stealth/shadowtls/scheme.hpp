@@ -29,14 +29,11 @@ namespace psm::stealth::shadowtls
             -> memory::vector<memory::string> override;
 
         // === Tier 0: 快速检测 ===
-        [[nodiscard]] auto sniff(std::uint32_t bitmap,
-                                  const protocol::tls::client_hello_features &features) const
+        [[nodiscard]] auto sniff(std::uint32_t bitmap, const hello_features &features) const
             -> sniff_result override;
 
         // === Tier 1: 详细检测（HMAC 验证）===
-        [[nodiscard]] auto verify(const protocol::tls::client_hello_features &features,
-                                   std::span<const std::byte> raw,
-                                   const psm::config &cfg) const
+        [[nodiscard]] auto verify(const hello_features &features, std::span<const std::byte> raw, const psm::config &cfg) const
             -> verify_result override;
 
         // === 执行 ===

@@ -26,6 +26,7 @@ namespace psm::transport
 namespace psm::recognition::tls
 {
     namespace net = boost::asio;
+    using hello_features = protocol::tls::hello_features;
 
     /**
      * @brief 读取完整的 TLS 记录
@@ -55,6 +56,6 @@ namespace psm::recognition::tls
      * @return 错误码和解析后的特征结构
      */
     [[nodiscard]] auto parse_client_hello(std::span<const std::uint8_t> record)
-        -> std::pair<fault::code, protocol::tls::client_hello_features>;
+        -> std::pair<fault::code, hello_features>;
 
 } // namespace psm::recognition::tls

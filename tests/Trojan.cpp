@@ -111,13 +111,28 @@ net::awaitable<void> DoTrojanServer(tcp::acceptor &acceptor, const std::string &
         try
         {
             // 从 Trojan 隧道中异步读取客户端发送的数据
-            std::size_t n = co_await psm::transport::async_read_some(trojan, buf, net::use_awaitable);
-            std::string received_msg(buffer.data(), n);
+            std::array<std::byte, 1024> byte_buf{};
+            std::error_code read_ec;
+            std::size_t n = co_await trojan->async_read_some(byte_buf, read_ec);
+            if (read_ec)
+            {
+                LogFail(std::format("Server read failed: {}", read_ec.message()));
+                co_return;
+            }
+            std::string received_msg(reinterpret_cast<const char *>(byte_buf.data()), n);
 
             LogInfo(std::format("Server received message: {}", received_msg));
 
             // 将收到的数据通过同一 Trojan 隧道回写给客户端
-            co_await psm::transport::async_write_some(trojan, net::buffer(received_msg), net::use_awaitable);
+            std::error_code write_ec;
+            co_await trojan->async_write_some(
+                std::span<const std::byte>(reinterpret_cast<const std::byte *>(received_msg.data()),
+                                           received_msg.size()),
+                write_ec);
+            if (write_ec)
+            {
+                LogFail(std::format("Server write failed: {}", write_ec.message()));
+            }
         }
         catch (const std::exception &e)
         {

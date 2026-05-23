@@ -8,7 +8,8 @@ namespace psm::crypto
 {
     constexpr std::string_view X25519_TAG = "[Crypto.X25519]";
 
-    auto generate_x25519_keypair() -> x25519_keypair
+    auto generate_x25519_keypair()
+        -> x25519_keypair
     {
         x25519_keypair keypair;
 

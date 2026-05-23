@@ -28,6 +28,9 @@ namespace psm::protocol::socks5
         // 创建 SOCKS5 中继代理并执行握手
         const auto agent = make_conn(
             std::move(inbound), ctx.server_ctx.config().protocol.socks5, ctx.account_directory);
+
+        agent->set_traffic(ctx.worker_ctx.traffic, ctx.detected_protocol);
+
         auto [ec, request] = co_await agent->handshake();
         if (fault::failed(ec))
         {
@@ -54,7 +57,7 @@ namespace psm::protocol::socks5
                 ? co_await psm::connect::dial(
                       *ctx.outbound_proxy, target, ctx.worker_ctx.io_context.get_executor())
                 : co_await psm::connect::dial(
-                      ctx.worker_ctx.router, "SOCKS5", target, true, true);
+                      ctx.worker_ctx.router, "SOCKS5", target);
             if (fault::failed(dial_ec) || !outbound)
             {
                 if (dial_ec == fault::code::ipv6_disabled)

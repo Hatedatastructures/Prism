@@ -33,7 +33,8 @@ namespace psm::stealth::reality
          * @brief 检查 Reality 是否已启用
          * @return 配置完整返回 true
          */
-        [[nodiscard]] auto enabled() const noexcept -> bool
+        [[nodiscard]] auto enabled() const noexcept
+            -> bool
         {
             return !dest.empty() && !private_key.empty() && !server_names.empty();
         }

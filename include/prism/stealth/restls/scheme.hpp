@@ -45,7 +45,8 @@ namespace psm::stealth::restls
             -> verify_result override;
 
         // === 执行 ===
-        auto handshake(stealth::handshake_context ctx) -> net::awaitable<stealth::handshake_result> override;
+        auto handshake(stealth::handshake_context ctx)
+            -> net::awaitable<stealth::handshake_result> override;
 
     protected:
         [[nodiscard]] auto weight() const noexcept

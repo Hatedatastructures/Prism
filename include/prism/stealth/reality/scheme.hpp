@@ -29,8 +29,7 @@ namespace psm::stealth::reality
             -> memory::vector<memory::string> override;
 
         // === Tier 0: 快速检测 ===
-        [[nodiscard]] auto sniff(std::uint32_t bitmap,
-                                  const protocol::tls::client_hello_features &features) const
+        [[nodiscard]] auto sniff(std::uint32_t bitmap, const hello_features &features) const
             -> sniff_result override;
 
         // === Tier 1/2: 使用默认实现 ===

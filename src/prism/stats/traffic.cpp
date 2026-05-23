@@ -1,33 +1,35 @@
 /**
  * @file traffic.cpp
  * @brief per-worker 流量统计实现 + 全局聚合注册表
+ * @details traffic_state 的所有方法实现。全局注册表采用 COW 模式：
+ * register_instance/unregister_instance 创建新 vector 替换旧的，
+ * 旧 vector 不释放（可能有并发的 aggregate() 在读）。
+ * worker 数量有限（通常 < 64），内存泄漏可忽略。
  */
 #include <prism/stats/traffic.hpp>
 
 namespace psm::stats::traffic
 {
-    namespace mo = std::memory_order;
-
     // --- traffic_state ---
 
     void traffic_state::on_connect() noexcept
     {
-        total_connections_.fetch_add(1, mo::relaxed);
-        total_active_.fetch_add(1, mo::relaxed);
+        total_connections_.fetch_add(1, std::memory_order::relaxed);
+        total_active_.fetch_add(1, std::memory_order::relaxed);
     }
 
     void traffic_state::on_protocol_detected(protocol::protocol_type type) noexcept
     {
         const auto i = static_cast<std::uint8_t>(type);
-        protocols_[i].connections.fetch_add(1, mo::relaxed);
-        protocols_[i].active.fetch_add(1, mo::relaxed);
+        protocols_[i].connections.fetch_add(1, std::memory_order::relaxed);
+        protocols_[i].active.fetch_add(1, std::memory_order::relaxed);
     }
 
     void traffic_state::on_disconnect(protocol::protocol_type type) noexcept
     {
-        total_active_.fetch_sub(1, mo::relaxed);
+        total_active_.fetch_sub(1, std::memory_order::relaxed);
         const auto i = static_cast<std::uint8_t>(type);
-        protocols_[i].active.fetch_sub(1, mo::relaxed);
+        protocols_[i].active.fetch_sub(1, std::memory_order::relaxed);
     }
 
     void traffic_state::flush_traffic(protocol::protocol_type proto,
@@ -37,61 +39,62 @@ namespace psm::stats::traffic
         const auto i = static_cast<std::uint8_t>(proto);
         if (up)
         {
-            total_uplink_.fetch_add(up, mo::relaxed);
-            protocols_[i].uplink_bytes.fetch_add(up, mo::relaxed);
+            total_uplink_.fetch_add(up, std::memory_order::relaxed);
+            protocols_[i].uplink_bytes.fetch_add(up, std::memory_order::relaxed);
         }
         if (down)
         {
-            total_downlink_.fetch_add(down, mo::relaxed);
-            protocols_[i].downlink_bytes.fetch_add(down, mo::relaxed);
+            total_downlink_.fetch_add(down, std::memory_order::relaxed);
+            protocols_[i].downlink_bytes.fetch_add(down, std::memory_order::relaxed);
         }
     }
 
     void traffic_state::on_auth_success() noexcept
     {
-        auth_success_.fetch_add(1, mo::relaxed);
+        auth_success_.fetch_add(1, std::memory_order::relaxed);
     }
 
     void traffic_state::on_auth_failure() noexcept
     {
-        auth_failure_.fetch_add(1, mo::relaxed);
+        auth_failure_.fetch_add(1, std::memory_order::relaxed);
     }
 
-    auto traffic_state::snapshot() const noexcept -> traffic_snapshot
+    auto traffic_state::snapshot() const noexcept
+        -> traffic_snapshot
     {
         traffic_snapshot s;
-        s.total_connections = total_connections_.load(mo::relaxed);
-        s.total_active = total_active_.load(mo::relaxed);
-        s.total_uplink = total_uplink_.load(mo::relaxed);
-        s.total_downlink = total_downlink_.load(mo::relaxed);
-        s.auth_success = auth_success_.load(mo::relaxed);
-        s.auth_failure = auth_failure_.load(mo::relaxed);
+        s.total_connections = total_connections_.load(std::memory_order::relaxed);
+        s.total_active = total_active_.load(std::memory_order::relaxed);
+        s.total_uplink = total_uplink_.load(std::memory_order::relaxed);
+        s.total_downlink = total_downlink_.load(std::memory_order::relaxed);
+        s.auth_success = auth_success_.load(std::memory_order::relaxed);
+        s.auth_failure = auth_failure_.load(std::memory_order::relaxed);
 
         for (std::size_t i = 0; i < protocol_slot_count; ++i)
         {
-            s.protocols[i].connections = protocols_[i].connections.load(mo::relaxed);
-            s.protocols[i].active = protocols_[i].active.load(mo::relaxed);
-            s.protocols[i].uplink_bytes = protocols_[i].uplink_bytes.load(mo::relaxed);
-            s.protocols[i].downlink_bytes = protocols_[i].downlink_bytes.load(mo::relaxed);
+            s.protocols[i].connections = protocols_[i].connections.load(std::memory_order::relaxed);
+            s.protocols[i].active = protocols_[i].active.load(std::memory_order::relaxed);
+            s.protocols[i].uplink_bytes = protocols_[i].uplink_bytes.load(std::memory_order::relaxed);
+            s.protocols[i].downlink_bytes = protocols_[i].downlink_bytes.load(std::memory_order::relaxed);
         }
         return s;
     }
 
     void traffic_state::reset() noexcept
     {
-        total_connections_.store(0, mo::relaxed);
-        total_active_.store(0, mo::relaxed);
-        total_uplink_.store(0, mo::relaxed);
-        total_downlink_.store(0, mo::relaxed);
-        auth_success_.store(0, mo::relaxed);
-        auth_failure_.store(0, mo::relaxed);
+        total_connections_.store(0, std::memory_order::relaxed);
+        total_active_.store(0, std::memory_order::relaxed);
+        total_uplink_.store(0, std::memory_order::relaxed);
+        total_downlink_.store(0, std::memory_order::relaxed);
+        auth_success_.store(0, std::memory_order::relaxed);
+        auth_failure_.store(0, std::memory_order::relaxed);
 
         for (std::size_t i = 0; i < protocol_slot_count; ++i)
         {
-            protocols_[i].connections.store(0, mo::relaxed);
-            protocols_[i].active.store(0, mo::relaxed);
-            protocols_[i].uplink_bytes.store(0, mo::relaxed);
-            protocols_[i].downlink_bytes.store(0, mo::relaxed);
+            protocols_[i].connections.store(0, std::memory_order::relaxed);
+            protocols_[i].active.store(0, std::memory_order::relaxed);
+            protocols_[i].uplink_bytes.store(0, std::memory_order::relaxed);
+            protocols_[i].downlink_bytes.store(0, std::memory_order::relaxed);
         }
     }
 
@@ -101,14 +104,15 @@ namespace psm::stats::traffic
 
     static std::atomic<registry_vector *> g_registry{nullptr};
 
-    static auto load_registry() noexcept -> registry_vector *
+    static auto load_registry() noexcept
+        -> registry_vector *
     {
-        return g_registry.load(mo::acquire);
+        return g_registry.load(std::memory_order::acquire);
     }
 
     static void store_registry(registry_vector *v) noexcept
     {
-        g_registry.store(v, mo::release);
+        g_registry.store(v, std::memory_order::release);
     }
 
     void traffic_state::register_instance(traffic_state *s) noexcept
@@ -143,7 +147,8 @@ namespace psm::stats::traffic
         store_registry(next);
     }
 
-    auto traffic_state::aggregate() noexcept -> traffic_snapshot
+    auto traffic_state::aggregate() noexcept
+        -> traffic_snapshot
     {
         auto *reg = load_registry();
         if (!reg)

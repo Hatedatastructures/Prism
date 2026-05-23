@@ -49,8 +49,7 @@ namespace psm::protocol::trojan::format
         return {fault::code::success, {static_cast<command>(buffer[0]), static_cast<address_type>(buffer[1])}};
     }
 
-    auto build_udp_packet(const udp_frame &frame, std::span<const std::byte> payload,
-                           memory::vector<std::byte> &out)
+    auto build_udp_packet(const udp_frame &frame, std::span<const std::byte> payload, memory::vector<std::byte> &out)
         -> fault::code
     {
         // 预分配：最大地址长度(1+16) + port(2) + length(2) + CRLF(2) + payload

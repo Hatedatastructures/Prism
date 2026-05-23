@@ -1,5 +1,5 @@
 /**
- * @file glaze_meta.hpp
+ * @file serialize.hpp
  * @brief Stealth 模块 Glaze 序列化集中定义
  * @details 将所有伪装层配置结构的 glz::meta<> 特化集中于此文件，
  * 避免各 config.hpp 引入 glaze 重型依赖，减少编译单元的

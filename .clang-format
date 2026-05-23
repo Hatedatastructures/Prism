@@ -1,0 +1,142 @@
+---
+Language: Cpp
+BasedOnStyle: LLVM
+FixNamespaceComments: true
+
+# ═══════════════════════════════════════════════════════════════
+# 缩进与间距
+# ═══════════════════════════════════════════════════════════════
+IndentWidth: 4
+TabWidth: 4
+UseTab: Never
+AccessModifierOffset: -4
+NamespaceIndentation: None
+IndentCaseLabels: false
+IndentCaseBlocks: false
+
+# ═══════════════════════════════════════════════════════════════
+# 行宽
+# ═══════════════════════════════════════════════════════════════
+ColumnLimit: 120
+ReflowComments: true
+
+# ═══════════════════════════════════════════════════════════════
+# 大括号风格
+# 函数/类/命名空间：换行开大括号
+# 控制语句 (if/for/while)：不换行
+# ═══════════════════════════════════════════════════════════════
+BreakBeforeBraces: Custom
+BraceWrapping:
+  AfterFunction: true
+  AfterControlStatement: Never
+  AfterStruct: false
+  AfterClass: false
+  AfterNamespace: true
+  AfterEnum: false
+  AfterUnion: false
+  AfterExternBlock: true
+  BeforeElse: false
+  BeforeWhile: false
+  IndentBraces: false
+  SplitEmptyFunction: true
+  SplitEmptyRecord: true
+  SplitEmptyNamespace: true
+
+# ═══════════════════════════════════════════════════════════════
+# 对齐
+# ═══════════════════════════════════════════════════════════════
+AlignAfterOpenBracket: Align
+AlignOperands: Align
+AlignTrailingComments: true
+AlignConsecutiveAssignments: None
+AlignConsecutiveDeclarations: None
+AlignEscapedNewlines: Right
+
+# ═══════════════════════════════════════════════════════════════
+# 短函数/短 if 风格
+# Prism 风格：所有函数体换行，不放在单行
+# ═══════════════════════════════════════════════════════════════
+AllowShortFunctionsOnASingleLine: None
+AllowShortIfStatementsOnASingleLine: Never
+AllowShortLoopsOnASingleLine: false
+AllowShortBlocksOnASingleLine: Never
+AllowShortCaseLabelsOnASingleLine: false
+AllowShortEnumsOnASingleLine: true
+
+# ═══════════════════════════════════════════════════════════════
+# 指针与引用对齐
+# Prism 风格：左对齐 (int* p, const string& s)
+# ═══════════════════════════════════════════════════════════════
+PointerAlignment: Left
+ReferenceAlignment: Left
+DerivePointerAlignment: false
+
+# ═══════════════════════════════════════════════════════════════
+# 空格
+# ═══════════════════════════════════════════════════════════════
+SpaceAfterCStyleCast: false
+SpaceAfterLogicalNot: false
+SpaceAfterTemplateKeyword: true
+SpaceBeforeAssignmentOperators: true
+SpaceBeforeParens: ControlStatements
+SpaceBeforeRangeBasedForLoopColon: true
+SpaceInEmptyBlock: false
+SpaceInEmptyParentheses: false
+SpacesBeforeTrailingComments: 2
+SpacesInAngles: Never
+SpacesInCStyleCastParentheses: false
+SpacesInConditionalStatement: false
+SpacesInParentheses: false
+SpacesInSquareBrackets: false
+BitFieldColonSpacing: Both
+
+# ═══════════════════════════════════════════════════════════════
+# 换行策略
+# ═══════════════════════════════════════════════════════════════
+AlwaysBreakTemplateDeclarations: Yes
+AlwaysBreakBeforeMultilineStrings: false
+BinPackArguments: false
+BinPackParameters: false
+BreakBeforeBinaryOperators: None
+BreakBeforeTernaryOperators: true
+BreakConstructorInitializers: BeforeColon
+BreakInheritanceList: BeforeColon
+ConstructorInitializerIndentWidth: 4
+ContinuationIndentWidth: 4
+AllowAllArgumentsOnNextLine: false
+AllowAllParametersOfDeclarationOnNextLine: false
+
+# ═══════════════════════════════════════════════════════════════
+# Include 排序
+# Prism 风格：对应文件优先 → 项目头文件 → 第三方库 → 标准库
+# ═══════════════════════════════════════════════════════════════
+SortIncludes: CaseInsensitive
+IncludeBlocks: Regroup
+IncludeCategories:
+  # 对应头文件（最高优先级）
+  - Regex: '^<prism/.*\.hpp>'
+    Priority: 1
+  # 第三方库
+  - Regex: '^<(boost|openssl|spdlog|glaze|blake3)/'
+    Priority: 2
+  - Regex: '^<boost/'
+    Priority: 2
+  # 标准库
+  - Regex: '^<[a-z_]+>'
+    Priority: 3
+
+# ═══════════════════════════════════════════════════════════════
+# 杂项
+# ═══════════════════════════════════════════════════════════════
+KeepEmptyLinesAtTheStartOfBlocks: false
+MaxEmptyLinesToKeep: 1
+Standard: c++20
+InsertBraces: true
+EmptyLineAfterAccessModifier: Never
+EmptyLineBeforeAccessModifier: LogicalBlock
+AttributeMacros:
+  - [[nodiscard]]
+  - [[deprecated]]
+StatementMacros:
+  - co_return
+  - co_yield

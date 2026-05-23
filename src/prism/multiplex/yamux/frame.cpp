@@ -113,8 +113,7 @@ namespace psm::multiplex::yamux
         return build_header(hdr);
     }
 
-    auto make_data_frame(const flags f, const std::uint32_t stream_id,
-                         const std::span<const std::byte> payload) noexcept
+    auto make_data_frame(const flags f, const std::uint32_t stream_id, const std::span<const std::byte> payload) noexcept
         -> data_frame
     {
         frame_header hdr{};
@@ -125,8 +124,7 @@ namespace psm::multiplex::yamux
         return {build_header(hdr), std::vector<std::byte>(payload.begin(), payload.end())};
     }
 
-    auto make_syn_frame(const std::uint32_t stream_id,
-                        const std::span<const std::byte> payload) noexcept
+    auto make_syn_frame(const std::uint32_t stream_id, const std::span<const std::byte> payload) noexcept
         -> data_frame
     {
         return make_data_frame(flags::syn, stream_id, payload);

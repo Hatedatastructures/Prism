@@ -413,7 +413,8 @@ namespace psm::connect
         }
     }
 
-    auto connection_pool::stats() const -> pool_stats
+    auto connection_pool::stats() const
+        -> pool_stats
     {
         pool_stats s;
         s.total_acquires = stat_acquires_;

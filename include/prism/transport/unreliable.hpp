@@ -66,6 +66,30 @@ namespace psm::transport
         }
 
         /**
+         * @brief 获取传输层类型
+         * @return type::udp 不可靠传输始终为 UDP
+         */
+        [[nodiscard]] auto transport_type() const noexcept
+            -> type override
+        {
+            return type::udp;
+        }
+
+        /**
+         * @brief 获取内层传输
+         * @return nullptr unreliable 是叶子节点，没有内层
+         */
+        [[nodiscard]] transmission *next_layer() noexcept override
+        {
+            return nullptr;
+        }
+
+        [[nodiscard]] const transmission *next_layer() const noexcept override
+        {
+            return nullptr;
+        }
+
+        /**
          * @brief 获取关联的执行器
          * @details 返回底层 socket 关联的执行器，用于调度异步操作。
          * @return executor_type 执行器
@@ -157,16 +181,6 @@ namespace psm::transport
                 net::buffer(buffer.data(), buffer.size()), *remote_endpoint_, token);
             ec = psm::fault::make_error_code(psm::fault::to_code(sys_ec));
             co_return n;
-        }
-
-        /**
-         * @brief 完整写入操作（UDP 特化）
-         * @details UDP 数据报一次发送完成，无需循环。直接委托给 async_write_some。
-         */
-        auto async_write(std::span<const std::byte> buffer, std::error_code &ec)
-            -> net::awaitable<std::size_t> override
-        {
-            co_return co_await async_write_some(buffer, ec);
         }
 
         /**

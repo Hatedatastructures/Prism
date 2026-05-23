@@ -1,6 +1,8 @@
 /**
  * @file runtime.cpp
  * @brief 运行状态与负载统计实现
+ * @details worker_load 从原有 stats::state 完整迁移，算法零改动。
+ * system_state 为全局单例，记录进程启动时间和 worker 数量。
  */
 #include <prism/stats/runtime.hpp>
 #include <prism/trace.hpp>
@@ -40,7 +42,8 @@ namespace psm::stats::runtime
         return active_sessions_;
     }
 
-    auto worker_load::snapshot() const noexcept -> worker_load_snapshot
+    auto worker_load::snapshot() const noexcept
+        -> worker_load_snapshot
     {
         return {
             active_sessions_->load(std::memory_order_relaxed),
@@ -48,7 +51,16 @@ namespace psm::stats::runtime
             event_loop_lag_us_.load(std::memory_order_relaxed)};
     }
 
-    auto worker_load::observe(net::io_context &ioc) -> net::awaitable<void>
+    /**
+     * @details 算法流程：
+     * 1. 每 250ms 设置定时器并等待
+     * 2. 测量实际等待时间与预期时间的偏差
+     * 3. 前 16 次采样为预热，建立抖动基线（jitter_baseline_us）
+     * 4. 之后的有效延迟 = 实际延迟 - 抖动基线，低于 1ms 的忽略
+     * 5. EMA 平滑系数 7/8，与 Linux 内核 load average 一致
+     */
+    auto worker_load::observe(net::io_context &ioc)
+        -> net::awaitable<void>
     {
         net::steady_timer timer(ioc);
         auto expected_time = std::chrono::steady_clock::now();
@@ -103,7 +115,8 @@ namespace psm::stats::runtime
 
     // --- system_state ---
 
-    auto system_state::instance() -> system_state &
+    auto system_state::instance()
+        -> system_state &
     {
         static system_state inst;
         return inst;
@@ -119,7 +132,8 @@ namespace psm::stats::runtime
         worker_count_ = worker_count;
     }
 
-    auto system_state::snapshot() const noexcept -> runtime_snapshot
+    auto system_state::snapshot() const noexcept
+        -> runtime_snapshot
     {
         if (!started_.load(std::memory_order_relaxed))
         {

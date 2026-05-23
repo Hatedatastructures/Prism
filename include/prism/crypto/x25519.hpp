@@ -56,7 +56,8 @@ namespace psm::crypto
      * 然后从私钥推导对应的公钥。
      * @return 随机生成的 X25519 密钥对
      */
-    [[nodiscard]] auto generate_x25519_keypair() -> x25519_keypair;
+    [[nodiscard]] auto generate_x25519_keypair()
+        -> x25519_keypair;
 
     /**
      * @brief 从私钥推导公钥

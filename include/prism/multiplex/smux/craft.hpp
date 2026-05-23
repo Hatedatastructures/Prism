@@ -36,8 +36,7 @@ namespace psm::multiplex::smux
      * @return 完整的帧字节序列（8 字节帧头 + payload）
      * @details 帧格式：[Version 1B][Cmd=PSH 1B][Length 2B LE][StreamID 4B LE][Payload]
      */
-    [[nodiscard]] auto make_data_frame(std::uint32_t stream_id,
-                                       std::span<const std::byte> payload)
+    [[nodiscard]] auto make_data_frame(std::uint32_t stream_id, std::span<const std::byte> payload)
         -> memory::vector<std::byte>;
 
     /**
@@ -130,7 +129,8 @@ namespace psm::multiplex::smux
          * @brief 协议主循环（纯虚，由 core::start() 通过 co_spawn 启动）
          * @details 依次执行协议协商和帧循环。
          */
-        auto run() -> net::awaitable<void> override;
+        auto run()
+            -> net::awaitable<void> override;
 
         /**
          * @brief 帧循环主协程
@@ -138,7 +138,8 @@ namespace psm::multiplex::smux
          * SYN 创建 pending_entry，PSH 由 dispatch_push 非阻塞三路分发，
          * FIN 关闭对应流，NOP 忽略。读取失败或无效帧时退出循环。
          */
-        auto frame_loop() -> net::awaitable<void>;
+        auto frame_loop()
+            -> net::awaitable<void>;
 
         /**
          * @brief 处理 SYN 帧，创建 pending_entry
@@ -146,7 +147,8 @@ namespace psm::multiplex::smux
          * @details 检查 max_streams 限制，未超出则在 pending_ 中创建条目，
          * 等待后续 PSH 帧累积地址数据。
          */
-        auto handle_syn(std::uint32_t stream_id) -> net::awaitable<void>;
+        auto handle_syn(std::uint32_t stream_id)
+            -> net::awaitable<void>;
 
         /**
          * @brief 处理 PSH 帧，非阻塞三路分发
@@ -175,7 +177,8 @@ namespace psm::multiplex::smux
          * TCP 通过 router 连接目标后发送状态并创建 duct 转发剩余数据。
          * 地址解析失败时发送错误状态并 FIN。
          */
-        auto activate_stream(std::uint32_t stream_id) -> net::awaitable<void>;
+        auto activate_stream(std::uint32_t stream_id)
+            -> net::awaitable<void>;
 
         /**
          * @brief 将帧推送到发送通道
@@ -199,14 +202,16 @@ namespace psm::multiplex::smux
          * 先写 8 字节帧头，再写 payload。零拷贝。
          * 写入失败时调用 close() 关闭整个会话。
          */
-        auto send_loop() -> net::awaitable<void>;
+        auto send_loop()
+            -> net::awaitable<void>;
 
         /**
          * @brief NOP 心跳循环
          * @details 当 keepalive_interval_ms > 0 时运行，按配置间隔发送 NOP 帧，
          * 保持连接活性。定时器等待期间会话关闭则退出。
          */
-        auto keepalive_loop() -> net::awaitable<void>;
+        auto keepalive_loop()
+            -> net::awaitable<void>;
     }; // class craft
 
 } // namespace psm::multiplex::smux

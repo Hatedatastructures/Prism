@@ -76,7 +76,8 @@ namespace psm::crypto
     }
 
     // 移动赋值：先清理自己的资源，再接管对方的，最后将对方置为安全状态。
-    auto aead_context::operator=(aead_context &&other) noexcept -> aead_context &
+    auto aead_context::operator=(aead_context &&other) noexcept
+        -> aead_context &
     {
         if (this != &other)
         {

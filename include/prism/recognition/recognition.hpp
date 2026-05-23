@@ -116,7 +116,8 @@ namespace psm::recognition
      * - 特征分析
      * - 方案执行
      */
-    auto recognize(recognize_context ctx) -> net::awaitable<recognize_result>;
+    auto recognize(recognize_context ctx)
+        -> net::awaitable<recognize_result>;
 
     // ═══════════════════════════════════════════════════════════════════════
     // 伪装方案识别：identify()（仅 TLS）
@@ -197,6 +198,7 @@ namespace psm::recognition
      * - 成功则返回结果
      * - 失败则继续下一个或 fallback
      */
-    auto identify(identify_context ctx) -> net::awaitable<identify_result>;
+    auto identify(identify_context ctx)
+        -> net::awaitable<identify_result>;
 
 } // namespace psm::recognition

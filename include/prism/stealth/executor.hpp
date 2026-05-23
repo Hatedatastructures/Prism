@@ -57,16 +57,20 @@ namespace psm::stealth
     private:
         std::vector<shared_scheme> schemes_;
 
-        [[nodiscard]] auto find_scheme(std::string_view name) const -> shared_scheme;
+        [[nodiscard]] auto find_scheme(std::string_view name) const
+            -> shared_scheme;
 
         [[nodiscard]] static auto execute_single(shared_scheme scheme, handshake_context ctx)
             -> net::awaitable<handshake_result>;
 
-        static auto pass_through(handshake_context &ctx, const handshake_result &res) -> void;
+        static auto pass_through(handshake_context &ctx, const handshake_result &res)
+            -> void;
 
-        static auto ensure_snapshot(handshake_context &ctx) -> void;
+        static auto ensure_snapshot(handshake_context &ctx)
+            -> void;
 
-        static auto try_rewind(handshake_context &ctx) -> bool;
+        static auto try_rewind(handshake_context &ctx)
+            -> bool;
 
         [[nodiscard]] auto execute_pipeline(const memory::vector<memory::string> &order, handshake_context ctx) const
             -> net::awaitable<handshake_result>;

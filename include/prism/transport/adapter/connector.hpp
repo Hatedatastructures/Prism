@@ -146,26 +146,13 @@ namespace psm::transport
                 return net::async_initiate<CompletionToken, void(boost::system::error_code, std::size_t)>(handler, token);
             }
 
-            // 预读数据已耗尽，适配 transmission::async_read_some 到 Asio 概念
+            // 预读数据已耗尽，直接委托给传输层的 completion-handler 方法
             return net::async_initiate<CompletionToken, void(boost::system::error_code, std::size_t)>(
-                [trans = trans_, buf_size = net::buffer_size(buffers), first_buf = *net::buffer_sequence_begin(buffers)]
+                [trans = trans_, first_buf = *net::buffer_sequence_begin(buffers)]
                 (auto &&handler) mutable
                 {
-                    auto executor = net::get_associated_executor(handler);
-                    auto work = [trans = std::move(trans), buf_size, first_buf, h = std::forward<decltype(handler)>(handler)]
-                                () mutable -> net::awaitable<void>
-                    {
-                        if (buf_size == 0)
-                        {
-                            h(boost::system::error_code{}, 0);
-                            co_return;
-                        }
-                        std::span<std::byte> span(reinterpret_cast<std::byte *>(first_buf.data()), first_buf.size());
-                        std::error_code ec;
-                        const auto n = co_await trans->async_read_some(span, ec);
-                        h(boost::system::error_code{ec.value(), boost::system::generic_category()}, n);
-                    };
-                    net::co_spawn(executor, std::move(work), net::detached);
+                    std::span<std::byte> span(reinterpret_cast<std::byte *>(first_buf.data()), first_buf.size());
+                    trans->async_read_some(span, std::forward<decltype(handler)>(handler));
                 }, token);
         }
 
@@ -181,26 +168,12 @@ namespace psm::transport
         template <typename ConstBufferSequence, typename CompletionToken>
         auto async_write_some(const ConstBufferSequence &buffers, CompletionToken &&token)
         {
-            // 适配 transmission::async_write_some 到 Asio 概念
             return net::async_initiate<CompletionToken, void(boost::system::error_code, std::size_t)>(
-                [trans = trans_, buf_size = net::buffer_size(buffers), first_buf = *net::buffer_sequence_begin(buffers)]
+                [trans = trans_, first_buf = *net::buffer_sequence_begin(buffers)]
                 (auto &&handler) mutable
                 {
-                    auto executor = net::get_associated_executor(handler);
-                    auto work = [trans = std::move(trans), buf_size, first_buf, h = std::forward<decltype(handler)>(handler)]
-                                () mutable -> net::awaitable<void>
-                    {
-                        if (buf_size == 0)
-                        {
-                            h(boost::system::error_code{}, 0);
-                            co_return;
-                        }
-                        std::span<const std::byte> span(reinterpret_cast<const std::byte *>(first_buf.data()), first_buf.size());
-                        std::error_code ec;
-                        const auto n = co_await trans->async_write_some(span, ec);
-                        h(boost::system::error_code{ec.value(), boost::system::generic_category()}, n);
-                    };
-                    net::co_spawn(executor, std::move(work), net::detached);
+                    std::span<const std::byte> span(reinterpret_cast<const std::byte *>(first_buf.data()), first_buf.size());
+                    trans->async_write_some(span, std::forward<decltype(handler)>(handler));
                 }, token);
         }
 
@@ -215,7 +188,7 @@ namespace psm::transport
         auto async_write(std::span<const std::byte> buffer, std::error_code &ec)
             -> net::awaitable<std::size_t>
         {
-            co_return co_await trans_->async_write(buffer, ec);
+            co_return co_await transport::async_write(*trans_, buffer, ec);
         }
 
         /**
@@ -229,7 +202,7 @@ namespace psm::transport
         auto async_read(std::span<std::byte> buffer, std::error_code &ec)
             -> net::awaitable<std::size_t>
         {
-            co_return co_await trans_->async_read(buffer, ec);
+            co_return co_await transport::async_read(*trans_, buffer, ec);
         }
 
         using lowest_layer_type = connector;

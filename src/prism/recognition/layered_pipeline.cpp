@@ -11,6 +11,8 @@
 
 namespace psm::recognition
 {
+    using hello_features = protocol::tls::hello_features;
+
     layered_detection_pipeline::layered_detection_pipeline(
         const std::vector<stealth::shared_scheme> &schemes)
     {
@@ -44,7 +46,7 @@ namespace psm::recognition
 
     auto layered_detection_pipeline::detect(
         std::uint32_t bitmap,
-        const protocol::tls::client_hello_features &features,
+        const hello_features &features,
         std::span<const std::byte> raw,
         const psm::config &cfg,
         const std::vector<stealth::shared_scheme> &matched_schemes) const
@@ -80,7 +82,7 @@ namespace psm::recognition
 
     auto layered_detection_pipeline::detect_tier0(
         std::uint32_t bitmap,
-        const protocol::tls::client_hello_features &features,
+        const hello_features &features,
         const psm::config &cfg) const
         -> pipeline_result
     {
@@ -119,7 +121,7 @@ namespace psm::recognition
     }
 
     auto layered_detection_pipeline::detect_tier1(
-        const protocol::tls::client_hello_features &features,
+        const hello_features &features,
         std::span<const std::byte> raw,
         const psm::config &cfg) const
         -> pipeline_result

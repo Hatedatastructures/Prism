@@ -17,7 +17,8 @@ namespace psm::resolve::dns::detail
     {
     }
 
-    auto cache::make_key(const std::string_view domain, const qtype qt) const -> memory::string
+    auto cache::make_key(const std::string_view domain, const qtype qt) const
+        -> memory::string
     {
         // qtype 数值转为字符串（最大 3 位，如 "65535"）
         const auto num = static_cast<std::uint16_t>(qt);
@@ -34,7 +35,8 @@ namespace psm::resolve::dns::detail
     }
 
     auto cache::make_key_view(const std::string_view domain, const qtype qt,
-                              const std::span<char> buffer) -> std::string_view
+                              const std::span<char> buffer)
+        -> std::string_view
     {
         const auto num = static_cast<std::uint16_t>(qt);
         const auto num_len = std::snprintf(buffer.data() + domain.size() + 1, 6, "%u", num);

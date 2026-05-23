@@ -43,7 +43,8 @@ namespace psm::stealth::restls
          * @brief 检查配置是否有效
          * @return 如果 server_names、host 和 password 都非空，返回 true
          */
-        [[nodiscard]] auto enabled() const noexcept -> bool
+        [[nodiscard]] auto enabled() const noexcept
+            -> bool
         {
             return !server_names.empty() && !host.empty() && !password.empty();
         }

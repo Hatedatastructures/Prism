@@ -145,7 +145,8 @@ namespace psm::resolve::dns
             co_return std::make_pair(fault::code::success, std::move(endpoints));
         }
 
-        [[nodiscard]] auto ipv6_disabled() const noexcept -> bool override
+        [[nodiscard]] auto ipv6_disabled() const noexcept
+            -> bool override
         {
             return config_.disable_ipv6;
         }
@@ -330,7 +331,8 @@ namespace psm::resolve::dns
             co_return std::make_pair(result.error, std::move(result.ips));
         }
 
-        [[nodiscard]] static auto normalize(std::string_view domain, memory::resource_pointer mr) -> memory::string
+        [[nodiscard]] static auto normalize(std::string_view domain, memory::resource_pointer mr)
+            -> memory::string
         {
             memory::string result(domain, mr);
             auto to_lower = [](unsigned char ch)
@@ -345,7 +347,8 @@ namespace psm::resolve::dns
             return result;
         }
 
-        [[nodiscard]] auto is_blacklisted(const net::ip::address &ip) const -> bool
+        [[nodiscard]] auto is_blacklisted(const net::ip::address &ip) const
+            -> bool
         {
             if (ip.is_v4())
             {

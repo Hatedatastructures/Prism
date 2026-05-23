@@ -6,6 +6,7 @@
 
 #include <prism/stealth/native.hpp>
 #include <prism/connect.hpp>
+#include <prism/connect/util.hpp>
 #include <prism/transport/encrypted.hpp>
 #include <prism/transport/preview.hpp>
 #include <prism/trace.hpp>
@@ -18,12 +19,14 @@ namespace psm::stealth::native
 {
     namespace net = boost::asio;
     namespace ssl = net::ssl;
-    auto native::active([[maybe_unused]] const psm::config &cfg) const noexcept -> bool
+    auto native::active([[maybe_unused]] const psm::config &cfg) const noexcept
+        -> bool
     {
         return true;  // Native 始终启用，作为兜底
     }
 
-    auto native::name() const noexcept -> std::string_view
+    auto native::name() const noexcept
+        -> std::string_view
     {
         return "native";
     }
@@ -67,21 +70,7 @@ namespace psm::stealth::native
         // 解包 snapshot/preview 层，提取底层原始传输
         // native 不能在 snapshot 上做 SSL 握手：snapshot 的回放机制与
         // BoringSSL SSL_accept 的读写交替流程冲突
-        auto raw = ctx.inbound;
-        while (raw)
-        {
-            if (auto *p = dynamic_cast<transport::preview *>(raw.get()))
-            {
-                raw = p->inner();
-                continue;
-            }
-            if (auto *s = dynamic_cast<transport::snapshot *>(raw.get()))
-            {
-                raw = s->inner();
-                continue;
-            }
-            break;
-        }
+        auto raw = connect::peel_to_raw(std::move(ctx.inbound));
 
         if (!raw)
         {

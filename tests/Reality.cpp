@@ -103,7 +103,7 @@ void TestRealityCertificateParsesAsEd25519()
     using namespace psm;
     using namespace psm::stealth::reality;
 
-    protocol::tls::client_hello_features client_hello;
+    protocol::tls::hello_features client_hello;
     client_hello.session_id = {0x01, 0x02, 0x03, 0x04};
     client_hello.raw_hs_msg = {
         0x01, 0x00, 0x00, 0x05,

@@ -40,6 +40,20 @@ namespace psm::protocol::shadowsocks
     {
     public:
         /**
+         * @brief 获取内层传输指针（装饰器链导航）
+         * @return transmission* 内层传输指针
+         */
+        [[nodiscard]] transport::transmission *next_layer() noexcept override
+        {
+            return next_layer_.get();
+        }
+
+        [[nodiscard]] const transport::transmission *next_layer() const noexcept override
+        {
+            return next_layer_.get();
+        }
+
+        /**
          * @brief 构造函数
          * @param next_layer 底层传输层，必须已建立连接
          * @param cfg SS2022 协议配置
@@ -51,7 +65,8 @@ namespace psm::protocol::shadowsocks
          * @brief 获取关联的执行器
          * @return executor_type 执行器
          */
-        auto executor() const -> executor_type override;
+        auto executor() const
+            -> executor_type override;
 
         /**
          * @brief 异步读取数据
@@ -90,7 +105,8 @@ namespace psm::protocol::shadowsocks
          * 握手成功后需调用 acknowledge() 发送响应
          * @return 错误码和请求信息
          */
-        auto handshake() -> net::awaitable<std::pair<fault::code, request>>;
+        auto handshake()
+            -> net::awaitable<std::pair<fault::code, request>>;
 
         /**
          * @brief 发送 SS2022 握手响应
@@ -98,13 +114,15 @@ namespace psm::protocol::shadowsocks
          * 上游拨号成功后，避免拨号失败时客户端收到误导性的成功响应
          * @return 错误码
          */
-        auto acknowledge() -> net::awaitable<fault::code>;
+        auto acknowledge()
+            -> net::awaitable<fault::code>;
 
         /**
          * @brief 获取解析后的目标地址
          * @return 目标地址的常量引用
          */
-        [[nodiscard]] auto target() const noexcept -> const protocol::target &
+        [[nodiscard]] auto target() const noexcept
+            -> const protocol::target &
         {
             return target_;
         }
@@ -178,7 +196,8 @@ namespace psm::protocol::shadowsocks
          * @param ec 错误码输出参数
          * @return 异步操作
          */
-        auto fetch_chunk(std::error_code &ec) -> net::awaitable<void>;
+        auto fetch_chunk(std::error_code &ec)
+            -> net::awaitable<void>;
 
         /**
          * @brief 加密并写入一个数据块

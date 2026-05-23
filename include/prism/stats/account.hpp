@@ -17,14 +17,15 @@ namespace psm::stats::account
     /**
      * @struct account_snapshot
      * @brief 单个账户的统计快照
+     * @details 从 account::entry 的原子计数器读取，零写入纯观察者
      */
     struct account_snapshot
     {
-        memory::string credential;
-        std::uint64_t uplink_bytes{0};
-        std::uint64_t downlink_bytes{0};
-        std::uint32_t active_connections{0};
-        std::uint32_t max_connections{0};
+        memory::string credential;             ///< 账户凭证哈希
+        std::uint64_t uplink_bytes{0};         ///< 上行总字节数
+        std::uint64_t downlink_bytes{0};       ///< 下行总字节数
+        std::uint32_t active_connections{0};   ///< 当前活跃连接数
+        std::uint32_t max_connections{0};      ///< 最大允许连接数
     };
 
     /**
@@ -35,8 +36,7 @@ namespace psm::stats::account
      * @note 遍历 dir 内部 map，对每个 entry 读三个原子计数器的
      * relaxed 值，构造快照返回。零写入，纯观察者。
      */
-    [[nodiscard]] inline auto collect(const psm::account::directory &dir,
-                                       memory::resource_pointer mr = memory::current_resource())
+    [[nodiscard]] inline auto collect(const psm::account::directory &dir, memory::resource_pointer mr = memory::current_resource())
         -> memory::vector<account_snapshot>
     {
         memory::vector<account_snapshot> result(mr);

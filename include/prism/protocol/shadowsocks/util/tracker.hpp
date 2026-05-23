@@ -51,7 +51,8 @@ namespace psm::protocol::shadowsocks
 
         struct key_hash
         {
-            auto operator()(const session_key &k) const noexcept -> std::size_t
+            auto operator()(const session_key &k) const noexcept
+                -> std::size_t
             {
                 std::size_t h = 0xcbf29ce484222325ULL;
                 for (auto b : k)
@@ -162,9 +163,7 @@ namespace psm::protocol::shadowsocks
          * @param method 加密方法
          * @return AEAD 上下文智能指针
          */
-        static auto derive_session_aead(const std::array<std::uint8_t, session_id_len> &session_id,
-                                        const std::vector<std::uint8_t> &psk,
-                                        cipher_method method)
+        static auto derive_session_aead(const std::array<std::uint8_t, session_id_len> &session_id, const std::vector<std::uint8_t> &psk, cipher_method method)
             -> std::unique_ptr<crypto::aead_context>
         {
             // 密钥材料：PSK + SessionID（栈分配避免堆分配）

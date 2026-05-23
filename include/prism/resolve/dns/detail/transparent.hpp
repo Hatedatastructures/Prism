@@ -33,7 +33,8 @@ namespace psm::resolve::dns::detail
          * @param value 待哈希的字符串视图
          * @return 哈希值
          */
-        [[nodiscard]] auto operator()(const std::string_view value) const noexcept -> std::size_t
+        [[nodiscard]] auto operator()(const std::string_view value) const noexcept
+            -> std::size_t
         {
             return hash_view(value);
         }
@@ -44,7 +45,8 @@ namespace psm::resolve::dns::detail
          * @param value 待哈希的 PMR 字符串
          * @return 哈希值
          */
-        [[nodiscard]] auto operator()(const memory::string &value) const noexcept -> std::size_t
+        [[nodiscard]] auto operator()(const memory::string &value) const noexcept
+            -> std::size_t
         {
             return hash_view(std::string_view(value));
         }
@@ -58,7 +60,8 @@ namespace psm::resolve::dns::detail
          * @param value 待哈希的字符串视图
          * @return 哈希值
          */
-        [[nodiscard]] static auto hash_view(const std::string_view value) noexcept -> std::size_t
+        [[nodiscard]] static auto hash_view(const std::string_view value) noexcept
+            -> std::size_t
         {
             return append(seed, value);
         }
@@ -70,7 +73,8 @@ namespace psm::resolve::dns::detail
          * @param value 待追加的字符串视图
          * @return 更新后的哈希值
          */
-        [[nodiscard]] static auto append(std::size_t hash, const std::string_view value) noexcept -> std::size_t
+        [[nodiscard]] static auto append(std::size_t hash, const std::string_view value) noexcept
+            -> std::size_t
         {
             for (const auto ch : value)
             {
@@ -99,7 +103,8 @@ namespace psm::resolve::dns::detail
          * @param right 右操作数
          * @return 相等返回 true，否则返回 false
          */
-        [[nodiscard]] auto operator()(const std::string_view left, const std::string_view right) const noexcept -> bool
+        [[nodiscard]] auto operator()(const std::string_view left, const std::string_view right) const noexcept
+            -> bool
         {
             return left == right;
         }
@@ -110,7 +115,8 @@ namespace psm::resolve::dns::detail
          * @param right 字符串视图
          * @return 相等返回 true，否则返回 false
          */
-        [[nodiscard]] auto operator()(const memory::string &left, const std::string_view right) const noexcept -> bool
+        [[nodiscard]] auto operator()(const memory::string &left, const std::string_view right) const noexcept
+            -> bool
         {
             return std::string_view(left) == right;
         }
@@ -121,7 +127,8 @@ namespace psm::resolve::dns::detail
          * @param right PMR 字符串
          * @return 相等返回 true，否则返回 false
          */
-        [[nodiscard]] auto operator()(const std::string_view left, const memory::string &right) const noexcept -> bool
+        [[nodiscard]] auto operator()(const std::string_view left, const memory::string &right) const noexcept
+            -> bool
         {
             return left == std::string_view(right);
         }
@@ -132,7 +139,8 @@ namespace psm::resolve::dns::detail
          * @param right PMR 字符串
          * @return 相等返回 true，否则返回 false
          */
-        [[nodiscard]] auto operator()(const memory::string &left, const memory::string &right) const noexcept -> bool
+        [[nodiscard]] auto operator()(const memory::string &left, const memory::string &right) const noexcept
+            -> bool
         {
             return left == right;
         }

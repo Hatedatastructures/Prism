@@ -12,6 +12,7 @@
 
 namespace psm::recognition::tls
 {
+    using hello_features = protocol::tls::hello_features;
     /**
      * @enum feature_bit
      * @brief TLS ClientHello 特征位
@@ -113,7 +114,7 @@ namespace psm::recognition::tls
      * @return 特征位图（32 位）
      * @note 不检查 SNI 是否匹配配置（sni_matched_config 位需要在路由阶段设置）
      */
-    [[nodiscard]] inline auto build_feature_bitmap(const protocol::tls::client_hello_features &features) noexcept
+    [[nodiscard]] inline auto build_feature_bitmap(const hello_features &features) noexcept
         -> std::uint32_t
     {
         std::uint32_t bitmap = 0;
@@ -165,7 +166,8 @@ namespace psm::recognition::tls
      * @param bit 要检查的特征位
      * @return 是否存在该特征
      */
-    [[nodiscard]] inline auto has_feature(std::uint32_t bitmap, feature_bit bit) noexcept -> bool
+    [[nodiscard]] inline auto has_feature(std::uint32_t bitmap, feature_bit bit) noexcept
+        -> bool
     {
         return (bitmap & bit) != 0;
     }
@@ -176,7 +178,8 @@ namespace psm::recognition::tls
      * @param bits 要检查的特征位组合
      * @return 是否全部存在
      */
-    [[nodiscard]] inline auto has_all_features(std::uint32_t bitmap, std::uint32_t bits) noexcept -> bool
+    [[nodiscard]] inline auto has_all_features(std::uint32_t bitmap, std::uint32_t bits) noexcept
+        -> bool
     {
         return (bitmap & bits) == bits;
     }

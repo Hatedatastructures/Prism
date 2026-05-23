@@ -48,12 +48,27 @@ namespace psm::transport
         }
 
         /**
-         * @brief 检查传输是否可靠
-         * @return 委托给内层传输
+         * @brief 获取传输层类型
+         * @details 委托给内层传输
          */
-        [[nodiscard]] bool is_reliable() const noexcept override
+        [[nodiscard]] auto transport_type() const noexcept
+            -> type override
         {
-            return inner_ ? inner_->is_reliable() : false;
+            return inner_ ? inner_->transport_type() : type::tcp;
+        }
+
+        /**
+         * @brief 获取内层传输
+         * @return 被包装的内层传输指针
+         */
+        [[nodiscard]] transmission *next_layer() noexcept override
+        {
+            return inner_.get();
+        }
+
+        [[nodiscard]] const transmission *next_layer() const noexcept override
+        {
+            return inner_.get();
         }
 
         /**
@@ -171,7 +186,8 @@ namespace psm::transport
          * @brief 获取内层传输
          * @return 内层传输的 shared_ptr
          */
-        [[nodiscard]] auto inner() const noexcept -> shared_transmission
+        [[nodiscard]] auto inner() const noexcept
+            -> shared_transmission
         {
             return inner_;
         }
@@ -189,8 +205,7 @@ namespace psm::transport
      * @param mr PMR 内存资源
      * @return 包装后的 snapshot 传输
      */
-    inline auto make_snapshot(shared_transmission inner,
-                              memory::resource_pointer mr = memory::current_resource())
+    inline auto make_snapshot(shared_transmission inner, memory::resource_pointer mr = memory::current_resource())
         -> shared_transmission
     {
         return std::make_shared<snapshot>(std::move(inner), mr);

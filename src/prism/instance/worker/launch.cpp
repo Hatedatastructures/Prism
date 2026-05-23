@@ -88,7 +88,8 @@ namespace psm::instance::worker::launch
             shared_session->set_account_directory(auth_enabled ? account_store.get() : nullptr);
 
             auto credential_function = [auth_enabled, account_store, traffic = worker.traffic]
-                (const std::string_view credential) -> bool
+                (const std::string_view credential)
+                    -> bool
             {
                 if (!auth_enabled)
                 {

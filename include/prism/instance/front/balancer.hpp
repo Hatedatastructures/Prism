@@ -107,7 +107,8 @@ namespace psm::instance::front
          * 线程均过载，则选择评分最低的过载线程并设置相应标志。该函数
          * 不抛出异常，可安全在热路径中调用。
          */
-        [[nodiscard]] auto select(std::uint64_t affinity_value) noexcept -> select_result;
+        [[nodiscard]] auto select(std::uint64_t affinity_value) noexcept
+            -> select_result;
 
         /**
          * @brief 分发连接至指定工作线程
@@ -123,7 +124,8 @@ namespace psm::instance::front
          * @brief 获取工作线程数量
          * @return 工作线程数量
          */
-        [[nodiscard]] auto size() const noexcept -> std::size_t;
+        [[nodiscard]] auto size() const noexcept
+            -> std::size_t;
 
     private:
         /**
@@ -133,7 +135,8 @@ namespace psm::instance::front
          * @details 使用 MurmurHash3 混合函数对输入值进行混淆，提高哈希
          * 分布的随机性，减少亲和性选择时的聚集效应。
          */
-        [[nodiscard]] static constexpr auto mix_hash(std::uint64_t value) noexcept -> std::uint64_t;
+        [[nodiscard]] static constexpr auto mix_hash(std::uint64_t value) noexcept
+            -> std::uint64_t;
 
         /**
          * @brief 计算负载评分
@@ -142,7 +145,8 @@ namespace psm::instance::front
          * @details 根据配置的权重参数，计算会话数、待处理数和延迟三个
          * 维度的加权评分。评分值在 0.0 到 1.0 之间，表示相对负载水平。
          */
-        [[nodiscard]] auto score(const stats::worker_load_snapshot &snapshot) const noexcept -> double;
+        [[nodiscard]] auto score(const stats::worker_load_snapshot &snapshot) const noexcept
+            -> double;
 
         /**
          * @brief 刷新工作线程过载状态

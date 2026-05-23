@@ -15,8 +15,12 @@
 #include <prism/connect.hpp>
 #include <prism/config.hpp>
 #include <prism/transport/reliable.hpp>
+#include <prism/transport/transmission.hpp>
+#include <prism/memory/container.hpp>
 #include <prism/trace.hpp>
-#include <boost/asio.hpp>
+
+using psm::protocol::tls::REALITY_KEY_LEN;
+using namespace psm::protocol::tls;
 #include <boost/asio/ssl.hpp>
 #include <openssl/ssl.h>
 #include <openssl/x509.h>
@@ -54,7 +58,8 @@ namespace psm::stealth::reality
     // parse_dest
     // ============================================================
 
-    auto parse_dest(const std::string_view dest, std::string &host, std::uint16_t &port) -> bool
+    auto parse_dest(const std::string_view dest, std::string &host, std::uint16_t &port)
+        -> bool
     {
         if (dest.empty())
             return false;
@@ -100,9 +105,7 @@ namespace psm::stealth::reality
     // fallback_to_dest
     // ============================================================
 
-    auto fallback_to_dest(psm::context::session &session,
-                          transport::shared_transmission inbound,
-                          const std::span<const std::uint8_t> raw_record)
+    auto fallback_to_dest(psm::context::session &session, transport::shared_transmission inbound, const std::span<const std::uint8_t> raw_record)
         -> net::awaitable<fault::code>
     {
         const auto &reality_cfg = session.server_ctx.config().stealth.reality;
@@ -223,10 +226,7 @@ namespace psm::stealth::reality
     // ============================================================
 
     /// 用正确的 finished_key 重算 Finished 并加密握手记录
-    static auto derive_and_encrypt_finished(
-        const key_material &keys,
-        server_hello_result &sh_result,
-        std::span<const std::uint8_t> client_hello_raw_msg)
+    static auto derive_and_encrypt_finished(const key_material &keys, server_hello_result &sh_result, std::span<const std::uint8_t> client_hello_raw_msg)
         -> fault::code
     {
         constexpr std::size_t FINISHED_MSG_SIZE = 36; // Type(1) + Length(3) + verify_data(32)
@@ -254,7 +254,7 @@ namespace psm::stealth::reality
         trace::debug("{} server Finished verify_data computed", HsTag);
 
         memory::vector<std::uint8_t> correct_plaintext(ee_cert_cv.begin(), ee_cert_cv.end());
-        correct_plaintext.push_back(protocol::tls::HANDSHAKE_TYPE_FINISHED);
+        correct_plaintext.push_back(HANDSHAKE_TYPE_FINISHED);
         correct_plaintext.push_back(0x00);
         correct_plaintext.push_back(0x00);
         correct_plaintext.push_back(static_cast<std::uint8_t>(verify_data.size()));
@@ -264,7 +264,7 @@ namespace psm::stealth::reality
             keys.server_handshake_key,
             keys.server_handshake_iv,
             0,
-            protocol::tls::CONTENT_TYPE_HANDSHAKE,
+            CONTENT_TYPE_HANDSHAKE,
             correct_plaintext);
 
         if (fault::failed(enc_ec))
@@ -279,15 +279,13 @@ namespace psm::stealth::reality
     }
 
     /// 读取并消费客户端 CCS + Finished
-    static auto consume_client_finished(
-        transport::transmission &inbound,
-        const key_material &keys)
+    static auto consume_client_finished(transport::transmission &inbound, const key_material &keys)
         -> net::awaitable<fault::code>
     {
         bool consumed = false;
         while (!consumed)
         {
-            std::array<std::byte, protocol::tls::RECORD_HEADER_LEN> rec_hdr{};
+            std::array<std::byte, RECORD_HEADER_LEN> rec_hdr{};
             if (!co_await read_exact(inbound, rec_hdr))
             {
                 trace::warn("{} failed to read client record header", HsTag);
@@ -309,7 +307,7 @@ namespace psm::stealth::reality
                 co_return fault::code::io_error;
             }
 
-            if (rec_content_type == protocol::tls::CONTENT_TYPE_CHANGE_CIPHER_SPEC)
+            if (rec_content_type == CONTENT_TYPE_CHANGE_CIPHER_SPEC)
             {
                 trace::debug("{} skipping client CCS record", HsTag);
                 continue;
@@ -317,8 +315,8 @@ namespace psm::stealth::reality
 
             // 非 CCS 记录：尝试解密以判断是 Finished 还是 Alert
             {
-                std::array<std::uint8_t, protocol::tls::AEAD_NONCE_LEN> client_nonce{};
-                std::memcpy(client_nonce.data(), keys.client_handshake_iv.data(), protocol::tls::AEAD_NONCE_LEN);
+                std::array<std::uint8_t, AEAD_NONCE_LEN> client_nonce{};
+                std::memcpy(client_nonce.data(), keys.client_handshake_iv.data(), AEAD_NONCE_LEN);
 
                 const auto ad_span = std::span<const std::uint8_t>(
                     reinterpret_cast<const std::uint8_t *>(rec_hdr.data()), rec_hdr.size());
@@ -338,7 +336,7 @@ namespace psm::stealth::reality
                 if (!fault::failed(open_ec) && decrypted.size() >= 2)
                 {
                     const auto inner_content_type = decrypted.back();
-                    if (inner_content_type == protocol::tls::CONTENT_TYPE_ALERT && decrypted.size() >= 3)
+                    if (inner_content_type == CONTENT_TYPE_ALERT && decrypted.size() >= 3)
                     {
                         trace::error("{} client sent TLS ALERT: level={}, desc=0x{:02x} — server Finished was rejected",
                                      HsTag,
@@ -369,9 +367,7 @@ namespace psm::stealth::reality
     // handshake 主入口
     // ============================================================
 
-    auto handshake(transport::shared_transmission inbound,
-                   const psm::config &cfg,
-                   psm::context::session &session)
+    auto handshake(transport::shared_transmission inbound, const psm::config &cfg, psm::context::session &session)
         -> net::awaitable<stealth::handshake_result>
     {
         stealth::handshake_result result;
@@ -415,7 +411,7 @@ namespace psm::stealth::reality
         // 2. 解码私钥
         const auto private_key_str = std::string(reality_cfg.private_key.data(), reality_cfg.private_key.size());
         auto decoded_key_str = crypto::base64_decode(private_key_str);
-        if (decoded_key_str.size() != protocol::tls::REALITY_KEY_LEN)
+        if (decoded_key_str.size() != REALITY_KEY_LEN)
         {
             trace::warn("{} invalid private key length: {}", HsTag, decoded_key_str.size());
             const auto fb_ec = co_await fallback_to_dest(session, inbound, raw_record);
@@ -523,21 +519,21 @@ namespace psm::stealth::reality
             co_return result;
         }
 
-        // 7. 发送握手记录（scatter-gather）
+        // 7. 发送握手记录（合并写入）
         {
             std::error_code write_ec;
-            const std::span<const std::byte> handshake_parts[] = {
-                std::span<const std::byte>(
-                    reinterpret_cast<const std::byte *>(sh_result.server_hello_record.data()),
-                    sh_result.server_hello_record.size()),
-                std::span<const std::byte>(
-                    reinterpret_cast<const std::byte *>(sh_result.change_cipher_spec_record.data()),
-                    sh_result.change_cipher_spec_record.size()),
-                std::span<const std::byte>(
-                    reinterpret_cast<const std::byte *>(sh_result.encrypted_handshake_record.data()),
-                    sh_result.encrypted_handshake_record.size()),
-            };
-            co_await inbound->async_write_scatter(handshake_parts, 3, write_ec);
+            const auto &sh_rec = sh_result.server_hello_record;
+            const auto &ccs_rec = sh_result.change_cipher_spec_record;
+            const auto &ehs_rec = sh_result.encrypted_handshake_record;
+            const std::size_t hs_total = sh_rec.size() + ccs_rec.size() + ehs_rec.size();
+            memory::vector<std::byte> hs_combined(hs_total);
+            std::size_t hs_off = 0;
+            std::memcpy(hs_combined.data() + hs_off, sh_rec.data(), sh_rec.size());
+            hs_off += sh_rec.size();
+            std::memcpy(hs_combined.data() + hs_off, ccs_rec.data(), ccs_rec.size());
+            hs_off += ccs_rec.size();
+            std::memcpy(hs_combined.data() + hs_off, ehs_rec.data(), ehs_rec.size());
+            co_await transport::async_write(*inbound, hs_combined, write_ec);
             if (write_ec)
             {
                 trace::warn("{} failed to send handshake records: {}", HsTag, write_ec.message());

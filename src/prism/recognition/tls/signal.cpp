@@ -155,7 +155,8 @@ namespace psm::recognition::tls
     // 内部解析函数
     // ═══════════════════════════════════════════════════════════════════════
 
-    static auto parse_sni(const std::span<const std::uint8_t> ext_data, client_hello_features &features) -> void
+    static auto parse_sni(const std::span<const std::uint8_t> ext_data, hello_features &features)
+        -> void
     {
         if (ext_data.size() < 2)
             return;
@@ -192,7 +193,8 @@ namespace psm::recognition::tls
         }
     }
 
-    static auto parse_key_share(const std::span<const std::uint8_t> ext_data, client_hello_features &features) -> void
+    static auto parse_key_share(const std::span<const std::uint8_t> ext_data, hello_features &features)
+        -> void
     {
         if (ext_data.size() < 2)
             return;
@@ -234,7 +236,8 @@ namespace psm::recognition::tls
         }
     }
 
-    static auto parse_versions(const std::span<const std::uint8_t> ext_data, client_hello_features &features) -> void
+    static auto parse_versions(const std::span<const std::uint8_t> ext_data, hello_features &features)
+        -> void
     {
         if (ext_data.empty())
             return;
@@ -250,7 +253,8 @@ namespace psm::recognition::tls
         }
     }
 
-    static auto parse_extensions(const std::span<const std::uint8_t> ext_data, client_hello_features &features) -> void
+    static auto parse_extensions(const std::span<const std::uint8_t> ext_data, hello_features &features)
+        -> void
     {
         if (ext_data.size() < 2)
             return;
@@ -295,9 +299,9 @@ namespace psm::recognition::tls
     // ═══════════════════════════════════════════════════════════════════════
 
     auto parse_client_hello(const std::span<const std::uint8_t> record)
-        -> std::pair<fault::code, client_hello_features>
+        -> std::pair<fault::code, hello_features>
     {
-        client_hello_features features;
+        hello_features features;
 
         if (record.size() < 44)
         {

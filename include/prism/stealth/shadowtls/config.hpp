@@ -46,7 +46,8 @@ namespace psm::stealth::shadowtls
          * @details v3 需要 users + handshake_dest + server_names
          *          v2 需要 password + handshake_dest + server_names
          */
-        [[nodiscard]] auto enabled() const noexcept -> bool
+        [[nodiscard]] auto enabled() const noexcept
+            -> bool
         {
             if (version == 3)
                 return !users.empty() && !handshake_dest.empty() && !server_names.empty();

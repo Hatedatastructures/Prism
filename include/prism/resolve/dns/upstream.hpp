@@ -210,7 +210,8 @@ namespace psm::resolve::dns
          * @param server 上游服务器配置
          * @return SSL 上下文的共享指针
          */
-        [[nodiscard]] auto get_ssl_context(const dns_remote &server) -> std::shared_ptr<ssl::context>;
+        [[nodiscard]] auto get_ssl_context(const dns_remote &server)
+            -> std::shared_ptr<ssl::context>;
     };
 
 } // namespace psm::resolve::dns

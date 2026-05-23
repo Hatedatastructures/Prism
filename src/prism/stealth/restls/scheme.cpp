@@ -1,18 +1,19 @@
 /**
  * @file scheme.cpp
  * @brief Restls 伪装方案实现
- * @details Restls 通过模拟真实 TLS 流量来隐藏代理特征。
- * Restls 是 Tier 2 方案，无 ClientHello 独占特征，依赖 SNI 匹配。
- *
- * **当前状态**：基础框架已实现，认证逻辑待完善。
- * Restls 协议规范参照: https://github.com/3andne/restls
+ * @details Restls 是 Tier 2 方案，无 ClientHello 独占特征，依赖 SNI 匹配。
+ * 握手采用 Path C 代理架构（复用 ShadowTLS 双工转发），
+ * 认证基于 BLAKE3 keyed mode。
  */
 
 #include <prism/stealth/restls/scheme.hpp>
+#include <prism/stealth/restls/handshake.hpp>
+#include <prism/stealth/restls/transport.hpp>
 #include <prism/config.hpp>
 #include <prism/transport/reliable.hpp>
 #include <prism/connect/util.hpp>
 #include <prism/protocol/protocol_type.hpp>
+#include <prism/recognition/probe/analyzer.hpp>
 #include <prism/trace.hpp>
 #include <prism/fault/code.hpp>
 
@@ -22,12 +23,14 @@ namespace psm::stealth::restls
 {
     namespace net = boost::asio;
 
-    auto scheme::active(const psm::config &cfg) const noexcept -> bool
+    auto scheme::active(const psm::config &cfg) const noexcept
+        -> bool
     {
         return cfg.stealth.restls.enabled();
     }
 
-    auto scheme::name() const noexcept -> std::string_view
+    auto scheme::name() const noexcept
+        -> std::string_view
     {
         return "restls";
     }
@@ -41,15 +44,14 @@ namespace psm::stealth::restls
     auto scheme::guess(const psm::config &cfg) const
         -> verify_result
     {
-        // Restls 无 ClientHello 独占特征，依赖 SNI 匹配
-        // SNI 路由阶段已过滤，这里只需要返回基础分
         return {
             .score = 100,
             .solo_flag = 0,
             .note = "Restls: rely on SNI match"};
     }
 
-    auto scheme::handshake(stealth::handshake_context ctx) -> net::awaitable<stealth::handshake_result>
+    auto scheme::handshake(stealth::handshake_context ctx)
+        -> net::awaitable<stealth::handshake_result>
     {
         stealth::handshake_result result;
 
@@ -59,27 +61,61 @@ namespace psm::stealth::restls
             co_return result;
         }
 
-        // 获取底层 reliable transmission
-        // 穿透 snapshot/preview 包装层找到底层 TCP socket
-        auto *rel = connect::find_reliable(ctx.inbound);
+        auto *rel = ctx.inbound->lowest_layer<transport::reliable>();
         if (!rel)
         {
-            trace::debug("[Restls] Cannot access reliable transport (wrapped by another scheme), pass to next scheme");
+            trace::debug("[Restls] Cannot access reliable transport, pass to next scheme");
             result.detected = protocol::protocol_type::tls;
             result.transport = std::move(ctx.inbound);
             co_return result;
         }
 
-        // TODO: 实现完整的 Restls 握手流程
-        // 1. 读取客户端 TLS ClientHello
-        // 2. 建立到后端 TLS 服务器的连接
-        // 3. 在 TLS 应用数据中验证客户端身份
-        // 4. 认证成功后，使用 restls-script 控制流量模式
+        // 执行 Restls 握手
+        handshake_detail detail;
+        auto hs_result = co_await restls::handshake(
+            rel->native_socket(),
+            ctx.cfg->stealth.restls,
+            std::move(ctx.preread),
+            detail);
 
-        // 当前返回 not_restls，传递给下一个 scheme
-        result.detected = protocol::protocol_type::tls;
-        result.transport = std::move(ctx.inbound);
-        trace::debug("[Restls] Restls not detected, pass to next scheme");
+        if (!fault::succeeded(hs_result.error))
+        {
+            result.detected = protocol::protocol_type::tls;
+            result.error = hs_result.error;
+            trace::debug("[Restls] handshake failed, pass to next scheme");
+            co_return result;
+        }
+
+        trace::debug("[Restls] handshake succeeded, tls13={}", detail.tls13);
+
+        // 释放底层 socket
+        auto raw_socket_opt = rel->release_socket();
+        if (!raw_socket_opt)
+        {
+            trace::warn("[Restls] Cannot release socket from reliable transport");
+            result.detected = protocol::protocol_type::tls;
+            result.transport = std::move(ctx.inbound);
+            co_return result;
+        }
+        auto raw_socket = std::move(*raw_socket_opt);
+
+        // 创建 restls_transport
+        auto restls_trans = std::make_shared<restls_transport>(
+            std::move(raw_socket),
+            std::span<const std::uint8_t, 32>(detail.restls_secret),
+            std::span<const std::uint8_t, 32>(detail.server_random),
+            std::span<const std::uint8_t>(detail.client_finished),
+            std::move(detail.script),
+            std::span<const std::byte>(), // 无初始预读数据
+            detail.tls13);
+
+        // 检测内层协议
+        result.detected = protocol::protocol_type::shadowsocks;
+        result.transport = restls_trans;
+        result.scheme = "restls";
+
+        trace::debug("[Restls] restls_transport created, inner protocol: {}",
+                     protocol::to_string_view(result.detected));
 
         co_return result;
     }

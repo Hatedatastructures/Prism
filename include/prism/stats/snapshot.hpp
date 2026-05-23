@@ -15,22 +15,24 @@ namespace psm::stats
     /**
      * @struct worker_load_snapshot
      * @brief 单个 worker 的负载快照
+     * @details 松散一致，适用于监控面板和日志输出
      */
     struct worker_load_snapshot
     {
-        std::uint32_t active_sessions{0};
-        std::uint32_t pending_handoffs{0};
-        std::uint64_t event_loop_lag_us{0};
+        std::uint32_t active_sessions{0};       ///< 当前活跃会话数
+        std::uint32_t pending_handoffs{0};      ///< 等待分发的连接数
+        std::uint64_t event_loop_lag_us{0};     ///< 事件循环延迟（微秒，EMA 平滑后）
     };
 
     /**
      * @struct runtime_snapshot
      * @brief 全局运行状态快照
+     * @details 由 system_state 单例产生，包含进程运行时间和 worker 数量
      */
     struct runtime_snapshot
     {
-        std::uint64_t uptime_seconds{0};
-        std::uint32_t worker_count{0};
+        std::uint64_t uptime_seconds{0};        ///< 进程运行时间（秒）
+        std::uint32_t worker_count{0};           ///< 工作线程数量
     };
 
     // --- Traffic 快照 ---
@@ -45,27 +47,30 @@ namespace psm::stats
     /**
      * @struct protocol_snapshot
      * @brief 单个协议维度的流量快照
+     * @details 包含连接数、活跃连接数、上下行字节数四个指标
      */
     struct protocol_snapshot
     {
-        std::uint64_t connections{0};
-        std::uint64_t active{0};
-        std::uint64_t uplink_bytes{0};
-        std::uint64_t downlink_bytes{0};
+        std::uint64_t connections{0};            ///< 历史总连接数（仅增不减）
+        std::uint64_t active{0};                 ///< 当前活跃连接数
+        std::uint64_t uplink_bytes{0};           ///< 上行总字节数（含协议开销）
+        std::uint64_t downlink_bytes{0};         ///< 下行总字节数（含协议开销）
     };
 
     /**
      * @struct traffic_snapshot
      * @brief 全局流量统计快照（含协议维度明细）
+     * @details 由 traffic_state::aggregate() 聚合所有 worker 的计数器产生。
+     * 数值为松散一致，不保证跨字段的原子性。
      */
     struct traffic_snapshot
     {
-        std::uint64_t total_connections{0};
-        std::uint64_t total_active{0};
-        std::uint64_t total_uplink{0};
-        std::uint64_t total_downlink{0};
-        protocol_snapshot protocols[protocol_slot_count]{};
-        std::uint64_t auth_success{0};
-        std::uint64_t auth_failure{0};
+        std::uint64_t total_connections{0};      ///< 全局总连接数
+        std::uint64_t total_active{0};           ///< 全局当前活跃连接数
+        std::uint64_t total_uplink{0};           ///< 全局上行总字节
+        std::uint64_t total_downlink{0};         ///< 全局下行总字节
+        protocol_snapshot protocols[protocol_slot_count]{};  ///< 按协议维度的流量明细
+        std::uint64_t auth_success{0};           ///< 认证成功次数
+        std::uint64_t auth_failure{0};           ///< 认证失败次数
     };
 } // namespace psm::stats

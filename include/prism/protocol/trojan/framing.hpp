@@ -89,8 +89,7 @@ namespace psm::protocol::trojan::format
      * @param out 输出缓冲区
      * @return 编码结果错误码
      */
-    auto build_udp_packet(const udp_frame &frame, std::span<const std::byte> payload,
-                          memory::vector<std::byte> &out)
+    auto build_udp_packet(const udp_frame &frame, std::span<const std::byte> payload, memory::vector<std::byte> &out)
         -> fault::code;
 
     /**

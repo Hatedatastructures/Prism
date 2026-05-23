@@ -14,7 +14,8 @@ namespace psm::protocol::http
          * @param c 输入字符
          * @return 小写字符
          */
-        [[nodiscard]] auto to_lower(const unsigned char c) noexcept -> char
+        [[nodiscard]] auto to_lower(const unsigned char c) noexcept
+            -> char
         {
             return static_cast<char>(std::tolower(c));
         }
@@ -25,7 +26,8 @@ namespace psm::protocol::http
          * @param right 右操作数
          * @return 相等返回 true
          */
-        [[nodiscard]] auto iequals(const std::string_view left, const std::string_view right) noexcept -> bool
+        [[nodiscard]] auto iequals(const std::string_view left, const std::string_view right) noexcept
+            -> bool
         {
             if (left.size() != right.size())
             {
@@ -46,7 +48,8 @@ namespace psm::protocol::http
          * @param value 输入字符串
          * @return 去除空白后的视图
          */
-        [[nodiscard]] auto trim(const std::string_view value) noexcept -> std::string_view
+        [[nodiscard]] auto trim(const std::string_view value) noexcept
+            -> std::string_view
         {
             auto s = value;
             while (!s.empty() && (s.front() == ' ' || s.front() == '\t'))
@@ -66,7 +69,8 @@ namespace psm::protocol::http
          * @param prefix 前缀
          * @return str 以 prefix 开头（忽略大小写）且 str 比 prefix 长时返回 true
          */
-        [[nodiscard]] auto iequals_prefix(const std::string_view str, const std::string_view prefix) noexcept -> bool
+        [[nodiscard]] auto iequals_prefix(const std::string_view str, const std::string_view prefix) noexcept
+            -> bool
         {
             if (str.size() <= prefix.size())
             {

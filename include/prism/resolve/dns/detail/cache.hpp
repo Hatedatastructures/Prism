@@ -91,7 +91,8 @@ namespace psm::resolve::dns::detail
          * 返回旧数据，调用方应据此触发后台刷新；已过期且非 serve_stale
          * 则删除条目并返回 nullopt。
          */
-        [[nodiscard]] auto get(std::string_view domain, qtype qt) -> std::optional<memory::vector<net::ip::address>>;
+        [[nodiscard]] auto get(std::string_view domain, qtype qt)
+            -> std::optional<memory::vector<net::ip::address>>;
 
         /**
          * @brief 写入正向缓存
@@ -132,7 +133,8 @@ namespace psm::resolve::dns::detail
          * @details 将域名和查询类型数值拼接为缓存键，如 "www.example.com:1"
          * (A 记录) 或 "www.example.com:28" (AAAA 记录)。
          */
-        [[nodiscard]] auto make_key(std::string_view domain, qtype qt) const -> memory::string;
+        [[nodiscard]] auto make_key(std::string_view domain, qtype qt) const
+            -> memory::string;
 
         /**
          * @brief 构造缓存键视图
@@ -143,7 +145,8 @@ namespace psm::resolve::dns::detail
          * @details 将域名和查询类型数值写入外部缓冲区并返回对应视图，
          * 不产生任何堆分配。
          */
-        [[nodiscard]] static auto make_key_view(std::string_view domain, qtype qt, std::span<char> buffer) -> std::string_view;
+        [[nodiscard]] static auto make_key_view(std::string_view domain, qtype qt, std::span<char> buffer)
+            -> std::string_view;
 
         memory::resource_pointer mr_;      // 内存资源
         std::chrono::seconds default_ttl_; // 默认 TTL

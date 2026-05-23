@@ -125,7 +125,8 @@ namespace psm::resolve::dns::detail
          * @param domain 待匹配的域名
          * @return 匹配成功时返回关联值，否则返回 std::nullopt
          */
-        [[nodiscard]] auto search(std::string_view domain) const -> std::optional<std::any>;
+        [[nodiscard]] auto search(std::string_view domain) const
+            -> std::optional<std::any>;
 
         /**
          * @brief 检查域名是否命中任何规则
@@ -133,7 +134,8 @@ namespace psm::resolve::dns::detail
          * @param domain 待检查的域名
          * @return 命中返回 true，否则返回 false
          */
-        [[nodiscard]] auto match(std::string_view domain) const -> bool;
+        [[nodiscard]] auto match(std::string_view domain) const
+            -> bool;
 
     private:
         /**
@@ -143,7 +145,8 @@ namespace psm::resolve::dns::detail
          * @param domain 原始域名，如 "www.example.com"
          * @return 反转后的标签列表，如 ["com", "example", "www"]
          */
-        [[nodiscard]] static auto split_labels(std::string_view domain) -> memory::vector<memory::string>;
+        [[nodiscard]] static auto split_labels(std::string_view domain)
+            -> memory::vector<memory::string>;
 
         /**
          * @brief 将字符串转换为小写
@@ -151,7 +154,8 @@ namespace psm::resolve::dns::detail
          * @param s 输入字符串视图
          * @return 小写字符串
          */
-        [[nodiscard]] static auto to_lower(std::string_view s) -> memory::string;
+        [[nodiscard]] static auto to_lower(std::string_view s)
+            -> memory::string;
 
         std::unique_ptr<node> root_;  // 根节点
         memory::resource_pointer mr_; // 内存资源
@@ -209,7 +213,8 @@ namespace psm::resolve::dns::detail
          * @param domain 待匹配的域名
          * @return 命中规则时返回 rule_result，未命中返回 std::nullopt
          */
-        [[nodiscard]] auto match(std::string_view domain) const -> std::optional<rule_result>;
+        [[nodiscard]] auto match(std::string_view domain) const
+            -> std::optional<rule_result>;
 
     private:
         domain_trie address_trie_;    // 地址规则基数树

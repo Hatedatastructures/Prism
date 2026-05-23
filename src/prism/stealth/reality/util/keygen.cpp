@@ -8,7 +8,8 @@ namespace psm::stealth::reality
 
     constexpr std::string_view KsTag = "[Stealth.KeySchedule]";
 
-    static auto copy_key(std::span<const std::uint8_t> src, auto &dst) -> void
+    static auto copy_key(std::span<const std::uint8_t> src, auto &dst)
+        -> void
     {
         std::memcpy(dst.data(), src.data(), std::min(src.size(), dst.size()));
     }
@@ -110,9 +111,8 @@ namespace psm::stealth::reality
         return {fault::code::success, std::move(keys)};
     }
 
-    auto derive_application_keys(const std::span<const std::uint8_t> master_secret,
-                                 const std::span<const std::uint8_t> server_finished_hash,
-                                 key_material &keys) -> fault::code
+    auto derive_application_keys(const std::span<const std::uint8_t> master_secret, const std::span<const std::uint8_t> server_finished_hash, key_material &keys)
+        -> fault::code
     {
         auto [ec1, s_ap_traffic] = crypto::hkdf_expand_label(
             master_secret, "s ap traffic", server_finished_hash, crypto::SHA256_LEN);
@@ -164,8 +164,7 @@ namespace psm::stealth::reality
         return fault::code::success;
     }
 
-    auto compute_finished_verify_data(const std::span<const std::uint8_t> finished_key,
-                                      const std::span<const std::uint8_t> transcript_hash)
+    auto compute_finished_verify_data(const std::span<const std::uint8_t> finished_key, const std::span<const std::uint8_t> transcript_hash)
         -> std::array<std::uint8_t, crypto::SHA256_LEN>
     {
         return crypto::hmac_sha256(finished_key, transcript_hash);

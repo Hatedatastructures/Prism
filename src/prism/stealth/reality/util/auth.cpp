@@ -49,8 +49,7 @@ namespace psm::stealth::reality
         return false;
     }
 
-    auto authenticate(const config &cfg, const tls::client_hello_features &client_hello,
-                      const std::span<const std::uint8_t> decoded_private_key)
+    auto authenticate(const config &cfg, const tls::hello_features &client_hello, const std::span<const std::uint8_t> decoded_private_key)
         -> std::pair<fault::code, auth_result>
     {
         auth_result result{};
@@ -188,7 +187,8 @@ namespace psm::stealth::reality
         return {fault::code::success, result};
     }
 
-    auto hex_to_bytes(const std::string_view hex) -> memory::vector<std::uint8_t>
+    auto hex_to_bytes(const std::string_view hex)
+        -> memory::vector<std::uint8_t>
     {
         if (hex.empty())
             return {};
@@ -207,7 +207,8 @@ namespace psm::stealth::reality
         return bytes;
     }
 
-    auto hex_digit(const char c) -> int
+    auto hex_digit(const char c)
+        -> int
     {
         if (c >= '0' && c <= '9')
             return c - '0';

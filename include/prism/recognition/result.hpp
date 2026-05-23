@@ -14,6 +14,7 @@
 
 namespace psm::recognition
 {
+    using hello_features = protocol::tls::hello_features;
     /**
      * @struct analysis_result
      * @brief ClientHello 特征分析结果
@@ -30,7 +31,7 @@ namespace psm::recognition
         confidence score{confidence::none};
 
         /** @brief 提取的 ClientHello 原始特征，供调用方参考 */
-        protocol::tls::client_hello_features features;
+        hello_features features;
 
         /** @brief 解析错误码，成功时为 fault::code::success */
         fault::code error{fault::code::success};

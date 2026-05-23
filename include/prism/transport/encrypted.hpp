@@ -60,13 +60,27 @@ namespace psm::transport
         }
 
         /**
-         * @brief 检查传输是否可靠
-         * @details 重写基类虚函数，TLS 基于 TCP，始终返回 true。
-         * @return 始终返回 true，TLS 流是可靠的
+         * @brief 获取传输层类型
+         * @return type::tcp TLS 始终基于 TCP
          */
-        [[nodiscard]] bool is_reliable() const noexcept override
+        [[nodiscard]] auto transport_type() const noexcept
+            -> type override
         {
-            return true;
+            return type::tcp;
+        }
+
+        /**
+         * @brief 获取内层传输
+         * @return nullptr encrypted 持有 ssl::stream 而非 transmission*
+         */
+        [[nodiscard]] transmission *next_layer() noexcept override
+        {
+            return nullptr;
+        }
+
+        [[nodiscard]] const transmission *next_layer() const noexcept override
+        {
+            return nullptr;
         }
 
         /**
@@ -115,48 +129,6 @@ namespace psm::transport
                 net::buffer(buffer.data(), buffer.size()), token);
             ec = psm::fault::make_error_code(psm::fault::to_code(sys_ec));
             co_return n;
-        }
-
-        /**
-         * @brief Scatter-gather 写入（TLS 优化）
-         * @details 将多个缓冲区合并为单次 async_write 写入，底层 SSL_write 将
-         * 帧头和载荷合并为一条 TLS 记录，避免两次加密操作和额外的 TLS 帧头开销。
-         */
-        auto async_write_scatter(const std::span<const std::byte> *buffers, std::size_t count, std::error_code &ec)
-            -> net::awaitable<std::size_t> override
-        {
-            if (count == 0)
-            {
-                ec.clear();
-                co_return 0;
-            }
-
-            boost::system::error_code sys_ec;
-            auto token = net::redirect_error(net::use_awaitable, sys_ec);
-            std::size_t total = 0;
-
-            if (count == 2) [[likely]]
-            {
-                const std::array<net::const_buffer, 2> bufs{{net::const_buffer(buffers[0].data(), buffers[0].size()),
-                                                             net::const_buffer(buffers[1].data(), buffers[1].size())}};
-                total = co_await net::async_write(*ssl_stream_, bufs, token);
-            }
-            else
-            {
-                for (std::size_t i = 0; i < count; ++i)
-                {
-                    const auto n = co_await async_write(buffers[i], ec);
-                    total += n;
-                    if (ec)
-                    {
-                        co_return total;
-                    }
-                }
-                co_return total;
-            }
-
-            ec = psm::fault::make_error_code(psm::fault::to_code(sys_ec));
-            co_return total;
         }
 
         /**

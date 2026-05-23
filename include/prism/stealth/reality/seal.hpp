@@ -47,18 +47,36 @@ namespace psm::stealth::reality
                       key_material keys);
 
         /**
-         * @brief 检查传输是否可靠
-         * @details 始终返回 true，seal 基于 TCP 传输
-         * @return bool 始终返回 true
+         * @brief 获取传输层类型
+         * @return type::tcp seal 基于 TCP 传输
          */
-        [[nodiscard]] auto is_reliable() const noexcept -> bool override;
+        [[nodiscard]] auto transport_type() const noexcept
+            -> type override
+        {
+            return type::tcp;
+        }
+
+        /**
+         * @brief 获取内层传输
+         * @return 底层传输指针
+         */
+        [[nodiscard]] transport::transmission *next_layer() noexcept override
+        {
+            return transport_.get();
+        }
+
+        [[nodiscard]] const transport::transmission *next_layer() const noexcept override
+        {
+            return transport_.get();
+        }
 
         /**
          * @brief 获取执行器
          * @details 返回底层传输的执行器，用于协程调度
          * @return executor_type 执行器
          */
-        [[nodiscard]] auto executor() const -> executor_type override;
+        [[nodiscard]] auto executor() const
+            -> executor_type override;
 
         /**
          * @brief 异步读取解密后的数据
@@ -80,18 +98,6 @@ namespace psm::stealth::reality
          */
         auto async_write_some(std::span<const std::byte> buffer, std::error_code &ec)
             -> net::awaitable<std::size_t> override;
-
-        /**
-         * @brief Scatter-gather 加密写入
-         * @details 将多个缓冲区拼接到 scatter_buf_ 后一次性加密写入，
-         * 避免多次加密和写入的系统调用开销
-         * @param buffers 缓冲区数组
-         * @param count 缓冲区数量
-         * @param ec 错误码输出参数
-         * @return net::awaitable<std::size_t> 异步操作，返回写入字节数
-         */
-        auto async_write_scatter(const std::span<const std::byte> *buffers, std::size_t count,
-                                 std::error_code &ec) -> net::awaitable<std::size_t> override;
 
         /**
          * @brief 关闭传输层

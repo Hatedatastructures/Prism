@@ -33,6 +33,18 @@ namespace psm::multiplex
     namespace net = boost::asio;
 
     /**
+     * @struct stream_options
+     * @brief 流创建选项
+     * @details 封装 duct 创建时的缓冲区大小和内存资源配置，
+     * 将 duct 构造函数参数收敛到 4 个。
+     */
+    struct stream_options
+    {
+        std::uint32_t buffer_size;              // 每流读取缓冲区大小
+        memory::resource_pointer mr = nullptr;  // PMR 内存资源
+    };
+
+    /**
      * @class duct
      * @brief 多路复用 TCP 流管道，属于 core 管理的活跃 TCP 流，在 core 的下层
      * @details duct 管理单条 TCP 流的完整生命周期，从 activate_stream 创建 target
@@ -59,16 +71,14 @@ namespace psm::multiplex
          * @param stream_id 流标识符，由 mux 协议在 SYN 帧中分配
          * @param owner 所属 core 的共享指针，用于调用 send_data/send_fin 发送 mux 帧
          * @param target 已连接的目标传输层，生命周期转移给 duct
-         * @param buffer_size 每流读取缓冲区大小，与帧最大载荷取较小值
-         * @param mr PMR 内存资源，用于分配读缓冲和写通道数据
+         * @param opts 流选项，包含缓冲区大小和 PMR 内存资源
          * @details 构造后 duct 处于就绪状态，需调用 start() 启动双向转发协程。
          * read_size_ 根据 buffer_size 和 max_frame_payload 取较小值，
          * 确保 target 读取的单次数据量不超过 mux 帧最大载荷。
          * @note 方法定义在 duct.cpp 中
          */
         duct(std::uint32_t stream_id, std::shared_ptr<core> owner,
-             transport::shared_transmission target,
-             std::uint32_t buffer_size, memory::resource_pointer mr);
+             transport::shared_transmission target, stream_options opts);
 
         ~duct();
 
@@ -92,7 +102,8 @@ namespace psm::multiplex
          * 非阻塞调用，不阻塞帧循环。
          * @note 方法定义在 duct.cpp 中
          */
-        auto on_mux_data(memory::vector<std::byte> data) -> net::awaitable<void>;
+        auto on_mux_data(memory::vector<std::byte> data)
+            -> net::awaitable<void>;
 
         /**
          * @brief 处理 mux 端 FIN，触发半关闭
@@ -132,7 +143,8 @@ namespace psm::multiplex
          * 通知 mux 端半关闭，然后退出循环。mux 会话不活跃时也退出。
          * @note 方法定义在 duct.cpp 中
          */
-        auto target_read_loop() -> net::awaitable<void>;
+        auto target_read_loop()
+            -> net::awaitable<void>;
 
         /**
          * @brief target 写循环：从写通道取数据写入 target（客户端上传方向）
@@ -141,7 +153,8 @@ namespace psm::multiplex
          * 写入失败时调用 close() 关闭整个管道。
          * @note 方法定义在 duct.cpp 中
          */
-        auto target_write_loop() -> net::awaitable<void>;
+        auto target_write_loop()
+            -> net::awaitable<void>;
 
         std::uint32_t id_;                               // 流标识符，由 mux SYN 帧分配
         std::weak_ptr<core> owner_;                      // 所属 core 的弱引用，不构成循环引用
@@ -152,6 +165,9 @@ namespace psm::multiplex
         std::atomic<bool> mux_closed_{false};            // mux 端已半关闭，on_mux_fin 设为 true
         std::atomic<bool> target_closed_{false};         // target 端已半关闭，target EOF 后设为 true
 
+        std::atomic<std::uint64_t> read_bytes_{0};       // target 读循环累计字节数（客户端下行）
+        std::atomic<std::uint64_t> written_bytes_{0};    // target 写循环累计字节数（客户端上行）
+
         write_channel_type write_channel_; // 客户端上传方向写通道（mux → target），有界容量提供反压
     }; // class duct
 
@@ -160,15 +176,14 @@ namespace psm::multiplex
      * @param stream_id 流标识符
      * @param owner 所属 core 的共享指针
      * @param target 已连接的目标传输层
-     * @param mr PMR 内存资源
+     * @param opts 流选项，包含缓冲区大小和 PMR 内存资源
      * @return duct 的共享指针
      */
     [[nodiscard]] inline auto make_duct(std::uint32_t stream_id, std::shared_ptr<core> owner,
-                                        transport::shared_transmission target,
-                                        std::uint32_t buffer_size, memory::resource_pointer mr = {})
+                                        transport::shared_transmission target, stream_options opts)
         -> std::shared_ptr<duct>
     {
-        return std::make_shared<duct>(stream_id, std::move(owner), std::move(target), buffer_size, mr);
+        return std::make_shared<duct>(stream_id, std::move(owner), std::move(target), opts);
     }
 
 } // namespace psm::multiplex

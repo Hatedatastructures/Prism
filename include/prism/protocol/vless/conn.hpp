@@ -15,10 +15,13 @@
 #include <prism/transport/transmission.hpp>
 #include <prism/protocol/vless/packet.hpp>
 #include <prism/protocol/vless/config.hpp>
+#include <prism/protocol/protocol_type.hpp>
 #include <prism/fault/code.hpp>
 #include <memory>
 #include <span>
 #include <functional>
+
+namespace psm::stats::traffic { class traffic_state; }
 
 namespace psm::protocol::vless
 {
@@ -110,19 +113,45 @@ namespace psm::protocol::vless
          * @note 此方法会阻塞直到连接关闭或空闲超时
          * @warning 调用前必须确保 handshake() 成功且命令为 udp
          */
-        auto async_associate(route_callback route_cb) const -> net::awaitable<fault::code>;
+        auto async_associate(route_callback route_cb) const
+            -> net::awaitable<fault::code>;
+
+        /**
+         * @brief 设置流量统计状态
+         * @param t 流量统计指针
+         * @param p 协议类型
+         */
+        void set_traffic(stats::traffic::traffic_state *t, protocol::protocol_type p) noexcept
+        {
+            traffic_ = t;
+            proto_ = p;
+        }
+
+        /**
+         * @brief 获取内层传输指针（装饰器链导航）
+         * @return transmission* 内层传输指针
+         */
+        [[nodiscard]] psm::transport::transmission *next_layer() noexcept override
+        {
+            return next_layer_.get();
+        }
+
+        [[nodiscard]] const psm::transport::transmission *next_layer() const noexcept override
+        {
+            return next_layer_.get();
+        }
 
         /**
          * @brief 获取底层传输层引用
          * @return transport::transmission& 底层传输层引用
          */
-        psm::transport::transmission &next_layer() noexcept;
+        psm::transport::transmission &underlying() noexcept;
 
         /**
          * @brief 获取底层传输层常量引用
          * @return const transport::transmission& 底层传输层常量引用
          */
-        const psm::transport::transmission &next_layer() const noexcept;
+        const psm::transport::transmission &underlying() const noexcept;
 
         /**
          * @brief 释放底层传输层所有权
@@ -136,6 +165,8 @@ namespace psm::protocol::vless
         shared_transmission next_layer_;                 // 底层传输层
         config config_;                                  // VLESS 协议配置
         std::function<bool(std::string_view)> verifier_; // UUID 验证回调
+        stats::traffic::traffic_state *traffic_{nullptr};
+        protocol::protocol_type proto_{protocol::protocol_type::unknown};
     };
 
     using shared_conn = std::shared_ptr<conn>;

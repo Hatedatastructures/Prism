@@ -23,6 +23,7 @@ namespace psm
 
 namespace psm::recognition
 {
+    using hello_features = protocol::tls::hello_features;
     // ═══════════════════════════════════════════════════════════════════════
     // 候选条目
     // ═══════════════════════════════════════════════════════════════════════
@@ -111,7 +112,7 @@ namespace psm::recognition
          */
         [[nodiscard]] auto detect(
             std::uint32_t bitmap,
-            const protocol::tls::client_hello_features &features,
+            const hello_features &features,
             std::span<const std::byte> raw,
             const psm::config &cfg,
             const std::vector<stealth::shared_scheme> &matched_schemes) const
@@ -133,27 +134,19 @@ namespace psm::recognition
         /**
          * @brief 执行 Tier 0 检测（零成本）
          */
-        [[nodiscard]] auto detect_tier0(
-            std::uint32_t bitmap,
-            const protocol::tls::client_hello_features &features,
-            const psm::config &cfg) const
+        [[nodiscard]] auto detect_tier0(std::uint32_t bitmap, const hello_features &features, const psm::config &cfg) const
             -> pipeline_result;
 
         /**
          * @brief 执行 Tier 1 检测（有成本）
          */
-        [[nodiscard]] auto detect_tier1(
-            const protocol::tls::client_hello_features &features,
-            std::span<const std::byte> raw,
-            const psm::config &cfg) const
+        [[nodiscard]] auto detect_tier1(const hello_features &features, std::span<const std::byte> raw, const psm::config &cfg) const
             -> pipeline_result;
 
         /**
          * @brief 执行 Tier 2 检测（模糊）
          */
-        [[nodiscard]] auto detect_tier2(
-            const psm::config &cfg,
-            const std::vector<stealth::shared_scheme> &matched_schemes) const
+        [[nodiscard]] auto detect_tier2(const psm::config &cfg, const std::vector<stealth::shared_scheme> &matched_schemes) const
             -> pipeline_result;
     };
 } // namespace psm::recognition

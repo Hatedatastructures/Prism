@@ -1,6 +1,8 @@
 #include <prism/multiplex/bootstrap.hpp>
+#include <prism/multiplex/h2mux/craft.hpp>
 #include <prism/multiplex/smux/craft.hpp>
 #include <prism/multiplex/yamux/craft.hpp>
+#include <prism/transport/transmission.hpp>
 #include <prism/trace.hpp>
 
 constexpr std::string_view tag = "[Mux.Bootstrap]";
@@ -26,7 +28,7 @@ namespace psm::multiplex
 
             // 读取协议头：[Version 1B][Protocol 1B]
             std::array<std::byte, 2> header{};
-            const auto n = co_await transport.async_read(header, ec);
+            const auto n = co_await transport::async_read(transport, header, ec);
             if (ec)
             {
                 co_return std::make_pair(ec, protocol_type::smux);
@@ -44,7 +46,7 @@ namespace psm::multiplex
             {
                 // 读取 2 字节 padding 长度（大端序）
                 std::array<std::byte, 2> padding_len_buf{};
-                const auto pn = co_await transport.async_read(padding_len_buf, ec);
+                const auto pn = co_await transport::async_read(transport, padding_len_buf, ec);
                 if (ec)
                 {
                     co_return std::make_pair(ec, protocol_type::smux);
@@ -59,7 +61,7 @@ namespace psm::multiplex
                 {
                     memory::vector<std::byte> padding(mr);
                     padding.resize(padding_len);
-                    const auto padding_n = co_await transport.async_read(padding, ec);
+                    const auto padding_n = co_await transport::async_read(transport, padding, ec);
                     if (ec || padding_n < padding_len)
                     {
                         co_return std::make_pair(ec ? ec : std::make_error_code(std::errc::connection_reset), protocol_type::smux);
@@ -72,11 +74,11 @@ namespace psm::multiplex
         }
     } // namespace
 
-    auto bootstrap(transport::shared_transmission transport, connect::router &router, const config &cfg, memory::resource_pointer mr)
+    auto bootstrap(bootstrap_context ctx)
         -> net::awaitable<std::shared_ptr<core>>
     {
         // 执行 sing-mux 协商，获取客户端选择的协议类型
-        auto [ec, protocol] = co_await negotiate(*transport, mr);
+        auto [ec, protocol] = co_await negotiate(*ctx.transport, ctx.mr);
         if (ec)
         {
             trace::warn("{} sing-mux negotiate failed: {}", tag, ec.message());
@@ -91,8 +93,26 @@ namespace psm::multiplex
             case protocol_type::yamux:
                 trace::info("{} constructing yamux session", tag);
                 {
-                    std::shared_ptr<core> session = std::make_shared<yamux::craft>(std::move(transport), router, cfg, mr);
+                    std::shared_ptr<core> session = std::make_shared<yamux::craft>(std::move(ctx.transport), ctx.router, ctx.cfg, ctx.mr);
+                    session->set_traffic(ctx.traffic, ctx.proto);
                     trace::info("{} yamux session constructed", tag);
+                    co_return session;
+                }
+
+            case protocol_type::h2mux:
+                trace::info("{} constructing h2mux session", tag);
+                {
+                    // h2mux bootstrap 路径：sing-mux resolver（等待 StreamRequest）
+                    auto singmux_resolver = [](int32_t, const h2mux::h2_headers &) -> h2mux::h2_stream_info
+                    {
+                        // sing-mux 模式：地址在 DATA 帧的 StreamRequest 中，HEADERS 无地址
+                        return {};
+                    };
+                    std::shared_ptr<core> session = std::make_shared<h2mux::craft>(
+                        std::move(ctx.transport), ctx.router, ctx.cfg,
+                        singmux_resolver, ctx.mr);
+                    session->set_traffic(ctx.traffic, ctx.proto);
+                    trace::info("{} h2mux session constructed", tag);
                     co_return session;
                 }
 
@@ -100,7 +120,8 @@ namespace psm::multiplex
             default:
                 trace::info("{} constructing smux session", tag);
                 {
-                    std::shared_ptr<core> session = std::make_shared<smux::craft>(std::move(transport), router, cfg, mr);
+                    std::shared_ptr<core> session = std::make_shared<smux::craft>(std::move(ctx.transport), ctx.router, ctx.cfg, ctx.mr);
+                    session->set_traffic(ctx.traffic, ctx.proto);
                     trace::info("{} smux session constructed", tag);
                     co_return session;
                 }

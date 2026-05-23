@@ -17,7 +17,8 @@
 
 namespace psm::recognition
 {
-    auto identify(identify_context ctx) -> net::awaitable<identify_result>
+    auto identify(identify_context ctx)
+        -> net::awaitable<identify_result>
     {
         identify_result result;
 
@@ -137,7 +138,8 @@ namespace psm::recognition
         co_return result;
     }
 
-    auto recognize(const recognize_context ctx) -> net::awaitable<recognize_result>
+    auto recognize(const recognize_context ctx)
+        -> net::awaitable<recognize_result>
     {
         recognize_result result;
 

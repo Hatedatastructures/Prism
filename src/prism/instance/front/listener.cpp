@@ -58,7 +58,8 @@ namespace psm::instance::front
     //
     // IPv4：直接用 32 位地址（如 192.168.1.1 → 0xC0A80101）。
     // IPv6：16 字节地址折叠为 8 字节（高 8 字节 XOR 低 8 字节）。
-    auto listener::make_affinity(const tcp::endpoint &endpoint) noexcept -> std::uint64_t
+    auto listener::make_affinity(const tcp::endpoint &endpoint) noexcept
+        -> std::uint64_t
     {
         if (endpoint.address().is_v4())
         {
@@ -83,7 +84,8 @@ namespace psm::instance::front
     // 4. 让 Balancer 选一个 Worker（可能触发全局背压）
     // 5. 设置 socket 选项（TCP_NODELAY 禁用 Nagle 算法，减少延迟）
     // 6. 把 socket 交给选中的 Worker
-    auto listener::accept_loop() -> net::awaitable<void>
+    auto listener::accept_loop()
+        -> net::awaitable<void>
     {
         auto executor = co_await net::this_coro::executor;
         net::steady_timer timer{executor};

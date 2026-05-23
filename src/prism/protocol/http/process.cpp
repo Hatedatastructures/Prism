@@ -43,7 +43,7 @@ namespace psm::protocol::http
             ? co_await psm::connect::dial(
                   *ctx.outbound_proxy, target, ctx.worker_ctx.io_context.get_executor())
             : co_await psm::connect::dial(
-                  ctx.worker_ctx.router, "HTTP", target, true, false);
+                  ctx.worker_ctx.router, "HTTP", target, {.allow_reverse = true, .require_open = false});
         if (fault::failed(dial_ec) || !outbound)
         {
             trace::warn("{} dial failed: {}:{}", HttpStr, target.host, target.port);

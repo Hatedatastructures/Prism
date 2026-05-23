@@ -7,6 +7,7 @@
 #include <prism/fault/code.hpp>
 #include <prism/trace/spdlog.hpp>
 #include <prism/memory/container.hpp>
+#include <prism/transport/transmission.hpp>
 #include <cstring>
 #include <charconv>
 #include <chrono>
@@ -35,7 +36,8 @@ namespace psm::protocol::shadowsocks
         }
 
         /// 任意连续容器 → const byte span，用于 scatter-gather 写入
-        [[nodiscard]] auto to_bytes(const auto &c) noexcept -> std::span<const std::byte>
+        [[nodiscard]] auto to_bytes(const auto &c) noexcept
+            -> std::span<const std::byte>
         {
             return std::as_bytes(std::span{c});
         }
@@ -57,7 +59,8 @@ namespace psm::protocol::shadowsocks
         key_salt_length_ = format::key_salt_length(method_);
     }
 
-    auto conn::executor() const -> executor_type
+    auto conn::executor() const
+        -> executor_type
     {
         return next_layer_->executor();
     }
@@ -119,7 +122,7 @@ namespace psm::protocol::shadowsocks
 
         // 读取加密固定头（27 字节）
         std::array<std::byte, fixed_header_size> header_enc{};
-        co_await next_layer_->async_read(header_enc, ec);
+        co_await transport::async_read(*next_layer_, header_enc, ec);
         if (ec)
         {
             trace::warn("{} read fixed header failed: {}", tag, ec.message());
@@ -176,7 +179,7 @@ namespace psm::protocol::shadowsocks
 
         // 读取加密变长头
         memory::vector<std::byte> var_header_enc(var_header_len + aead_tag_len);
-        co_await next_layer_->async_read(var_header_enc, ec);
+        co_await transport::async_read(*next_layer_, var_header_enc, ec);
         if (ec)
         {
             trace::warn("{} read variable header failed: {}", tag, ec.message());
@@ -281,9 +284,19 @@ namespace psm::protocol::shadowsocks
             co_return fault::code::crypto_error;
         }
 
-        // scatter-gather 写入：server_salt + 加密固定头 + 加密空初始 payload
-        const std::span<const std::byte> resp_parts[] = {to_bytes(server_salt), to_bytes(resp_fixed_enc), to_bytes(empty_payload_enc)};
-        co_await next_layer_->async_write_scatter(resp_parts, 3, ec);
+        // 合并写入：server_salt + 加密固定头 + 加密空初始 payload
+        const std::size_t resp_total = server_salt.size() + resp_fixed_enc.size() + empty_payload_enc.size();
+        memory::vector<std::byte> resp_combined(resp_total, memory::current_resource());
+        std::size_t resp_off = 0;
+        const auto salt_bytes = to_bytes(server_salt);
+        std::memcpy(resp_combined.data() + resp_off, salt_bytes.data(), salt_bytes.size());
+        resp_off += salt_bytes.size();
+        const auto fixed_bytes = to_bytes(resp_fixed_enc);
+        std::memcpy(resp_combined.data() + resp_off, fixed_bytes.data(), fixed_bytes.size());
+        resp_off += fixed_bytes.size();
+        const auto empty_bytes = to_bytes(empty_payload_enc);
+        std::memcpy(resp_combined.data() + resp_off, empty_bytes.data(), empty_bytes.size());
+        co_await transport::async_write(*next_layer_, resp_combined, ec);
         if (ec)
         {
             trace::warn("{} write response failed: {}", tag, ec.message());
@@ -293,7 +306,8 @@ namespace psm::protocol::shadowsocks
         co_return fault::code::success;
     }
 
-    auto conn::handshake() -> net::awaitable<std::pair<fault::code, request>>
+    auto conn::handshake()
+        -> net::awaitable<std::pair<fault::code, request>>
     {
         request req;
         req.method = method_;
@@ -311,7 +325,7 @@ namespace psm::protocol::shadowsocks
 
         // 1. 读取 client salt
         memory::vector<std::uint8_t> client_salt(key_salt_length_);
-        co_await next_layer_->async_read(std::as_writable_bytes(std::span(client_salt)), ec);
+        co_await transport::async_read(*next_layer_, std::as_writable_bytes(std::span(client_salt)), ec);
         if (ec)
         {
             trace::warn("{} read client salt failed: {}", tag, ec.message());
@@ -353,7 +367,8 @@ namespace psm::protocol::shadowsocks
         co_return std::pair{fault::code::success, req};
     }
 
-    auto conn::acknowledge() -> net::awaitable<fault::code>
+    auto conn::acknowledge()
+        -> net::awaitable<fault::code>
     {
         co_return co_await send_response(
             std::span<const std::uint8_t>(client_salt_.data(), client_salt_.size()),
@@ -420,10 +435,11 @@ namespace psm::protocol::shadowsocks
         co_return n;
     }
 
-    auto conn::fetch_chunk(std::error_code &ec) -> net::awaitable<void>
+    auto conn::fetch_chunk(std::error_code &ec)
+        -> net::awaitable<void>
     {
         // 读取加密长度块（18 字节）
-        co_await next_layer_->async_read(length_buf_, ec);
+        co_await transport::async_read(*next_layer_, length_buf_, ec);
         if (ec)
         {
             co_return;
@@ -447,7 +463,7 @@ namespace psm::protocol::shadowsocks
 
         // 读取加密 payload 块
         chunk_buf_.resize(current_payload_len_ + aead_tag_len);
-        co_await next_layer_->async_read(std::span(chunk_buf_.data(), chunk_buf_.size()), ec);
+        co_await transport::async_read(*next_layer_, std::span(chunk_buf_.data(), chunk_buf_.size()), ec);
         if (ec)
         {
             co_return;
@@ -504,17 +520,20 @@ namespace psm::protocol::shadowsocks
             co_return 0;
         }
 
-        trace::debug("{} send_chunk: len_enc_size={}, payload_enc_size={}, calling async_write_scatter",
+        trace::debug("{} send_chunk: len_enc_size={}, payload_enc_size={}, calling transport::async_write",
                     tag, len_enc.size(), payload_enc_buf_.size());
 
-        // scatter-gather 写入
-        const std::span<const std::byte> parts[] = {to_bytes(len_enc), to_bytes(payload_enc_buf_)};
-        co_await next_layer_->async_write_scatter(parts, 2, ec);
+        // 合并写入：加密长度块 + 加密 payload
+        const std::size_t chunk_total = len_enc.size() + payload_enc_buf_.size();
+        memory::vector<std::byte> chunk_combined(chunk_total, memory::current_resource());
+        std::memcpy(chunk_combined.data(), len_enc.data(), len_enc.size());
+        std::memcpy(chunk_combined.data() + len_enc.size(), payload_enc_buf_.data(), payload_enc_buf_.size());
+        co_await transport::async_write(*next_layer_, chunk_combined, ec);
 
         auto ec_msg = ec.message();
         if (!ec_msg.empty() && (ec_msg.back() == '\n' || ec_msg.back() == '\r'))
             ec_msg = ec_msg.substr(0, ec_msg.find_first_of("\r\n"));
-        trace::debug("{} send_chunk: async_write_scatter completed, ec={}, returned {}",
+        trace::debug("{} send_chunk: transport::async_write completed, ec={}, returned {}",
                     tag, ec_msg, ec ? 0 : chunk_len);
 
         co_return ec ? 0 : chunk_len;

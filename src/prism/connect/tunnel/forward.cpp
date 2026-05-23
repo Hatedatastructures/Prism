@@ -28,7 +28,7 @@ namespace psm::connect
             co_return;
         }
 
-        auto [ec, outbound] = co_await dial(ctx.worker_ctx.router, label, target, true, true);
+        auto [ec, outbound] = co_await dial(ctx.worker_ctx.router, label, target);
         if (fault::failed(ec) || !outbound)
         {
             if (ec == fault::code::ipv6_disabled)

@@ -43,12 +43,14 @@ namespace psm::account
         {
             using is_transparent = void;
 
-            [[nodiscard]] auto operator()(const std::string_view value) const noexcept -> std::size_t
+            [[nodiscard]] auto operator()(const std::string_view value) const noexcept
+                -> std::size_t
             {
                 return std::hash<std::string_view>{}(value);
             }
 
-            [[nodiscard]] auto operator()(const memory::string &value) const noexcept -> std::size_t
+            [[nodiscard]] auto operator()(const memory::string &value) const noexcept
+                -> std::size_t
             {
                 return std::hash<std::string_view>{}(std::string_view(value));
             }
@@ -64,17 +66,20 @@ namespace psm::account
         {
             using is_transparent = void;
 
-            [[nodiscard]] auto operator()(const memory::string &left, std::string_view right) const noexcept -> bool
+            [[nodiscard]] auto operator()(const memory::string &left, std::string_view right) const noexcept
+                -> bool
             {
                 return std::string_view(left) == right;
             }
 
-            [[nodiscard]] auto operator()(const memory::string &left, const memory::string &right) const noexcept -> bool
+            [[nodiscard]] auto operator()(const memory::string &left, const memory::string &right) const noexcept
+                -> bool
             {
                 return left == right;
             }
 
-            [[nodiscard]] auto operator()(std::string_view left, const memory::string &right) const noexcept -> bool
+            [[nodiscard]] auto operator()(std::string_view left, const memory::string &right) const noexcept
+                -> bool
             {
                 return left == std::string_view(right);
             }
@@ -128,7 +133,8 @@ namespace psm::account
          * @return 账户条目共享指针，未找到返回 nullptr
          * @note 无锁读取，返回的指针可安全跨线程使用
          */
-        [[nodiscard]] auto find(std::string_view credential) const noexcept -> std::shared_ptr<entry>;
+        [[nodiscard]] auto find(std::string_view credential) const noexcept
+            -> std::shared_ptr<entry>;
 
     private:
         using unordered_map = memory::unordered_map<memory::string, std::shared_ptr<entry>, transparent_hash, transparent_equal>;
@@ -173,7 +179,8 @@ namespace psm::account
      * max_connections 为 0 表示无连接限制。成功时自动递增
      * 活跃连接数。
      */
-    [[nodiscard]] inline auto try_acquire(const directory &accounts, const std::string_view credential) noexcept -> lease
+    [[nodiscard]] inline auto try_acquire(const directory &accounts, const std::string_view credential) noexcept
+        -> lease
     {
         auto entry_ptr = accounts.find(credential);
         if (!entry_ptr)
@@ -209,7 +216,8 @@ namespace psm::account
      * @param credential 账户凭证字符串
      * @return 存在返回 true
      */
-    [[nodiscard]] inline auto contains(const directory &accounts, const std::string_view credential) noexcept -> bool
+    [[nodiscard]] inline auto contains(const directory &accounts, const std::string_view credential) noexcept
+        -> bool
     {
         return static_cast<bool>(accounts.find(credential));
     }

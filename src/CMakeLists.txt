@@ -18,6 +18,7 @@ target_link_libraries(${PROJECT_NAME}_static_library
         OpenSSL::SSL
         OpenSSL::Crypto
         blake3_c
+        nghttp2_static
 )
 
 if(WIN32)

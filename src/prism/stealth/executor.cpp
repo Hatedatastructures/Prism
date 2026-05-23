@@ -7,6 +7,7 @@
 #include <prism/context/context.hpp>
 #include <prism/transport/preview.hpp>
 #include <prism/transport/snapshot.hpp>
+#include <prism/connect/util.hpp>
 #include <prism/trace.hpp>
 #include <algorithm>
 
@@ -17,7 +18,8 @@ namespace psm::stealth
     {
     }
 
-    auto scheme_executor::pass_through(handshake_context &ctx, const handshake_result &res) -> void
+    auto scheme_executor::pass_through(handshake_context &ctx, const handshake_result &res)
+        -> void
     {
         if (res.transport)
             ctx.inbound = res.transport;
@@ -29,20 +31,22 @@ namespace psm::stealth
         }
     }
 
-    auto scheme_executor::ensure_snapshot(handshake_context &ctx) -> void
+    auto scheme_executor::ensure_snapshot(handshake_context &ctx)
+        -> void
     {
         if (!ctx.inbound)
             return;
-        if (dynamic_cast<transport::snapshot *>(ctx.inbound.get()))
+        if (connect::as<transport::snapshot>(ctx.inbound))
             return;
         ctx.inbound = transport::make_snapshot(std::move(ctx.inbound));
     }
 
-    auto scheme_executor::try_rewind(handshake_context &ctx) -> bool
+    auto scheme_executor::try_rewind(handshake_context &ctx)
+        -> bool
     {
         if (!ctx.inbound)
             return false;
-        auto *snap = dynamic_cast<transport::snapshot *>(ctx.inbound.get());
+        auto *snap = connect::as<transport::snapshot>(ctx.inbound);
         if (!snap || !snap->can_rewind())
             return false;
         snap->rewind();
@@ -162,7 +166,8 @@ namespace psm::stealth
         co_return co_await execute_pipeline(candidates, std::move(ctx));
     }
 
-    auto scheme_executor::find_scheme(const std::string_view name) const -> shared_scheme
+    auto scheme_executor::find_scheme(const std::string_view name) const
+        -> shared_scheme
     {
         for (const auto &scheme : schemes_)
         {

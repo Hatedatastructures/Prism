@@ -47,6 +47,8 @@ namespace psm::protocol::vless
         // 创建 VLESS 中继代理并执行握手
         const auto agent = make_conn(std::move(inbound), ctx.server_ctx.config().protocol.vless, std::move(verifier));
 
+        agent->set_traffic(ctx.worker_ctx.traffic, ctx.detected_protocol);
+
         auto [vless_ec, req] = co_await agent->handshake();
         if (fault::failed(vless_ec))
         {
@@ -73,7 +75,14 @@ namespace psm::protocol::vless
                 trace::info("{} mux session started", VlessStr);
                 ctx.active_stream_close = nullptr;
                 ctx.active_stream_cancel = nullptr;
-                auto muxprotocol = co_await multiplex::bootstrap(agent->release(), ctx.worker_ctx.router, ctx.server_ctx.config().mux);
+                auto muxprotocol = co_await multiplex::bootstrap(
+                    multiplex::bootstrap_context{
+                        .transport = agent->release(),
+                        .router = ctx.worker_ctx.router,
+                        .cfg = ctx.server_ctx.config().mux,
+                        .traffic = ctx.worker_ctx.traffic,
+                        .proto = ctx.detected_protocol
+                    });
                 if (muxprotocol)
                 {
                     muxprotocol->start();

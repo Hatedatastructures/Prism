@@ -7,7 +7,8 @@
 
 namespace psm::recognition::probe
 {
-    auto detect(const std::string_view peek_data) -> protocol::protocol_type
+    auto detect(const std::string_view peek_data)
+        -> protocol::protocol_type
     {
         if (peek_data.empty())
             return protocol::protocol_type::unknown;

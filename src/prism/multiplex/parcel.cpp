@@ -58,7 +58,8 @@ namespace psm::multiplex
         net::co_spawn(executor_, uplink_loop(), std::move(on_done));
     }
 
-    auto parcel::uplink_loop() -> net::awaitable<void>
+    auto parcel::uplink_loop()
+        -> net::awaitable<void>
     {
         while (!closed_)
         {
@@ -81,7 +82,8 @@ namespace psm::multiplex
         idle_timer_.expires_after(std::chrono::milliseconds(udp_idle_timeout_ms_));
     }
 
-    auto parcel::ensure_socket(const net::ip::udp::endpoint::protocol_type protocol) -> net::awaitable<bool>
+    auto parcel::ensure_socket(const net::ip::udp::endpoint::protocol_type protocol)
+        -> net::awaitable<bool>
     {
         if (egress_socket_ && socket_protocol_ == protocol)
         {
@@ -112,7 +114,8 @@ namespace psm::multiplex
         }
     }
 
-    auto parcel::on_mux_data(std::span<const std::byte> data) -> net::awaitable<void>
+    auto parcel::on_mux_data(std::span<const std::byte> data)
+        -> net::awaitable<void>
     {
         if (closed_)
         {
@@ -138,7 +141,8 @@ namespace psm::multiplex
         }
     }
 
-    auto parcel::process_buffer() -> net::awaitable<void>
+    auto parcel::process_buffer()
+        -> net::awaitable<void>
     {
         try
         {
@@ -223,7 +227,8 @@ namespace psm::multiplex
     }
 
     auto parcel::do_send(const memory::string &target_host, const std::uint16_t target_port,
-                         std::span<const std::byte> payload) -> net::awaitable<void>
+                         std::span<const std::byte> payload)
+        -> net::awaitable<void>
     {
         // 通过路由器解析目标端点
         char port_buf[8];
@@ -265,9 +270,14 @@ namespace psm::multiplex
             trace::debug("{} stream {} UDP send to {}:{} failed: {}",
                          tag, id_, target_host, target_port, ec.message());
         }
+        else
+        {
+            sent_bytes_.fetch_add(payload.size(), std::memory_order_relaxed);
+        }
     }
 
-    auto parcel::downlink_loop() -> net::awaitable<void>
+    auto parcel::downlink_loop()
+        -> net::awaitable<void>
     {
         try
         {
@@ -289,6 +299,8 @@ namespace psm::multiplex
                     }
                     break;
                 }
+
+                recv_bytes_.fetch_add(n, std::memory_order_relaxed);
 
                 // 提取响应来源地址和负载
                 memory::string reply_host(sender_ep.address().to_string().c_str(), mr_);
@@ -335,6 +347,13 @@ namespace psm::multiplex
             return;
         }
         closed_ = true;
+
+        if (auto owner = owner_.lock())
+        {
+            owner->accumulate_traffic(
+                sent_bytes_.load(std::memory_order_relaxed),
+                recv_bytes_.load(std::memory_order_relaxed));
+        }
 
         if (egress_socket_)
         {

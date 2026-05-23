@@ -25,8 +25,6 @@ namespace psm::connect
      * @details 组合 dial + tunnel 操作，所有协议的 TCP 隧道转发共用此函数。
      * 先通过路由器建立到目标的上游连接，连接成功后进入双向隧道转发。
      */
-    auto forward(context::session &ctx, std::string_view label,
-                 const protocol::target &target,
-                 shared_transmission inbound) -> net::awaitable<void>;
+    auto forward(context::session &ctx, std::string_view label, const protocol::target &target, shared_transmission inbound) -> net::awaitable<void>;
 
 } // namespace psm::connect

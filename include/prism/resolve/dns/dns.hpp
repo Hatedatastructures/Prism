@@ -76,7 +76,8 @@ namespace psm::resolve::dns
          * @details 返回配置中的 disable_ipv6 标志。
          * @return 禁用 IPv6 返回 true，否则返回 false
          */
-        [[nodiscard]] virtual auto ipv6_disabled() const noexcept -> bool = 0;
+        [[nodiscard]] virtual auto ipv6_disabled() const noexcept
+            -> bool = 0;
     };
 
     /**
@@ -88,8 +89,7 @@ namespace psm::resolve::dns
      * @param mr 内存资源指针
      * @return 唯一所有权指向 resolver 实例
      */
-    [[nodiscard]] auto make_resolver(net::io_context &ioc, config cfg,
-                                     memory::resource_pointer mr = memory::current_resource())
+    [[nodiscard]] auto make_resolver(net::io_context &ioc, config cfg, memory::resource_pointer mr = memory::current_resource())
         -> std::unique_ptr<resolver>;
 
 } // namespace psm::resolve::dns

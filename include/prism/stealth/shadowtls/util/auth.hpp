@@ -72,9 +72,7 @@ namespace psm::stealth::shadowtls
      * @param payload 修改后的 payload
      * @return 4 字节 HMAC 标签
      */
-    [[nodiscard]] auto compute_write_hmac(std::string_view password,
-                                          std::span<const std::byte> server_random,
-                                          std::span<const std::byte> payload)
+    [[nodiscard]] auto compute_write_hmac(std::string_view password, std::span<const std::byte> server_random, std::span<const std::byte> payload)
         -> std::array<std::uint8_t, 4>;
 
     /**
@@ -84,7 +82,6 @@ namespace psm::stealth::shadowtls
      * @param server_random TLS ServerRandom
      * @return 64 字节写入密钥（SHA256 输出 32 字节，此处取实际长度）
      */
-    [[nodiscard]] auto compute_write_key(std::string_view password,
-                                         std::span<const std::byte> server_random)
+    [[nodiscard]] auto compute_write_key(std::string_view password, std::span<const std::byte> server_random)
         -> std::vector<std::uint8_t>;
 } // namespace psm::stealth::shadowtls

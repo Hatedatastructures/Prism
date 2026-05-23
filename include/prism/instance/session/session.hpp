@@ -231,7 +231,8 @@ namespace psm::instance::session
          * @warning 如果协议检测失败或找不到处理器，连接可能会被关闭。
          * @warning 该方法是私有方法，仅供 start() 方法内部调用。
          */
-        auto diversion() -> net::awaitable<void>;
+        auto diversion()
+            -> net::awaitable<void>;
 
         /**
          * @brief 释放所有资源

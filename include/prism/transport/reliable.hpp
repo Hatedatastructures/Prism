@@ -13,6 +13,7 @@
 #pragma once
 
 #include <boost/asio.hpp>
+#include <boost/asio/any_completion_handler.hpp>
 #include <prism/transport/transmission.hpp>
 #include <prism/connect/pool/pool.hpp>
 #include <prism/fault/handling.hpp>
@@ -84,6 +85,16 @@ namespace psm::transport
         }
 
         /**
+         * @brief 获取传输层类型
+         * @return type::tcp 可靠传输始终为 TCP
+         */
+        [[nodiscard]] auto transport_type() const noexcept
+            -> type override
+        {
+            return type::tcp;
+        }
+
+        /**
          * @brief 获取关联的执行器
          * @details 返回底层 socket 关联的执行器，用于调度异步操作。
          * @return executor_type 执行器
@@ -91,6 +102,20 @@ namespace psm::transport
         executor_type executor() const override
         {
             return const_cast<socket_type &>(native_socket()).get_executor();
+        }
+
+        /**
+         * @brief 获取内层传输
+         * @return nullptr reliable 是叶子节点，没有内层
+         */
+        [[nodiscard]] transmission *next_layer() noexcept override
+        {
+            return nullptr;
+        }
+
+        [[nodiscard]] const transmission *next_layer() const noexcept override
+        {
+            return nullptr;
         }
 
         /**
@@ -114,6 +139,34 @@ namespace psm::transport
         }
 
         /**
+         * @brief Completion-handler 风格异步读取（零协程路径）
+         * @details 直接委托给底层 TCP socket 的 async_read_some，
+         * 消除所有中间协程帧和 executor 队列投递开销。
+         * @param buffer 目标缓冲区
+         * @param handler 完成处理器
+         */
+        void async_read_some(std::span<std::byte> buffer,
+            net::any_completion_handler<void(boost::system::error_code, std::size_t)> handler) override
+        {
+            native_socket().async_read_some(
+                net::buffer(buffer.data(), buffer.size()), std::move(handler));
+        }
+
+        /**
+         * @brief Completion-handler 风格异步写入（零协程路径）
+         * @details 直接委托给底层 TCP socket 的 async_write_some，
+         * 消除所有中间协程帧和 executor 队列投递开销。
+         * @param buffer 源数据缓冲区
+         * @param handler 完成处理器
+         */
+        void async_write_some(std::span<const std::byte> buffer,
+            net::any_completion_handler<void(boost::system::error_code, std::size_t)> handler) override
+        {
+            native_socket().async_write_some(
+                net::buffer(buffer.data(), buffer.size()), std::move(handler));
+        }
+
+        /**
          * @brief 异步写入数据
          * @details 调用底层 socket 的 async_write_some 实现异步写入。
          * 返回实际写入的字节数，错误通过 ec 返回。
@@ -131,49 +184,6 @@ namespace psm::transport
                 net::buffer(buffer.data(), buffer.size()), token);
             ec = psm::fault::make_error_code(psm::fault::to_code(sys_ec));
             co_return n;
-        }
-
-        /**
-         * @brief Scatter-gather 写入（TCP 原生优化）
-         * @details 将多个缓冲区通过一次 async_write 写入，底层 async_write_some 携带
-         * 完整 ConstBufferSequence 可映射为单次 WSASend/writev 系统调用，
-         * 避免帧头与载荷分两次写入导致的额外系统调用和 TLS 记录开销。
-         */
-        auto async_write_scatter(const std::span<const std::byte> *buffers, std::size_t count, std::error_code &ec)
-            -> net::awaitable<std::size_t> override
-        {
-            if (count == 0)
-            {
-                ec.clear();
-                co_return 0;
-            }
-
-            boost::system::error_code sys_ec;
-            auto token = net::redirect_error(net::use_awaitable, sys_ec);
-            std::size_t total = 0;
-
-            if (count == 2) [[likely]]
-            {
-                const std::array<net::const_buffer, 2> bufs{{net::const_buffer(buffers[0].data(), buffers[0].size()),
-                                                             net::const_buffer(buffers[1].data(), buffers[1].size())}};
-                total = co_await net::async_write(native_socket(), bufs, token);
-            }
-            else
-            {
-                for (std::size_t i = 0; i < count; ++i)
-                {
-                    const auto n = co_await async_write(buffers[i], ec);
-                    total += n;
-                    if (ec)
-                    {
-                        co_return total;
-                    }
-                }
-                co_return total;
-            }
-
-            ec = psm::fault::make_error_code(psm::fault::to_code(sys_ec));
-            co_return total;
         }
 
         /**
@@ -206,6 +216,18 @@ namespace psm::transport
         }
 
         /**
+         * @brief 半关闭写方向
+         * @details 关闭 TCP socket 的写半端，通知对端不再有数据发送。
+         * 读取方向仍可继续接收数据，直到对端也关闭或 EOF。
+         * @note 非 virtual，仅 reliable 自身持有此能力
+         */
+        void shutdown_write()
+        {
+            boost::system::error_code ec;
+            native_socket().shutdown(socket_type::shutdown_send, ec);
+        }
+
+        /**
          * @brief 取消所有未完成的异步操作
          * @details 取消当前所有挂起的异步读写操作。
          * 被取消的操作将返回 operation_canceled 错误。
@@ -230,26 +252,6 @@ namespace psm::transport
                 return *pooled_.get();
             }
             return *socket_;
-        }
-
-        /**
-         * @brief 关闭写端（半关闭）
-         * @details 调用 socket 的 shutdown_send，通知对端不再发送数据。
-         */
-        void shutdown_write() override
-        {
-            boost::system::error_code ec;
-            native_socket().shutdown(net::ip::tcp::socket::shutdown_send, ec);
-        }
-
-        /**
-         * @brief 检查传输是否可靠（如 TCP）
-         * @details 重写基类虚函数，返回 true 表示这是可靠传输。
-         * @return bool 始终返回 true
-         */
-        [[nodiscard]] bool is_reliable() const noexcept override
-        {
-            return true;
         }
 
         /**

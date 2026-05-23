@@ -19,8 +19,7 @@ namespace psm::stealth::shadowtls
     namespace
     {
         /// 计算 XOR 密钥：SHA256(password + serverRandom)
-        [[nodiscard]] auto compute_write_key(std::string_view password,
-                                             std::span<const std::byte> server_random)
+        [[nodiscard]] auto compute_write_key(std::string_view password, std::span<const std::byte> server_random)
             -> memory::vector<std::uint8_t>
         {
             SHA256_CTX sha_ctx;
@@ -327,48 +326,10 @@ namespace psm::stealth::shadowtls
         co_return payload.size();
     }
 
-    auto shadowtls_transport::async_write_scatter(const std::span<const std::byte> *buffers, std::size_t count, std::error_code &ec)
-        -> net::awaitable<std::size_t>
-    {
-        ec.clear();
-
-        if (count == 0)
-        {
-            co_return 0;
-        }
-
-        // 合并所有 buffer 到一个完整 payload
-        std::size_t total_size = 0;
-        for (std::size_t i = 0; i < count; ++i)
-        {
-            total_size += buffers[i].size();
-        }
-
-        memory::vector<std::byte> combined_payload(total_size);
-        std::size_t offset = 0;
-        for (std::size_t i = 0; i < count; ++i)
-        {
-            std::memcpy(combined_payload.data() + offset, buffers[i].data(), buffers[i].size());
-            offset += buffers[i].size();
-        }
-
-        trace::debug("{} async_write_scatter: combined {} buffers into {} bytes payload",
-                    tag, count, total_size);
-
-        // 一次性封装成 TLS frame 发送
-        co_return co_await write_tls_frame(combined_payload, ec);
-    }
-
     void shadowtls_transport::close()
     {
         boost::system::error_code ec;
         socket_.close(ec);
-    }
-
-    void shadowtls_transport::shutdown_write()
-    {
-        boost::system::error_code ec;
-        socket_.shutdown(net::ip::tcp::socket::shutdown_send, ec);
     }
 
     void shadowtls_transport::cancel()

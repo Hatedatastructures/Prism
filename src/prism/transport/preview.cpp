@@ -1,6 +1,7 @@
 #include <prism/transport/preview.hpp>
 #include <prism/trace.hpp>
 #include <cstring>
+#include <boost/asio/any_completion_handler.hpp>
 
 namespace psm::transport
 {
@@ -9,12 +10,8 @@ namespace psm::transport
     {
     }
 
-    bool preview::is_reliable() const noexcept
-    {
-        return inner_ && inner_->is_reliable();
-    }
-
-    auto preview::executor() const -> executor_type
+    auto preview::executor() const
+        -> executor_type
     {
         if (!inner_)
         {
@@ -74,6 +71,47 @@ namespace psm::transport
         {
             inner_->cancel();
         }
+    }
+
+    void preview::async_read_some(std::span<std::byte> buffer,
+        net::any_completion_handler<void(boost::system::error_code, std::size_t)> handler)
+    {
+        if (offset_ < preread_buffer_.size())
+        {
+            const auto remaining = preread_buffer_.size() - offset_;
+            const auto to_copy = (std::min)(remaining, buffer.size());
+            if (to_copy > 0)
+            {
+                std::memcpy(buffer.data(), preread_buffer_.data() + offset_, to_copy);
+                offset_ += to_copy;
+            }
+            std::move(handler)(boost::system::error_code{}, to_copy);
+            return;
+        }
+
+        if (!inner_)
+        {
+            std::move(handler)(boost::system::error_code(
+                static_cast<int>(std::errc::bad_file_descriptor),
+                boost::system::generic_category()), 0);
+            return;
+        }
+
+        inner_->async_read_some(buffer, std::move(handler));
+    }
+
+    void preview::async_write_some(std::span<const std::byte> buffer,
+        net::any_completion_handler<void(boost::system::error_code, std::size_t)> handler)
+    {
+        if (!inner_)
+        {
+            std::move(handler)(boost::system::error_code(
+                static_cast<int>(std::errc::bad_file_descriptor),
+                boost::system::generic_category()), 0);
+            return;
+        }
+
+        inner_->async_write_some(buffer, std::move(handler));
     }
 
 } // namespace psm::transport

@@ -17,6 +17,7 @@
 #include <system_error>
 
 #include <boost/asio.hpp>
+#include <boost/asio/any_completion_handler.hpp>
 #include <prism/transport/transmission.hpp>
 #include <prism/memory/container.hpp>
 #include <prism/memory/pool.hpp>
@@ -45,10 +46,29 @@ namespace psm::transport
                          memory::resource_pointer mr = memory::current_resource());
 
         /**
+         * @brief 获取内层传输
+         * @details 装饰器链导航，返回被包装的内层传输指针。
+         * @return transmission* 内层传输指针
+         */
+        [[nodiscard]] transmission *next_layer() noexcept override
+        {
+            return inner_.get();
+        }
+
+        [[nodiscard]] const transmission *next_layer() const noexcept override
+        {
+            return inner_.get();
+        }
+
+        /**
          * @brief 报告内部传输是否可靠
          * @return 若内部传输可靠则返回 true，否则返回 false
          */
-        [[nodiscard]] bool is_reliable() const noexcept override;
+        [[nodiscard]] auto transport_type() const noexcept
+            -> type override
+        {
+            return inner_ ? inner_->transport_type() : type::tcp;
+        }
 
         /**
          * @brief 获取内部传输的执行器
@@ -69,7 +89,7 @@ namespace psm::transport
             -> net::awaitable<std::size_t> override;
 
         /**
-         * @brief 将数据写入内部流
+         * @brief 异步写入数据
          * @param buffer 源数据缓冲区
          * @param ec 输出错误码
          * @return 协程对象，完成后返回写入的字节数
@@ -78,18 +98,36 @@ namespace psm::transport
             -> net::awaitable<std::size_t> override;
 
         /**
+         * @brief Completion-handler 风格异步读取
+         * @details 预读数据同步完成，耗尽后委托给内部传输。
+         * @param buffer 目标缓冲区
+         * @param handler 完成处理器
+         */
+        void async_read_some(std::span<std::byte> buffer,
+                             net::any_completion_handler<void(boost::system::error_code, std::size_t)> handler) override;
+
+        /**
+         * @brief Completion-handler 风格异步写入
+         * @details 委托给内部传输的 completion-handler 方法。
+         * @param buffer 源数据缓冲区
+         * @param handler 完成处理器
+         */
+        void async_write_some(std::span<const std::byte> buffer,
+                              net::any_completion_handler<void(boost::system::error_code, std::size_t)> handler) override;
+
+        /**
          * @brief 完整写入操作
-         * @details 委托给内部传输的 async_write，让子类（如 UDP）的特化生效。
+         * @details 委托给内部传输的 async_write 自由函数。
          */
         auto async_write(std::span<const std::byte> buffer, std::error_code &ec)
-            -> net::awaitable<std::size_t> override
+            -> net::awaitable<std::size_t>
         {
             if (!inner_)
             {
                 ec = std::make_error_code(std::errc::bad_file_descriptor);
                 co_return 0;
             }
-            co_return co_await inner_->async_write(buffer, ec);
+            co_return co_await transport::async_write(*inner_, buffer, ec);
         }
 
         /**
@@ -108,7 +146,8 @@ namespace psm::transport
          * @brief 获取内部传输对象
          * @return 内部传输的 shared_ptr
          */
-        [[nodiscard]] auto inner() const noexcept -> shared_transmission { return inner_; }
+        [[nodiscard]] auto inner() const noexcept
+            -> shared_transmission { return inner_; }
 
     private:
         shared_transmission inner_;                // 内部传输对象
@@ -126,8 +165,8 @@ namespace psm::transport
      * 在后续读取时优先重放预读数据。
      * @note 调用后入站传输所有权转移至返回值。
      */
-    inline auto wrap_with_preview(shared_transmission inbound, std::span<const std::byte> data,
-                                  memory::resource_pointer mr = memory::current_resource()) -> shared_transmission
+    inline auto wrap_with_preview(shared_transmission inbound, std::span<const std::byte> data, memory::resource_pointer mr = memory::current_resource())
+        -> shared_transmission
     {
         if (!data.empty())
         {

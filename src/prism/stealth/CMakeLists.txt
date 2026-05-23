@@ -15,7 +15,12 @@ target_sources(${PROJECT_NAME}_static_library
         shadowtls/scheme.cpp
         shadowtls/transport.cpp
         restls/scheme.cpp
+        restls/script.cpp
+        restls/handshake.cpp
+        restls/transport.cpp
         anytls/scheme.cpp
+        anytls/padding.cpp
+        anytls/session.cpp
         trusttunnel/scheme.cpp
         ech/util/decrypt.cpp
         native.cpp
@@ -47,10 +52,19 @@ target_sources(${PROJECT_NAME}_static_library
             ${PROJECT_SOURCE_DIR}/include/prism/stealth/shadowtls/transport.hpp
             ${PROJECT_SOURCE_DIR}/include/prism/stealth/restls/config.hpp
             ${PROJECT_SOURCE_DIR}/include/prism/stealth/restls/scheme.hpp
+            ${PROJECT_SOURCE_DIR}/include/prism/stealth/restls/crypto.hpp
+            ${PROJECT_SOURCE_DIR}/include/prism/stealth/restls/script.hpp
+            ${PROJECT_SOURCE_DIR}/include/prism/stealth/restls/handshake.hpp
+            ${PROJECT_SOURCE_DIR}/include/prism/stealth/restls/transport.hpp
             ${PROJECT_SOURCE_DIR}/include/prism/stealth/anytls/config.hpp
             ${PROJECT_SOURCE_DIR}/include/prism/stealth/anytls/scheme.hpp
+            ${PROJECT_SOURCE_DIR}/include/prism/stealth/anytls/padding.hpp
+            ${PROJECT_SOURCE_DIR}/include/prism/stealth/anytls/mux/frame.hpp
+            ${PROJECT_SOURCE_DIR}/include/prism/stealth/anytls/mux/session.hpp
+            ${PROJECT_SOURCE_DIR}/include/prism/stealth/anytls/mux/stream_transport.hpp
             ${PROJECT_SOURCE_DIR}/include/prism/stealth/trusttunnel/config.hpp
             ${PROJECT_SOURCE_DIR}/include/prism/stealth/trusttunnel/scheme.hpp
             ${PROJECT_SOURCE_DIR}/include/prism/stealth/ech/config.hpp
             ${PROJECT_SOURCE_DIR}/include/prism/stealth/ech/util/decrypt.hpp
+            ${PROJECT_SOURCE_DIR}/include/prism/stealth/serialize.hpp
 )

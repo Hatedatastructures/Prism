@@ -1,6 +1,7 @@
 #include <prism/multiplex/core.hpp>
 #include <prism/multiplex/duct.hpp>
 #include <prism/multiplex/parcel.hpp>
+#include <prism/stats/traffic.hpp>
 #include <prism/trace.hpp>
 #include <ranges>
 #include <span>
@@ -63,6 +64,13 @@ namespace psm::multiplex
         }
 
         transport_->cancel();
+
+        if (traffic_)
+        {
+            const auto up = mux_uplink_.load(std::memory_order_relaxed);
+            const auto down = mux_downlink_.load(std::memory_order_relaxed);
+            traffic_->flush_traffic(proto_, up, down);
+        }
 
         pending_.clear();
 

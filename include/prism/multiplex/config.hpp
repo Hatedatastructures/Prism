@@ -9,6 +9,7 @@
 
 #include <cstdint>
 
+#include <prism/multiplex/h2mux/config.hpp>
 #include <prism/multiplex/smux/config.hpp>
 #include <prism/multiplex/yamux/config.hpp>
 
@@ -24,7 +25,9 @@ namespace psm::multiplex
         /** @brief xtaci/smux v1 + sing-mux 协商 */
         smux = 0,
         /** @brief Hashicorp/yamux + sing-mux 协商 */
-        yamux = 1
+        yamux = 1,
+        /** @brief HTTP/2 CONNECT stream 多路复用 */
+        h2mux = 2
     }; // enum protocol_type
 
     /**
@@ -38,6 +41,7 @@ namespace psm::multiplex
     {
         bool enabled = false; // 是否启用多路复用服务端
 
+        h2mux::config h2mux; // h2mux 协议配置
         smux::config smux;   // smux 协议配置
         yamux::config yamux; // yamux 协议配置
     }; // struct config

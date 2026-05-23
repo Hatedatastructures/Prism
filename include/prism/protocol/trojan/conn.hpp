@@ -18,10 +18,13 @@
 #include <prism/transport/transmission.hpp>
 #include <prism/protocol/trojan/packet.hpp>
 #include <prism/protocol/trojan/config.hpp>
+#include <prism/protocol/protocol_type.hpp>
 #include <prism/fault/code.hpp>
 #include <memory>
 #include <functional>
 #include <span>
+
+namespace psm::stats::traffic { class traffic_state; }
 
 namespace psm::protocol::trojan
 {
@@ -103,19 +106,34 @@ namespace psm::protocol::trojan
          * 成功返回 request 对象，失败返回错误码
          * @return net::awaitable<std::pair<fault::code, request>> 握手结果和请求信息
          */
-        auto handshake() const -> net::awaitable<std::pair<fault::code, request>>;
+        auto handshake() const
+            -> net::awaitable<std::pair<fault::code, request>>;
+
+        /**
+         * @brief 获取内层传输指针（装饰器链导航）
+         * @return transmission* 内层传输指针
+         */
+        [[nodiscard]] psm::transport::transmission *next_layer() noexcept override
+        {
+            return next_layer_.get();
+        }
+
+        [[nodiscard]] const psm::transport::transmission *next_layer() const noexcept override
+        {
+            return next_layer_.get();
+        }
 
         /**
          * @brief 获取底层传输层引用
          * @return transport::transmission& 底层传输层引用
          */
-        psm::transport::transmission &next_layer() noexcept;
+        psm::transport::transmission &underlying() noexcept;
 
         /**
          * @brief 获取底层传输层常量引用
          * @return const transport::transmission& 底层传输层常量引用
          */
-        const psm::transport::transmission &next_layer() const noexcept;
+        const psm::transport::transmission &underlying() const noexcept;
 
         /**
          * @brief 释放底层传输层所有权
@@ -142,12 +160,26 @@ namespace psm::protocol::trojan
          * @note 此方法会阻塞直到连接关闭或空闲超时
          * @warning 调用前必须确保 handshake() 成功且命令为 udp_associate
          */
-        auto async_associate(route_callback route_cb) const -> net::awaitable<fault::code>;
+        auto async_associate(route_callback route_cb) const
+            -> net::awaitable<fault::code>;
+
+        /**
+         * @brief 设置流量统计状态
+         * @param t 流量统计指针
+         * @param p 协议类型
+         */
+        void set_traffic(stats::traffic::traffic_state *t, protocol::protocol_type p) noexcept
+        {
+            traffic_ = t;
+            proto_ = p;
+        }
 
     private:
         shared_transmission next_layer_;                 // 底层传输层，构造时转移所有权
         config config_;                                  // 协议配置
         std::function<bool(std::string_view)> verifier_; // 凭据验证回调函数
+        stats::traffic::traffic_state *traffic_{nullptr};
+        protocol::protocol_type proto_{protocol::protocol_type::unknown};
     };
 
     /**

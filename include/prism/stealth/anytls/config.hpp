@@ -62,7 +62,8 @@ namespace psm::stealth::anytls
          * @brief 检查配置是否有效
          * @return 如果 server_names、certificate、private_key 和 users 都非空，返回 true
          */
-        [[nodiscard]] auto enabled() const noexcept -> bool
+        [[nodiscard]] auto enabled() const noexcept
+            -> bool
         {
             return !server_names.empty()
                 && !certificate.empty()

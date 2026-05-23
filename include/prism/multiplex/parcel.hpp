@@ -99,7 +99,8 @@ namespace psm::multiplex
          * 每次调用重置空闲计时器。数据格式错误时静默丢弃。
          * @note 方法定义在 parcel.cpp 中
          */
-        auto on_mux_data(std::span<const std::byte> data) -> net::awaitable<void>;
+        auto on_mux_data(std::span<const std::byte> data)
+            -> net::awaitable<void>;
 
         /**
          * @brief 关闭管道（幂等）
@@ -142,7 +143,8 @@ namespace psm::multiplex
          * 防止 parcel 在等待期间被析构。
          * @note 方法定义在 parcel.cpp 中
          */
-        auto uplink_loop() -> net::awaitable<void>;
+        auto uplink_loop()
+            -> net::awaitable<void>;
 
         /**
          * @brief 缓冲区处理循环
@@ -152,7 +154,8 @@ namespace psm::multiplex
          * 再解析完整数据报。processing_ 标志保证同一时刻只有一个处理循环运行。
          * @note 方法定义在 parcel.cpp 中
          */
-        auto process_buffer() -> net::awaitable<void>;
+        auto process_buffer()
+            -> net::awaitable<void>;
 
         /**
          * @brief 发送单个已解析的 UDP 数据报（不等待响应）
@@ -163,8 +166,8 @@ namespace psm::multiplex
          * 首次发送时启动 downlink_loop 协程异步读取响应并回传。
          * @note 方法定义在 parcel.cpp 中
          */
-        auto do_send(const memory::string &target_host, std::uint16_t target_port,
-                     std::span<const std::byte> payload) -> net::awaitable<void>;
+        auto do_send(const memory::string &target_host, std::uint16_t target_port, std::span<const std::byte> payload)
+            -> net::awaitable<void>;
 
         /**
          * @brief 下行中继循环
@@ -173,7 +176,8 @@ namespace psm::multiplex
          * 由 do_send 首次发送时启动，socket 重建或关闭时自动退出。
          * @note 方法定义在 parcel.cpp 中
          */
-        auto downlink_loop() -> net::awaitable<void>;
+        auto downlink_loop()
+            -> net::awaitable<void>;
 
         /**
          * @brief 重置空闲计时器
@@ -192,7 +196,8 @@ namespace psm::multiplex
          * 协议切换时（目标从 IPv4 变为 IPv6 或反之）自动重建 socket。
          * @note 方法定义在 parcel.cpp 中
          */
-        auto ensure_socket(net::ip::udp::endpoint::protocol_type protocol) -> net::awaitable<bool>;
+        auto ensure_socket(net::ip::udp::endpoint::protocol_type protocol)
+            -> net::awaitable<bool>;
 
         std::uint32_t id_;                   // 流标识符，由 mux SYN 帧分配
         std::weak_ptr<core> owner_;          // 所属 core 的弱引用，不构成循环引用
@@ -215,6 +220,8 @@ namespace psm::multiplex
         std::size_t mux_offset_ = 0;            // mux_buffer_ 中未消费数据的起始偏移量
         std::atomic<bool> processing_{false};   // 缓冲区处理标志，防止并发 process_buffer
         std::atomic<bool> recv_running_{false}; // recv_loop 运行标志，防止并发接收循环
+        std::atomic<std::uint64_t> sent_bytes_{0};  // 已发送 UDP 数据报累计字节数
+        std::atomic<std::uint64_t> recv_bytes_{0};  // 已接收 UDP 数据报累计字节数
     }; // class parcel
 
     /**

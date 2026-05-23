@@ -14,7 +14,8 @@ namespace
 
 namespace psm::protocol::vless::format
 {
-    auto parse_request(std::span<const std::uint8_t> buffer) -> std::optional<request>
+    auto parse_request(std::span<const std::uint8_t> buffer)
+        -> std::optional<request>
     {
         // 最小长度：Version(1) + UUID(16) + AddnlInfoLen(1) + Cmd(1) + Port(2) + Atyp(1) + IPv4(4) = 26
         if (buffer.size() < 26)
@@ -202,8 +203,8 @@ namespace psm::protocol::vless::format
         return {fault::code::success, result};
     }
 
-    auto build_udp_packet(const udp_frame &frame, std::span<const std::byte> payload,
-                          memory::vector<std::byte> &out) -> fault::code
+    auto build_udp_packet(const udp_frame &frame, std::span<const std::byte> payload, memory::vector<std::byte> &out)
+        -> fault::code
     {
         // 预分配：最大地址长度(1+16) + port(2) + payload
         out.reserve(out.size() + 19 + payload.size());

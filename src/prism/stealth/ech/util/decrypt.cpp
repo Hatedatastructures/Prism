@@ -11,9 +11,8 @@
 
 namespace psm::stealth::ech
 {
-    auto decrypt_ech_payload(
-        std::span<const std::byte> outer_payload,
-        std::string_view ech_key) -> decrypt_result
+    auto decrypt_ech_payload(std::span<const std::byte> outer_payload, std::string_view ech_key)
+        -> decrypt_result
     {
         decrypt_result result;
 

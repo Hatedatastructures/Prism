@@ -410,7 +410,8 @@ namespace psm::protocol::shadowsocks
         return nonce;
     }
 
-    auto udp_relay::read_u64_be(const std::uint8_t *data) -> std::uint64_t
+    auto udp_relay::read_u64_be(const std::uint8_t *data)
+        -> std::uint64_t
     {
         std::uint64_t val = 0;
         for (int i = 0; i < 8; ++i)

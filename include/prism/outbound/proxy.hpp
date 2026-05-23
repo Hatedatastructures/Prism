@@ -75,13 +75,15 @@ namespace psm::outbound
          * @brief 获取代理名称
          * @return 代理名称的字符串视图
          */
-        [[nodiscard]] virtual auto name() const -> std::string_view = 0;
+        [[nodiscard]] virtual auto name() const
+            -> std::string_view = 0;
 
         /**
          * @brief 是否支持 UDP
          * @return 默认返回 true，不支持 UDP 的代理应重写
          */
-        [[nodiscard]] virtual auto supports_udp() const -> bool { return true; }
+        [[nodiscard]] virtual auto supports_udp() const
+            -> bool { return true; }
     };
 
 } // namespace psm::outbound

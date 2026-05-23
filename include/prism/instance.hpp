@@ -20,6 +20,7 @@
 #include <prism/instance/front/listener.hpp>
 #include <prism/connect.hpp>
 #include <prism/instance/worker/launch.hpp>
-#include <prism/instance/worker/stats.hpp>
+#include <prism/stats/runtime.hpp>
+#include <prism/stats/traffic.hpp>
 #include <prism/instance/worker/tls.hpp>
 #include <prism/instance/worker/worker.hpp>

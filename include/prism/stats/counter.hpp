@@ -21,24 +21,47 @@ namespace psm::stats
     class alignas(64) counter
     {
     public:
+        /**
+         * @brief 构造函数
+         * @details 初始化计数器为零值。对齐到 64 字节缓存行边界。
+         */
         counter() = default;
 
+        /**
+         * @brief 原子递增
+         * @param n 递增量，默认为 1
+         */
         void increment(std::uint64_t n = 1) noexcept
         {
             value_.fetch_add(n, std::memory_order_relaxed);
         }
 
+        /**
+         * @brief 原子递减
+         * @param n 递减量，默认为 1
+         */
         void decrement(std::uint64_t n = 1) noexcept
         {
             value_.fetch_sub(n, std::memory_order_relaxed);
         }
 
-        [[nodiscard]] auto load() const noexcept -> std::uint64_t
+        /**
+         * @brief 原子读取当前值
+         * @return 当前计数值
+         */
+        [[nodiscard]] auto load() const noexcept
+            -> std::uint64_t
         {
             return value_.load(std::memory_order_relaxed);
         }
 
-        [[nodiscard]] auto exchange(std::uint64_t desired) noexcept -> std::uint64_t
+        /**
+         * @brief 原子交换并返回旧值
+         * @param desired 要设置的新值
+         * @return 交换前的旧值
+         */
+        [[nodiscard]] auto exchange(std::uint64_t desired) noexcept
+            -> std::uint64_t
         {
             return value_.exchange(desired, std::memory_order_relaxed);
         }

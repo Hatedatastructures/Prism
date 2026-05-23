@@ -1,6 +1,7 @@
 #include <prism/stealth/reality/seal.hpp>
 #include <prism/stealth/common.hpp>
 #include <prism/trace.hpp>
+#include <prism/transport/transmission.hpp>
 #include <cstring>
 #include <algorithm>
 
@@ -18,12 +19,8 @@ namespace psm::stealth::reality
     {
     }
 
-    auto seal::is_reliable() const noexcept -> bool
-    {
-        return transport_ && transport_->is_reliable();
-    }
-
-    auto seal::executor() const -> executor_type
+    auto seal::executor() const
+        -> executor_type
     {
         if (!transport_)
         {
@@ -89,36 +86,6 @@ namespace psm::stealth::reality
             : buffer;
         const auto written = co_await write_encrypted_record(chunk, ec);
         co_return written;
-    }
-
-    auto seal::async_write_scatter(const std::span<const std::byte> *buffers, std::size_t count,
-                                     std::error_code &ec) -> net::awaitable<std::size_t>
-    {
-        ec.clear();
-
-        // 计算总长度
-        std::size_t total = 0;
-        for (std::size_t i = 0; i < count; ++i)
-            total += buffers[i].size();
-
-        if (total == 0)
-            co_return 0;
-
-        // 合并所有缓冲区到连续内存
-        scatter_buf_.resize(total);
-        std::size_t offset = 0;
-        for (std::size_t i = 0; i < count; ++i)
-        {
-            if (!buffers[i].empty())
-            {
-                std::memcpy(scatter_buf_.data() + offset, buffers[i].data(), buffers[i].size());
-                offset += buffers[i].size();
-            }
-        }
-
-        // 通过 async_write 分块写入（每次 <= 16383 字节，自动拆分为合规 TLS 记录）
-        co_return co_await async_write(
-            std::span<const std::byte>(scatter_buf_.data(), total), ec);
     }
 
     void seal::close()
@@ -274,7 +241,7 @@ namespace psm::stealth::reality
             co_return 0;
         }
 
-        // scatter-gather 写入
+        // 合并写入：record_header + ciphertext
         std::array<std::byte, tls::RECORD_HEADER_LEN> record_header{};
         record_header[0] = static_cast<std::byte>(tls::CONTENT_TYPE_APPLICATION_DATA);
         record_header[1] = static_cast<std::byte>(0x03);
@@ -282,12 +249,11 @@ namespace psm::stealth::reality
         record_header[3] = static_cast<std::byte>((encrypted_len >> 8) & 0xFF);
         record_header[4] = static_cast<std::byte>(encrypted_len & 0xFF);
 
-        const std::span<const std::byte> scatter_parts[] = {
-            record_header,
-            std::span<const std::byte>(
-                reinterpret_cast<const std::byte *>(ciphertext.data()),
-                ciphertext.size())};
-        co_await transport_->async_write_scatter(scatter_parts, 2, ec);
+        const std::size_t scatter_total = tls::RECORD_HEADER_LEN + ciphertext.size();
+        scatter_buf_.resize(scatter_total);
+        std::memcpy(scatter_buf_.data(), record_header.data(), tls::RECORD_HEADER_LEN);
+        std::memcpy(scatter_buf_.data() + tls::RECORD_HEADER_LEN, ciphertext.data(), ciphertext.size());
+        co_await transport::async_write(*transport_, scatter_buf_, ec);
         if (ec)
             co_return 0;
 

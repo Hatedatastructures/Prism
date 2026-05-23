@@ -15,6 +15,7 @@
 #pragma once
 
 #include <array>
+#include <atomic>
 #include <charconv>
 #include <functional>
 
@@ -25,6 +26,7 @@
 #include <prism/memory/container.hpp>
 #include <prism/transport/transmission.hpp>
 #include <prism/protocol/common/form.hpp>
+#include <prism/protocol/protocol_type.hpp>
 #include <prism/protocol/socks5/constants.hpp>
 #include <prism/protocol/socks5/packet.hpp>
 #include <prism/protocol/socks5/framing.hpp>
@@ -32,6 +34,8 @@
 #include <prism/account/entry.hpp>
 #include <prism/account/directory.hpp>
 #include <prism/crypto/sha224.hpp>
+
+namespace psm::stats::traffic { class traffic_state; }
 
 namespace psm::protocol::socks5
 {
@@ -199,12 +203,25 @@ namespace psm::protocol::socks5
             -> net::awaitable<fault::code>;
 
         /**
+         * @brief 获取内层传输指针（装饰器链导航）
+         * @return transmission* 内层传输指针
+         */
+        [[nodiscard]] psm::transport::transmission *next_layer() noexcept override
+        {
+            return next_layer_.get();
+        }
+
+        [[nodiscard]] const psm::transport::transmission *next_layer() const noexcept override
+        {
+            return next_layer_.get();
+        }
+
+        /**
          * @brief 获取底层传输层引用
          * @return transport::transmission& 底层传输层引用
-         * @details 返回底层传输层的可变引用，用于直接操作底层连接。
          * @warning 调用前应确保 is_valid() 返回 true
          */
-        psm::transport::transmission &next_layer() noexcept
+        psm::transport::transmission &underlying() noexcept
         {
             return *next_layer_;
         }
@@ -212,10 +229,9 @@ namespace psm::protocol::socks5
         /**
          * @brief 获取底层传输层常量引用
          * @return const transport::transmission& 底层传输层常量引用
-         * @details 返回底层传输层的只读引用，用于查询底层连接状态。
          * @warning 调用前应确保 is_valid() 返回 true
          */
-        const psm::transport::transmission &next_layer() const noexcept
+        const psm::transport::transmission &underlying() const noexcept
         {
             return *next_layer_;
         }
@@ -241,6 +257,17 @@ namespace psm::protocol::socks5
         shared_transmission release()
         {
             return std::move(next_layer_);
+        }
+
+        /**
+         * @brief 设置流量统计状态
+         * @param t 流量统计指针
+         * @param p 协议类型
+         */
+        void set_traffic(stats::traffic::traffic_state *t, protocol::protocol_type p) noexcept
+        {
+            traffic_ = t;
+            proto_ = p;
         }
 
     private:
@@ -319,7 +346,8 @@ namespace psm::protocol::socks5
          * @details 根据 IP 地址版本自动选择 IPv4 或 IPv6 地址类型，
          * 将端点地址转换为 SOCKS5 地址格式。
          */
-        [[nodiscard]] static auto endpoint_to_address(const net::ip::udp::endpoint &endpoint) -> address
+        [[nodiscard]] static auto endpoint_to_address(const net::ip::udp::endpoint &endpoint)
+            -> address
         {
             if (endpoint.address().is_v4())
             {
@@ -451,6 +479,10 @@ namespace psm::protocol::socks5
         config config_;                                     // SOCKS5 协议配置，构造时传入，运行时只读
         psm::account::directory *account_directory_; // 账户目录指针，用于认证验证，不持有所有权
         psm::account::lease account_lease_;          // 账户连接租约，认证成功后持有，会话结束时释放
+        stats::traffic::traffic_state *traffic_{nullptr};
+        protocol::protocol_type proto_{protocol::protocol_type::unknown};
+        mutable std::atomic<std::uint64_t> udp_uplink_{0};
+        mutable std::atomic<std::uint64_t> udp_downlink_{0};
     };
 
     /**

@@ -87,7 +87,8 @@ namespace psm::resolve::dns::detail
          * @param port 服务端口
          * @return 格式为 "host:port" 的键字符串
          */
-        [[nodiscard]] auto make_key(const std::string_view host, const std::string_view port) const -> memory::string
+        [[nodiscard]] auto make_key(const std::string_view host, const std::string_view port) const
+            -> memory::string
         {
             memory::string key(mr_);
             key.reserve(host.size() + port.size() + 1);

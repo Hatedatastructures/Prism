@@ -103,9 +103,8 @@ namespace psm
          * 查询账户目录获取租约。任一步骤失败均返回对应的错误响应。
          * @note 返回的 error_response 指向静态常量字符串，生命周期无限制。
          */
-        [[nodiscard]] auto authenticate_proxy_request(
-            std::string_view authorization,
-            account::directory &directory) -> auth_result;
+        [[nodiscard]] auto authenticate_proxy_request(std::string_view authorization, account::directory &directory)
+            -> auth_result;
 
         /**
          * @brief 构建正向代理转发请求行

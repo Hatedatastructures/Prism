@@ -20,6 +20,7 @@
 #include <boost/asio.hpp>
 
 #include <prism/multiplex/config.hpp>
+#include <prism/protocol/protocol_type.hpp>
 #include <prism/transport/transmission.hpp>
 #include <prism/memory/container.hpp>
 
@@ -27,6 +28,11 @@
 namespace psm::connect
 {
     class router;
+}
+
+namespace psm::stats::traffic
+{
+    class traffic_state;
 }
 
 namespace psm::multiplex
@@ -89,6 +95,28 @@ namespace psm::multiplex
         virtual void close();
 
         /**
+         * @brief 设置流量统计状态和归属协议
+         * @param t per-worker 流量统计指针
+         * @param p 外层协议类型（trojan/vless），mux 子流流量归属到外层协议
+         */
+        void set_traffic(stats::traffic::traffic_state *t, protocol::protocol_type p) noexcept
+        {
+            traffic_ = t;
+            proto_ = p;
+        }
+
+        /**
+         * @brief 累加子流（duct/parcel）上报的流量字节数
+         * @param up 上行字节数
+         * @param down 下行字节数
+         */
+        void accumulate_traffic(std::uint64_t up, std::uint64_t down) noexcept
+        {
+            if (up) mux_uplink_.fetch_add(up, std::memory_order_relaxed);
+            if (down) mux_downlink_.fetch_add(down, std::memory_order_relaxed);
+        }
+
+        /**
          * @brief 检查会话是否活跃
          * @details 通过原子变量读取 active_ 标志，使用 acquire 内存序保证可见性
          * @return bool true 表示会话正在运行
@@ -128,7 +156,8 @@ namespace psm::multiplex
          * @details 实现协议特定的帧读取、解析和分发逻辑。
          * 由 start() 通过 co_spawn 启动，退出时自动 close()。
          */
-        virtual auto run() -> net::awaitable<void> = 0;
+        virtual auto run()
+            -> net::awaitable<void> = 0;
 
     protected:
         /**
@@ -152,6 +181,10 @@ namespace psm::multiplex
         const config &config_;                              // mux 配置
         memory::resource_pointer mr_;                       // PMR 内存资源
         std::atomic<bool> active_{false};                   // 会话活跃标志
+        stats::traffic::traffic_state *traffic_{nullptr};   // per-worker 流量统计指针
+        protocol::protocol_type proto_{protocol::protocol_type::unknown}; // 归属的外层协议类型
+        std::atomic<std::uint64_t> mux_uplink_{0};          // 子流累加上行字节
+        std::atomic<std::uint64_t> mux_downlink_{0};        // 子流累加下行字节
 
         /**
          * @struct pending_entry

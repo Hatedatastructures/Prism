@@ -47,12 +47,14 @@ namespace psm::connect
         {
             using is_transparent = void;
 
-            [[nodiscard]] auto operator()(const std::string_view value) const noexcept -> std::size_t
+            [[nodiscard]] auto operator()(const std::string_view value) const noexcept
+                -> std::size_t
             {
                 return std::hash<std::string_view>{}(value);
             }
 
-            [[nodiscard]] auto operator()(const memory::string &value) const noexcept -> std::size_t
+            [[nodiscard]] auto operator()(const memory::string &value) const noexcept
+                -> std::size_t
             {
                 return std::hash<std::string_view>{}(std::string_view(value));
             }
@@ -67,22 +69,26 @@ namespace psm::connect
         {
             using is_transparent = void;
 
-            [[nodiscard]] auto operator()(const std::string_view left, const std::string_view right) const noexcept -> bool
+            [[nodiscard]] auto operator()(const std::string_view left, const std::string_view right) const noexcept
+                -> bool
             {
                 return left == right;
             }
 
-            [[nodiscard]] auto operator()(const memory::string &left, const std::string_view right) const noexcept -> bool
+            [[nodiscard]] auto operator()(const memory::string &left, const std::string_view right) const noexcept
+                -> bool
             {
                 return std::string_view(left) == right;
             }
 
-            [[nodiscard]] auto operator()(const std::string_view left, const memory::string &right) const noexcept -> bool
+            [[nodiscard]] auto operator()(const std::string_view left, const memory::string &right) const noexcept
+                -> bool
             {
                 return left == std::string_view(right);
             }
 
-            [[nodiscard]] auto operator()(const memory::string &left, const memory::string &right) const noexcept -> bool
+            [[nodiscard]] auto operator()(const memory::string &left, const memory::string &right) const noexcept
+                -> bool
             {
                 return left == right;
             }
@@ -138,39 +144,47 @@ namespace psm::connect
          * @details 委托给内部 DNS 解析器的配置查询。
          * @return 禁用 IPv6 返回 true，否则返回 false
          */
-        [[nodiscard]] auto ipv6_disabled() const noexcept -> bool { return dns_->ipv6_disabled(); }
+        [[nodiscard]] auto ipv6_disabled() const noexcept
+            -> bool { return dns_->ipv6_disabled(); }
 
         /**
          * @brief 获取连接池引用
          * @return 连接池引用
          */
-        [[nodiscard]] auto pool() noexcept -> connection_pool & { return pool_; }
-        [[nodiscard]] auto pool() const noexcept -> const connection_pool & { return pool_; }
+        [[nodiscard]] auto pool() noexcept
+            -> connection_pool & { return pool_; }
+        [[nodiscard]] auto pool() const noexcept
+            -> const connection_pool & { return pool_; }
 
         /**
          * @brief 获取 DNS 解析器引用
          * @return DNS 解析器引用
          */
-        [[nodiscard]] auto dns() noexcept -> resolve::dns::resolver & { return *dns_; }
-        [[nodiscard]] auto dns() const noexcept -> const resolve::dns::resolver & { return *dns_; }
+        [[nodiscard]] auto dns() noexcept
+            -> resolve::dns::resolver & { return *dns_; }
+        [[nodiscard]] auto dns() const noexcept
+            -> const resolve::dns::resolver & { return *dns_; }
 
         /**
          * @brief 获取执行器
          * @return 执行器
          */
-        [[nodiscard]] auto executor() const noexcept -> net::any_io_executor { return executor_; }
+        [[nodiscard]] auto executor() const noexcept
+            -> net::any_io_executor { return executor_; }
 
         /**
          * @brief 获取正向代理主机名
          * @return 正向代理主机名的 optional 引用
          */
-        [[nodiscard]] auto positive_host() const noexcept -> const std::optional<memory::string> & { return positive_host_; }
+        [[nodiscard]] auto positive_host() const noexcept
+            -> const std::optional<memory::string> & { return positive_host_; }
 
         /**
          * @brief 获取正向代理端口
          * @return 正向代理端口
          */
-        [[nodiscard]] auto positive_port() const noexcept -> std::uint16_t { return positive_port_; }
+        [[nodiscard]] auto positive_port() const noexcept
+            -> std::uint16_t { return positive_port_; }
 
     private:
         connection_pool &pool_;                             // 共享 TCP 传输源

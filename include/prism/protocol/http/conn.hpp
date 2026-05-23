@@ -51,21 +51,24 @@ namespace psm::protocol::http
          * @details 读取完整 HTTP 请求头、解析请求行和头字段、
          * 若配置了账户目录则执行 Basic 认证。认证失败时自动发送 407/403 响应。
          */
-        auto handshake() -> net::awaitable<std::pair<fault::code, proxy_request>>;
+        auto handshake()
+            -> net::awaitable<std::pair<fault::code, proxy_request>>;
 
         /**
          * @brief 发送 200 Connection Established 响应
          * @return fault::code 写入结果
          * @details 用于 CONNECT 方法成功建连后通知客户端隧道已建立。
          */
-        auto write_connect_success() -> net::awaitable<fault::code>;
+        auto write_connect_success()
+            -> net::awaitable<fault::code>;
 
         /**
          * @brief 发送 502 Bad Gateway 响应
          * @return fault::code 写入结果
          * @details 用于上游连接失败时通知客户端。
          */
-        auto write_bad_gateway() -> net::awaitable<fault::code>;
+        auto write_bad_gateway()
+            -> net::awaitable<fault::code>;
 
         /**
          * @brief 转发普通 HTTP 请求到上游
@@ -75,15 +78,16 @@ namespace psm::protocol::http
          * @details 将绝对 URI 重写为相对路径，构建新请求行写入上游，
          *          随后写入请求行之后的剩余数据（headers + body）。
          */
-        auto forward(const proxy_request &req, transport::shared_transmission outbound,
-                     std::pmr::memory_resource *mr) -> net::awaitable<void>;
+        auto forward(const proxy_request &req, transport::shared_transmission outbound, std::pmr::memory_resource *mr)
+            -> net::awaitable<void>;
 
         /**
          * @brief 释放底层传输层
          * @return 入站传输层的共享指针
          * @details 握手完成后调用，将传输层交给 tunnel() 进行双向转发。
          */
-        auto release() -> transport::shared_transmission;
+        auto release()
+            -> transport::shared_transmission;
 
     private:
         transport::shared_transmission transport_;
@@ -96,14 +100,16 @@ namespace psm::protocol::http
          * @brief 循环读取直到找到 HTTP 头部结束标记
          * @return 读取成功返回 true，读取失败返回 false
          */
-        auto read_until_header_end() -> net::awaitable<bool>;
+        auto read_until_header_end()
+            -> net::awaitable<bool>;
 
         /**
          * @brief 完整写入字符串数据到传输层
          * @param data 待写入的字符串视图
          * @return fault::code 写入结果
          */
-        auto write_bytes(std::string_view data) -> net::awaitable<fault::code>;
+        auto write_bytes(std::string_view data)
+            -> net::awaitable<fault::code>;
     };
 
     /**
@@ -112,8 +118,7 @@ namespace psm::protocol::http
      * @param account_directory 账户目录指针
      * @return relay 共享指针
      */
-    inline auto make_conn(transport::shared_transmission transport,
-                           account::directory *account_directory = nullptr)
+    inline auto make_conn(transport::shared_transmission transport, account::directory *account_directory = nullptr)
         -> std::shared_ptr<conn>
     {
         return std::make_shared<conn>(std::move(transport), account_directory);

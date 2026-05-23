@@ -147,7 +147,8 @@ namespace psm::multiplex::yamux
          * @brief 协议主循环（由 core::start() 通过 co_spawn 启动）
          * @details 启动 send_loop 后进入 frame_loop，frame_loop 退出后取消 channel_。
          */
-        auto run() -> net::awaitable<void> override;
+        auto run()
+            -> net::awaitable<void> override;
 
         /**
          * @brief 帧循环主协程
@@ -156,7 +157,8 @@ namespace psm::multiplex::yamux
          * 处理流创建或窗口更新，Ping 由 handle_ping 回复 ACK，
          * GoAway 由 handle_go_away 关闭会话。读取失败或无效帧时退出循环。
          */
-        auto frame_loop() -> net::awaitable<void>;
+        auto frame_loop()
+            -> net::awaitable<void>;
 
         /**
          * @brief 处理 Data 帧
@@ -222,7 +224,8 @@ namespace psm::multiplex::yamux
          * （回复 ACK），SYN+ACK 为确认服务端发起的流（本实现不支持服务端发起），
          * 普通帧增加 send_window
          */
-        auto handle_window_update(const frame_header &hdr) -> net::awaitable<void>;
+        auto handle_window_update(const frame_header &hdr)
+            -> net::awaitable<void>;
 
         /**
          * @brief 处理 Ping 帧
@@ -230,14 +233,16 @@ namespace psm::multiplex::yamux
          * @details SYN 标志为请求，回复 Ping(ACK) 并携带相同 ID；
          * ACK 标志为响应，忽略。
          */
-        auto handle_ping(const frame_header &hdr) const -> net::awaitable<void>;
+        auto handle_ping(const frame_header &hdr) const
+            -> net::awaitable<void>;
 
         /**
          * @brief 处理 GoAway 帧
          * @param hdr 帧头（length 字段为终止原因码）
          * @details 收到 GoAway 后调用 close() 关闭整个会话。
          */
-        auto handle_go_away(const frame_header &hdr) -> net::awaitable<void>;
+        auto handle_go_away(const frame_header &hdr)
+            -> net::awaitable<void>;
 
         /**
          * @brief 从 pending 解析地址、连接目标、创建 duct/parcel
@@ -247,7 +252,8 @@ namespace psm::multiplex::yamux
          * TCP 通过 router 连接目标后发送 0x00 成功状态并创建 duct 转发剩余数据。
          * 地址解析失败时发送 0x01 错误状态并 FIN。
          */
-        auto activate_stream(std::uint32_t stream_id) -> net::awaitable<void>;
+        auto activate_stream(std::uint32_t stream_id)
+            -> net::awaitable<void>;
 
         /**
          * @brief 为 pending 流设置超时定时器
@@ -303,7 +309,8 @@ namespace psm::multiplex::yamux
          * @details 从 channel_ 取出 outbound_frame，先写 12 字节帧头，再写 payload。
          * 写入失败时调用 close() 关闭整个会话。channel_ 取消时退出。
          */
-        auto send_loop() -> net::awaitable<void>;
+        auto send_loop()
+            -> net::awaitable<void>;
 
         /**
          * @brief 主动 Ping 心跳循环
@@ -311,7 +318,8 @@ namespace psm::multiplex::yamux
          * 按配置间隔发送 Ping(SYN) 帧，检测连接活性。
          * 定时器等待期间会话关闭则退出。
          */
-        auto ping_loop() -> net::awaitable<void>;
+        auto ping_loop()
+            -> net::awaitable<void>;
 
         // 发送通道类型
         using channel_type = net::experimental::concurrent_channel<void(boost::system::error_code, outbound_frame)>;

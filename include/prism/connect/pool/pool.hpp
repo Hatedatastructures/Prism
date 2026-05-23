@@ -291,7 +291,8 @@ namespace psm::connect
          * 顺序，不保证与其他操作的原子性。
          * @return pool_stats 统计信息快照
          */
-        [[nodiscard]] auto stats() const -> pool_stats;
+        [[nodiscard]] auto stats() const
+            -> pool_stats;
 
         /**
          * @brief 获取连接池配置（只读）

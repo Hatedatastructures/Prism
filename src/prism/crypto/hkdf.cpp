@@ -77,8 +77,7 @@ namespace psm::crypto
     // - 最多迭代 255 轮（每轮输出 32 字节，最大 8160 字节）
     //
     // 输出 = T(1) || T(2) || ... 截取到所需长度。
-    auto hkdf_expand(const std::span<const std::uint8_t> prk, const std::span<const std::uint8_t> info,
-                     const std::size_t length)
+    auto hkdf_expand(const std::span<const std::uint8_t> prk, const std::span<const std::uint8_t> info, const std::size_t length)
         -> std::pair<fault::code, std::vector<std::uint8_t>>
     {
         // RFC 5869: 最大输出长度 = 255 * HashLen
@@ -242,8 +241,7 @@ namespace psm::crypto
     // SHA-256 三数据块哈希。用于计算 transcript hash。
     // 如 SHA-256(CH || SH || EE+Cert+CV) 用于 CertificateVerify，
     // SHA-256(CH || SH || EE+Cert+CV+Finished) 用于应用密钥派生。
-    auto sha256(const std::span<const std::uint8_t> data1, const std::span<const std::uint8_t> data2,
-                const std::span<const std::uint8_t> data3)
+    auto sha256(const std::span<const std::uint8_t> data1, const std::span<const std::uint8_t> data2, const std::span<const std::uint8_t> data3)
         -> std::array<std::uint8_t, SHA256_LEN>
     {
         std::array<std::uint8_t, SHA256_LEN> hash{};

@@ -46,6 +46,7 @@ namespace psm::stealth
 {
     namespace net = boost::asio;
     using shared_transmission = transport::shared_transmission;
+    using hello_features = protocol::tls::hello_features;
 
     // ═══════════════════════════════════════════════════════════════════════
     // 快速检测结果（Tier 0）
@@ -147,16 +148,19 @@ namespace psm::stealth
         // === 身份 ===
 
         /// 方案名称（用于日志）
-        [[nodiscard]] virtual auto name() const noexcept -> std::string_view = 0;
+        [[nodiscard]] virtual auto name() const noexcept
+            -> std::string_view = 0;
 
         /// 检测层级（0-2），Tier 0 有独占特征，Tier 2 依赖 SNI
-        [[nodiscard]] virtual auto tier() const noexcept -> std::uint8_t
+        [[nodiscard]] virtual auto tier() const noexcept
+            -> std::uint8_t
         {
             return 2; // 默认 Tier 2（模糊）
         }
 
         /// 是否有独占特征（命中时跳过其他方案）
-        [[nodiscard]] virtual auto unique() const noexcept -> bool
+        [[nodiscard]] virtual auto unique() const noexcept
+            -> bool
         {
             return false; // 默认无独占特征
         }
@@ -164,7 +168,8 @@ namespace psm::stealth
         // === 配置 ===
 
         /// 判断此方案是否在当前配置下启用
-        [[nodiscard]] virtual auto active(const psm::config &cfg) const noexcept -> bool = 0;
+        [[nodiscard]] virtual auto active(const psm::config &cfg) const noexcept
+            -> bool = 0;
 
         /// 获取 SNI 白名单
         [[nodiscard]] virtual auto snis(const psm::config &cfg) const
@@ -183,8 +188,7 @@ namespace psm::stealth
          * @details 只做字节比较，不涉及 HMAC 或解密。
          * 例如 Reality 检查 session_id[0:3] == [0x01, 0x08, 0x02]。
          */
-        [[nodiscard]] virtual auto sniff(std::uint32_t bitmap,
-                                          const protocol::tls::client_hello_features &features) const
+        [[nodiscard]] virtual auto sniff(std::uint32_t bitmap, const hello_features &features) const
             -> sniff_result
         {
             // 默认：不支持快速检测
@@ -202,9 +206,7 @@ namespace psm::stealth
          * @details 涉及 HMAC 验证或解密，延迟执行。
          * 例如 ShadowTLS HMAC 验证、AnyTLS ECH 解密。
          */
-        [[nodiscard]] virtual auto verify(const protocol::tls::client_hello_features &features,
-                                           std::span<const std::byte> raw,
-                                           const psm::config &cfg) const
+        [[nodiscard]] virtual auto verify(const hello_features &features, std::span<const std::byte> raw, const psm::config &cfg) const
             -> verify_result
         {
             // 默认：不支持详细检测
@@ -239,7 +241,8 @@ namespace psm::stealth
 
     protected:
         /// 权重分（Tier 2 使用）
-        [[nodiscard]] virtual auto weight() const noexcept -> std::uint16_t
+        [[nodiscard]] virtual auto weight() const noexcept
+            -> std::uint16_t
         {
             return 100;
         }

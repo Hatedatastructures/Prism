@@ -38,7 +38,8 @@ namespace psm::resolve::dns::detail
         /**
          * @brief 从缓冲区读取 16 位大端整数
          */
-        [[nodiscard]] auto read_u16_be(const std::span<const std::uint8_t> data, const std::size_t offset) -> std::uint16_t
+        [[nodiscard]] auto read_u16_be(const std::span<const std::uint8_t> data, const std::size_t offset)
+            -> std::uint16_t
         {
             return (static_cast<std::uint16_t>(data[offset]) << 8) | static_cast<std::uint16_t>(data[offset + 1]);
         }
@@ -46,7 +47,8 @@ namespace psm::resolve::dns::detail
         /**
          * @brief 从缓冲区读取 32 位大端整数
          */
-        [[nodiscard]] auto read_u32_be(const std::span<const std::uint8_t> data, const std::size_t offset) -> std::uint32_t
+        [[nodiscard]] auto read_u32_be(const std::span<const std::uint8_t> data, const std::size_t offset)
+            -> std::uint32_t
         {
             return (static_cast<std::uint32_t>(data[offset]) << 24) | (static_cast<std::uint32_t>(data[offset + 1]) << 16) |
                    (static_cast<std::uint32_t>(data[offset + 2]) << 8) |
@@ -59,7 +61,8 @@ namespace psm::resolve::dns::detail
          * @return 处理后的域名 string_view（引用同一缓冲区，不做拷贝）
          * @note 调用方需保证原始域名在返回值使用期间有效
          */
-        [[nodiscard]] auto normalize_domain(const std::string_view domain) -> std::string_view
+        [[nodiscard]] auto normalize_domain(const std::string_view domain)
+            -> std::string_view
         {
             auto trimmed = domain;
             if (!trimmed.empty() && trimmed.back() == '.')
@@ -72,7 +75,8 @@ namespace psm::resolve::dns::detail
         /**
          * @brief 将域名转为小写 PMR string（去除末尾点号）
          */
-        [[nodiscard]] auto to_lower_domain(const std::string_view domain, memory::resource_pointer mr) -> memory::string
+        [[nodiscard]] auto to_lower_domain(const std::string_view domain, memory::resource_pointer mr)
+            -> memory::string
         {
             const auto trimmed = normalize_domain(domain);
             memory::string result(trimmed.size(), '\0', mr);
@@ -161,8 +165,7 @@ namespace psm::resolve::dns::detail
          * - >= 0xC0: 压缩指针，低 14 位为偏移量，递归跳转
          * - 跳转计数 > 255 视为循环，返回空 string_view
          */
-        [[nodiscard]] auto decode_name_raw(const std::span<const std::uint8_t> data,
-                                           std::size_t &offset, std::size_t &jumps)
+        [[nodiscard]] auto decode_name_raw(const std::span<const std::uint8_t> data, std::size_t &offset, std::size_t &jumps)
             -> std::string_view
         {
             // 使用栈上小缓冲区拼接域名标签，避免中间分配
@@ -285,7 +288,8 @@ namespace psm::resolve::dns::detail
 
     } // anonymous namespace
 
-    auto extract_ipv4(const record &rec) -> std::optional<net::ip::address_v4>
+    auto extract_ipv4(const record &rec)
+        -> std::optional<net::ip::address_v4>
     {
         if (rec.type != qtype::a || rec.rdata.size() != 4)
         {
@@ -300,7 +304,8 @@ namespace psm::resolve::dns::detail
         return addr;
     }
 
-    auto extract_ipv6(const record &rec) -> std::optional<net::ip::address_v6>
+    auto extract_ipv6(const record &rec)
+        -> std::optional<net::ip::address_v6>
     {
         if (rec.type != qtype::aaaa || rec.rdata.size() != 16)
         {
@@ -318,7 +323,8 @@ namespace psm::resolve::dns::detail
     {
     }
 
-    auto message::pack() const -> memory::vector<std::uint8_t>
+    auto message::pack() const
+        -> memory::vector<std::uint8_t>
     {
         // 预分配容量 512 字节（DNS 传统最大报文长度），初始大小仅 12 字节 Header
         // 避免构造时零填充 512 字节的无谓开销
@@ -521,7 +527,8 @@ namespace psm::resolve::dns::detail
         return msg;
     }
 
-    auto message::extract_ips() const -> memory::vector<net::ip::address>
+    auto message::extract_ips() const
+        -> memory::vector<net::ip::address>
     {
         memory::vector<net::ip::address> ips(mr_);
 
@@ -553,7 +560,8 @@ namespace psm::resolve::dns::detail
         return ips;
     }
 
-    auto message::min_ttl() const -> std::uint32_t
+    auto message::min_ttl() const
+        -> std::uint32_t
     {
         std::uint32_t result = std::numeric_limits<std::uint32_t>::max();
         bool found = false;

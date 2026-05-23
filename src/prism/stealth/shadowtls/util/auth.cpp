@@ -32,7 +32,8 @@ namespace psm::stealth::shadowtls
         return result;
     }
 
-    auto verify_client_hello(std::span<const std::byte> client_hello, const std::string_view password) -> bool
+    auto verify_client_hello(std::span<const std::byte> client_hello, const std::string_view password)
+        -> bool
     {
         // 最小长度检查: TLS Header(5) + Handshake Header(4) + Version(2) +
         //   Random(32) + SessionID Length(1) + SessionID(32) = 76
@@ -120,8 +121,7 @@ namespace psm::stealth::shadowtls
         return CRYPTO_memcmp(md.data(), client_hmac.data(), hmac_size) == 0;
     }
 
-    auto compute_write_hmac(const std::string_view password,const std::span<const std::byte> server_random,
-                            const std::span<const std::byte> payload)
+    auto compute_write_hmac(const std::string_view password, const std::span<const std::byte> server_random, const std::span<const std::byte> payload)
         -> std::array<std::uint8_t, 4>
     {
         // HMAC-SHA1(password, serverRandom + "S" + payload)[:4]

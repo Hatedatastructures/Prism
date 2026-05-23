@@ -73,8 +73,7 @@ namespace psm::crypto
      * T(N) = HMAC-SHA256(PRK, T(N-1) || info || N)
      * Output = T(1) || T(2) || ... || T(N)
      */
-    [[nodiscard]] auto hkdf_expand(std::span<const std::uint8_t> prk, std::span<const std::uint8_t> info,
-                                   std::size_t length)
+    [[nodiscard]] auto hkdf_expand(std::span<const std::uint8_t> prk, std::span<const std::uint8_t> info, std::size_t length)
         -> std::pair<fault::code, std::vector<std::uint8_t>>;
 
     /**
@@ -121,7 +120,6 @@ namespace psm::crypto
      * @return 32 字节 SHA-256 哈希值
      * @details 计算 SHA-256(data1 || data2 || data3)，用于 TLS 1.3 transcript hash。
      */
-    [[nodiscard]] auto sha256(std::span<const std::uint8_t> data1, std::span<const std::uint8_t> data2,
-                              std::span<const std::uint8_t> data3)
+    [[nodiscard]] auto sha256(std::span<const std::uint8_t> data1, std::span<const std::uint8_t> data2, std::span<const std::uint8_t> data3)
         -> std::array<std::uint8_t, SHA256_LEN>;
 } // namespace psm::crypto

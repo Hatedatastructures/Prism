@@ -3,6 +3,7 @@
 #include <prism/multiplex/parcel.hpp>
 #include <prism/multiplex/smux/frame.hpp>
 #include <prism/transport/reliable.hpp>
+#include <prism/transport/transmission.hpp>
 #include <prism/connect/dial/router.hpp>
 #include <prism/connect/dial/dial.hpp>
 #include <prism/trace.hpp>
@@ -29,7 +30,8 @@ namespace psm::multiplex::yamux
 
     craft::~craft() = default;
 
-    auto craft::run() -> net::awaitable<void>
+    auto craft::run()
+        -> net::awaitable<void>
     {
         // 启动发送循环（lambda 捕获 self 保持 craft 生命周期，防止 run() 退出后 craft 被销毁）
         const auto self = std::static_pointer_cast<craft>(shared_from_this());
@@ -55,7 +57,8 @@ namespace psm::multiplex::yamux
         channel_.cancel();
     }
 
-    auto craft::frame_loop() -> net::awaitable<void>
+    auto craft::frame_loop()
+        -> net::awaitable<void>
     {
         trace::debug("{} frame loop started", tag);
 
@@ -65,7 +68,7 @@ namespace psm::multiplex::yamux
         {
             // 读取 12 字节帧头（std::array 转 span 传递）
             const auto recv_span = std::span<std::byte>(recv_buffer_);
-            const auto hdr_n = co_await transport_->async_read(recv_span, ec);
+            const auto hdr_n = co_await transport::async_read(*transport_, recv_span, ec);
             if (ec || hdr_n < frame_header_size)
             {
                 if (ec != std::errc::operation_canceled)
@@ -98,7 +101,7 @@ namespace psm::multiplex::yamux
                     break;
                 }
                 payload.resize(hdr.length);
-                const auto payload_n = co_await transport_->async_read(payload, ec);
+                const auto payload_n = co_await transport::async_read(*transport_, payload, ec);
                 if (ec || payload_n < hdr.length)
                 {
                     trace::debug("{} read payload failed: {}", tag, ec.message());
@@ -375,7 +378,8 @@ namespace psm::multiplex::yamux
         net::co_spawn(transport_->executor(), self->activate_stream(stream_id), callback);
     }
 
-    auto craft::handle_window_update(const frame_header &hdr) -> net::awaitable<void>
+    auto craft::handle_window_update(const frame_header &hdr)
+        -> net::awaitable<void>
     {
         const auto stream_id = hdr.stream_id;
         const auto delta = hdr.length;
@@ -487,7 +491,8 @@ namespace psm::multiplex::yamux
         co_return;
     }
 
-    auto craft::handle_ping(const frame_header &hdr) const -> net::awaitable<void>
+    auto craft::handle_ping(const frame_header &hdr) const
+        -> net::awaitable<void>
     {
         // SYN 标志：Ping 请求，仅在启用心跳时回复 ACK
         if (has_flag(hdr.flag, flags::syn) && config_.yamux.enable_ping)
@@ -504,7 +509,8 @@ namespace psm::multiplex::yamux
         co_return;
     }
 
-    auto craft::handle_go_away(const frame_header &hdr) -> net::awaitable<void>
+    auto craft::handle_go_away(const frame_header &hdr)
+        -> net::awaitable<void>
     {
         const auto code = static_cast<go_away_code>(hdr.length);
         trace::debug("{} go away received, code={}", tag, static_cast<std::uint32_t>(code));
@@ -512,7 +518,8 @@ namespace psm::multiplex::yamux
         co_return;
     }
 
-    auto craft::activate_stream(const std::uint32_t stream_id) -> net::awaitable<void>
+    auto craft::activate_stream(const std::uint32_t stream_id)
+        -> net::awaitable<void>
     {
         const auto pit = pending_.find(stream_id);
         if (pit == pending_.end())
@@ -633,7 +640,7 @@ namespace psm::multiplex::yamux
 
         // 创建 duct 并启动双向转发
         auto target = transport::make_reliable(std::move(conn));
-        const auto p = make_duct(stream_id, shared_from_this(), std::move(target), config_.yamux.buffer_size, mr_);
+        const auto p = make_duct(stream_id, shared_from_this(), std::move(target), {config_.yamux.buffer_size, mr_});
         ducts_[stream_id] = p;
 
         p->start();
@@ -812,7 +819,8 @@ namespace psm::multiplex::yamux
         net::co_spawn(transport_->executor(), send_fn, callback);
     }
 
-    auto craft::executor() const -> net::any_io_executor
+    auto craft::executor() const
+        -> net::any_io_executor
     {
         return transport_->executor();
     }
@@ -881,7 +889,8 @@ namespace psm::multiplex::yamux
         }
     }
 
-    auto craft::send_loop() -> net::awaitable<void>
+    auto craft::send_loop()
+        -> net::awaitable<void>
     {
         trace::debug("{} send loop started", tag);
         try
@@ -900,14 +909,15 @@ namespace psm::multiplex::yamux
                 std::error_code transport_ec;
                 if (!frame.payload.empty())
                 {
-                    const std::span<const std::byte> buffers[] = {
-                        std::span<const std::byte>(frame.header.data(), frame.header.size()),
-                        std::span<const std::byte>(frame.payload.data(), frame.payload.size())};
-                    co_await transport_->async_write_scatter(buffers, 2, transport_ec);
+                    const std::size_t total_size = frame.header.size() + frame.payload.size();
+                    memory::vector<std::byte> combined(total_size, mr_);
+                    std::memcpy(combined.data(), frame.header.data(), frame.header.size());
+                    std::memcpy(combined.data() + frame.header.size(), frame.payload.data(), frame.payload.size());
+                    co_await transport::async_write(*transport_, combined, transport_ec);
                 }
                 else
                 {
-                    co_await transport_->async_write(
+                    co_await transport::async_write(*transport_,
                         std::span<const std::byte>(frame.header.data(), frame.header.size()), transport_ec);
                 }
 
@@ -930,7 +940,8 @@ namespace psm::multiplex::yamux
         trace::debug("{} send loop ended", tag);
     }
 
-    auto craft::ping_loop() -> net::awaitable<void>
+    auto craft::ping_loop()
+        -> net::awaitable<void>
     {
         trace::debug("{} ping loop started, interval={}ms", tag, config_.yamux.ping_interval_ms);
         net::steady_timer timer(executor());

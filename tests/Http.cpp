@@ -96,7 +96,7 @@ net::awaitable<void> DoConnectServer(tcp::acceptor &acceptor)
 
         // Echo 回写
         std::error_code write_ec;
-        co_await trans->async_write(std::span(buffer.data(), n), write_ec);
+        co_await psm::transport::async_write(*trans, std::span(buffer.data(), n), write_ec);
         if (write_ec)
         {
             LogFail(std::format("Server echo write failed: {}", write_ec.message()));

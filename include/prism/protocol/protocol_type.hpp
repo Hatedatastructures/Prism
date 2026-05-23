@@ -59,7 +59,8 @@ enum class protocol_type : std::uint8_t {
  * 程序相同。
  * @warning 不要修改返回的字符串视图内容，它是只读的。
  */
-[[nodiscard]] inline auto to_string_view(const protocol_type type) -> std::string_view
+[[nodiscard]] inline auto to_string_view(const protocol_type type)
+    -> std::string_view
 {
     switch (type)
     {

@@ -243,6 +243,21 @@ set_source_files_properties(${BLAKE3_C_DIR}/blake3_sse41.c PROPERTIES COMPILE_FL
 set_source_files_properties(${BLAKE3_C_DIR}/blake3_avx2.c PROPERTIES COMPILE_FLAGS "-mavx2")
 set_source_files_properties(${BLAKE3_C_DIR}/blake3_avx512.c PROPERTIES COMPILE_FLAGS "-mavx512f -mavx512vl")
 
+# --- nghttp2 ---
+# HTTP/2 C 库，用于 TrustTunnel 的 HTTP/2 CONNECT 代理。
+# ENABLE_LIB_ONLY=ON: 只编译 C 库，跳过应用和工具。
+set(ENABLE_LIB_ONLY    ON  CACHE BOOL "" FORCE)
+set(BUILD_SHARED_LIBS  OFF CACHE BOOL "" FORCE)
+set(BUILD_STATIC_LIBS  ON  CACHE BOOL "" FORCE)
+set(BUILD_TESTING      OFF CACHE BOOL "" FORCE)
+set(ENABLE_WERROR      OFF CACHE BOOL "" FORCE)
+FetchContent_Declare(
+    nghttp2
+    URL https://github.com/nghttp2/nghttp2/archive/refs/tags/v1.69.0.tar.gz
+    DOWNLOAD_EXTRACT_TIMESTAMP TRUE
+)
+FetchContent_MakeAvailable(nghttp2)
+
 # BoringSSL 的 bssl/decrepit 等目标无条件编译，排除出默认构建避免 MinGW 编译错误
 set_target_properties(bssl PROPERTIES EXCLUDE_FROM_ALL TRUE)
 if(TARGET decrepit)

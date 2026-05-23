@@ -14,7 +14,8 @@
 
 namespace psm::stealth
 {
-    auto register_all_schemes() -> void
+    auto register_all_schemes()
+        -> void
     {
         auto &reg = scheme_registry::instance();
 
@@ -31,23 +32,27 @@ namespace psm::stealth
         reg.add(std::make_shared<native::native>());
     }
 
-    auto scheme_registry::instance() -> scheme_registry &
+    auto scheme_registry::instance()
+        -> scheme_registry &
     {
         static scheme_registry reg;
         return reg;
     }
 
-    auto scheme_registry::add(shared_scheme scheme) -> void
+    auto scheme_registry::add(shared_scheme scheme)
+        -> void
     {
         schemes_.push_back(std::move(scheme));
     }
 
-    auto scheme_registry::all() const -> const std::vector<shared_scheme> &
+    auto scheme_registry::all() const
+        -> const std::vector<shared_scheme> &
     {
         return schemes_;
     }
 
-    auto scheme_registry::find(const std::string_view name) const -> shared_scheme
+    auto scheme_registry::find(const std::string_view name) const
+        -> shared_scheme
     {
         auto iffunctor = [name](const auto &s)
         {

@@ -20,8 +20,7 @@ namespace psm::stealth::reality
 
     constexpr std::string_view ShTag = "[Stealth.ServerHello]";
 
-    static auto make_handshake_message(std::uint8_t msg_type,
-                                       std::span<const std::uint8_t> body)
+    static auto make_handshake_message(std::uint8_t msg_type, std::span<const std::uint8_t> body)
         -> memory::vector<std::uint8_t>
     {
         memory::vector<std::uint8_t> msg;
@@ -32,8 +31,7 @@ namespace psm::stealth::reality
         return msg;
     }
 
-    auto make_tls_record(const std::uint8_t content_type,
-                         const std::span<const std::uint8_t> payload)
+    auto make_tls_record(const std::uint8_t content_type, const std::span<const std::uint8_t> payload)
         -> memory::vector<std::uint8_t>
     {
         memory::vector<std::uint8_t> record;
@@ -79,9 +77,7 @@ namespace psm::stealth::reality
         return {fault::code::success, std::move(record)};
     }
 
-    static auto build_server_hello_body(
-        const tls::client_hello_features &client_hello,
-        std::span<const std::uint8_t> server_ephemeral_public)
+    static auto build_server_hello_body(const tls::hello_features &client_hello, std::span<const std::uint8_t> server_ephemeral_public)
         -> memory::vector<std::uint8_t>
     {
         memory::vector<std::uint8_t> body;
@@ -126,7 +122,8 @@ namespace psm::stealth::reality
         return body;
     }
 
-    static auto build_encrypted_extensions() -> memory::vector<std::uint8_t>
+    static auto build_encrypted_extensions()
+        -> memory::vector<std::uint8_t>
     {
         memory::vector<std::uint8_t> body;
         tls::write_u16(body, 0);
@@ -227,9 +224,7 @@ namespace psm::stealth::reality
         return {std::move(cert_der), std::move(ed_keypair)};
     }
 
-    static auto build_certificate(std::span<const std::uint8_t> cert_chain_der,
-                                  std::span<const std::uint8_t> auth_key,
-                                  crypto::ed25519_keypair &out_ed_keypair)
+    static auto build_certificate(std::span<const std::uint8_t> cert_chain_der, std::span<const std::uint8_t> auth_key, crypto::ed25519_keypair &out_ed_keypair)
         -> memory::vector<std::uint8_t>
     {
         memory::vector<std::uint8_t> cert_der;
@@ -258,9 +253,7 @@ namespace psm::stealth::reality
         return body;
     }
 
-    static auto build_certificate_verify(
-        const crypto::ed25519_keypair &ed_keypair,
-        std::span<const std::uint8_t> transcript_hash)
+    static auto build_certificate_verify(const crypto::ed25519_keypair &ed_keypair, std::span<const std::uint8_t> transcript_hash)
         -> memory::vector<std::uint8_t>
     {
         static constexpr std::string_view context = "TLS 1.3, server CertificateVerify";
@@ -287,7 +280,7 @@ namespace psm::stealth::reality
     }
 
     auto generate_server_hello(
-        const tls::client_hello_features &client_hello,
+        const tls::hello_features &client_hello,
         const std::span<const std::uint8_t> server_ephemeral_public,
         const key_material &handshake_keys,
         const std::span<const std::uint8_t> dest_certificate,

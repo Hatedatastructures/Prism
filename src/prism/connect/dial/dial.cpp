@@ -2,6 +2,7 @@
 #include <prism/connect/dial/router.hpp>
 #include <prism/connect/dial/racer.hpp>
 #include <prism/transport/reliable.hpp>
+#include <prism/outbound/proxy.hpp>
 #include <prism/resolve/dns/detail/utility.hpp>
 #include <prism/trace.hpp>
 
@@ -126,7 +127,7 @@ namespace psm::connect
     }
 
     auto dial(router &rt, std::string_view label,
-              const protocol::target &target, const bool allow_reverse, const bool require_open)
+              const protocol::target &target, dial_options opts)
         -> net::awaitable<std::pair<fault::code, shared_transmission>>
     {
         if (rt.ipv6_disabled() && is_ipv6_literal(target.host))
@@ -137,7 +138,7 @@ namespace psm::connect
 
         fault::code ec;
         pooled_connection conn;
-        if (allow_reverse && !target.positive)
+        if (opts.allow_reverse && !target.positive)
         {
             auto result = co_await rt.async_reverse(target.host);
             ec = result.first;
@@ -157,7 +158,7 @@ namespace psm::connect
             co_return std::make_pair(ec, nullptr);
         }
 
-        if (require_open && !conn.valid())
+        if (opts.require_open && !conn.valid())
         {
             trace::warn("{} {} socket not open, target: {}:{}", DialStr, label, target.host, target.port);
             co_return std::make_pair(fault::code::connection_refused, nullptr);
@@ -167,9 +168,7 @@ namespace psm::connect
         co_return std::make_pair(ec, transport::make_reliable(std::move(conn)));
     }
 
-    auto dial(outbound::proxy &outbound_proxy,
-              const protocol::target &target,
-              const net::any_io_executor &executor)
+    auto dial(outbound::proxy &outbound_proxy, const protocol::target &target, const net::any_io_executor &executor)
         -> net::awaitable<std::pair<fault::code, shared_transmission>>
     {
         auto [ec, trans] = co_await outbound_proxy.async_connect(target, executor);

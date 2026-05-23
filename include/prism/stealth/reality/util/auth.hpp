@@ -20,6 +20,7 @@
 
 namespace psm::stealth::reality
 {
+    using hello_features = psm::protocol::tls::hello_features;
     using psm::protocol::tls::REALITY_KEY_LEN;
     /**
      * @struct auth_result
@@ -42,8 +43,7 @@ namespace psm::stealth::reality
      * @param decoded_private_key 已 base64 解码的 32 字节私钥
      * @return std::pair<fault::code, auth_result> 错误码和认证结果
      */
-    [[nodiscard]] auto authenticate(const config &cfg, const protocol::tls::client_hello_features &client_hello,
-                                    std::span<const std::uint8_t> decoded_private_key)
+    [[nodiscard]] auto authenticate(const config &cfg, const hello_features &client_hello, std::span<const std::uint8_t> decoded_private_key) 
         -> std::pair<fault::code, auth_result>;
 
     /**
@@ -53,8 +53,8 @@ namespace psm::stealth::reality
      * @param server_names 配置中允许的 SNI 列表
      * @return bool 匹配返回 true
      */
-    [[nodiscard]] auto match_server_name(std::string_view sni,
-                                         const memory::vector<memory::string> &server_names) -> bool;
+    [[nodiscard]] auto match_server_name(std::string_view sni, const memory::vector<memory::string> &server_names)
+        -> bool;
 
     /**
      * @brief 匹配 short_id
@@ -64,8 +64,8 @@ namespace psm::stealth::reality
      * @param allowed_short_ids 配置中允许的 short_id 列表（hex 编码）
      * @return bool 匹配返回 true
      */
-    [[nodiscard]] auto match_short_id(std::span<const std::uint8_t> short_id,
-                                      const memory::vector<memory::string> &allowed_short_ids) -> bool;
+    [[nodiscard]] auto match_short_id(std::span<const std::uint8_t> short_id, const memory::vector<memory::string> &allowed_short_ids)
+        -> bool;
 
     /**
      * @brief 十六进制字符串转字节
@@ -73,7 +73,8 @@ namespace psm::stealth::reality
      * @param hex 十六进制字符串
      * @return 解码后的字节向量
      */
-    [[nodiscard]] auto hex_to_bytes(std::string_view hex) -> memory::vector<std::uint8_t>;
+    [[nodiscard]] auto hex_to_bytes(std::string_view hex)
+        -> memory::vector<std::uint8_t>;
 
     /**
      * @brief 单个十六进制字符转数值
@@ -81,5 +82,6 @@ namespace psm::stealth::reality
      * @param c 十六进制字符
      * @return 对应的数值，非法字符返回 -1
      */
-    [[nodiscard]] auto hex_digit(char c) -> int;
+    [[nodiscard]] auto hex_digit(char c)
+        -> int;
 } // namespace psm::stealth::reality

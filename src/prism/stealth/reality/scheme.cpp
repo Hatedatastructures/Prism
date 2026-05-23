@@ -13,8 +13,10 @@
 namespace psm::stealth::reality
 {
     using namespace recognition::tls;
+    using hello_features = protocol::tls::hello_features;
 
-    auto scheme::active(const psm::config &cfg) const noexcept -> bool
+    auto scheme::active(const psm::config &cfg) const noexcept
+        -> bool
     {
         return cfg.stealth.reality.enabled();
     }
@@ -26,7 +28,7 @@ namespace psm::stealth::reality
     }
 
     auto scheme::sniff(std::uint32_t bitmap,
-                       const protocol::tls::client_hello_features &features) const
+                       const hello_features &features) const
         -> sniff_result
     {
         using namespace protocol::tls;
@@ -104,7 +106,8 @@ namespace psm::stealth::reality
         return {.hit = false};
     }
 
-    auto scheme::name() const noexcept -> std::string_view
+    auto scheme::name() const noexcept
+        -> std::string_view
     {
         return "reality";
     }

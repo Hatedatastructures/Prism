@@ -46,9 +46,7 @@ namespace psm::stealth::anytls
             -> memory::vector<memory::string> override;
 
         // === Tier 1: 详细检测（ECH 解密）===
-        [[nodiscard]] auto verify(const protocol::tls::client_hello_features &features,
-                                   std::span<const std::byte> raw,
-                                   const psm::config &cfg) const
+        [[nodiscard]] auto verify(const hello_features &features, std::span<const std::byte> raw, const psm::config &cfg) const
             -> verify_result override;
 
         // === Tier 2: 模糊检测 ===

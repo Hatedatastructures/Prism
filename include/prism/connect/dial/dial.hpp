@@ -18,11 +18,14 @@
 
 #include <prism/connect/dial/router.hpp>
 #include <prism/transport/transmission.hpp>
-#include <prism/transport/reliable.hpp>
 #include <prism/connect/pool/pool.hpp>
 #include <prism/fault/code.hpp>
 #include <prism/protocol/common/target.hpp>
-#include <prism/outbound/proxy.hpp>
+
+namespace psm::outbound
+{
+    class proxy;
+} // namespace psm::outbound
 
 namespace psm::connect
 {
@@ -35,7 +38,8 @@ namespace psm::connect
      * @param host 目标主机名或 IP 地址
      * @return 如果是 IPv6 地址字面量返回 true
      */
-    inline auto is_ipv6_literal(const std::string_view host) noexcept -> bool
+    inline auto is_ipv6_literal(const std::string_view host) noexcept
+        -> bool
     {
         boost::system::error_code ec;
         const auto addr = net::ip::make_address(host, ec);
@@ -125,8 +129,7 @@ namespace psm::connect
      * 调用方必须确保 rt 的生命周期长于回调的使用期。
      */
     inline auto make_datagram_router(router &rt)
-        -> std::function<net::awaitable<std::pair<fault::code, net::ip::udp::endpoint>>(
-            std::string_view, std::string_view)>
+        -> std::function<net::awaitable<std::pair<fault::code, net::ip::udp::endpoint>>(std::string_view, std::string_view)>
     {
         const auto ptr = std::shared_ptr<router>(&rt, [](router *) {});
         return [ptr](const std::string_view host, const std::string_view port)
@@ -137,16 +140,26 @@ namespace psm::connect
     }
 
     /**
+     * @struct dial_options
+     * @brief 拨号路由策略选项
+     * @details 封装拨号时的路由策略标志，将 dial 函数参数收敛到 3 个。
+     */
+    struct dial_options
+    {
+        bool allow_reverse{true}; // 是否允许使用反向路由
+        bool require_open{true};  // 是否要求返回的套接字已打开
+    };
+
+    /**
      * @brief 拨号连接上游服务器并包装为可靠传输
      * @param rt 路由器引用
      * @param label 协议标签，用于日志记录
      * @param target 解析后的上游目标地址
-     * @param allow_reverse 是否允许使用反向路由
-     * @param require_open 是否要求返回的套接字已打开
+     * @param opts 路由策略选项
      * @return 协程对象，完成后返回结果码和传输对象的配对
      */
     auto dial(router &rt, std::string_view label,
-              const protocol::target &target, bool allow_reverse, bool require_open)
+              const protocol::target &target, dial_options opts = {})
         -> net::awaitable<std::pair<fault::code, shared_transmission>>;
 
     /**

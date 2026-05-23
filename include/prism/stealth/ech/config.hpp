@@ -28,7 +28,8 @@ namespace psm::stealth::ech
          * @brief 检查是否启用
          * @return ech_key 非空时返回 true
          */
-        [[nodiscard]] auto enabled() const noexcept -> bool
+        [[nodiscard]] auto enabled() const noexcept
+            -> bool
         {
             return !ech_key.empty();
         }

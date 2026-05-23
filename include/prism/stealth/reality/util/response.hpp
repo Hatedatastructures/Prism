@@ -19,6 +19,7 @@
 
 namespace psm::stealth::reality
 {
+    using hello_features = protocol::tls::hello_features;
     // psm::protocol 命名空间中的类型已使用完整限定名，无需 using 声明
 
     struct key_material;
@@ -51,7 +52,7 @@ namespace psm::stealth::reality
      * @return 错误码和生成结果
      */
     [[nodiscard]] auto generate_server_hello(
-        const protocol::tls::client_hello_features &client_hello,
+        const hello_features &client_hello,
         std::span<const std::uint8_t> server_ephemeral_public,
         const key_material &handshake_keys,
         std::span<const std::uint8_t> dest_certificate,
@@ -67,8 +68,7 @@ namespace psm::stealth::reality
      * @param payload 记录载荷
      * @return 编码后的 TLS 记录字节
      */
-    [[nodiscard]] auto make_tls_record(std::uint8_t content_type,
-                                       std::span<const std::uint8_t> payload)
+    [[nodiscard]] auto make_tls_record(std::uint8_t content_type, std::span<const std::uint8_t> payload)
         -> memory::vector<std::uint8_t>;
 
     /**

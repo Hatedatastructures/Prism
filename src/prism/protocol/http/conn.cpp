@@ -1,4 +1,5 @@
 #include <prism/protocol/http/conn.hpp>
+#include <prism/transport/transmission.hpp>
 #include <span>
 #include <cstring>
 
@@ -22,7 +23,8 @@ namespace psm::protocol::http
         buffer_.resize(4096);
     }
 
-    auto conn::handshake() -> net::awaitable<std::pair<fault::code, proxy_request>>
+    auto conn::handshake()
+        -> net::awaitable<std::pair<fault::code, proxy_request>>
     {
         // 读取完整 HTTP 请求头
         if (!co_await read_until_header_end())
@@ -53,12 +55,14 @@ namespace psm::protocol::http
         co_return std::make_pair(fault::code::success, req);
     }
 
-    auto conn::write_connect_success() -> net::awaitable<fault::code>
+    auto conn::write_connect_success()
+        -> net::awaitable<fault::code>
     {
         co_return co_await write_bytes(resp200);
     }
 
-    auto conn::write_bad_gateway() -> net::awaitable<fault::code>
+    auto conn::write_bad_gateway()
+        -> net::awaitable<fault::code>
     {
         co_return co_await write_bytes(resp502);
     }
@@ -71,7 +75,7 @@ namespace psm::protocol::http
 
         // 写入新请求行到上游
         std::error_code ec;
-        co_await outbound->async_write(std::span(reinterpret_cast<const std::byte *>(new_line.data()), new_line.size()), ec);
+        co_await transport::async_write(*outbound, std::span(reinterpret_cast<const std::byte *>(new_line.data()), new_line.size()), ec);
         if (ec)
         {
             co_return;
@@ -81,16 +85,18 @@ namespace psm::protocol::http
         if (used_ > req.req_line_end)
         {
             std::span span = std::span(reinterpret_cast<const std::byte *>(buffer_.data() + req.req_line_end), used_ - req.req_line_end);
-            co_await outbound->async_write(std::move(span), ec);
+            co_await transport::async_write(*outbound, std::move(span), ec);
         }
     }
 
-    auto conn::release() -> transport::shared_transmission
+    auto conn::release()
+        -> transport::shared_transmission
     {
         return std::move(transport_);
     }
 
-    auto conn::read_until_header_end() -> net::awaitable<bool>
+    auto conn::read_until_header_end()
+        -> net::awaitable<bool>
     {
         while (true)
         {
@@ -122,11 +128,12 @@ namespace psm::protocol::http
         }
     }
 
-    auto conn::write_bytes(std::string_view data) -> net::awaitable<fault::code>
+    auto conn::write_bytes(std::string_view data)
+        -> net::awaitable<fault::code>
     {
         std::error_code ec;
         std::span span = std::span(reinterpret_cast<const std::byte *>(data.data()), data.size());
-        co_await transport_->async_write(std::move(span), ec);
+        co_await transport::async_write(*transport_, std::move(span), ec);
         co_return ec ? fault::code::io_error : fault::code::success;
     }
 } // namespace psm::protocol::http

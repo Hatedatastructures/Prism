@@ -56,7 +56,22 @@ namespace psm::stealth::shadowtls
 
         ~shadowtls_transport() override;
 
-        [[nodiscard]] bool is_reliable() const noexcept override { return true; }
+        [[nodiscard]] auto transport_type() const noexcept
+            -> type override
+        {
+            return type::tcp;
+        }
+
+        [[nodiscard]] transmission *next_layer() noexcept override
+        {
+            return nullptr;
+        }
+
+        [[nodiscard]] const transmission *next_layer() const noexcept override
+        {
+            return nullptr;
+        }
+
         [[nodiscard]] executor_type executor() const override
         {
             // socket_ 是 mutable，因为 get_executor() 是非 const 的
@@ -70,24 +85,21 @@ namespace psm::stealth::shadowtls
             -> net::awaitable<std::size_t> override;
 
         auto async_write(std::span<const std::byte> data, std::error_code &ec)
-            -> net::awaitable<std::size_t> override;
+            -> net::awaitable<std::size_t>;
 
         /**
-         * @brief Scatter-gather 写入（关键优化）
-         * @details 将多个 buffer 合并成一个完整 payload，一次性封装成 TLS frame 发送。
-         * ShadowTLS 协议要求：每个 TLS frame 包含一个完整的 HMAC+payload 单元。
-         * 如果使用默认实现（循环调用 async_write），会导致 SS2022 等协议的响应被分成多个 TLS frame，
-         * 破坏协议语义，客户端无法正确解析。
-         * @param buffers 多个数据缓冲区
-         * @param count 缓冲区数量
-         * @param ec 错误码输出参数
-         * @return 实际写入的总字节数
+         * @brief 半关闭写方向
+         * @details 关闭底层 TCP socket 的写半端，通知对端不再发送数据。
+         * 读取方向仍可继续接收数据。
+         * @note 非 virtual，仅 shadowtls_transport 自身持有此能力
          */
-        auto async_write_scatter(const std::span<const std::byte> *buffers, std::size_t count, std::error_code &ec)
-            -> net::awaitable<std::size_t> override;
+        void shutdown_write()
+        {
+            boost::system::error_code ec;
+            socket_.shutdown(net::ip::tcp::socket::shutdown_send, ec);
+        }
 
         void close() override;
-        void shutdown_write() override;
         void cancel() override;
 
     private:

@@ -29,7 +29,8 @@ namespace psm::protocol::shadowsocks
         struct string_hash
         {
             using is_transparent = void;
-            auto operator()(std::string_view sv) const noexcept -> std::size_t
+            auto operator()(std::string_view sv) const noexcept
+                -> std::size_t
             {
                 // FNV-1a
                 std::size_t h = 0xcbf29ce484222325ULL;
@@ -57,7 +58,8 @@ namespace psm::protocol::shadowsocks
          * @param salt Salt 数据
          * @return true 表示首次出现（已插入），false 表示重放
          */
-        auto check_and_insert(std::span<const std::uint8_t> salt) -> bool
+        auto check_and_insert(std::span<const std::uint8_t> salt)
+            -> bool
         {
             // 分摊清理：仅当距上次清理超过 1 秒时才执行
             const auto now = std::chrono::steady_clock::now();

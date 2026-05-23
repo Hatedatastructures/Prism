@@ -28,6 +28,28 @@ namespace psm::protocol::common
     namespace net = boost::asio;
 
     /**
+     * @brief UDP 流量通知回调类型
+     * @details 使用函数指针 + void* 避免热路径堆分配
+     */
+    using traffic_callback = void(*)(void *ctx, std::uint64_t up, std::uint64_t down) noexcept;
+
+    /**
+     * @struct udp_loop_config
+     * @brief UDP 帧循环配置
+     * @details 聚合 UDP over TLS 帧循环所需的定时器和参数配置，
+     * 将 udp_over_tls_frame_loop 函数参数收敛到 4 个。
+     */
+    struct udp_loop_config
+    {
+        net::steady_timer &idle_timer;      // 空闲超时计时器
+        std::string_view log_tag;           // 日志标签
+        std::uint32_t idle_timeout;         // 空闲超时时间（秒）
+        std::uint32_t max_datagram;         // 最大数据报长度
+        traffic_callback on_traffic{nullptr}; // 流量通知回调
+        void *traffic_ctx{nullptr};         // 回调上下文
+    };
+
+    /**
      * @struct udp_buffers
      * @brief UDP 会话缓冲区集合
      * @details 封装 UDP 帧循环所需的所有缓冲区，使用 PMR 分配器
@@ -119,7 +141,8 @@ namespace psm::protocol::common
         std::size_t resp_n,
         udp_buffers &buf,
         BuildFn &&build_fn,
-        std::string_view log_tag) -> net::awaitable<bool>
+        std::string_view log_tag)
+            -> net::awaitable<bool>
     {
         buf.send.clear();
         UdpFrame frame;
@@ -135,7 +158,7 @@ namespace psm::protocol::common
         build_fn(frame, {buf.response.data(), resp_n}, buf.send);
 
         std::error_code write_ec;
-        co_await transport.async_write({buf.send.data(), buf.send.size()}, write_ec);
+        co_await transport::async_write(transport, {buf.send.data(), buf.send.size()}, write_ec);
         if (write_ec)
         {
             trace::debug("{} Write response failed: {}", log_tag, write_ec.message());
@@ -154,10 +177,7 @@ namespace psm::protocol::common
      * @param parse_fn UDP 数据包解析函数
      * @param build_fn UDP 帧构建函数
      * @param route_cb 路由回调函数，用于解析目标地址
-     * @param idle_timer 空闲超时计时器
-     * @param log_tag 日志标签
-     * @param idle_timeout 空闲超时时间（秒）
-     * @param max_datagram 最大数据报长度
+     * @param config 帧循环配置（定时器、日志标签、超时、最大数据报长度）
      * @return net::awaitable<void> 异步操作
      * @details 从 TLS 流读取 UDP 数据包，解析并转发到目标地址，
      * 然后将响应封装回 TLS 流。支持空闲超时和错误处理。
@@ -169,21 +189,22 @@ namespace psm::protocol::common
         ParseFn &&parse_fn,
         BuildFn &&build_fn,
         std::function<net::awaitable<std::pair<fault::code, net::ip::udp::endpoint>>(std::string_view, std::string_view)> route_cb,
-        net::steady_timer &idle_timer,
-        std::string_view log_tag,
-        std::uint32_t idle_timeout,
-        std::uint32_t max_datagram) -> net::awaitable<void>
+        udp_loop_config config)
+            -> net::awaitable<void>
     {
         using namespace boost::asio::experimental::awaitable_operators;
 
-        udp_buffers buf(max_datagram);
+        udp_buffers buf(config.max_datagram);
         net::ip::udp::socket udp_socket(tls_transport.executor());
+        std::uint64_t uplink_bytes = 0;
+        std::uint64_t downlink_bytes = 0;
 
         while (true)
         {
-            idle_timer.expires_after(std::chrono::seconds(idle_timeout));
+            config.idle_timer.expires_after(std::chrono::seconds(config.idle_timeout));
 
-            auto do_read = [&]() -> net::awaitable<std::size_t>
+            auto do_read = [&]()
+                -> net::awaitable<std::size_t>
             {
                 std::error_code ec;
                 const auto n = co_await tls_transport.async_read_some(
@@ -192,27 +213,35 @@ namespace psm::protocol::common
                 co_return n;
             };
 
-            auto read_result = co_await (do_read() || idle_timer.async_wait(net::use_awaitable));
+            auto read_result = co_await (do_read() || config.idle_timer.async_wait(net::use_awaitable));
 
             if (read_result.index() == 1)
             {
-                trace::debug("{} Idle timeout", log_tag);
+                trace::debug("{} Idle timeout", config.log_tag);
+                if (config.on_traffic)
+                {
+                    config.on_traffic(config.traffic_ctx, uplink_bytes, downlink_bytes);
+                }
                 co_return;
             }
 
             const auto n = std::get<0>(read_result);
-            idle_timer.cancel();
+            config.idle_timer.cancel();
 
             if (n == 0)
             {
-                trace::debug("{} Read error or EOF", log_tag);
+                trace::debug("{} Read error or EOF", config.log_tag);
+                if (config.on_traffic)
+                {
+                    config.on_traffic(config.traffic_ctx, uplink_bytes, downlink_bytes);
+                }
                 co_return;
             }
 
             auto [parse_ec, parsed] = parse_fn(std::span<const std::byte>{buf.recv.data(), n});
             if (fault::failed(parse_ec))
             {
-                trace::warn("{} Packet parse failed", log_tag);
+                trace::warn("{} Packet parse failed", config.log_tag);
                 continue;
             }
 
@@ -224,7 +253,7 @@ namespace psm::protocol::common
             auto [route_ec, target_ep] = co_await route_cb(target_host, target_port);
             if (fault::failed(route_ec))
             {
-                trace::debug("{} Route failed for {}:{}", log_tag, target_host, target_port);
+                trace::debug("{} Route failed for {}:{}", config.log_tag, target_host, target_port);
                 continue;
             }
 
@@ -232,12 +261,20 @@ namespace psm::protocol::common
             auto [relay_ec, resp_n, sender_ep] = co_await relay_udp_packet(udp_socket, target_ep, payload, buf);
             if (fault::failed(relay_ec)) { continue; }
 
+            uplink_bytes += static_cast<std::uint64_t>(payload.size());
+
             if (!co_await send_udp_frame_response<BuildFn, UdpFrame>(
                     tls_transport, sender_ep, resp_n, buf,
-                    std::forward<BuildFn>(build_fn), log_tag))
+                    std::forward<BuildFn>(build_fn), config.log_tag))
             {
+                if (config.on_traffic)
+                {
+                    config.on_traffic(config.traffic_ctx, uplink_bytes, downlink_bytes);
+                }
                 co_return;
             }
+
+            downlink_bytes += buf.send.size();
         }
     }
 

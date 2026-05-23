@@ -17,6 +17,8 @@
 #include <prism/config.hpp>
 #include <prism/trace.hpp>
 #include <prism/exception.hpp>
+#include <prism/stats/traffic.hpp>
+#include <prism/protocol/protocol_type.hpp>
 
 namespace psm::instance::session
 {
@@ -102,7 +104,7 @@ namespace psm::instance::session
         state_ = state::closed;
 
         // 通知流量统计连接断开
-        if (ctx_.worker_ctx.traffic && ctx_.detected_protocol != protocol::protocol_type::unknown)
+        if (ctx_.worker_ctx.traffic && ctx_.detected_protocol != psm::protocol::protocol_type::unknown)
         {
             ctx_.worker_ctx.traffic->on_disconnect(ctx_.detected_protocol);
         }
@@ -136,7 +138,8 @@ namespace psm::instance::session
         trace::debug("[Session] [{}] Session closed.", id_);
     }
 
-    auto session::diversion() -> net::awaitable<void>
+    auto session::diversion()
+        -> net::awaitable<void>
     {
         if (!ctx_.inbound)
         {

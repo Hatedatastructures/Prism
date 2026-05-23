@@ -28,7 +28,7 @@
 #endif
 
 namespace probe = psm::recognition::probe;
-using psm::protocol::tls::client_hello_features;
+using psm::protocol::tls::hello_features;
 using psm::recognition::tls::feature_bit;
 
 namespace
@@ -195,26 +195,26 @@ void TestFeatureBitmapBuild(psm::testing::TestRunner &runner)
     runner.LogInfo("=== TestFeatureBitmapBuild ===");
 
     // 测试空特征
-    client_hello_features empty_features;
+    hello_features empty_features;
     auto bitmap = psm::recognition::tls::build_feature_bitmap(empty_features);
     runner.Check(bitmap == 0, "Empty features should produce 0 bitmap");
 
     // 测试有 SNI
-    client_hello_features sni_features;
+    hello_features sni_features;
     sni_features.server_name = "example.com";
     bitmap = psm::recognition::tls::build_feature_bitmap(sni_features);
     runner.Check(psm::recognition::tls::has_feature(bitmap, psm::recognition::tls::has_sni),
                  "Should have has_sni bit");
 
     // 测试有 X25519
-    client_hello_features x25519_features;
+    hello_features x25519_features;
     x25519_features.has_x25519 = true;
     bitmap = psm::recognition::tls::build_feature_bitmap(x25519_features);
     runner.Check(psm::recognition::tls::has_feature(bitmap, psm::recognition::tls::has_x25519),
                  "Should have has_x25519 bit");
 
     // 测试 session_id=32
-    client_hello_features session_features;
+    hello_features session_features;
     session_features.session_id_len = 32;
     session_features.session_id.resize(32);
     bitmap = psm::recognition::tls::build_feature_bitmap(session_features);
@@ -222,7 +222,7 @@ void TestFeatureBitmapBuild(psm::testing::TestRunner &runner)
                  "Should have has_full_session_id bit");
 
     // 测试非标准 session_id
-    client_hello_features non_std_features;
+    hello_features non_std_features;
     non_std_features.session_id_len = 16;
     non_std_features.session_id.resize(16);
     bitmap = psm::recognition::tls::build_feature_bitmap(non_std_features);
@@ -238,7 +238,7 @@ void TestFeatureBitmapRealityMarker(psm::testing::TestRunner &runner)
     runner.LogInfo("=== TestFeatureBitmapRealityMarker ===");
 
     // 测试 Reality 独占标记 [01:08:02]
-    client_hello_features reality_features;
+    hello_features reality_features;
     reality_features.session_id_len = 32;
     reality_features.session_id = {0x01, 0x08, 0x02, 0x00, 0x00, 0x00, 0x00, 0x00,
                                     0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
@@ -252,7 +252,7 @@ void TestFeatureBitmapRealityMarker(psm::testing::TestRunner &runner)
                  "Should also have has_full_session_id bit");
 
     // 测试非 Reality 标记
-    client_hello_features non_reality_features;
+    hello_features non_reality_features;
     non_reality_features.session_id_len = 32;
     non_reality_features.session_id.resize(32);
     non_reality_features.session_id[0] = 0x00;
@@ -270,7 +270,7 @@ void TestFeatureBitmapCombined(psm::testing::TestRunner &runner)
     runner.LogInfo("=== TestFeatureBitmapCombined ===");
 
     // 构建包含多个特征的位图
-    client_hello_features features;
+    hello_features features;
     features.server_name = "example.com";
     features.has_x25519 = true;
     features.session_id_len = 32;
@@ -301,7 +301,7 @@ void TestRealitySniffExclusive(psm::testing::TestRunner &runner)
     psm::stealth::reality::scheme scheme;
 
     // Reality 独占标记 → 独占命中
-    client_hello_features features;
+    hello_features features;
     features.session_id_len = 32;
     features.session_id = {0x01, 0x08, 0x02, 0x00, 0x00, 0x00, 0x00, 0x00,
                             0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
@@ -317,7 +317,7 @@ void TestRealitySniffExclusive(psm::testing::TestRunner &runner)
     runner.Check(result.hint >= 900, "Reality marker should have high hint");
 
     // 无标记但有 X25519 + session_id=32 → 非独占
-    client_hello_features no_marker_features;
+    hello_features no_marker_features;
     no_marker_features.session_id_len = 32;
     no_marker_features.session_id.resize(32);
     no_marker_features.has_x25519 = true;
@@ -371,24 +371,24 @@ void TestSchemeRegistry(psm::testing::TestRunner &runner)
 // ─── 结构体默认值测试 ───────────────────────────────────────────────────
 
 /**
- * @brief 测试 client_hello_features 默认值
+ * @brief 测试 hello_features 默认值
  */
 void TestClientHelloFeaturesDefaults(psm::testing::TestRunner &runner)
 {
     runner.LogInfo("=== TestClientHelloFeaturesDefaults ===");
 
-    client_hello_features features;
+    hello_features features;
 
     runner.Check(features.server_name.empty(),
-                 "client_hello_features: server_name empty");
+                 "hello_features: server_name empty");
     runner.Check(features.session_id_len == 0,
-                 "client_hello_features: session_id_len = 0");
+                 "hello_features: session_id_len = 0");
     runner.Check(features.has_x25519 == false,
-                 "client_hello_features: has_x25519 = false");
+                 "hello_features: has_x25519 = false");
     runner.Check(features.versions.empty(),
-                 "client_hello_features: versions empty");
+                 "hello_features: versions empty");
     runner.Check(features.session_id.empty(),
-                 "client_hello_features: session_id empty");
+                 "hello_features: session_id empty");
 }
 
 /**

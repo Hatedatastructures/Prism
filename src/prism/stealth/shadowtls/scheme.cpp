@@ -20,8 +20,10 @@
 namespace psm::stealth::shadowtls
 {
     using namespace recognition::tls;
+    using hello_features = protocol::tls::hello_features;
 
-    auto scheme::active(const psm::config &cfg) const noexcept -> bool
+    auto scheme::active(const psm::config &cfg) const noexcept
+        -> bool
     {
         const auto &st_cfg = cfg.stealth.shadowtls;
         // v3: 需要至少一个用户、握手目标和 SNI 白名单
@@ -31,7 +33,8 @@ namespace psm::stealth::shadowtls
         return !st_cfg.password.empty() && !st_cfg.handshake_dest.empty() && !st_cfg.server_names.empty();
     }
 
-    auto scheme::name() const noexcept -> std::string_view
+    auto scheme::name() const noexcept
+        -> std::string_view
     {
         return "shadowtls";
     }
@@ -43,7 +46,7 @@ namespace psm::stealth::shadowtls
     }
 
     auto scheme::sniff(std::uint32_t bitmap,
-                       const protocol::tls::client_hello_features &features) const
+                       const hello_features &features) const
         -> sniff_result
     {
         using namespace protocol::tls;
@@ -61,7 +64,7 @@ namespace psm::stealth::shadowtls
         return {.hit = false};
     }
 
-    auto scheme::verify(const protocol::tls::client_hello_features &features,
+    auto scheme::verify(const hello_features &features,
                          std::span<const std::byte> raw,
                          const psm::config &cfg) const
         -> verify_result
@@ -117,7 +120,7 @@ namespace psm::stealth::shadowtls
         }
 
         // 获取底层 reliable transport 的 raw socket
-        auto *rel = connect::find_reliable(ctx.inbound);
+        auto *rel = ctx.inbound->lowest_layer<transport::reliable>();
 
         if (!rel)
         {

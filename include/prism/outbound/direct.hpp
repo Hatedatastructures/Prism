@@ -108,7 +108,8 @@ namespace psm::outbound
             };
         }
 
-        [[nodiscard]] auto name() const -> std::string_view override
+        [[nodiscard]] auto name() const
+            -> std::string_view override
         {
             return "DIRECT";
         }
@@ -119,7 +120,8 @@ namespace psm::outbound
          * @param host 目标主机名或 IP 地址
          * @return 如果是 IPv6 地址字面量返回 true
          */
-        static auto is_ipv6_literal(const std::string_view host) noexcept -> bool
+        static auto is_ipv6_literal(const std::string_view host) noexcept
+            -> bool
         {
             boost::system::error_code ec;
             const auto addr = net::ip::make_address(host, ec);

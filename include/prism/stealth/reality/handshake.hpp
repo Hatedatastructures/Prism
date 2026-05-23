@@ -34,9 +34,7 @@ namespace psm::stealth::reality
      * @param session 会话上下文（用于 fallback 等需要 router 的场景）
      * @return net::awaitable<stealth::handshake_result> 异步操作，返回握手结果
      */
-    auto handshake(transport::shared_transmission inbound,
-                   const psm::config &cfg,
-                   psm::context::session &session)
+    auto handshake(transport::shared_transmission inbound, const psm::config &cfg, psm::context::session &session)
         -> net::awaitable<stealth::handshake_result>;
 
     /**
@@ -48,9 +46,7 @@ namespace psm::stealth::reality
      * @param raw_record 原始 ClientHello TLS 记录字节
      * @return net::awaitable<fault::code> 异步操作，返回错误码
      */
-    auto fallback_to_dest(psm::context::session &session,
-                          transport::shared_transmission inbound,
-                          std::span<const std::uint8_t> raw_record)
+    auto fallback_to_dest(psm::context::session &session, transport::shared_transmission inbound, std::span<const std::uint8_t> raw_record)
         -> net::awaitable<fault::code>;
 
     /**
@@ -61,7 +57,8 @@ namespace psm::stealth::reality
      * @param port 输出参数，解析出的端口号
      * @return bool 解析成功返回 true，格式错误返回 false
      */
-    auto parse_dest(std::string_view dest, std::string &host, std::uint16_t &port) -> bool;
+    auto parse_dest(std::string_view dest, std::string &host, std::uint16_t &port)
+        -> bool;
 
     /**
      * @brief 从 dest 服务器获取证书

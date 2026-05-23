@@ -84,7 +84,8 @@ namespace psm::context
          * @brief 获取当前配置（无锁读取）
          * @return 配置对象的常量引用
          */
-        [[nodiscard]] auto config() const -> const psm::config &
+        [[nodiscard]] auto config() const
+            -> const psm::config &
         {
             return *cfg.load();
         }
