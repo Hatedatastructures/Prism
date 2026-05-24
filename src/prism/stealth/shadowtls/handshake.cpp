@@ -31,6 +31,7 @@
 
 #include <atomic>
 #include <charconv>
+#include <cstdint>
 #include <cstring>
 #include <algorithm>
 
@@ -50,6 +51,7 @@ namespace psm::stealth::shadowtls
             return std::nullopt;
         }
 
+        // safe: casting byte buffer to uint8_t to parse TLS ServerHello header for validation
         const auto *raw = reinterpret_cast<const std::uint8_t *>(server_hello.data());
         if (raw[0] != content_type_handshake || raw[5] != handshake_type_server_hello)
         {
@@ -68,6 +70,7 @@ namespace psm::stealth::shadowtls
             return false;
         }
 
+        // safe: casting byte buffer to uint8_t to parse TLS ServerHello for version detection
         const auto *raw = reinterpret_cast<const std::uint8_t *>(server_hello.data());
         std::size_t offset = session_id_length_index + 1;
         const std::uint8_t session_id_len = raw[session_id_length_index];
@@ -110,15 +113,13 @@ namespace psm::stealth::shadowtls
     // 握手阶段数据帧处理（sing-shadowtls copyByFrameUntilHMACMatches）
     // ═══════════════════════════════════════════════════════════
 
-    /**
-     * @brief 持续读取客户端帧直到 HMAC 匹配
-     * @details 读取客户端发送的 TLS 记录。非 Application Data 和 HMAC 不匹配的帧
-     * 转发到后端（如 TLS 握手记录）。HMAC 匹配的 Application Data 帧
-     * 是客户端的首帧认证数据，剥离 HMAC 后返回。
-     * @note 客户端→服务端方向握手阶段每帧独立 HMAC: HMAC-SHA1(password, serverRandom+"C"+payload)
-     *       匹配成功后，将 payload 和 HMAC[:4] 加入 hmac_verify 状态，供传输阶段使用
-     *       参照 sing-shadowtls copyByFrameUntilHMACMatches
-     */
+    // 持续读取客户端帧直到 HMAC 匹配
+    // 读取客户端发送的 TLS 记录。非 Application Data 和 HMAC 不匹配的帧
+    // 转发到后端（如 TLS 握手记录）。HMAC 匹配的 Application Data 帧
+    // 是客户端的首帧认证数据，剥离 HMAC 后返回。
+    // 客户端→服务端方向握手阶段每帧独立 HMAC: HMAC-SHA1(password, serverRandom+"C"+payload)
+    // 匹配成功后，将 payload 和 HMAC[:4] 加入 hmac_verify 状态，供传输阶段使用
+    // 参照 sing-shadowtls copyByFrameUntilHMACMatches
     static auto read_until_hmac_match(net::ip::tcp::socket &client_sock,
                                       net::ip::tcp::socket &backend_sock,
                                       std::string_view password,
@@ -126,8 +127,9 @@ namespace psm::stealth::shadowtls
                                       std::shared_ptr<HMAC_CTX> &hmac_verify_out)
         -> net::awaitable<std::optional<memory::vector<std::byte>>>
     {
-        auto sr_data = reinterpret_cast<const unsigned char *>(server_random.data());
-        constexpr unsigned char tag_c = 'C';
+        // safe: SSL HMAC API requires unsigned char*, byte span data is read-only
+        auto sr_data = reinterpret_cast<const std::uint8_t *>(server_random.data());
+        constexpr std::uint8_t tag_c = 'C';
 
         while (true)
         {
@@ -140,9 +142,8 @@ namespace psm::stealth::shadowtls
             }
 
             auto &frame = *frame_opt;
+            // safe: casting byte frame buffer to uint8_t for TLS content type inspection and HMAC extraction
             const auto *raw = reinterpret_cast<const std::uint8_t *>(frame.data());
-
-            // 检查是否为 Application Data 且长度足够包含 HMAC
             if (raw[0] == content_type_application_data &&
                 frame.size() > tls_hmac_header_size)
             {
@@ -157,13 +158,14 @@ namespace psm::stealth::shadowtls
 
                 // 计算 HMAC(password, SR + "C" + payload)[:4]
                 std::array<std::uint8_t, EVP_MAX_MD_SIZE> md{};
-                unsigned int md_len = 0;
+                std::uint32_t md_len = 0;
                 {
                     HMAC_CTX *h = HMAC_CTX_new();
                     HMAC_Init_ex(h, password.data(), static_cast<int>(password.size()), EVP_sha1(), nullptr);
                     HMAC_Update(h, sr_data, server_random.size());
                     HMAC_Update(h, &tag_c, 1);
-                    HMAC_Update(h, reinterpret_cast<const unsigned char *>(payload.data()), payload.size());
+                    // safe: SSL HMAC API requires unsigned char*, payload data is read-only
+                    HMAC_Update(h, reinterpret_cast<const std::uint8_t *>(payload.data()), payload.size());
                     HMAC_Final(h, md.data(), &md_len);
                     HMAC_CTX_free(h);
                 }
@@ -185,7 +187,8 @@ namespace psm::stealth::shadowtls
                         HMAC_Update(hmac_verify.get(), sr_data, server_random.size());
                         HMAC_Update(hmac_verify.get(), &tag_c, 1);
                         HMAC_Update(hmac_verify.get(),
-                                    reinterpret_cast<const unsigned char *>(payload.data()),
+                                    // safe: SSL HMAC API requires unsigned char*, payload data is read-only
+                                    reinterpret_cast<const std::uint8_t *>(payload.data()),
                                     payload.size());
                         HMAC_Update(hmac_verify.get(), client_hmac.data(), hmac_size);
                         hmac_verify_out = hmac_verify;
@@ -217,18 +220,16 @@ namespace psm::stealth::shadowtls
         }
     }
 
-    /**
-     * @brief 转发后端服务器数据到客户端（带 XOR + 累积 HMAC 修改）
-     * @details 参照 sing-shadowtls copyByFrameWithModification：
-     * - 非 ApplicationData 帧（如 ChangeCipherSpec）：原样转发
-     * - ApplicationData 帧：XOR 加密 payload + 累积 HMAC 标签
-     *   帧格式：[TLS Header(5)] [HMAC(4)] [XOR'd payload(N)]
-     *   HMAC = HMAC-SHA1(password, serverRandom || all_previous_XOR'd_payloads || current_XOR'd_payload)[:4]
-     *   WriteKey = SHA256(password + serverRandom)
-     * @note HMAC 上下文在整个 relay 过程中累积（参照 Go hmac.Write 不重置）
-     *       使用 HMAC_CTX_copy 计算当前帧 HMAC，保留主状态继续累积
-     *       HMAC 上下文通过 shared_ptr 传出，供后续 ShadowTLS transport 使用
-     */
+    // 转发后端服务器数据到客户端（带 XOR + 累积 HMAC 修改）
+    // 参照 sing-shadowtls copyByFrameWithModification：
+    // - 非 ApplicationData 帧（如 ChangeCipherSpec）：原样转发
+    // - ApplicationData 帧：XOR 加密 payload + 累积 HMAC 标签
+    //   帧格式：[TLS Header(5)] [HMAC(4)] [XOR'd payload(N)]
+    //   HMAC = HMAC-SHA1(password, serverRandom || all_previous_XOR'd_payloads || current_XOR'd_payload)[:4]
+    //   WriteKey = SHA256(password + serverRandom)
+    // HMAC 上下文在整个 relay 过程中累积（参照 Go hmac.Write 不重置）
+    // 使用 HMAC_CTX_copy 计算当前帧 HMAC，保留主状态继续累积
+    // HMAC 上下文通过 shared_ptr 传出，供后续 ShadowTLS transport 使用
     static auto relay_backend_to_client_with_modification(
         net::ip::tcp::socket &backend_sock,
         net::ip::tcp::socket &client_sock,
@@ -242,7 +243,8 @@ namespace psm::stealth::shadowtls
         // 初始化累积 HMAC: HMAC(password, serverRandom)
         // 参照 sing-shadowtls service.go: hmacWrite := hmac.New(sha1.New, []byte(user.Password))
         //                              hmacWrite.Write(serverRandom)
-        auto sr_bytes = reinterpret_cast<const unsigned char *>(server_random.data());
+        // safe: SSL HMAC API requires unsigned char*, server_random byte data is read-only
+        auto sr_bytes = reinterpret_cast<const std::uint8_t *>(server_random.data());
 
         auto hmac_main = std::shared_ptr<HMAC_CTX>(HMAC_CTX_new(), HMAC_CTX_free);
         if (!hmac_main)
@@ -273,8 +275,8 @@ namespace psm::stealth::shadowtls
             }
 
             auto &frame = *frame_opt;
+            // safe: casting byte frame buffer to uint8_t for TLS content type inspection
             const auto *raw = reinterpret_cast<const std::uint8_t *>(frame.data());
-            frame_count++;
 
             trace::debug("[ShadowTLS.Relay] read backend frame #{}: type=0x{:02x}, size={}",
                         frame_count, raw[0], frame.size());
@@ -290,14 +292,15 @@ namespace psm::stealth::shadowtls
                 common::xor_with_key(payload, write_key);
 
                 // 2. 累积 HMAC：将 XOR'd payload 加入主 HMAC 状态
-                HMAC_Update(hmac_main.get(), reinterpret_cast<const unsigned char *>(payload.data()), payload.size());
+                // safe: casting byte payload to uint8_t pointer for HMAC update, binary-compatible types
+                HMAC_Update(hmac_main.get(), reinterpret_cast<const std::uint8_t *>(payload.data()), payload.size());
                 total_payload_bytes += payload.size();
 
                 // 3. 计算当前帧 HMAC：复制状态并 finalize
                 // Go: hmacHash := hmacWrite.Sum(nil)[:4]  (Sum 不改变状态)
                 // OpenSSL: HMAC_CTX_copy + HMAC_Final
                 std::array<std::uint8_t, EVP_MAX_MD_SIZE> md{};
-                unsigned int md_len = 0;
+                std::uint32_t md_len = 0;
                 {
                     HMAC_CTX *hmac_copy = HMAC_CTX_new();
                     HMAC_CTX_copy(hmac_copy, hmac_main.get());
@@ -613,8 +616,9 @@ namespace psm::stealth::shadowtls
         // 传输阶段 hmacWrite (hmacAdd): password + serverRandom + "S"
         // 注意：握手阶段的 hmacWrite (hmac_relay_ctx) 不用于传输阶段
         // 传输阶段需要新建 HMAC 上下文，初始状态 = password + SR + "S"
-        auto sr_data = reinterpret_cast<const unsigned char *>(server_random.data());
-        constexpr unsigned char tag_s = 'S';
+        // safe: SSL HMAC API requires unsigned char*, server_random byte data is read-only
+        auto sr_data = reinterpret_cast<const std::uint8_t *>(server_random.data());
+        constexpr std::uint8_t tag_s = 'S';
         auto hmac_write_transport = std::shared_ptr<HMAC_CTX>(HMAC_CTX_new(), HMAC_CTX_free);
         if (hmac_write_transport)
         {

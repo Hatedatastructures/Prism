@@ -154,6 +154,7 @@ namespace psm::stealth::shadowtls
                 trace::debug("[ShadowTlsScheme] first_frame TLS header stripped, payload_size={}", payload.size());
 
                 // 使用 payload（不含 TLS header）进行协议检测
+                // safe: casting uint8_t payload to string_view for inner protocol detection
                 auto inner_view = std::string_view(
                     reinterpret_cast<const char *>(payload.data()), payload.size());
                 result.detected = recognition::probe::detect_tls(inner_view);

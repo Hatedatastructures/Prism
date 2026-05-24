@@ -5,6 +5,7 @@
 #include <prism/account/directory.hpp>
 #include <prism/memory/container.hpp>
 #include <prism/trace.hpp>
+#include <cstdint>
 #include <prism/connect/tunnel/forward.hpp>
 #include <prism/connect/util.hpp>
 #include <prism/connect/dial/dial.hpp>
@@ -66,7 +67,7 @@ namespace psm::protocol::vless
             target target(ctx.frame_arena.get());
             target.host = to_string(req.destination_address, ctx.frame_arena.get());
             char port_buf[8];
-            const auto [pe, pec] = std::to_chars(port_buf, port_buf + sizeof(port_buf), static_cast<unsigned int>(req.port));
+            const auto [pe, pec] = std::to_chars(port_buf, port_buf + sizeof(port_buf), static_cast<std::uint32_t>(req.port));
             target.port.assign(port_buf, std::distance(port_buf, pe));
 
             // Mihomo smux 兼容：客户端用 mux 命令或虚假地址标记多路复用连接

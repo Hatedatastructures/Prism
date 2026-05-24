@@ -13,14 +13,9 @@ namespace psm::multiplex
 {
     namespace
     {
-        /**
-         * @brief 执行 sing-mux 协议协商
-         * @param transport 已建立的传输层连接
-         * @param mr PMR 内存资源，用于 padding 缓冲区分配
-         * @return 协商结果对：(error_code, protocol_type)，成功时 error_code 为空
-         * @details 从 transport 读取 sing-mux 协议头并消费。Protocol 字段指示
-         * 客户端选择的多路复用协议类型（0=smux, 1=yamux）。
-         */
+        // 执行 sing-mux 协议协商
+        // 从 transport 读取 sing-mux 协议头并消费。Protocol 字段指示
+        // 客户端选择的多路复用协议类型（0=smux, 1=yamux）。
         auto negotiate(transmission &transport, const memory::resource_pointer mr)
             -> net::awaitable<std::pair<std::error_code, protocol_type>>
         {

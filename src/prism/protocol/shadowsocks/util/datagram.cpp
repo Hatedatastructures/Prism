@@ -14,11 +14,11 @@ namespace psm::protocol::shadowsocks
     {
         using util::as_u8;
 
-        /// 时间戳验证窗口（秒），与 config::timestamp_window 默认值一致
+        // 时间戳验证窗口（秒），与 config::timestamp_window 默认值一致
         static constexpr std::int64_t timestamp_window = 30;
 
-        /// 解析 MainHeader 公共部分后的数据（地址 + padding + payload）
-        /// @param body_plain 解密后的明文缓冲区，result.payload span 将指向其子区间
+        // 解析 MainHeader 公共部分后的数据（地址 + padding + payload）
+        // body_plain 解密后的明文缓冲区，result.payload span 将指向其子区间
         auto parse_body_after_timestamp(const memory::vector<std::uint8_t> &body_plain, udp_decrypted_packet &result)
             -> fault::code
         {
@@ -241,6 +241,7 @@ namespace psm::protocol::shadowsocks
         std::memcpy(result.data(), header_enc.data(), separate_header_len);
 
         // 将 body 密文直接写入 result 的 body 区间
+        // safe: casting byte vector region to uint8_t span for AEAD seal output
         const auto body_out = std::span<std::uint8_t>(
             reinterpret_cast<std::uint8_t *>(result.data() + separate_header_len), body_enc_len);
         if (const auto r = entry->aead_ctx->seal(body_out, plain, nonce_span);
@@ -384,6 +385,7 @@ namespace psm::protocol::shadowsocks
         std::memcpy(result.data() + session_id_len, packet_id.data(), packet_id_len);
 
         // 将加密 body 直接写入 result 的 body 区间
+        // safe: casting byte vector region to uint8_t span for AEAD seal output
         const auto body_out = std::span<std::uint8_t>(
             reinterpret_cast<std::uint8_t *>(result.data() + session_id_len + packet_id_len),
             body_enc_len);

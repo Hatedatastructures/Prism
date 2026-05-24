@@ -52,6 +52,13 @@ namespace psm::instance::front
         ioc_.run();
     }
 
+    auto listener::stop() -> void
+    {
+        boost::system::error_code ec;
+        acceptor_.close(ec);
+        ioc_.stop();
+    }
+
     // 从客户端 IP 地址计算亲和性值，用于 Balancer 的会话亲和性调度。
     // 同一个客户端 IP 总是得到相同的亲和性值，这样 Balancer 会倾向于
     // 把同一客户端的连接分发到同一个 Worker（亲和性首选）。
@@ -95,6 +102,12 @@ namespace psm::instance::front
             tcp::socket socket = co_await acceptor_.async_accept(net::redirect_error(net::use_awaitable, ec));
             if (ec)
             {
+                // 优雅关闭：acceptor 已关闭，退出接受循环
+                if (ec == net::error::operation_aborted)
+                {
+                    co_return;
+                }
+
                 trace::warn("[Listener] accept error: {}", ec.message());
 
                 // 致命错误（文件描述符耗尽 / 内存不足）：指数退避，避免 CPU 空转

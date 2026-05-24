@@ -77,6 +77,15 @@ namespace psm::instance::worker
         void run();
 
         /**
+         * @brief 停止 worker 事件循环
+         * @details 停止 io_context 事件循环。调用后 run() 方法将
+         * 不再阻塞，worker 线程可以正常退出。连接池会在 worker
+         * 析构时自动清理所有缓存连接。应在关闭阶段调用，实现
+         * 优雅停机。
+         */
+        auto stop() -> void;
+
+        /**
          * @brief 将 socket 分发到 worker 事件循环
          * @details 该方法是线程安全的，可从主线程或其他 worker 线程
          * 调用。将已连接的 socket 投递到本 worker 的 io_context 中

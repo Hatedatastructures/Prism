@@ -76,7 +76,7 @@ namespace psm::crypto
             {
                 ++padding;
             }
-            else if (!std::isspace(static_cast<unsigned char>(c)))
+            else if (!std::isspace(static_cast<std::uint8_t>(c)))
             {
                 ++valid_count;
             }
@@ -126,7 +126,7 @@ namespace psm::crypto
                 continue;
             }
 
-            if (std::isspace(static_cast<unsigned char>(c)))
+            if (std::isspace(static_cast<std::uint8_t>(c)))
             {
                 continue;
             }

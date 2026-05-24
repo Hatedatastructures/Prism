@@ -57,6 +57,14 @@ namespace psm::instance::front
          */
         void listen();
 
+        /**
+         * @brief 停止监听
+         * @details 关闭接受器并停止 IO 上下文事件循环，实现优雅关闭。
+         * 调用后 accept_loop 协程将在检测到 operation_aborted 后安全退出，
+         * 不再接受新连接。已在处理中的连接不受影响。
+         */
+        auto stop() -> void;
+
     private:
         /**
          * @brief 计算连接亲和性值

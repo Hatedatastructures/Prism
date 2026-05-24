@@ -11,7 +11,7 @@
 #include <cstring>
 #include <charconv>
 #include <chrono>
-#include <random>
+#include <openssl/rand.h>
 
 constexpr std::string_view tag = "[SS2022.Relay]";
 
@@ -21,21 +21,23 @@ namespace psm::protocol::shadowsocks
     {
         using util::as_u8;
 
-        /// byte vector → uint8_t 可写 span，用于 AEAD 解密输出
+        // byte vector -> uint8_t 可写 span，用于 AEAD 解密输出
         [[nodiscard]] auto as_u8_mut(std::vector<std::byte> &v) noexcept
             -> std::span<std::uint8_t>
         {
+            // safe: casting byte vector to uint8_t span, same memory representation
             return {reinterpret_cast<std::uint8_t *>(v.data()), v.size()};
         }
 
-        /// PMR byte vector → uint8_t 可写 span，用于 AEAD 解密输出
+        // PMR byte vector -> uint8_t writable span, for AEAD decryption output
         [[nodiscard]] auto as_u8_mut(memory::vector<std::byte> &v) noexcept
             -> std::span<std::uint8_t>
         {
+            // safe: casting PMR byte vector to uint8_t span, same memory representation
             return {reinterpret_cast<std::uint8_t *>(v.data()), v.size()};
         }
 
-        /// 任意连续容器 → const byte span，用于 scatter-gather 写入
+        // 任意连续容器 -> const byte span，用于 scatter-gather 写入
         [[nodiscard]] auto to_bytes(const auto &c) noexcept
             -> std::span<const std::byte>
         {
@@ -239,10 +241,11 @@ namespace psm::protocol::shadowsocks
 
         // 生成随机 server salt（使用密码学安全随机数生成器）
         memory::vector<std::uint8_t> server_salt(key_salt_length_);
-        std::random_device rd;
-        for (auto &b : server_salt)
+        // safe: RAND_bytes writes to a uint8_t vector's data buffer, same memory layout as unsigned char
+        if (RAND_bytes(reinterpret_cast<std::uint8_t *>(server_salt.data()),
+                       static_cast<int>(server_salt.size())) != 1)
         {
-            b = static_cast<std::uint8_t>(rd() & 0xFF);
+            co_return fault::code::crypto_error;
         }
 
         encrypt_ctx_ = derive_aead_context(server_salt);
@@ -318,6 +321,17 @@ namespace psm::protocol::shadowsocks
             co_return std::pair{fault::code::invalid_psk, req};
         }
 
+        // 握手超时保护：30 秒内必须完成
+        net::steady_timer deadline(next_layer_->executor(), std::chrono::seconds(30));
+        deadline.async_wait(
+            [this](const boost::system::error_code &ec)
+            {
+                if (!ec)
+                {
+                    next_layer_->cancel();
+                }
+            });
+
         std::error_code ec;
 
         trace::debug("{} handshake start: method={}, key_salt_length={}, psk_size={}",
@@ -328,13 +342,19 @@ namespace psm::protocol::shadowsocks
         co_await transport::async_read(*next_layer_, std::as_writable_bytes(std::span(client_salt)), ec);
         if (ec)
         {
+            deadline.cancel();
             trace::warn("{} read client salt failed: {}", tag, ec.message());
+            if (ec == std::make_error_code(std::errc::operation_canceled))
+            {
+                co_return std::pair{fault::code::timeout, req};
+            }
             co_return std::pair{fault::code::connection_reset, req};
         }
 
         // 2. Salt 重放检查
         if (salt_pool_ && !salt_pool_->check_and_insert(client_salt))
         {
+            deadline.cancel();
             trace::warn("{} salt replay detected", tag);
             co_return std::pair{fault::code::replay_detected, req};
         }
@@ -350,6 +370,11 @@ namespace psm::protocol::shadowsocks
         auto [header_ec, var_header_len, now] = co_await read_fixed_header();
         if (header_ec != fault::code::success)
         {
+            deadline.cancel();
+            if (header_ec == fault::code::canceled)
+            {
+                co_return std::pair{fault::code::timeout, req};
+            }
             co_return std::pair{header_ec, req};
         }
 
@@ -360,10 +385,16 @@ namespace psm::protocol::shadowsocks
         auto var_ec = co_await read_variable_header(var_header_len, req);
         if (var_ec != fault::code::success)
         {
+            deadline.cancel();
+            if (var_ec == fault::code::canceled)
+            {
+                co_return std::pair{fault::code::timeout, req};
+            }
             co_return std::pair{var_ec, req};
         }
 
         // 握手解析完成，响应延迟到 acknowledge() 中发送
+        deadline.cancel();
         co_return std::pair{fault::code::success, req};
     }
 

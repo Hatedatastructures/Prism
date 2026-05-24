@@ -133,14 +133,12 @@ namespace psm::transport
 
         /**
          * @brief 关闭传输层
-         * @details 先发送 TLS close_notify 通知对端，然后关闭底层传输层。
-         * SSL_shutdown 在非阻塞模式下立即返回，不等待对端响应。
+         * @details 跳过 SSL_shutdown，直接关闭底层 socket。
+         * 避免阻塞或等待对端响应，快速释放连接资源。
          */
         void close() override
         {
-            // best-effort SSL_shutdown：发送 close_notify 通知对端
-            // 非阻塞模式下立即返回，不等待对端响应
-            ::SSL_shutdown(ssl_stream_->native_handle());
+            // 跳过 SSL_shutdown，直接关闭底层 socket，忽略错误
             ssl_stream_->lowest_layer().transmission().close();
         }
 

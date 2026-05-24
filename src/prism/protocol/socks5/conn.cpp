@@ -7,15 +7,36 @@ namespace psm::protocol::socks5
     auto conn::handshake()
         -> net::awaitable<std::pair<fault::code, request>>
     {
+        // 握手超时保护：30 秒内必须完成
+        net::steady_timer deadline(next_layer_->executor(), std::chrono::seconds(30));
+        deadline.async_wait(
+            [this](const boost::system::error_code &ec)
+            {
+                if (!ec)
+                {
+                    next_layer_->cancel();
+                }
+            });
+
         const auto [negotiation_ec, method] = co_await negotiated_authentication();
         if (fault::failed(negotiation_ec))
         {
+            deadline.cancel();
+            if (negotiation_ec == fault::code::canceled)
+            {
+                co_return std::pair{fault::code::timeout, request{}};
+            }
             co_return std::pair{negotiation_ec, request{}};
         }
 
         auto [read_ec, header] = co_await read_request_header();
         if (fault::failed(read_ec))
         {
+            deadline.cancel();
+            if (read_ec == fault::code::canceled)
+            {
+                co_return std::pair{fault::code::timeout, request{}};
+            }
             co_return std::pair{read_ec, request{}};
         }
 
@@ -27,6 +48,7 @@ namespace psm::protocol::socks5
         case command::connect:
             if (!config_.enable_tcp)
             {
+                deadline.cancel();
                 co_await async_write_error(reply_code::connection_not_allowed);
                 co_return std::pair{fault::code::not_supported, request{}};
             }
@@ -35,6 +57,7 @@ namespace psm::protocol::socks5
         case command::udp_associate:
             if (!config_.enable_udp)
             {
+                deadline.cancel();
                 co_await async_write_error(reply_code::connection_not_allowed);
                 co_return std::pair{fault::code::not_supported, request{}};
             }
@@ -43,12 +66,14 @@ namespace psm::protocol::socks5
         case command::bind:
             if (!config_.enable_bind)
             {
+                deadline.cancel();
                 co_await async_write_error(reply_code::command_not_supported);
                 co_return std::pair{fault::code::unsupported_command, request{}};
             }
             req.transport = psm::protocol::form::stream;
             break;
         default:
+            deadline.cancel();
             co_await async_write_error(reply_code::command_not_supported);
             co_return std::pair{fault::code::unsupported_command, request{}};
         }
@@ -60,6 +85,11 @@ namespace psm::protocol::socks5
             auto [ec, addr, port] = co_await read_address<4>(wire::parse_ipv4);
             if (fault::failed(ec))
             {
+                deadline.cancel();
+                if (ec == fault::code::canceled || ec == fault::code::io_error)
+                {
+                    co_return std::pair{fault::code::timeout, request{}};
+                }
                 co_return std::pair{ec, request{}};
             }
             req.destination_address = addr;
@@ -71,6 +101,11 @@ namespace psm::protocol::socks5
             auto [ec, addr, port] = co_await read_address<16>(wire::parse_ipv6);
             if (fault::failed(ec))
             {
+                deadline.cancel();
+                if (ec == fault::code::canceled || ec == fault::code::io_error)
+                {
+                    co_return std::pair{fault::code::timeout, request{}};
+                }
                 co_return std::pair{ec, request{}};
             }
             req.destination_address = addr;
@@ -82,6 +117,11 @@ namespace psm::protocol::socks5
             auto [ec, addr, port] = co_await read_domain_address();
             if (fault::failed(ec))
             {
+                deadline.cancel();
+                if (ec == fault::code::canceled || ec == fault::code::io_error)
+                {
+                    co_return std::pair{fault::code::timeout, request{}};
+                }
                 co_return std::pair{ec, request{}};
             }
             req.destination_address = addr;
@@ -89,9 +129,11 @@ namespace psm::protocol::socks5
             break;
         }
         default:
+            deadline.cancel();
             co_return std::pair{fault::code::unsupported_address, request{}};
         }
 
+        deadline.cancel();
         co_return std::pair{fault::code::success, req};
     }
 
@@ -101,6 +143,7 @@ namespace psm::protocol::socks5
         std::array<std::uint8_t, 258> methods_buffer{};
 
         std::error_code ec;
+        // safe: casting uint8_t array to byte span for SOCKS5 method negotiation read
         co_await async_read_impl(std::span(reinterpret_cast<std::byte *>(methods_buffer.data()), 2), ec);
         if (ec)
         {
@@ -114,6 +157,7 @@ namespace psm::protocol::socks5
 
         const std::uint8_t nmethods = methods_buffer[1];
 
+        // safe: casting uint8_t array region to byte span for reading method list
         co_await async_read_impl(std::span(reinterpret_cast<std::byte *>(methods_buffer.data() + 2), nmethods), ec);
         if (ec)
         {
@@ -139,6 +183,7 @@ namespace psm::protocol::socks5
         if (config_.enable_auth && account_directory_ && password_supported)
         {
             constexpr std::uint8_t response[] = {0x05, static_cast<std::uint8_t>(auth_method::password)};
+            // safe: casting uint8_t array to byte span for SOCKS5 method selection write
             co_await async_write_impl(std::span(reinterpret_cast<const std::byte *>(response), 2), ec);
             if (ec)
             {
@@ -157,6 +202,7 @@ namespace psm::protocol::socks5
         if (no_auth_supported && !config_.enable_auth)
         {
             constexpr std::uint8_t response[] = {0x05, 0x00};
+            // safe: casting uint8_t array to byte span for SOCKS5 no-auth response write
             co_await async_write_impl(std::span(reinterpret_cast<const std::byte *>(response), 2), ec);
             if (ec)
             {
@@ -167,6 +213,7 @@ namespace psm::protocol::socks5
 
         // 启用了认证但客户端不支持，或无可用方法
         constexpr std::uint8_t response[] = {0x05, 0xFF};
+        // safe: casting uint8_t array to byte span for SOCKS5 method rejection write
         co_await async_write_impl(std::span(reinterpret_cast<const std::byte *>(response), 2), ec);
         if (ec)
         {
@@ -182,6 +229,7 @@ namespace psm::protocol::socks5
         std::array<std::uint8_t, 513> auth_buffer{};
 
         std::error_code ec;
+        // safe: casting uint8_t array to byte span for RFC 1929 auth version/ulen read
         co_await async_read_impl(std::span(reinterpret_cast<std::byte *>(auth_buffer.data()), 2), ec);
         if (ec)
         {
@@ -192,12 +240,14 @@ namespace psm::protocol::socks5
         if (ulen == 0)
         {
             const auto response = wire::build_password_auth_response(false);
+            // safe: casting uint8_t vector to byte span for auth rejection write
             co_await async_write_impl(std::span(reinterpret_cast<const std::byte *>(response.data()), response.size()), ec);
             co_return std::pair{fault::code::bad_message, false};
         }
 
         // 读取用户名 + PLEN + 密码
         const auto remaining = static_cast<std::size_t>(ulen + 1 + 255);
+        // safe: casting uint8_t array region to byte span for remaining auth fields read
         co_await async_read_impl(std::span(reinterpret_cast<std::byte *>(auth_buffer.data() + 2), remaining), ec);
         if (ec)
         {
@@ -211,6 +261,7 @@ namespace psm::protocol::socks5
         if (fault::failed(parse_ec))
         {
             const auto response = wire::build_password_auth_response(false);
+            // safe: casting uint8_t vector to byte span for auth rejection write
             co_await async_write_impl(std::span(reinterpret_cast<const std::byte *>(response.data()), response.size()), ec);
             co_return std::pair{parse_ec, false};
         }
@@ -222,6 +273,7 @@ namespace psm::protocol::socks5
         if (!lease)
         {
             const auto response = wire::build_password_auth_response(false);
+            // safe: casting uint8_t vector to byte span for auth failure write
             co_await async_write_impl(std::span(reinterpret_cast<const std::byte *>(response.data()), response.size()), ec);
             co_return std::pair{fault::code::success, false};
         }
@@ -230,6 +282,7 @@ namespace psm::protocol::socks5
         account_lease_ = std::move(lease);
 
         const auto response = wire::build_password_auth_response(true);
+        // safe: casting uint8_t vector to byte span for auth success write
         co_await async_write_impl(std::span(reinterpret_cast<const std::byte *>(response.data()), response.size()), ec);
         if (ec)
         {
@@ -247,6 +300,7 @@ namespace psm::protocol::socks5
                                       memory::vector<std::byte> &target_buffer) const
         -> net::awaitable<void>
     {
+        // safe: casting byte span to uint8_t span for SOCKS5 UDP header decoding
         const auto ingress_bytes = std::span<const std::uint8_t>(
             reinterpret_cast<const std::uint8_t *>(ingress_packet.data()), ingress_packet.size());
         const auto [decode_ec, parsed] = wire::decode_udp_header(ingress_bytes);
@@ -307,6 +361,7 @@ namespace psm::protocol::socks5
 
         memory::vector<std::uint8_t> response_datagram(memory::current_resource());
         response_datagram.reserve(target_n + 64);
+        // safe: casting byte buffer to uint8_t span for UDP datagram payload encoding
         const auto target_payload = std::span<const std::uint8_t>(
             reinterpret_cast<const std::uint8_t *>(target_buffer.data()), target_n);
         if (fault::failed(wire::encode_udp_datagram(response_header, target_payload, response_datagram)))
@@ -413,6 +468,7 @@ namespace psm::protocol::socks5
     {
         std::array<std::uint8_t, 4> request_header{};
         std::error_code ec;
+        // safe: casting uint8_t array to byte span for SOCKS5 request header read
         co_await async_read_impl(std::span(reinterpret_cast<std::byte *>(request_header.data()), 4), ec);
 
         if (ec)
@@ -433,6 +489,7 @@ namespace psm::protocol::socks5
     {
         std::uint8_t len = 0;
         std::error_code io_ec;
+        // safe: casting uint8_t to byte span for domain length read, single byte has no alignment issue
         co_await async_read_impl(std::span(reinterpret_cast<std::byte *>(&len), 1), io_ec);
         if (io_ec)
         {
@@ -442,6 +499,7 @@ namespace psm::protocol::socks5
         std::array<std::uint8_t, 258> buffer{};
         buffer[0] = len;
 
+        // safe: casting uint8_t array region to byte span for domain address + port read
         co_await async_read_impl(std::span(reinterpret_cast<std::byte *>(buffer.data() + 1), len + 2), io_ec);
         if (io_ec)
         {
@@ -561,6 +619,7 @@ namespace psm::protocol::socks5
         std::array<std::uint8_t, 262> buffer{};
         const std::size_t len = build_success_response(info, buffer);
         std::error_code ec;
+        // safe: casting uint8_t array to byte span for SOCKS5 success response write
         co_await async_write_impl(std::span(reinterpret_cast<const std::byte *>(buffer.data()), len), ec);
         co_return fault::to_code(ec);
     }
@@ -573,6 +632,7 @@ namespace psm::protocol::socks5
             0x00, 0x00, 0x00, 0x00,
             0x00, 0x00};
         std::error_code ec;
+        // safe: casting uint8_t array to byte span for SOCKS5 error response write
         co_await async_write_impl(std::span(reinterpret_cast<const std::byte *>(response.data()), response.size()), ec);
         co_return fault::to_code(ec);
     }

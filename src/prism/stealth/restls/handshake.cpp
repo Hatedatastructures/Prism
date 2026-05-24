@@ -38,6 +38,7 @@ namespace psm::stealth::restls
             return std::nullopt;
         }
 
+        // safe: casting byte buffer to uint8_t to parse TLS ServerHello for server random extraction
         const auto *raw = reinterpret_cast<const std::uint8_t *>(server_hello.data());
         // TLS Header(5) + HandshakeType(1) + Length(3) + Version(2) + Random(32)
         std::array<std::uint8_t, 32> random{};
@@ -53,6 +54,7 @@ namespace psm::stealth::restls
             return false;
         }
 
+        // safe: casting byte buffer to uint8_t to parse TLS ServerHello for version detection
         const auto *raw = reinterpret_cast<const std::uint8_t *>(server_hello.data());
         // 跳过 TLS Header(5) + HandshakeType(1) + Length(3) + Version(2) + Random(32)
         std::size_t offset = tls_header_size + 1 + 3 + 2 + 32;
@@ -122,14 +124,9 @@ namespace psm::stealth::restls
     // 后端→客户端 relay（XOR 第一个 encrypted record）
     // ═══════════════════════════════════════════════════════════
 
-    /**
-     * @brief 转发后端数据到客户端，XOR 第一个 encrypted record
-     * @details 后端返回的第一个 ApplicationData 记录被 server_auth_mask XOR。
-     * 后续记录原样转发。检测到后端关闭后返回。
-     * @param auth_mask 16 字节 server_auth_mask
-     * @param tls13 是否为 TLS 1.3（影响 XOR 起始偏移）
-     * @param first_encrypted 输出：第一个被 XOR 的 encrypted record
-     */
+    // 转发后端数据到客户端，XOR 第一个 encrypted record
+    // 后端返回的第一个 ApplicationData 记录被 server_auth_mask XOR。
+    // 后续记录原样转发。检测到后端关闭后返回。
     static auto relay_backend_to_client(
         net::ip::tcp::socket &backend_sock,
         net::ip::tcp::socket &client_sock,
@@ -150,12 +147,14 @@ namespace psm::stealth::restls
             }
 
             auto &frame = *frame_opt;
+            // safe: casting byte frame buffer to uint8_t for TLS content type inspection and XOR processing
             const auto *raw = reinterpret_cast<const std::uint8_t *>(frame.data());
 
             if (first_app_data && raw[0] == 0x17 && frame.size() > tls_header_size)
             {
                 // XOR 第一个 encrypted record
                 const std::size_t xor_offset = tls13 ? tls_header_size : (tls_header_size + 8);
+                // safe: casting mutable byte buffer region to uint8_t span for in-place XOR masking
                 auto payload = std::span<std::uint8_t>(
                     reinterpret_cast<std::uint8_t *>(frame.data()) + xor_offset,
                     frame.size() - xor_offset);
@@ -181,12 +180,9 @@ namespace psm::stealth::restls
     // 客户端→后端 relay（捕获 clientFinished）
     // ═══════════════════════════════════════════════════════════
 
-    /**
-     * @brief 转发客户端数据到后端，捕获 clientFinished
-     * @details 客户端的第一个 ApplicationData 记录是 clientFinished。
-     * 后续记录原样转发。clientFinished 是完整加密 TLS record 含 header。
-     * @param client_finished 输出：clientFinished（完整加密 TLS record）
-     */
+    // 转发客户端数据到后端，捕获 clientFinished
+    // 客户端的第一个 ApplicationData 记录是 clientFinished。
+    // 后续记录原样转发。clientFinished 是完整加密 TLS record 含 header。
     static auto relay_client_to_backend(
         net::ip::tcp::socket &client_sock,
         net::ip::tcp::socket &backend_sock,
@@ -206,11 +202,13 @@ namespace psm::stealth::restls
             }
 
             auto &frame = *frame_opt;
+            // safe: casting byte frame buffer to uint8_t pointer for TLS record parsing
             const auto *raw = reinterpret_cast<const std::uint8_t *>(frame.data());
 
             if (first_app_data && raw[0] == 0x17 && frame.size() > tls_header_size)
             {
                 // 捕获 clientFinished（完整 TLS record 含 header）
+                // safe: casting byte frame buffer to uint8_t iterators for clientFinished capture
                 client_finished.assign(
                     reinterpret_cast<const std::uint8_t *>(frame.data()),
                     reinterpret_cast<const std::uint8_t *>(frame.data()) + frame.size());

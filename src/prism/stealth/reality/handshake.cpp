@@ -29,6 +29,8 @@ using namespace psm::protocol::tls;
 #include <memory>
 #include <string>
 #include <charconv>
+#include <chrono>
+#include <boost/asio/steady_timer.hpp>
 
 namespace psm::stealth::reality
 {
@@ -195,6 +197,7 @@ namespace psm::stealth::reality
                 i2d_X509_bio(bio, peer_cert);
                 char *data = nullptr;
                 const auto len = BIO_get_mem_data(bio, &data);
+                // safe: BIO returns char* to internal memory, casting to uint8_t for DER certificate extraction
                 cert_der.insert(cert_der.end(),
                                 reinterpret_cast<std::uint8_t *>(data),
                                 reinterpret_cast<std::uint8_t *>(data + len));
@@ -225,7 +228,7 @@ namespace psm::stealth::reality
     // 握手子流程
     // ============================================================
 
-    /// 用正确的 finished_key 重算 Finished 并加密握手记录
+    // 用正确的 finished_key 重算 Finished 并加密握手记录
     static auto derive_and_encrypt_finished(const key_material &keys, server_hello_result &sh_result, std::span<const std::uint8_t> client_hello_raw_msg)
         -> fault::code
     {
@@ -278,7 +281,7 @@ namespace psm::stealth::reality
         return fault::code::success;
     }
 
-    /// 读取并消费客户端 CCS + Finished
+    // 读取并消费客户端 CCS + Finished
     static auto consume_client_finished(transport::transmission &inbound, const key_material &keys)
         -> net::awaitable<fault::code>
     {
@@ -292,6 +295,7 @@ namespace psm::stealth::reality
                 co_return fault::code::io_error;
             }
 
+            // safe: casting byte array to uint8_t to parse TLS record header fields
             const auto *hdr_raw = reinterpret_cast<const std::uint8_t *>(rec_hdr.data());
             const auto rec_content_type = hdr_raw[0];
             const auto rec_len = (static_cast<std::size_t>(hdr_raw[3]) << 8) |
@@ -318,8 +322,10 @@ namespace psm::stealth::reality
                 std::array<std::uint8_t, AEAD_NONCE_LEN> client_nonce{};
                 std::memcpy(client_nonce.data(), keys.client_handshake_iv.data(), AEAD_NONCE_LEN);
 
+                // safe: casting byte array to uint8_t span for AEAD additional data
                 const auto ad_span = std::span<const std::uint8_t>(
                     reinterpret_cast<const std::uint8_t *>(rec_hdr.data()), rec_hdr.size());
+                // safe: casting byte vector to uint8_t span for AEAD ciphertext input
                 const auto ct_span = std::span<const std::uint8_t>(
                     reinterpret_cast<const std::uint8_t *>(rec_body.data()), rec_body.size());
 
@@ -380,18 +386,35 @@ namespace psm::stealth::reality
 
         const auto &reality_cfg = cfg.stealth.reality;
 
+        // 握手超时保护：30 秒内必须完成
+        net::steady_timer deadline(inbound->executor(), std::chrono::seconds(30));
+        deadline.async_wait(
+            [&inbound](const boost::system::error_code &ec)
+            {
+                if (!ec)
+                {
+                    inbound->cancel();
+                }
+            });
+
         // 1. 读取 ClientHello
         auto [read_ec, raw_record] = co_await recognition::tls::read_tls_record(*inbound);
         if (fault::failed(read_ec))
         {
+            deadline.cancel();
             trace::warn("{} failed to read TLS record: {}", HsTag, fault::describe(read_ec));
             result.error = read_ec;
+            if (read_ec == fault::code::canceled)
+            {
+                result.error = fault::code::timeout;
+            }
             co_return result;
         }
 
         auto [parse_ec, ch_features] = recognition::tls::parse_client_hello(raw_record);
         if (fault::failed(parse_ec))
         {
+            deadline.cancel();
             trace::warn("{} failed to parse ClientHello: {}", HsTag, fault::describe(parse_ec));
             const auto fb_ec = co_await fallback_to_dest(session, inbound, raw_record);
             if (fault::succeeded(fb_ec))
@@ -413,6 +436,7 @@ namespace psm::stealth::reality
         auto decoded_key_str = crypto::base64_decode(private_key_str);
         if (decoded_key_str.size() != REALITY_KEY_LEN)
         {
+            deadline.cancel();
             trace::warn("{} invalid private key length: {}", HsTag, decoded_key_str.size());
             const auto fb_ec = co_await fallback_to_dest(session, inbound, raw_record);
             if (fault::succeeded(fb_ec))
@@ -427,6 +451,7 @@ namespace psm::stealth::reality
             co_return result;
         }
 
+        // safe: casting string data to uint8_t span for base64-decoded key material
         const auto decoded_private_key = std::span<const std::uint8_t>(
             reinterpret_cast<const std::uint8_t *>(decoded_key_str.data()), decoded_key_str.size());
 
@@ -434,12 +459,14 @@ namespace psm::stealth::reality
         auto [auth_ec, auth_res] = authenticate(reality_cfg, ch_features, decoded_private_key);
         if (!auth_res.authenticated)
         {
+            deadline.cancel();
             // SNI 不匹配 → 标准 TLS
             if (auth_ec == fault::code::reality_sni_mismatch)
             {
                 trace::debug("{} SNI mismatch, falling back to standard TLS", HsTag);
                 result.transport = std::move(inbound);
                 result.detected = protocol::protocol_type::tls;
+                // safe: casting uint8_t record data to byte iterators for preread buffer assignment
                 result.preread.assign(
                     reinterpret_cast<const std::byte *>(raw_record.data()),
                     reinterpret_cast<const std::byte *>(raw_record.data() + raw_record.size()));
@@ -451,6 +478,7 @@ namespace psm::stealth::reality
                 trace::debug("{} auth failed with empty SNI, falling back to standard TLS", HsTag);
                 result.transport = std::move(inbound);
                 result.detected = protocol::protocol_type::tls;
+                // safe: casting uint8_t record data to byte iterators for preread buffer assignment
                 result.preread.assign(
                     reinterpret_cast<const std::byte *>(raw_record.data()),
                     reinterpret_cast<const std::byte *>(raw_record.data() + raw_record.size()));
@@ -460,6 +488,7 @@ namespace psm::stealth::reality
             trace::debug("{} auth failed: {}, not Reality, passing to next scheme", HsTag, fault::describe(auth_ec));
             result.transport = std::move(inbound);
             result.detected = protocol::protocol_type::tls;
+            // safe: casting uint8_t record data to byte iterators for preread buffer assignment
             result.preread.assign(
                 reinterpret_cast<const std::byte *>(raw_record.data()),
                 reinterpret_cast<const std::byte *>(raw_record.data() + raw_record.size()));
@@ -477,6 +506,7 @@ namespace psm::stealth::reality
                                           ch_features.x25519_key.size()));
         if (fault::failed(ephemeral_ec))
         {
+            deadline.cancel();
             trace::warn("{} ephemeral X25519 key exchange failed", HsTag);
             result.error = ephemeral_ec;
             co_return result;
@@ -494,6 +524,7 @@ namespace psm::stealth::reality
 
         if (fault::failed(sh_ec))
         {
+            deadline.cancel();
             trace::warn("{} failed to generate ServerHello: {}", HsTag, fault::describe(sh_ec));
             result.error = sh_ec;
             co_return result;
@@ -506,6 +537,7 @@ namespace psm::stealth::reality
 
         if (fault::failed(ks_ec))
         {
+            deadline.cancel();
             trace::warn("{} failed to derive keys: {}", HsTag, fault::describe(ks_ec));
             result.error = ks_ec;
             co_return result;
@@ -515,6 +547,7 @@ namespace psm::stealth::reality
         const auto finished_ec = derive_and_encrypt_finished(keys, sh_result, ch_features.raw_hs_msg);
         if (fault::failed(finished_ec))
         {
+            deadline.cancel();
             result.error = finished_ec;
             co_return result;
         }
@@ -536,8 +569,13 @@ namespace psm::stealth::reality
             co_await transport::async_write(*inbound, hs_combined, write_ec);
             if (write_ec)
             {
+                deadline.cancel();
                 trace::warn("{} failed to send handshake records: {}", HsTag, write_ec.message());
                 result.error = fault::to_code(write_ec);
+                if (result.error == fault::code::canceled)
+                {
+                    result.error = fault::code::timeout;
+                }
                 co_return result;
             }
         }
@@ -546,7 +584,12 @@ namespace psm::stealth::reality
         const auto consumed_ec = co_await consume_client_finished(*inbound, keys);
         if (fault::failed(consumed_ec))
         {
+            deadline.cancel();
             result.error = consumed_ec;
+            if (result.error == fault::code::canceled)
+            {
+                result.error = fault::code::timeout;
+            }
             co_return result;
         }
 
@@ -560,6 +603,7 @@ namespace psm::stealth::reality
                                                     {full_transcript_hash.data(), full_transcript_hash.size()}, keys);
         if (fault::failed(app_ec))
         {
+            deadline.cancel();
             trace::warn("{} failed to derive application keys", HsTag);
             result.error = app_ec;
             co_return result;
@@ -577,6 +621,7 @@ namespace psm::stealth::reality
 
         if (read_inner_ec || inner_n == 0)
         {
+            deadline.cancel();
             trace::warn("{} failed to read inner data: {}", HsTag, read_inner_ec.message());
             result.error = fault::to_code(read_inner_ec);
             co_return result;
@@ -588,6 +633,7 @@ namespace psm::stealth::reality
         result.scheme = "reality";
         result.error = fault::code::success;
 
+        deadline.cancel();
         trace::info("{} handshake completed successfully", HsTag);
         co_return result;
     }

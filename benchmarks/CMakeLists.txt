@@ -58,8 +58,12 @@ target_link_libraries(ResourceBench PRIVATE ${PROJECT_NAME}_static_library bench
 add_executable(LatencyBench LatencyBench.cpp)
 target_link_libraries(LatencyBench PRIVATE ${PROJECT_NAME}_static_library benchmark::benchmark)
 
+add_executable(RegressionBench RegressionBench.cpp)
+target_link_libraries(RegressionBench PRIVATE ${PROJECT_NAME}_static_library)
+target_include_directories(RegressionBench PRIVATE ${PROJECT_SOURCE_DIR}/tests)
+
 if(MINGW)
-    foreach(target_name IN ITEMS CodecBench MemoryBench MuxBench CryptoBench ProtocolBench IOBench MuxConnBench SessionBench RealityBench ScaleBench ResourceBench LatencyBench)
+    foreach(target_name IN ITEMS CodecBench MemoryBench MuxBench CryptoBench ProtocolBench IOBench MuxConnBench SessionBench RealityBench ScaleBench ResourceBench LatencyBench RegressionBench)
         if(TARGET ${target_name})
             target_compile_options(${target_name} PRIVATE -Wa,-mbig-obj)
         endif()

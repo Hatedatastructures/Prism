@@ -15,7 +15,7 @@ namespace psm::multiplex
 {
     namespace net = boost::asio;
 
-    /// 帧载荷最大长度（uint16_t 最大值，所有 mux 协议通用上限）
+    // 帧载荷最大长度（uint16_t 最大值，所有 mux 协议通用上限）
     constexpr std::size_t max_frame_payload = 65535;
 
     duct::duct(const std::uint32_t stream_id, std::shared_ptr<core> owner,
@@ -160,11 +160,9 @@ namespace psm::multiplex
         trace::debug("{} stream {} closed", tag, id_);
     }
 
-    /**
-     * @brief target 读循环（客户端下行/下载方向）
-     * @details 从 target 读取数据，通过 owner_->send_data 发回 mux 客户端。
-     * 数据直接读入 PMR vector 并 move 传递，零额外拷贝。
-     */
+    // target 读循环（客户端下行/下载方向）
+    // 从 target 读取数据，通过 owner_->send_data 发回 mux 客户端。
+    // 数据直接读入 PMR vector 并 move 传递，零额外拷贝。
     auto duct::target_read_loop()
         -> net::awaitable<void>
     {
@@ -220,11 +218,9 @@ namespace psm::multiplex
         }
     }
 
-    /**
-     * @brief target 写循环（客户端上行/上传方向）
-     * @details 从 write_channel_ 取数据写入 target。
-     * write_channel_ 解耦帧循环与 target 写入，避免慢速 target 阻塞帧循环。
-     */
+    // target 写循环（客户端上行/上传方向）
+    // 从 write_channel_ 取数据写入 target。
+    // write_channel_ 解耦帧循环与 target 写入，避免慢速 target 阻塞帧循环。
     auto duct::target_write_loop()
         -> net::awaitable<void>
     {

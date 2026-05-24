@@ -58,6 +58,14 @@ namespace psm::instance::worker
         ioc_.run();
     }
 
+    // 停止 Worker 事件循环，实现优雅停机。
+    // 停止 io_context，使阻塞在 run() 的线程正常退出。
+    // 连接池会在 worker 析构时自动清理所有缓存连接。
+    auto worker::stop() -> void
+    {
+        ioc_.stop();
+    }
+
     // 接收来自 Listener 的新连接，投递到本 Worker 的 io_context。
     // 由 Balancer 调用——当 Listener 收到新连接后，Balancer 根据
     // 负载情况选出一个 Worker，然后调用这个方法把 socket 传过来。

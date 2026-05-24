@@ -126,6 +126,7 @@ namespace psm::stealth::native
             }
             inner_n += n;
 
+            // safe: casting uint8_t buffer to string_view for protocol detection probe
             const auto inner_view = std::string_view(reinterpret_cast<const char *>(inner_buf.data()), inner_n);
             result.detected = recognition::probe::detect_tls(inner_view);
             if (result.detected != protocol::protocol_type::unknown)

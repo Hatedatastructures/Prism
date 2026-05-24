@@ -14,7 +14,7 @@
 
 constexpr std::string_view tag = "[Yamux.Craft]";
 
-/// 帧载荷最大长度（uint16_t 最大值，防止恶意大帧 OOM）
+// 帧载荷最大长度（uint16_t 最大值，防止恶意大帧 OOM）
 constexpr std::size_t max_frame_payload = 65535;
 
 namespace psm::multiplex::yamux

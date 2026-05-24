@@ -24,7 +24,7 @@ namespace psm::connect
             signal.expires_at(net::steady_timer::time_point::max());
         }
 
-        /// 递减 pending，最后一个完成时取消 signal 唤醒主协程
+        // 递减 pending，最后一个完成时取消 signal 唤醒主协程
         void complete()
         {
             if (pending.fetch_sub(1) == 1)

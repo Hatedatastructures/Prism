@@ -37,7 +37,7 @@ namespace psm::stealth::anytls
 
     namespace
     {
-        /// std::array<uint8_t, 32> 的哈希函数
+        // std::array<uint8_t, 32> 的哈希函数
         struct sha256_hash
         {
             auto operator()(const std::array<std::uint8_t, 32> &key) const
@@ -62,6 +62,7 @@ namespace psm::stealth::anytls
         {
             protocol::target target(mr);
 
+            // safe: casting byte span to uint8_t span for protocol frame parsing, same memory layout
             auto buf = std::span<const std::uint8_t>(
                 reinterpret_cast<const std::uint8_t *>(data.data()), data.size());
 
@@ -186,7 +187,8 @@ namespace psm::stealth::anytls
         for (const auto &u : users)
         {
             std::array<std::uint8_t, SHA256_DIGEST_LENGTH> digest{};
-            SHA256(reinterpret_cast<const unsigned char *>(u.password.data()),
+            // safe: SSL API requires unsigned char*, string data is not modified by SHA256
+            SHA256(reinterpret_cast<const std::uint8_t *>(u.password.data()),
                    u.password.size(), digest.data());
             map[digest] = memory::string(u.username.data(), u.username.size());
         }
@@ -315,6 +317,7 @@ namespace psm::stealth::anytls
                         co_return;
                     }
 
+                    // safe: casting byte buffer to const byte span for SOCKS target parsing
                     auto preread_span = std::span<const std::byte>(
                         reinterpret_cast<const std::byte *>(preread.data()),
                         preread.size());
@@ -343,6 +346,7 @@ namespace psm::stealth::anytls
         if (fault::failed(wait_ec))
         {
             trace::warn("[AnyTLS] Failed to get first stream: {}", fault::describe(wait_ec));
+            session->close();
             result.error = wait_ec;
             co_return result;
         }
@@ -355,6 +359,7 @@ namespace psm::stealth::anytls
         // Step 9: 解析第一个 stream 的 SOCKS 地址并直接 forward
         if (!preread_data.empty())
         {
+            // safe: casting byte buffer to const byte span for SOCKS target parsing
             auto preread_span = std::span<const std::byte>(
                 reinterpret_cast<const std::byte *>(preread_data.data()),
                 preread_data.size());

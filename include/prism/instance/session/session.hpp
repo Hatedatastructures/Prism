@@ -247,6 +247,7 @@ namespace psm::instance::session
         memory::frame_arena frame_arena_; // 帧内存池
         state state_{state::active};      // 会话状态（单线程 io_context，无需原子）
         std::function<void()> on_closed_; // 关闭回调
+        std::unique_ptr<net::steady_timer> handshake_deadline_; // 握手截止定时器
 
         psm::context::session ctx_; // 会话上下文，持有所有状态
     };

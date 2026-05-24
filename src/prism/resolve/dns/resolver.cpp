@@ -1,5 +1,6 @@
 #include <algorithm>
 #include <cctype>
+#include <cstdint>
 #include <numeric>
 
 #include <prism/trace.hpp>
@@ -335,7 +336,7 @@ namespace psm::resolve::dns
             -> memory::string
         {
             memory::string result(domain, mr);
-            auto to_lower = [](unsigned char ch)
+            auto to_lower = [](std::uint8_t ch)
             {
                 return static_cast<char>(std::tolower(ch));
             };

@@ -13,6 +13,8 @@
 #include <algorithm>
 #include <cstring>
 
+#include <openssl/crypto.h>
+
 namespace psm::stealth::restls
 {
     namespace
@@ -132,8 +134,8 @@ namespace psm::stealth::restls
             co_return std::nullopt;
         }
 
+        // safe: casting byte buffer to uint8_t to parse TLS record header fields
         const auto *raw = reinterpret_cast<const std::uint8_t *>(header.data());
-        if (raw[0] != content_type_application_data)
         {
             ec = std::make_error_code(std::errc::protocol_error);
             co_return std::nullopt;
@@ -161,6 +163,7 @@ namespace psm::stealth::restls
             co_return std::nullopt;
         }
 
+        // safe: casting mutable byte buffer to uint8_t for in-place Restls payload processing
         auto *payload_raw = reinterpret_cast<std::uint8_t *>(payload.data());
 
         // 保存 TLS header 用于 auth_mac 验证
@@ -212,16 +215,7 @@ namespace psm::stealth::restls
             tls_hdr,
             payload_after_mac);
 
-        // 常量时间比较
-        volatile const std::uint8_t *a = received_mac.data();
-        volatile const std::uint8_t *b = expected_mac.data();
-        std::uint8_t diff = 0;
-        for (std::size_t i = 0; i < app_data_mac_len; ++i)
-        {
-            diff |= a[i] ^ b[i];
-        }
-
-        if (diff != 0)
+        if (CRYPTO_memcmp(received_mac.data(), expected_mac.data(), app_data_mac_len) != 0)
         {
             trace::warn("{} auth_mac verification failed, counter={}", tag, read_counter_);
             ec = std::make_error_code(std::errc::permission_denied);

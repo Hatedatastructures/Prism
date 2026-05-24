@@ -27,7 +27,10 @@ namespace psm::protocol::shadowsocks::format
                 return {fault::code::bad_message, result};
             }
             auto [ec4, addr4] = common::framing::parse_ipv4(buffer.subspan(offset));
-            if (ec4 != fault::code::success) { return {ec4, result}; }
+            if (ec4 != fault::code::success)
+            {
+                return {ec4, result};
+            }
             offset += 4;
             result.addr = addr4;
             break;
@@ -39,7 +42,10 @@ namespace psm::protocol::shadowsocks::format
                 return {fault::code::bad_message, result};
             }
             auto [ecd, addrd] = common::framing::parse_domain(buffer.subspan(offset));
-            if (ecd != fault::code::success) { return {ecd, result}; }
+            if (ecd != fault::code::success)
+            {
+                return {ecd, result};
+            }
             offset += 1 + addrd.length;
             result.addr = addrd;
             break;
@@ -51,7 +57,10 @@ namespace psm::protocol::shadowsocks::format
                 return {fault::code::bad_message, result};
             }
             auto [ec6, addr6] = common::framing::parse_ipv6(buffer.subspan(offset));
-            if (ec6 != fault::code::success) { return {ec6, result}; }
+            if (ec6 != fault::code::success)
+            {
+                return {ec6, result};
+            }
             offset += 16;
             result.addr = addr6;
             break;

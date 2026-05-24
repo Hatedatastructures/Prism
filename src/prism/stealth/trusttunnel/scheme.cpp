@@ -71,12 +71,24 @@ namespace psm::stealth::trusttunnel
             memory::string expected_creds = user.username + ":" + user.password;
             auto creds_view = std::string_view(expected_creds.data(), expected_creds.size());
 
-            std::array<unsigned char, 256> encode_buf{};
+            // Base64 输出 = ceil(input/3)*4，256 字节缓冲区最多容纳 192 字节输入。
+            // 超过此阈值会栈溢出 encode_buf，直接跳过并记录警告。
+            constexpr std::size_t max_cred_len = 192;
+            if (creds_view.size() > max_cred_len)
+            {
+                trace::warn("trusttunnel: 凭据长度 {} 超过安全阈值 {}，跳过该用户",
+                    creds_view.size(), max_cred_len);
+                continue;
+            }
+
+            std::array<std::uint8_t, 256> encode_buf{};
+            // safe: SSL API requires uint8_t*, string data is read-only for base64 encoding
             auto encoded_len = EVP_EncodeBlock(
                 encode_buf.data(),
-                reinterpret_cast<const unsigned char *>(creds_view.data()),
+                reinterpret_cast<const std::uint8_t *>(creds_view.data()),
                 static_cast<int>(creds_view.size()));
 
+            // safe: casting uint8_t base64 output buffer to string_view for comparison
             auto encoded_str = std::string_view(
                 reinterpret_cast<const char *>(encode_buf.data()),
                 static_cast<std::size_t>(encoded_len));
@@ -120,8 +132,9 @@ namespace psm::stealth::trusttunnel
         }
 
         // 设置 ALPN 为 h2
+        // safe: nghttp2 ALPN API requires uint8_t*, literal string is used read-only
         SSL_CTX_set_alpn_protos(ctx.session->server_ctx.ssl_ctx->native_handle(),
-                                reinterpret_cast<const unsigned char *>("\x2h2"), 3);
+                                reinterpret_cast<const std::uint8_t *>("\x2h2"), 3);
 
         auto preread_span = std::span<const std::byte>(ctx.preread.data(), ctx.preread.size());
         auto clean_inbound = transport::wrap_with_preview(
@@ -141,8 +154,8 @@ namespace psm::stealth::trusttunnel
         trace::debug("[TrustTunnel] TLS handshake succeeded");
 
         // 验证 ALPN
-        const unsigned char *alpn = nullptr;
-        unsigned int alpn_len = 0;
+        const std::uint8_t *alpn = nullptr;
+        std::uint32_t alpn_len = 0;
         SSL_get0_alpn_selected(ssl_stream->native_handle(), &alpn, &alpn_len);
         if (!alpn || alpn_len != 2 || alpn[0] != 'h' || alpn[1] != '2')
         {

@@ -1,5 +1,6 @@
 #include <algorithm>
 #include <cctype>
+#include <cstdint>
 #include <filesystem>
 #include <mutex>
 #include <shared_mutex>
@@ -10,6 +11,7 @@
 #include <spdlog/async.h>
 #include <spdlog/sinks/rotating_file_sink.h>
 #include <spdlog/sinks/stdout_color_sinks.h>
+#include <spdlog/mdc.h>
 
 
 namespace psm::trace
@@ -28,7 +30,7 @@ namespace psm::trace
             normalized.reserve(level_str.size());
             for (const char ch : level_str)
             {
-                normalized.push_back(static_cast<char>(std::tolower(static_cast<unsigned char>(ch))));
+                normalized.push_back(static_cast<char>(std::tolower(static_cast<std::uint8_t>(ch))));
             }
 
             if (normalized == "trace")
@@ -72,6 +74,41 @@ namespace psm::trace
             }
             return std::filesystem::path(cfg.path_name.c_str()) / cfg.file_name.c_str();
         }
+    } // anonymous namespace
+
+    void mdc_set(const std::string &key, const std::string &value)
+    {
+        spdlog::mdc::put(key, value);
+    }
+
+    void mdc_remove(const std::string &key)
+    {
+        spdlog::mdc::remove(key);
+    }
+
+    void mdc_clear()
+    {
+        spdlog::mdc::clear();
+    }
+
+    auto build_mdc_prefix() -> std::string
+    {
+        const auto &mdc_map = spdlog::mdc::get_context();
+        if (mdc_map.empty())
+        {
+            return {};
+        }
+        std::string prefix;
+        for (const auto &[key, value] : mdc_map)
+        {
+            prefix.push_back('[');
+            prefix.append(key);
+            prefix.push_back('=');
+            prefix.append(value);
+            prefix.push_back(']');
+        }
+        prefix.push_back(' ');
+        return prefix;
     }
 
     auto recorder() noexcept

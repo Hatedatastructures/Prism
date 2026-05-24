@@ -91,6 +91,7 @@ namespace psm::connect
         // 按 8 字节块处理 16 字节 address 数组
         if constexpr (sizeof(std::size_t) >= 8)
         {
+            // safe: casting address byte array to uint64_t for hash computation, alignment guaranteed by array<ubyte,16>
             const auto *ptr = reinterpret_cast<const std::uint64_t *>(key.address.data());
             for (std::size_t i = 0; i < key.address.size() / 8; ++i)
             {

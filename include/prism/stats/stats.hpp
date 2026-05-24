@@ -8,6 +8,7 @@
  * - runtime.hpp: worker 负载 + 全局运行状态
  * - traffic.hpp: per-worker 流量统计 + 全局聚合
  * - account.hpp: 账户统计观察者
+ * - memory.hpp: 内存分配统计追踪器
  */
 #pragma once
 
@@ -17,3 +18,4 @@
 #include <prism/stats/runtime.hpp>
 #include <prism/stats/traffic.hpp>
 #include <prism/stats/account.hpp>
+#include <prism/stats/memory.hpp>

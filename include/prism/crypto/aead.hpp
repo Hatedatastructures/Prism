@@ -201,8 +201,9 @@ namespace psm::crypto
         /**
          * @brief 递增 nonce
          * @details 按 SS2022 规范要求，以小端序递增 nonce 值。
+         * @return true 递增成功，false nonce 溢出（所有字节均为 0xFF）
          */
-        void increment_nonce();
+        auto increment_nonce() -> bool;
 
         static void delete_aead_ctx(evp_aead_ctx_st *ctx) noexcept;
 

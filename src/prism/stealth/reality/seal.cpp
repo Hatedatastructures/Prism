@@ -115,6 +115,7 @@ namespace psm::stealth::reality
             header_read += n;
         }
 
+        // safe: casting byte array to uint8_t to parse TLS record header fields
         const auto *raw = reinterpret_cast<const std::uint8_t *>(header.data());
         const auto content_type = raw[0];
         const auto record_len = (static_cast<std::size_t>(raw[3]) << 8) | static_cast<std::size_t>(raw[4]);
@@ -154,7 +155,15 @@ namespace psm::stealth::reality
             co_return 0;
         }
 
-        // 4. AEAD 解密
+        // 4. 序列号溢出检测
+        if (read_sequence_ >= UINT64_MAX - 1)
+        {
+            trace::error("{} read sequence number overflow: {}", SessTag, read_sequence_);
+            ec = fault::code::crypto_error;
+            co_return 0;
+        }
+
+        // 5. AEAD 解密
         const auto nonce = common::make_aead_nonce(
             std::span<const std::uint8_t>(keys_.client_app_iv.data(), keys_.client_app_iv.size()),
             read_sequence_);
@@ -162,6 +171,7 @@ namespace psm::stealth::reality
 
         const auto ad = common::make_record_ad((static_cast<std::uint16_t>(raw[3]) << 8) | raw[4]);
 
+        // safe: casting byte vector to uint8_t span for AEAD ciphertext input
         const auto ciphertext = std::span<const std::uint8_t>(
             reinterpret_cast<const std::uint8_t *>(record_body.data()), record_len);
         const auto plaintext_len = record_len - tls::AEAD_TAG_LEN;
@@ -215,6 +225,14 @@ namespace psm::stealth::reality
         std::memcpy(write_plain_buf_.data(), data.data(), data.size());
         write_plain_buf_[data.size()] = tls::CONTENT_TYPE_APPLICATION_DATA;
         auto &inner = write_plain_buf_;
+
+        // 序列号溢出检测
+        if (write_sequence_ >= UINT64_MAX - 1)
+        {
+            trace::error("{} write sequence number overflow: {}", SessTag, write_sequence_);
+            ec = fault::code::crypto_error;
+            co_return 0;
+        }
 
         const auto nonce = common::make_aead_nonce(
             std::span<const std::uint8_t>(keys_.server_app_iv.data(), keys_.server_app_iv.size()),

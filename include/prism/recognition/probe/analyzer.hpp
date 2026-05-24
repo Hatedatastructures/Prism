@@ -14,6 +14,7 @@
 #pragma once
 
 #include <array>
+#include <cstdint>
 #include <string_view>
 #include <prism/protocol/protocol_type.hpp>
 
@@ -79,10 +80,10 @@ namespace psm::recognition::probe
         // byte[21] in {0x01, 0x02, 0x03} (valid address type)
         if (peek_data.size() >= 22)
         {
-            const auto b0 = static_cast<unsigned char>(peek_data[0]);
-            const auto b17 = static_cast<unsigned char>(peek_data[17]);
-            const auto b18 = static_cast<unsigned char>(peek_data[18]);
-            const auto b21 = static_cast<unsigned char>(peek_data[21]);
+            const auto b0 = static_cast<std::uint8_t>(peek_data[0]);
+            const auto b17 = static_cast<std::uint8_t>(peek_data[17]);
+            const auto b18 = static_cast<std::uint8_t>(peek_data[18]);
+            const auto b21 = static_cast<std::uint8_t>(peek_data[21]);
 
             if (b0 == 0x00 && b17 == 0x00 && (b18 == 0x01 || b18 == 0x02 || b18 == 0x7F) &&
                 (b21 == 0x01 || b21 == 0x02 || b21 == 0x03))
@@ -98,7 +99,7 @@ namespace psm::recognition::probe
             bool is_trojan = true;
             for (std::size_t i = 0; i < 56; ++i)
             {
-                const auto c = static_cast<unsigned char>(peek_data[i]);
+                const auto c = static_cast<std::uint8_t>(peek_data[i]);
                 const bool is_hex_digit = (c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') ||
                                           (c >= 'A' && c <= 'F');
                 if (!is_hex_digit)
@@ -110,10 +111,10 @@ namespace psm::recognition::probe
 
             if (is_trojan && peek_data[56] == '\r' && peek_data[57] == '\n')
             {
-                const auto cmd = static_cast<unsigned char>(peek_data[58]);
+                const auto cmd = static_cast<std::uint8_t>(peek_data[58]);
                 if (cmd == 0x01 || cmd == 0x03 || cmd == 0x7F)
                 {
-                    const auto atyp = static_cast<unsigned char>(peek_data[59]);
+                    const auto atyp = static_cast<std::uint8_t>(peek_data[59]);
                     if (atyp == 0x01 || atyp == 0x03 || atyp == 0x04)
                     {
                         return protocol::protocol_type::trojan;

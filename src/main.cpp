@@ -6,6 +6,8 @@
 #include <fstream>
 #include <filesystem>
 
+#include <boost/asio/signal_set.hpp>
+
 #include <prism/context/context.hpp>
 #include <prism/instance.hpp>
 #include <prism/account/directory.hpp>
@@ -18,6 +20,7 @@
 #include <prism/config.hpp>
 #include <prism/loader/load.hpp>
 #include <prism/stealth/registry.hpp>
+#include <prism/trace.hpp>
 
 namespace instance = psm::instance;
 
@@ -138,6 +141,45 @@ int main(int argc, char *argv[])
             }
         };
         threads.emplace_back(listen_thread);
+
+        // 信号处理：监听 SIGINT/SIGTERM，触发优雅停机
+        // 使用独立的 io_context 运行 signal_set，避免与 worker 或 listener 的事件循环耦合
+        boost::asio::io_context signal_ioc;
+        boost::asio::signal_set signals(signal_ioc, SIGINT, SIGTERM);
+
+        signals.async_wait(
+            [&workers, &service_listener, &threads, &signal_ioc](
+                const boost::system::error_code & /*ec*/, int /*signo*/)
+            {
+                psm::trace::info("received shutdown signal, stopping gracefully...");
+
+                // 停止接受新连接
+                service_listener.stop();
+
+                // 停止所有 worker 事件循环
+                for (const auto &worker_ptr : workers)
+                {
+                    worker_ptr->stop();
+                }
+
+                // 等待所有线程退出（jthread 析构会自动 join）
+                threads.clear();
+
+                psm::trace::info("all threads stopped, shutting down logger");
+                psm::trace::shutdown();
+
+                // 停止信号 io_context 自身
+                signal_ioc.stop();
+            });
+
+        // 在独立线程中运行信号 io_context，阻塞直到 signal_ioc.stop() 被调用
+        std::jthread signal_thread([&signal_ioc]()
+        {
+            signal_ioc.run();
+        });
+
+        // 等待信号处理完成（信号线程退出意味着停机流程已结束）
+        signal_thread.join();
     }
     catch (const psm::exception::security &e)
     {

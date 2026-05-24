@@ -2,6 +2,7 @@
 #include <openssl/hmac.h>
 #include <openssl/sha.h>
 #include <openssl/evp.h>
+#include <cstdint>
 #include <cstring>
 #include <prism/trace.hpp>
 
@@ -19,7 +20,7 @@ namespace psm::crypto
     {
         std::array<std::uint8_t, SHA256_LEN> result{};
 
-        unsigned int mac_len = 0;
+        std::uint32_t mac_len = 0;
         const auto *ret = HMAC(EVP_sha256(), key.data(), static_cast<int>(key.size()),
              data.data(), data.size(), result.data(), &mac_len);
 
@@ -40,7 +41,7 @@ namespace psm::crypto
     {
         std::array<std::uint8_t, SHA512_LEN> result{};
 
-        unsigned int mac_len = 0;
+        std::uint32_t mac_len = 0;
         const auto *ret = HMAC(EVP_sha512(), key.data(), static_cast<int>(key.size()),
              data.data(), data.size(), result.data(), &mac_len);
 
@@ -231,7 +232,7 @@ namespace psm::crypto
             return hash;
         }
 
-        unsigned int hash_len = 0;
+        std::uint32_t hash_len = 0;
         EVP_DigestFinal_ex(ctx, hash.data(), &hash_len);
         EVP_MD_CTX_free(ctx);
 
@@ -266,7 +267,7 @@ namespace psm::crypto
             return hash;
         }
 
-        unsigned int hash_len = 0;
+        std::uint32_t hash_len = 0;
         EVP_DigestFinal_ex(ctx, hash.data(), &hash_len);
         EVP_MD_CTX_free(ctx);
 

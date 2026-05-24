@@ -11,6 +11,7 @@
 #include <openssl/hmac.h>
 #include <openssl/sha.h>
 #include <openssl/crypto.h>
+#include <cstdint>
 #include <cstring>
 #include <vector>
 
@@ -20,11 +21,12 @@ namespace psm::stealth::shadowtls
         -> std::array<std::uint8_t, 4>
     {
         std::array<std::uint8_t, EVP_MAX_MD_SIZE> md{};
-        unsigned int len = 0;
+        std::uint32_t len = 0;
 
+        // safe: SSL HMAC API requires uint8_t*, byte data is read-only for computation
         HMAC(EVP_sha1(),
              key.data(), static_cast<int>(key.size()),
-             reinterpret_cast<const unsigned char *>(data), data_len,
+             reinterpret_cast<const std::uint8_t *>(data), data_len,
              md.data(), &len);
 
         std::array<std::uint8_t, 4> result{};
@@ -43,6 +45,7 @@ namespace psm::stealth::shadowtls
             return false;
         }
 
+        // safe: casting byte buffer to uint8_t for ClientHello field parsing
         const auto *raw = reinterpret_cast<const std::uint8_t *>(client_hello.data());
 
         // TLS 记录类型必须是 Handshake (0x16)
@@ -78,6 +81,7 @@ namespace psm::stealth::shadowtls
         std::memset(hmac_data.data() + hmac_offset_in_data, 0, hmac_size);
 
         // 计算 HMAC-SHA1
+        // safe: casting uint8_t HMAC data array to byte pointer for compute_hmac function
         const auto expected = compute_hmac(password, reinterpret_cast<const std::byte *>(hmac_data.data()), hmac_data.size());
 
         // 提取客户端 SessionID 中的 HMAC 标签
@@ -106,15 +110,17 @@ namespace psm::stealth::shadowtls
         }
 
         HMAC_Init_ex(ctx, password.data(), static_cast<int>(password.size()), EVP_sha1(), nullptr);
-        HMAC_Update(ctx, reinterpret_cast<const unsigned char *>(server_random.data()), server_random.size());
+        // safe: SSL HMAC API requires uint8_t*, byte span data is read-only
+        HMAC_Update(ctx, reinterpret_cast<const std::uint8_t *>(server_random.data()), server_random.size());
 
-        constexpr unsigned char tag_c = 'C';
+        constexpr std::uint8_t tag_c = 'C';
         HMAC_Update(ctx, &tag_c, 1);
 
-        HMAC_Update(ctx, reinterpret_cast<const unsigned char *>(payload.data()), payload.size());
+        // safe: SSL HMAC API requires uint8_t*, byte span data is read-only
+        HMAC_Update(ctx, reinterpret_cast<const std::uint8_t *>(payload.data()), payload.size());
 
         std::array<std::uint8_t, EVP_MAX_MD_SIZE> md{};
-        unsigned int md_len = 0;
+        std::uint32_t md_len = 0;
         HMAC_Final(ctx, md.data(), &md_len);
         HMAC_CTX_free(ctx);
 
@@ -133,15 +139,17 @@ namespace psm::stealth::shadowtls
         }
 
         HMAC_Init_ex(ctx, password.data(), static_cast<int>(password.size()), EVP_sha1(), nullptr);
-        HMAC_Update(ctx, reinterpret_cast<const unsigned char *>(server_random.data()), server_random.size());
+        // safe: SSL HMAC API requires uint8_t*, byte span data is read-only
+        HMAC_Update(ctx, reinterpret_cast<const std::uint8_t *>(server_random.data()), server_random.size());
 
-        constexpr unsigned char tag_s = 'S';
+        constexpr std::uint8_t tag_s = 'S';
         HMAC_Update(ctx, &tag_s, 1);
 
-        HMAC_Update(ctx, reinterpret_cast<const unsigned char *>(payload.data()), payload.size());
+        // safe: SSL HMAC API requires uint8_t*, byte span data is read-only
+        HMAC_Update(ctx, reinterpret_cast<const std::uint8_t *>(payload.data()), payload.size());
 
         std::array<std::uint8_t, EVP_MAX_MD_SIZE> md{};
-        unsigned int md_len = 0;
+        std::uint32_t md_len = 0;
         HMAC_Final(ctx, md.data(), &md_len);
         HMAC_CTX_free(ctx);
 

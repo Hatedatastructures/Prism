@@ -1,4 +1,5 @@
 #include <prism/protocol/trojan/framing.hpp>
+#include <cstdint>
 #include <cstring>
 
 namespace psm::protocol::trojan::format
@@ -15,7 +16,7 @@ namespace psm::protocol::trojan::format
         std::array<char, 56> credential{};
         for (size_t i = 0; i < 56; ++i)
         {
-            const auto c = static_cast<unsigned char>(buffer[i]);
+            const auto c = static_cast<std::uint8_t>(buffer[i]);
             if (!((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F')))
             {
                 return {fault::code::protocol_error, {}};
@@ -61,6 +62,7 @@ namespace psm::protocol::trojan::format
         if constexpr (std::is_same_v<Address, ipv4_address>)
         {
             out.push_back(static_cast<std::byte>(0x01));
+            // safe: casting IPv4 address bytes (array<uint8_t,4>) to byte span for wire serialization
             out.insert(out.end(),
                 reinterpret_cast<const std::byte*>(addr.bytes.data()),
                 reinterpret_cast<const std::byte*>(addr.bytes.data()) + 4);
@@ -68,6 +70,7 @@ namespace psm::protocol::trojan::format
         else if constexpr (std::is_same_v<Address, ipv6_address>)
         {
             out.push_back(static_cast<std::byte>(0x04));
+            // safe: casting IPv6 address bytes (array<uint8_t,16>) to byte span for wire serialization
             out.insert(out.end(),
                 reinterpret_cast<const std::byte*>(addr.bytes.data()),
                 reinterpret_cast<const std::byte*>(addr.bytes.data()) + 16);
@@ -76,6 +79,7 @@ namespace psm::protocol::trojan::format
         {
             out.push_back(static_cast<std::byte>(0x03));
             out.push_back(static_cast<std::byte>(addr.length));
+            // safe: casting domain string bytes to byte span for wire serialization
             out.insert(out.end(),
                 reinterpret_cast<const std::byte*>(addr.value.data()),
                 reinterpret_cast<const std::byte*>(addr.value.data()) + addr.length);
@@ -123,6 +127,7 @@ namespace psm::protocol::trojan::format
             {
                 return {fault::code::bad_message, {}};
             }
+            // safe: casting byte buffer region to uint8_t span for IPv4 address parsing
             const auto addr_span = std::span(reinterpret_cast<const std::uint8_t *>(buffer.data() + offset), 4);
             auto [ec, addr] = parse_ipv4(addr_span);
             if (fault::failed(ec))
@@ -139,6 +144,7 @@ namespace psm::protocol::trojan::format
             {
                 return {fault::code::bad_message, {}};
             }
+            // safe: casting byte buffer region to uint8_t span for IPv6 address parsing
             auto addr_span = std::span(reinterpret_cast<const std::uint8_t *>(buffer.data() + offset), 16);
             auto [ec, addr] = parse_ipv6(addr_span);
             if (fault::failed(ec))
@@ -160,6 +166,7 @@ namespace psm::protocol::trojan::format
             {
                 return {fault::code::bad_message, {}};
             }
+            // safe: casting byte buffer region to uint8_t span for domain address parsing
             const auto domain_span = std::span(
                 reinterpret_cast<const std::uint8_t *>(buffer.data() + offset), 1 + domain_len);
             auto [ec, addr] = parse_domain(domain_span);
@@ -178,6 +185,7 @@ namespace psm::protocol::trojan::format
         offset += addr_size;
 
         // 解析端口
+        // safe: casting byte buffer region to uint8_t span for port field parsing
         const auto port_span = std::span(reinterpret_cast<const std::uint8_t *>(buffer.data() + offset), 2);
         auto [port_ec, port] = parse_port(port_span);
         if (fault::failed(port_ec))

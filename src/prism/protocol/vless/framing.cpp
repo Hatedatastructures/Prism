@@ -8,6 +8,7 @@ namespace
     auto u8_sub(std::span<const std::byte> buf, std::size_t offset, std::size_t count)
         -> std::span<const std::uint8_t>
     {
+        // safe: casting byte span to uint8_t span for protocol sub-range extraction, same memory layout
         return {reinterpret_cast<const std::uint8_t*>(buf.data()) + offset, count};
     }
 } // namespace
@@ -85,7 +86,10 @@ namespace psm::protocol::vless::format
         case address_type::ipv4:
         {
             auto [ec4, addr4] = common::framing::parse_ipv4(buffer.subspan(offset));
-            if (ec4 != fault::code::success) { return std::nullopt; }
+            if (ec4 != fault::code::success)
+            {
+                return std::nullopt;
+            }
             req.destination_address = addr4;
             offset += 4;
             break;
@@ -93,7 +97,10 @@ namespace psm::protocol::vless::format
         case address_type::domain:
         {
             auto [ecd, addrd] = common::framing::parse_domain(buffer.subspan(offset));
-            if (ecd != fault::code::success) { return std::nullopt; }
+            if (ecd != fault::code::success)
+            {
+                return std::nullopt;
+            }
             req.destination_address = addrd;
             offset += 1 + addrd.length;
             break;
@@ -101,7 +108,10 @@ namespace psm::protocol::vless::format
         case address_type::ipv6:
         {
             auto [ec6, addr6] = common::framing::parse_ipv6(buffer.subspan(offset));
-            if (ec6 != fault::code::success) { return std::nullopt; }
+            if (ec6 != fault::code::success)
+            {
+                return std::nullopt;
+            }
             req.destination_address = addr6;
             offset += 16;
             break;
@@ -215,6 +225,7 @@ namespace psm::protocol::vless::format
             if constexpr (std::is_same_v<Address, ipv4_address>)
             {
                 out.push_back(static_cast<std::byte>(address_type::ipv4));
+                // safe: casting IPv4 address bytes (array<uint8_t,4>) to byte span for serialization
                 out.insert(out.end(),
                            reinterpret_cast<const std::byte*>(addr.bytes.data()),
                            reinterpret_cast<const std::byte*>(addr.bytes.data()) + 4);
@@ -222,6 +233,7 @@ namespace psm::protocol::vless::format
             else if constexpr (std::is_same_v<Address, ipv6_address>)
             {
                 out.push_back(static_cast<std::byte>(address_type::ipv6));
+                // safe: casting IPv6 address bytes (array<uint8_t,16>) to byte span for serialization
                 out.insert(out.end(),
                            reinterpret_cast<const std::byte*>(addr.bytes.data()),
                            reinterpret_cast<const std::byte*>(addr.bytes.data()) + 16);
@@ -230,6 +242,7 @@ namespace psm::protocol::vless::format
             {
                 out.push_back(static_cast<std::byte>(address_type::domain));
                 out.push_back(static_cast<std::byte>(addr.length));
+                // safe: casting domain string bytes to byte span for wire serialization
                 out.insert(out.end(),
                            reinterpret_cast<const std::byte*>(addr.value.data()),
                            reinterpret_cast<const std::byte*>(addr.value.data()) + addr.length);

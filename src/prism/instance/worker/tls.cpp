@@ -1,6 +1,7 @@
 #include <prism/instance/worker/tls.hpp>
 #include <prism/trace.hpp>
 #include <prism/exception.hpp>
+#include <cstdint>
 
 namespace psm::instance::worker::tls
 {
@@ -30,9 +31,20 @@ namespace psm::instance::worker::tls
         // 获取原生 SSL_CTX 指针
         auto *native = ctx.native_handle();
 
-        // 设置 ALPN 协议列表，支持 HTTP/2 和 HTTP/1.1
-        constexpr unsigned char alpn[] = "\x02h2\x08http/1.1";
-        SSL_CTX_set_alpn_protos(native, alpn, sizeof(alpn) - 1);
+        // 设置 ALPN 协议回调（服务端 API）
+        // 根据客户端提供的 ALPN 列表选择协议，支持 h2 和 http/1.1
+        // 注意：SSL_CTX_set_alpn_protos 是客户端 API，服务端应使用 SSL_CTX_set_alpn_select_cb
+        SSL_CTX_set_alpn_select_cb(native,
+            [](SSL*, const unsigned char **out, unsigned char *outlen,
+               const unsigned char *in, unsigned int inlen, void*) -> int {
+                // 服务端支持的协议列表：h2 + http/1.1
+                constexpr std::uint8_t server_protos[] = "\x02h2\x08http/1.1";
+                if (SSL_select_next_proto(const_cast<unsigned char**>(out), outlen,
+                        server_protos, sizeof(server_protos) - 1,
+                        in, inlen) == OPENSSL_NPN_NEGOTIATED)
+                    return SSL_TLSEXT_ERR_OK;
+                return SSL_TLSEXT_ERR_NOACK;
+            }, nullptr);
 
         // 设置协议版本范围：TLS 1.2 ~ TLS 1.3
         SSL_CTX_set_min_proto_version(native, TLS1_2_VERSION);
@@ -47,8 +59,11 @@ namespace psm::instance::worker::tls
         // 启用 Session Ticket（无状态会话复用）
         // 客户端可以携带之前的 ticket，服务端无需维护会话状态
 
-        // 设置加密套件优先级（性能优化）
-        // 优先选择 AES-GCM（有硬件加速）和 ChaCha20（移动设备友好）
+        // 设置加密套件（性能优化）
+        // BoringSSL 统一使用 SSL_CTX_set_cipher_list 管理 TLS 1.2 和 TLS 1.3 套件，
+        // 不提供 OpenSSL 1.1.1+ 的 SSL_CTX_set_ciphersuites API。
+        // TLS 1.3 套件（AES-GCM / ChaCha20-Poly1305）
+        // TLS 1.2 套件（优先 AES-GCM 有硬件加速，ChaCha20 移动设备友好）
         SSL_CTX_set_cipher_list(native,
             "TLS_AES_128_GCM_SHA256:"
             "TLS_AES_256_GCM_SHA384:"
@@ -56,8 +71,13 @@ namespace psm::instance::worker::tls
             "ECDHE-ECDSA-AES128-GCM-SHA256:"
             "ECDHE-RSA-AES128-GCM-SHA256:"
             "ECDHE-ECDSA-AES256-GCM-SHA384:"
-            "ECDHE-RSA-AES256-GCM-SHA384"
+            "ECDHE-RSA-AES256-GCM-SHA384:"
+            "ECDHE-ECDSA-CHACHA20-POLY1305:"
+            "ECDHE-RSA-CHACHA20-POLY1305"
         );
+
+        // 禁用重协商（BoringSSL 默认禁用，此为防御性标记）
+        SSL_CTX_set_options(native, SSL_OP_NO_RENEGOTIATION);
 
         // 设置 ECDHE 曲线（密钥交换）
         SSL_CTX_set1_curves_list(native, "X25519:P-256:P-384");

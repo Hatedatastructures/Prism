@@ -3,29 +3,21 @@
 #include <prism/crypto/sha224.hpp>
 #include <prism/crypto/base64.hpp>
 #include <cctype>
+#include <cstdint>
 #include <cstring>
 
 namespace psm::protocol::http
 {
     namespace
     {
-        /**
-         * @brief 字符转小写
-         * @param c 输入字符
-         * @return 小写字符
-         */
-        [[nodiscard]] auto to_lower(const unsigned char c) noexcept
+        // 字符转小写
+        [[nodiscard]] auto to_lower(const std::uint8_t c) noexcept
             -> char
         {
             return static_cast<char>(std::tolower(c));
         }
 
-        /**
-         * @brief 大小写不敏感字符串比较
-         * @param left 左操作数
-         * @param right 右操作数
-         * @return 相等返回 true
-         */
+        // 大小写不敏感字符串比较
         [[nodiscard]] auto iequals(const std::string_view left, const std::string_view right) noexcept
             -> bool
         {
@@ -35,7 +27,7 @@ namespace psm::protocol::http
             }
             for (std::size_t i = 0; i < left.size(); ++i)
             {
-                if (to_lower(static_cast<unsigned char>(left[i])) != to_lower(static_cast<unsigned char>(right[i])))
+                if (to_lower(static_cast<std::uint8_t>(left[i])) != to_lower(static_cast<std::uint8_t>(right[i])))
                 {
                     return false;
                 }
@@ -43,11 +35,7 @@ namespace psm::protocol::http
             return true;
         }
 
-        /**
-         * @brief 去除首尾空白字符
-         * @param value 输入字符串
-         * @return 去除空白后的视图
-         */
+        // 去除首尾空白字符
         [[nodiscard]] auto trim(const std::string_view value) noexcept
             -> std::string_view
         {
@@ -63,12 +51,7 @@ namespace psm::protocol::http
             return s;
         }
 
-        /**
-         * @brief 大小写不敏感前缀匹配
-         * @param str 待检查字符串
-         * @param prefix 前缀
-         * @return str 以 prefix 开头（忽略大小写）且 str 比 prefix 长时返回 true
-         */
+        // 大小写不敏感前缀匹配
         [[nodiscard]] auto iequals_prefix(const std::string_view str, const std::string_view prefix) noexcept
             -> bool
         {
@@ -78,7 +61,7 @@ namespace psm::protocol::http
             }
             for (std::size_t i = 0; i < prefix.size(); ++i)
             {
-                if (to_lower(static_cast<unsigned char>(str[i])) != to_lower(static_cast<unsigned char>(prefix[i])))
+                if (to_lower(static_cast<std::uint8_t>(str[i])) != to_lower(static_cast<std::uint8_t>(prefix[i])))
                 {
                     return false;
                 }

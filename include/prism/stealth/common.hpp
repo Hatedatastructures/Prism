@@ -79,9 +79,11 @@ namespace psm::stealth::common
      *          返回包含记录头 + 载荷的完整帧。
      * @param sock TCP socket
      * @param ec 错误码输出参数
+     * @param deadline 可选超时定时器，非空时设置 30 秒超时，到期取消 socket
      * @return 完整 TLS 帧数据，读取失败时返回 std::nullopt
      */
-    auto read_raw_tls_frame(net::ip::tcp::socket &sock, std::error_code &ec)
+    auto read_raw_tls_frame(net::ip::tcp::socket &sock, std::error_code &ec,
+                            net::steady_timer *deadline = nullptr)
         -> net::awaitable<std::optional<memory::vector<std::byte>>>;
 
 } // namespace psm::stealth::common

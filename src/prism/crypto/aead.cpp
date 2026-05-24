@@ -113,7 +113,11 @@ namespace psm::crypto
             return fault::code::crypto_error;
         }
 
-        increment_nonce();
+        if (!increment_nonce())
+        {
+            trace::error("[Crypto.AEAD] nonce overflow in seal");
+            return fault::code::crypto_error;
+        }
         return fault::code::success;
     }
 
@@ -140,7 +144,11 @@ namespace psm::crypto
             return fault::code::crypto_error;
         }
 
-        increment_nonce();
+        if (!increment_nonce())
+        {
+            trace::error("[Crypto.AEAD] nonce overflow in open");
+            return fault::code::crypto_error;
+        }
         return fault::code::success;
     }
 
@@ -194,15 +202,17 @@ namespace psm::crypto
 
     // Nonce 小端序递增：从 byte[0] 开始加 1，溢出则进位到 byte[1]，以此类推。
     // 这是 SS2022 (SIP022) 规范要求的 nonce 递增方式。
-    void aead_context::increment_nonce()
+    // 当所有字节均为 0xFF 时递增会导致溢出到全零，此时返回 false 表示 nonce 耗尽。
+    auto aead_context::increment_nonce() -> bool
     {
         for (std::size_t i = 0; i < nonce_len_; ++i)
         {
             nonce_[i]++;
             if (nonce_[i] != 0)
             {
-                break;
+                return true;
             }
         }
+        return false;
     }
 } // namespace psm::crypto

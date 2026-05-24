@@ -142,6 +142,7 @@ namespace psm::multiplex::h2mux
                 break;
             }
 
+            // safe: nghttp2 API requires uint8_t*, recv_buf data is read-only input
             const auto recv_len = nghttp2_session_mem_recv(
                 session_,
                 reinterpret_cast<const uint8_t *>(recv_buf.data()),
@@ -183,6 +184,7 @@ namespace psm::multiplex::h2mux
             }
 
             std::error_code write_ec;
+            // safe: casting nghttp2 output data (uint8_t*) to byte span for wire transmission
             co_await transport::async_write(*transport_,
                 std::span<const std::byte>(
                     reinterpret_cast<const std::byte *>(data), len),
@@ -235,7 +237,10 @@ namespace psm::multiplex::h2mux
                 {
                     if (ep)
                     {
-                        try { std::rethrow_exception(ep); }
+                        try
+                        {
+                            std::rethrow_exception(ep);
+                        }
                         catch (const std::exception &e)
                         {
                             trace::debug("{} activate_stream error: {}", tag, e.what());
@@ -369,8 +374,10 @@ namespace psm::multiplex::h2mux
             bool is_connect = false;
             for (std::size_t i = 0; i < frame->headers.nvlen; ++i)
             {
+                // safe: casting nghttp2 header name/value (uint8_t*) to string_view for HTTP/2 header parsing
                 const auto name = std::string_view(
                     reinterpret_cast<const char *>(nv[i].name), nv[i].namelen);
+                // safe: casting nghttp2 header value (uint8_t*) to string_view for HTTP/2 header parsing
                 const auto value = std::string_view(
                     reinterpret_cast<const char *>(nv[i].value), nv[i].valuelen);
 
@@ -407,6 +414,7 @@ namespace psm::multiplex::h2mux
             return 0;
         }
 
+        // safe: casting nghttp2 header name/value (uint8_t*) to string_view for header field dispatch
         const auto hname = std::string_view(reinterpret_cast<const char *>(name), namelen);
         const auto hvalue = std::string_view(reinterpret_cast<const char *>(value), valuelen);
 
@@ -475,6 +483,7 @@ namespace psm::multiplex::h2mux
         if (const auto dit = self->ducts_.find(id); dit != self->ducts_.end() && dit->second)
         {
             auto dp = dit->second;
+            // safe: casting nghttp2 data frame payload (uint8_t*) to byte vector for duct dispatch
             auto payload = memory::vector<std::byte>(
                 reinterpret_cast<const std::byte *>(data),
                 reinterpret_cast<const std::byte *>(data) + len);
@@ -486,7 +495,10 @@ namespace psm::multiplex::h2mux
                 {
                     if (ep)
                     {
-                        try { std::rethrow_exception(ep); }
+                        try
+                        {
+                            std::rethrow_exception(ep);
+                        }
                         catch (const std::exception &e)
                         {
                             trace::debug("{} dispatch duct data error: {}", tag, e.what());
@@ -502,6 +514,7 @@ namespace psm::multiplex::h2mux
         if (const auto uit = self->parcels_.find(id); uit != self->parcels_.end() && uit->second)
         {
             auto dp = uit->second;
+            // safe: casting nghttp2 data frame payload (uint8_t*) to byte vector for parcel dispatch
             memory::vector<std::byte> payload(
                 reinterpret_cast<const std::byte *>(data),
                 reinterpret_cast<const std::byte *>(data) + len);
@@ -513,7 +526,10 @@ namespace psm::multiplex::h2mux
                 {
                     if (ep)
                     {
-                        try { std::rethrow_exception(ep); }
+                        try
+                        {
+                            std::rethrow_exception(ep);
+                        }
                         catch (const std::exception &e)
                         {
                             trace::debug("{} dispatch parcel data error: {}", tag, e.what());
@@ -721,6 +737,7 @@ namespace psm::multiplex::h2mux
     auto craft::respond_connect(const int32_t stream_id, const std::uint32_t status) -> int
     {
         const auto status_str = (status == 200) ? "200" : "407";
+        // safe: nghttp2 requires mutable uint8_t* for nv pairs, string literals are cast to non-const for API compat
         nghttp2_nv hdrs[] = {
             {const_cast<uint8_t *>(reinterpret_cast<const uint8_t *>(":status")),
              const_cast<uint8_t *>(reinterpret_cast<const uint8_t *>(status_str)),

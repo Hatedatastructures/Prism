@@ -4,6 +4,7 @@
 #include <prism/trace.hpp>
 #include <algorithm>
 #include <cstring>
+#include <openssl/crypto.h>
 
 namespace psm::stealth::reality
 {
@@ -41,7 +42,7 @@ namespace psm::stealth::reality
                 continue;
 
             if (short_id.size() >= allowed_bytes.size() &&
-                std::equal(allowed_bytes.begin(), allowed_bytes.end(), short_id.begin()))
+                CRYPTO_memcmp(short_id.data(), allowed_bytes.data(), allowed_bytes.size()) == 0)
             {
                 return true;
             }

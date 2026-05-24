@@ -64,6 +64,8 @@ namespace psm::stealth::anytls
 
     auto anytls_session::recv_loop() -> net::awaitable<void>
     {
+        try
+        {
         std::array<std::byte, 7> header_buf{};
 
         while (!closed_)
@@ -75,6 +77,7 @@ namespace psm::stealth::anytls
                 break;
             }
 
+            // safe: casting byte buffer to uint8_t span for frame header parsing, same memory layout
             auto header = frame_header::parse(
                 std::span<const std::uint8_t>(
                     reinterpret_cast<const std::uint8_t *>(header_buf.data()),
@@ -90,6 +93,7 @@ namespace psm::stealth::anytls
             std::vector<std::uint8_t> payload(header->length);
             if (header->length > 0)
             {
+                // safe: casting uint8_t vector to mutable byte span for async read
                 if (!co_await read_exact(
                     std::span<std::byte>(
                         reinterpret_cast<std::byte *>(payload.data()),
@@ -119,6 +123,7 @@ namespace psm::stealth::anytls
             {
                 received_settings_ = true;
                 // 解析 version
+                // safe: casting uint8_t payload to string_view for text protocol parsing
                 auto text = std::string_view(
                     reinterpret_cast<const char *>(payload.data()), payload.size());
                 // 查找 "v=N"
@@ -146,6 +151,7 @@ namespace psm::stealth::anytls
                             trace::debug("{} client padding-md5 mismatch, sending update", tag);
                             std::error_code up_ec;
                             co_await write_frame(command::update_padding, 0,
+                                // safe: casting string data to byte span for frame transmission
                                 std::span<const std::byte>(
                                     reinterpret_cast<const std::byte *>(padding_->raw_scheme_.data()),
                                     padding_->raw_scheme_.size()), up_ec);
@@ -159,6 +165,7 @@ namespace psm::stealth::anytls
                     auto settings_text = std::string("v=2\nserver=prism\n");
                     std::error_code wr_ec;
                     co_await write_frame(command::server_settings, 0,
+                        // safe: casting string data to byte span for frame transmission
                         std::span<const std::byte>(
                             reinterpret_cast<const std::byte *>(settings_text.data()),
                             settings_text.size()), wr_ec);
@@ -358,6 +365,12 @@ namespace psm::stealth::anytls
         }
 
         trace::debug("{} recv_loop ended", tag);
+        }
+        catch (...)
+        {
+            trace::error("[AnyTLS] recv_loop exception, closing session");
+            close();
+        }
     }
 
     auto anytls_session::read_exact(std::span<std::byte> buf) -> net::awaitable<bool>
@@ -388,6 +401,7 @@ namespace psm::stealth::anytls
         auto serialized = hdr.serialize();
 
         // 写入 header
+        // safe: casting serialized header vector to byte span for wire transmission
         co_await transport::async_write(*transport_,
             std::span<const std::byte>(
                 reinterpret_cast<const std::byte *>(serialized.data()),
@@ -428,6 +442,7 @@ namespace psm::stealth::anytls
 
             std::vector<std::uint8_t> waste_data(size, 0);
             co_await write_frame(command::waste, 0,
+                // safe: casting uint8_t vector to byte span for waste frame transmission
                 std::span<const std::byte>(
                     reinterpret_cast<const std::byte *>(waste_data.data()),
                     waste_data.size()), ec);

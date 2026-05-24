@@ -73,4 +73,19 @@ namespace psm::stats
         std::uint64_t auth_success{0};           ///< 认证成功次数
         std::uint64_t auth_failure{0};           ///< 认证失败次数
     };
+    // --- Memory 快照 ---
+
+    /**
+     * @struct memory_snapshot
+     * @brief 内存分配统计快照
+     * @details 由 memory_tracker 产生，包含全局 PMR 池的分配统计。
+     * 数值为松散一致，不保证跨字段的原子性。
+     */
+    struct memory_snapshot
+    {
+        std::uint64_t total_allocated{0};    ///< 累计分配字节
+        std::uint64_t total_deallocated{0};  ///< 累计释放字节
+        std::uint64_t current_usage{0};      ///< 当前活跃字节
+        std::uint64_t allocation_count{0};   ///< 分配次数
+    };
 } // namespace psm::stats

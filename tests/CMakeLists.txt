@@ -38,6 +38,7 @@ forward_add_test(Smux           Smux.cpp)
 forward_add_test(SmuxCraft      SmuxCraft.cpp)
 forward_add_test(Yamux          Yamux.cpp)
 forward_add_test(YamuxCraft     YamuxCraft.cpp)
+forward_add_test(YamuxWindow    YamuxWindow.cpp)
 forward_add_test(MultiplexDuct  MultiplexDuct.cpp)
 forward_add_test(Crypto         Crypto.cpp)
 forward_add_test(Hkdf           Hkdf.cpp)
@@ -67,6 +68,16 @@ forward_add_test(Executor       Executor.cpp)
 forward_add_test(FaultHandling  FaultHandling.cpp)
 forward_add_test(SchemeRouteTable SchemeRouteTable.cpp)
 forward_add_test(FeatureBitmap  FeatureBitmap.cpp)
+forward_add_test(H2muxCraft     H2muxCraft.cpp)
+forward_add_test(GracefulShutdown GracefulShutdown.cpp)
+forward_add_test(TransportLayer TransportLayer.cpp)
+forward_add_test(MuxParcel      MuxParcel.cpp)
+forward_add_test(HandshakeTimeout HandshakeTimeout.cpp)
+forward_add_test(H2mux          H2mux.cpp)
+forward_add_test(MuxBootstrap   MuxBootstrap.cpp)
+forward_add_test(MuxStressTest  MuxStressTest.cpp)
+forward_add_test(MuxLifecycle   MuxLifecycle.cpp)
+forward_add_test(MuxMaxStreams  MuxMaxStreams.cpp)
 
 
 add_subdirectory(concurrency)
@@ -77,7 +88,7 @@ if(MINGW)
         Http Socks5 Trojan Vless Shadowsocks Regression
         HttpParser Smux SmuxCraft Yamux YamuxCraft MultiplexDuct Crypto Hkdf Block Aead Reality Blake3 X25519 DnsPacket DnsRules Fault Exception ProtocolAnalysis ProtocolToString
         Balancer DnsCache AccountDirectory Shadowtls ShadowTlsE2E Restls Base64Encode MemoryArena Config PipelinePrimitives Recognition Executor FaultHandling E2E
-        SchemeRouteTable FeatureBitmap
+        SchemeRouteTable FeatureBitmap H2muxCraft H2mux TransportLayer GracefulShutdown MuxParcel HandshakeTimeout YamuxWindow MuxBootstrap MuxStressTest MuxLifecycle MuxMaxStreams
         ConcurrencyServer ConcurrencyClient)
         if(TARGET ${t})
             target_compile_options(${t} PRIVATE -Wa,-mbig-obj)

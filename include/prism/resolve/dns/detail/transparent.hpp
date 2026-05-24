@@ -9,6 +9,7 @@
 #pragma once
 
 #include <cstddef>
+#include <cstdint>
 #include <string_view>
 
 #include <prism/memory/container.hpp>
@@ -78,7 +79,7 @@ namespace psm::resolve::dns::detail
         {
             for (const auto ch : value)
             {
-                hash ^= static_cast<unsigned char>(ch);
+                hash ^= static_cast<std::uint8_t>(ch);
                 hash *= prime;
             }
             return hash;

@@ -9,10 +9,26 @@
 
 namespace psm::stealth::common
 {
-    auto read_raw_tls_frame(net::ip::tcp::socket &sock, std::error_code &ec_out)
+    auto read_raw_tls_frame(net::ip::tcp::socket &sock, std::error_code &ec_out,
+                            net::steady_timer *deadline)
         -> net::awaitable<std::optional<memory::vector<std::byte>>>
     {
         ec_out.clear();
+
+        // 设置超时定时器：30 秒后关闭 socket
+        if (deadline)
+        {
+            deadline->expires_after(std::chrono::seconds(30));
+            deadline->async_wait(
+                [&sock](const boost::system::error_code &timer_ec)
+                {
+                    if (!timer_ec)
+                    {
+                        boost::system::error_code ignored;
+                        sock.cancel(ignored);
+                    }
+                });
+        }
 
         // 读取 5 字节 TLS 记录头
         boost::system::error_code ec;
@@ -21,12 +37,17 @@ namespace psm::stealth::common
             sock, net::buffer(header.data(), 5),
             net::redirect_error(net::use_awaitable, ec));
 
-        if (ec || header_n < 5)
+        if (ec)
         {
+            if (deadline)
+            {
+                deadline->cancel();
+            }
             ec_out = ec;
             co_return std::nullopt;
         }
 
+        // safe: casting byte buffer to uint8_t to parse TLS record header fields
         const auto *raw = reinterpret_cast<const std::uint8_t *>(header.data());
         const std::uint16_t record_length = (static_cast<std::uint16_t>(raw[3]) << 8) | raw[4];
 
@@ -41,11 +62,20 @@ namespace psm::stealth::common
                 sock, net::buffer(payload.data(), payload.size()),
                 net::redirect_error(net::use_awaitable, ec));
 
-            if (ec || payload_n < record_length)
+            if (ec)
             {
+                if (deadline)
+                {
+                    deadline->cancel();
+                }
                 ec_out = ec;
                 co_return std::nullopt;
             }
+        }
+
+        if (deadline)
+        {
+            deadline->cancel();
         }
 
         co_return frame;

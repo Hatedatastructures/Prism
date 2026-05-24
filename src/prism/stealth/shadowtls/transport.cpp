@@ -9,6 +9,7 @@
 #include <openssl/hmac.h>
 #include <openssl/sha.h>
 #include <openssl/crypto.h>
+#include <cstdint>
 #include <cstring>
 #include <algorithm>
 
@@ -18,14 +19,15 @@ namespace psm::stealth::shadowtls
 {
     namespace
     {
-        /// 计算 XOR 密钥：SHA256(password + serverRandom)
+        // 计算 XOR 密钥：SHA256(password + serverRandom)
         [[nodiscard]] auto compute_write_key(std::string_view password, std::span<const std::byte> server_random)
             -> memory::vector<std::uint8_t>
         {
             SHA256_CTX sha_ctx;
             SHA256_Init(&sha_ctx);
             SHA256_Update(&sha_ctx, password.data(), password.size());
-            SHA256_Update(&sha_ctx, reinterpret_cast<const unsigned char *>(server_random.data()),
+            // safe: SSL API requires uint8_t*, byte span data is read-only for SHA256
+            SHA256_Update(&sha_ctx, reinterpret_cast<const std::uint8_t *>(server_random.data()),
                          server_random.size());
             memory::vector<std::uint8_t> key(32);
             SHA256_Final(key.data(), &sha_ctx);
@@ -146,6 +148,7 @@ namespace psm::stealth::shadowtls
             co_return std::nullopt;
         }
 
+        // safe: casting byte buffer to uint8_t to parse TLS record header fields
         const auto *raw = reinterpret_cast<const std::uint8_t *>(header.data());
         const std::uint16_t record_length = (static_cast<std::uint16_t>(raw[3]) << 8) | raw[4];
 
@@ -201,13 +204,14 @@ namespace psm::stealth::shadowtls
         }
 
         // 累积 HMAC：写入 actual_data
+        // safe: SSL HMAC API requires uint8_t*, byte span data is read-only
         HMAC_Update(hmac_read_ctx_.get(),
-                   reinterpret_cast<const unsigned char *>(actual_data.data()),
+                   reinterpret_cast<const std::uint8_t *>(actual_data.data()),
                    actual_data.size());
 
         // 计算当前 HMAC[:4]（使用 copy 避免改变状态）
         std::array<std::uint8_t, EVP_MAX_MD_SIZE> md{};
-        unsigned int md_len = 0;
+        std::uint32_t md_len = 0;
         {
             HMAC_CTX *hmac_copy = HMAC_CTX_new();
             HMAC_CTX_copy(hmac_copy, hmac_read_ctx_.get());
@@ -266,8 +270,9 @@ namespace psm::stealth::shadowtls
         // 注意：XOR 加密只在握手阶段使用，传输阶段发送 plain payload
 
         // 累积 HMAC：写入 plain payload
+        // safe: SSL HMAC API requires uint8_t*, byte span data is read-only
         HMAC_Update(hmac_write_ctx_.get(),
-                   reinterpret_cast<const unsigned char *>(payload.data()),
+                   reinterpret_cast<const std::uint8_t *>(payload.data()),
                    payload.size());
 
         // 计算当前 HMAC（使用 copy 避免改变累积状态）
@@ -276,7 +281,7 @@ namespace psm::stealth::shadowtls
         HMAC_CTX *hmac_copy = HMAC_CTX_new();
         HMAC_CTX_copy(hmac_copy, hmac_write_ctx_.get());
         std::array<std::uint8_t, EVP_MAX_MD_SIZE> md{};
-        unsigned int md_len = 0;
+        std::uint32_t md_len = 0;
         HMAC_Final(hmac_copy, md.data(), &md_len);
         HMAC_CTX_free(hmac_copy);
 
@@ -293,6 +298,7 @@ namespace psm::stealth::shadowtls
         // 参照 sing-shadowtls verifiedConn.write: 发送 plain payload，不 XOR
         const std::uint16_t tls_payload_len = static_cast<std::uint16_t>(hmac_size + payload.size());
         memory::vector<std::byte> frame(tls_header_size + tls_payload_len);
+        // safe: casting mutable byte vector to uint8_t for in-place TLS frame header construction
         auto *raw = reinterpret_cast<std::uint8_t *>(frame.data());
 
         // TLS header

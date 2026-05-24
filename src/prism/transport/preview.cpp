@@ -15,8 +15,8 @@ namespace psm::transport
     {
         if (!inner_)
         {
-            trace::error("[Preview] executor called with null inner transmission");
-            throw std::runtime_error("preview::executor called with null inner transmission");
+            trace::error("[Transport] preview::executor() called with null inner transport");
+            return executor_type{};
         }
         return inner_->executor();
     }

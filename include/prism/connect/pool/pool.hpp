@@ -43,7 +43,7 @@ namespace psm::connect
     {
         std::uint16_t port = 0;                  // 端口号
         std::uint8_t family = 0;                 // 协议族：4 表示 IPv4，6 表示 IPv6
-        std::array<unsigned char, 16> address{}; // IP 地址，IPv4 使用前 4 字节
+        std::array<std::uint8_t, 16> address{}; // IP 地址，IPv4 使用前 4 字节
 
         friend bool operator==(const endpoint_key &l, const endpoint_key &r) = default;
     };
@@ -305,7 +305,7 @@ namespace psm::connect
         /**
          * @brief 清理所有缓存连接
          * @details 取消后台清理定时器，关闭并释放所有缓存中的 socket，
-         * 清空缓存容器。在析构函数中调用。
+         * 清空缓存容器。在析构函数和 stop() 中调用。
          */
         void clear();
 

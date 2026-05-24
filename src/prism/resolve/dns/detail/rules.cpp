@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <boost/asio.hpp>
 #include <cctype>
+#include <cstdint>
 #include <string>
 #include <prism/trace.hpp>
 
@@ -14,7 +15,7 @@ namespace psm::resolve::dns::detail
     {
         // 使用默认内存资源（静态函数无法访问实例 mr_）
         memory::string result(s.size(), '\0');
-        auto to_lower = [](const unsigned char ch)
+        auto to_lower = [](const std::uint8_t ch)
         {
             return static_cast<char>(std::tolower(ch));
         };

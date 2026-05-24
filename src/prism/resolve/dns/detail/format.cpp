@@ -5,6 +5,7 @@
 #include <algorithm>
 #include <array>
 #include <cctype>
+#include <cstdint>
 #include <cstring>
 #include <limits>
 #include <unordered_map>
@@ -15,18 +16,14 @@ namespace psm::resolve::dns::detail
 
     namespace
     {
-        /**
-         * @brief 向缓冲区写入 16 位大端整数
-         */
+        // 向缓冲区写入 16 位大端整数
         void write_u16_be(memory::vector<std::uint8_t> &buf, const std::size_t offset, const std::uint16_t value)
         {
             buf[offset] = static_cast<std::uint8_t>(value >> 8);
             buf[offset + 1] = static_cast<std::uint8_t>(value & 0xFF);
         }
 
-        /**
-         * @brief 向缓冲区写入 32 位大端整数
-         */
+        // 向缓冲区写入 32 位大端整数
         void write_u32_be(memory::vector<std::uint8_t> &buf, const std::size_t offset, const std::uint32_t value)
         {
             buf[offset] = static_cast<std::uint8_t>(value >> 24);
@@ -35,18 +32,14 @@ namespace psm::resolve::dns::detail
             buf[offset + 3] = static_cast<std::uint8_t>(value & 0xFF);
         }
 
-        /**
-         * @brief 从缓冲区读取 16 位大端整数
-         */
+        // 从缓冲区读取 16 位大端整数
         [[nodiscard]] auto read_u16_be(const std::span<const std::uint8_t> data, const std::size_t offset)
             -> std::uint16_t
         {
             return (static_cast<std::uint16_t>(data[offset]) << 8) | static_cast<std::uint16_t>(data[offset + 1]);
         }
 
-        /**
-         * @brief 从缓冲区读取 32 位大端整数
-         */
+        // 从缓冲区读取 32 位大端整数
         [[nodiscard]] auto read_u32_be(const std::span<const std::uint8_t> data, const std::size_t offset)
             -> std::uint32_t
         {
@@ -55,12 +48,8 @@ namespace psm::resolve::dns::detail
                    static_cast<std::uint32_t>(data[offset + 3]);
         }
 
-        /**
-         * @brief 将域名转换为小写并去除末尾点号
-         * @param domain 原始域名
-         * @return 处理后的域名 string_view（引用同一缓冲区，不做拷贝）
-         * @note 调用方需保证原始域名在返回值使用期间有效
-         */
+        // 将域名转换为小写并去除末尾点号
+        // 调用方需保证原始域名在返回值使用期间有效
         [[nodiscard]] auto normalize_domain(const std::string_view domain)
             -> std::string_view
         {
@@ -72,9 +61,7 @@ namespace psm::resolve::dns::detail
             return trimmed;
         }
 
-        /**
-         * @brief 将域名转为小写 PMR string（去除末尾点号）
-         */
+        // 将域名转为小写 PMR string（去除末尾点号）
         [[nodiscard]] auto to_lower_domain(const std::string_view domain, memory::resource_pointer mr)
             -> memory::string
         {
@@ -82,27 +69,18 @@ namespace psm::resolve::dns::detail
             memory::string result(trimmed.size(), '\0', mr);
             for (std::size_t i = 0; i < trimmed.size(); ++i)
             {
-                result[i] = static_cast<char>(std::tolower(static_cast<unsigned char>(trimmed[i])));
+                result[i] = static_cast<char>(std::tolower(static_cast<std::uint8_t>(trimmed[i])));
             }
             return result;
         }
 
-        /**
-         * @brief 编码单个域名到缓冲区，使用压缩指针优化
-         * @param domain 待编码域名（小写无末尾点号的 dotted 格式）
-         * @param buf 目标缓冲区
-         * @param pos 当前写入位置（传入时为域名标签起始偏移）
-         * @param compression 压缩映射表（域名后缀 -> 偏移量）
-         * @return 编码完成后的新写入位置
-         *```
-         * 算法：从最长后缀开始查找压缩机会。
-         * 例如 "www.example.com" 依次尝试：
-         *   "www.example.com" -> 未命中
-         *   "example.com"      -> 未命中，登记偏移
-         *   "com"              -> 未命中，登记偏移
-         * 全部未命中则按标签逐段写入；若某后缀命中则写入压缩指针。
-         * ````
-         */
+        // 编码单个域名到缓冲区，使用压缩指针优化
+        // 算法：从最长后缀开始查找压缩机会。
+        // 例如 "www.example.com" 依次尝试：
+        //   "www.example.com" -> 未命中
+        //   "example.com"      -> 未命中，登记偏移
+        //   "com"              -> 未命中，登记偏移
+        // 全部未命中则按标签逐段写入；若某后缀命中则写入压缩指针。
         [[nodiscard]] auto encode_name(const std::string_view domain, memory::vector<std::uint8_t> &buf,
                                        std::size_t pos, std::unordered_map<std::string_view, std::uint16_t> &compression)
             -> std::size_t
@@ -153,18 +131,11 @@ namespace psm::resolve::dns::detail
             return buf.size();
         }
 
-        /**
-         * @brief 解码 DNS 域名（wire format -> dotted 格式）
-         * @param data 完整 DNS 报文缓冲区
-         * @param offset 域名起始偏移（输入/输出参数）
-         @param jumps 压缩指针跳转计数（用于检测循环）
-         * @return 解码后的域名 string_view（引用原始缓冲区数据）
-         *
-         * 算法：
-         * - < 0xC0: 普通标签，读长度 + 内容
-         * - >= 0xC0: 压缩指针，低 14 位为偏移量，递归跳转
-         * - 跳转计数 > 255 视为循环，返回空 string_view
-         */
+        // 解码 DNS 域名（wire format -> dotted 格式）
+        // 算法：
+        // - < 0xC0: 普通标签，读长度 + 内容
+        // - >= 0xC0: 压缩指针，低 14 位为偏移量，递归跳转
+        // - 跳转计数 > 255 视为循环，返回空 string_view
         [[nodiscard]] auto decode_name_raw(const std::span<const std::uint8_t> data, std::size_t &offset, std::size_t &jumps)
             -> std::string_view
         {
@@ -266,14 +237,7 @@ namespace psm::resolve::dns::detail
             return std::string_view(tls_buf);
         }
 
-        /**
-         * @brief 解码 DNS 域名并返回 PMR string
-         * @param data 完整 DNS 报文缓冲区
-         * @param offset 域名起始偏移（输入/输出参数）
-         * @param jumps 压缩指针跳转计数
-         * @param mr PMR 内存资源指针
-         * @return 解码后的 PMR string；解码失败时返回空字符串
-         */
+        // 解码 DNS 域名并返回 PMR string；解码失败时返回空字符串
         [[nodiscard]] auto decode_name(const std::span<const std::uint8_t> data,
                                        std::size_t &offset, std::size_t &jumps, memory::resource_pointer mr)
             -> memory::string

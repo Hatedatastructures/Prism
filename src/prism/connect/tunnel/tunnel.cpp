@@ -29,6 +29,21 @@ namespace psm::connect
 
         std::array<std::size_t, 2> total_bytes{0, 0};
 
+        // 空闲超时: 300 秒无数据传输则关闭隧道
+        constexpr auto idle_timeout = std::chrono::seconds(300);
+        auto idle_timer = std::make_shared<net::steady_timer>(co_await net::this_coro::executor);
+        auto on_idle_timeout = [inbound, outbound](const boost::system::error_code &ec)
+        {
+            if (!ec)
+            {
+                trace::info("{} idle timeout, closing tunnel", TunnelStr);
+                inbound->cancel();
+                outbound->cancel();
+            }
+        };
+        idle_timer->expires_after(idle_timeout);
+        idle_timer->async_wait(on_idle_timeout);
+
         struct forward_context
         {
             const trans &from;
@@ -37,7 +52,7 @@ namespace psm::connect
             const std::size_t idx;
         };
 
-        auto forward_data = [complete_write, &total_bytes](forward_context context)
+        auto forward_data = [complete_write, &total_bytes, &idle_timer, &on_idle_timeout, idle_timeout](forward_context context)
             -> net::awaitable<void>
         {
             const bool is_download = (context.idx == 1);
@@ -58,6 +73,10 @@ namespace psm::connect
                 total_bytes[context.idx] += transferred;
                 trace::debug("{} forward[{}]: read {} bytes, total now {}",
                             TunnelStr, is_download ? "download" : "upload", transferred, total_bytes[context.idx]);
+
+                // 重置空闲超时
+                idle_timer->expires_after(idle_timeout);
+                idle_timer->async_wait(on_idle_timeout);
 
                 const auto data = context.scratch.first(transferred);
                 std::size_t written;
@@ -80,11 +99,18 @@ namespace psm::connect
                                 TunnelStr, is_download ? "download" : "upload", written, transferred);
                     co_return;
                 }
+
+                // 重置空闲超时
+                idle_timer->expires_after(idle_timeout);
+                idle_timer->async_wait(on_idle_timeout);
             }
         };
 
         using namespace boost::asio::experimental::awaitable_operators;
         co_await (forward_data({inbound, outbound, left, 0}) || forward_data({outbound, inbound, right, 1}));
+
+        // 取消空闲超时定时器
+        idle_timer->cancel();
 
         const auto end_time = std::chrono::steady_clock::now();
         if (const auto up = total_bytes[0], down = total_bytes[1]; up > 0 || down > 0)

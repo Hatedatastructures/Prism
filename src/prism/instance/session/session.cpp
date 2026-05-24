@@ -19,6 +19,9 @@
 #include <prism/exception.hpp>
 #include <prism/stats/traffic.hpp>
 #include <prism/protocol/protocol_type.hpp>
+#include <prism/fault/code.hpp>
+#include <boost/asio/experimental/awaitable_operators.hpp>
+#include <chrono>
 
 namespace psm::instance::session
 {
@@ -147,14 +150,55 @@ namespace psm::instance::session
             co_return;
         }
 
-        // 1. 完整识别流程（统一入口：外层探测 + TLS 伪装方案识别）
-        auto result = co_await recognition::recognize(recognition::recognize_context{
-            .transport = ctx_.inbound,
-            .cfg = &ctx_.server_ctx.config(),
-            .router = &ctx_.worker_ctx.router,
-            .session = &ctx_,
-            .frame_arena = &ctx_.frame_arena
-        });
+        // 1. 完整识别流程（统一入口：外层探测 + TLS 伪装方案识别），带 30 秒握手超时
+        handshake_deadline_ = std::make_unique<net::steady_timer>(
+            ctx_.inbound->executor(), std::chrono::seconds(30));
+
+        auto deadline_expired = [this]() -> net::awaitable<bool>
+        {
+            boost::system::error_code ec;
+            co_await handshake_deadline_->async_wait(net::redirect_error(net::use_awaitable, ec));
+            co_return true;
+        };
+
+        auto do_recognize = [this]() -> net::awaitable<recognition::recognize_result>
+        {
+            co_return co_await recognition::recognize(recognition::recognize_context{
+                .transport = ctx_.inbound,
+                .cfg = &ctx_.server_ctx.config(),
+                .router = &ctx_.worker_ctx.router,
+                .session = &ctx_,
+                .frame_arena = &ctx_.frame_arena
+            });
+        };
+
+        using namespace boost::asio::experimental::awaitable_operators;
+        auto variant = co_await (do_recognize() || deadline_expired());
+
+        recognition::recognize_result result;
+        bool timed_out = false;
+
+        if (std::holds_alternative<recognition::recognize_result>(variant))
+        {
+            result = std::get<recognition::recognize_result>(std::move(variant));
+        }
+        else
+        {
+            // 定时器先触发，识别超时
+            timed_out = true;
+        }
+
+        // 无论谁先完成，取消定时器
+        handshake_deadline_->cancel();
+        handshake_deadline_.reset();
+
+        if (timed_out)
+        {
+            // 取消传输层以中止识别流程
+            ctx_.inbound->cancel();
+            trace::warn("[Session] [{}] Handshake deadline exceeded, aborting.", id_);
+            co_return;
+        }
 
         if (!result.success)
         {

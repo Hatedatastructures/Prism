@@ -51,14 +51,12 @@ namespace psm::stats::runtime
             event_loop_lag_us_.load(std::memory_order_relaxed)};
     }
 
-    /**
-     * @details 算法流程：
-     * 1. 每 250ms 设置定时器并等待
-     * 2. 测量实际等待时间与预期时间的偏差
-     * 3. 前 16 次采样为预热，建立抖动基线（jitter_baseline_us）
-     * 4. 之后的有效延迟 = 实际延迟 - 抖动基线，低于 1ms 的忽略
-     * 5. EMA 平滑系数 7/8，与 Linux 内核 load average 一致
-     */
+    // 算法流程：
+    // 1. 每 250ms 设置定时器并等待
+    // 2. 测量实际等待时间与预期时间的偏差
+    // 3. 前 16 次采样为预热，建立抖动基线（jitter_baseline_us）
+    // 4. 之后的有效延迟 = 实际延迟 - 抖动基线，低于 1ms 的忽略
+    // 5. EMA 平滑系数 7/8，与 Linux 内核 load average 一致
     auto worker_load::observe(net::io_context &ioc)
         -> net::awaitable<void>
     {

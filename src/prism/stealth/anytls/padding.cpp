@@ -6,6 +6,7 @@
 #include <prism/stealth/anytls/padding.hpp>
 
 #include <cstdlib>
+#include <cstdint>
 #include <cstring>
 #include <random>
 
@@ -15,7 +16,7 @@ namespace psm::stealth::anytls
 {
     namespace
     {
-        /// 解析 "min-max" 为密码学安全随机整数 [min, max]
+        // 解析 "min-max" 为密码学安全随机整数 [min, max]
         auto random_in_range(int lo, int hi)
             -> int
         {
@@ -28,7 +29,7 @@ namespace psm::stealth::anytls
             return dist(gen);
         }
 
-        /// 解析 "min-max" 字符串
+        // 解析 "min-max" 字符串
         auto parse_range(std::string_view seg)
             -> std::pair<int, int>
         {
@@ -45,12 +46,12 @@ namespace psm::stealth::anytls
             return {std::atoi(lo_str.c_str()), std::atoi(hi_str.c_str())};
         }
 
-        /// 计算 MD5 摘要，返回十六进制字符串
+        // 计算 MD5 摘要，返回十六进制字符串
         auto compute_md5_hex(std::string_view data)
             -> memory::string
         {
-            std::array<unsigned char, 16> digest{};
-            unsigned int digest_len = 0;
+            std::array<std::uint8_t, 16> digest{};
+            std::uint32_t digest_len = 0;
 
             EVP_MD_CTX *ctx = EVP_MD_CTX_new();
             EVP_DigestInit_ex(ctx, EVP_md5(), nullptr);

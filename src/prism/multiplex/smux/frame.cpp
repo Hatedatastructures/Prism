@@ -141,6 +141,7 @@ namespace psm::multiplex::smux
             {
                 return std::nullopt;
             }
+            // safe: casting uint8_t array region to char* for string construction, byte values are ASCII domain
             host.assign(reinterpret_cast<const char *>(&data[4]), domain_len);
             offset += 1 + domain_len;
             break;
@@ -218,6 +219,7 @@ namespace psm::multiplex::smux
             {
                 return std::nullopt;
             }
+            // safe: casting uint8_t array region to char* for string construction, byte values are ASCII domain
             host.assign(reinterpret_cast<const char *>(&data[2]), domain_len);
             offset += 1 + domain_len;
             break;

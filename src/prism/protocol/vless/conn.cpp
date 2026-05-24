@@ -19,9 +19,7 @@ namespace psm::protocol::vless
     using protocol::common::read_at_least;
     using protocol::common::read_remaining;
 
-    /**
-     * @brief 将 UUID 字节数组转换为标准字符串格式
-     */
+    // 将 UUID 字节数组转换为标准字符串格式
     static auto uuid_to_string(const std::array<uint8_t, 16> &uuid)
         -> std::string
     {
@@ -85,8 +83,20 @@ namespace psm::protocol::vless
         // 缓冲区足够容纳最大 VLESS 请求
         // 最大: Version(1) + UUID(16) + AddnlInfoLen(1) + Cmd(1) + Port(2) + Atyp(1) + DomainLen(1) + Domain(255) = 278
         std::array<std::uint8_t, 320> buffer{};
+        // safe: casting uint8_t array to byte span for async read, same memory layout
         const auto byte_span = std::span(reinterpret_cast<std::byte *>(buffer.data()), buffer.size());
         const auto data_span = std::span<const std::uint8_t>(buffer.data(), buffer.size());
+
+        // 握手超时保护：30 秒内必须完成
+        net::steady_timer deadline(next_layer_->executor(), std::chrono::seconds(30));
+        deadline.async_wait(
+            [this](const boost::system::error_code &ec)
+            {
+                if (!ec)
+                {
+                    next_layer_->cancel();
+                }
+            });
 
         // 最小请求长度：Version(1) + UUID(16) + AddnlInfoLen(1) + Cmd(1) + Port(2) + Atyp(1) + IPv4(4) = 26
         static constexpr std::size_t k_min_request_size = 26;
@@ -98,12 +108,18 @@ namespace psm::protocol::vless
         auto [read_ec, total] = co_await read_at_least(*next_layer_, byte_span.first(k_min_request_size), k_min_request_size);
         if (fault::failed(read_ec))
         {
+            deadline.cancel();
+            if (read_ec == fault::code::canceled)
+            {
+                co_return std::pair{fault::code::timeout, request{}};
+            }
             co_return std::pair{read_ec, request{}};
         }
 
         // 校验版本号
         if (buffer[0] != version)
         {
+            deadline.cancel();
             co_return std::pair{fault::code::bad_message, request{}};
         }
 
@@ -115,6 +131,7 @@ namespace psm::protocol::vless
         const std::uint8_t addnl_len = buffer[17];
         if (addnl_len != 0)
         {
+            deadline.cancel();
             co_return std::pair{fault::code::bad_message, request{}};
         }
 
@@ -128,6 +145,7 @@ namespace psm::protocol::vless
         case command::udp:
             break;
         default:
+            deadline.cancel();
             co_return std::pair{fault::code::unsupported_command, request{}};
         }
 
@@ -157,6 +175,11 @@ namespace psm::protocol::vless
                 auto [rem_ec, new_total] = co_await read_remaining(*next_layer_, byte_span.first(offset + 1), total, offset + 1);
                 if (fault::failed(rem_ec))
                 {
+                    deadline.cancel();
+                    if (rem_ec == fault::code::canceled)
+                    {
+                        co_return std::pair{fault::code::timeout, request{}};
+                    }
                     co_return std::pair{rem_ec, request{}};
                 }
                 total = new_total;
@@ -166,6 +189,7 @@ namespace psm::protocol::vless
             break;
         }
         default:
+            deadline.cancel();
             co_return std::pair{fault::code::unsupported_address, request{}};
         }
 
@@ -176,6 +200,11 @@ namespace psm::protocol::vless
             auto [rem_ec, new_total] = co_await read_remaining(*next_layer_, byte_span.first(required_total), total, required_total);
             if (fault::failed(rem_ec))
             {
+                deadline.cancel();
+                if (rem_ec == fault::code::canceled)
+                {
+                    co_return std::pair{fault::code::timeout, request{}};
+                }
                 co_return std::pair{rem_ec, request{}};
             }
             total = new_total;
@@ -209,6 +238,7 @@ namespace psm::protocol::vless
             break;
         }
         default:
+            deadline.cancel();
             co_return std::pair{fault::code::unsupported_address, request{}};
         }
 
@@ -218,6 +248,7 @@ namespace psm::protocol::vless
             const auto uuid_str = uuid_to_string(uuid);
             if (!verifier_(uuid_str))
             {
+                deadline.cancel();
                 trace::warn("[Vless] UUID verification failed");
                 co_return std::pair{fault::code::auth_failed, request{}};
             }
@@ -227,6 +258,7 @@ namespace psm::protocol::vless
         const auto response = format::make_response();
         std::error_code write_ec;
         co_await transport::async_write(*next_layer_, {response.data(), response.size()}, write_ec);
+        deadline.cancel();
         if (write_ec)
         {
             co_return std::pair{fault::to_code(write_ec), request{}};

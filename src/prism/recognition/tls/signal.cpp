@@ -56,6 +56,7 @@ namespace psm::recognition::tls
             header_read += n;
         }
 
+        // safe: casting byte buffer to uint8_t to parse TLS record header fields
         const auto *raw = reinterpret_cast<const std::uint8_t *>(header.data());
         const auto content_type = raw[0];
         const auto record_length = read_u16({raw, RECORD_HEADER_LEN}, 3);
@@ -81,6 +82,7 @@ namespace psm::recognition::tls
         while (read_offset < total)
         {
             std::error_code ec;
+            // safe: casting uint8_t vector region to mutable byte span for async read
             const auto buf_span = std::span(reinterpret_cast<std::byte *>(record.data() + read_offset), total - read_offset);
             const auto n = co_await transport.async_read_some(buf_span, ec);
             if (ec || n == 0)
@@ -103,8 +105,8 @@ namespace psm::recognition::tls
             co_return co_await read_tls_record(transport);
         }
 
+        // safe: casting byte preread buffer to uint8_t to parse TLS record header fields
         const auto *raw = reinterpret_cast<const std::uint8_t *>(preread.data());
-
         if (const auto content_type = raw[0]; content_type != CONTENT_TYPE_HANDSHAKE)
         {
             trace::error("{} not a handshake record: 0x{:02x}", Tag, content_type);
@@ -138,6 +140,7 @@ namespace psm::recognition::tls
         while (read_offset < total)
         {
             std::error_code ec;
+            // safe: casting uint8_t vector region to mutable byte span for async read
             const auto buf_span = std::span(reinterpret_cast<std::byte *>(buffer.data() + read_offset), total - read_offset);
             const auto n = co_await transport.async_read_some(buf_span, ec);
             if (ec || n == 0)
@@ -186,6 +189,7 @@ namespace psm::recognition::tls
 
             if (offset + name_len > ext_data.size())
                 break;
+            // safe: casting uint8_t SNI extension data to char* for server name extraction
             features.server_name.assign(
                 reinterpret_cast<const char *>(ext_data.data() + offset),
                 name_len);

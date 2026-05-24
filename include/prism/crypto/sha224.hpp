@@ -10,6 +10,7 @@
 #include <string_view>
 #include <array>
 #include <cctype>
+#include <cstdint>
 
 namespace psm::crypto
 {
@@ -21,8 +22,8 @@ namespace psm::crypto
     [[nodiscard]] inline auto sha224(const std::string_view input)
         -> std::string
     {
-        std::array<unsigned char, SHA224_DIGEST_LENGTH> hash{};
-        SHA224(reinterpret_cast<const unsigned char *>(input.data()), input.size(), hash.data());
+        std::array<std::uint8_t, SHA224_DIGEST_LENGTH> hash{};
+        SHA224(reinterpret_cast<const std::uint8_t *>(input.data()), input.size(), hash.data());
 
         std::string result;
         result.reserve(56);
@@ -45,7 +46,7 @@ namespace psm::crypto
     {
         for (const auto c : str)
         {
-            if (!std::isxdigit(static_cast<unsigned char>(c)))
+            if (!std::isxdigit(static_cast<std::uint8_t>(c)))
             {
                 return false;
             }

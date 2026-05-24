@@ -83,14 +83,14 @@ namespace psm::resolve::dns
 
     namespace
     {
-        /// 传输操作中间结果，包含解析结果和 DNS 响应报文
+        // 传输操作中间结果，包含解析结果和 DNS 响应报文
         struct transport_result
         {
             query_result result;             // RTT、server_addr、error 已填充
             std::optional<message> response; // 解析后的 DNS 响应（TC 检查需要）
         };
 
-        /// 传输上下文：聚合超时定时器和超时时间，消除重复传递
+        // 传输上下文：聚合超时定时器和超时时间，消除重复传递
         struct transport_context
         {
             net::steady_timer timer;
@@ -100,7 +100,7 @@ namespace psm::resolve::dns
                 : timer(ioc), timeout_ms(timeout) {}
         };
 
-        /// 为 TCP socket 装配超时回调
+        // 为 TCP socket 装配超时回调
         auto arm_tcp(transport_context &ctx, const std::shared_ptr<net::ip::tcp::socket> &sock)
             -> void
         {
@@ -113,7 +113,7 @@ namespace psm::resolve::dns
                     } });
         }
 
-        /// 为 SSL stream 装配超时回调
+        // 为 SSL stream 装配超时回调
         auto arm_ssl_stream(transport_context &ctx, const std::shared_ptr<ssl::stream<net::ip::tcp::socket>> &ssl_sock)
             -> void
         {
@@ -126,7 +126,7 @@ namespace psm::resolve::dns
                     } });
         }
 
-        /// 共享逻辑：建立 TCP 连接（被 TCP、TLS、DoH 复用）
+        // 共享逻辑：建立 TCP 连接（被 TCP、TLS、DoH 复用）
         auto tcp_connect(net::io_context &ioc, const net::ip::tcp::endpoint &target,
                          transport_context &ctx, boost::system::error_code &ec)
             -> net::awaitable<std::shared_ptr<net::ip::tcp::socket>>
@@ -141,7 +141,7 @@ namespace psm::resolve::dns
             co_return sock;
         }
 
-        /// 共享逻辑：TLS 握手（被 TLS、DoH 复用）
+        // 共享逻辑：TLS 握手（被 TLS、DoH 复用）
         auto tls_handshake(std::shared_ptr<net::ip::tcp::socket> sock, std::shared_ptr<ssl::context> ssl_ctx,
                            transport_context &ctx, boost::system::error_code &ec)
             -> net::awaitable<std::shared_ptr<ssl::stream<net::ip::tcp::socket>>>
@@ -157,7 +157,7 @@ namespace psm::resolve::dns
             co_return ssl_sock;
         }
 
-        /// 共享逻辑：读取 2 字节长度前缀帧（被 TCP、TLS 复用）
+        // 共享逻辑：读取 2 字节长度前缀帧（被 TCP、TLS 复用）
         auto read_dns_frame(auto &stream, memory::resource_pointer mr,
                             transport_context &ctx, boost::system::error_code &ec)
             -> net::awaitable<memory::vector<uint8_t>>
@@ -494,6 +494,7 @@ namespace psm::resolve::dns
                     {
                         break;
                     }
+                    // safe: casting mutable buffer to const char* for string append, data is read from socket
                     header_data.append(reinterpret_cast<const char *>(recv_buf.data()), n);
                     if (header_data.size() > 65536) [[unlikely]]
                     {
@@ -587,7 +588,7 @@ namespace psm::resolve::dns
 
         // ─── 公共查询管道 ─────────────────────────────────────
 
-        /// 执行完整的 DNS 查询流程：connect → send → recv → parse → validate
+        // 执行完整的 DNS 查询流程：connect -> send -> recv -> parse -> validate
         template <typename Transport>
         auto query_via(Transport transport, const dns_remote &server, const message &query,
                        net::io_context &ioc, uint32_t default_timeout, memory::resource_pointer mr)

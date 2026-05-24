@@ -497,11 +497,9 @@ namespace psm::multiplex::smux
         }
     }
 
-    /**
-     * @brief 发送循环，将多路复用帧写入底层传输
-     * @details scatter-gather 写入：先写 8 字节帧头，再写 payload。
-     * header 与 payload 分离传递，消除 serialize 的 payload 拷贝。
-     */
+    // 发送循环，将多路复用帧写入底层传输
+    // scatter-gather 写入：先写 8 字节帧头，再写 payload。
+    // header 与 payload 分离传递，消除 serialize 的 payload 拷贝。
     auto craft::send_loop()
         -> net::awaitable<void>
     {

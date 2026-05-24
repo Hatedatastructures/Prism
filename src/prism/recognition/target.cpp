@@ -5,31 +5,19 @@ namespace psm::recognition
 {
     namespace
     {
-        /// HTTP 方法列表，用于协议检测（最短 4 字节 "GET "）
+        // HTTP 方法列表，用于协议检测（最短 4 字节 "GET "）
         static constexpr std::array<std::string_view, 9> http_methods = {
             "GET ", "POST ", "HEAD ", "PUT ", "DELETE ",
             "CONNECT ", "OPTIONS ", "TRACE ", "PATCH "};
 
-        /**
-         * @brief 获取内存资源
-         * @param mr 提供的内存资源指针
-         * @return 优先使用 mr，否则使用默认内存资源
-         */
+        // 获取内存资源，优先使用 mr，否则使用默认内存资源
         [[nodiscard]] auto resolve_mr(const memory::resource_pointer mr) noexcept
             -> memory::resource_pointer
         {
             return mr ? mr : memory::current_resource();
         }
 
-        /**
-         * @brief 解析绝对 URI
-         * @param uri 要解析的 URI
-         * @param host 解析出的主机名
-         * @param port 解析出的端口号
-         * @param path 解析出的路径
-         * @return 如果解析成功，返回 true；否则返回 false
-         * @details 支持 HTTP 和 HTTPS 协议。
-         */
+        // 解析绝对 URI，支持 HTTP 和 HTTPS 协议
         auto parse_absolute_uri(const std::string_view uri, memory::string &host, memory::string &port, memory::string &path)
             -> bool
         {

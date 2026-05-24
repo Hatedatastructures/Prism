@@ -38,6 +38,7 @@ set(SPDLOG_BUILD_TESTS OFF CACHE BOOL "" FORCE)
 FetchContent_Declare(
     spdlog
     URL https://github.com/gabime/spdlog/archive/refs/tags/v1.17.0.tar.gz
+    URL_HASH SHA256=d8862955c6d74e5846b3f580b1605d2428b11d97a410d86e2fb13e857cd3a744
     DOWNLOAD_EXTRACT_TIMESTAMP TRUE
 )
 FetchContent_MakeAvailable(spdlog)
@@ -49,6 +50,7 @@ FetchContent_MakeAvailable(spdlog)
 FetchContent_Declare(
     boost_src
     URL https://archives.boost.io/release/1.89.0/source/boost_1_89_0.tar.bz2
+    URL_HASH SHA256=85a33fa22621b4f314f8e85e1a5e2a9363d22e4f4992925d4bb3bc631b5a0c7a
     DOWNLOAD_EXTRACT_TIMESTAMP TRUE  # 解压文件使用下载时间戳，确保 URL 变更时触发重新构建
 )
 FetchContent_MakeAvailable(boost_src)
@@ -69,6 +71,7 @@ set(GLAZE_INSTALL OFF CACHE BOOL "" FORCE)
 FetchContent_Declare(
     glaze
     URL https://github.com/stephenberry/glaze/archive/refs/tags/v6.5.1.tar.gz
+    URL_HASH SHA256=90303d360752bbac0a71c929fd4ba141892567a6dd10ecb3f27eb27779413662
     DOWNLOAD_EXTRACT_TIMESTAMP TRUE
 )
 FetchContent_MakeAvailable(glaze)
@@ -174,6 +177,7 @@ find_package(Threads REQUIRED)
 FetchContent_Declare(
     boringssl
     URL https://github.com/google/boringssl/archive/beafe3db15e3213bbce1711f85f704b6c00413d1.tar.gz
+    URL_HASH SHA256=890af7d232ca5f7dd42c80d421aa906364b97c6653e8fd20f8b06cf21d07b937
     DOWNLOAD_EXTRACT_TIMESTAMP TRUE
 )
 
@@ -221,6 +225,7 @@ endif()
 FetchContent_Declare(
     blake3
     URL https://github.com/BLAKE3-team/BLAKE3/archive/refs/tags/1.8.1.tar.gz
+    URL_HASH SHA256=fc2aac36643db7e45c3653fd98a2a745e6d4d16ff3711e4b7abd3b88639463dd
     DOWNLOAD_EXTRACT_TIMESTAMP TRUE
 )
 FetchContent_MakeAvailable(blake3)
@@ -254,6 +259,7 @@ set(ENABLE_WERROR      OFF CACHE BOOL "" FORCE)
 FetchContent_Declare(
     nghttp2
     URL https://github.com/nghttp2/nghttp2/archive/refs/tags/v1.69.0.tar.gz
+    URL_HASH SHA256=e5ebde703437d4a0bb39e0e2ba03dfda0ee74beba2395003ec71efaf8fb15d03
     DOWNLOAD_EXTRACT_TIMESTAMP TRUE
 )
 FetchContent_MakeAvailable(nghttp2)

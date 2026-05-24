@@ -61,6 +61,7 @@ namespace psm::recognition
         }
 
         // Phase 4: 分层检测
+        // safe: casting uint8_t record data to byte span for TLS pipeline analysis
         auto raw_ch_span = std::span<const std::byte>(
             reinterpret_cast<const std::byte *>(raw_record.data()), raw_record.size());
         auto bitmap = recognition::tls::build_feature_bitmap(features);
@@ -70,6 +71,7 @@ namespace psm::recognition
         auto pipeline_result = pipeline.detect(bitmap, features, raw_ch_span, *ctx.cfg, matched_schemes);
 
         // Phase 5: 构建 preview transport
+        // safe: casting uint8_t record data to byte span for preview transport replay
         auto preread_span = std::span(reinterpret_cast<const std::byte *>(raw_record.data()), raw_record.size());
         auto preview_transport = std::make_shared<transport::preview>(
             ctx.transport, preread_span, ctx.frame_arena ? ctx.frame_arena->get() : memory::current_resource());

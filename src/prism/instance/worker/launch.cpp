@@ -97,7 +97,10 @@ namespace psm::instance::worker::launch
                 }
                 if (!account_store)
                 {
-                    if (traffic) { traffic->on_auth_failure(); }
+                    if (traffic)
+                    {
+                        traffic->on_auth_failure();
+                    }
                     return false;
                 }
                 const auto result = psm::account::contains(*account_store, credential);

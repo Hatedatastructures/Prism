@@ -22,12 +22,7 @@ namespace psm::protocol::trojan
     using protocol::common::read_at_least;
     using protocol::common::read_remaining;
 
-    /**
-     * @brief 验证命令并确定传输形式
-     * @param cmd 命令类型
-     * @param cfg 配置
-     * @return 错误码和传输形式
-     */
+    // 验证命令并确定传输形式
     inline auto validate_command(const command cmd, const config &cfg)
         -> std::pair<fault::code, form>
     {
@@ -52,13 +47,7 @@ namespace psm::protocol::trojan
         }
     }
 
-    /**
-     * @brief 从缓冲区解析地址
-     * @param buffer 数据缓冲区
-     * @param offset 起始偏移
-     * @param atyp 地址类型
-     * @return 错误码、地址、消耗字节数
-     */
+    // 从缓冲区解析地址
     inline auto parse_address_from_buffer(const std::span<const std::uint8_t> buffer, const std::size_t offset, const address_type atyp)
         -> std::tuple<fault::code, address, std::size_t>
     {
@@ -139,8 +128,20 @@ namespace psm::protocol::trojan
     {
         // 缓冲区足够容纳最大请求
         std::array<std::uint8_t, 320> buffer{};
+        // safe: casting uint8_t array to byte span for async read, same memory layout
         const auto byte_span = std::span(reinterpret_cast<std::byte *>(buffer.data()), buffer.size());
         const auto data_span = std::span<const std::uint8_t>(buffer.data(), buffer.size());
+
+        // 握手超时保护：30 秒内必须完成
+        net::steady_timer deadline(next_layer_->executor(), std::chrono::seconds(30));
+        deadline.async_wait(
+            [this](const boost::system::error_code &ec)
+            {
+                if (!ec)
+                {
+                    next_layer_->cancel();
+                }
+            });
 
         // 最小请求长度：56(凭据) + 2(CRLF) + 1(CMD) + 1(ATYP) + 4(IPv4) + 2(PORT) + 2(CRLF) = 68 字节
         static constexpr std::size_t k_min_request_size = 68;
@@ -149,6 +150,11 @@ namespace psm::protocol::trojan
         auto [read_ec, total] = co_await read_at_least(*next_layer_, byte_span, k_min_request_size);
         if (fault::failed(read_ec))
         {
+            deadline.cancel();
+            if (read_ec == fault::code::canceled)
+            {
+                co_return std::pair{fault::code::timeout, request{}};
+            }
             co_return std::pair{read_ec, request{}};
         }
 
@@ -156,6 +162,7 @@ namespace psm::protocol::trojan
         auto [cred_ec, credential] = format::parse_credential(data_span.subspan(0, 56));
         if (fault::failed(cred_ec))
         {
+            deadline.cancel();
             co_return std::pair{cred_ec, request{}};
         }
 
@@ -165,6 +172,7 @@ namespace psm::protocol::trojan
             const std::string_view cred_view(credential.data(), 56);
             if (!verifier_(cred_view))
             {
+                deadline.cancel();
                 co_return std::pair{fault::code::auth_failed, request{}};
             }
         }
@@ -173,6 +181,7 @@ namespace psm::protocol::trojan
         auto crlf1_ec = format::parse_crlf(data_span.subspan(56, 2));
         if (fault::failed(crlf1_ec))
         {
+            deadline.cancel();
             co_return std::pair{crlf1_ec, request{}};
         }
 
@@ -180,6 +189,7 @@ namespace psm::protocol::trojan
         auto [header_ec, header] = format::parse_cmd_atyp(data_span.subspan(58, 2));
         if (fault::failed(header_ec))
         {
+            deadline.cancel();
             co_return std::pair{header_ec, request{}};
         }
 
@@ -202,6 +212,7 @@ namespace psm::protocol::trojan
             break;
         }
         default:
+            deadline.cancel();
             co_return std::pair{fault::code::unsupported_address, request{}};
         }
 
@@ -211,6 +222,11 @@ namespace psm::protocol::trojan
             auto [rem_ec, new_total] = co_await read_remaining(*next_layer_, byte_span, total, required_total);
             if (fault::failed(rem_ec))
             {
+                deadline.cancel();
+                if (rem_ec == fault::code::canceled)
+                {
+                    co_return std::pair{fault::code::timeout, request{}};
+                }
                 co_return std::pair{rem_ec, request{}};
             }
             total = new_total;
@@ -220,6 +236,7 @@ namespace psm::protocol::trojan
         auto [addr_ec, dest_addr, addr_size] = parse_address_from_buffer(data_span, offset, header.atyp);
         if (fault::failed(addr_ec))
         {
+            deadline.cancel();
             co_return std::pair{addr_ec, request{}};
         }
         offset += addr_size;
@@ -227,11 +244,13 @@ namespace psm::protocol::trojan
         // 解析端口
         if (offset + 2 > total)
         {
+            deadline.cancel();
             co_return std::pair{fault::code::bad_message, request{}};
         }
         auto [port_ec, port] = format::parse_port(data_span.subspan(offset, 2));
         if (fault::failed(port_ec))
         {
+            deadline.cancel();
             co_return std::pair{port_ec, request{}};
         }
         offset += 2;
@@ -239,11 +258,13 @@ namespace psm::protocol::trojan
         // 验证结束 CRLF
         if (offset + 2 > total)
         {
+            deadline.cancel();
             co_return std::pair{fault::code::bad_message, request{}};
         }
         auto crlf2_ec = format::parse_crlf(data_span.subspan(offset, 2));
         if (fault::failed(crlf2_ec))
         {
+            deadline.cancel();
             co_return std::pair{crlf2_ec, request{}};
         }
 
@@ -251,8 +272,11 @@ namespace psm::protocol::trojan
         auto [cmd_ec, req_form] = validate_command(header.cmd, config_);
         if (fault::failed(cmd_ec))
         {
+            deadline.cancel();
             co_return std::pair{cmd_ec, request{}};
         }
+
+        deadline.cancel();
 
         // 构建请求
         request req;
