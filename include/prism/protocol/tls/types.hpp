@@ -20,7 +20,7 @@ namespace psm::protocol::tls
     // ═══════════════════════════════════════════════════════════════════════
 
     /** @brief TLS 记录头长度（字节）：ContentType(1) + Version(2) + Length(2) */
-    constexpr std::size_t RECORD_HEADER_LEN = 5;
+    constexpr std::size_t RECORD_HDR_LEN = 5;
 
     /** @brief TLS 记录最大载荷长度 */
     constexpr std::size_t MAX_RECORD_PAYLOAD = 16384;
@@ -29,21 +29,21 @@ namespace psm::protocol::tls
     // Content Type
     // ═══════════════════════════════════════════════════════════════════════
 
-    constexpr std::uint8_t CONTENT_TYPE_CHANGE_CIPHER_SPEC = 0x14;
-    constexpr std::uint8_t CONTENT_TYPE_ALERT = 0x15;
-    constexpr std::uint8_t CONTENT_TYPE_HANDSHAKE = 0x16;
-    constexpr std::uint8_t CONTENT_TYPE_APPLICATION_DATA = 0x17;
+    constexpr std::uint8_t CT_CHANGE_CIPHER_SPEC = 0x14;
+    constexpr std::uint8_t CT_ALERT = 0x15;
+    constexpr std::uint8_t CT_HANDSHAKE = 0x16;
+    constexpr std::uint8_t CT_APPLICATION_DATA = 0x17;
 
     // ═══════════════════════════════════════════════════════════════════════
     // Handshake Type
     // ═══════════════════════════════════════════════════════════════════════
 
-    constexpr std::uint8_t HANDSHAKE_TYPE_CLIENT_HELLO = 0x01;
-    constexpr std::uint8_t HANDSHAKE_TYPE_SERVER_HELLO = 0x02;
-    constexpr std::uint8_t HANDSHAKE_TYPE_ENCRYPTED_EXTENSIONS = 0x08;
-    constexpr std::uint8_t HANDSHAKE_TYPE_CERTIFICATE = 0x0B;
-    constexpr std::uint8_t HANDSHAKE_TYPE_CERTIFICATE_VERIFY = 0x0F;
-    constexpr std::uint8_t HANDSHAKE_TYPE_FINISHED = 0x14;
+    constexpr std::uint8_t HS_CLIENT_HELLO = 0x01;
+    constexpr std::uint8_t HS_SERVER_HELLO = 0x02;
+    constexpr std::uint8_t HS_ENCRYPTED_EXTENSIONS = 0x08;
+    constexpr std::uint8_t HS_CERTIFICATE = 0x0B;
+    constexpr std::uint8_t HS_CERTIFICATE_VERIFY = 0x0F;
+    constexpr std::uint8_t HS_FINISHED = 0x14;
 
     // ═══════════════════════════════════════════════════════════════════════
     // Extension Type
@@ -63,8 +63,8 @@ namespace psm::protocol::tls
     // Named Groups
     // ═══════════════════════════════════════════════════════════════════════
 
-    constexpr std::uint16_t NAMED_GROUP_X25519 = 0x001D;
-    constexpr std::uint16_t NAMED_GROUP_X25519_MLKEM768 = 0x11EC;
+    constexpr std::uint16_t GROUP_X25519 = 0x001D;
+    constexpr std::uint16_t GROUP_X25519_MLKEM768 = 0x11EC;
 
     // ═══════════════════════════════════════════════════════════════════════
     // TLS Version
@@ -83,7 +83,7 @@ namespace psm::protocol::tls
     // Server Name Type
     // ═══════════════════════════════════════════════════════════════════════
 
-    constexpr std::uint8_t SERVER_NAME_TYPE_HOSTNAME = 0x00;
+    constexpr std::uint8_t SNAME_TYPE_HOSTNAME = 0x00;
 
     // ═══════════════════════════════════════════════════════════════════════
     // 密钥与认证常量
@@ -109,27 +109,24 @@ namespace psm::protocol::tls
     // ═══════════════════════════════════════════════════════════════════════
 
     /** @brief Ed25519 签名算法 */
-    constexpr std::uint16_t SIGNATURE_SCHEME_ED25519 = 0x0807;
+    constexpr std::uint16_t SIG_ED25519 = 0x0807;
 
     // ═══════════════════════════════════════════════════════════════════════
     // TLS 记录层写入工具
     // ═══════════════════════════════════════════════════════════════════════
 
-    inline auto write_u8(memory::vector<std::uint8_t> &buf, std::uint8_t val)
-        -> void
+    inline void write_u8(memory::vector<std::uint8_t> &buf, std::uint8_t val)
     {
         buf.push_back(val);
     }
 
-    inline auto write_u16(memory::vector<std::uint8_t> &buf, std::uint16_t val)
-        -> void
+    inline void write_u16(memory::vector<std::uint8_t> &buf, std::uint16_t val)
     {
         buf.push_back(static_cast<std::uint8_t>((val >> 8) & 0xFF));
         buf.push_back(static_cast<std::uint8_t>(val & 0xFF));
     }
 
-    inline auto write_u24(memory::vector<std::uint8_t> &buf, std::size_t val)
-        -> void
+    inline void write_u24(memory::vector<std::uint8_t> &buf, std::size_t val)
     {
         buf.push_back(static_cast<std::uint8_t>((val >> 16) & 0xFF));
         buf.push_back(static_cast<std::uint8_t>((val >> 8) & 0xFF));
@@ -186,13 +183,13 @@ namespace psm::protocol::tls
         bool greased_extensions{false};
 
         // signature_algorithms 扩展存在
-        bool has_signature_algorithms{false};
+        bool has_sig_algos{false};
 
         // key_share 包含多个条目（非仅 X25519）
-        bool key_share_multiple{false};
+        bool keyshare_multi{false};
 
         // early_data 扩展存在（客户端尝试 0-RTT）
-        bool early_data_attempt{false};
+        bool early_data{false};
 
         /** @brief 原始握手消息（不含 TLS record header） */
         memory::vector<std::uint8_t> raw_hs_msg;

@@ -325,7 +325,7 @@ void TestVlessMakeResponse()
 // ============================================================================
 
 /**
- * @brief 测试 parse_udp_packet — IPv4 地址
+ * @brief 测试 parse_udp_pkt — IPv4 地址
  */
 void TestVlessUdpParseIPv4()
 {
@@ -343,10 +343,10 @@ void TestVlessUdpParseIPv4()
         buf.push_back(static_cast<std::byte>(c));
     }
 
-    auto [ec, result] = protocol::vless::format::parse_udp_packet(buf);
+    auto [ec, result] = protocol::vless::format::parse_udp_pkt(buf);
     if (psm::fault::failed(ec))
     {
-        LogFail("parse_udp_packet IPv4 failed: " + std::string(psm::fault::describe(ec)));
+        LogFail("parse_udp_pkt IPv4 failed: " + std::string(psm::fault::describe(ec)));
         return;
     }
 
@@ -371,7 +371,7 @@ void TestVlessUdpParseIPv4()
 }
 
 /**
- * @brief 测试 parse_udp_packet — IPv6 地址
+ * @brief 测试 parse_udp_pkt — IPv6 地址
  */
 void TestVlessUdpParseIPv6()
 {
@@ -392,10 +392,10 @@ void TestVlessUdpParseIPv6()
         buf.push_back(static_cast<std::byte>(c));
     }
 
-    auto [ec, result] = protocol::vless::format::parse_udp_packet(buf);
+    auto [ec, result] = protocol::vless::format::parse_udp_pkt(buf);
     if (psm::fault::failed(ec))
     {
-        LogFail("parse_udp_packet IPv6 failed: " + std::string(psm::fault::describe(ec)));
+        LogFail("parse_udp_pkt IPv6 failed: " + std::string(psm::fault::describe(ec)));
         return;
     }
 
@@ -415,7 +415,7 @@ void TestVlessUdpParseIPv6()
 }
 
 /**
- * @brief 测试 parse_udp_packet — 域名地址
+ * @brief 测试 parse_udp_pkt — 域名地址
  */
 void TestVlessUdpParseDomain()
 {
@@ -436,10 +436,10 @@ void TestVlessUdpParseDomain()
         buf.push_back(static_cast<std::byte>(c));
     }
 
-    auto [ec, result] = protocol::vless::format::parse_udp_packet(buf);
+    auto [ec, result] = protocol::vless::format::parse_udp_pkt(buf);
     if (psm::fault::failed(ec))
     {
-        LogFail("parse_udp_packet Domain failed: " + std::string(psm::fault::describe(ec)));
+        LogFail("parse_udp_pkt Domain failed: " + std::string(psm::fault::describe(ec)));
         return;
     }
 
@@ -464,7 +464,7 @@ void TestVlessUdpParseDomain()
 }
 
 /**
- * @brief 测试 parse_udp_packet — 短缓冲区
+ * @brief 测试 parse_udp_pkt — 短缓冲区
  */
 void TestVlessUdpParseShortBuffer()
 {
@@ -472,7 +472,7 @@ void TestVlessUdpParseShortBuffer()
 
     // IPv4 最小帧需要 7 字节 (1+4+2)，提供 5 字节应失败
     std::vector<std::byte> buf(5, std::byte{0x01});
-    auto [ec, result] = protocol::vless::format::parse_udp_packet(buf);
+    auto [ec, result] = protocol::vless::format::parse_udp_pkt(buf);
     if (!psm::fault::failed(ec))
     {
         LogFail("short buffer should fail");
@@ -483,7 +483,7 @@ void TestVlessUdpParseShortBuffer()
 }
 
 /**
- * @brief 测试 parse_udp_packet — 空 payload
+ * @brief 测试 parse_udp_pkt — 空 payload
  */
 void TestVlessUdpParseEmptyPayload()
 {
@@ -496,10 +496,10 @@ void TestVlessUdpParseEmptyPayload()
     buf.push_back(std::byte{0});   buf.push_back(std::byte{1});
     buf.push_back(std::byte{0x00}); buf.push_back(std::byte{0x50});
 
-    auto [ec, result] = protocol::vless::format::parse_udp_packet(buf);
+    auto [ec, result] = protocol::vless::format::parse_udp_pkt(buf);
     if (psm::fault::failed(ec))
     {
-        LogFail("parse_udp_packet with empty payload should succeed");
+        LogFail("parse_udp_pkt with empty payload should succeed");
         return;
     }
     if (result.payload_size != 0)
@@ -512,14 +512,14 @@ void TestVlessUdpParseEmptyPayload()
 }
 
 /**
- * @brief 测试 build_udp_packet + parse_udp_packet 往返
+ * @brief 测试 build_udp_pkt + parse_udp_pkt 往返
  */
 void TestVlessUdpBuildParseRoundtrip()
 {
     LogInfo("=== TestVlessUdpBuildParseRoundtrip ===");
 
     // 构建 IPv4 帧
-    protocol::vless::format::udp_frame frame;
+    protocol::vless::format::udp_routed frame;
     frame.destination_address = protocol::vless::ipv4_address{{127, 0, 0, 1}};
     frame.destination_port = 8080;
 
@@ -528,18 +528,18 @@ void TestVlessUdpBuildParseRoundtrip()
         reinterpret_cast<const std::byte*>(payload_str.data()), payload_str.size());
 
     psm::memory::vector<std::byte> out(psm::memory::current_resource());
-    auto build_ec = protocol::vless::format::build_udp_packet(frame, payload_span, out);
+    auto build_ec = protocol::vless::format::build_udp_pkt(frame, payload_span, out);
     if (psm::fault::failed(build_ec))
     {
-        LogFail("build_udp_packet failed: " + std::string(psm::fault::describe(build_ec)));
+        LogFail("build_udp_pkt failed: " + std::string(psm::fault::describe(build_ec)));
         return;
     }
 
     // 解析回来
-    auto [parse_ec, result] = protocol::vless::format::parse_udp_packet(out);
+    auto [parse_ec, result] = protocol::vless::format::parse_udp_pkt(out);
     if (psm::fault::failed(parse_ec))
     {
-        LogFail("parse_udp_packet roundtrip failed: " + std::string(psm::fault::describe(parse_ec)));
+        LogFail("parse_udp_pkt roundtrip failed: " + std::string(psm::fault::describe(parse_ec)));
         return;
     }
 

@@ -454,8 +454,8 @@ void TestUdpDatagramRoundtripIPv4()
     runner.LogInfo("=== TestUdpDatagramRoundtripIPv4 ===");
 
     const std::byte payload[] = {std::byte{0xAA}, std::byte{0xBB}, std::byte{0xCC}};
-    auto encoded = build_udp_datagram("127.0.0.1", 9090, payload, psm::memory::current_resource());
-    auto result = parse_udp_datagram(encoded, psm::memory::current_resource());
+    auto encoded = build_udp_dgram({"127.0.0.1", 9090, payload}, psm::memory::current_resource());
+    auto result = parse_udp_dgram(encoded, psm::memory::current_resource());
 
     if (!result)
     {
@@ -494,8 +494,8 @@ void TestUdpDatagramRoundtripDomain()
     runner.LogInfo("=== TestUdpDatagramRoundtripDomain ===");
 
     const std::byte payload[] = {std::byte{0x01}, std::byte{0x02}};
-    auto encoded = build_udp_datagram("example.com", 443, payload, psm::memory::current_resource());
-    auto result = parse_udp_datagram(encoded, psm::memory::current_resource());
+    auto encoded = build_udp_dgram({"example.com", 443, payload}, psm::memory::current_resource());
+    auto result = parse_udp_dgram(encoded, psm::memory::current_resource());
 
     if (!result)
     {
@@ -529,7 +529,7 @@ void TestUdpDatagramEmpty()
     runner.LogInfo("=== TestUdpDatagramEmpty ===");
 
     psm::memory::vector<std::byte> empty_buf;
-    auto result = parse_udp_datagram(empty_buf, psm::memory::current_resource());
+    auto result = parse_udp_dgram(empty_buf, psm::memory::current_resource());
     if (result.has_value())
     {
         runner.LogFail("empty UDP datagram should return nullopt");

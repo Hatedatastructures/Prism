@@ -12,7 +12,7 @@ namespace psm::connect
 {
     using resolve::dns::detail::parse_port;
 
-    auto async_connect_with_retry(router &rt, const std::span<const tcp::endpoint> endpoints)
+    auto retry_connect(router &rt, const std::span<const tcp::endpoint> endpoints)
         -> net::awaitable<pooled_connection>
     {
         if (endpoints.empty())
@@ -68,7 +68,7 @@ namespace psm::connect
             co_return std::make_pair(fault::code::host_unreachable, pooled_connection{});
         }
 
-        auto conn = co_await async_connect_with_retry(rt, endpoints);
+        auto conn = co_await retry_connect(rt, endpoints);
         if (conn.valid())
         {
             co_return std::make_pair(fault::code::success, std::move(conn));
@@ -104,10 +104,10 @@ namespace psm::connect
             }
         }
 
-        co_return open_udp_socket(rt.executor(), target);
+        co_return open_udp(rt.executor(), target);
     }
 
-    auto resolve_datagram_target(router &rt, const std::string_view host, const std::string_view port)
+    auto resolve_dgram(router &rt, const std::string_view host, const std::string_view port)
         -> net::awaitable<std::pair<fault::code, net::ip::udp::endpoint>>
     {
         {
@@ -130,7 +130,7 @@ namespace psm::connect
               const protocol::target &target, dial_options opts)
         -> net::awaitable<std::pair<fault::code, shared_transmission>>
     {
-        if (rt.ipv6_disabled() && is_ipv6_literal(target.host))
+        if (rt.ipv6_disabled() && is_ipv6(target.host))
         {
             trace::debug("{} {} rejecting IPv6 literal: {}:{}", DialStr, label, target.host, target.port);
             co_return std::make_pair(fault::code::ipv6_disabled, nullptr);

@@ -5,7 +5,7 @@
  * 1. 从客户端接收 ClientHello，转发到后端 TLS 服务器
  * 2. 读取 ServerHello，提取 server_random
  * 3. 双工转发握手数据：
- *    - 后端→客户端：XOR 第一个加密记录（server_auth_mask）
+ *    - 后端→客户端：XOR 第一个加密记录（server_mask）
  *    - 客户端→后端：捕获 clientFinished（完整加密 TLS record）
  * 4. 认证成功后关闭后端连接，返回握手结果
  *
@@ -52,7 +52,7 @@ namespace psm::stealth::restls
      * @param detail 输出参数，握手成功时填充
      * @return 握手结果
      */
-    auto handshake(net::ip::tcp::socket &client_sock,
+    [[nodiscard]] auto handshake(net::ip::tcp::socket &client_sock,
                    const config &cfg,
                    memory::vector<std::byte> client_hello,
                    handshake_detail &detail)

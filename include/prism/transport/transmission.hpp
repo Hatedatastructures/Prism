@@ -15,6 +15,7 @@
 #include <boost/asio.hpp>
 #include <boost/asio/any_completion_handler.hpp>
 #include <cstddef>
+#include <cstdint>
 #include <memory>
 #include <span>
 #include <system_error>
@@ -59,7 +60,7 @@ namespace psm::transport
          * @details 用于区分 TCP 流和 UDP 数据报，替代语义不清的 is_reliable()。
          * 装饰器通过 next_layer() 链委托到底层传输获取真实类型。
          */
-        enum class type
+        enum class type : std::uint8_t
         {
             tcp, ///< 可靠流式传输（TCP）
             udp  ///< 不可靠数据报传输（UDP）

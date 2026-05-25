@@ -1,10 +1,5 @@
-/**
- * @file session.cpp
- * @brief AnyTLS 会话管理实现
- */
-
 #include <prism/stealth/anytls/mux/session.hpp>
-#include <prism/stealth/anytls/mux/stream_transport.hpp>
+#include <prism/stealth/anytls/mux/transport.hpp>
 #include <prism/trace.hpp>
 #include <prism/fault/handling.hpp>
 
@@ -31,7 +26,7 @@ namespace psm::stealth::anytls
         first_stream_waiter_.expires_after(std::chrono::hours(24));
     }
 
-    auto anytls_session::start() -> void
+    void anytls_session::start()
     {
         auto self = shared_from_this();
         net::co_spawn(transport_->get_executor(),
@@ -120,193 +115,17 @@ namespace psm::stealth::anytls
             switch (header->cmd)
             {
             case command::settings:
-            {
-                received_settings_ = true;
-                // 解析 version
-                // safe: casting uint8_t payload to string_view for text protocol parsing
-                auto text = std::string_view(
-                    reinterpret_cast<const char *>(payload.data()), payload.size());
-                // 查找 "v=N"
-                auto v_pos = text.find("v=");
-                if (v_pos != std::string_view::npos)
-                {
-                    auto v_end = text.find('\n', v_pos);
-                    auto v_str = text.substr(v_pos + 2, v_end == std::string_view::npos ? v_end : v_end - v_pos - 2);
-                    peer_version_ = static_cast<std::uint32_t>(std::atoi(std::string(v_str).c_str()));
-                }
-
-                // mihomo: 解析 padding-md5，比对后可能发送 update_padding
-                if (peer_version_ >= 2 && padding_ && padding_->enabled())
-                {
-                    auto md5_pos = text.find("padding-md5=");
-                    if (md5_pos != std::string_view::npos)
-                    {
-                        auto md5_start = md5_pos + 12;
-                        auto md5_end = text.find('\n', md5_start);
-                        auto client_md5 = text.substr(md5_start,
-                            md5_end == std::string_view::npos ? md5_end : md5_end - md5_start);
-
-                        if (client_md5 != std::string_view(padding_->md5.data(), padding_->md5.size()))
-                        {
-                            trace::debug("{} client padding-md5 mismatch, sending update", tag);
-                            std::error_code up_ec;
-                            co_await write_frame(command::update_padding, 0,
-                                // safe: casting string data to byte span for frame transmission
-                                std::span<const std::byte>(
-                                    reinterpret_cast<const std::byte *>(padding_->raw_scheme_.data()),
-                                    padding_->raw_scheme_.size()), up_ec);
-                        }
-                    }
-                }
-
-                // 如果 v>=2，发送 cmdServerSettings
-                if (peer_version_ >= 2)
-                {
-                    auto settings_text = std::string("v=2\nserver=prism\n");
-                    std::error_code wr_ec;
-                    co_await write_frame(command::server_settings, 0,
-                        // safe: casting string data to byte span for frame transmission
-                        std::span<const std::byte>(
-                            reinterpret_cast<const std::byte *>(settings_text.data()),
-                            settings_text.size()), wr_ec);
-                    if (wr_ec)
-                    {
-                        trace::warn("{} failed to send server settings: {}", tag, wr_ec.message());
-                    }
-                }
-
-                trace::debug("{} Settings received, version={}", tag, peer_version_);
+                co_await on_settings(std::move(payload));
                 break;
-            }
-
             case command::syn:
-            {
-                // mihomo: 服务端在收到 Settings 之前忽略 SYN
-                if (!received_settings_)
-                {
-                    trace::warn("{} SYN before Settings, ignoring", tag);
-                    break;
-                }
-
-                auto stream_id = header->stream_id;
-                if (stream_id == 0)
-                {
-                    trace::warn("{} SYN with stream_id=0", tag);
-                    break;
-                }
-
-                // 创建 channel
-                auto channel = std::make_shared<channel_type>(
-                    transport_->get_executor(), 64);
-                streams_[stream_id] = channel;
-
-                // mihomo: SYNACK 在 stream 处理完 SOCKS 地址后发送（HandshakeSuccess）
-                // 这里先不发送 SYNACK，等 scheme.cpp 的 on_new_stream 处理完再发
-
-                // 记录第一个 stream 的 ID
-                if (first_stream_id_ == 0)
-                {
-                    first_stream_id_ = stream_id;
-                }
-                else
-                {
-                    // 后续 stream：记录等待第一个 PSH（携带 SOCKS 地址）
-                    pending_syn_streams_.insert(stream_id);
-                }
-
-                trace::debug("{} SYN stream_id={}", tag, stream_id);
+                co_await on_syn(header->stream_id);
                 break;
-            }
-
             case command::psh:
-            {
-                auto stream_id = header->stream_id;
-
-                // 第一个 stream 的第一个 PSH：保存 preread 数据
-                if (!first_stream_resolved_ && stream_id == first_stream_id_ && stream_id != 0)
-                {
-                    first_stream_preread_ = payload;
-                    first_stream_resolved_ = true;
-
-                    // 同时发送到 channel 供 stream_transport 读取
-                    auto it = streams_.find(stream_id);
-                    if (it != streams_.end())
-                    {
-                        it->second->try_send(boost::system::error_code{}, std::move(payload));
-                    }
-
-                    first_stream_waiter_.cancel();
-                }
-                else if (first_stream_id_ != 0 && stream_id != first_stream_id_)
-                {
-                    // 后续 stream 的 PSH
-                    auto it = streams_.find(stream_id);
-                    if (it != streams_.end())
-                    {
-                        // 检查是否是后续 stream 的第一个 PSH（携带 SOCKS 地址）
-                        auto syn_it = pending_syn_streams_.find(stream_id);
-                        if (syn_it != pending_syn_streams_.end())
-                        {
-                            pending_syn_streams_.erase(syn_it);
-
-                            // 触发 on_new_stream（携带 SOCKS 地址数据）
-                            if (on_new_stream_)
-                            {
-                                auto stream_trans = std::make_shared<anytls_stream_transport>(
-                                    shared_from_this(), stream_id, it->second);
-                                on_new_stream_(stream_id,
-                                    std::move(stream_trans),
-                                    std::move(payload));
-
-                                // 发送 SYNACK（v2+）
-                                if (peer_version_ >= 2)
-                                {
-                                    std::error_code synack_ec;
-                                    co_await write_synack(stream_id, synack_ec);
-                                }
-                            }
-                        }
-                        else
-                        {
-                            it->second->try_send(boost::system::error_code{}, std::move(payload));
-                        }
-                    }
-                    else
-                    {
-                        trace::warn("{} PSH for unknown stream_id={}", tag, stream_id);
-                    }
-                }
-                else
-                {
-                    auto it = streams_.find(stream_id);
-                    if (it != streams_.end())
-                    {
-                        it->second->try_send(boost::system::error_code{}, std::move(payload));
-                    }
-                    else
-                    {
-                        trace::warn("{} PSH for unknown stream_id={}", tag, stream_id);
-                    }
-                }
-
+                co_await on_psh(header->stream_id, std::move(payload));
                 break;
-            }
-
             case command::fin:
-            {
-                auto stream_id = header->stream_id;
-                auto it = streams_.find(stream_id);
-                if (it != streams_.end())
-                {
-                    it->second->try_send(
-                        boost::system::errc::make_error_code(boost::system::errc::connection_reset),
-                        std::vector<std::uint8_t>{});
-                    streams_.erase(it);
-                }
-                trace::debug("{} FIN stream_id={}", tag, stream_id);
+                co_await on_fin(header->stream_id);
                 break;
-            }
-
             case command::alert:
             {
                 auto stream_id = header->stream_id;
@@ -321,7 +140,6 @@ namespace psm::stealth::anytls
                 trace::debug("{} ALERT stream_id={}", tag, stream_id);
                 break;
             }
-
             case command::heart_req:
             {
                 std::error_code heart_ec;
@@ -336,11 +154,9 @@ namespace psm::stealth::anytls
                 }
                 break;
             }
-
             case command::waste:
                 // 丢弃
                 break;
-
             default:
                 trace::debug("{} unhandled command: {}", tag, static_cast<int>(header->cmd));
                 break;
@@ -371,6 +187,186 @@ namespace psm::stealth::anytls
             trace::error("[AnyTLS] recv_loop exception, closing session");
             close();
         }
+    }
+
+    auto anytls_session::on_settings(std::vector<std::uint8_t> payload) -> net::awaitable<void>
+    {
+        received_settings_ = true;
+
+        // safe: casting uint8_t payload to string_view for text protocol parsing
+        auto text = std::string_view(
+            reinterpret_cast<const char *>(payload.data()), payload.size());
+
+        // 查找 "v=N"
+        auto v_pos = text.find("v=");
+        if (v_pos != std::string_view::npos)
+        {
+            auto v_end = text.find('\n', v_pos);
+            auto v_str = text.substr(v_pos + 2, v_end == std::string_view::npos ? v_end : v_end - v_pos - 2);
+            peer_version_ = static_cast<std::uint32_t>(std::atoi(std::string(v_str).c_str()));
+        }
+
+        // mihomo: 解析 padding-md5，比对后可能发送 update_padding
+        if (peer_version_ >= 2 && padding_ && padding_->enabled())
+        {
+            auto md5_pos = text.find("padding-md5=");
+            if (md5_pos != std::string_view::npos)
+            {
+                auto md5_start = md5_pos + 12;
+                auto md5_end = text.find('\n', md5_start);
+                auto client_md5 = text.substr(md5_start,
+                    md5_end == std::string_view::npos ? md5_end : md5_end - md5_start);
+
+                if (client_md5 != std::string_view(padding_->md5.data(), padding_->md5.size()))
+                {
+                    trace::debug("{} client padding-md5 mismatch, sending update", tag);
+                    std::error_code up_ec;
+                    co_await write_frame(command::update_padding, 0,
+                        // safe: casting string data to byte span for frame transmission
+                        std::span<const std::byte>(
+                            reinterpret_cast<const std::byte *>(padding_->raw_scheme_.data()),
+                            padding_->raw_scheme_.size()), up_ec);
+                }
+            }
+        }
+
+        // 如果 v>=2，发送 cmdServerSettings
+        if (peer_version_ >= 2)
+        {
+            auto settings_text = std::string("v=2\nserver=prism\n");
+            std::error_code wr_ec;
+            co_await write_frame(command::server_settings, 0,
+                // safe: casting string data to byte span for frame transmission
+                std::span<const std::byte>(
+                    reinterpret_cast<const std::byte *>(settings_text.data()),
+                    settings_text.size()), wr_ec);
+            if (wr_ec)
+            {
+                trace::warn("{} failed to send server settings: {}", tag, wr_ec.message());
+            }
+        }
+
+        trace::debug("{} Settings received, version={}", tag, peer_version_);
+    }
+
+    auto anytls_session::on_syn(std::uint32_t stream_id) -> net::awaitable<void>
+    {
+        // mihomo: 服务端在收到 Settings 之前忽略 SYN
+        if (!received_settings_)
+        {
+            trace::warn("{} SYN before Settings, ignoring", tag);
+            co_return;
+        }
+
+        if (stream_id == 0)
+        {
+            trace::warn("{} SYN with stream_id=0", tag);
+            co_return;
+        }
+
+        // 创建 channel
+        auto channel = std::make_shared<channel_type>(
+            transport_->get_executor(), 64);
+        streams_[stream_id] = channel;
+
+        // mihomo: SYNACK 在 stream 处理完 SOCKS 地址后发送（HandshakeSuccess）
+        // 这里先不发送 SYNACK，等 scheme.cpp 的 on_new_stream 处理完再发
+
+        // 记录第一个 stream 的 ID
+        if (first_stream_id_ == 0)
+        {
+            first_stream_id_ = stream_id;
+        }
+        else
+        {
+            // 后续 stream：记录等待第一个 PSH（携带 SOCKS 地址）
+            pending_syn_streams_.insert(stream_id);
+        }
+
+        trace::debug("{} SYN stream_id={}", tag, stream_id);
+    }
+
+    auto anytls_session::on_psh(std::uint32_t stream_id, std::vector<std::uint8_t> payload) -> net::awaitable<void>
+    {
+        // 第一个 stream 的第一个 PSH：保存 preread 数据
+        if (!first_stream_resolved_ && stream_id == first_stream_id_ && stream_id != 0)
+        {
+            first_stream_preread_ = payload;
+            first_stream_resolved_ = true;
+
+            // 同时发送到 channel 供 stream_transport 读取
+            auto it = streams_.find(stream_id);
+            if (it != streams_.end())
+            {
+                it->second->try_send(boost::system::error_code{}, std::move(payload));
+            }
+
+            first_stream_waiter_.cancel();
+            co_return;
+        }
+
+        // 后续 stream 的 PSH
+        if (first_stream_id_ != 0 && stream_id != first_stream_id_)
+        {
+            auto it = streams_.find(stream_id);
+            if (it != streams_.end())
+            {
+                // 检查是否是后续 stream 的第一个 PSH（携带 SOCKS 地址）
+                auto syn_it = pending_syn_streams_.find(stream_id);
+                if (syn_it != pending_syn_streams_.end())
+                {
+                    pending_syn_streams_.erase(syn_it);
+
+                    // 触发 on_new_stream（携带 SOCKS 地址数据）
+                    if (on_new_stream_)
+                    {
+                        auto stream_trans = std::make_shared<anytls_stream_transport>(
+                            shared_from_this(), stream_id, it->second);
+                        on_new_stream_(stream_id,
+                            std::move(stream_trans),
+                            std::move(payload));
+
+                        // 发送 SYNACK（v2+）
+                        if (peer_version_ >= 2)
+                        {
+                            std::error_code synack_ec;
+                            co_await write_synack(stream_id, synack_ec);
+                        }
+                    }
+                    co_return;
+                }
+
+                it->second->try_send(boost::system::error_code{}, std::move(payload));
+                co_return;
+            }
+
+            trace::warn("{} PSH for unknown stream_id={}", tag, stream_id);
+            co_return;
+        }
+
+        // 第一个 stream 的后续 PSH
+        auto it = streams_.find(stream_id);
+        if (it != streams_.end())
+        {
+            it->second->try_send(boost::system::error_code{}, std::move(payload));
+        }
+        else
+        {
+            trace::warn("{} PSH for unknown stream_id={}", tag, stream_id);
+        }
+    }
+
+    auto anytls_session::on_fin(std::uint32_t stream_id) -> net::awaitable<void>
+    {
+        auto it = streams_.find(stream_id);
+        if (it != streams_.end())
+        {
+            it->second->try_send(
+                boost::system::errc::make_error_code(boost::system::errc::connection_reset),
+                std::vector<std::uint8_t>{});
+            streams_.erase(it);
+        }
+        trace::debug("{} FIN stream_id={}", tag, stream_id);
     }
 
     auto anytls_session::read_exact(std::span<std::byte> buf) -> net::awaitable<bool>
@@ -485,7 +481,7 @@ namespace psm::stealth::anytls
         return nullptr;
     }
 
-    auto anytls_session::close() -> void
+    void anytls_session::close()
     {
         closed_ = true;
         if (transport_)

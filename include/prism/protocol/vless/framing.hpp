@@ -26,7 +26,7 @@ namespace psm::protocol::vless::format
      * @param buffer 包含完整 VLESS 请求头的缓冲区
      * @return 解析成功返回请求结构，失败返回 std::nullopt
      */
-    auto parse_request(std::span<const std::uint8_t> buffer)
+    [[nodiscard]] auto parse_request(std::span<const std::uint8_t> buffer)
         -> std::optional<request>;
 
     /**
@@ -50,7 +50,7 @@ namespace psm::protocol::vless::format
      * @details 描述一个 VLESS UDP 数据包的目标地址和端口，
      * 用于构建 UDP 响应帧
      */
-    struct udp_frame
+    struct udp_routed
     {
         address destination_address;    // 目标地址
         std::uint16_t destination_port; // 目标端口
@@ -80,7 +80,7 @@ namespace psm::protocol::vless::format
      * @param out 输出缓冲区
      * @return fault::code 编码结果
      */
-    auto build_udp_packet(const udp_frame &frame, std::span<const std::byte> payload, memory::vector<std::byte> &out)
+    [[nodiscard]] auto build_udp_pkt(const udp_routed &frame, std::span<const std::byte> payload, memory::vector<std::byte> &out)
         -> fault::code;
 
     /**
@@ -90,6 +90,6 @@ namespace psm::protocol::vless::format
      * @param buffer UDP 数据包缓冲区
      * @return 错误码和解析结果
      */
-    auto parse_udp_packet(std::span<const std::byte> buffer)
+    [[nodiscard]] auto parse_udp_pkt(std::span<const std::byte> buffer)
         -> std::pair<fault::code, udp_parse_result>;
 }

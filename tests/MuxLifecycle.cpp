@@ -807,10 +807,10 @@ int main()
     auto *pool = new psm::connect::connection_pool(*ioc);
     auto *router_ptr = new psm::connect::router(*pool, *ioc, psm::resolve::dns::config{});
     psm::multiplex::config mux_config;
-    mux_config.smux.keepalive_interval_ms = 0;
+    mux_config.smux.keepalive_interval = 0;
     mux_config.yamux.enable_ping = false;
-    mux_config.yamux.ping_interval_ms = 0;
-    mux_config.yamux.stream_open_timeout_ms = 0;
+    mux_config.yamux.ping_interval = 0;
+    mux_config.yamux.stream_open_timeout = 0;
 
     // 标志：run_all_tests 协程是否完成
     std::atomic<bool> tests_done{false};

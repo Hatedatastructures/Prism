@@ -70,7 +70,7 @@ namespace psm::connect
          * @param ctx 竞速共享状态
          * @return net::awaitable<void> 异步操作
          */
-        auto race_endpoint(tcp::endpoint ep, std::chrono::milliseconds delay, std::shared_ptr<race_context> ctx)
+        [[nodiscard]] auto race_endpoint(tcp::endpoint ep, std::chrono::milliseconds delay, std::shared_ptr<race_context> ctx)
             -> net::awaitable<void>;
     }; // class address_racer
 } // namespace psm::connect

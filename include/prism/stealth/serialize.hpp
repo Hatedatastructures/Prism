@@ -15,6 +15,7 @@
 #include <prism/stealth/anytls/config.hpp>
 #include <prism/stealth/ech/config.hpp>
 #include <prism/stealth/trusttunnel/config.hpp>
+#include <prism/stealth/native/config.hpp>
 
 #include <glaze/glaze.hpp>
 
@@ -44,7 +45,7 @@ struct glz::meta<psm::stealth::shadowtls::config>
         "handshake_dest",       &T::handshake_dest,
         "server_names",         &T::server_names,
         "strict_mode",          &T::strict_mode,
-        "handshake_timeout_ms", &T::handshake_timeout_ms);
+        "handshake_timeout_ms", &T::hs_timeout);
 };
 
 // ============================================================================
@@ -62,7 +63,7 @@ struct glz::meta<psm::stealth::restls::config>
         "password",             &T::password,
         "version_hint",         &T::version_hint,
         "restls_script",        &T::restls_script,
-        "handshake_timeout_ms", &T::handshake_timeout_ms);
+        "handshake_timeout_ms", &T::hs_timeout);
 };
 
 // ============================================================================
@@ -91,8 +92,8 @@ struct glz::meta<psm::stealth::anytls::config>
         "users",                    &T::users,
         "ech_key",                  &T::ech_key,
         "padding_scheme",           &T::padding_scheme,
-        "handshake_timeout_ms",     &T::handshake_timeout_ms,
-        "idle_session_timeout_ms",  &T::idle_session_timeout_ms);
+        "handshake_timeout_ms",     &T::hs_timeout,
+        "idle_session_timeout_ms",  &T::idle_sess_timeout);
 };
 
 // ============================================================================
@@ -155,6 +156,18 @@ struct glz::meta<psm::stealth::trusttunnel::config>
         "users",                &T::users,
         "network",              &T::network,
         "congestion",           &T::congestion,
-        "handshake_timeout_ms", &T::handshake_timeout_ms,
-        "idle_timeout_ms",      &T::idle_timeout_ms);
+        "handshake_timeout_ms", &T::hs_timeout,
+        "idle_timeout_ms",      &T::idle_timeout);
+};
+
+// ============================================================================
+// native
+// ============================================================================
+
+template <>
+struct glz::meta<psm::stealth::native::config>
+{
+    using T = psm::stealth::native::config;
+    static constexpr auto value = glz::object(
+        "enabled", &T::enabled);
 };

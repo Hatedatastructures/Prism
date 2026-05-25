@@ -34,7 +34,7 @@ namespace psm::memory
      * global_pool()，否则返回系统堆分配器。
      * @return 当前默认内存资源指针，永不返回 nullptr
      */
-    inline auto current_resource()
+    [[nodiscard]] inline auto current_resource()
         -> resource_pointer
     {
         return std::pmr::get_default_resource();

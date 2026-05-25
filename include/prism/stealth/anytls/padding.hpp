@@ -35,7 +35,7 @@ namespace psm::stealth::anytls
     {
     public:
         /// CheckMark 值：此位置放入实际 payload
-        static constexpr int checkmark = -1;
+        static constexpr std::int32_t checkmark = -1;
 
         /**
          * @brief 默认构造（使用空方案，不做 padding）
@@ -54,7 +54,7 @@ namespace psm::stealth::anytls
          * @return 大小列表，-1 表示 CheckMark（放实际 payload），正数为随机 padding 大小
          */
         [[nodiscard]] auto generate_sizes(std::uint32_t pkt) const
-            -> std::vector<int>;
+            -> std::vector<std::int32_t>;
 
         /**
          * @brief 是否启用 padding
@@ -74,7 +74,7 @@ namespace psm::stealth::anytls
     private:
         /// 每个包序号对应的 segment 列表
         /// segment 格式: "min-max" 或 "c"
-        memory::unordered_map<int, memory::string> scheme_;
+        memory::unordered_map<std::int32_t, memory::string> scheme_;
 
         friend class anytls_session;
         /// 原始方案字节（用于 MD5 计算和 UpdatePaddingScheme 发送）

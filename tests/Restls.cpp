@@ -4,6 +4,8 @@
  */
 
 #include <prism/stealth/restls/config.hpp>
+#include <prism/stealth/restls/crypto.hpp>
+#include <prism/stealth/shadowtls/util/constants.hpp>
 #include <prism/memory.hpp>
 #include <prism/trace/spdlog.hpp>
 #include <iostream>
@@ -17,19 +19,19 @@ namespace
     int passed = 0;
     int failed = 0;
 
-    auto LogPass(const std::string_view msg) -> void
+    void LogPass(const std::string_view msg)
     {
         ++passed;
         psm::trace::info("[Restls] PASS: {}", std::string{msg});
     }
 
-    auto LogFail(const std::string_view msg) -> void
+    void LogFail(const std::string_view msg)
     {
         ++failed;
         psm::trace::error("[Restls] FAIL: {}", std::string{msg});
     }
 
-    auto Check(const bool condition, const std::string_view message) -> void
+    void Check(const bool condition, const std::string_view message)
     {
         if (condition) LogPass(message); else LogFail(message);
     }
@@ -62,16 +64,12 @@ void TestConfigEnabled()
 void TestConstants()
 {
     // Restls TLS 常量与 shadowtls 共享，此处仅验证值正确性
-    constexpr std::size_t tls_header_size = 5;
-    constexpr std::size_t tls_random_size = 32;
-    constexpr std::uint8_t content_type_handshake = 0x16;
-    constexpr std::uint8_t content_type_application_data = 0x17;
+    using namespace psm::stealth::restls;
+    Check(tls_hdrsize == 5, "TLS header size is 5 bytes");
+    Check(tls_rndsize == 32, "TLS random size is 32 bytes");
+    Check(psm::stealth::shadowtls::content_handshake == 0x16, "Handshake content type is 0x16");
+    Check(psm::stealth::shadowtls::content_appdata == 0x17, "Application data content type is 0x17");
     constexpr std::size_t auth_tag_size = 4;
-
-    Check(tls_header_size == 5, "TLS header size is 5 bytes");
-    Check(tls_random_size == 32, "TLS random size is 32 bytes");
-    Check(content_type_handshake == 0x16, "Handshake content type is 0x16");
-    Check(content_type_application_data == 0x17, "Application data content type is 0x17");
     Check(auth_tag_size == 4, "Auth tag size is 4 bytes");
 }
 

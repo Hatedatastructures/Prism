@@ -1,10 +1,4 @@
-/**
- * @file scheme_route_table.cpp
- * @brief SNI 路由表实现
- * @details 从各伪装方案的 server_names 配置构建路由表。
- */
-
-#include <prism/recognition/scheme_route_table.hpp>
+#include <prism/recognition/routes.hpp>
 #include <prism/config.hpp>
 #include <prism/trace.hpp>
 
@@ -118,8 +112,7 @@ namespace psm::recognition
         return route_map_.empty();
     }
 
-    auto scheme_route_table::add_route(std::string_view sni, std::string_view scheme_name)
-        -> void
+    void scheme_route_table::add_route(std::string_view sni, std::string_view scheme_name)
     {
         if (sni.empty())
             return;

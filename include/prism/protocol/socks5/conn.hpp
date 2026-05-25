@@ -26,7 +26,7 @@
 #include <prism/memory/container.hpp>
 #include <prism/transport/transmission.hpp>
 #include <prism/protocol/common/form.hpp>
-#include <prism/protocol/protocol_type.hpp>
+#include <prism/protocol/types.hpp>
 #include <prism/protocol/socks5/constants.hpp>
 #include <prism/protocol/socks5/packet.hpp>
 #include <prism/protocol/socks5/framing.hpp>
@@ -41,6 +41,24 @@ namespace psm::protocol::socks5
 {
     namespace net = boost::asio;
     using shared_transmission = psm::transport::shared_transmission;
+
+    // 路由回调函数类型，用于根据目标地址选择本地端点
+    using route_callback = std::function<net::awaitable<std::pair<fault::code, net::ip::udp::endpoint>>(std::string_view, std::string_view)>;
+
+    /**
+     * @struct relay_context
+     * @brief UDP 数据报中继上下文，聚合 socket 和回调引用
+     * @details 将 relay_single_datagram 的多个引用参数收敛为单一结构，
+     * 避免函数参数超过 3 个。ingress/egress socket 和路由回调跨数据报复用，
+     * target_buffer 作为编码缓冲区跨数据报复用。
+     */
+    struct relay_context
+    {
+        net::ip::udp::socket &ingress;  ///< 入站 UDP socket
+        net::ip::udp::socket &egress;   ///< 出站 UDP socket（惰性打开，跨数据报复用）
+        route_callback &route_cb;       ///< 路由回调函数
+        memory::vector<std::byte> &target_buf; ///< 目标缓冲区（接收回包复用）
+    }; // struct relay_context
 
     /**
      * @class conn
@@ -62,9 +80,6 @@ namespace psm::protocol::socks5
     class conn : public psm::transport::transmission, public std::enable_shared_from_this<conn>
     {
     public:
-        // 路由回调函数类型，用于根据目标地址选择本地端点
-        using route_callback = std::function<net::awaitable<std::pair<fault::code, net::ip::udp::endpoint>>(std::string_view, std::string_view)>;
-
         /**
          * @brief 构造函数
          * @param next_layer 已经建立连接的底层传输层智能指针
@@ -78,7 +93,7 @@ namespace psm::protocol::socks5
          */
         explicit conn(shared_transmission next_layer, const config &cfg = {},
                        psm::account::directory *account_dir = nullptr)
-            : next_layer_(std::move(next_layer)), config_(cfg), account_directory_(account_dir)
+            : next_layer_(std::move(next_layer)), config_(cfg), acct_dir_(account_dir)
         {
         }
 
@@ -87,7 +102,7 @@ namespace psm::protocol::socks5
          * @return executor_type 执行器
          * @details 返回底层传输层的执行器，用于协程调度和异步操作。
          */
-        executor_type executor() const override
+        [[nodiscard]] executor_type executor() const override
         {
             return next_layer_->executor();
         }
@@ -101,7 +116,7 @@ namespace psm::protocol::socks5
          * 传输层的 async_read_some 方法。
          * @warning 调用前必须确保 next_layer_ 传输层指针有效且已连接
          */
-        auto async_read_some(const std::span<std::byte> buffer, std::error_code &ec)
+        [[nodiscard]] auto async_read_some(const std::span<std::byte> buffer, std::error_code &ec)
             -> net::awaitable<std::size_t> override
         {
             co_return co_await next_layer_->async_read_some(buffer, ec);
@@ -116,7 +131,7 @@ namespace psm::protocol::socks5
          * 传输层的 async_write_some 方法。
          * @warning 调用前必须确保 next_layer_ 传输层指针有效且已连接
          */
-        auto async_write_some(const std::span<const std::byte> buffer, std::error_code &ec)
+        [[nodiscard]] auto async_write_some(const std::span<const std::byte> buffer, std::error_code &ec)
             -> net::awaitable<std::size_t> override
         {
             co_return co_await next_layer_->async_write_some(buffer, ec);
@@ -157,7 +172,7 @@ namespace psm::protocol::socks5
          * 地址。成功后进入 UDP 数据报转发循环，直到控制连接关闭。
          * @warning 调用前必须确保 next_layer_ 传输层指针有效且已连接
          */
-        auto async_associate(const request &request_info, route_callback route_callback) const
+        [[nodiscard]] auto async_associate(const request &request_info, route_callback route_callback) const
             -> net::awaitable<fault::code>;
 
         /**
@@ -179,7 +194,7 @@ namespace psm::protocol::socks5
          * 发送响应。成功时返回包含目标地址、端口和命令信息的 request
          * 对象。
          */
-        auto handshake()
+        [[nodiscard]] auto handshake()
             -> net::awaitable<std::pair<fault::code, request>>;
 
         /**
@@ -189,7 +204,7 @@ namespace psm::protocol::socks5
          * @details 构建并发送 SOCKS5 成功响应，包含绑定地址和端口信息。
          * 响应格式遵循 RFC 1928 规范。
          */
-        auto async_write_success(const request &info) const
+        [[nodiscard]] auto send_success(const request &info) const
             -> net::awaitable<fault::code>;
 
         /**
@@ -199,7 +214,7 @@ namespace psm::protocol::socks5
          * @details 构建并发送 SOCKS5 错误响应，使用固定格式的错误报文。
          * 响应中地址字段填充为零。
          */
-        auto async_write_error(reply_code code) const
+        [[nodiscard]] auto send_error(reply_code code) const
             -> net::awaitable<fault::code>;
 
         /**
@@ -221,7 +236,7 @@ namespace psm::protocol::socks5
          * @return transport::transmission& 底层传输层引用
          * @warning 调用前应确保 is_valid() 返回 true
          */
-        psm::transport::transmission &underlying() noexcept
+        [[nodiscard]] psm::transport::transmission &underlying() noexcept
         {
             return *next_layer_;
         }
@@ -231,7 +246,7 @@ namespace psm::protocol::socks5
          * @return const transport::transmission& 底层传输层常量引用
          * @warning 调用前应确保 is_valid() 返回 true
          */
-        const psm::transport::transmission &underlying() const noexcept
+        [[nodiscard]] const psm::transport::transmission &underlying() const noexcept
         {
             return *next_layer_;
         }
@@ -254,7 +269,7 @@ namespace psm::protocol::socks5
          * 返回 false，不应再调用读写方法。用于将底层连接转移给
          * 其他组件管理。
          */
-        shared_transmission release()
+        [[nodiscard]] shared_transmission release()
         {
             return std::move(next_layer_);
         }
@@ -279,7 +294,7 @@ namespace psm::protocol::socks5
          * udp_bind_port 指定的端口。若 udp_bind_port 为 0，由系统
          * 自动分配端口。socket 绑定成功后可用于接收 UDP 数据报。
          */
-        auto bind_datagram_port() const
+        [[nodiscard]] auto bind_datagram_port() const
             -> net::awaitable<std::pair<fault::code, net::ip::udp::socket>>;
 
         /**
@@ -290,7 +305,7 @@ namespace psm::protocol::socks5
          * @details 将本地 UDP 绑定地址写入 SOCKS5 响应的 BND.ADDR 和
          * BND.PORT 字段，供客户端后续向该地址发送 UDP 数据报。
          */
-        auto async_write_associate_success(const request &request_info, const net::ip::udp::endpoint &local_endpoint) const
+        [[nodiscard]] auto send_associate_ok(const request &request_info, const net::ip::udp::endpoint &local_endpoint) const
             -> net::awaitable<fault::code>;
 
         /**
@@ -308,24 +323,18 @@ namespace psm::protocol::socks5
 
         /**
          * @brief 转发单个 SOCKS5 UDP 数据报
-         * @param ingress_socket 入站 UDP socket
-         * @param egress_socket 出站 UDP socket（跨数据报复用，惰性打开）
+         * @param ctx 中继上下文（聚合 ingress/egress socket、路由回调、目标缓冲区）
          * @param ingress_packet 入站数据包
          * @param client_endpoint 客户端端点
-         * @param route_callback 路由回调函数
-         * @param target_buffer 目标缓冲区
          * @return net::awaitable<void> 异步操作
          * @details 处理流程包括解码 SOCKS5 UDP 报头、调用路由回调解析
          * 目标端点、发送 payload 到目标并等待回包、将回包重新封装为
          * SOCKS5 UDP 数据报回写客户端。出站 socket 通过惰性打开模式
          * 复用，首次调用时自动 open，后续调用直接复用。
          */
-        auto relay_single_datagram(net::ip::udp::socket &ingress_socket,
-                                   net::ip::udp::socket &egress_socket,
+        [[nodiscard]] auto relay_datagram(relay_context ctx,
                                    std::span<const std::byte> ingress_packet,
-                                   const net::ip::udp::endpoint &client_endpoint,
-                                   route_callback &route_callback,
-                                   memory::vector<std::byte> &target_buffer) const
+                                   const net::ip::udp::endpoint &client_endpoint) const
             -> net::awaitable<void>;
 
         /**
@@ -336,7 +345,7 @@ namespace psm::protocol::socks5
          * ingress socket，驱动 UDP 主循环快速退出。这是 UDP_ASSOCIATE
          * 的标准终止机制。
          */
-        auto wait_control_close(net::ip::udp::socket &ingress_socket) const
+        auto wait_ctrl_close(net::ip::udp::socket &ingress_socket) const
             -> net::awaitable<void>;
 
         /**
@@ -366,7 +375,7 @@ namespace psm::protocol::socks5
          * 选择无认证 (0x00)。若启用认证但客户端不支持任何认证方法，
          * 则拒绝连接。
          */
-        auto negotiated_authentication()
+        [[nodiscard]] auto negotiated_authentication()
             -> net::awaitable<std::pair<fault::code, auth_method>>;
 
         /**
@@ -376,7 +385,7 @@ namespace psm::protocol::socks5
          * SHA224 对密码进行哈希，通过 account::directory 验证凭证
          * 并获取连接租约。认证失败时不暴露具体原因，仅返回失败状态。
          */
-        auto perform_password_auth()
+        [[nodiscard]] auto perform_password_auth()
             -> net::awaitable<std::pair<fault::code, bool>>;
 
         /**
@@ -387,7 +396,7 @@ namespace psm::protocol::socks5
          * 并解析为结构化的头部信息。头部包含命令类型和地址类型，
          * 用于后续的地址读取和命令处理。
          */
-        auto read_request_header() const
+        [[nodiscard]] auto read_req_header() const
             -> net::awaitable<std::pair<fault::code, wire::header_parse>>;
 
         /**
@@ -401,12 +410,12 @@ namespace psm::protocol::socks5
          * 提供的解码器解析地址。适用于 IPv4 和 IPv6 地址类型。
          */
         template <size_t N, typename Decoder>
-        auto read_address(Decoder &&decoder)
+        [[nodiscard]] auto read_address(Decoder &&decoder)
             -> net::awaitable<std::tuple<fault::code, address, uint16_t>>
         {
             std::array<std::uint8_t, N + 2> buffer{};
             std::error_code io_ec;
-            co_await async_read_impl(std::span(reinterpret_cast<std::byte *>(buffer.data()), N + 2), io_ec);
+            co_await recv_impl(std::span(reinterpret_cast<std::byte *>(buffer.data()), N + 2), io_ec);
             if (io_ec)
             {
                 co_return std::tuple<fault::code, address, uint16_t>{fault::code::io_error, address{}, 0};
@@ -434,7 +443,7 @@ namespace psm::protocol::socks5
          * @details 读取域名长度字节、域名内容和端口。域名格式为
          * 1 字节长度前缀后跟域名字符串，端口为 2 字节大端序整数。
          */
-        auto read_domain_address() const
+        [[nodiscard]] auto read_domain_addr() const
             -> net::awaitable<std::tuple<fault::code, address, uint16_t>>;
 
         /**
@@ -446,7 +455,7 @@ namespace psm::protocol::socks5
          * VER(1) + REP(1) + RSV(1) + ATYP(1) + BND.ADDR(变长) + BND.PORT(2)。
          * 根据地址类型写入不同格式的地址数据。
          */
-        static auto build_success_response(const request &req, std::span<std::uint8_t> buffer)
+        [[nodiscard]] static auto build_ok_response(const request &req, std::span<std::uint8_t> buffer)
             -> std::size_t;
 
         /**
@@ -458,7 +467,7 @@ namespace psm::protocol::socks5
          * 注意 C++20 的 span 的 const 是针对 span 本身，不针对
          * std::byte，如果为 const std::byte 则不能写入数据。
          */
-        auto async_read_impl(const std::span<std::byte> buffer, std::error_code &ec) const
+        [[nodiscard]] auto recv_impl(const std::span<std::byte> buffer, std::error_code &ec) const
             -> net::awaitable<std::size_t>
         {
             co_return co_await next_layer_->async_read_some(buffer, ec);
@@ -472,12 +481,12 @@ namespace psm::protocol::socks5
          * @details 循环调用底层传输层的 async_write_some 方法，直到
          * 所有数据写入完成或发生错误。确保完整写入缓冲区内容。
          */
-        auto async_write_impl(const std::span<const std::byte> buffer, std::error_code &ec) const
+        [[nodiscard]] auto send_impl(const std::span<const std::byte> buffer, std::error_code &ec) const
             -> net::awaitable<std::size_t>;
 
         shared_transmission next_layer_;                    // 底层传输层指针，所有权通过 unique_ptr 管理
         config config_;                                     // SOCKS5 协议配置，构造时传入，运行时只读
-        psm::account::directory *account_directory_; // 账户目录指针，用于认证验证，不持有所有权
+        psm::account::directory *acct_dir_; // 账户目录指针，用于认证验证，不持有所有权
         psm::account::lease account_lease_;          // 账户连接租约，认证成功后持有，会话结束时释放
         stats::traffic::traffic_state *traffic_{nullptr};
         protocol::protocol_type proto_{protocol::protocol_type::unknown};
@@ -500,7 +509,7 @@ namespace psm::protocol::socks5
      * @return shared_conn 中继器对象共享指针
      * @details 工厂函数，封装 std::make_shared 调用，简化对象创建。
      */
-    inline shared_conn make_conn(shared_transmission next_layer, const config &cfg = {},
+    [[nodiscard]] inline shared_conn make_conn(shared_transmission next_layer, const config &cfg = {},
                                    psm::account::directory *account_dir = nullptr)
     {
         return std::make_shared<conn>(std::move(next_layer), cfg, account_dir);

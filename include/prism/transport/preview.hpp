@@ -85,7 +85,7 @@ namespace psm::transport
          * @details 优先从预读缓冲区返回数据，预读数据耗尽后委托给
          * 内部传输对象进行实际读取。
          */
-        auto async_read_some(std::span<std::byte> buffer, std::error_code &ec)
+        [[nodiscard]] auto async_read_some(std::span<std::byte> buffer, std::error_code &ec)
             -> net::awaitable<std::size_t> override;
 
         /**
@@ -94,7 +94,7 @@ namespace psm::transport
          * @param ec 输出错误码
          * @return 协程对象，完成后返回写入的字节数
          */
-        auto async_write_some(std::span<const std::byte> buffer, std::error_code &ec)
+        [[nodiscard]] auto async_write_some(std::span<const std::byte> buffer, std::error_code &ec)
             -> net::awaitable<std::size_t> override;
 
         /**
@@ -119,7 +119,7 @@ namespace psm::transport
          * @brief 完整写入操作
          * @details 委托给内部传输的 async_write 自由函数。
          */
-        auto async_write(std::span<const std::byte> buffer, std::error_code &ec)
+        [[nodiscard]] auto async_write(std::span<const std::byte> buffer, std::error_code &ec)
             -> net::awaitable<std::size_t>
         {
             if (!inner_)
@@ -165,7 +165,7 @@ namespace psm::transport
      * 在后续读取时优先重放预读数据。
      * @note 调用后入站传输所有权转移至返回值。
      */
-    inline auto wrap_with_preview(shared_transmission inbound, std::span<const std::byte> data, memory::resource_pointer mr = memory::current_resource())
+    [[nodiscard]] inline auto wrap_with_preview(shared_transmission inbound, std::span<const std::byte> data, memory::resource_pointer mr = memory::current_resource())
         -> shared_transmission
     {
         if (!data.empty())

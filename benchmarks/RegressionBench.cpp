@@ -64,7 +64,7 @@ namespace
     // 加密 1MB 数据，计算 MB/s 吞吐量
     // ================================================================
 
-    auto bench_aes256_gcm_throughput(psm::testing::TestRunner &runner) -> void
+    void bench_aes256_gcm_throughput(psm::testing::TestRunner &runner)
     {
         runner.LogInfo("Running AES-256-GCM throughput benchmark...");
 
@@ -81,7 +81,7 @@ namespace
             psm::crypto::aead_context::seal_output_size(chunk_size));
 
         // 预热：执行一次加密确保上下文初始化完成
-        ctx.seal(ciphertext, plaintext);
+        (void)ctx.seal(ciphertext, plaintext);
 
         auto start = std::chrono::high_resolution_clock::now();
 
@@ -111,7 +111,7 @@ namespace
     // 执行 1000 次密钥交换，计算平均延迟（微秒）
     // ================================================================
 
-    auto bench_x25519_latency(psm::testing::TestRunner &runner) -> void
+    void bench_x25519_latency(psm::testing::TestRunner &runner)
     {
         runner.LogInfo("Running X25519 key exchange latency benchmark...");
 
@@ -169,7 +169,7 @@ namespace
     // 分配/释放 10000 个 256 字节块，计算 ops/s
     // ================================================================
 
-    auto bench_global_pool_allocation(psm::testing::TestRunner &runner) -> void
+    void bench_global_pool_allocation(psm::testing::TestRunner &runner)
     {
         runner.LogInfo("Running global pool allocation benchmark...");
 
@@ -207,7 +207,7 @@ namespace
     // 通过 localhost socket pair 收发 1KB 数据，计算 RTT（微秒）
     // ================================================================
 
-    auto bench_tcp_echo_latency(psm::testing::TestRunner &runner) -> void
+    void bench_tcp_echo_latency(psm::testing::TestRunner &runner)
     {
         runner.LogInfo("Running TCP echo latency benchmark...");
 

@@ -63,7 +63,7 @@ namespace psm::crypto
         {
             trace::error("{} X25519 key exchange failed", X25519_TAG);
             shared_secret.fill(0);
-            return {fault::code::reality_key_exchange_failed, shared_secret};
+            return {fault::code::reality_kexfail, shared_secret};
         }
 
         return {fault::code::success, shared_secret};

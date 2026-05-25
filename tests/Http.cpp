@@ -32,18 +32,18 @@ namespace
     int passed = 0;
     int failed = 0;
 
-    auto LogInfo(const std::string_view msg) -> void
+    void LogInfo(const std::string_view msg)
     {
         psm::trace::info("[Http] {}", msg);
     }
 
-    auto LogPass(const std::string_view msg) -> void
+    void LogPass(const std::string_view msg)
     {
         ++passed;
         psm::trace::info("[Http] PASS: {}", msg);
     }
 
-    auto LogFail(const std::string_view msg) -> void
+    void LogFail(const std::string_view msg)
     {
         ++failed;
         psm::trace::error("[Http] FAIL: {}", msg);
@@ -80,7 +80,7 @@ net::awaitable<void> DoConnectServer(tcp::acceptor &acceptor)
         }
 
         // 发送 200 响应
-        co_await nego->write_connect_success();
+        co_await nego->send_connect_ok();
 
         // 释放传输层进行 echo
         auto trans = nego->release();

@@ -21,7 +21,7 @@ target_sources(${PROJECT_NAME}_static_library
         BASE_DIRS ${PROJECT_SOURCE_DIR}/include
         FILES
             ${PROJECT_SOURCE_DIR}/include/prism/protocol.hpp
-            ${PROJECT_SOURCE_DIR}/include/prism/protocol/protocol_type.hpp
+            ${PROJECT_SOURCE_DIR}/include/prism/protocol/types.hpp
             ${PROJECT_SOURCE_DIR}/include/prism/protocol/common/target.hpp
             ${PROJECT_SOURCE_DIR}/include/prism/protocol/common/mux.hpp
             ${PROJECT_SOURCE_DIR}/include/prism/protocol/tls/types.hpp
@@ -31,7 +31,7 @@ target_sources(${PROJECT_NAME}_static_library
             ${PROJECT_SOURCE_DIR}/include/prism/protocol/common/address.hpp
             ${PROJECT_SOURCE_DIR}/include/prism/protocol/common/framing.hpp
             ${PROJECT_SOURCE_DIR}/include/prism/protocol/common/read.hpp
-            ${PROJECT_SOURCE_DIR}/include/prism/protocol/common/udp_relay.hpp
+            ${PROJECT_SOURCE_DIR}/include/prism/protocol/common/udprelay.hpp
             ${PROJECT_SOURCE_DIR}/include/prism/protocol/socks5/config.hpp
             ${PROJECT_SOURCE_DIR}/include/prism/protocol/socks5/constants.hpp
             ${PROJECT_SOURCE_DIR}/include/prism/protocol/socks5/packet.hpp

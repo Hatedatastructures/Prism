@@ -41,7 +41,7 @@ namespace psm::protocol::socks5
         std::uint32_t udp_idle_timeout = 60;
 
         // UDP 数据报最大长度
-        std::uint32_t udp_max_datagram = 65535;
+        std::uint32_t udp_max_dgram = 65535;
 
         // 是否启用用户名/密码认证（RFC 1929）
         bool enable_auth = false;

@@ -51,7 +51,7 @@ namespace psm
             // 请求行末尾 \r\n 之后的偏移量（header 区域起始）
             std::size_t req_line_end{0};
             // 完整头部 \r\n\r\n 之后的偏移量（body 区域起始）
-            std::size_t header_end{0};
+            std::size_t hdr_end{0};
         };
 
         /**
@@ -63,7 +63,7 @@ namespace psm
          * 头字段。解析过程不分配内存，所有 string_view 直接指向输入缓冲区。
          * 请求行格式为 "METHOD TARGET HTTP/version\r\n"，头字段以 "\r\n\r\n" 结束。
          */
-        [[nodiscard]] auto parse_proxy_request(std::string_view raw_data, proxy_request &out)
+        [[nodiscard]] auto parse_proxy_req(std::string_view raw_data, proxy_request &out)
             -> fault::code;
 
         /**
@@ -74,14 +74,14 @@ namespace psm
          * @details 将代理场景中的绝对 URI（如 "http://example.com/path?q=1"）
          * 转换为源站所需的相对路径（如 "/path?q=1"），用于正向代理转发。
          */
-        [[nodiscard]] auto extract_relative_path(std::string_view target)
+        [[nodiscard]] auto extract_rel_path(std::string_view target)
             -> std::string_view;
 
         /**
          * @struct auth_result
          * @brief HTTP 代理认证结果
          * @details 封装 Basic 代理认证的验证结果。认证成功时持有连接租约，
-         * 失败时包含待发送的错误响应。由 authenticate_proxy_request 返回。
+         * 失败时包含待发送的错误响应。由 authenticate_proxy 返回。
          */
         struct auth_result
         {
@@ -103,7 +103,7 @@ namespace psm
          * 查询账户目录获取租约。任一步骤失败均返回对应的错误响应。
          * @note 返回的 error_response 指向静态常量字符串，生命周期无限制。
          */
-        [[nodiscard]] auto authenticate_proxy_request(std::string_view authorization, account::directory &directory)
+        [[nodiscard]] auto authenticate_proxy(std::string_view authorization, account::directory &directory)
             -> auth_result;
 
         /**
@@ -115,7 +115,7 @@ namespace psm
          * 相对路径（如 "/path?q=1"），拼接方法、路径和版本号构成新的请求行。
          * 仅用于普通 HTTP 请求转发，CONNECT 方法无需调用此函数。
          */
-        [[nodiscard]] auto build_forward_request_line(const proxy_request &req, std::pmr::memory_resource *mr)
+        [[nodiscard]] auto build_fwd_line(const proxy_request &req, std::pmr::memory_resource *mr)
             -> memory::string;
 
     } // namespace protocol::http

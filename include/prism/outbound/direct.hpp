@@ -46,11 +46,11 @@ namespace psm::outbound
         {
         }
 
-        auto async_connect(const protocol::target &target, const net::any_io_executor &executor)
+        [[nodiscard]] auto async_connect(const protocol::target &target, const net::any_io_executor &executor)
             -> net::awaitable<std::pair<fault::code, shared_transmission>> override
         {
             // 拒绝 IPv6 地址字面量（仅在禁用 IPv6 时）
-            if (router_.ipv6_disabled() && is_ipv6_literal(target.host))
+            if (router_.ipv6_disabled() && is_ipv6(target.host))
             {
                 trace::debug("[Outbound.Direct] rejecting IPv6 literal: {}:{}", target.host, target.port);
                 co_return std::pair{fault::code::ipv6_disabled, nullptr};
@@ -93,7 +93,7 @@ namespace psm::outbound
                                 transport::make_reliable(std::move(conn))};
         }
 
-        auto make_datagram_router()
+        [[nodiscard]] auto make_dgram_router()
             -> std::function<net::awaitable<std::pair<fault::code, net::ip::udp::endpoint>>(
                 std::string_view, std::string_view)> override
         {
@@ -104,7 +104,7 @@ namespace psm::outbound
             return [ptr](const std::string_view host, const std::string_view port)
                        -> net::awaitable<std::pair<fault::code, net::ip::udp::endpoint>>
             {
-                co_return co_await connect::resolve_datagram_target(*ptr, host, port);
+                co_return co_await connect::resolve_dgram(*ptr, host, port);
             };
         }
 
@@ -120,7 +120,7 @@ namespace psm::outbound
          * @param host 目标主机名或 IP 地址
          * @return 如果是 IPv6 地址字面量返回 true
          */
-        static auto is_ipv6_literal(const std::string_view host) noexcept
+        [[nodiscard]] static auto is_ipv6(const std::string_view host) noexcept
             -> bool
         {
             boost::system::error_code ec;

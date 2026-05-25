@@ -7,7 +7,7 @@
  * 3. Trojan lease 持有和释放 (account::directory)
  */
 
-#include <prism/protocol/protocol_type.hpp>
+#include <prism/protocol/types.hpp>
 #include <prism/protocol/common/target.hpp>
 #include <prism/recognition/target.hpp>
 #include <prism/recognition/probe/analyzer.hpp>

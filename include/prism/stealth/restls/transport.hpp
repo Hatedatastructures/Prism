@@ -31,6 +31,31 @@ namespace psm::stealth::restls
     namespace net = boost::asio;
 
     /**
+     * @brief TLS 版本标识
+     * @details 标识后端连接使用的 TLS 协议版本。
+     */
+    enum class tls_version : std::uint8_t
+    {
+        v12,  ///< TLS 1.2
+        v13   ///< TLS 1.3
+    };
+
+    /**
+     * @struct restls_handover
+     * @brief Restls 传输层构造参数包
+     * @details 将握手阶段产出的配置参数打包，使 transport 构造函数参数 ≤3。
+     */
+    struct restls_handover
+    {
+        std::span<const std::uint8_t, 32> secret;        ///< RestlsSecret（32 字节）
+        std::span<const std::uint8_t, 32> server_random;  ///< ServerHello 的 server_random（32 字节）
+        std::span<const std::uint8_t> client_finished;    ///< 客户端 Finished（完整加密 TLS record）
+        script_engine script;                              ///< Restls script 引擎
+        std::span<const std::byte> initial_data;           ///< 初始预读数据（握手后首帧 payload）
+        tls_version version;                               ///< 后端 TLS 版本
+    };
+
+    /**
      * @class restls_transport
      * @brief Restls 传输层包装器
      * @details 包装原始 TCP socket，持续处理 Restls 协议。
@@ -43,21 +68,11 @@ namespace psm::stealth::restls
         /**
          * @brief 构造 Restls 传输层包装器
          * @param socket 原始 TCP socket（所有权转移）
-         * @param secret RestlsSecret（32 字节）
-         * @param server_random ServerHello 的 server_random（32 字节）
-         * @param client_finished 客户端 Finished（完整加密 TLS record）
-         * @param script Restls script 引擎
-         * @param initial_data 初始预读数据（握手后首帧 payload）
-         * @param tls13 后端是否为 TLS 1.3
+         * @param handover 握手阶段产出的参数包（secret, server_random, client_finished, script, initial_data, version）
          */
         explicit restls_transport(
             net::ip::tcp::socket socket,
-            std::span<const std::uint8_t, 32> secret,
-            std::span<const std::uint8_t, 32> server_random,
-            std::span<const std::uint8_t> client_finished,
-            script_engine script,
-            std::span<const std::byte> initial_data,
-            bool tls13);
+            restls_handover handover);
 
         ~restls_transport() override;
 
@@ -82,33 +97,33 @@ namespace psm::stealth::restls
             return const_cast<net::ip::tcp::socket &>(socket_).get_executor();
         }
 
-        auto async_read_some(std::span<std::byte> buffer, std::error_code &ec)
+        [[nodiscard]] auto async_read_some(std::span<std::byte> buffer, std::error_code &ec)
             -> net::awaitable<std::size_t> override;
 
-        auto async_write_some(std::span<const std::byte> buffer, std::error_code &ec)
+        [[nodiscard]] auto async_write_some(std::span<const std::byte> buffer, std::error_code &ec)
             -> net::awaitable<std::size_t> override;
 
-        auto async_write(std::span<const std::byte> data, std::error_code &ec)
+        [[nodiscard]] auto async_write(std::span<const std::byte> data, std::error_code &ec)
             -> net::awaitable<std::size_t>;
 
         void close() override;
         void cancel() override;
 
     private:
-        /// 读取一个完整的 Restls 应用数据记录
-        auto read_restls_frame(std::error_code &ec)
+        /// [[nodiscard]] 读取一个完整的 Restls 应用数据记录
+        [[nodiscard]] auto read_restls_frame(std::error_code &ec)
             -> net::awaitable<std::optional<memory::vector<std::byte>>>;
 
-        /// 写入一个 Restls 应用数据记录
-        auto write_restls_frame(std::span<const std::byte> data, std::error_code &ec)
+        /// [[nodiscard]] 写入一个 Restls 应用数据记录
+        [[nodiscard]] auto write_restls_frame(std::span<const std::byte> data, std::error_code &ec)
             -> net::awaitable<std::size_t>;
 
         /// 发送随机响应帧
-        auto send_random_response(std::uint8_t count, std::error_code &ec)
+        [[nodiscard]] auto send_random_response(std::uint8_t count, std::error_code &ec)
             -> net::awaitable<void>;
 
         /// flush 待发送缓冲区
-        auto flush_pending(std::error_code &ec)
+        [[nodiscard]] auto flush_pending(std::error_code &ec)
             -> net::awaitable<void>;
 
         net::ip::tcp::socket socket_;
@@ -117,6 +132,7 @@ namespace psm::stealth::restls
         memory::vector<std::uint8_t> client_finished_;
         script_engine script_;
         bool tls13_;
+        tls_version tls_version_;
 
         // 读写计数器
         std::uint64_t read_counter_{0};
@@ -135,6 +151,6 @@ namespace psm::stealth::restls
         memory::vector<std::byte> pending_buffer_;
         std::size_t pending_offset_{0};
 
-        static constexpr std::uint8_t content_type_application_data = 0x17;
+        static constexpr std::uint8_t content_appdata = 0x17;
     }; // class restls_transport
 } // namespace psm::stealth::restls

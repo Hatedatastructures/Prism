@@ -52,7 +52,7 @@ namespace psm::instance::front
         ioc_.run();
     }
 
-    auto listener::stop() -> void
+    void listener::stop()
     {
         boost::system::error_code ec;
         acceptor_.close(ec);

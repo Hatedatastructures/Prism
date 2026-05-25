@@ -29,12 +29,12 @@ namespace psm::instance::session
     namespace detail
     {
         // 全局会话 ID 计数器，使用原子操作保证线程安全
-        inline std::atomic<std::uint64_t> session_id_counter{0};
+        inline std::atomic<std::uint64_t> sid_counter{0};
 
         // 生成新的会话 ID，性能优化：单次原子递增
-        [[nodiscard]] inline std::uint64_t generate_session_id() noexcept
+        [[nodiscard]] inline std::uint64_t next_sid() noexcept
         {
-            return ++session_id_counter;
+            return ++sid_counter;
         }
     } // namespace detail
 
@@ -266,6 +266,6 @@ namespace psm::instance::session
      * @warning 调用者必须确保传入的 io_context 在会话生命周期
      * 内保持运行。
      */
-    std::shared_ptr<session> make_session(session_params &&params);
+    [[nodiscard]] std::shared_ptr<session> make_session(session_params &&params);
 
 } // namespace psm::instance::session

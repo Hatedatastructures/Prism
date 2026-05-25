@@ -16,7 +16,7 @@
 #include <array>
 #include <cstdint>
 #include <string_view>
-#include <prism/protocol/protocol_type.hpp>
+#include <prism/protocol/types.hpp>
 
 namespace psm::recognition::probe
 {
@@ -41,7 +41,7 @@ namespace psm::recognition::probe
      * @param data 待检查数据
      * @return 若匹配任何 HTTP 方法前缀则返回 true
      */
-    inline auto is_http_request(const std::string_view data) noexcept
+    [[nodiscard]] inline auto is_http_request(const std::string_view data) noexcept
         -> bool
     {
         for (const auto &method : tls_http_methods)

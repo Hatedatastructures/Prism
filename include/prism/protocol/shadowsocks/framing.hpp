@@ -15,11 +15,11 @@
 namespace psm::protocol::shadowsocks::format
 {
     /**
-     * @struct address_parse_result
+     * @struct addr_parse_result (文档注释引用旧名)
      * @brief 地址解析结果
      * @details 存储从缓冲区解析出的目标地址、端口和字节偏移
      */
-    struct address_parse_result
+    struct addr_parse_result
     {
         address addr;         // 目标地址
         std::uint16_t port{}; // 目标端口
@@ -31,8 +31,8 @@ namespace psm::protocol::shadowsocks::format
      * @param buffer 包含 ATYP+ADDR+PORT 的缓冲区
      * @return 错误码和解析结果
      */
-    [[nodiscard]] auto parse_address_port(std::span<const std::uint8_t> buffer)
-        -> std::pair<fault::code, address_parse_result>;
+    [[nodiscard]] auto parse_addr_port(std::span<const std::uint8_t> buffer)
+        -> std::pair<fault::code, addr_parse_result>;
 
     /**
      * @brief 解码 base64 PSK 并验证长度
@@ -47,7 +47,7 @@ namespace psm::protocol::shadowsocks::format
      * @param method 加密方法枚举
      * @return 密钥或 salt 的字节长度（AES-128 为 16，其余为 32）
      */
-    [[nodiscard]] constexpr auto key_salt_length(cipher_method method) noexcept
+    [[nodiscard]] constexpr auto keysalt_len(cipher_method method) noexcept
         -> std::size_t
     {
         return method == cipher_method::aes_128_gcm ? 16 : 32;
@@ -59,6 +59,6 @@ namespace psm::protocol::shadowsocks::format
      * @param psk_len PSK 字节长度（用于自动推断）
      * @return 加密方法枚举
      */
-    [[nodiscard]] auto resolve_cipher_method(std::string_view method_str, std::size_t psk_len) noexcept
+    [[nodiscard]] auto resolve_method(std::string_view method_str, std::size_t psk_len) noexcept
         -> cipher_method;
 } // namespace psm::protocol::shadowsocks::format

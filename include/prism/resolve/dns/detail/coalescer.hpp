@@ -67,7 +67,7 @@ namespace psm::resolve::dns::detail
 
         using flight_list = memory::list<flight>;                                                                              // 请求合并列表类型
         using flight_iterator = flight_list::iterator;                                                                         // 请求合并列表迭代器
-        using flight_hash_map = memory::unordered_map<std::string_view, flight_iterator, transparent_hash, transparent_equal>; // 请求合并索引类型
+        using flight_map = memory::unordered_map<std::string_view, flight_iterator, transparent_hash, transparent_equal>; // 请求合并索引类型
 
         /**
          * @brief 构造请求合并器
@@ -107,7 +107,7 @@ namespace psm::resolve::dns::detail
          * @param executor 执行器，用于创建等待定时器
          * @return 请求合并记录的迭代器和是否为新创建的标志
          */
-        auto find_or_create(const memory::string &key, const net::any_io_executor &executor)
+        [[nodiscard]] auto find_create(const memory::string &key, const net::any_io_executor &executor)
             -> std::pair<flight_iterator, bool>
         {
             const std::string_view key_view(key);
@@ -162,6 +162,6 @@ namespace psm::resolve::dns::detail
     private:
         memory::resource_pointer mr_; // 内存资源
         flight_list flights_;         // 请求合并列表
-        flight_hash_map flight_map_;  // 请求合并索引
+        flight_map flight_map_;  // 请求合并索引
     };
 } // namespace psm::resolve::dns::detail

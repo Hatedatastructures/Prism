@@ -104,8 +104,9 @@ namespace psm::multiplex
                         return {};
                     };
                     std::shared_ptr<core> session = std::make_shared<h2mux::craft>(
-                        std::move(ctx.transport), ctx.router, ctx.cfg,
-                        singmux_resolver, ctx.mr);
+                        std::move(ctx.transport),
+                        h2mux::craft_init{ctx.router, ctx.cfg, singmux_resolver},
+                        ctx.mr);
                     session->set_traffic(ctx.traffic, ctx.proto);
                     trace::info("{} h2mux session constructed", tag);
                     co_return session;

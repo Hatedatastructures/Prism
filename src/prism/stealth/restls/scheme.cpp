@@ -1,18 +1,10 @@
-/**
- * @file scheme.cpp
- * @brief Restls 伪装方案实现
- * @details Restls 是 Tier 2 方案，无 ClientHello 独占特征，依赖 SNI 匹配。
- * 握手采用 Path C 代理架构（复用 ShadowTLS 双工转发），
- * 认证基于 BLAKE3 keyed mode。
- */
-
 #include <prism/stealth/restls/scheme.hpp>
 #include <prism/stealth/restls/handshake.hpp>
 #include <prism/stealth/restls/transport.hpp>
 #include <prism/config.hpp>
 #include <prism/transport/reliable.hpp>
 #include <prism/connect/util.hpp>
-#include <prism/protocol/protocol_type.hpp>
+#include <prism/protocol/types.hpp>
 #include <prism/recognition/probe/analyzer.hpp>
 #include <prism/trace.hpp>
 #include <prism/fault/code.hpp>
@@ -41,7 +33,7 @@ namespace psm::stealth::restls
         return make_sni_list(cfg.stealth.restls.server_names);
     }
 
-    auto scheme::guess(const psm::config &cfg) const
+    auto scheme::guess(const psm::config & /*cfg*/) const
         -> verify_result
     {
         return {
@@ -82,6 +74,7 @@ namespace psm::stealth::restls
         {
             result.detected = protocol::protocol_type::tls;
             result.error = hs_result.error;
+            result.polluted = hs_result.polluted;
             trace::debug("[Restls] handshake failed, pass to next scheme");
             co_return result;
         }
@@ -102,12 +95,14 @@ namespace psm::stealth::restls
         // 创建 restls_transport
         auto restls_trans = std::make_shared<restls_transport>(
             std::move(raw_socket),
-            std::span<const std::uint8_t, 32>(detail.restls_secret),
-            std::span<const std::uint8_t, 32>(detail.server_random),
-            std::span<const std::uint8_t>(detail.client_finished),
-            std::move(detail.script),
-            std::span<const std::byte>(), // 无初始预读数据
-            detail.tls13);
+            restls_handover{
+                std::span<const std::uint8_t, 32>(detail.restls_secret),
+                std::span<const std::uint8_t, 32>(detail.server_random),
+                std::span<const std::uint8_t>(detail.client_finished),
+                std::move(detail.script),
+                std::span<const std::byte>(), // 无初始预读数据
+                detail.tls13 ? tls_version::v13 : tls_version::v12
+            });
 
         // 检测内层协议
         result.detected = protocol::protocol_type::shadowsocks;

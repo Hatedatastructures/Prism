@@ -65,7 +65,6 @@ auto resolve(std::string_view host_port, memory::resource_pointer mr = nullptr)
  * @param port 输出参数，存储解析出的端口号
  * @note 主机和端口字符串必须使用相同的内存资源分配器。
  */
-auto parse(std::string_view src, memory::string &host, memory::string &port)
-    -> void;
+void parse(std::string_view src, memory::string &host, memory::string &port);
 
 } // namespace psm::recognition

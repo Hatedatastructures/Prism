@@ -39,7 +39,7 @@ namespace psm::protocol::trojan::format
      * @param buffer 包含凭据的缓冲区，至少 56 字节
      * @return 错误码和凭据数组
      */
-    auto parse_credential(const std::span<const std::uint8_t> buffer)
+    [[nodiscard]] auto parse_credential(const std::span<const std::uint8_t> buffer)
         -> std::pair<fault::code, std::array<char, 56>>;
 
     /**
@@ -47,7 +47,7 @@ namespace psm::protocol::trojan::format
      * @param buffer 包含 CRLF 的缓冲区，至少 2 字节
      * @return 验证结果错误码
      */
-    auto parse_crlf(const std::span<const std::uint8_t> buffer)
+    [[nodiscard]] auto parse_crlf(const std::span<const std::uint8_t> buffer)
         -> fault::code;
 
     /**
@@ -55,7 +55,7 @@ namespace psm::protocol::trojan::format
      * @param buffer 包含命令和地址类型的缓冲区，至少 2 字节
      * @return 错误码和解析结果
      */
-    auto parse_cmd_atyp(std::span<const std::uint8_t> buffer)
+    [[nodiscard]] auto parse_cmd_atyp(std::span<const std::uint8_t> buffer)
         -> std::pair<fault::code, header_parse>;
 
     /**
@@ -63,7 +63,7 @@ namespace psm::protocol::trojan::format
      * @brief Trojan UDP 帧信息
      * @details 描述一个 Trojan UDP 数据包的目标地址和端口
      */
-    struct udp_frame
+    struct udp_routed
     {
         address destination_address;    // 目标地址
         std::uint16_t destination_port; // 目标端口
@@ -89,7 +89,7 @@ namespace psm::protocol::trojan::format
      * @param out 输出缓冲区
      * @return 编码结果错误码
      */
-    auto build_udp_packet(const udp_frame &frame, std::span<const std::byte> payload, memory::vector<std::byte> &out)
+    [[nodiscard]] auto build_udp_pkt(const udp_routed &frame, std::span<const std::byte> payload, memory::vector<std::byte> &out)
         -> fault::code;
 
     /**
@@ -97,7 +97,7 @@ namespace psm::protocol::trojan::format
      * @param buffer UDP 数据包缓冲区
      * @return 错误码和解析结果
      */
-    auto parse_udp_packet(std::span<const std::byte> buffer)
+    [[nodiscard]] auto parse_udp_pkt(std::span<const std::byte> buffer)
         -> std::pair<fault::code, udp_parse_result>;
 
 } // namespace psm::protocol::trojan::format

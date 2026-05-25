@@ -36,13 +36,13 @@ namespace psm::instance::front
     {
         double enter_overload{0.90};                // 进入过载状态的负载阈值
         double exit_overload{0.80};                 // 退出过载状态的负载阈值
-        double global_backpressure_threshold{0.95}; // 全局反压触发阈值
+        double backpressure_thresh{0.95}; // 全局反压触发阈值
         double weight_session{0.60};                // 会话数权重
         double weight_pending{0.10};                // 待处理数权重
         double weight_lag{0.30};                    // 延迟权重
         std::uint32_t session_capacity{1024};       // 会话容量基准值
         std::uint32_t pending_capacity{256};        // 待处理容量基准值
-        std::uint64_t lag_capacity_us{5000};        // 延迟容量基准值，单位微秒
+        std::uint64_t lag_cap_us{5000};        // 延迟容量基准值，单位微秒
     };
 
     /**
@@ -69,7 +69,7 @@ namespace psm::instance::front
         struct worker_binding
         {
             std::function<void(tcp::socket)> dispatch;      // 连接分发函数
-            std::function<stats::worker_load_snapshot()> snapshot; // 负载快照获取函数
+            std::function<stats::worker_snapshot()> snapshot; // 负载快照获取函数
         };
 
         /**
@@ -145,7 +145,7 @@ namespace psm::instance::front
          * @details 根据配置的权重参数，计算会话数、待处理数和延迟三个
          * 维度的加权评分。评分值在 0.0 到 1.0 之间，表示相对负载水平。
          */
-        [[nodiscard]] auto score(const stats::worker_load_snapshot &snapshot) const noexcept
+        [[nodiscard]] auto score(const stats::worker_snapshot &snapshot) const noexcept
             -> double;
 
         /**

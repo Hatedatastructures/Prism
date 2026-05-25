@@ -24,18 +24,18 @@ namespace
     int passed = 0;
     int failed = 0;
 
-    auto LogInfo(const std::string_view msg) -> void
+    void LogInfo(const std::string_view msg)
     {
         psm::trace::info("[Aead] {}", msg);
     }
 
-    auto LogPass(const std::string_view msg) -> void
+    void LogPass(const std::string_view msg)
     {
         ++passed;
         psm::trace::info("[Aead] PASS: {}", msg);
     }
 
-    auto LogFail(const std::string_view msg) -> void
+    void LogFail(const std::string_view msg)
     {
         ++failed;
         psm::trace::error("[Aead] FAIL: {}", msg);

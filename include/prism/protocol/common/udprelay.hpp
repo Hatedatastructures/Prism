@@ -1,5 +1,5 @@
 /**
- * @file udp_relay.hpp
+ * @file udprelay.hpp
  * @brief 共享 UDP 中继辅助工具
  * @details 提供协议无关的 UDP 数据报中继基础设施，包括缓冲区管理和
  * 数据报转发函数。被 Trojan 和 VLESS 的 UDP over TLS 实现共用。
@@ -34,12 +34,12 @@ namespace psm::protocol::common
     using traffic_callback = void(*)(void *ctx, std::uint64_t up, std::uint64_t down) noexcept;
 
     /**
-     * @struct udp_loop_config
+     * @struct udp_loop_cfg (文档注释引用旧名)
      * @brief UDP 帧循环配置
      * @details 聚合 UDP over TLS 帧循环所需的定时器和参数配置，
-     * 将 udp_over_tls_frame_loop 函数参数收敛到 4 个。
+     * 将 udp_frame_loop 函数参数收敛到 4 个。
      */
-    struct udp_loop_config
+    struct udp_loop_cfg
     {
         net::steady_timer &idle_timer;      // 空闲超时计时器
         std::string_view log_tag;           // 日志标签
@@ -80,7 +80,7 @@ namespace psm::protocol::common
      * 然后等待并接收单个响应。Socket 首次调用时按目标协议族打开，
      * 后续调用复用同一 socket，避免每包 open/close 的系统调用开销。
      */
-    inline auto relay_udp_packet(net::ip::udp::socket &udp_socket,
+    [[nodiscard]] inline auto relay_udp_packet(net::ip::udp::socket &udp_socket,
                                  const net::ip::udp::endpoint &target_ep,
                                  std::span<const std::byte> payload,
                                  udp_buffers &buf)
@@ -121,47 +121,76 @@ namespace psm::protocol::common
     }
 
     /**
+     * @struct udp_resp_ctx
+     * @brief send_udp_frame 参数聚合
+     * @tparam BuildFn UDP 帧构建函数类型
+     * @tparam UdpFrame UDP 帧结构类型
+     * @details 将 send_udp_frame 的参数收敛到单结构体，
+     * 将函数参数降至 3 个（transport + ctx + buf）。
+     */
+    template <typename BuildFn, typename UdpFrame>
+    struct udp_resp_ctx
+    {
+        const net::ip::udp::endpoint &sender_ep;       // UDP 响应来源端点
+        std::size_t resp_n;                            // 响应数据长度
+        std::decay_t<BuildFn> build_fn;                // UDP 帧构建函数
+        std::string_view log_tag;                      // 日志标签
+    };
+
+    /**
+     * @struct udp_frame_ctx
+     * @brief udp_frame_loop 参数聚合
+     * @tparam ParseFn UDP 数据包解析函数类型
+     * @tparam BuildFn UDP 帧构建函数类型
+     * @tparam UdpFrame UDP 帧结构类型
+     * @tparam UdpParseResult UDP 解析结果类型
+     * @details 将 udp_frame_loop 的回调参数收敛到单结构体，
+     * 将函数参数降至 3 个（transport + ctx + config）。
+     */
+    template <typename ParseFn, typename BuildFn, typename UdpFrame, typename UdpParseResult>
+    struct udp_frame_ctx
+    {
+        std::decay_t<ParseFn> parse_fn;  // UDP 数据包解析函数
+        std::decay_t<BuildFn> build_fn;  // UDP 帧构建函数
+        std::function<net::awaitable<std::pair<fault::code, net::ip::udp::endpoint>>(std::string_view, std::string_view)> route_cb; // 路由回调
+    };
+
+    /**
      * @brief 通过 TLS 传输层发送 UDP 帧响应
      * @tparam BuildFn UDP 帧构建函数类型
      * @tparam UdpFrame UDP 帧结构类型
      * @param transport TLS 传输层引用
-     * @param sender_ep UDP 响应来源端点（作为响应的目标地址）
-     * @param resp_n 响应数据长度
+     * @param ctx 响应上下文（sender_ep, resp_n, build_fn, log_tag）
      * @param buf 缓冲区集合
-     * @param build_fn UDP 帧构建函数
-     * @param log_tag 日志标签
      * @return 是否成功（失败应终止循环）
      * @details 将 UDP 响应封装为协议帧并通过 TLS 传输层发送。
      * 根据 sender_ep 的地址族自动选择 IPv4/IPv6 地址类型
      */
     template <typename BuildFn, typename UdpFrame>
-    auto send_udp_frame_response(
+    [[nodiscard]] auto send_udp_frame(
         transport::transmission &transport,
-        const net::ip::udp::endpoint &sender_ep,
-        std::size_t resp_n,
-        udp_buffers &buf,
-        BuildFn &&build_fn,
-        std::string_view log_tag)
+        const udp_resp_ctx<BuildFn, UdpFrame> &ctx,
+        udp_buffers &buf)
             -> net::awaitable<bool>
     {
         buf.send.clear();
         UdpFrame frame;
-        if (sender_ep.address().is_v4())
+        if (ctx.sender_ep.address().is_v4())
         {
-            frame.destination_address = ipv4_address{sender_ep.address().to_v4().to_bytes()};
+            frame.destination_address = ipv4_address{ctx.sender_ep.address().to_v4().to_bytes()};
         }
         else
         {
-            frame.destination_address = ipv6_address{sender_ep.address().to_v6().to_bytes()};
+            frame.destination_address = ipv6_address{ctx.sender_ep.address().to_v6().to_bytes()};
         }
-        frame.destination_port = sender_ep.port();
-        build_fn(frame, {buf.response.data(), resp_n}, buf.send);
+        frame.destination_port = ctx.sender_ep.port();
+        ctx.build_fn(frame, {buf.response.data(), ctx.resp_n}, buf.send);
 
         std::error_code write_ec;
         co_await transport::async_write(transport, {buf.send.data(), buf.send.size()}, write_ec);
         if (write_ec)
         {
-            trace::debug("{} Write response failed: {}", log_tag, write_ec.message());
+            trace::debug("{} Write response failed: {}", ctx.log_tag, write_ec.message());
             co_return false;
         }
         co_return true;
@@ -174,9 +203,7 @@ namespace psm::protocol::common
      * @tparam UdpFrame UDP 帧结构类型
      * @tparam UdpParseResult UDP 解析结果类型
      * @param tls_transport TLS 传输层引用
-     * @param parse_fn UDP 数据包解析函数
-     * @param build_fn UDP 帧构建函数
-     * @param route_cb 路由回调函数，用于解析目标地址
+     * @param frame_ctx 帧循环回调上下文（parse_fn, build_fn, route_cb）
      * @param config 帧循环配置（定时器、日志标签、超时、最大数据报长度）
      * @return net::awaitable<void> 异步操作
      * @details 从 TLS 流读取 UDP 数据包，解析并转发到目标地址，
@@ -184,12 +211,10 @@ namespace psm::protocol::common
      * 该模板合并了 Trojan 和 VLESS 中完全相同的 UDP 帧循环逻辑
      */
     template <typename ParseFn, typename BuildFn, typename UdpFrame, typename UdpParseResult>
-    auto udp_over_tls_frame_loop(
+    [[nodiscard]] auto udp_frame_loop(
         transport::transmission &tls_transport,
-        ParseFn &&parse_fn,
-        BuildFn &&build_fn,
-        std::function<net::awaitable<std::pair<fault::code, net::ip::udp::endpoint>>(std::string_view, std::string_view)> route_cb,
-        udp_loop_config config)
+        udp_frame_ctx<ParseFn, BuildFn, UdpFrame, UdpParseResult> frame_ctx,
+        udp_loop_cfg config)
             -> net::awaitable<void>
     {
         using namespace boost::asio::experimental::awaitable_operators;
@@ -238,7 +263,7 @@ namespace psm::protocol::common
                 co_return;
             }
 
-            auto [parse_ec, parsed] = parse_fn(std::span<const std::byte>{buf.recv.data(), n});
+            auto [parse_ec, parsed] = frame_ctx.parse_fn(std::span<const std::byte>{buf.recv.data(), n});
             if (fault::failed(parse_ec))
             {
                 trace::warn("{} Packet parse failed", config.log_tag);
@@ -250,7 +275,7 @@ namespace psm::protocol::common
             const auto [port_end, port_ec] = std::to_chars(port_buf, port_buf + sizeof(port_buf), parsed.destination_port);
             const std::string_view target_port(port_buf, std::distance(port_buf, port_end));
 
-            auto [route_ec, target_ep] = co_await route_cb(target_host, target_port);
+            auto [route_ec, target_ep] = co_await frame_ctx.route_cb(target_host, target_port);
             if (fault::failed(route_ec))
             {
                 trace::debug("{} Route failed for {}:{}", config.log_tag, target_host, target_port);
@@ -263,9 +288,10 @@ namespace psm::protocol::common
 
             uplink_bytes += static_cast<std::uint64_t>(payload.size());
 
-            if (!co_await send_udp_frame_response<BuildFn, UdpFrame>(
-                    tls_transport, sender_ep, resp_n, buf,
-                    std::forward<BuildFn>(build_fn), config.log_tag))
+            if (!co_await send_udp_frame<BuildFn, UdpFrame>(
+                    tls_transport,
+                    udp_resp_ctx<BuildFn, UdpFrame>{sender_ep, resp_n, frame_ctx.build_fn, config.log_tag},
+                    buf))
             {
                 if (config.on_traffic)
                 {

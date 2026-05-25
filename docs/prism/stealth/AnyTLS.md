@@ -55,7 +55,7 @@ include/prism/stealth/anytls/
 └── mux/
     ├── frame.hpp          # 帧格式定义（7B header）+ 命令枚举
     ├── session.hpp        # 多路复用会话管理（recv_loop + stream 分发）
-    └── stream_transport.hpp # 单个 stream 的 transmission 适配
+    └── transport.hpp       # 单个 stream 的 transmission 适配
 
 src/prism/stealth/anytls/
 ├── scheme.cpp             # scheme 实现（TLS 握手 + 认证 + stream 管理）

@@ -1,9 +1,3 @@
-/**
- * @file scheme.cpp
- * @brief ShadowTLS v3 伪装方案实现
- * @details ShadowTLS 是 Tier 1 方案，需要 HMAC 验证确认身份。
- */
-
 #include <prism/stealth/shadowtls/scheme.hpp>
 #include <prism/stealth/shadowtls/handshake.hpp>
 #include <prism/stealth/shadowtls/util/auth.hpp>
@@ -12,14 +6,13 @@
 #include <prism/transport/snapshot.hpp>
 #include <prism/transport/preview.hpp>
 #include <prism/connect/util.hpp>
-#include <prism/protocol/protocol_type.hpp>
+#include <prism/protocol/types.hpp>
 #include <prism/recognition/probe/analyzer.hpp>
-#include <prism/recognition/tls/feature_bitmap.hpp>
+#include <prism/recognition/tls/features.hpp>
 #include <prism/trace.hpp>
 
 namespace psm::stealth::shadowtls
 {
-    using namespace recognition::tls;
     using hello_features = protocol::tls::hello_features;
 
     auto scheme::active(const psm::config &cfg) const noexcept
@@ -46,13 +39,11 @@ namespace psm::stealth::shadowtls
     }
 
     auto scheme::sniff(std::uint32_t bitmap,
-                       const hello_features &features) const
+                       const hello_features & /*features*/) const
         -> sniff_result
     {
-        using namespace protocol::tls;
-
         // Tier 0: 非标准 session_id 长度（零成本）
-        if (has_feature(bitmap, session_id_non_standard))
+        if (recognition::tls::has_feature(bitmap, recognition::tls::session_id_non_standard))
         {
             return {
                 .hit = true,
@@ -138,18 +129,18 @@ namespace psm::stealth::shadowtls
             std::move(ctx.preread),
             detail);
 
-        if (fault::succeeded(hs_result.error) && !detail.client_first_frame.empty())
+        if (fault::succeeded(hs_result.error) && !detail.client_firstframe.empty())
         {
-            auto &first_frame = detail.client_first_frame;
+            auto &first_frame = detail.client_firstframe;
             // ShadowTLS v3: first_frame 格式是 TLS header(5) + payload
             // 需要剥离 TLS header，只保留 payload 作为内层协议数据
-            constexpr std::size_t tls_header_size = 5;
-            if (first_frame.size() > tls_header_size)
+            constexpr std::size_t local_tls_hdrsize = 5;
+            if (first_frame.size() > local_tls_hdrsize)
             {
                 // 剥离 TLS header，提取真正的 payload
                 auto payload = std::span<const std::byte>(
-                    first_frame.data() + tls_header_size,
-                    first_frame.size() - tls_header_size);
+                    first_frame.data() + local_tls_hdrsize,
+                    first_frame.size() - local_tls_hdrsize);
 
                 trace::debug("[ShadowTlsScheme] first_frame TLS header stripped, payload_size={}", payload.size());
 
@@ -186,11 +177,13 @@ namespace psm::stealth::shadowtls
                 // hmac_read_ctx: 读取方向（初始 = password + SR + "C" + first_frame_payload + HMAC[:4])
                 auto shadowtls_trans = std::make_shared<shadowtls_transport>(
                     std::move(raw_socket),
-                    detail.matched_password,
-                    std::span<const std::byte>(detail.server_random.data(), detail.server_random.size()),
-                    payload,
-                    std::move(detail.hmac_write_ctx),
-                    std::move(detail.hmac_read_ctx));
+                    shadowtls_handover{
+                        detail.matched_password,
+                        std::span<const std::byte>(detail.server_random.data(), detail.server_random.size()),
+                        payload,
+                        std::move(detail.hmac_write_ctx),
+                        std::move(detail.hmac_read_ctx)
+                    });
 
                 // ShadowTLS.Transport 管理初始数据，不放入 preread 避免数据重复
                 result.transport = shadowtls_trans;
@@ -211,6 +204,7 @@ namespace psm::stealth::shadowtls
         {
             result.detected = protocol::protocol_type::tls;
             result.error = hs_result.error;
+            result.polluted = hs_result.polluted;
             trace::debug("[ShadowTlsScheme] Not ShadowTLS, pass to next scheme");
         }
 

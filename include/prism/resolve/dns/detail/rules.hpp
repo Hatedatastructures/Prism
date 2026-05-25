@@ -188,7 +188,7 @@ namespace psm::resolve::dns::detail
          * @param domain 匹配的域名，支持通配符
          * @param ips 该域名映射的静态 IP 地址列表
          */
-        void add_address_rule(std::string_view domain, const memory::vector<net::ip::address> &ips);
+        void add_addr_rule(std::string_view domain, const memory::vector<net::ip::address> &ips);
 
         /**
          * @brief 添加否定规则（广告屏蔽）
@@ -196,7 +196,7 @@ namespace psm::resolve::dns::detail
          * blocked 标记将设置为 true。
          * @param domain 需要屏蔽的域名，支持通配符
          */
-        void add_negative_rule(std::string_view domain);
+        void add_neg_rule(std::string_view domain);
 
         /**
          * @brief 添加 CNAME 重定向规则
@@ -204,7 +204,7 @@ namespace psm::resolve::dns::detail
          * @param domain 源域名，支持通配符
          * @param target CNAME 目标域名
          */
-        void add_cname_rule(std::string_view domain, std::string_view target);
+        void add_cname(std::string_view domain, std::string_view target);
 
         /**
          * @brief 匹配域名并返回合并的规则结果

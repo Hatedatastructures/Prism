@@ -10,7 +10,7 @@
 #include <prism/stealth/registry.hpp>
 #include <prism/stealth/scheme.hpp>
 #include <prism/recognition/result.hpp>
-#include <prism/protocol/protocol_type.hpp>
+#include <prism/protocol/types.hpp>
 #include <prism/fault/code.hpp>
 #include <prism/fault/handling.hpp>
 #include <prism/memory.hpp>
@@ -134,7 +134,7 @@ namespace
         bool enabled_;
     };
 
-    auto register_mocks() -> void
+    void register_mocks()
     {
         auto &reg = psm::stealth::scheme_registry::instance();
 

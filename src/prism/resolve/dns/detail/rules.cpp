@@ -198,18 +198,18 @@ namespace psm::resolve::dns::detail
         return search(domain).has_value();
     }
 
-    void rules_engine::add_address_rule(const std::string_view domain, const memory::vector<net::ip::address> &ips)
+    void rules_engine::add_addr_rule(const std::string_view domain, const memory::vector<net::ip::address> &ips)
     {
         address_trie_.insert(domain, std::any(ips));
     }
 
-    void rules_engine::add_negative_rule(const std::string_view domain)
+    void rules_engine::add_neg_rule(const std::string_view domain)
     {
         // 使用空地址列表 + 负标记表示否定规则
         address_trie_.insert(domain, std::any(true));
     }
 
-    void rules_engine::add_cname_rule(const std::string_view domain, const std::string_view target)
+    void rules_engine::add_cname(const std::string_view domain, const std::string_view target)
     {
         // 存储目标域名
         memory::string target_str(mr_);

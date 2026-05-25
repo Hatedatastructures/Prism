@@ -1,5 +1,5 @@
 /**
- * @file feature_bitmap.hpp
+ * @file features.hpp
  * @brief TLS ClientHello 特征位图
  * @details 将关键特征压缩为位图，支持快速位运算匹配。
  * 用于分层检测管道的 Layer 0 快速检测阶段。
@@ -76,17 +76,17 @@ namespace psm::recognition::tls
         has_psk = 1 << 12,
 
         /** @brief 有 signature_algorithms 扩展 */
-        has_signature_algorithms = 1 << 13,
+        has_sig_algos = 1 << 13,
 
         // ═══════════════════════════════════════════════════════════════════
         // 高级特征
         // ═══════════════════════════════════════════════════════════════════
 
         /** @brief 有多个 key_share */
-        key_share_multiple = 1 << 14,
+        keyshare_multi = 1 << 14,
 
         /** @brief 尝试 0-RTT early data */
-        early_data_attempt = 1 << 15,
+        early_data = 1 << 15,
 
         // ═══════════════════════════════════════════════════════════════════
         // 保留位（16-31）
@@ -156,6 +156,9 @@ namespace psm::recognition::tls
         // 扩展存在检查（从 versions 判断 supported_versions）
         if (!features.versions.empty())
             bitmap |= has_supported_versions;
+
+        if (features.has_ech)
+            bitmap |= has_ech;
 
         return bitmap;
     }

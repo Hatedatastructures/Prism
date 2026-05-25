@@ -50,6 +50,6 @@ namespace psm::protocol::shadowsocks
         }
 
         // 拨号 + 隧道转发（relay 本身作为 inbound，AEAD 加解密持续进行）
-        co_await psm::connect::forward(ctx, "SS2022", agent->target(), std::static_pointer_cast<transport::transmission>(agent));
+        co_await psm::connect::forward(ctx, {"SS2022", agent->target(), std::static_pointer_cast<transport::transmission>(agent)});
     }
 } // namespace psm::protocol::shadowsocks

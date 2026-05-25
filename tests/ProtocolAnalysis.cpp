@@ -6,7 +6,7 @@
  * 边界条件和排除法 fallback 逻辑。
  */
 
-#include <prism/protocol/protocol_type.hpp>
+#include <prism/protocol/types.hpp>
 #include <prism/protocol/common/target.hpp>
 #include <prism/recognition/target.hpp>
 #include <prism/recognition/probe/analyzer.hpp>

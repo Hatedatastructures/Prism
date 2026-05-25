@@ -14,7 +14,7 @@
 #include <boost/asio.hpp>
 #include <prism/fault/code.hpp>
 #include <prism/fault/handling.hpp>
-#include <prism/protocol/protocol_type.hpp>
+#include <prism/protocol/types.hpp>
 #include <prism/transport/transmission.hpp>
 #include <prism/memory/container.hpp>
 #include <prism/recognition/probe/analyzer.hpp>

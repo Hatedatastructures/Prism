@@ -108,10 +108,10 @@ struct mux_test_context
         mux_config.smux.max_streams = max_streams;
         mux_config.yamux.max_streams = max_streams;
         mux_config.h2mux.max_streams = max_streams;
-        mux_config.smux.keepalive_interval_ms = 0;
+        mux_config.smux.keepalive_interval = 0;
         mux_config.yamux.enable_ping = false;
-        mux_config.yamux.ping_interval_ms = 0;
-        mux_config.yamux.stream_open_timeout_ms = 0;
+        mux_config.yamux.ping_interval = 0;
+        mux_config.yamux.stream_open_timeout = 0;
     }
 
     /**

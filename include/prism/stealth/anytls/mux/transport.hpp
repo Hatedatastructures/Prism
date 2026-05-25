@@ -1,5 +1,5 @@
 /**
- * @file stream_transport.hpp
+ * @file transport.hpp
  * @brief AnyTLS stream 传输层
  * @details 将单个 AnyTLS stream 的数据读写适配为 transmission 接口。
  * 读取方向从 anytls_session 的 concurrent_channel 获取数据，
@@ -56,7 +56,7 @@ namespace psm::stealth::anytls
             return channel_->get_executor();
         }
 
-        auto async_read_some(std::span<std::byte> buffer, std::error_code &ec)
+        [[nodiscard]] auto async_read_some(std::span<std::byte> buffer, std::error_code &ec)
             -> net::awaitable<std::size_t> override
         {
             // 先消费 pending 缓冲区
@@ -103,7 +103,7 @@ namespace psm::stealth::anytls
             co_return n;
         }
 
-        auto async_write_some(std::span<const std::byte> buffer, std::error_code &ec)
+        [[nodiscard]] auto async_write_some(std::span<const std::byte> buffer, std::error_code &ec)
             -> net::awaitable<std::size_t> override
         {
             return session_->write_psh(stream_id_, buffer, ec);

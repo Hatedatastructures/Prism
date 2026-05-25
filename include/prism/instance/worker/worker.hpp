@@ -83,7 +83,7 @@ namespace psm::instance::worker
          * 析构时自动清理所有缓存连接。应在关闭阶段调用，实现
          * 优雅停机。
          */
-        auto stop() -> void;
+        void stop();
 
         /**
          * @brief 将 socket 分发到 worker 事件循环
@@ -103,7 +103,7 @@ namespace psm::instance::worker
          * @return 当前负载快照，用于负载均衡决策
          */
         [[nodiscard]] auto load_snapshot() const noexcept
-            -> ::psm::stats::worker_load_snapshot;
+            -> ::psm::stats::worker_snapshot;
 
     private:
         net::io_context ioc_;                                // 事件循环上下文，单线程运行

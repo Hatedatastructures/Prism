@@ -61,7 +61,7 @@ target_sources(${PROJECT_NAME}_static_library
             ${PROJECT_SOURCE_DIR}/include/prism/stealth/anytls/padding.hpp
             ${PROJECT_SOURCE_DIR}/include/prism/stealth/anytls/mux/frame.hpp
             ${PROJECT_SOURCE_DIR}/include/prism/stealth/anytls/mux/session.hpp
-            ${PROJECT_SOURCE_DIR}/include/prism/stealth/anytls/mux/stream_transport.hpp
+            ${PROJECT_SOURCE_DIR}/include/prism/stealth/anytls/mux/transport.hpp
             ${PROJECT_SOURCE_DIR}/include/prism/stealth/trusttunnel/config.hpp
             ${PROJECT_SOURCE_DIR}/include/prism/stealth/trusttunnel/scheme.hpp
             ${PROJECT_SOURCE_DIR}/include/prism/stealth/ech/config.hpp

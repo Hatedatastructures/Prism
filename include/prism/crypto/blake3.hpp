@@ -28,15 +28,12 @@ namespace psm::crypto
      * @brief BLAKE3 密钥派生
      * @details 使用 BLAKE3 的 derive_key 模式，从上下文字符串和密钥材料
      * 派生指定长度的密钥。上下文字符串用于域分离，确保不同用途
-     * 派生出不同的密钥。
+     * 派生出不同的密钥。输出长度由 out 的大小决定。
      * @param context 上下文字符串（如 "shadowsocks 2022 session subkey"）
      * @param material 输入密钥材料
-     * @param out_len 输出密钥长度
-     * @param out 输出缓冲区，必须至少 out_len 字节
+     * @param out 输出缓冲区，其大小决定派生密钥长度
      */
-    auto derive_key(std::string_view context, std::span<const std::uint8_t> material, std::size_t out_len,
-                    std::span<std::uint8_t> out)
-        -> void;
+    void derive_key(std::string_view context, std::span<const std::uint8_t> material, std::span<std::uint8_t> out);
 
     /**
      * @brief BLAKE3 密钥派生（返回 vector 版本）

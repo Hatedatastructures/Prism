@@ -29,7 +29,7 @@ namespace psm::loader
      * 内部的 psm::config 结构。
      * @note 配置文件必须是有效的 JSON 格式，且符合 psm::config 的结构定义
      */
-    inline auto load(const std::string_view path)
+    [[nodiscard]] inline auto load(const std::string_view path)
         -> config
     {
         std::ifstream file(path.data(), std::ios::binary);
@@ -72,7 +72,7 @@ namespace psm::loader
      * password 经 SHA224 规范化后注册，uuid 直接注册。两种凭证共享同一个
      * entry，从而共享连接数配额。
      */
-    inline auto build_account_directory(const instance::authentication &auth)
+    [[nodiscard]] inline auto build_dir(const instance::authentication &auth)
         -> std::shared_ptr<account::directory>
     {
         const auto dir = std::make_shared<account::directory>(memory::system::thread_local_pool());

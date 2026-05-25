@@ -1,8 +1,3 @@
-/**
- * @file padding.cpp
- * @brief AnyTLS padding 方案解析与生成实现
- */
-
 #include <prism/stealth/anytls/padding.hpp>
 
 #include <cstdlib>
@@ -17,33 +12,33 @@ namespace psm::stealth::anytls
     namespace
     {
         // 解析 "min-max" 为密码学安全随机整数 [min, max]
-        auto random_in_range(int lo, int hi)
-            -> int
+        auto random_in_range(std::int32_t lo, std::int32_t hi)
+            -> std::int32_t
         {
             if (lo >= hi)
             {
                 return lo;
             }
             thread_local std::mt19937 gen(std::random_device{}());
-            std::uniform_int_distribution<int> dist(lo, hi);
+            std::uniform_int_distribution<std::int32_t> dist(lo, hi);
             return dist(gen);
         }
 
         // 解析 "min-max" 字符串
         auto parse_range(std::string_view seg)
-            -> std::pair<int, int>
+            -> std::pair<std::int32_t, std::int32_t>
         {
             auto dash = seg.find('-');
             if (dash == std::string_view::npos)
             {
-                int val = 0;
+                std::int32_t val = 0;
                 std::string tmp(seg);
-                val = std::atoi(tmp.c_str());
+                val = static_cast<std::int32_t>(std::atoi(tmp.c_str()));
                 return {val, val};
             }
             std::string lo_str(seg.substr(0, dash));
             std::string hi_str(seg.substr(dash + 1));
-            return {std::atoi(lo_str.c_str()), std::atoi(hi_str.c_str())};
+            return {static_cast<std::int32_t>(std::atoi(lo_str.c_str())), static_cast<std::int32_t>(std::atoi(hi_str.c_str()))};
         }
 
         // 计算 MD5 摘要，返回十六进制字符串
@@ -112,7 +107,7 @@ namespace psm::stealth::anytls
                         else
                         {
                             // key 是包序号
-                            int pkt_num = std::atoi(std::string(key).c_str());
+                            std::int32_t pkt_num = static_cast<std::int32_t>(std::atoi(std::string(key).c_str()));
                             scheme_[pkt_num] = memory::string(val.data(), val.size());
                         }
                     }
@@ -124,18 +119,18 @@ namespace psm::stealth::anytls
     }
 
     auto padding_factory::generate_sizes(const std::uint32_t pkt) const
-        -> std::vector<int>
+        -> std::vector<std::int32_t>
     {
-        std::vector<int> sizes;
+        std::vector<std::int32_t> sizes;
 
-        if (pkt >= stop)
+        if (pkt >= static_cast<std::int32_t>(stop))
         {
             // 超出 stop 范围，不 padding
             sizes.push_back(checkmark);
             return sizes;
         }
 
-        auto it = scheme_.find(static_cast<int>(pkt));
+        auto it = scheme_.find(static_cast<std::int32_t>(pkt));
         if (it == scheme_.end())
         {
             sizes.push_back(checkmark);

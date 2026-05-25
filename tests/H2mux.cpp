@@ -638,9 +638,9 @@ void TestH2muxConfigDefaults()
     runner.Check(cfg.max_streams == 256, "h2mux config default max_streams == 256");
     runner.Check(cfg.buffer_size == 4096, "h2mux config default buffer_size == 4096");
     runner.Check(cfg.max_frame_size == 16384, "h2mux config default max_frame_size == 16384");
-    runner.Check(cfg.idle_timeout_ms == 30000, "h2mux config default idle_timeout_ms == 30000");
-    runner.Check(cfg.udp_idle_timeout_ms == 60000, "h2mux config default udp_idle_timeout_ms == 60000");
-    runner.Check(cfg.udp_max_datagram == 65535, "h2mux config default udp_max_datagram == 65535");
+    runner.Check(cfg.idle_timeout == 30000, "h2mux config default idle_timeout == 30000");
+    runner.Check(cfg.udp_idle_timeout == 60000, "h2mux config default udp_idle_timeout == 60000");
+    runner.Check(cfg.udp_max_dgram == 65535, "h2mux config default udp_max_dgram == 65535");
 
     runner.LogPass("H2muxConfigDefaults");
 }

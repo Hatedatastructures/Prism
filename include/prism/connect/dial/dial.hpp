@@ -38,7 +38,7 @@ namespace psm::connect
      * @param host 目标主机名或 IP 地址
      * @return 如果是 IPv6 地址字面量返回 true
      */
-    inline auto is_ipv6_literal(const std::string_view host) noexcept
+    [[nodiscard]] inline auto is_ipv6(const std::string_view host) noexcept
         -> bool
     {
         boost::system::error_code ec;
@@ -52,7 +52,7 @@ namespace psm::connect
      * @param endpoints 候选端点列表
      * @return 成功连接的套接字，或无效 pooled_connection
      */
-    auto async_connect_with_retry(router &rt, std::span<const tcp::endpoint> endpoints)
+    [[nodiscard]] auto retry_connect(router &rt, std::span<const tcp::endpoint> endpoints)
         -> net::awaitable<pooled_connection>;
 
     /**
@@ -61,7 +61,7 @@ namespace psm::connect
      * @param ep 目标 TCP 端点
      * @return 协程对象，返回结果码与 TCP 套接字的配对
      */
-    auto async_direct(router &rt, tcp::endpoint ep)
+    [[nodiscard]] auto async_direct(router &rt, tcp::endpoint ep)
         -> net::awaitable<std::pair<fault::code, pooled_connection>>;
 
     /**
@@ -72,7 +72,7 @@ namespace psm::connect
      * @param port 目标服务端口
      * @return 协程对象，返回结果码与 TCP 套接字的配对
      */
-    auto async_forward(router &rt, std::string_view host, std::string_view port)
+    [[nodiscard]] auto async_forward(router &rt, std::string_view host, std::string_view port)
         -> net::awaitable<std::pair<fault::code, pooled_connection>>;
 
     /**
@@ -83,7 +83,7 @@ namespace psm::connect
      * @param port 目标服务端口
      * @return 协程对象，返回结果码与 UDP 套接字的配对
      */
-    auto async_datagram(router &rt, std::string_view host, std::string_view port)
+    [[nodiscard]] auto async_datagram(router &rt, std::string_view host, std::string_view port)
         -> net::awaitable<std::pair<fault::code, net::ip::udp::socket>>;
 
     /**
@@ -94,7 +94,7 @@ namespace psm::connect
      * @param port 目标服务端口
      * @return 协程对象，返回结果码与 UDP 端点的配对
      */
-    auto resolve_datagram_target(router &rt, std::string_view host, std::string_view port)
+    [[nodiscard]] auto resolve_dgram(router &rt, std::string_view host, std::string_view port)
         -> net::awaitable<std::pair<fault::code, net::ip::udp::endpoint>>;
 
     /**
@@ -104,7 +104,7 @@ namespace psm::connect
      * @param target 目标 UDP 端点，用于确定协议版本
      * @return 包含结果码和 UDP 套接字的配对
      */
-    inline auto open_udp_socket(const net::any_io_executor &executor, const net::ip::udp::endpoint &target)
+    [[nodiscard]] inline auto open_udp(const net::any_io_executor &executor, const net::ip::udp::endpoint &target)
         -> std::pair<fault::code, net::ip::udp::socket>
     {
         boost::system::error_code ec;
@@ -128,14 +128,14 @@ namespace psm::connect
      * @warning 返回的回调持有 rt 的非拥有引用（空删除器 shared_ptr），
      * 调用方必须确保 rt 的生命周期长于回调的使用期。
      */
-    inline auto make_datagram_router(router &rt)
+    [[nodiscard]] inline auto make_dgram_router(router &rt)
         -> std::function<net::awaitable<std::pair<fault::code, net::ip::udp::endpoint>>(std::string_view, std::string_view)>
     {
         const auto ptr = std::shared_ptr<router>(&rt, [](router *) {});
         return [ptr](const std::string_view host, const std::string_view port)
                    -> net::awaitable<std::pair<fault::code, net::ip::udp::endpoint>>
         {
-            co_return co_await resolve_datagram_target(*ptr, host, port);
+            co_return co_await resolve_dgram(*ptr, host, port);
         };
     }
 
@@ -158,7 +158,7 @@ namespace psm::connect
      * @param opts 路由策略选项
      * @return 协程对象，完成后返回结果码和传输对象的配对
      */
-    auto dial(router &rt, std::string_view label,
+    [[nodiscard]] auto dial(router &rt, std::string_view label,
               const protocol::target &target, dial_options opts = {})
         -> net::awaitable<std::pair<fault::code, shared_transmission>>;
 
@@ -169,7 +169,7 @@ namespace psm::connect
      * @param executor 用于创建连接的执行器
      * @return 协程对象，完成后返回结果码和传输对象的配对
      */
-    auto dial(outbound::proxy &outbound_proxy, const protocol::target &target,
+    [[nodiscard]] auto dial(outbound::proxy &outbound_proxy, const protocol::target &target,
               const net::any_io_executor &executor)
         -> net::awaitable<std::pair<fault::code, shared_transmission>>;
 

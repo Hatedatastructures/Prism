@@ -58,7 +58,7 @@ namespace
      * @details 复现 craft::handle_window_update 的原子累加逻辑：
      * delta 累加后溢出时钳制到 uint32_max 而非回绕。
      */
-    auto apply_window_update(yamux::stream_window &window, std::uint32_t delta) -> void
+    void apply_window_update(yamux::stream_window &window, std::uint32_t delta)
     {
         auto old_val = window.send_window.load(std::memory_order_acquire);
         std::uint32_t new_val;
@@ -459,11 +459,11 @@ void TestWindowUpdateFrameOverSocketPair()
             return;
         }
 
-        std::array<std::byte, yamux::frame_header_size> recv_buf{};
+        std::array<std::byte, yamux::frame_hdrsize> recv_buf{};
         boost::system::error_code read_ec;
         const auto n = net::read(server_sock, net::buffer(recv_buf.data(), recv_buf.size()), read_ec);
         runner.Check(!read_ec, "SocketPair: read WindowUpdate frame succeeded");
-        runner.Check(n == yamux::frame_header_size, "SocketPair: received exactly 12 bytes");
+        runner.Check(n == yamux::frame_hdrsize, "SocketPair: received exactly 12 bytes");
 
         auto parsed = yamux::parse_header(recv_buf);
         runner.Check(parsed.has_value(), "SocketPair: WindowUpdate header parse succeeded");
@@ -493,7 +493,7 @@ void TestWindowUpdateFrameOverSocketPair()
             return;
         }
 
-        std::array<std::byte, yamux::frame_header_size> syn_recv{};
+        std::array<std::byte, yamux::frame_hdrsize> syn_recv{};
         boost::system::error_code read_ec;
         net::read(server_sock, net::buffer(syn_recv.data(), syn_recv.size()), read_ec);
         runner.Check(!read_ec, "SocketPair: read SYN frame succeeded");
@@ -526,7 +526,7 @@ void TestWindowUpdateFrameOverSocketPair()
             return;
         }
 
-        std::array<std::byte, yamux::frame_header_size> ack_recv{};
+        std::array<std::byte, yamux::frame_hdrsize> ack_recv{};
         boost::system::error_code read_ec;
         net::read(client_sock, net::buffer(ack_recv.data(), ack_recv.size()), read_ec);
         runner.Check(!read_ec, "SocketPair: read ACK frame succeeded");

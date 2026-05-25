@@ -8,10 +8,12 @@ constexpr std::string_view ForwardStr = "[Connect.Forward]";
 
 namespace psm::connect
 {
-    auto forward(context::session &ctx, std::string_view label,
-                 const protocol::target &target, shared_transmission inbound)
+    auto forward(context::session &ctx, forward_options opts)
         -> net::awaitable<void>
     {
+        const auto &label = opts.label;
+        const auto &target = opts.target;
+
         if (ctx.outbound_proxy)
         {
             auto [ec, outbound] = co_await dial(*ctx.outbound_proxy, target,
@@ -24,7 +26,7 @@ namespace psm::connect
                     trace::warn("{} dial failed: {}, target: {}:{}", ForwardStr, fault::describe(ec), target.host, target.port);
                 co_return;
             }
-            co_await tunnel(std::move(inbound), std::move(outbound), ctx);
+            co_await tunnel({std::move(opts.inbound), std::move(outbound), ctx});
             co_return;
         }
 
@@ -37,7 +39,7 @@ namespace psm::connect
                 trace::warn("{} dial failed: {}, target: {}:{}", ForwardStr, fault::describe(ec), target.host, target.port);
             co_return;
         }
-        co_await tunnel(std::move(inbound), std::move(outbound), ctx);
+        co_await tunnel({std::move(opts.inbound), std::move(outbound), ctx});
     }
 
 } // namespace psm::connect

@@ -75,8 +75,8 @@ namespace psm::stealth::trusttunnel
         congestion_controller congestion{congestion_controller::bbr}; ///< 拥塞控制
 
         // === 超时配置 ===
-        std::uint32_t handshake_timeout_ms{5000};  ///< 握手超时（毫秒）
-        std::uint32_t idle_timeout_ms{30000};      ///< 空闲超时（毫秒）
+        std::uint32_t hs_timeout{5000};    ///< 握手超时（毫秒）
+        std::uint32_t idle_timeout{30000}; ///< 空闲超时（毫秒）
 
         /**
          * @brief 检查配置是否有效

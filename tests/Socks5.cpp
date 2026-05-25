@@ -99,7 +99,7 @@ net::awaitable<void> DoSocks5Server(tcp::acceptor &acceptor)
 
         // 向客户端发送 CONNECT 成功响应，告知隧道已建立
         LogInfo("Server sending success response...");
-        if (psm::fault::failed(co_await socks5->async_write_success(req)))
+        if (psm::fault::failed(co_await socks5->send_success(req)))
         {
             LogFail("Server failed to send success response");
             co_return;

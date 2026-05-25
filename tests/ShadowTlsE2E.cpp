@@ -30,13 +30,13 @@ namespace
     int passed = 0;
     int failed = 0;
 
-    auto LogPass(std::string_view msg) -> void
+    void LogPass(std::string_view msg)
     {
         ++passed;
         psm::trace::info("[ShadowTlsE2E] PASS: {}", msg);
     }
 
-    auto LogFail(std::string_view msg) -> void
+    void LogFail(std::string_view msg)
     {
         ++failed;
         psm::trace::error("[ShadowTlsE2E] FAIL: {}", msg);

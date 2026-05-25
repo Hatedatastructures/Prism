@@ -45,7 +45,7 @@ namespace psm::fault
         /** @brief 不支持的操作 */
         not_supported = 8,
         /** @brief 消息过大 */
-        message_too_large = 9,
+        oversized_msg = 9,
         /** @brief I/O 错误 */
         io_error = 10,
         /** @brief 操作超时 */
@@ -53,9 +53,9 @@ namespace psm::fault
         /** @brief 操作被取消 */
         canceled = 12,
         /** @brief TLS 握手失败 */
-        tls_handshake_failed = 13,
+        tls_hsfail = 13,
         /** @brief TLS 关闭失败 */
-        tls_shutdown_failed = 14,
+        tls_closefail = 14,
         /** @brief 认证失败 */
         auth_failed = 15,
         /** @brief DNS 解析失败 */
@@ -79,19 +79,19 @@ namespace psm::fault
         /** @brief 网络不可达 */
         network_unreachable = 25,
         /** @brief SSL 证书加载失败 */
-        ssl_cert_load_failed = 26,
+        ssl_certfail = 26,
         /** @brief SSL 密钥加载失败 */
-        ssl_key_load_failed = 27,
+        ssl_keyfail = 27,
         /** @brief SOCKS5 认证协商失败 */
-        socks5_auth_negotiation_failed = 28,
+        socks5_authfail = 28,
         /** @brief 文件打开失败 */
-        file_open_failed = 29,
+        file_openfail = 29,
         /** @brief 配置解析错误 */
-        config_parse_error = 30,
+        config_err = 30,
         /** @brief 端口已被占用 */
-        port_already_in_use = 31,
+        port_busy = 31,
         /** @brief 证书验证失败 */
-        certificate_verification_failed = 32,
+        cert_verifyfail = 32,
         /** @brief 连接被中止 */
         connection_aborted = 33,
         /** @brief 资源不可用 */
@@ -104,19 +104,19 @@ namespace psm::fault
         ipv6_disabled = 37,
 
         /** @brief Mux 未启用 */
-        mux_not_enabled = 38,
+        mux_disabled = 38,
         /** @brief Mux 会话错误 */
-        mux_session_error = 39,
+        mux_sessfail = 39,
         /** @brief Mux 流错误 */
-        mux_stream_error = 40,
+        mux_streamfail = 40,
         /** @brief Mux 窗口超限 */
-        mux_window_exceeded = 41,
+        mux_overflow = 41,
         /** @brief Mux 协议错误 */
-        mux_protocol_error = 42,
+        mux_protoerr = 42,
         /** @brief Mux 连接数限制 */
-        mux_connection_limit = 43,
+        mux_connlimit = 43,
         /** @brief Mux 流数限制 */
-        mux_stream_limit = 44,
+        mux_streamcap = 44,
 
         /** @brief AEAD 加密/解密失败 */
         crypto_error = 45,
@@ -128,37 +128,37 @@ namespace psm::fault
         replay_detected = 48,
 
         /** @brief Reality 未配置 */
-        reality_not_configured = 49,
+        reality_unset = 49,
         /** @brief Reality 认证失败 */
-        reality_auth_failed = 50,
+        reality_unauth = 50,
         /** @brief SNI 不在 server_names 中 */
-        reality_sni_mismatch = 51,
+        reality_badsni = 51,
         /** @brief X25519 密钥交换失败 */
-        reality_key_exchange_failed = 52,
+        reality_kexfail = 52,
         /** @brief Reality TLS 握手失败 */
-        reality_handshake_failed = 53,
+        reality_hsfail = 53,
         /** @brief 回退目标服务器不可达 */
-        reality_dest_unreachable = 54,
+        reality_unreach = 54,
         /** @brief 证书获取/处理失败 */
-        reality_certificate_error = 55,
+        reality_certfail = 55,
         /** @brief TLS 记录解析/生成错误 */
-        reality_tls_record_error = 56,
+        reality_recorderr = 56,
         /** @brief TLS 1.3 密钥调度错误 */
-        reality_key_schedule_error = 57,
+        reality_kdferr = 57,
 
         /** @brief UDP 会话已过期 */
-        udp_session_expired = 58,
+        udp_expired = 58,
         /** @brief UDP PacketID 重放检测 */
-        packet_replay_detected = 59,
+        pkt_replay = 59,
 
         /** @brief ECH payload 无效 */
-        ech_payload_invalid = 60,
+        ech_badpayload = 60,
         /** @brief ECH version 不匹配 */
-        ech_version_mismatch = 61,
+        ech_badver = 61,
         /** @brief ECH 解密失败 */
-        ech_decrypt_failed = 62,
+        ech_decfail = 62,
         /** @brief ECH config_id 不匹配 */
-        ech_config_mismatch = 63,
+        ech_badcfg = 63,
 
         /** @brief 错误码总数，仅供内部使用 */
         _count = 64
@@ -195,18 +195,18 @@ namespace psm::fault
             return "invalid_argument";
         case code::not_supported:
             return "not_supported";
-        case code::message_too_large:
-            return "message_too_large";
+        case code::oversized_msg:
+            return "oversized_msg";
         case code::io_error:
             return "io_error";
         case code::timeout:
             return "timeout";
         case code::canceled:
             return "canceled";
-        case code::tls_handshake_failed:
-            return "tls_handshake_failed";
-        case code::tls_shutdown_failed:
-            return "tls_shutdown_failed";
+        case code::tls_hsfail:
+            return "tls_hsfail";
+        case code::tls_closefail:
+            return "tls_closefail";
         case code::auth_failed:
             return "auth_failed";
         case code::dns_failed:
@@ -229,20 +229,20 @@ namespace psm::fault
             return "connection_reset";
         case code::network_unreachable:
             return "network_unreachable";
-        case code::ssl_cert_load_failed:
-            return "ssl_cert_load_failed";
-        case code::ssl_key_load_failed:
-            return "ssl_key_load_failed";
-        case code::socks5_auth_negotiation_failed:
-            return "socks5_auth_negotiation_failed";
-        case code::file_open_failed:
-            return "file_open_failed";
-        case code::config_parse_error:
-            return "config_parse_error";
-        case code::port_already_in_use:
-            return "port_already_in_use";
-        case code::certificate_verification_failed:
-            return "certificate_verification_failed";
+        case code::ssl_certfail:
+            return "ssl_certfail";
+        case code::ssl_keyfail:
+            return "ssl_keyfail";
+        case code::socks5_authfail:
+            return "socks5_authfail";
+        case code::file_openfail:
+            return "file_openfail";
+        case code::config_err:
+            return "config_err";
+        case code::port_busy:
+            return "port_busy";
+        case code::cert_verifyfail:
+            return "cert_verifyfail";
         case code::connection_aborted:
             return "connection_aborted";
         case code::resource_unavailable:
@@ -253,20 +253,20 @@ namespace psm::fault
             return "forbidden";
         case code::ipv6_disabled:
             return "ipv6_disabled";
-        case code::mux_not_enabled:
-            return "mux_not_enabled";
-        case code::mux_session_error:
-            return "mux_session_error";
-        case code::mux_stream_error:
-            return "mux_stream_error";
-        case code::mux_window_exceeded:
-            return "mux_window_exceeded";
-        case code::mux_protocol_error:
-            return "mux_protocol_error";
-        case code::mux_connection_limit:
-            return "mux_connection_limit";
-        case code::mux_stream_limit:
-            return "mux_stream_limit";
+        case code::mux_disabled:
+            return "mux_disabled";
+        case code::mux_sessfail:
+            return "mux_sessfail";
+        case code::mux_streamfail:
+            return "mux_streamfail";
+        case code::mux_overflow:
+            return "mux_overflow";
+        case code::mux_protoerr:
+            return "mux_protoerr";
+        case code::mux_connlimit:
+            return "mux_connlimit";
+        case code::mux_streamcap:
+            return "mux_streamcap";
         case code::crypto_error:
             return "crypto_error";
         case code::invalid_psk:
@@ -275,36 +275,36 @@ namespace psm::fault
             return "timestamp_expired";
         case code::replay_detected:
             return "replay_detected";
-        case code::reality_not_configured:
-            return "reality_not_configured";
-        case code::reality_auth_failed:
-            return "reality_auth_failed";
-        case code::reality_sni_mismatch:
-            return "reality_sni_mismatch";
-        case code::reality_key_exchange_failed:
-            return "reality_key_exchange_failed";
-        case code::reality_handshake_failed:
-            return "reality_handshake_failed";
-        case code::reality_dest_unreachable:
-            return "reality_dest_unreachable";
-        case code::reality_certificate_error:
-            return "reality_certificate_error";
-        case code::reality_tls_record_error:
-            return "reality_tls_record_error";
-        case code::reality_key_schedule_error:
-            return "reality_key_schedule_error";
-        case code::udp_session_expired:
-            return "udp_session_expired";
-        case code::packet_replay_detected:
-            return "packet_replay_detected";
-        case code::ech_payload_invalid:
-            return "ech_payload_invalid";
-        case code::ech_version_mismatch:
-            return "ech_version_mismatch";
-        case code::ech_decrypt_failed:
-            return "ech_decrypt_failed";
-        case code::ech_config_mismatch:
-            return "ech_config_mismatch";
+        case code::reality_unset:
+            return "reality_unset";
+        case code::reality_unauth:
+            return "reality_unauth";
+        case code::reality_badsni:
+            return "reality_badsni";
+        case code::reality_kexfail:
+            return "reality_kexfail";
+        case code::reality_hsfail:
+            return "reality_hsfail";
+        case code::reality_unreach:
+            return "reality_unreach";
+        case code::reality_certfail:
+            return "reality_certfail";
+        case code::reality_recorderr:
+            return "reality_recorderr";
+        case code::reality_kdferr:
+            return "reality_kdferr";
+        case code::udp_expired:
+            return "udp_expired";
+        case code::pkt_replay:
+            return "pkt_replay";
+        case code::ech_badpayload:
+            return "ech_badpayload";
+        case code::ech_badver:
+            return "ech_badver";
+        case code::ech_decfail:
+            return "ech_decfail";
+        case code::ech_badcfg:
+            return "ech_badcfg";
         default:
             return "unknown";
         }

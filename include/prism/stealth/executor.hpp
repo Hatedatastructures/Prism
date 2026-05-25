@@ -63,13 +63,11 @@ namespace psm::stealth
         [[nodiscard]] static auto execute_single(shared_scheme scheme, handshake_context ctx)
             -> net::awaitable<handshake_result>;
 
-        static auto pass_through(handshake_context &ctx, const handshake_result &res)
-            -> void;
+        static void pass_through(handshake_context &ctx, const handshake_result &res);
 
-        static auto ensure_snapshot(handshake_context &ctx)
-            -> void;
+        static void ensure_snapshot(handshake_context &ctx);
 
-        static auto try_rewind(handshake_context &ctx)
+        [[nodiscard]] static auto try_rewind(handshake_context &ctx, bool polluted = false)
             -> bool;
 
         [[nodiscard]] auto execute_pipeline(const memory::vector<memory::string> &order, handshake_context ctx) const

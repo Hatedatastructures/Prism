@@ -57,7 +57,7 @@ namespace psm::multiplex::smux
     auto deserialization(std::span<const std::byte> data)
         -> std::optional<frame_header>
     {
-        if (data.size() < frame_header_size)
+        if (data.size() < frame_hdrsize)
         {
             return std::nullopt;
         }
@@ -182,8 +182,8 @@ namespace psm::multiplex::smux
         };
     }
 
-    auto parse_udp_datagram(std::span<const std::byte> data, const memory::resource_pointer mr)
-        -> std::optional<udp_datagram>
+    auto parse_udp_dgram(std::span<const std::byte> data, const memory::resource_pointer mr)
+        -> std::optional<udp_dgram>
     {
         if (data.empty())
         {
@@ -268,7 +268,7 @@ namespace psm::multiplex::smux
         }
 
         const auto payload_size = length;
-        return udp_datagram{
+        return udp_dgram{
             .host = std::move(host),
             .port = port,
             .payload = data.subspan(offset, payload_size),
@@ -299,10 +299,12 @@ namespace psm::multiplex::smux
         };
     }
 
-    auto build_udp_datagram(const std::string_view host, const std::uint16_t port, const std::span<const std::byte> payload,
-                            const memory::resource_pointer mr)
+    auto build_udp_dgram(const datagram_params params, const memory::resource_pointer mr)
         -> memory::vector<std::byte>
     {
+        const auto &host = params.host;
+        const auto port = params.port;
+        const auto &payload = params.payload;
         memory::vector<std::byte> buffer(mr);
 
         // IPv4 - sing-mux PacketAddr: [ATYP][addr][port][Length 2B BE][Payload]

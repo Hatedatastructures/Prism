@@ -8,7 +8,7 @@
  */
 
 #include <prism/memory.hpp>
-#include <prism/protocol/protocol_type.hpp>
+#include <prism/protocol/types.hpp>
 #include <prism/trace/spdlog.hpp>
 
 #include "common/TestRunner.hpp"

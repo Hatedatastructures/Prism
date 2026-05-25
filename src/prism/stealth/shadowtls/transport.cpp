@@ -1,8 +1,3 @@
-/**
- * @file transport.cpp
- * @brief ShadowTLS v3 传输层包装器实现
- */
-
 #include <prism/stealth/shadowtls/transport.hpp>
 #include <prism/stealth/common.hpp>
 #include <prism/trace.hpp>
@@ -36,24 +31,20 @@ namespace psm::stealth::shadowtls
     } // namespace
 
     shadowtls_transport::shadowtls_transport(net::ip::tcp::socket socket,
-                                             std::string_view password,
-                                             std::span<const std::byte> server_random,
-                                             std::span<const std::byte> initial_data,
-                                             std::shared_ptr<HMAC_CTX> hmac_write_ctx,
-                                             std::shared_ptr<HMAC_CTX> hmac_read_ctx)
+                                             shadowtls_handover handover)
         : socket_(std::move(socket))
-        , write_key_(compute_write_key(password, server_random))
-        , initial_buffer_(initial_data.begin(), initial_data.end())
-        , hmac_write_ctx_(hmac_write_ctx)
-        , hmac_read_ctx_(hmac_read_ctx)
+        , write_key_(compute_write_key(handover.password, handover.server_random))
+        , initial_buffer_(handover.initial_data.begin(), handover.initial_data.end())
+        , hmac_write_ctx_(std::move(handover.hmac_write_ctx))
+        , hmac_read_ctx_(std::move(handover.hmac_read_ctx))
     {
         // 存储 server_random
-        std::memcpy(server_random_.data(), server_random.data(), server_random.size());
+        std::memcpy(server_random_.data(), handover.server_random.data(), handover.server_random.size());
 
         trace::debug("{} created, initial_data_size={}, hmac_write_ctx={}, hmac_read_ctx={}",
-                    tag, initial_data.size(),
-                    hmac_write_ctx ? "yes" : "no",
-                    hmac_read_ctx ? "yes" : "no");
+                    tag, handover.initial_data.size(),
+                    hmac_write_ctx_ ? "yes" : "no",
+                    hmac_read_ctx_ ? "yes" : "no");
     }
 
     shadowtls_transport::~shadowtls_transport()
@@ -134,14 +125,14 @@ namespace psm::stealth::shadowtls
         boost::system::error_code boost_ec;
 
         // 读取 TLS header(5)
-        std::array<std::byte, tls_header_size> header{};
+        std::array<std::byte, tls_hdrsize> header{};
         auto header_n = co_await net::async_read(
-            socket_, net::buffer(header.data(), tls_header_size),
+            socket_, net::buffer(header.data(), tls_hdrsize),
             net::redirect_error(net::use_awaitable, boost_ec));
 
         trace::debug("{} read_tls_frame: header_n={}, boost_ec={}", tag, header_n, boost_ec.message());
 
-        if (boost_ec || header_n < tls_header_size)
+        if (boost_ec || header_n < tls_hdrsize)
         {
             ec = std::make_error_code(std::errc::connection_reset);
             trace::warn("{} read TLS header failed: {} (header_n={})", tag, boost_ec.message(), header_n);
@@ -168,7 +159,7 @@ namespace psm::stealth::shadowtls
         }
 
         // 检查是否为 Application Data
-        if (raw[0] != content_type_application_data)
+        if (raw[0] != content_appdata)
         {
             trace::warn("{} unexpected TLS record type: 0x{:02x}", tag, raw[0]);
             ec = std::make_error_code(std::errc::protocol_error);
@@ -297,23 +288,23 @@ namespace psm::stealth::shadowtls
         // 构建 TLS frame：header(5) + HMAC(4) + plain payload
         // 参照 sing-shadowtls verifiedConn.write: 发送 plain payload，不 XOR
         const std::uint16_t tls_payload_len = static_cast<std::uint16_t>(hmac_size + payload.size());
-        memory::vector<std::byte> frame(tls_header_size + tls_payload_len);
+        memory::vector<std::byte> frame(tls_hdrsize + tls_payload_len);
         // safe: casting mutable byte vector to uint8_t for in-place TLS frame header construction
         auto *raw = reinterpret_cast<std::uint8_t *>(frame.data());
 
         // TLS header
-        raw[0] = content_type_application_data;
+        raw[0] = content_appdata;
         raw[1] = 3; // TLS 1.2 legacy version
         raw[2] = 3;
         raw[3] = static_cast<std::uint8_t>(tls_payload_len >> 8);
         raw[4] = static_cast<std::uint8_t>(tls_payload_len & 0xFF);
 
         // HMAC 标签
-        std::memcpy(raw + tls_header_size, hmac_tag.data(), hmac_size);
+        std::memcpy(raw + tls_hdrsize, hmac_tag.data(), hmac_size);
 
         // Plain payload（不 XOR 加密！传输阶段用 plain payload）
         // 参照 sing-shadowtls verifiedConn.write 发送 plain payload
-        std::memcpy(raw + tls_header_size + hmac_size, payload.data(), payload.size());
+        std::memcpy(raw + tls_hdrsize + hmac_size, payload.data(), payload.size());
 
         // 使用 boost::system::error_code 用于 redirect_error
         boost::system::error_code boost_ec;

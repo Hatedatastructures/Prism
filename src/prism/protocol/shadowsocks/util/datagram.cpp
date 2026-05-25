@@ -3,6 +3,7 @@
 #include <prism/trace/spdlog.hpp>
 #include <prism/crypto/block.hpp>
 #include <cstring>
+#include <cstdint>
 #include <cstdlib>
 #include <chrono>
 
@@ -19,7 +20,7 @@ namespace psm::protocol::shadowsocks
 
         // 解析 MainHeader 公共部分后的数据（地址 + padding + payload）
         // body_plain 解密后的明文缓冲区，result.payload span 将指向其子区间
-        auto parse_body_after_timestamp(const memory::vector<std::uint8_t> &body_plain, udp_decrypted_packet &result)
+        auto parse_body_after_timestamp(const memory::vector<std::uint8_t> &body_plain, udp_dec_pkt &result)
             -> fault::code
         {
             // Type(1) + Timestamp(8) + 至少 1 字节 ATYP
@@ -37,7 +38,7 @@ namespace psm::protocol::shadowsocks
 
             // 验证时间戳
             std::uint64_t client_ts = 0;
-            for (int i = 0; i < 8; ++i)
+            for (std::size_t i = 0; i < 8; ++i)
             {
                 client_ts = (client_ts << 8) | body_plain[1 + i];
             }
@@ -54,7 +55,7 @@ namespace psm::protocol::shadowsocks
 
             // 解析地址
             std::size_t offset = 9;
-            const auto [addr_ec, addr_result] = format::parse_address_port(
+            const auto [addr_ec, addr_result] = format::parse_addr_port(
                 std::span<const std::uint8_t>(body_plain.data() + offset, body_plain.size() - offset));
             if (addr_ec != fault::code::success)
             {
@@ -84,7 +85,7 @@ namespace psm::protocol::shadowsocks
     } // namespace
 
     auto udp_relay::decrypt_inbound(std::span<const std::byte> packet, const net::ip::udp::endpoint &sender)
-        -> std::pair<fault::code, udp_decrypted_packet>
+        -> std::pair<fault::code, udp_dec_pkt>
     {
         if (!valid_)
         {
@@ -92,13 +93,13 @@ namespace psm::protocol::shadowsocks
         }
         if (method_ == cipher_method::chacha20_poly1305)
         {
-            return decrypt_chacha20(packet, sender);
+            return recv_chacha(packet, sender);
         }
-        return decrypt_aes_gcm(packet, sender);
+        return recv_aes_gcm(packet, sender);
     }
 
-    auto udp_relay::encrypt_outbound(std::span<const std::byte> payload, const std::array<std::uint8_t, session_id_len> &session_id,
-                                     const std::shared_ptr<udp_session_entry> &entry)
+    auto udp_relay::encrypt_out(std::span<const std::byte> payload, const std::array<std::uint8_t, session_id_len> &session_id,
+                                     const std::shared_ptr<udp_session> &entry)
         -> std::pair<fault::code, std::vector<std::byte>>
     {
         if (!valid_)
@@ -107,27 +108,27 @@ namespace psm::protocol::shadowsocks
         }
         if (method_ == cipher_method::chacha20_poly1305)
         {
-            return encrypt_chacha20(payload, session_id, std::move(entry));
+            return send_chacha(payload, session_id, entry);
         }
-        return encrypt_aes_gcm(payload, session_id, std::move(entry));
+        return send_aes_gcm(payload, session_id, entry);
     }
 
-    auto udp_relay::decrypt_aes_gcm(std::span<const std::byte> packet, const net::ip::udp::endpoint &sender)
-        -> std::pair<fault::code, udp_decrypted_packet>
+    auto udp_relay::recv_aes_gcm(std::span<const std::byte> packet, const net::ip::udp::endpoint &sender)
+        -> std::pair<fault::code, udp_dec_pkt>
     {
-        udp_decrypted_packet result;
+        udp_dec_pkt result;
         result.sender_endpoint = sender;
 
         // 最小长度：SeparateHeader(16) + AEAD tag(16)
-        if (packet.size() < separate_header_len + aead_tag_len)
+        if (packet.size() < separate_hdr_len + aead_tag_len)
         {
             trace::warn("{} packet too short: {} bytes", tag, packet.size());
             return {fault::code::bad_message, result};
         }
 
         // AES-ECB 解密 SeparateHeader → SessionID + PacketID
-        std::array<std::uint8_t, separate_header_len> separate_header{};
-        std::memcpy(separate_header.data(), packet.data(), separate_header_len);
+        std::array<std::uint8_t, separate_hdr_len> separate_header{};
+        std::memcpy(separate_header.data(), packet.data(), separate_hdr_len);
 
         const auto key_span = std::span<const std::uint8_t>(psk_.data(), psk_.size());
         const auto header_plain = crypto::aes_ecb_decrypt(
@@ -142,7 +143,7 @@ namespace psm::protocol::shadowsocks
         const auto packet_id_val = read_u64_be(packet_id.data());
 
         // 查找或创建会话 → 获取缓存的 AEAD 上下文
-        auto entry = session_tracker_->get_or_create(session_id, sender, psk_, method_);
+        auto entry = sess_tracker_->get_or_create(session_id, sender, psk_, method_);
         if (!entry || !entry->aead_ctx)
         {
             trace::warn("{} failed to get/create session", tag);
@@ -150,11 +151,11 @@ namespace psm::protocol::shadowsocks
         }
 
         // 构造 nonce：sessionID[4..8] + packetID[0..8] = 12 字节
-        const auto nonce = construct_nonce_aes(session_id, packet_id);
+        const auto nonce = make_nonce_aes(session_id, packet_id);
         const auto nonce_span = std::span<const std::uint8_t>(nonce.data(), nonce.size());
 
         // AEAD 解密 body（PMR vector，零拷贝 payload 指向此缓冲区）
-        const auto body_enc = packet.subspan(separate_header_len);
+        const auto body_enc = packet.subspan(separate_hdr_len);
         memory::vector<std::uint8_t> body_plain(body_enc.size() - aead_tag_len,
                                                 memory::current_resource());
 
@@ -185,8 +186,8 @@ namespace psm::protocol::shadowsocks
         return {fault::code::success, result};
     }
 
-    auto udp_relay::encrypt_aes_gcm(std::span<const std::byte> payload, const std::array<std::uint8_t, session_id_len> &session_id,
-                                    const std::shared_ptr<udp_session_entry> &entry)
+    auto udp_relay::send_aes_gcm(std::span<const std::byte> payload, const std::array<std::uint8_t, session_id_len> &session_id,
+                                    const std::shared_ptr<udp_session> &entry)
         -> std::pair<fault::code, std::vector<std::byte>>
     {
         if (!entry || !entry->aead_ctx)
@@ -195,9 +196,9 @@ namespace psm::protocol::shadowsocks
         }
 
         // 递增服务端 PacketID
-        const auto server_packet_id = ++entry->server_packet_id;
+        const auto srv_pkt_id = ++entry->srv_pkt_id;
         std::array<std::uint8_t, packet_id_len> packet_id{};
-        write_u64_be(packet_id.data(), server_packet_id);
+        write_u64_be(packet_id.data(), srv_pkt_id);
 
         // 构造明文：Type(1) + Timestamp(8) + PaddingLen(2) + Payload（PMR vector）
         const auto now = std::chrono::duration_cast<std::chrono::seconds>(
@@ -208,7 +209,7 @@ namespace psm::protocol::shadowsocks
         const auto plain_len = 1 + 8 + 2 + payload.size();
         memory::vector<std::uint8_t> plain(plain_len, memory::current_resource());
         plain[0] = response_type;
-        for (int i = 0; i < 8; ++i)
+        for (std::size_t i = 0; i < 8; ++i)
         {
             plain[1 + i] = static_cast<std::uint8_t>((ts >> (56 - 8 * i)) & 0xFF);
         }
@@ -221,14 +222,14 @@ namespace psm::protocol::shadowsocks
         }
 
         // 构造 nonce
-        const auto nonce = construct_nonce_aes(session_id, packet_id);
+        const auto nonce = make_nonce_aes(session_id, packet_id);
         const auto nonce_span = std::span<const std::uint8_t>(nonce.data(), nonce.size());
 
         // AEAD 加密 body，直接写入输出缓冲区的 body 区间
         const auto body_enc_len = crypto::aead_context::seal_output_size(plain_len);
 
         // AES-ECB 加密 SeparateHeader：SessionID + PacketID
-        std::array<std::uint8_t, separate_header_len> separate_plain{};
+        std::array<std::uint8_t, separate_hdr_len> separate_plain{};
         std::memcpy(separate_plain.data(), session_id.data(), session_id_len);
         std::memcpy(separate_plain.data() + session_id_len, packet_id.data(), packet_id_len);
 
@@ -237,13 +238,13 @@ namespace psm::protocol::shadowsocks
             std::span<const std::uint8_t, 16>{separate_plain.data(), 16}, key_span);
 
         // 直接在输出缓冲区中构造，消除中间 body_enc vector
-        std::vector<std::byte> result(separate_header_len + body_enc_len);
-        std::memcpy(result.data(), header_enc.data(), separate_header_len);
+        std::vector<std::byte> result(separate_hdr_len + body_enc_len);
+        std::memcpy(result.data(), header_enc.data(), separate_hdr_len);
 
         // 将 body 密文直接写入 result 的 body 区间
         // safe: casting byte vector region to uint8_t span for AEAD seal output
         const auto body_out = std::span<std::uint8_t>(
-            reinterpret_cast<std::uint8_t *>(result.data() + separate_header_len), body_enc_len);
+            reinterpret_cast<std::uint8_t *>(result.data() + separate_hdr_len), body_enc_len);
         if (const auto r = entry->aead_ctx->seal(body_out, plain, nonce_span);
             r != fault::code::success)
         {
@@ -254,10 +255,10 @@ namespace psm::protocol::shadowsocks
         return {fault::code::success, result};
     }
 
-    auto udp_relay::decrypt_chacha20(std::span<const std::byte> packet, const net::ip::udp::endpoint &sender)
-        -> std::pair<fault::code, udp_decrypted_packet>
+    auto udp_relay::recv_chacha(std::span<const std::byte> packet, const net::ip::udp::endpoint &sender)
+        -> std::pair<fault::code, udp_dec_pkt>
     {
-        udp_decrypted_packet result;
+        udp_dec_pkt result;
         result.sender_endpoint = sender;
 
         // 最小长度：SessionID(8) + PacketID(8) + AEAD tag(16)
@@ -283,7 +284,7 @@ namespace psm::protocol::shadowsocks
         // 剩余 8 字节已由 zero-initialization 填充
 
         // 获取或创建会话条目（ChaCha20 需要缓存 AEAD context）
-        auto entry = session_tracker_->get_or_create(session_id, sender, psk_, method_);
+        auto entry = sess_tracker_->get_or_create(session_id, sender, psk_, method_);
 
         // 延迟初始化 ChaCha20 上下文（首次使用时创建并缓存到 entry）
         if (!entry->chacha20_ctx)
@@ -327,9 +328,9 @@ namespace psm::protocol::shadowsocks
         return {fault::code::success, result};
     }
 
-    auto udp_relay::encrypt_chacha20(std::span<const std::byte> payload,
+    auto udp_relay::send_chacha(std::span<const std::byte> payload,
                                      const std::array<std::uint8_t, session_id_len> &session_id,
-                                     const std::shared_ptr<udp_session_entry> &entry)
+                                     const std::shared_ptr<udp_session> &entry)
         -> std::pair<fault::code, std::vector<std::byte>>
     {
         if (!entry)
@@ -338,9 +339,9 @@ namespace psm::protocol::shadowsocks
         }
 
         // 递增服务端 PacketID
-        const auto server_packet_id = ++entry->server_packet_id;
+        const auto srv_pkt_id = ++entry->srv_pkt_id;
         std::array<std::uint8_t, packet_id_len> packet_id{};
-        write_u64_be(packet_id.data(), server_packet_id);
+        write_u64_be(packet_id.data(), srv_pkt_id);
 
         // 构造 24 字节 nonce：SessionID(8) + PacketID(8) + zeros(8)
         std::array<std::uint8_t, 24> nonce{};
@@ -356,7 +357,7 @@ namespace psm::protocol::shadowsocks
         const auto plain_len = 1 + 8 + 2 + payload.size();
         memory::vector<std::uint8_t> plain(plain_len, memory::current_resource());
         plain[0] = response_type;
-        for (int i = 0; i < 8; ++i)
+        for (std::size_t i = 0; i < 8; ++i)
         {
             plain[1 + i] = static_cast<std::uint8_t>((ts >> (56 - 8 * i)) & 0xFF);
         }
@@ -399,7 +400,7 @@ namespace psm::protocol::shadowsocks
         return {fault::code::success, result};
     }
 
-    auto udp_relay::construct_nonce_aes(
+    auto udp_relay::make_nonce_aes(
         const std::array<std::uint8_t, session_id_len> &session_id,
         const std::array<std::uint8_t, packet_id_len> &packet_id)
         -> std::array<std::uint8_t, 12>
@@ -416,7 +417,7 @@ namespace psm::protocol::shadowsocks
         -> std::uint64_t
     {
         std::uint64_t val = 0;
-        for (int i = 0; i < 8; ++i)
+        for (std::size_t i = 0; i < 8; ++i)
         {
             val = (val << 8) | data[i];
         }
@@ -425,7 +426,7 @@ namespace psm::protocol::shadowsocks
 
     void udp_relay::write_u64_be(std::uint8_t *data, std::uint64_t value)
     {
-        for (int i = 0; i < 8; ++i)
+        for (std::size_t i = 0; i < 8; ++i)
         {
             data[7 - i] = static_cast<std::uint8_t>(value & 0xFF);
             value >>= 8;

@@ -68,6 +68,45 @@ struct glz::meta<psm::instance::protocol::config>
         "shadowsocks",  &T::shadowsocks);
 };
 
+// ============================================================================
+// protocol sub-configs (字段名与 JSON key 不匹配，需要显式映射)
+// ============================================================================
+
+template <>
+struct glz::meta<psm::protocol::socks5::config>
+{
+    using T = psm::protocol::socks5::config;
+    static constexpr auto value = glz::object(
+        "enable_tcp",        &T::enable_tcp,
+        "enable_udp",        &T::enable_udp,
+        "enable_bind",       &T::enable_bind,
+        "udp_bind_port",     &T::udp_bind_port,
+        "udp_idle_timeout",  &T::udp_idle_timeout,
+        "udp_max_datagram",  &T::udp_max_dgram,
+        "enable_auth",       &T::enable_auth);
+};
+
+template <>
+struct glz::meta<psm::protocol::trojan::config>
+{
+    using T = psm::protocol::trojan::config;
+    static constexpr auto value = glz::object(
+        "enable_tcp",        &T::enable_tcp,
+        "enable_udp",        &T::enable_udp,
+        "udp_idle_timeout",  &T::udp_idle_timeout,
+        "udp_max_datagram",  &T::udp_max_dgram);
+};
+
+template <>
+struct glz::meta<psm::protocol::vless::config>
+{
+    using T = psm::protocol::vless::config;
+    static constexpr auto value = glz::object(
+        "enable_udp",        &T::enable_udp,
+        "udp_idle_timeout",  &T::udp_idle_timeout,
+        "udp_max_datagram",  &T::udp_max_dgram);
+};
+
 template <>
 struct glz::meta<psm::instance::stealth::config>
 {
@@ -77,7 +116,8 @@ struct glz::meta<psm::instance::stealth::config>
         "shadowtls",    &T::shadowtls,
         "restls",       &T::restls,
         "anytls",       &T::anytls,
-        "trusttunnel",  &T::trusttunnel);
+        "trusttunnel",  &T::trusttunnel,
+        "native_tls",   &T::native_tls);
 };
 
 template <>

@@ -93,7 +93,7 @@ namespace psm::resolve::dns
          * 协议、地址、端口和超时时间。
          * @param servers 上游服务器配置向量
          */
-        void set_servers(memory::vector<dns_remote> servers);
+        void set_servers(const memory::vector<dns_remote>& servers);
 
         /**
          * @brief 设置解析策略模式
@@ -170,30 +170,30 @@ namespace psm::resolve::dns
         uint32_t timeout_ms_{4000};                // 默认超时（毫秒）
 
         /**
-         * @struct ssl_cache_key
+         * @struct ssl_key
          * @brief SSL 上下文缓存键
          * @details 以主机名和证书验证标志组合作为缓存键，
          * 用于复用相同配置的 SSL 上下文。
          */
-        struct ssl_cache_key
+        struct ssl_key
         {
             memory::string hostname; // TLS 主机名
             bool verify_peer;        // 是否验证对端证书
 
-            bool operator==(const ssl_cache_key &other) const noexcept
+            bool operator==(const ssl_key &other) const noexcept
             {
                 return hostname == other.hostname && verify_peer == other.verify_peer;
             }
         };
 
         /**
-         * @struct ssl_cache_key_hash
+         * @struct ssl_key_hash
          * @brief SSL 上下文缓存键哈希函数
          * @details 组合主机名哈希和验证标志哈希生成缓存键哈希值。
          */
-        struct ssl_cache_key_hash
+        struct ssl_key_hash
         {
-            std::size_t operator()(const ssl_cache_key &k) const noexcept
+            [[nodiscard]] std::size_t operator()(const ssl_key &k) const noexcept
             {
                 auto h = std::hash<memory::string>{}(k.hostname);
                 h ^= std::hash<bool>{}(k.verify_peer) + 0x9e3779b9 + (h << 6) + (h >> 2);
@@ -201,7 +201,7 @@ namespace psm::resolve::dns
             }
         };
 
-        memory::unordered_map<ssl_cache_key, std::shared_ptr<ssl::context>, ssl_cache_key_hash> ssl_cache_; // SSL 上下文缓存
+        memory::unordered_map<ssl_key, std::shared_ptr<ssl::context>, ssl_key_hash> ssl_cache_; // SSL 上下文缓存
 
         /**
          * @brief 获取或创建 SSL 上下文
@@ -210,7 +210,7 @@ namespace psm::resolve::dns
          * @param server 上游服务器配置
          * @return SSL 上下文的共享指针
          */
-        [[nodiscard]] auto get_ssl_context(const dns_remote &server)
+        [[nodiscard]] auto get_ssl_ctx(const dns_remote &server)
             -> std::shared_ptr<ssl::context>;
     };
 

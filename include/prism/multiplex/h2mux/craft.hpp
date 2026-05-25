@@ -116,6 +116,19 @@ namespace psm::multiplex::h2mux
     }; // struct outbound_data
 
     /**
+     * @struct craft_init
+     * @brief h2mux::craft 构造参数聚合
+     * @details 将 craft 构造函数中的 router、config、resolver 参数收敛到单结构体，
+     * 将构造函数参数从 5 个降至 3 个（transport + init + mr）。
+     */
+    struct craft_init
+    {
+        connect::router &router;          // 路由器引用，用于解析地址并连接目标
+        const multiplex::config &cfg;     // 多路复用配置参数（含 h2mux 子配置）
+        address_resolver resolver;        // 地址解析回调，决定如何从 CONNECT 请求提取目标地址
+    };
+
+    /**
      * @class craft
      * @brief h2mux 多路复用会话服务端
      * @details 继承 core，利用 nghttp2 实现 HTTP/2 服务端帧编解码。
@@ -130,13 +143,10 @@ namespace psm::multiplex::h2mux
         /**
          * @brief 构造 h2mux 会话
          * @param transport 已建立的传输层连接（TLS + ALPN h2）
-         * @param router 路由器引用，用于解析地址并连接目标
-         * @param cfg 多路复用配置参数（含 h2mux 子配置）
-         * @param resolver 地址解析回调，决定如何从 CONNECT 请求提取目标地址
+         * @param init 构造参数聚合（router, cfg, resolver）
          * @param mr PMR 内存资源，为空时使用默认资源
          */
-        craft(transport::shared_transmission transport, connect::router &router,
-              const multiplex::config &cfg, address_resolver resolver,
+        craft(transport::shared_transmission transport, craft_init init,
               memory::resource_pointer mr = {});
 
         ~craft() override;
@@ -168,7 +178,7 @@ namespace psm::multiplex::h2mux
          * @return 第一个有效的 CONNECT 请求头，或 nullopt（连接关闭）
          * @details 供 TrustTunnel scheme 验证 auth 后再交给 craft 管理
          */
-        auto wait_first_connect()
+        [[nodiscard]] auto wait_first_connect()
             -> net::awaitable<std::optional<h2_headers>>;
 
         /**
@@ -177,28 +187,28 @@ namespace psm::multiplex::h2mux
          * @param status HTTP 状态码（200 或 407）
          * @return 0 成功，非 0 失败
          */
-        auto respond_connect(int32_t stream_id, std::uint32_t status)
-            -> int;
+        [[nodiscard]] auto respond_connect(int32_t stream_id, std::uint32_t status)
+            -> std::int32_t;
 
         /**
          * @brief 发送 nghttp2 缓冲区中的待输出数据
          */
-        auto send_pending()
+        [[nodiscard]] auto send_pending()
             -> net::awaitable<void>;
 
         /**
          * @brief 激活指定 stream（解析地址、连接目标、创建 duct/parcel）
          * @param stream_id 流标识符
          */
-        auto activate_stream(std::uint32_t stream_id)
+        [[nodiscard]] auto activate_stream(std::uint32_t stream_id)
             -> net::awaitable<void>;
 
     private:
         auto run()
             -> net::awaitable<void> override;
 
-        auto init_nghttp2()
-            -> int;
+        [[nodiscard]] auto init_nghttp2()
+            -> std::int32_t;
 
         auto frame_loop()
             -> net::awaitable<void>;
@@ -208,8 +218,7 @@ namespace psm::multiplex::h2mux
          * @details 由 on_frame_recv 回调触发，调用 address_resolver 解析地址，
          * 成功则 spawn activate_stream，失败则 RST_STREAM
          */
-        auto handle_connect(int32_t stream_id)
-            -> void;
+        void handle_connect(int32_t stream_id);
 
         // nghttp2 回调（静态函数，通过 user_data 获取 this）
         static auto on_begin_headers(nghttp2_session *, const nghttp2_frame *, void *) -> int;

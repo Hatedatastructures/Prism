@@ -14,11 +14,11 @@ namespace psm::protocol::http
         constexpr std::string_view resp502 = "HTTP/1.1 502 Bad Gateway\r\nContent-Length: 0\r\n\r\n";
 
         // 最大 HTTP 头部大小（防止慢速 OOM 攻击）
-        constexpr std::size_t max_header_size = 65536;
+        constexpr std::size_t max_hdr_size = 65536;
     } // namespace
 
     conn::conn(transport::shared_transmission transport, account::directory *account_directory)
-        : transport_(std::move(transport)), account_directory_(account_directory)
+        : transport_(std::move(transport)), acct_dir_(account_directory)
     {
         buffer_.resize(4096);
     }
@@ -27,7 +27,7 @@ namespace psm::protocol::http
         -> net::awaitable<std::pair<fault::code, proxy_request>>
     {
         // 读取完整 HTTP 请求头
-        if (!co_await read_until_header_end())
+        if (!co_await read_until_hdr_end())
         {
             co_return std::make_pair(fault::code::io_error, proxy_request{});
         }
@@ -35,15 +35,15 @@ namespace psm::protocol::http
         // 解析请求行和头字段
         const auto raw = std::string_view(buffer_.data(), used_);
         proxy_request req;
-        if (fault::failed(parse_proxy_request(raw, req)))
+        if (fault::failed(parse_proxy_req(raw, req)))
         {
             co_return std::make_pair(fault::code::parse_error, proxy_request{});
         }
 
         // 执行 Basic 认证（若配置了账户目录）
-        if (account_directory_)
+        if (acct_dir_)
         { // 认证失败时直接返回 407 响应，成功时保存租约信息以供后续使用
-            auto auth = authenticate_proxy_request(req.authorization, *account_directory_);
+            auto auth = authenticate_proxy(req.authorization, *acct_dir_);
             if (!auth.authenticated)
             {
                 co_await write_bytes(auth.error_response);
@@ -55,13 +55,13 @@ namespace psm::protocol::http
         co_return std::make_pair(fault::code::success, req);
     }
 
-    auto conn::write_connect_success()
+    auto conn::send_connect_ok()
         -> net::awaitable<fault::code>
     {
         co_return co_await write_bytes(resp200);
     }
 
-    auto conn::write_bad_gateway()
+    auto conn::send_bad_gateway()
         -> net::awaitable<fault::code>
     {
         co_return co_await write_bytes(resp502);
@@ -71,7 +71,7 @@ namespace psm::protocol::http
         -> net::awaitable<void>
     {
         // 构建新请求行：将绝对 URI 重写为相对路径
-        const auto new_line = build_forward_request_line(req, mr);
+        const auto new_line = build_fwd_line(req, mr);
 
         // 写入新请求行到上游
         std::error_code ec;
@@ -87,7 +87,7 @@ namespace psm::protocol::http
         {
             // safe: casting char buffer to byte span for remaining HTTP data forwarding
             std::span span = std::span(reinterpret_cast<const std::byte *>(buffer_.data() + req.req_line_end), used_ - req.req_line_end);
-            co_await transport::async_write(*outbound, std::move(span), ec);
+            co_await transport::async_write(*outbound, span, ec);
         }
     }
 
@@ -97,7 +97,7 @@ namespace psm::protocol::http
         return std::move(transport_);
     }
 
-    auto conn::read_until_header_end()
+    auto conn::read_until_hdr_end()
         -> net::awaitable<bool>
     {
         while (true)
@@ -111,7 +111,7 @@ namespace psm::protocol::http
             // 缓冲区满时扩容
             if (used_ >= buffer_.size())
             {
-                if (buffer_.size() >= max_header_size)
+                if (buffer_.size() >= max_hdr_size)
                 {
                     co_return false;
                 }
@@ -122,7 +122,7 @@ namespace psm::protocol::http
             std::error_code ec;
             // safe: casting char buffer region to mutable byte span for async read
             std::span span = std::span(reinterpret_cast<std::byte *>(buffer_.data() + used_), buffer_.size() - used_);
-            const auto n = co_await transport_->async_read_some(std::move(span), ec);
+            const auto n = co_await transport_->async_read_some(span, ec);
             if (ec)
             {
                 co_return false;
@@ -137,7 +137,7 @@ namespace psm::protocol::http
         std::error_code ec;
         // safe: casting string_view to byte span for wire transmission
         std::span span = std::span(reinterpret_cast<const std::byte *>(data.data()), data.size());
-        co_await transport::async_write(*transport_, std::move(span), ec);
+        co_await transport::async_write(*transport_, span, ec);
         co_return ec ? fault::code::io_error : fault::code::success;
     }
 } // namespace psm::protocol::http

@@ -71,15 +71,25 @@ namespace psm::resolve::dns::detail
     {
     public:
         /**
+         * @brief 过期数据策略
+         * @details 控制缓存条目过期后的处理方式。
+         */
+        enum class stale_policy : std::uint8_t
+        {
+            discard,  ///< 过期即丢弃
+            serve     ///< 过期后仍返回旧数据（serve-stale 模式）
+        };
+
+        /**
          * @brief 构造 DNS 缓存
          * @param mr 内存资源指针，为 null 时使用 current_resource()
          * @param ttl 默认缓存 TTL（秒），用于 put() 未指定 TTL 时的回退值
          * @param max_entries 缓存最大条目数，超过后触发 FIFO 淘汰
-         * @param serve_stale 是否在过期后返回旧数据（serve-stale 模式）
+         * @param stale 过期数据策略（默认 serve-stale 模式）
          */
         explicit cache(memory::resource_pointer mr = memory::current_resource(),
                        std::chrono::seconds ttl = std::chrono::seconds(120), std::size_t max_entries = 10000,
-                       bool serve_stale = true);
+                       stale_policy stale = stale_policy::serve);
 
         /**
          * @brief 查找缓存
@@ -145,7 +155,7 @@ namespace psm::resolve::dns::detail
          * @details 将域名和查询类型数值写入外部缓冲区并返回对应视图，
          * 不产生任何堆分配。
          */
-        [[nodiscard]] static auto make_key_view(std::string_view domain, qtype qt, std::span<char> buffer)
+        [[nodiscard]] static auto key_view(std::string_view domain, qtype qt, std::span<char> buffer)
             -> std::string_view;
 
         memory::resource_pointer mr_;      // 内存资源

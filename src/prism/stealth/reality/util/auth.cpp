@@ -8,7 +8,7 @@
 
 namespace psm::stealth::reality
 {
-    using namespace psm::protocol;
+    namespace tls = psm::protocol::tls;
 
     constexpr std::string_view AuthTag = "[Stealth.Auth]";
 
@@ -50,7 +50,7 @@ namespace psm::stealth::reality
         return false;
     }
 
-    auto authenticate(const config &cfg, const tls::hello_features &client_hello, const std::span<const std::uint8_t> decoded_private_key)
+    auto authenticate(const config &cfg, const tls::hello_features &client_hello, const std::span<const std::uint8_t> decoded_privkey)
         -> std::pair<fault::code, auth_result>
     {
         auth_result result{};
@@ -60,14 +60,14 @@ namespace psm::stealth::reality
             !match_server_name(client_hello.server_name, cfg.server_names))
         {
             trace::debug("{} SNI mismatch: {}", AuthTag, client_hello.server_name);
-            return {fault::code::reality_sni_mismatch, result};
+            return {fault::code::reality_badsni, result};
         }
 
         // Step 2: 检查 X25519 公钥
         if (!client_hello.has_x25519)
         {
             trace::debug("{} no X25519 public key in key_share", AuthTag);
-            return {fault::code::reality_auth_failed, result};
+            return {fault::code::reality_unauth, result};
         }
 
         // Step 3: 检查 TLS 1.3 支持
@@ -83,22 +83,22 @@ namespace psm::stealth::reality
         if (!supports_tls13)
         {
             trace::debug("{} client does not support TLS 1.3", AuthTag);
-            return {fault::code::reality_auth_failed, result};
+            return {fault::code::reality_unauth, result};
         }
 
         // Step 4: 检查 session_id 长度
         if (client_hello.session_id.size() < tls::SESSION_ID_MAX_LEN)
         {
             trace::debug("{} session_id too short: {}", AuthTag, client_hello.session_id.size());
-            return {fault::code::reality_auth_failed, result};
+            return {fault::code::reality_unauth, result};
         }
 
         // Step 5: X25519 密钥交换
-        auto [ec, shared_secret] = crypto::x25519(decoded_private_key, client_hello.x25519_key);
+        auto [ec, shared_secret] = crypto::x25519(decoded_privkey, client_hello.x25519_key);
         if (fault::failed(ec))
         {
             trace::warn("{} X25519 key exchange failed", AuthTag);
-            return {fault::code::reality_key_exchange_failed, result};
+            return {fault::code::reality_kexfail, result};
         }
 
         // Step 6: 检查共享密钥是否为全零
@@ -114,7 +114,7 @@ namespace psm::stealth::reality
         if (all_zero)
         {
             trace::warn("{} shared secret is all zeros (low-order point)", AuthTag);
-            return {fault::code::reality_key_exchange_failed, result};
+            return {fault::code::reality_kexfail, result};
         }
 
         // Step 7: HKDF 派生认证密钥
@@ -132,7 +132,7 @@ namespace psm::stealth::reality
         if (fault::failed(expand_ec))
         {
             trace::warn("{} HKDF-Expand failed", AuthTag);
-            return {fault::code::reality_auth_failed, result};
+            return {fault::code::reality_unauth, result};
         }
 
         // Step 8: 构造 AAD
@@ -160,26 +160,26 @@ namespace psm::stealth::reality
         if (fault::failed(decrypt_ec))
         {
             trace::debug("{} session_id decryption failed", AuthTag);
-            return {fault::code::reality_auth_failed, result};
+            return {fault::code::reality_unauth, result};
         }
 
         // Step 10: 验证格式标记
         if (decrypted_sid[0] != 0x01)
         {
             trace::debug("{} invalid version marker: 0x{:02x}", AuthTag, decrypted_sid[0]);
-            return {fault::code::reality_auth_failed, result};
+            return {fault::code::reality_unauth, result};
         }
 
         // Step 11: 验证 short_id
-        const std::span<const std::uint8_t> client_short_id(decrypted_sid.data() + 8, 8);
-        if (!match_short_id(client_short_id, cfg.short_ids))
+        const std::span<const std::uint8_t> cli_sid(decrypted_sid.data() + 8, 8);
+        if (!match_short_id(cli_sid, cfg.short_ids))
         {
             trace::debug("{} short_id mismatch", AuthTag);
-            return {fault::code::reality_auth_failed, result};
+            return {fault::code::reality_unauth, result};
         }
 
         // Step 12: 生成服务端临时密钥对
-        result.server_ephemeral_key = crypto::generate_x25519_keypair();
+        result.server_ephkey = crypto::generate_x25519_keypair();
         result.shared_secret = shared_secret;
         std::copy(auth_key_vec.begin(), auth_key_vec.end(), result.auth_key.begin());
         result.authenticated = true;
@@ -209,7 +209,7 @@ namespace psm::stealth::reality
     }
 
     auto hex_digit(const char c)
-        -> int
+        -> std::int32_t
     {
         if (c >= '0' && c <= '9')
             return c - '0';

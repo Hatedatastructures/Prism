@@ -101,7 +101,7 @@ namespace psm::transport
          * @param ec 错误码输出参数
          * @return net::awaitable<std::size_t> 异步操作，完成后返回读取的字节数
          */
-        auto async_read_some(std::span<std::byte> buffer, std::error_code &ec)
+        [[nodiscard]] auto async_read_some(std::span<std::byte> buffer, std::error_code &ec)
             -> net::awaitable<std::size_t> override
         {
             boost::system::error_code sys_ec;
@@ -120,7 +120,7 @@ namespace psm::transport
          * @param ec 错误码输出参数
          * @return net::awaitable<std::size_t> 异步操作，完成后返回写入的字节数
          */
-        auto async_write_some(std::span<const std::byte> buffer, std::error_code &ec)
+        [[nodiscard]] auto async_write_some(std::span<const std::byte> buffer, std::error_code &ec)
             -> net::awaitable<std::size_t> override
         {
             boost::system::error_code sys_ec;
@@ -177,7 +177,7 @@ namespace psm::transport
          * @details 将内部持有的 TLS 流共享指针移动返回，调用后对象不再持有流。
          * @return shared_stream TLS 流共享指针
          */
-        shared_stream release()
+        [[nodiscard]] shared_stream release()
         {
             return std::move(ssl_stream_);
         }
@@ -192,7 +192,7 @@ namespace psm::transport
          * 握手失败时从 connector 释放传输层所有权，避免 transport 丢失。
          * @note 调用方应确保入站传输已包装 preview（如有预读数据）。
          */
-        static auto ssl_handshake(shared_transmission inbound, ssl::context &ssl_ctx)
+        [[nodiscard]] static auto ssl_handshake(shared_transmission inbound, ssl::context &ssl_ctx)
             -> net::awaitable<std::tuple<fault::code, shared_stream, shared_transmission>>;
 
     private:
@@ -206,7 +206,7 @@ namespace psm::transport
      * @param ssl_stream TLS 流的共享指针
      * @return shared_transmission 传输层指针
      */
-    inline shared_transmission make_encrypted(encrypted::shared_stream ssl_stream)
+    [[nodiscard]] inline shared_transmission make_encrypted(encrypted::shared_stream ssl_stream)
     {
         return std::make_shared<encrypted>(std::move(ssl_stream));
     }

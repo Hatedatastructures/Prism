@@ -3,7 +3,7 @@
  * @brief TLS ClientHello 特征位图单元测试
  */
 
-#include <prism/recognition/tls/feature_bitmap.hpp>
+#include <prism/recognition/tls/features.hpp>
 #include <prism/protocol/tls/types.hpp>
 #include "common/TestRunner.hpp"
 

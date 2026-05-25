@@ -35,7 +35,7 @@ namespace psm::recognition::tls
      * @param transport 底层传输（应包含预读数据）
      * @return 异步操作，返回错误码和完整 TLS 记录
      */
-    auto read_tls_record(transport::transmission &transport)
+    [[nodiscard]] auto read_tls_record(transport::transmission &transport)
         -> net::awaitable<std::pair<fault::code, memory::vector<std::uint8_t>>>;
 
     /**
@@ -45,7 +45,7 @@ namespace psm::recognition::tls
      * @param preread 已预读的数据
      * @return 异步操作，返回错误码和完整 TLS 记录
      */
-    auto read_tls_record(transport::transmission &transport, std::span<const std::byte> preread)
+    [[nodiscard]] auto read_tls_record(transport::transmission &transport, std::span<const std::byte> preread)
         -> net::awaitable<std::pair<fault::code, memory::vector<std::uint8_t>>>;
 
     /**

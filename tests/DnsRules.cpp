@@ -283,7 +283,7 @@ void TestRulesAddressRule()
         psm::memory::vector<net::ip::address> ips(psm::memory::current_resource());
         ips.push_back(net::ip::make_address("1.2.3.4"));
 
-        engine.add_address_rule("blocked.com", ips);
+        engine.add_addr_rule("blocked.com", ips);
     }
 
     {
@@ -322,7 +322,7 @@ void TestRulesNegativeRule()
     psm::resolve::dns::detail::rules_engine engine;
 
     // 添加否定规则（屏蔽/阻止域名）
-    engine.add_negative_rule("evil.com");
+    engine.add_neg_rule("evil.com");
 
     {
         auto result = engine.match("evil.com");
@@ -353,7 +353,7 @@ void TestRulesCnameRule()
     psm::resolve::dns::detail::rules_engine engine;
 
     // 添加 CNAME 别名规则：alias.com → real.com
-    engine.add_cname_rule("alias.com", "real.com");
+    engine.add_cname("alias.com", "real.com");
 
     {
         auto result = engine.match("alias.com");
@@ -390,11 +390,11 @@ void TestRulesCombinedPriority()
         psm::memory::vector<net::ip::address> ips(psm::memory::current_resource());
         ips.push_back(net::ip::make_address("10.0.0.1"));
 
-        engine.add_address_rule("test.com", ips);
+        engine.add_addr_rule("test.com", ips);
     }
 
     // 再添加 CNAME 规则：test.com → fallback.com
-    engine.add_cname_rule("test.com", "fallback.com");
+    engine.add_cname("test.com", "fallback.com");
 
     {
         // 地址规则优先级更高，应返回地址而非 CNAME

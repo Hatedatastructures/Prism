@@ -295,12 +295,11 @@ namespace
             {
                 const auto payload_size = rng() % config.max_payload;
                 auto payload = MakeRandomPayload(payload_size, rng, mr);
-                auto built = multiplex::smux::build_udp_datagram(
-                    "127.0.0.1", 53,
-                    std::span<const std::byte>(payload.data(), payload.size()), mr);
+                auto built = multiplex::smux::build_udp_dgram(
+                    {"127.0.0.1", 53, std::span<const std::byte>(payload.data(), payload.size())}, mr);
 
                 // 反向解析验证
-                auto parsed = multiplex::smux::parse_udp_datagram(
+                auto parsed = multiplex::smux::parse_udp_dgram(
                     std::span<const std::byte>(built.data(), built.size()), mr);
                 if (!parsed || parsed->host != "127.0.0.1" || parsed->port != 53)
                     stats.errors++;
@@ -460,10 +459,9 @@ namespace
 
             // IPv4 往返
             {
-                auto built = multiplex::smux::build_udp_datagram(
-                    "192.168.1.1", 53,
-                    std::span<const std::byte>(payload.data(), payload.size()), mr);
-                auto parsed = multiplex::smux::parse_udp_datagram(
+                auto built = multiplex::smux::build_udp_dgram(
+                    {"192.168.1.1", 53, std::span<const std::byte>(payload.data(), payload.size())}, mr);
+                auto parsed = multiplex::smux::parse_udp_dgram(
                     std::span<const std::byte>(built.data(), built.size()), mr);
                 if (!parsed || parsed->host != "192.168.1.1" || parsed->port != 53)
                     errors++;
@@ -475,10 +473,9 @@ namespace
 
             // 域名往返
             {
-                auto built = multiplex::smux::build_udp_datagram(
-                    "test.example.org", 8443,
-                    std::span<const std::byte>(payload.data(), payload.size()), mr);
-                auto parsed = multiplex::smux::parse_udp_datagram(
+                auto built = multiplex::smux::build_udp_dgram(
+                    {"test.example.org", 8443, std::span<const std::byte>(payload.data(), payload.size())}, mr);
+                auto parsed = multiplex::smux::parse_udp_dgram(
                     std::span<const std::byte>(built.data(), built.size()), mr);
                 if (!parsed || parsed->host != "test.example.org" || parsed->port != 8443)
                     errors++;

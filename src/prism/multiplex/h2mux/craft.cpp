@@ -1,12 +1,3 @@
-/**
- * @file craft.cpp
- * @brief h2mux 多路复用会话服务端实现
- * @details nghttp2 回调到协程桥接。主循环：async_read_some →
- * nghttp2_session_mem_recv → callbacks → duct/parcel。
- * 发送端：concurrent_channel → send_loop → nghttp2_submit_data →
- * nghttp2_session_mem_send → async_write。
- */
-
 #include <prism/multiplex/h2mux/craft.hpp>
 #include <prism/multiplex/duct.hpp>
 #include <prism/multiplex/parcel.hpp>
@@ -33,13 +24,12 @@ namespace psm::multiplex::h2mux
     // 构造 / 析构
     // ═══════════════════════════════════════════════════════════
 
-    craft::craft(transport::shared_transmission transport, connect::router &router,
-                 const multiplex::config &cfg, address_resolver resolver,
+    craft::craft(transport::shared_transmission transport, craft_init init,
                  const memory::resource_pointer mr)
-        : core(std::move(transport), router, cfg, mr),
-          resolver_(std::move(resolver)),
+        : core(std::move(transport), init.router, init.cfg, mr),
+          resolver_(std::move(init.resolver)),
           h2_pending_(mr_),
-          send_channel_(transport_->executor(), cfg.h2mux.max_streams),
+          send_channel_(transport_->executor(), init.cfg.h2mux.max_streams),
           first_connect_waiter_(transport_->executor())
     {
         first_connect_waiter_.expires_after(std::chrono::hours(24));
@@ -58,7 +48,7 @@ namespace psm::multiplex::h2mux
     // nghttp2 初始化
     // ═══════════════════════════════════════════════════════════
 
-    auto craft::init_nghttp2() -> int
+    auto craft::init_nghttp2() -> std::int32_t
     {
         nghttp2_session_callbacks *callbacks = nullptr;
         if (nghttp2_session_callbacks_new(&callbacks) != 0)
@@ -73,7 +63,7 @@ namespace psm::multiplex::h2mux
         nghttp2_session_callbacks_set_on_data_chunk_recv_callback(callbacks, &craft::on_data);
         nghttp2_session_callbacks_set_on_stream_close_callback(callbacks, &craft::on_stream_close);
 
-        const int rv = nghttp2_session_server_new2(&session_, callbacks, this, nullptr);
+        const std::int32_t rv = nghttp2_session_server_new2(&session_, callbacks, this, nullptr);
         nghttp2_session_callbacks_del(callbacks);
 
         if (rv != 0)
@@ -292,9 +282,14 @@ namespace psm::multiplex::h2mux
             co_await send_pending();
 
             // 创建 UDP parcel
-            auto dp = make_parcel(stream_id, shared_from_this(), router_,
-                                  config_.h2mux.udp_idle_timeout_ms, config_.h2mux.udp_max_datagram,
-                                  mr_);
+            auto dp = make_parcel(
+                parcel_config{
+                    .stream_id = stream_id,
+                    .udp_idle_timeout = config_.h2mux.udp_idle_timeout,
+                    .udp_max_dgram = config_.h2mux.udp_max_dgram,
+                    .mr = mr_,
+                },
+                shared_from_this(), router_);
             dp->set_destination(
                 std::string_view(info.host.data(), info.host.size()),
                 info.port);
@@ -677,7 +672,7 @@ namespace psm::multiplex::h2mux
                     return static_cast<ssize_t>(to_copy);
                 };
 
-                const int rv = nghttp2_submit_data(session_, NGHTTP2_FLAG_NONE,
+                const std::int32_t rv = nghttp2_submit_data(session_, NGHTTP2_FLAG_NONE,
                                                     static_cast<int32_t>(item.stream_id), &dp);
                 if (rv != 0)
                 {
@@ -734,7 +729,7 @@ namespace psm::multiplex::h2mux
         co_return std::move(first_connect_);
     }
 
-    auto craft::respond_connect(const int32_t stream_id, const std::uint32_t status) -> int
+    auto craft::respond_connect(const int32_t stream_id, const std::uint32_t status) -> std::int32_t
     {
         const auto status_str = (status == 200) ? "200" : "407";
         // safe: nghttp2 requires mutable uint8_t* for nv pairs, string literals are cast to non-const for API compat

@@ -14,7 +14,7 @@
 #include <prism/transport/transmission.hpp>
 #include <prism/memory/pool.hpp>
 #include <prism/memory/container.hpp>
-#include <prism/protocol/protocol_type.hpp>
+#include <prism/protocol/types.hpp>
 #include <prism/protocol/common/target.hpp>
 #include <prism/fault/code.hpp>
 
@@ -23,10 +23,10 @@
 #include <prism/recognition/probe/analyzer.hpp>
 
 // SNI 路由表
-#include <prism/recognition/scheme_route_table.hpp>
+#include <prism/recognition/routes.hpp>
 
 // 分层检测管道
-#include <prism/recognition/layered_pipeline.hpp>
+#include <prism/recognition/pipeline.hpp>
 
 // 前置声明
 namespace psm
@@ -116,7 +116,7 @@ namespace psm::recognition
      * - 特征分析
      * - 方案执行
      */
-    auto recognize(recognize_context ctx)
+    [[nodiscard]] auto recognize(recognize_context ctx)
         -> net::awaitable<recognize_result>;
 
     // ═══════════════════════════════════════════════════════════════════════
@@ -198,7 +198,7 @@ namespace psm::recognition
      * - 成功则返回结果
      * - 失败则继续下一个或 fallback
      */
-    auto identify(identify_context ctx)
+    [[nodiscard]] auto identify(identify_context ctx)
         -> net::awaitable<identify_result>;
 
 } // namespace psm::recognition

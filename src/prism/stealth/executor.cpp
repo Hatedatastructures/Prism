@@ -1,8 +1,3 @@
-/**
- * @file executor.cpp
- * @brief 伪装方案执行器实现
- */
-
 #include <prism/stealth/executor.hpp>
 #include <prism/context/context.hpp>
 #include <prism/transport/preview.hpp>
@@ -18,8 +13,7 @@ namespace psm::stealth
     {
     }
 
-    auto scheme_executor::pass_through(handshake_context &ctx, const handshake_result &res)
-        -> void
+    void scheme_executor::pass_through(handshake_context &ctx, const handshake_result &res)
     {
         if (res.transport)
             ctx.inbound = res.transport;
@@ -31,8 +25,7 @@ namespace psm::stealth
         }
     }
 
-    auto scheme_executor::ensure_snapshot(handshake_context &ctx)
-        -> void
+    void scheme_executor::ensure_snapshot(handshake_context &ctx)
     {
         if (!ctx.inbound)
             return;
@@ -41,9 +34,11 @@ namespace psm::stealth
         ctx.inbound = transport::make_snapshot(std::move(ctx.inbound));
     }
 
-    auto scheme_executor::try_rewind(handshake_context &ctx)
+    auto scheme_executor::try_rewind(handshake_context &ctx, bool polluted)
         -> bool
     {
+        if (polluted)
+            return false;
         if (!ctx.inbound)
             return false;
         auto *snap = connect::as<transport::snapshot>(ctx.inbound);
@@ -102,7 +97,7 @@ namespace psm::stealth
             if (exec_result.detected == protocol::protocol_type::tls)
             {
                 trace::debug("[SchemeExecutor] Scheme '{}' returned TLS, continuing to next", name);
-                if (!try_rewind(ctx))
+                if (!try_rewind(ctx, exec_result.polluted))
                     pass_through(ctx, exec_result);
                 continue;
             }
@@ -110,7 +105,7 @@ namespace psm::stealth
             // 其他错误，尝试 rewind 后继续，不能 rewind 则终止
             if (fault::failed(exec_result.error))
             {
-                if (try_rewind(ctx))
+                if (try_rewind(ctx, exec_result.polluted))
                 {
                     trace::debug("[SchemeExecutor] Scheme '{}' failed but snapshot rewound, trying next", name);
                     continue;

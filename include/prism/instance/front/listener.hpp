@@ -63,7 +63,7 @@ namespace psm::instance::front
          * 调用后 accept_loop 协程将在检测到 operation_aborted 后安全退出，
          * 不再接受新连接。已在处理中的连接不受影响。
          */
-        auto stop() -> void;
+        void stop();
 
     private:
         /**

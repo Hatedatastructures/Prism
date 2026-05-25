@@ -40,7 +40,7 @@ namespace psm::multiplex::smux
     constexpr std::uint8_t protocol_version = 0x01;
 
     // 帧头大小（字节）：Version(1) + Cmd(1) + Length(2) + StreamID(4) = 8
-    constexpr std::size_t frame_header_size = 8;
+    constexpr std::size_t frame_hdrsize = 8;
 
     // 最大帧数据大小（64KB）
     constexpr std::size_t max_frame_length = 65535;
@@ -74,15 +74,15 @@ namespace psm::multiplex::smux
         std::uint16_t port = 0;   // 目标端口
         std::size_t offset = 0;   // 地址结束位置，相对于原始 buffer
         bool is_udp = false;      // 是否为 UDP 流（Flags bit0）
-        bool packet_addr = false; // 是否为 PacketAddr 模式（Flags bit1）
+        bool packet_addr = false; // 是否为 PacketAddr 模式（Flags bit1）- 数据成员，非函数参数
     };
 
     /**
-     * @struct udp_datagram
+     * @struct udp_dgram
      * @brief UDP 数据报解析结果
      * @details 格式：[ATYP 1B][Addr(var)][Port 2B][Data]
      */
-    struct udp_datagram
+    struct udp_dgram
     {
         memory::string host;                // 目标主机
         std::uint16_t port = 0;             // 目标端口
@@ -108,8 +108,8 @@ namespace psm::multiplex::smux
      * @param mr 内存资源
      * @return 解析结果，nullopt 表示数据不足或格式错误
      */
-    [[nodiscard]] auto parse_udp_datagram(std::span<const std::byte> data, memory::resource_pointer mr)
-        -> std::optional<udp_datagram>;
+    [[nodiscard]] auto parse_udp_dgram(std::span<const std::byte> data, memory::resource_pointer mr)
+        -> std::optional<udp_dgram>;
 
     /**
      * @brief 解析 length-prefixed UDP 数据报
@@ -120,15 +120,24 @@ namespace psm::multiplex::smux
         -> std::optional<udp_length_prefixed>;
 
     /**
+     * @struct datagram_params
+     * @brief UDP 数据报构建参数
+     * @details 组合构建 UDP 数据报所需的目标地址和负载信息。
+     */
+    struct datagram_params
+    {
+        std::string_view host;                  ///< 目标主机
+        std::uint16_t port = 0;                 ///< 目标端口
+        std::span<const std::byte> payload;     ///< 数据负载
+    };
+
+    /**
      * @brief 构建 UDP 数据报
-     * @param host 目标主机
-     * @param port 目标端口
-     * @param payload 数据负载
+     * @param params 数据报参数（目标主机、端口、负载）
      * @param mr 内存资源
      * @return 编码后的完整 UDP 数据报
      */
-    [[nodiscard]] auto build_udp_datagram(std::string_view host, std::uint16_t port,
-                                          std::span<const std::byte> payload, memory::resource_pointer mr)
+    [[nodiscard]] auto build_udp_dgram(datagram_params params, memory::resource_pointer mr)
         -> memory::vector<std::byte>;
 
     /**

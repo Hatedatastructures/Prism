@@ -30,7 +30,7 @@ namespace psm::protocol::shadowsocks
          * @param packet_id 收到的 PacketID（大端序转本地后的值）
          * @return true 表示首次出现（可接受），false 表示重放或太旧
          */
-        auto check_and_update(std::uint64_t packet_id)
+        [[nodiscard]] auto check_and_update(std::uint64_t packet_id)
             -> bool
         {
             // 首次使用：任何值都接受

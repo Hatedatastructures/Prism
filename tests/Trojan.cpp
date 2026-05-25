@@ -244,7 +244,7 @@ void TestTrojanUdpParseIPv4()
         buf.push_back(static_cast<std::byte>(c));
     }
 
-    auto [ec, result] = protocol::trojan::format::parse_udp_packet(buf);
+    auto [ec, result] = protocol::trojan::format::parse_udp_pkt(buf);
     if (psm::fault::failed(ec))
     {
         LogFail("parse_udp_packet IPv4 failed: " + std::string(psm::fault::describe(ec)));
@@ -295,7 +295,7 @@ void TestTrojanUdpParseDomain()
         buf.push_back(static_cast<std::byte>(c));
     }
 
-    auto [ec, result] = protocol::trojan::format::parse_udp_packet(buf);
+    auto [ec, result] = protocol::trojan::format::parse_udp_pkt(buf);
     if (psm::fault::failed(ec))
     {
         LogFail("parse_udp_packet Domain failed: " + std::string(psm::fault::describe(ec)));
@@ -324,7 +324,7 @@ void TestTrojanUdpBuildParseRoundtrip()
 {
     LogInfo("=== TestTrojanUdpBuildParseRoundtrip ===");
 
-    protocol::trojan::format::udp_frame frame;
+    protocol::trojan::format::udp_routed frame;
     frame.destination_address = protocol::trojan::ipv4_address{{127, 0, 0, 1}};
     frame.destination_port = 8080;
 
@@ -333,14 +333,14 @@ void TestTrojanUdpBuildParseRoundtrip()
         reinterpret_cast<const std::byte*>(payload_str.data()), payload_str.size());
 
     psm::memory::vector<std::byte> out(psm::memory::current_resource());
-    auto build_ec = protocol::trojan::format::build_udp_packet(frame, payload_span, out);
+    auto build_ec = protocol::trojan::format::build_udp_pkt(frame, payload_span, out);
     if (psm::fault::failed(build_ec))
     {
         LogFail("build_udp_packet failed: " + std::string(psm::fault::describe(build_ec)));
         return;
     }
 
-    auto [parse_ec, result] = protocol::trojan::format::parse_udp_packet(out);
+    auto [parse_ec, result] = protocol::trojan::format::parse_udp_pkt(out);
     if (psm::fault::failed(parse_ec))
     {
         LogFail("parse_udp_packet roundtrip failed: " + std::string(psm::fault::describe(parse_ec)));

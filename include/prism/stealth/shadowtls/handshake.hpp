@@ -41,7 +41,7 @@ namespace psm::stealth::shadowtls
      */
     struct handshake_detail
     {
-        memory::vector<std::byte> client_first_frame; ///< 客户端首帧数据（认证后，TLS header + payload）
+        memory::vector<std::byte> client_firstframe; ///< 客户端首帧数据（认证后，TLS header + payload）
         std::string matched_user;                     ///< 匹配的用户名
         std::string matched_password;                 ///< 匹配的密码（用于后续 HMAC 计算）
         std::array<std::byte, 32> server_random{};    ///< ServerHello 的 ServerRandom（用于后续 HMAC 和 XOR）
@@ -61,7 +61,7 @@ namespace psm::stealth::shadowtls
      * @param detail 输出参数，握手成功时填充 ShadowTLS 特有数据
      * @return 握手结果（使用 stealth 基类的 handshake_result）
      */
-    auto handshake(net::ip::tcp::socket &client_sock, const config &cfg,
+    [[nodiscard]] auto handshake(net::ip::tcp::socket &client_sock, const config &cfg,
                    memory::vector<std::byte> client_hello,
                    handshake_detail &detail)
         -> net::awaitable<stealth::handshake_result>;

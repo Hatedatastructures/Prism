@@ -123,7 +123,7 @@ namespace psm::protocol::vless::format
         return req;
     }
 
-    auto parse_udp_packet(std::span<const std::byte> buffer)
+    auto parse_udp_pkt(std::span<const std::byte> buffer)
         -> std::pair<fault::code, udp_parse_result>
     {
         // 最小长度: ATYP(1) + IPv4(4) + PORT(2) = 7
@@ -213,7 +213,7 @@ namespace psm::protocol::vless::format
         return {fault::code::success, result};
     }
 
-    auto build_udp_packet(const udp_frame &frame, std::span<const std::byte> payload, memory::vector<std::byte> &out)
+    auto build_udp_pkt(const udp_routed &frame, std::span<const std::byte> payload, memory::vector<std::byte> &out)
         -> fault::code
     {
         // 预分配：最大地址长度(1+16) + port(2) + payload

@@ -307,7 +307,7 @@ void TestHkdfExpandLabel()
     constexpr std::size_t out_len = 32;
 
     auto [err, output] = psm::crypto::hkdf_expand_label(
-        secret, label, {}, out_len
+        {secret, label, {}, out_len}
     );
 
     if (err != psm::fault::code::success)
@@ -325,7 +325,7 @@ void TestHkdfExpandLabel()
 
     // 第二次调用应产生相同结果（确定性）
     auto [err2, output2] = psm::crypto::hkdf_expand_label(
-        secret, label, {}, out_len
+        {secret, label, {}, out_len}
     );
 
     if (err2 != psm::fault::code::success)

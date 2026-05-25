@@ -82,7 +82,7 @@ namespace psm::protocol::http
         constexpr std::string_view basic_prefix = "Basic ";
     } // namespace
 
-    auto authenticate_proxy_request(const std::string_view authorization, account::directory &directory)
+    auto authenticate_proxy(const std::string_view authorization, account::directory &directory)
         -> auth_result
     {
         // 验证 Basic 认证方案前缀（大小写不敏感）
@@ -113,10 +113,10 @@ namespace psm::protocol::http
         return {.authenticated = false, .error_response = resp403, .lease = {}};
     }
 
-    auto build_forward_request_line(const proxy_request &req, std::pmr::memory_resource *mr)
+    auto build_fwd_line(const proxy_request &req, std::pmr::memory_resource *mr)
         -> memory::string
     {
-        const auto relative = extract_relative_path(req.target);
+        const auto relative = extract_rel_path(req.target);
 
         memory::string new_line(mr);
         new_line.reserve(req.method.size() + 1 + relative.size() + 1 + req.version.size() + 2);
@@ -130,7 +130,7 @@ namespace psm::protocol::http
         return new_line;
     }
 
-    auto parse_proxy_request(const std::string_view raw_data, proxy_request &out)
+    auto parse_proxy_req(const std::string_view raw_data, proxy_request &out)
         -> fault::code
     {
         // 定位请求行末尾
@@ -164,7 +164,7 @@ namespace psm::protocol::http
         {
             return fault::code::parse_error;
         }
-        out.header_end = headers_end + 4;
+        out.hdr_end = headers_end + 4;
 
         // 遍历头字段，提取 Host 和 Proxy-Authorization
         std::string_view block = raw_data.substr(line_end + 2, headers_end - line_end - 2);
@@ -201,7 +201,7 @@ namespace psm::protocol::http
         return fault::code::success;
     }
 
-    auto extract_relative_path(const std::string_view target)
+    auto extract_rel_path(const std::string_view target)
         -> std::string_view
     {
         // 跳过 scheme

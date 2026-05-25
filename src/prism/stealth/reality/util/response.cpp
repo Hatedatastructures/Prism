@@ -16,7 +16,7 @@
 
 namespace psm::stealth::reality
 {
-    using namespace psm::protocol;
+    namespace tls = psm::protocol::tls;
 
     constexpr std::string_view ShTag = "[Stealth.ServerHello]";
 
@@ -31,11 +31,11 @@ namespace psm::stealth::reality
         return msg;
     }
 
-    auto make_tls_record(const std::uint8_t content_type, const std::span<const std::uint8_t> payload)
+    auto make_record(const std::uint8_t content_type, const std::span<const std::uint8_t> payload)
         -> memory::vector<std::uint8_t>
     {
         memory::vector<std::uint8_t> record;
-        record.reserve(tls::RECORD_HEADER_LEN + payload.size());
+        record.reserve(tls::RECORD_HDR_LEN + payload.size());
         record.push_back(content_type);
         tls::write_u16(record, tls::VERSION_TLS12);
         tls::write_u16(record, static_cast<std::uint16_t>(payload.size()));
@@ -43,25 +43,20 @@ namespace psm::stealth::reality
         return record;
     }
 
-    auto encrypt_tls_record(
-        const std::span<const std::uint8_t> key,
-        const std::span<const std::uint8_t> iv,
-        const std::uint64_t sequence,
-        const std::uint8_t content_type,
-        const std::span<const std::uint8_t> plaintext)
+    auto encrypt_record(const encrypt_params &params)
         -> std::pair<fault::code, memory::vector<std::uint8_t>>
     {
         memory::vector<std::uint8_t> inner;
-        inner.reserve(plaintext.size() + 1);
-        inner.insert(inner.end(), plaintext.begin(), plaintext.end());
-        inner.push_back(content_type);
+        inner.reserve(params.plaintext.size() + 1);
+        inner.insert(inner.end(), params.plaintext.begin(), params.plaintext.end());
+        inner.push_back(params.content_type);
 
-        const auto nonce = common::make_aead_nonce(iv, sequence);
+        const auto nonce = common::make_aead_nonce(params.iv, params.sequence);
 
         const auto encrypted_len = inner.size() + tls::AEAD_TAG_LEN;
         const auto ad = common::make_record_ad(static_cast<std::uint16_t>(encrypted_len));
 
-        crypto::aead_context aead(crypto::aead_cipher::aes_128_gcm, key);
+        crypto::aead_context aead(crypto::aead_cipher::aes_128_gcm, params.key);
 
         memory::vector<std::uint8_t> ciphertext(encrypted_len);
         const auto nonce_span = std::span<const std::uint8_t>{nonce.data(), nonce.size()};
@@ -73,11 +68,11 @@ namespace psm::stealth::reality
             return {fault::code::crypto_error, {}};
         }
 
-        auto record = make_tls_record(tls::CONTENT_TYPE_APPLICATION_DATA, ciphertext);
+        auto record = make_record(tls::CT_APPLICATION_DATA, ciphertext);
         return {fault::code::success, std::move(record)};
     }
 
-    static auto build_server_hello_body(const tls::hello_features &client_hello, std::span<const std::uint8_t> server_ephemeral_public)
+    static auto build_server_hello_body(const tls::hello_features &client_hello, std::span<const std::uint8_t> server_eph_pub)
         -> memory::vector<std::uint8_t>
     {
         memory::vector<std::uint8_t> body;
@@ -109,9 +104,9 @@ namespace psm::stealth::reality
         // key_share: X25519
         {
             memory::vector<std::uint8_t> ext;
-            tls::write_u16(ext, tls::NAMED_GROUP_X25519);
-            tls::write_u16(ext, static_cast<std::uint16_t>(server_ephemeral_public.size()));
-            ext.insert(ext.end(), server_ephemeral_public.begin(), server_ephemeral_public.end());
+            tls::write_u16(ext, tls::GROUP_X25519);
+            tls::write_u16(ext, static_cast<std::uint16_t>(server_eph_pub.size()));
+            ext.insert(ext.end(), server_eph_pub.begin(), server_eph_pub.end());
             tls::write_u16(extensions, tls::EXT_KEY_SHARE);
             tls::write_u16(extensions, static_cast<std::uint16_t>(ext.size()));
             extensions.insert(extensions.end(), ext.begin(), ext.end());
@@ -234,7 +229,7 @@ namespace psm::stealth::reality
         {
             auto [der, kp] = generate_reality_certificate(auth_key);
             cert_der = std::move(der);
-            out_ed_keypair = std::move(kp);
+            out_ed_keypair = kp;
         }
         if (cert_der.empty())
         {
@@ -274,70 +269,65 @@ namespace psm::stealth::reality
                      ed_keypair.private_key.data());
 
         memory::vector<std::uint8_t> body;
-        tls::write_u16(body, tls::SIGNATURE_SCHEME_ED25519);
+        tls::write_u16(body, tls::SIG_ED25519);
         tls::write_u16(body, static_cast<std::uint16_t>(signature.size()));
         body.insert(body.end(), signature.begin(), signature.end());
 
         return body;
     }
 
-    auto generate_server_hello(
-        const tls::hello_features &client_hello,
-        const std::span<const std::uint8_t> server_ephemeral_public,
-        const key_material &handshake_keys,
-        const std::span<const std::uint8_t> dest_certificate,
-        const std::span<const std::uint8_t> client_hello_msg,
-        const std::span<const std::uint8_t> auth_key)
-        -> std::pair<fault::code, server_hello_result>
+    auto generate_shello(const hello_request &req)
+        -> std::pair<fault::code, shello_result>
     {
-        server_hello_result result;
+        shello_result result;
 
-        const auto sh_body = build_server_hello_body(client_hello, server_ephemeral_public);
-        const auto sh_msg = make_handshake_message(tls::HANDSHAKE_TYPE_SERVER_HELLO, sh_body);
-        result.server_hello_msg = sh_msg;
+        const auto sh_body = build_server_hello_body(req.client_hello, req.server_eph_pub);
+        const auto sh_msg = make_handshake_message(tls::HS_SERVER_HELLO, sh_body);
+        result.shello_msg = sh_msg;
 
-        result.server_hello_record = make_tls_record(tls::CONTENT_TYPE_HANDSHAKE, sh_msg);
-        result.change_cipher_spec_record = {tls::CONTENT_TYPE_CHANGE_CIPHER_SPEC, 0x03, 0x03, 0x00, 0x01, 0x01};
+        result.shello_record = make_record(tls::CT_HANDSHAKE, sh_msg);
+        result.ccs_record = {tls::CT_CHANGE_CIPHER_SPEC, 0x03, 0x03, 0x00, 0x01, 0x01};
 
         memory::vector<std::uint8_t> plaintext;
         crypto::ed25519_keypair ed_keypair{};
 
         const auto ee_body = build_encrypted_extensions();
-        const auto ee_msg = make_handshake_message(tls::HANDSHAKE_TYPE_ENCRYPTED_EXTENSIONS, ee_body);
+        const auto ee_msg = make_handshake_message(tls::HS_ENCRYPTED_EXTENSIONS, ee_body);
         plaintext.insert(plaintext.end(), ee_msg.begin(), ee_msg.end());
 
-        const auto cert_body = build_certificate(dest_certificate, auth_key, ed_keypair);
-        const auto cert_msg = make_handshake_message(tls::HANDSHAKE_TYPE_CERTIFICATE, cert_body);
+        const auto cert_body = build_certificate(req.dest_certificate, req.auth_key, ed_keypair);
+        const auto cert_msg = make_handshake_message(tls::HS_CERTIFICATE, cert_body);
         plaintext.insert(plaintext.end(), cert_msg.begin(), cert_msg.end());
 
         const auto cv_transcript = crypto::sha256(
-            client_hello_msg,
-            {result.server_hello_msg.data(), result.server_hello_msg.size()},
+            req.chello_msg,
+            {result.shello_msg.data(), result.shello_msg.size()},
             {plaintext.data(), plaintext.size()});
 
         const auto cv_body = build_certificate_verify(ed_keypair, cv_transcript);
-        const auto cv_msg = make_handshake_message(tls::HANDSHAKE_TYPE_CERTIFICATE_VERIFY, cv_body);
+        const auto cv_msg = make_handshake_message(tls::HS_CERTIFICATE_VERIFY, cv_body);
         plaintext.insert(plaintext.end(), cv_msg.begin(), cv_msg.end());
 
         const auto transcript_for_finished = crypto::sha256(
-            client_hello_msg,
-            {result.server_hello_msg.data(), result.server_hello_msg.size()},
+            req.chello_msg,
+            {result.shello_msg.data(), result.shello_msg.size()},
             plaintext);
-        const auto verify_data = compute_finished_verify_data(
-            handshake_keys.server_finished_key, transcript_for_finished);
+        const auto verify_data = compute_finished_verify(
+            req.handshake_keys.server_finkey, transcript_for_finished);
 
         const auto finished_msg = make_handshake_message(
-            tls::HANDSHAKE_TYPE_FINISHED, verify_data);
+            tls::HS_FINISHED, verify_data);
         plaintext.insert(plaintext.end(), finished_msg.begin(), finished_msg.end());
 
-        result.encrypted_handshake_plaintext = plaintext;
+        result.enc_hs_plain = plaintext;
 
-        auto [enc_ec, encrypted_record] = encrypt_tls_record(
-            handshake_keys.server_handshake_key,
-            handshake_keys.server_handshake_iv,
-            0,
-            tls::CONTENT_TYPE_HANDSHAKE,
-            plaintext);
+        auto [enc_ec, encrypted_record] = encrypt_record(
+            encrypt_params{
+                req.handshake_keys.server_hskey,
+                req.handshake_keys.server_hsiv,
+                0,
+                tls::CT_HANDSHAKE,
+                plaintext});
 
         if (fault::failed(enc_ec))
         {
@@ -345,7 +335,7 @@ namespace psm::stealth::reality
             return {enc_ec, result};
         }
 
-        result.encrypted_handshake_record = std::move(encrypted_record);
+        result.enc_hs_record = std::move(encrypted_record);
 
         trace::debug("{} generated ServerHello + encrypted handshake", ShTag);
         return {fault::code::success, std::move(result)};

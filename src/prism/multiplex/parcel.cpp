@@ -14,16 +14,15 @@ constexpr std::string_view tag = "[Mux.Parcel]";
 
 namespace psm::multiplex
 {
-    parcel::parcel(const std::uint32_t stream_id, std::shared_ptr<core> owner,
-                   connect::router &router, const std::uint32_t udp_idle_timeout, const std::uint32_t udp_max_dg,
-                   const memory::resource_pointer mr, const bool packet_addr)
-        : id_(stream_id), owner_(owner), router_(router),
+    parcel::parcel(const parcel_config& config, const std::shared_ptr<core>& owner,
+                   connect::router &router)
+        : id_(config.stream_id), owner_(owner), router_(router),
           executor_(owner->executor()),
-          udp_idle_timeout_ms_(udp_idle_timeout), udp_max_datagram_(udp_max_dg),
-          mr_(mr), idle_timer_(executor_), recv_buffer_(mr), packet_addr_(packet_addr),
-          mux_buffer_(mr)
+          udp_idle_timeout_(config.udp_idle_timeout), udp_max_dgram_(config.udp_max_dgram),
+          mr_(config.mr), idle_timer_(executor_), recv_buffer_(config.mr), addr_mode_(config.mode),
+          mux_buffer_(config.mr)
     {
-        recv_buffer_.resize(udp_max_datagram_);
+        recv_buffer_.resize(udp_max_dgram_);
     }
 
     parcel::~parcel()
@@ -79,7 +78,7 @@ namespace psm::multiplex
 
     void parcel::touch_idle_timer()
     {
-        idle_timer_.expires_after(std::chrono::milliseconds(udp_idle_timeout_ms_));
+        idle_timer_.expires_after(std::chrono::milliseconds(udp_idle_timeout_));
     }
 
     auto parcel::ensure_socket(const net::ip::udp::endpoint::protocol_type protocol)
@@ -127,7 +126,7 @@ namespace psm::multiplex
         mux_buffer_.insert(mux_buffer_.end(), data.begin(), data.end());
 
         // 缓冲区超过最大数据报大小时关闭管道，防止内存持续膨胀
-        if (mux_buffer_.size() > udp_max_datagram_)
+        if (mux_buffer_.size() > udp_max_dgram_)
         {
             close();
             co_return;
@@ -161,9 +160,9 @@ namespace psm::multiplex
                 {
                     auto buf = std::span<const std::byte>(local_buf.data() + offset, local_buf.size() - offset);
 
-                    if (packet_addr_)
+                    if (addr_mode_ == addr_mode::packet_addr)
                     {
-                        auto dgram = smux::parse_udp_datagram(buf, mr_);
+                        auto dgram = smux::parse_udp_dgram(buf, mr_);
                         if (!dgram)
                         {
                             break;
@@ -233,7 +232,7 @@ namespace psm::multiplex
         // 通过路由器解析目标端点
         char port_buf[8];
         const auto [port_end, port_ec] = std::to_chars(port_buf, port_buf + sizeof(port_buf), target_port);
-        const auto [code, target_ep] = co_await connect::resolve_datagram_target(router_,
+        const auto [code, target_ep] = co_await connect::resolve_dgram(router_,
             target_host, std::string_view(port_buf, port_end - port_buf));
         if (code != fault::code::success)
         {
@@ -309,9 +308,9 @@ namespace psm::multiplex
 
                 // 按协议格式编码：PacketAddr 模式带完整地址，否则仅 length+payload
                 memory::vector<std::byte> encoded(mr_);
-                if (packet_addr_)
+                if (addr_mode_ == addr_mode::packet_addr)
                 {
-                    encoded = smux::build_udp_datagram(reply_host, reply_port, reply_payload, mr_);
+                    encoded = smux::build_udp_dgram({reply_host, reply_port, reply_payload}, mr_);
                 }
                 else
                 {

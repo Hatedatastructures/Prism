@@ -13,15 +13,15 @@ namespace psm::stats
     // --- Runtime 快照 ---
 
     /**
-     * @struct worker_load_snapshot
+     * @struct worker_snapshot
      * @brief 单个 worker 的负载快照
      * @details 松散一致，适用于监控面板和日志输出
      */
-    struct worker_load_snapshot
+    struct worker_snapshot
     {
         std::uint32_t active_sessions{0};       ///< 当前活跃会话数
         std::uint32_t pending_handoffs{0};      ///< 等待分发的连接数
-        std::uint64_t event_loop_lag_us{0};     ///< 事件循环延迟（微秒，EMA 平滑后）
+        std::uint64_t loop_lag_us{0};     ///< 事件循环延迟（微秒，EMA 平滑后）
     };
 
     /**
@@ -42,7 +42,7 @@ namespace psm::stats
      * @details 预留扩展空间，当前 protocol_type 枚举使用 0-6，
      * 未来可扩展 WebSocket、gRPC 等新协议而无需改内存布局。
      */
-    static constexpr std::size_t protocol_slot_count = 16;
+    static constexpr std::size_t proto_slot_count = 16;
 
     /**
      * @struct protocol_snapshot
@@ -69,7 +69,7 @@ namespace psm::stats
         std::uint64_t total_active{0};           ///< 全局当前活跃连接数
         std::uint64_t total_uplink{0};           ///< 全局上行总字节
         std::uint64_t total_downlink{0};         ///< 全局下行总字节
-        protocol_snapshot protocols[protocol_slot_count]{};  ///< 按协议维度的流量明细
+        protocol_snapshot protocols[proto_slot_count]{};  ///< 按协议维度的流量明细
         std::uint64_t auth_success{0};           ///< 认证成功次数
         std::uint64_t auth_failure{0};           ///< 认证失败次数
     };

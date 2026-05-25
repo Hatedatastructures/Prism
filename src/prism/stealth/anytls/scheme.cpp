@@ -1,13 +1,6 @@
-/**
- * @file scheme.cpp
- * @brief AnyTLS 伪装方案实现
- * @details AnyTLS 使用标准 TLS 证书，通过应用层认证实现代理功能。
- * TLS 终结 → SHA-256(password) 认证 → 多路复用会话 → SOCKS 解析 + forward。
- * 所有 stream 在 stealth 层内部处理，不经过 session::diversion() 分发。
- */
 #include <prism/stealth/anytls/scheme.hpp>
 #include <prism/stealth/anytls/mux/session.hpp>
-#include <prism/stealth/anytls/mux/stream_transport.hpp>
+#include <prism/stealth/anytls/mux/transport.hpp>
 #include <prism/stealth/anytls/padding.hpp>
 #include <prism/connect.hpp>
 #include <prism/connect/util.hpp>
@@ -15,7 +8,7 @@
 #include <prism/config.hpp>
 #include <prism/transport/encrypted.hpp>
 #include <prism/transport/preview.hpp>
-#include <prism/protocol/protocol_type.hpp>
+#include <prism/protocol/types.hpp>
 #include <prism/protocol/common/target.hpp>
 #include <prism/protocol/common/framing.hpp>
 #include <prism/protocol/common/address.hpp>
@@ -32,7 +25,6 @@
 
 namespace psm::stealth::anytls
 {
-    using namespace recognition::tls;
     using hello_features = protocol::tls::hello_features;
 
     namespace
@@ -155,10 +147,9 @@ namespace psm::stealth::anytls
     {
         if (!cfg.stealth.anytls.ech_key.empty())
         {
-            using namespace protocol::tls;
-            auto bitmap = build_feature_bitmap(features);
+            auto bitmap = recognition::tls::build_feature_bitmap(features);
 
-            if (has_feature(bitmap, has_ech))
+            if (recognition::tls::has_feature(bitmap, recognition::tls::has_ech))
             {
                 trace::debug("[AnyTLS] ECH extension present, key configured");
                 return {
@@ -330,7 +321,7 @@ namespace psm::stealth::anytls
                     }
 
                     trace::info("{} -> {}:{}", tag, target.host, target.port);
-                    co_await psm::connect::forward(*session_ptr, "AnyTLS", target, std::move(inbound));
+                    co_await psm::connect::forward(*session_ptr, {"AnyTLS", target, std::move(inbound)});
                 },
                 net::detached);
         };
@@ -383,7 +374,7 @@ namespace psm::stealth::anytls
                 [session_ptr, target = std::move(target),
                  stream_transport = std::move(stream_transport)]() -> net::awaitable<void>
                 {
-                    co_await psm::connect::forward(*session_ptr, "AnyTLS", target, std::move(stream_transport));
+                    co_await psm::connect::forward(*session_ptr, {"AnyTLS", target, std::move(stream_transport)});
                 },
                 net::detached);
         }

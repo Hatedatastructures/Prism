@@ -4,7 +4,7 @@
 #include <prism/protocol/trojan/framing.hpp>
 #include <prism/fault/handling.hpp>
 #include <prism/protocol/common/read.hpp>
-#include <prism/protocol/common/udp_relay.hpp>
+#include <prism/protocol/common/udprelay.hpp>
 #include <prism/memory/container.hpp>
 #include <prism/trace.hpp>
 #include <prism/stats/traffic.hpp>
@@ -321,20 +321,26 @@ namespace psm::protocol::trojan
 
         net::steady_timer idle_timer(next_layer_->executor());
 
-        co_await protocol::common::udp_over_tls_frame_loop<
-            decltype(format::parse_udp_packet),
-            decltype(format::build_udp_packet),
-            format::udp_frame,
+        co_await protocol::common::udp_frame_loop<
+            decltype(format::parse_udp_pkt),
+            decltype(format::build_udp_pkt),
+            format::udp_routed,
             format::udp_parse_result>(
             *next_layer_,
-            format::parse_udp_packet,
-            format::build_udp_packet,
-            std::move(route_cb),
-            protocol::common::udp_loop_config{
+            protocol::common::udp_frame_ctx<
+                decltype(format::parse_udp_pkt),
+                decltype(format::build_udp_pkt),
+                format::udp_routed,
+                format::udp_parse_result>{
+                format::parse_udp_pkt,
+                format::build_udp_pkt,
+                std::move(route_cb)
+            },
+            protocol::common::udp_loop_cfg{
                 idle_timer,
                 udp_tag,
                 config_.udp_idle_timeout,
-                config_.udp_max_datagram,
+                config_.udp_max_dgram,
                 tc ? [](void *ctx, std::uint64_t up, std::uint64_t down) noexcept {
                     auto *tc = static_cast<traffic_context*>(ctx);
                     tc->traffic->flush_traffic(tc->proto, up, down);

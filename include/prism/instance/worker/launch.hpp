@@ -48,11 +48,11 @@ namespace psm::instance::worker::launch
     void prime(tcp::socket &socket, std::uint32_t buffer_size) noexcept;
 
     /**
-     * @struct session_launch_params
+     * @struct launch_params
      * @brief 会话启动参数
      * @details 聚合启动会话所需的全部上下文，避免函数签名过长。
      */
-    struct session_launch_params
+    struct launch_params
     {
         psm::context::server &server;
         psm::context::worker &worker;
@@ -72,7 +72,7 @@ namespace psm::instance::worker::launch
      * @param params 会话启动参数
      * @throws 可能抛出会话创建或启动过程中的异常
      */
-    void start(session_launch_params params);
+    void start(launch_params params);
 
     /**
      * @brief 将 socket 分发到目标 worker 的事件循环
@@ -86,5 +86,5 @@ namespace psm::instance::worker::launch
      * 外部。
      * @param params 会话启动参数
      */
-    void dispatch(session_launch_params params);
+    void dispatch(launch_params params);
 } // namespace psm::instance::worker::launch

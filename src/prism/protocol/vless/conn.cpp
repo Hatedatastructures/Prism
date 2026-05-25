@@ -2,7 +2,7 @@
 #include <prism/protocol/vless/framing.hpp>
 #include <prism/fault/handling.hpp>
 #include <prism/protocol/common/read.hpp>
-#include <prism/protocol/common/udp_relay.hpp>
+#include <prism/protocol/common/udprelay.hpp>
 #include <prism/trace.hpp>
 #include <prism/transport/transmission.hpp>
 #include <prism/stats/traffic.hpp>
@@ -11,6 +11,7 @@
 #include <string>
 #include <algorithm>
 #include <cstring>
+#include <cstdint>
 #include <charconv>
 
 namespace psm::protocol::vless
@@ -24,12 +25,12 @@ namespace psm::protocol::vless
         -> std::string
     {
         std::array<char, 37> buf;
-        static constexpr int groups[] = {4, 2, 2, 2, 6};
-        int pos = 0;
-        int byte_idx = 0;
-        for (int g = 0; g < 5; ++g)
+        static constexpr std::int32_t groups[] = {4, 2, 2, 2, 6};
+        std::size_t pos = 0;
+        std::size_t byte_idx = 0;
+        for (std::size_t g = 0; g < 5; ++g)
         {
-            for (int i = 0; i < groups[g]; ++i)
+            for (std::int32_t i = 0; i < groups[g]; ++i)
             {
                 const uint8_t b = uuid[byte_idx++];
                 snprintf(buf.data() + pos, 3, "%02x", b);
@@ -269,7 +270,7 @@ namespace psm::protocol::vless
         req.uuid = uuid;
         req.cmd = cmd;
         req.port = port;
-        req.destination_address = std::move(dest_addr);
+        req.destination_address = dest_addr;
         req.transport = (cmd == command::udp) ? psm::protocol::form::datagram : psm::protocol::form::stream;
 
         co_return std::pair{fault::code::success, std::move(req)};
@@ -307,20 +308,26 @@ namespace psm::protocol::vless
 
         net::steady_timer idle_timer(next_layer_->executor());
 
-        co_await protocol::common::udp_over_tls_frame_loop<
-            decltype(format::parse_udp_packet),
-            decltype(format::build_udp_packet),
-            format::udp_frame,
+        co_await protocol::common::udp_frame_loop<
+            decltype(format::parse_udp_pkt),
+            decltype(format::build_udp_pkt),
+            format::udp_routed,
             format::udp_parse_result>(
             *next_layer_,
-            format::parse_udp_packet,
-            format::build_udp_packet,
-            std::move(route_cb),
-            protocol::common::udp_loop_config{
+            protocol::common::udp_frame_ctx<
+                decltype(format::parse_udp_pkt),
+                decltype(format::build_udp_pkt),
+                format::udp_routed,
+                format::udp_parse_result>{
+                format::parse_udp_pkt,
+                format::build_udp_pkt,
+                std::move(route_cb)
+            },
+            protocol::common::udp_loop_cfg{
                 idle_timer,
                 "[Vless.UDP]",
                 config_.udp_idle_timeout,
-                config_.udp_max_datagram,
+                config_.udp_max_dgram,
                 tc ? [](void *ctx, std::uint64_t up, std::uint64_t down) noexcept {
                     auto *tc = static_cast<traffic_context*>(ctx);
                     tc->traffic->flush_traffic(tc->proto, up, down);

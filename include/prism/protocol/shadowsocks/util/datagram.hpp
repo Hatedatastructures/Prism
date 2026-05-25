@@ -34,7 +34,7 @@ namespace psm::protocol::shadowsocks
      * @details payload 以 span 零拷贝指向 buffer 内的子区间，
      * buffer 使用 PMR vector 持有解密后的明文数据
      */
-    struct udp_decrypted_packet
+    struct udp_dec_pkt
     {
         std::array<std::uint8_t, session_id_len> session_id{};           // 会话标识
         address destination_address;                                     // 目标地址
@@ -60,19 +60,19 @@ namespace psm::protocol::shadowsocks
          * @param sessions UDP 会话跟踪器
          */
         explicit udp_relay(const config &cfg, std::shared_ptr<session_tracker> sessions)
-            : config_(cfg), session_tracker_(std::move(sessions))
+            : config_(cfg), sess_tracker_(std::move(sessions))
         {
             const auto [ec, psk_bytes] = format::decode_psk(config_.psk);
             if (ec == fault::code::success)
             {
-                psk_ = std::move(psk_bytes);
+                psk_ = psk_bytes;
             }
             else
             {
                 trace::error("[SS2022.UDP] PSK decode failed: {}", fault::describe(ec));
                 valid_ = false;
             }
-            method_ = format::resolve_cipher_method(config_.method, psk_.size());
+            method_ = format::resolve_method(config_.method, psk_.size());
         }
 
         /**
@@ -81,8 +81,8 @@ namespace psm::protocol::shadowsocks
          * @param sender 发送者端点
          * @return 错误码和解密结果
          */
-        auto decrypt_inbound(std::span<const std::byte> packet, const net::ip::udp::endpoint &sender)
-            -> std::pair<fault::code, udp_decrypted_packet>;
+        [[nodiscard]] auto decrypt_inbound(std::span<const std::byte> packet, const net::ip::udp::endpoint &sender)
+            -> std::pair<fault::code, udp_dec_pkt>;
 
         /**
          * @brief 加密出站 UDP 数据包
@@ -91,7 +91,7 @@ namespace psm::protocol::shadowsocks
          * @param entry 目标会话条目
          * @return 错误码和密文数据包
          */
-        auto encrypt_outbound(std::span<const std::byte> payload, const std::array<std::uint8_t, session_id_len> &session_id, const std::shared_ptr<udp_session_entry> &entry)
+        [[nodiscard]] auto encrypt_out(std::span<const std::byte> payload, const std::array<std::uint8_t, session_id_len> &session_id, const std::shared_ptr<udp_session> &entry)
             -> std::pair<fault::code, std::vector<std::byte>>;
 
         /**
@@ -105,7 +105,7 @@ namespace psm::protocol::shadowsocks
         config config_;                                    // SS2022 协议配置
         std::vector<std::uint8_t> psk_;                    // 解码后的 PSK
         cipher_method method_{cipher_method::aes_128_gcm}; // 加密方法
-        std::shared_ptr<session_tracker> session_tracker_; // UDP 会话跟踪器
+        std::shared_ptr<session_tracker> sess_tracker_; // UDP 会话跟踪器
         bool valid_{true};                                 // PSK 解码是否成功
 
         /**
@@ -114,8 +114,8 @@ namespace psm::protocol::shadowsocks
          * @param sender 发送者端点
          * @return 错误码和解密结果
          */
-        auto decrypt_aes_gcm(std::span<const std::byte> packet, const net::ip::udp::endpoint &sender)
-            -> std::pair<fault::code, udp_decrypted_packet>;
+        [[nodiscard]] auto recv_aes_gcm(std::span<const std::byte> packet, const net::ip::udp::endpoint &sender)
+            -> std::pair<fault::code, udp_dec_pkt>;
 
         /**
          * @brief AES-GCM 变体加密
@@ -124,7 +124,7 @@ namespace psm::protocol::shadowsocks
          * @param entry 目标会话条目
          * @return 错误码和密文数据包
          */
-        auto encrypt_aes_gcm(std::span<const std::byte> payload, const std::array<std::uint8_t, session_id_len> &session_id, const std::shared_ptr<udp_session_entry> &entry)
+        [[nodiscard]] auto send_aes_gcm(std::span<const std::byte> payload, const std::array<std::uint8_t, session_id_len> &session_id, const std::shared_ptr<udp_session> &entry)
             -> std::pair<fault::code, std::vector<std::byte>>;
 
         /**
@@ -133,8 +133,8 @@ namespace psm::protocol::shadowsocks
          * @param sender 发送者端点
          * @return 错误码和解密结果
          */
-        auto decrypt_chacha20(std::span<const std::byte> packet, const net::ip::udp::endpoint &sender)
-            -> std::pair<fault::code, udp_decrypted_packet>;
+        [[nodiscard]] auto recv_chacha(std::span<const std::byte> packet, const net::ip::udp::endpoint &sender)
+            -> std::pair<fault::code, udp_dec_pkt>;
 
         /**
          * @brief ChaCha20 变体加密
@@ -143,7 +143,7 @@ namespace psm::protocol::shadowsocks
          * @param entry 目标会话条目
          * @return 错误码和密文数据包
          */
-        auto encrypt_chacha20(std::span<const std::byte> payload, const std::array<std::uint8_t, session_id_len> &session_id, const std::shared_ptr<udp_session_entry> &entry)
+        [[nodiscard]] auto send_chacha(std::span<const std::byte> payload, const std::array<std::uint8_t, session_id_len> &session_id, const std::shared_ptr<udp_session> &entry)
             -> std::pair<fault::code, std::vector<std::byte>>;
 
         /**
@@ -153,7 +153,7 @@ namespace psm::protocol::shadowsocks
          * @param packet_id 8 字节 PacketID
          * @return 12 字节 nonce
          */
-        [[nodiscard]] static auto construct_nonce_aes(const std::array<std::uint8_t, session_id_len> &session_id, const std::array<std::uint8_t, packet_id_len> &packet_id)
+        [[nodiscard]] static auto make_nonce_aes(const std::array<std::uint8_t, session_id_len> &session_id, const std::array<std::uint8_t, packet_id_len> &packet_id)
             -> std::array<std::uint8_t, 12>;
 
         /**
@@ -180,7 +180,7 @@ namespace psm::protocol::shadowsocks
      * @param sessions UDP 会话跟踪器
      * @return shared_udp_relay UDP 中继器共享指针
      */
-    inline auto make_udp_relay(const config &cfg, std::shared_ptr<session_tracker> sessions)
+    [[nodiscard]] inline auto make_udp_relay(const config &cfg, std::shared_ptr<session_tracker> sessions)
         -> shared_udp_relay
     {
         return std::make_shared<udp_relay>(cfg, std::move(sessions));

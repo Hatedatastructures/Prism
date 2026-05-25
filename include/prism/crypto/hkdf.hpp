@@ -77,19 +77,28 @@ namespace psm::crypto
         -> std::pair<fault::code, std::vector<std::uint8_t>>;
 
     /**
+     * @struct expand_label_params
+     * @brief HKDF-Expand-Label 参数
+     * @details 组合 TLS 1.3 HKDF-Expand-Label 调用所需的全部参数。
+     */
+    struct expand_label_params
+    {
+        std::span<const std::uint8_t> secret;  ///< 输入密钥
+        std::string_view label;                 ///< 标签（如 "key", "iv", "finished"）
+        std::span<const std::uint8_t> context;  ///< 上下文数据（通常是 transcript hash）
+        std::size_t length = 0;                 ///< 输出长度
+    };
+
+    /**
      * @brief TLS 1.3 HKDF-Expand-Label
-     * @param secret 输入密钥
-     * @param label 标签（如 "key", "iv", "finished", "c hs traffic"）
-     * @param context 上下文数据（通常是 transcript hash）
-     * @param length 输出长度
+     * @param params 扩展标签参数
      * @return 错误码和输出字节的配对
      * @details 按照 RFC 8446 Section 7.1 实现：
      * HkdfLabel = Length(2) || label_len(1) || "tls13 " + Label || context_len(1) || Context
      * HKDF-Expand-Label(Secret, Label, Context, Length) = HKDF-Expand(Secret, HkdfLabel, Length)
      * @note TLS 1.3 自动在 label 前添加 "tls13 " 前缀。
      */
-    [[nodiscard]] auto hkdf_expand_label(std::span<const std::uint8_t> secret, std::string_view label,
-                                         std::span<const std::uint8_t> context, std::size_t length)
+    [[nodiscard]] auto hkdf_expand_label(expand_label_params params)
         -> std::pair<fault::code, std::vector<std::uint8_t>>;
 
     /**

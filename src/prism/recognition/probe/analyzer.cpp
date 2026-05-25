@@ -1,8 +1,3 @@
-/**
- * @file analyzer.cpp
- * @brief 外层协议检测实现
- */
-
 #include <prism/recognition/probe/analyzer.hpp>
 
 namespace psm::recognition::probe

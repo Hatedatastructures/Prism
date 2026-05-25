@@ -66,7 +66,7 @@ int main(int argc, char *argv[])
         // handler_table 为编译期常量数组，无需运行时注册
 
         // 从认证配置构建共享账户目录
-        const auto account_store = psm::loader::build_account_directory(full_config.instance.auth);
+        const auto account_store = psm::loader::build_dir(full_config.instance.auth);
 
         // worker 线程数 = CPU 核心数 - 1（保留一个核心给监听线程），至少 1 个
         const std::uint32_t workers_count = threads_count > 1U ? threads_count - 1U : 1U;
@@ -90,7 +90,7 @@ int main(int argc, char *argv[])
             {
                 worker_ref->dispatch_socket(std::move(socket));
             };
-            auto snapshot_function = [worker_ref]() -> psm::stats::worker_load_snapshot
+            auto snapshot_function = [worker_ref]() -> psm::stats::worker_snapshot
             {
                 return worker_ref->load_snapshot();
             };

@@ -86,7 +86,7 @@ namespace psm::stealth::reality
          * @param ec 错误码输出参数
          * @return net::awaitable<std::size_t> 异步操作，返回读取字节数
          */
-        auto async_read_some(std::span<std::byte> buffer, std::error_code &ec)
+        [[nodiscard]] auto async_read_some(std::span<std::byte> buffer, std::error_code &ec)
             -> net::awaitable<std::size_t> override;
 
         /**
@@ -96,7 +96,7 @@ namespace psm::stealth::reality
          * @param ec 错误码输出参数
          * @return net::awaitable<std::size_t> 异步操作，返回写入字节数
          */
-        auto async_write_some(std::span<const std::byte> buffer, std::error_code &ec)
+        [[nodiscard]] auto async_write_some(std::span<const std::byte> buffer, std::error_code &ec)
             -> net::awaitable<std::size_t> override;
 
         /**
@@ -115,11 +115,11 @@ namespace psm::stealth::reality
         /**
          * @brief 从底层传输读取并解密一个 TLS 记录
          * @details 读取 TLS 记录头获取长度，再读取密文体，
-         * 使用客户端密钥解密后将明文存入 plaintext_buffer_
+         * 使用客户端密钥解密后将明文存入 plainbuf_
          * @param ec 错误码输出参数
          * @return net::awaitable<std::size_t> 异步操作，返回解密后的明文长度
          */
-        auto read_encrypted_record(std::error_code &ec)
+        [[nodiscard]] auto recv_record(std::error_code &ec)
             -> net::awaitable<std::size_t>;
 
         /**
@@ -129,28 +129,28 @@ namespace psm::stealth::reality
          * @param ec 错误码输出参数
          * @return net::awaitable<std::size_t> 异步操作，返回写入字节数
          */
-        auto write_encrypted_record(std::span<const std::byte> data, std::error_code &ec)
+        [[nodiscard]] auto send_record(std::span<const std::byte> data, std::error_code &ec)
             -> net::awaitable<std::size_t>;
 
         transport::shared_transmission transport_; // 底层传输连接
         key_material keys_;                                 // TLS 1.3 密钥材料
 
-        crypto::aead_context server_encryptor_; // 服务端加密上下文（用于写入）
-        crypto::aead_context client_decryptor_; // 客户端解密上下文（用于读取）
+        crypto::aead_context srv_encryptor_; // 服务端加密上下文（用于写入）
+        crypto::aead_context cli_decryptor_; // 客户端解密上下文（用于读取）
 
-        std::uint64_t read_sequence_ = 0;  // 读取序列号，用于生成 nonce
-        std::uint64_t write_sequence_ = 0; // 写入序列号，用于生成 nonce
+        std::uint64_t read_seq_ = 0;  // 读取序列号，用于生成 nonce
+        std::uint64_t write_seq_ = 0; // 写入序列号，用于生成 nonce
 
-        bool first_write_logged_ = false; // 首次写入日志标志
-        bool first_read_logged_ = false;  // 首次读取日志标志
+        bool first_write_log_ = false; // 首次写入日志标志
+        bool first_read_log_ = false;  // 首次读取日志标志
 
-        memory::vector<std::byte> plaintext_buffer_; // 解密后的明文缓冲区
-        std::size_t plaintext_offset_ = 0;           // 明文缓冲区当前读取偏移
+        memory::vector<std::byte> plainbuf_;    // 解密后的明文缓冲区
+        std::size_t plain_off_ = 0;             // 明文缓冲区当前读取偏移
 
-        memory::vector<std::byte> record_body_buf_;         // TLS 记录体读取缓冲区
-        memory::vector<std::uint8_t> decrypted_buf_;        // 解密输出缓冲区
-        memory::vector<std::uint8_t> write_plain_buf_;      // 写入明文拼接缓冲区
-        memory::vector<std::uint8_t> write_ciphertext_buf_; // 写入密文缓冲区
+        memory::vector<std::byte> recbody_buf_;          // TLS 记录体读取缓冲区
+        memory::vector<std::uint8_t> dec_buf_;           // 解密输出缓冲区
+        memory::vector<std::uint8_t> wr_plain_buf_;      // 写入明文拼接缓冲区
+        memory::vector<std::uint8_t> wr_cipher_buf_;     // 写入密文缓冲区
         memory::vector<std::byte> scatter_buf_;             // scatter-gather 拼接缓冲区
     };
 } // namespace psm::stealth::reality

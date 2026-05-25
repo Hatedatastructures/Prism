@@ -1,8 +1,3 @@
-/**
- * @file registry.cpp
- * @brief 伪装方案注册表实现
- */
-
 #include <prism/stealth/registry.hpp>
 #include <prism/stealth/reality/scheme.hpp>
 #include <prism/stealth/shadowtls/scheme.hpp>
@@ -14,8 +9,7 @@
 
 namespace psm::stealth
 {
-    auto register_all_schemes()
-        -> void
+    void register_all_schemes()
     {
         auto &reg = scheme_registry::instance();
 
@@ -39,8 +33,7 @@ namespace psm::stealth
         return reg;
     }
 
-    auto scheme_registry::add(shared_scheme scheme)
-        -> void
+    void scheme_registry::add(shared_scheme scheme)
     {
         schemes_.push_back(std::move(scheme));
     }

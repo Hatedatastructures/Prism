@@ -25,7 +25,7 @@ namespace psm::multiplex::yamux
     constexpr std::uint8_t protocol_version = 0x00;
 
     // 帧头大小（字节）：Version(1) + Type(1) + Flags(2) + StreamID(4) + Length(4) = 12
-    constexpr std::size_t frame_header_size = 12;
+    constexpr std::size_t frame_hdrsize = 12;
 
     // 初始流窗口大小（256KB），用于 WindowUpdate SYN/ACK 的 Length 字段和接收窗口阈值
     constexpr std::uint32_t initial_stream_window = 256 * 1024;
@@ -133,7 +133,7 @@ namespace psm::multiplex::yamux
      * @param hdr 帧头结构
      * @return 编码后的 12 字节数组
      */
-    [[nodiscard]] std::array<std::byte, frame_header_size> build_header(const frame_header &hdr) noexcept;
+    [[nodiscard]] std::array<std::byte, frame_hdrsize> build_header(const frame_header &hdr) noexcept;
 
     /**
      * @brief 解析 12 字节帧头
@@ -149,7 +149,7 @@ namespace psm::multiplex::yamux
      * @param delta 窗口增量（字节数）
      * @return 编码后的 12 字节数组
      */
-    [[nodiscard]] std::array<std::byte, frame_header_size> build_window_update_frame(
+    [[nodiscard]] std::array<std::byte, frame_hdrsize> build_window_update_frame(
         flags f, std::uint32_t stream_id, std::uint32_t delta) noexcept;
 
     /**
@@ -158,7 +158,7 @@ namespace psm::multiplex::yamux
      * @param ping_id ping 标识符，响应帧必须携带与请求相同的 ID
      * @return 编码后的 12 字节数组
      */
-    [[nodiscard]] std::array<std::byte, frame_header_size> build_ping_frame(
+    [[nodiscard]] std::array<std::byte, frame_hdrsize> build_ping_frame(
         flags f, std::uint32_t ping_id) noexcept;
 
     /**
@@ -166,7 +166,7 @@ namespace psm::multiplex::yamux
      * @param code 终止原因码
      * @return 编码后的 12 字节数组
      */
-    [[nodiscard]] std::array<std::byte, frame_header_size> build_go_away_frame(go_away_code code) noexcept;
+    [[nodiscard]] std::array<std::byte, frame_hdrsize> build_go_away_frame(go_away_code code) noexcept;
 
     /**
      * @struct data_frame
@@ -176,7 +176,7 @@ namespace psm::multiplex::yamux
      */
     struct data_frame
     {
-        std::array<std::byte, frame_header_size> header{}; // 编码后的帧头
+        std::array<std::byte, frame_hdrsize> header{}; // 编码后的帧头
         std::vector<std::byte> payload;                     // 帧载荷
     }; // struct data_frame
 
@@ -207,6 +207,6 @@ namespace psm::multiplex::yamux
      * @return 编码后的 12 字节数组
      * @details FIN 帧不携带载荷，Length 字段为 0。
      */
-    [[nodiscard]] std::array<std::byte, frame_header_size> make_fin_frame(std::uint32_t stream_id) noexcept;
+    [[nodiscard]] std::array<std::byte, frame_hdrsize> make_fin_frame(std::uint32_t stream_id) noexcept;
 
 } // namespace psm::multiplex::yamux

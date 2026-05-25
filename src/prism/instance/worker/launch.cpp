@@ -52,7 +52,7 @@ namespace psm::instance::worker::launch
         return migrated;
     }
 
-    void start(session_launch_params params)
+    void start(launch_params params)
     {
         auto &server = params.server;
         auto &worker = params.worker;
@@ -130,7 +130,7 @@ namespace psm::instance::worker::launch
         }
     }
 
-    void dispatch(session_launch_params params)
+    void dispatch(launch_params params)
     {
         auto &server = params.server;
         auto &worker = params.worker;
@@ -156,7 +156,7 @@ namespace psm::instance::worker::launch
 
             try
             {
-                start(session_launch_params{server, worker, metrics, std::move(*migrated)});
+                start(launch_params{server, worker, metrics, std::move(*migrated)});
             }
             catch (const std::exception &e)
             {

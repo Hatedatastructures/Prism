@@ -158,7 +158,7 @@ struct smux_parse_result
     smux_parse_result result;
     std::size_t pos = 0;
 
-    while (pos + smux::frame_header_size <= data.size())
+    while (pos + smux::frame_hdrsize <= data.size())
     {
         auto hdr = smux::deserialization(data.subspan(pos));
         if (!hdr)
@@ -182,7 +182,7 @@ struct smux_parse_result
             break;
         }
 
-        pos += smux::frame_header_size + hdr->length;
+        pos += smux::frame_hdrsize + hdr->length;
     }
 
     return result;
@@ -204,7 +204,7 @@ struct yamux_parse_result
     yamux_parse_result result;
     std::size_t pos = 0;
 
-    while (pos + yamux::frame_header_size <= data.size())
+    while (pos + yamux::frame_hdrsize <= data.size())
     {
         auto hdr = yamux::parse_header(data.subspan(pos));
         if (!hdr)
@@ -234,7 +234,7 @@ struct yamux_parse_result
         // Data 帧有载荷，其他帧只有帧头
         const std::size_t payload_size =
             (hdr->type == yamux::message_type::data) ? hdr->length : 0;
-        pos += yamux::frame_header_size + payload_size;
+        pos += yamux::frame_hdrsize + payload_size;
     }
 
     return result;
@@ -642,29 +642,29 @@ void TestMixedProtocolStress()
     while (pos < buffer.size())
     {
         // 先尝试 smux（8 字节帧头）
-        if (pos + smux::frame_header_size <= buffer.size())
+        if (pos + smux::frame_hdrsize <= buffer.size())
         {
             auto shdr = smux::deserialization(
-                std::span<const std::byte>(buffer.data() + pos, smux::frame_header_size));
+                std::span<const std::byte>(buffer.data() + pos, smux::frame_hdrsize));
             if (shdr)
             {
                 ++smux_frame_count;
-                pos += smux::frame_header_size + shdr->length;
+                pos += smux::frame_hdrsize + shdr->length;
                 continue;
             }
         }
 
         // 再尝试 yamux（12 字节帧头）
-        if (pos + yamux::frame_header_size <= buffer.size())
+        if (pos + yamux::frame_hdrsize <= buffer.size())
         {
             auto yhdr = yamux::parse_header(
-                std::span<const std::byte>(buffer.data() + pos, yamux::frame_header_size));
+                std::span<const std::byte>(buffer.data() + pos, yamux::frame_hdrsize));
             if (yhdr)
             {
                 ++yamux_frame_count;
                 const std::size_t payload_len =
                     (yhdr->type == yamux::message_type::data) ? yhdr->length : 0;
-                pos += yamux::frame_header_size + payload_len;
+                pos += yamux::frame_hdrsize + payload_len;
                 continue;
             }
         }
@@ -713,13 +713,13 @@ void TestSmuxPayloadIntegrity()
         auto frame = smux::make_data_frame(i, original);
 
         // 解析帧头
-        if (frame.size() < smux::frame_header_size)
+        if (frame.size() < smux::frame_hdrsize)
         {
             all_ok = false;
             continue;
         }
         auto hdr = smux::deserialization(
-            std::span<const std::byte>(frame.data(), smux::frame_header_size));
+            std::span<const std::byte>(frame.data(), smux::frame_hdrsize));
         if (!hdr || hdr->cmd != smux::command::push || hdr->stream_id != i)
         {
             all_ok = false;
@@ -732,7 +732,7 @@ void TestSmuxPayloadIntegrity()
             all_ok = false;
             continue;
         }
-        const auto *payload_start = frame.data() + smux::frame_header_size;
+        const auto *payload_start = frame.data() + smux::frame_hdrsize;
         if (std::memcmp(payload_start, original.data(), payload_size) != 0)
         {
             all_ok = false;

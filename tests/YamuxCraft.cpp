@@ -209,8 +209,8 @@ void TestYamuxCraftFinFrame(psm::testing::TestRunner &runner)
                   "make_fin_frame: stream_id big-endian bytes correct");
 
     // 验证 FIN 帧长度恰好为 12 字节（无载荷）
-    runner.Check(fin_hdr_bytes.size() == yamux::frame_header_size,
-                  "make_fin_frame: output size == frame_header_size (12)");
+    runner.Check(fin_hdr_bytes.size() == yamux::frame_hdrsize,
+                  "make_fin_frame: output size == frame_hdrsize (12)");
 
     runner.LogPass("YamuxCraftFinFrame");
 }

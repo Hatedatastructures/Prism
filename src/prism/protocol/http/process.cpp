@@ -1,6 +1,6 @@
 #include <prism/protocol/http/process.hpp>
 #include <prism/protocol/http/conn.hpp>
-#include <prism/protocol/protocol_type.hpp>
+#include <prism/protocol/types.hpp>
 #include <prism/protocol/common/target.hpp>
 #include <prism/recognition/target.hpp>
 #include <prism/trace.hpp>
@@ -47,7 +47,7 @@ namespace psm::protocol::http
         if (fault::failed(dial_ec) || !outbound)
         {
             trace::warn("{} dial failed: {}:{}", HttpStr, target.host, target.port);
-            co_await relay->write_bad_gateway();
+            co_await relay->send_bad_gateway();
             co_return;
         }
 
@@ -55,17 +55,17 @@ namespace psm::protocol::http
         if (req.method == "CONNECT")
         {   // https
             // CONNECT：发送 200 响应，释放传输层，进入隧道
-            if (fault::failed(co_await relay->write_connect_success()))
+            if (fault::failed(co_await relay->send_connect_ok()))
             {
                 co_return;
             }
-            co_await psm::connect::tunnel(relay->release(), std::move(outbound), ctx);
+            co_await psm::connect::tunnel({relay->release(), outbound, ctx});
         }
         else
         {
             // 普通 HTTP：重写 URI 后转发原始数据，然后进入隧道
             co_await relay->forward(req, outbound, ctx.frame_arena.get());
-            co_await psm::connect::tunnel(relay->release(), std::move(outbound), ctx);
+            co_await psm::connect::tunnel({relay->release(), outbound, ctx});
         }
     }
 } // namespace psm::protocol::http

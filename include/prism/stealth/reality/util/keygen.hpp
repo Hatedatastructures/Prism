@@ -33,16 +33,16 @@ namespace psm::stealth::reality
      */
     struct key_material
     {
-        std::array<std::uint8_t, AES_128_KEY_LEN> server_handshake_key{}; // 握手阶段服务端加密密钥
-        std::array<std::uint8_t, AEAD_NONCE_LEN> server_handshake_iv{};   // 握手阶段服务端 IV
-        std::array<std::uint8_t, AES_128_KEY_LEN> client_handshake_key{}; // 握手阶段客户端加密密钥
-        std::array<std::uint8_t, AEAD_NONCE_LEN> client_handshake_iv{};   // 握手阶段客户端 IV
-        std::array<std::uint8_t, AES_128_KEY_LEN> server_app_key{};       // 应用阶段服务端加密密钥
-        std::array<std::uint8_t, AEAD_NONCE_LEN> server_app_iv{};         // 应用阶段服务端 IV
-        std::array<std::uint8_t, AES_128_KEY_LEN> client_app_key{};       // 应用阶段客户端加密密钥
-        std::array<std::uint8_t, AEAD_NONCE_LEN> client_app_iv{};         // 应用阶段客户端 IV
-        std::array<std::uint8_t, SHA256_LEN> server_finished_key{};       // 服务端 Finished 验证密钥
-        std::array<std::uint8_t, SHA256_LEN> master_secret{};             // 主密钥
+        std::array<std::uint8_t, AES_128_KEY_LEN> server_hskey{};       // 握手阶段服务端加密密钥
+        std::array<std::uint8_t, AEAD_NONCE_LEN> server_hsiv{};        // 握手阶段服务端 IV
+        std::array<std::uint8_t, AES_128_KEY_LEN> client_hskey{};       // 握手阶段客户端加密密钥
+        std::array<std::uint8_t, AEAD_NONCE_LEN> client_hsiv{};        // 握手阶段客户端 IV
+        std::array<std::uint8_t, AES_128_KEY_LEN> server_appkey{};      // 应用阶段服务端加密密钥
+        std::array<std::uint8_t, AEAD_NONCE_LEN> server_appiv{};       // 应用阶段服务端 IV
+        std::array<std::uint8_t, AES_128_KEY_LEN> client_appkey{};      // 应用阶段客户端加密密钥
+        std::array<std::uint8_t, AEAD_NONCE_LEN> client_appiv{};       // 应用阶段客户端 IV
+        std::array<std::uint8_t, SHA256_LEN> server_finkey{};           // 服务端 Finished 验证密钥
+        std::array<std::uint8_t, SHA256_LEN> master_secret{};           // 主密钥
     };
 
     /**
@@ -53,7 +53,7 @@ namespace psm::stealth::reality
      * @param server_hello_msg 完整的 ServerHello 握手消息
      * @return 错误码和派生出的密钥材料
      */
-    [[nodiscard]] auto derive_handshake_keys(constspan shared_secret, constspan client_hello_msg, constspan server_hello_msg)
+    [[nodiscard]] auto derive_handshake_keys(constspan shared_secret, constspan chello_msg, constspan shello_msg)
         -> std::pair<fault::code, key_material>;
 
     /**
@@ -61,11 +61,11 @@ namespace psm::stealth::reality
      * @details 从主密钥和服务端 Finished 哈希派生应用流量密钥，
      * 结果写入 keys 参数的应用阶段字段
      * @param master_secret 主密钥
-     * @param server_finished_hash 服务端 Finished 消息的哈希
+     * @param server_finhash 服务端 Finished 消息的哈希
      * @param keys 密钥材料，应用阶段字段将被填充
      * @return fault::code 错误码，成功时为 success
      */
-    [[nodiscard]] auto derive_application_keys(constspan master_secret, constspan server_finished_hash, key_material &keys)
+    [[nodiscard]] auto derive_application_keys(constspan master_secret, constspan server_finhash, key_material &keys)
         -> fault::code;
 
     /**
@@ -76,6 +76,6 @@ namespace psm::stealth::reality
      * @param transcript_hash 握手消息的 transcript 哈希
      * @return 计算出的 verify_data，长度为 SHA256_LEN
      */
-    [[nodiscard]] auto compute_finished_verify_data(constspan finished_key, constspan transcript_hash)
+    [[nodiscard]] auto compute_finished_verify(constspan finished_key, constspan transcript_hash)
         -> std::array<std::uint8_t, SHA256_LEN>;
 } // namespace psm::stealth::reality

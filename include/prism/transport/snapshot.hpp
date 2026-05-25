@@ -92,7 +92,7 @@ namespace psm::transport
          * @param ec 错误码输出
          * @return 读取的字节数
          */
-        auto async_read_some(std::span<std::byte> buffer, std::error_code &ec)
+        [[nodiscard]] auto async_read_some(std::span<std::byte> buffer, std::error_code &ec)
             -> net::awaitable<std::size_t> override
         {
             if (!inner_)
@@ -130,7 +130,7 @@ namespace psm::transport
          * @param ec 错误码输出
          * @return 写入的字节数
          */
-        auto async_write_some(std::span<const std::byte> buffer, std::error_code &ec)
+        [[nodiscard]] auto async_write_some(std::span<const std::byte> buffer, std::error_code &ec)
             -> net::awaitable<std::size_t> override
         {
             wrote_ = true;
@@ -205,7 +205,7 @@ namespace psm::transport
      * @param mr PMR 内存资源
      * @return 包装后的 snapshot 传输
      */
-    inline auto make_snapshot(shared_transmission inner, memory::resource_pointer mr = memory::current_resource())
+    [[nodiscard]] inline auto make_snapshot(shared_transmission inner, memory::resource_pointer mr = memory::current_resource())
         -> shared_transmission
     {
         return std::make_shared<snapshot>(std::move(inner), mr);

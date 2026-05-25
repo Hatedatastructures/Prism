@@ -80,7 +80,7 @@ namespace psm::crypto
      * @note 即使对方公钥是低阶点，X25519 也会成功计算（输出全零），
      * 调用者应检查共享密钥是否为全零以检测此类攻击。
      */
-    auto x25519(std::span<const std::uint8_t> private_key, std::span<const std::uint8_t> peer_public_key)
+    [[nodiscard]] auto x25519(std::span<const std::uint8_t> private_key, std::span<const std::uint8_t> peer_public_key)
         -> std::pair<fault::code, std::array<std::uint8_t, X25519_SHARED_LEN>>;
 
     /**

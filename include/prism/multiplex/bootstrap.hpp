@@ -19,7 +19,7 @@
 #include <prism/multiplex/core.hpp>
 #include <prism/transport/transmission.hpp>
 #include <prism/memory/pool.hpp>
-#include <prism/protocol/protocol_type.hpp>
+#include <prism/protocol/types.hpp>
 
 namespace psm::connect
 {

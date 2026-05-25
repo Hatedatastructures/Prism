@@ -15,7 +15,7 @@
 #include <prism/transport/transmission.hpp>
 #include <prism/protocol/vless/packet.hpp>
 #include <prism/protocol/vless/config.hpp>
-#include <prism/protocol/protocol_type.hpp>
+#include <prism/protocol/types.hpp>
 #include <prism/fault/code.hpp>
 #include <memory>
 #include <span>
@@ -55,7 +55,7 @@ namespace psm::protocol::vless
          * @brief 获取关联的执行器
          * @return executor_type 执行器
          */
-        executor_type executor() const override;
+        [[nodiscard]] executor_type executor() const override;
 
         /**
          * @brief 异步读取数据
@@ -64,7 +64,7 @@ namespace psm::protocol::vless
          * @param ec 错误码输出参数
          * @return net::awaitable<std::size_t> 异步操作，完成后返回读取的字节数
          */
-        auto async_read_some(std::span<std::byte> buffer, std::error_code &ec)
+        [[nodiscard]] auto async_read_some(std::span<std::byte> buffer, std::error_code &ec)
             -> net::awaitable<std::size_t> override;
 
         /**
@@ -74,7 +74,7 @@ namespace psm::protocol::vless
          * @param ec 错误码输出参数
          * @return net::awaitable<std::size_t> 异步操作，完成后返回写入的字节数
          */
-        auto async_write_some(std::span<const std::byte> buffer, std::error_code &ec)
+        [[nodiscard]] auto async_write_some(std::span<const std::byte> buffer, std::error_code &ec)
             -> net::awaitable<std::size_t> override;
 
         /**
@@ -93,7 +93,7 @@ namespace psm::protocol::vless
          * UUID，发送响应。数据通过 preview 回放，读取即消费，不会残留
          * @return 握手结果和请求信息
          */
-        auto handshake()
+        [[nodiscard]] auto handshake()
             -> net::awaitable<std::pair<fault::code, request>>;
 
         /**
@@ -113,7 +113,7 @@ namespace psm::protocol::vless
          * @note 此方法会阻塞直到连接关闭或空闲超时
          * @warning 调用前必须确保 handshake() 成功且命令为 udp
          */
-        auto async_associate(route_callback route_cb) const
+        [[nodiscard]] auto async_associate(route_callback route_cb) const
             -> net::awaitable<fault::code>;
 
         /**
@@ -145,13 +145,13 @@ namespace psm::protocol::vless
          * @brief 获取底层传输层引用
          * @return transport::transmission& 底层传输层引用
          */
-        psm::transport::transmission &underlying() noexcept;
+        [[nodiscard]] psm::transport::transmission &underlying() noexcept;
 
         /**
          * @brief 获取底层传输层常量引用
          * @return const transport::transmission& 底层传输层常量引用
          */
-        const psm::transport::transmission &underlying() const noexcept;
+        [[nodiscard]] const psm::transport::transmission &underlying() const noexcept;
 
         /**
          * @brief 释放底层传输层所有权
@@ -159,7 +159,7 @@ namespace psm::protocol::vless
          * 适用于需要将底层传输层转移给其他组件的场景
          * @return transport::shared_transmission 底层传输层指针
          */
-        shared_transmission release();
+        [[nodiscard]] shared_transmission release();
 
     private:
         shared_transmission next_layer_;                 // 底层传输层
@@ -179,7 +179,7 @@ namespace psm::protocol::vless
      * @param verifier UUID 验证回调，为 nullptr 时跳过认证
      * @return shared_conn 中继器共享指针
      */
-    inline shared_conn make_conn(shared_transmission next_layer, const config &cfg = {},
+    [[nodiscard]] inline shared_conn make_conn(shared_transmission next_layer, const config &cfg = {},
                                    std::function<bool(std::string_view)> verifier = nullptr)
     {
         return std::make_shared<conn>(std::move(next_layer), cfg, std::move(verifier));

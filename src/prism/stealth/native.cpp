@@ -1,17 +1,12 @@
-/**
- * @file native.cpp
- * @brief 原生 TLS 伪装方案实现（兜底）
- * @details Native 是 Tier 2 方案，作为兜底处理无法匹配其他方案的 TLS 连接。
- */
-
 #include <prism/stealth/native.hpp>
+#include <prism/config.hpp>
 #include <prism/connect.hpp>
 #include <prism/connect/util.hpp>
 #include <prism/transport/encrypted.hpp>
 #include <prism/transport/preview.hpp>
 #include <prism/trace.hpp>
 #include <prism/fault/handling.hpp>
-#include <prism/protocol/protocol_type.hpp>
+#include <prism/protocol/types.hpp>
 #include <prism/recognition/probe/analyzer.hpp>
 #include <prism/protocol/tls/types.hpp>
 
@@ -19,10 +14,10 @@ namespace psm::stealth::native
 {
     namespace net = boost::asio;
     namespace ssl = net::ssl;
-    auto native::active([[maybe_unused]] const psm::config &cfg) const noexcept
+    auto native::active(const psm::config &cfg) const noexcept
         -> bool
     {
-        return true;  // Native 始终启用，作为兜底
+        return cfg.stealth.native_tls.enabled;
     }
 
     auto native::name() const noexcept
@@ -31,7 +26,7 @@ namespace psm::stealth::native
         return "native";
     }
 
-    auto native::guess(const psm::config &cfg) const
+    auto native::guess(const psm::config & /*cfg*/) const
         -> verify_result
     {
         // Native 是兜底方案，返回最低分
@@ -100,11 +95,11 @@ namespace psm::stealth::native
 
         auto encrypted_trans = std::make_shared<transport::encrypted>(ssl_stream);
 
-        ctx.session->active_stream_cancel = [ssl = ssl_stream]() noexcept
+        ctx.session->stream_cancel = [ssl = ssl_stream]() noexcept
         {
             ssl->lowest_layer().transmission().cancel();
         };
-        ctx.session->active_stream_close = [ssl = ssl_stream]() noexcept
+        ctx.session->stream_close = [ssl = ssl_stream]() noexcept
         {
             ssl->lowest_layer().transmission().close();
         };
@@ -117,7 +112,7 @@ namespace psm::stealth::native
         {
             std::error_code ec;
             auto buf_span = std::span(inner_buf.data() + inner_n, inner_buf.size() - inner_n);
-            const auto n = co_await encrypted_trans->async_read_some(std::move(buf_span), ec);
+            const auto n = co_await encrypted_trans->async_read_some(buf_span, ec);
             if (ec)
             {
                 result.error = fault::to_code(ec);

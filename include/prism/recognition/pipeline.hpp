@@ -1,5 +1,5 @@
 /**
- * @file layered_pipeline.hpp
+ * @file pipeline.hpp
  * @brief 分层检测管道
  * @details 按成本和确定性分层执行检测，避免不必要的计算。
  * Tier 0: 零成本字节比较（如 Reality session_id 标记）
@@ -11,9 +11,10 @@
 
 #include <prism/memory/container.hpp>
 #include <prism/protocol/tls/types.hpp>
-#include <prism/recognition/tls/feature_bitmap.hpp>
+#include <prism/recognition/tls/features.hpp>
 #include <prism/stealth/scheme.hpp>
 #include <cstdint>
+#include <span>
 #include <vector>
 
 namespace psm
@@ -73,6 +74,32 @@ namespace psm::recognition
     };
 
     // ═══════════════════════════════════════════════════════════════════════
+    // 检测输入聚合
+    // ═══════════════════════════════════════════════════════════════════════
+
+    /**
+     * @struct detect_input
+     * @brief 检测管道输入聚合结构
+     * @details 将 detect 方法的多个输入参数收敛为单一结构，
+     * 避免函数参数超过 3 个。包含特征位图、ClientHello 特征、
+     * 原始字节和全局配置。
+     */
+    struct detect_input
+    {
+        /** @brief 特征位图 */
+        std::uint32_t bitmap{0};
+
+        /** @brief ClientHello 特征结构 */
+        const hello_features &features;
+
+        /** @brief 原始 ClientHello 字节 */
+        std::span<const std::byte> raw;
+
+        /** @brief 全局配置 */
+        const psm::config &cfg;
+    }; // struct detect_input
+
+    // ═══════════════════════════════════════════════════════════════════════
     // 分层检测管道
     // ═══════════════════════════════════════════════════════════════════════
 
@@ -103,18 +130,12 @@ namespace psm::recognition
 
         /**
          * @brief 执行分层检测
-         * @param bitmap 特征位图
-         * @param features ClientHello 特征结构
-         * @param raw 原始 ClientHello 字节
-         * @param cfg 全局配置
+         * @param input 检测输入聚合（特征位图、ClientHello 特征、原始字节、全局配置）
          * @param matched_schemes SNI 路由匹配的方案（可选）
          * @return 管道检测结果
          */
         [[nodiscard]] auto detect(
-            std::uint32_t bitmap,
-            const hello_features &features,
-            std::span<const std::byte> raw,
-            const psm::config &cfg,
+            detect_input input,
             const std::vector<stealth::shared_scheme> &matched_schemes) const
             -> pipeline_result;
 

@@ -5,10 +5,10 @@
 
 namespace psm::protocol::shadowsocks::format
 {
-    auto parse_address_port(const std::span<const std::uint8_t> buffer)
-        -> std::pair<fault::code, address_parse_result>
+    auto parse_addr_port(const std::span<const std::uint8_t> buffer)
+        -> std::pair<fault::code, addr_parse_result>
     {
-        address_parse_result result;
+        addr_parse_result result;
 
         if (buffer.empty())
         {
@@ -101,7 +101,7 @@ namespace psm::protocol::shadowsocks::format
         return {fault::code::success, std::move(psk)};
     }
 
-    auto resolve_cipher_method(const std::string_view method_str, const std::size_t psk_len) noexcept
+    auto resolve_method(const std::string_view method_str, const std::size_t psk_len) noexcept
         -> cipher_method
     {
         if (!method_str.empty())

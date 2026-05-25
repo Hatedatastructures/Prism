@@ -22,6 +22,20 @@ namespace psm::stealth::shadowtls
     namespace net = boost::asio;
 
     /**
+     * @struct shadowtls_handover
+     * @brief ShadowTLS 传输层构造参数包
+     * @details 将握手阶段产出的配置参数打包，使 transport 构造函数参数 ≤3。
+     */
+    struct shadowtls_handover
+    {
+        std::string_view password;                              ///< ShadowTLS 密码
+        std::span<const std::byte> server_random;               ///< ServerHello 的 ServerRandom（32 字节）
+        std::span<const std::byte> initial_data;                ///< 初始数据（handshake 期间已读取的第一帧 payload）
+        std::shared_ptr<HMAC_CTX> hmac_write_ctx;               ///< 写入方向累积 HMAC 上下文（初始：password + SR + "S"）
+        std::shared_ptr<HMAC_CTX> hmac_read_ctx;                ///< 读取方向累积 HMAC 上下文（初始：password + SR + "C" + payload + HMAC[:4]）
+    };
+
+    /**
      * @class shadowtls_transport
      * @brief ShadowTLS v3 传输层包装器
      * @details 包装原始 TCP socket，持续处理 ShadowTLS 协议：
@@ -41,18 +55,10 @@ namespace psm::stealth::shadowtls
         /**
          * @brief 构造 ShadowTLS 传输层包装器
          * @param socket 原始 TCP socket（所有权转移）
-         * @param password ShadowTLS 密码
-         * @param server_random ServerHello 中的 ServerRandom（32 字节）
-         * @param initial_data 初始数据（handshake 期间已读取的第一帧 payload）
-         * @param hmac_write_ctx 写入方向累积 HMAC 上下文（初始：password + SR + "S"）
-         * @param hmac_read_ctx 读取方向累积 HMAC 上下文（初始：password + SR + "C" + payload + HMAC[:4]）
+         * @param handover 握手阶段产出的参数包（password, server_random, initial_data, HMAC 上下文）
          */
         explicit shadowtls_transport(net::ip::tcp::socket socket,
-                                     std::string_view password,
-                                     std::span<const std::byte> server_random,
-                                     std::span<const std::byte> initial_data,
-                                     std::shared_ptr<HMAC_CTX> hmac_write_ctx,
-                                     std::shared_ptr<HMAC_CTX> hmac_read_ctx);
+                                     shadowtls_handover handover);
 
         ~shadowtls_transport() override;
 
@@ -78,13 +84,13 @@ namespace psm::stealth::shadowtls
             return const_cast<net::ip::tcp::socket &>(socket_).get_executor();
         }
 
-        auto async_read_some(std::span<std::byte> buffer, std::error_code &ec)
+        [[nodiscard]] auto async_read_some(std::span<std::byte> buffer, std::error_code &ec)
             -> net::awaitable<std::size_t> override;
 
-        auto async_write_some(std::span<const std::byte> buffer, std::error_code &ec)
+        [[nodiscard]] auto async_write_some(std::span<const std::byte> buffer, std::error_code &ec)
             -> net::awaitable<std::size_t> override;
 
-        auto async_write(std::span<const std::byte> data, std::error_code &ec)
+        [[nodiscard]] auto async_write(std::span<const std::byte> data, std::error_code &ec)
             -> net::awaitable<std::size_t>;
 
         /**
@@ -103,12 +109,12 @@ namespace psm::stealth::shadowtls
         void cancel() override;
 
     private:
-        /// 读取一个完整的 TLS frame 并验证累积 HMAC
-        auto read_tls_frame(std::error_code &ec)
+        /// [[nodiscard]] 读取一个完整的 TLS frame 并验证累积 HMAC
+        [[nodiscard]] auto read_tls_frame(std::error_code &ec)
             -> net::awaitable<std::optional<memory::vector<std::byte>>>;
 
-        /// 写入一个带累积 HMAC 标签的 TLS frame
-        auto write_tls_frame(std::span<const std::byte> payload, std::error_code &ec)
+        /// [[nodiscard]] 写入一个带累积 HMAC 标签的 TLS frame
+        [[nodiscard]] auto write_tls_frame(std::span<const std::byte> payload, std::error_code &ec)
             -> net::awaitable<std::size_t>;
 
         net::ip::tcp::socket socket_;
@@ -130,9 +136,9 @@ namespace psm::stealth::shadowtls
         std::shared_ptr<HMAC_CTX> hmac_read_ctx_;
 
         // TLS frame 常量
-        static constexpr std::size_t tls_header_size = 5;
+        static constexpr std::size_t tls_hdrsize = 5;
         static constexpr std::size_t hmac_size = 4;
-        static constexpr std::size_t tls_hmac_header_size = tls_header_size + hmac_size;
-        static constexpr std::uint8_t content_type_application_data = 0x17;
+        static constexpr std::size_t tls_hmac_hdrsize = tls_hdrsize + hmac_size;
+        static constexpr std::uint8_t content_appdata = 0x17;
     };
 } // namespace psm::stealth::shadowtls

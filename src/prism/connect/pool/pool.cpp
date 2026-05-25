@@ -135,7 +135,7 @@ namespace psm::connect
 
         const auto key = make_endpoint_key(endpoint);
         const auto now = std::chrono::steady_clock::now();
-        const auto idle_timeout = std::chrono::seconds(config_.max_idle_seconds);
+        const auto idle_timeout = std::chrono::seconds(config_.max_idle_sec);
 
         // 尝试从缓存中复用已有的空闲连接
         if (const auto it = cache_.find(key); it != cache_.end())
@@ -185,7 +185,7 @@ namespace psm::connect
         // 使用 awaitable_operators 实现连接超时控制
         using namespace net::experimental::awaitable_operators;
 
-        const auto connect_timeout = std::chrono::milliseconds(config_.connect_timeout_ms);
+        const auto connect_timeout = std::chrono::milliseconds(config_.conn_timeout);
 
         auto *sock = new tcp::socket(ioc_);
         net::steady_timer timer(co_await net::this_coro::executor);
@@ -243,9 +243,9 @@ namespace psm::connect
                 }
             }
             // 设置接收缓冲区大小
-            if (config_.recv_buffer_size > 0)
+            if (config_.recv_bufsz > 0)
             {
-                sock->set_option(net::socket_base::receive_buffer_size(config_.recv_buffer_size), opt_ec);
+                sock->set_option(net::socket_base::receive_buffer_size(config_.recv_bufsz), opt_ec);
                 if (opt_ec)
                 {
                     trace::warn("[Pool] failed to set SO_RCVBUF: {}", opt_ec.message());
@@ -253,9 +253,9 @@ namespace psm::connect
                 }
             }
             // 设置发送缓冲区大小
-            if (config_.send_buffer_size > 0)
+            if (config_.send_bufsz > 0)
             {
-                sock->set_option(net::socket_base::send_buffer_size(config_.send_buffer_size), opt_ec);
+                sock->set_option(net::socket_base::send_buffer_size(config_.send_bufsz), opt_ec);
                 if (opt_ec)
                 {
                     trace::warn("[Pool] failed to set SO_SNDBUF: {}", opt_ec.message());
@@ -306,7 +306,7 @@ namespace psm::connect
         {
             stat_endpoints_ += 1;
         }
-        if (stack.size() >= config_.max_cache_per_endpoint)
+        if (stack.size() >= config_.max_cache_peraddr)
         {
             delete_socket(s);
             stat_evictions_ += 1;
@@ -329,45 +329,42 @@ namespace psm::connect
         cleanup_timer_.emplace(ioc_);
         shutdown_flag_ = std::make_shared<std::atomic<bool>>(false);
 
-        auto flag = shutdown_flag_;
-        auto clean_function = [this, flag]() -> net::awaitable<void>
-        {
-            try
-            {
-                while (cleanup_timer_.has_value() && !flag->load(std::memory_order_acquire))
-                {
-                    cleanup_timer_->expires_after(std::chrono::seconds(config_.cleanup_interval_sec));
-                    boost::system::error_code ec;
-                    auto token = net::redirect_error(net::use_awaitable, ec);
-                    co_await cleanup_timer_->async_wait(token);
-                    if (ec)
-                        break;
-                    if (flag->load(std::memory_order_acquire))
-                        break;
-                    if (stat_acquires_ != 0)
-                    {
-                        trace::debug("[Pool] total acquires: {}, total hits: {}, total creates: {}, total evictions: {}, total recycles: {}, total idle: {}",
-                                 stat_acquires_, stat_hits_,
-                                 stat_creates_, stat_evictions_,
-                                 stat_recycles_, stat_idle_);
-                    }
-                    // 执行清理操作
-                    cleanup();
-                }
-            }
-            catch (...)
-            {
-                trace::error("[Pool] cleanup timer error");
-            }
-        };
+        net::co_spawn(ioc_, cleanup_loop(), net::detached);
+    }
 
-        net::co_spawn(ioc_, clean_function, net::detached);
+    auto connection_pool::cleanup_loop() -> net::awaitable<void>
+    {
+        try
+        {
+            while (cleanup_timer_.has_value() && !shutdown_flag_->load(std::memory_order_acquire))
+            {
+                cleanup_timer_->expires_after(std::chrono::seconds(config_.clean_interval));
+                boost::system::error_code ec;
+                co_await cleanup_timer_->async_wait(net::redirect_error(net::use_awaitable, ec));
+                if (ec)
+                    break;
+                if (shutdown_flag_->load(std::memory_order_acquire))
+                    break;
+                if (stat_acquires_ != 0)
+                {
+                    trace::debug("[Pool] total acquires: {}, total hits: {}, total creates: {}, total evictions: {}, total recycles: {}, total idle: {}",
+                             stat_acquires_, stat_hits_,
+                             stat_creates_, stat_evictions_,
+                             stat_recycles_, stat_idle_);
+                }
+                cleanup();
+            }
+        }
+        catch (...)
+        {
+            trace::error("[Pool] cleanup timer error");
+        }
     }
 
     void connection_pool::cleanup()
     {
         const auto now = std::chrono::steady_clock::now();
-        const auto idle_timeout = std::chrono::seconds(config_.max_idle_seconds);
+        const auto idle_timeout = std::chrono::seconds(config_.max_idle_sec);
 
         // 遍历所有端点的连接缓存
         for (auto it = cache_.begin(); it != cache_.end();)
@@ -384,7 +381,7 @@ namespace psm::connect
                     // 将有效连接前移到写入位置
                     if (write != read)
                     {
-                        stack[write] = std::move(stack[read]);
+                        stack[write] = stack[read];
                     }
                     ++write;
                 }

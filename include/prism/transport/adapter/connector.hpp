@@ -94,7 +94,7 @@ namespace psm::transport
          * AsyncStream 概念要求。
          * @return executor_type 执行器对象
          */
-        executor_type get_executor()
+        [[nodiscard]] executor_type get_executor()
         {
             return trans_->executor();
         }
@@ -104,7 +104,7 @@ namespace psm::transport
          * @details 委托给 get_executor()，提供便捷的执行器访问。
          * @return executor_type 执行器对象
          */
-        executor_type executor()
+        [[nodiscard]] executor_type executor()
         {
             return get_executor();
         }
@@ -185,7 +185,7 @@ namespace psm::transport
          * @param ec 错误码输出参数，成功时为默认值
          * @return net::awaitable<std::size_t> 协程对象，完成后返回实际写入的总字节数
          */
-        auto async_write(std::span<const std::byte> buffer, std::error_code &ec)
+        [[nodiscard]] auto async_write(std::span<const std::byte> buffer, std::error_code &ec)
             -> net::awaitable<std::size_t>
         {
             co_return co_await transport::async_write(*trans_, buffer, ec);
@@ -199,7 +199,7 @@ namespace psm::transport
          * @param ec 错误码输出参数，成功时为默认值
          * @return net::awaitable<std::size_t> 协程对象，完成后返回实际读取的总字节数
          */
-        auto async_read(std::span<std::byte> buffer, std::error_code &ec)
+        [[nodiscard]] auto async_read(std::span<std::byte> buffer, std::error_code &ec)
             -> net::awaitable<std::size_t>
         {
             co_return co_await transport::async_read(*trans_, buffer, ec);
@@ -213,7 +213,7 @@ namespace psm::transport
          * lowest_layer 访问要求。
          * @return lowest_layer_type& 当前对象的引用
          */
-        lowest_layer_type &lowest_layer()
+        [[nodiscard]] lowest_layer_type &lowest_layer()
         {
             return *this;
         }
@@ -234,7 +234,7 @@ namespace psm::transport
          * @details 返回内部持有的传输层对象的引用，用于直接操作传输层。
          * @return transmission& 传输层对象的引用
          */
-        auto &transmission() const
+        [[nodiscard]] auto &transmission() const
         {
             return *trans_;
         }
@@ -244,7 +244,7 @@ namespace psm::transport
          * @details 将内部持有的传输层指针移动返回，调用后对象不再持有传输层。
          * @return transmission_ptr 传输层对象指针
          */
-        transmission_ptr release()
+        [[nodiscard]] transmission_ptr release()
         {
             return std::move(trans_);
         }

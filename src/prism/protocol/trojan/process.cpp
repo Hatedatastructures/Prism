@@ -69,11 +69,12 @@ namespace psm::protocol::trojan
             target.port.assign(port_buf, std::distance(port_buf, pe));
 
             // Mihomo smux 兼容：客户端用 CONNECT + 虚假地址标记 mux 连接
-            if (psm::connect::is_mux_target(target.host, ctx.server_ctx.config().mux.enabled))
+            if (psm::connect::is_mux_target(target.host, ctx.server_ctx.config().mux.enabled
+                ? psm::connect::mux_switch::on : psm::connect::mux_switch::off))
             {
                 trace::info("{} mux session started", TrojanStr);
-                ctx.active_stream_close = nullptr;
-                ctx.active_stream_cancel = nullptr;
+                ctx.stream_close = nullptr;
+                ctx.stream_cancel = nullptr;
                 auto muxprotocol = co_await multiplex::bootstrap(
                     multiplex::bootstrap_context{
                         .transport = agent->release(),
@@ -93,7 +94,7 @@ namespace psm::protocol::trojan
             trace::info("{} CONNECT -> {}:{}", TrojanStr, target.host, target.port);
 
             // 拨号 + 隧道转发
-            co_await psm::connect::forward(ctx, "Trojan", target, agent->release());
+            co_await psm::connect::forward(ctx, {"Trojan", target, agent->release()});
             break;
         }
         case command::udp_associate:
@@ -101,8 +102,8 @@ namespace psm::protocol::trojan
             trace::info("{} UDP_ASSOCIATE started", TrojanStr);
 
             auto datagram_router = ctx.outbound_proxy
-                ? ctx.outbound_proxy->make_datagram_router()
-                : psm::connect::make_datagram_router(ctx.worker_ctx.router);
+                ? ctx.outbound_proxy->make_dgram_router()
+                : psm::connect::make_dgram_router(ctx.worker_ctx.router);
             const auto associate_ec = co_await agent->async_associate(std::move(datagram_router));
             if (fault::failed(associate_ec))
             {
@@ -118,8 +119,8 @@ namespace psm::protocol::trojan
         {
             // Trojan mux (cmd=0x7F)：直接进入多路复用模式
             trace::info("{} mux session started (cmd=0x7F)", TrojanStr);
-            ctx.active_stream_close = nullptr;
-            ctx.active_stream_cancel = nullptr;
+            ctx.stream_close = nullptr;
+            ctx.stream_cancel = nullptr;
             auto muxprotocol = co_await multiplex::bootstrap(
                 multiplex::bootstrap_context{
                     .transport = agent->release(),

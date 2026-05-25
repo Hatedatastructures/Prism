@@ -55,7 +55,7 @@ namespace psm::connect
      * @param endpoint TCP 端点
      * @return endpoint_key 端点键
      */
-    endpoint_key make_endpoint_key(const tcp::endpoint &endpoint) noexcept;
+    [[nodiscard]] endpoint_key make_endpoint_key(const tcp::endpoint &endpoint) noexcept;
 
     /**
      * @struct endpoint_hash
@@ -71,7 +71,7 @@ namespace psm::connect
          * @param key 端点键
          * @return 哈希值
          */
-        std::size_t operator()(const endpoint_key &key) const noexcept;
+        [[nodiscard]] std::size_t operator()(const endpoint_key &key) const noexcept;
     };
 
     /**
@@ -255,7 +255,7 @@ namespace psm::connect
          * @brief 获取一个 TCP 连接
          * @details 优先从缓存中复用 LIFO 栈顶连接，依次进行过期检查和
          * 健康检测；缓存未命中时通过 co_spawn + timer 方案创建新连接，
-         * 超时由 config::connect_timeout_ms 控制。新建连接成功后
+         * 超时由 config::conn_timeout 控制。新建连接成功后
          * 自动设置 TCP_NODELAY、SO_KEEPALIVE 等选项。
          * @param endpoint 目标 TCP 端点
          * @return pair<fault::code, pooled_connection> 错误码和连接包装器，
@@ -278,7 +278,7 @@ namespace psm::connect
 
         /**
          * @brief 启动后台清理协程
-         * @details 投递一个协程到 io_context，按 config::cleanup_interval_sec
+         * @details 投递一个协程到 io_context，按 config::clean_interval
          * 指定的间隔周期性调用 cleanup() 移除过期连接。重复调用无效。
          * @note 必须在 io_context 运行前调用，否则清理协程不会启动。
          */
@@ -311,11 +311,19 @@ namespace psm::connect
 
         /**
          * @brief 后台清理：移除过期连接
-         * @details 遍历缓存中所有端点的连接栈，移除超过 max_idle_seconds
+         * @details 遍历缓存中所有端点的连接栈，移除超过 max_idle_sec
          * 的过期连接。使用原地压缩算法，避免不必要的内存分配。
          * 空栈的端点条目会被一并移除。
          */
         void cleanup();
+
+        /**
+         * @brief 后台清理协程
+         * @details 周期性调用 cleanup() 移除过期连接。
+         * 由 start() 通过 co_spawn 启动。
+         * @return awaitable<void> 协程返回类型
+         */
+        [[nodiscard]] auto cleanup_loop() -> net::awaitable<void>;
 
         net::io_context &ioc_;                                                                // IO 上下文，用于异步操作和定时器
         memory::unordered_map<endpoint_key, memory::vector<idle_item>, endpoint_hash> cache_; // 连接缓存，按端点键组织，每个端点使用 LIFO 栈

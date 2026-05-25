@@ -30,7 +30,7 @@ namespace psm::stealth::reality
     {
         bool authenticated = false;                              // 认证是否成功
         std::array<std::uint8_t, REALITY_KEY_LEN> shared_secret{}; // X25519 共享密钥
-        crypto::x25519_keypair server_ephemeral_key;                    // 服务端临时 X25519 密钥对（用于 ServerHello 的 key_share）
+        crypto::x25519_keypair server_ephkey;                     // 服务端临时 X25519 密钥对（用于 ServerHello 的 key_share）
         std::array<std::uint8_t, REALITY_KEY_LEN> auth_key{};      // HKDF 派生的认证密钥（用于 Ed25519 证书签名）
     };
 
@@ -40,10 +40,10 @@ namespace psm::stealth::reality
      * 认证成功返回共享密钥和服务端临时密钥对
      * @param cfg Reality 配置
      * @param client_hello 解析后的 ClientHello 信息
-     * @param decoded_private_key 已 base64 解码的 32 字节私钥
+     * @param decoded_privkey 已 base64 解码的 32 字节私钥
      * @return std::pair<fault::code, auth_result> 错误码和认证结果
      */
-    [[nodiscard]] auto authenticate(const config &cfg, const hello_features &client_hello, std::span<const std::uint8_t> decoded_private_key) 
+    [[nodiscard]] auto authenticate(const config &cfg, const hello_features &client_hello, std::span<const std::uint8_t> decoded_privkey)
         -> std::pair<fault::code, auth_result>;
 
     /**
@@ -83,5 +83,5 @@ namespace psm::stealth::reality
      * @return 对应的数值，非法字符返回 -1
      */
     [[nodiscard]] auto hex_digit(char c)
-        -> int;
+        -> std::int32_t;
 } // namespace psm::stealth::reality

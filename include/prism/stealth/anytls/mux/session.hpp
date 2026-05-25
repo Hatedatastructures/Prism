@@ -67,20 +67,20 @@ namespace psm::stealth::anytls
         /**
          * @brief 启动 recv_loop（在独立协程中运行）
          */
-        auto start() -> void;
+        void start();
 
         /**
          * @brief 等待第一个 Stream 的 cmdSettings + cmdSYN + 第一个 PSH
          * @return (error_code, (stream_id, preread_data))
          */
-        auto wait_first_stream()
+        [[nodiscard]] auto wait_first_stream()
             -> net::awaitable<std::pair<fault::code,
                 std::tuple<std::uint32_t, std::vector<std::uint8_t>>>>;
 
         /**
          * @brief 写 PSH 帧到指定 stream
          */
-        auto write_psh(std::uint32_t stream_id, std::span<const std::byte> data,
+        [[nodiscard]] auto write_psh(std::uint32_t stream_id, std::span<const std::byte> data,
                        std::error_code &ec) -> net::awaitable<std::size_t>;
 
         /**
@@ -102,14 +102,18 @@ namespace psm::stealth::anytls
         /**
          * @brief 关闭 session
          */
-        auto close() -> void;
+        void close();
 
     private:
         auto recv_loop() -> net::awaitable<void>;
+        auto on_settings(std::vector<std::uint8_t> payload) -> net::awaitable<void>;
+        auto on_syn(std::uint32_t stream_id) -> net::awaitable<void>;
+        auto on_psh(std::uint32_t stream_id, std::vector<std::uint8_t> payload) -> net::awaitable<void>;
+        auto on_fin(std::uint32_t stream_id) -> net::awaitable<void>;
         auto write_frame(command cmd, std::uint32_t stream_id,
                          std::span<const std::byte> data, std::error_code &ec) -> net::awaitable<void>;
         auto send_waste_frame(std::uint32_t pkt_num, std::error_code &ec) -> net::awaitable<void>;
-        auto read_exact(std::span<std::byte> buf) -> net::awaitable<bool>;
+        [[nodiscard]] auto read_exact(std::span<std::byte> buf) -> net::awaitable<bool>;
 
         transport::shared_transmission transport_;
         stream_callback on_new_stream_;

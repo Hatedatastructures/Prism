@@ -22,7 +22,8 @@ namespace psm::resolve::dns
     public:
         explicit resolver_impl(net::io_context &ioc, config cfg, memory::resource_pointer mr = memory::current_resource())
             : ioc_(ioc), mr_(mr ? mr : memory::current_resource()), config_(std::move(cfg)),
-              upstream_(ioc_, mr_), cache_(mr_, config_.cache_ttl, config_.cache_size, config_.serve_stale),
+              upstream_(ioc_, mr_), cache_(mr_, config_.cache_ttl, config_.cache_size,
+                  config_.serve_stale ? detail::cache::stale_policy::serve : detail::cache::stale_policy::discard),
               rules_(mr_), coalescer_(mr_),
               alive_(std::make_shared<std::atomic<bool>>(true))
         {
@@ -37,33 +38,19 @@ namespace psm::resolve::dns
             {
                 if (rule.negative)
                 {
-                    rules_.add_negative_rule(rule.domain);
+                    rules_.add_neg_rule(rule.domain);
                 }
                 else if (!rule.addresses.empty())
                 {
-                    rules_.add_address_rule(rule.domain, rule.addresses);
+                    rules_.add_addr_rule(rule.domain, rule.addresses);
                 }
             }
             for (const auto &rule : config_.cname_rules)
             {
-                rules_.add_cname_rule(rule.domain, rule.target);
+                rules_.add_cname(rule.domain, rule.target);
             }
 
-            auto alive = alive_;
-            auto scheduled_cleaning = [this, alive]() -> net::awaitable<void>
-            {
-                auto timer = net::steady_timer(ioc_);
-                while (alive->load())
-                {
-                    timer.expires_after(std::chrono::seconds(30));
-                    boost::system::error_code ec;
-                    co_await timer.async_wait(net::redirect_error(net::use_awaitable, ec));
-                    if (ec == net::error::operation_aborted || !alive->load())
-                        co_return;
-                    cache_.evict_expired();
-                }
-            };
-            net::co_spawn(ioc_, std::move(scheduled_cleaning), net::detached);
+            net::co_spawn(ioc_, eviction_loop(), net::detached);
         }
 
         ~resolver_impl() override
@@ -182,6 +169,20 @@ namespace psm::resolve::dns
         }
 
     private:
+        [[nodiscard]] auto eviction_loop() -> net::awaitable<void>
+        {
+            auto timer = net::steady_timer(ioc_);
+            while (alive_->load())
+            {
+                timer.expires_after(std::chrono::seconds(30));
+                boost::system::error_code ec;
+                co_await timer.async_wait(net::redirect_error(net::use_awaitable, ec));
+                if (ec == net::error::operation_aborted || !alive_->load())
+                    co_return;
+                cache_.evict_expired();
+            }
+        }
+
         [[nodiscard]] auto query_pipeline(std::string_view domain, detail::qtype qt)
             -> net::awaitable<std::pair<fault::code, memory::vector<net::ip::address>>>
         {
@@ -227,7 +228,7 @@ namespace psm::resolve::dns
 
             const auto qt_str = std::to_string(static_cast<std::uint16_t>(qt));
             const auto key = coalescer_.make_key(qname, qt_str);
-            const auto [flight_it, is_new] = coalescer_.find_or_create(key, ioc_.get_executor());
+            const auto [flight_it, is_new] = coalescer_.find_create(key, ioc_.get_executor());
 
             if (!is_new)
             {

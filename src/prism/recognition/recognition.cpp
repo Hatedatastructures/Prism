@@ -1,11 +1,6 @@
-/**
- * @file recognition.cpp
- * @brief Recognition 模块入口
- */
-
 #include <prism/recognition/recognition.hpp>
-#include <prism/recognition/scheme_route_table.hpp>
-#include <prism/recognition/layered_pipeline.hpp>
+#include <prism/recognition/routes.hpp>
+#include <prism/recognition/pipeline.hpp>
 #include <prism/stealth.hpp>
 #include <prism/stealth/registry.hpp>
 #include <prism/stealth/executor.hpp>
@@ -68,7 +63,9 @@ namespace psm::recognition
 
         // 使用分层检测管道
         auto pipeline = layered_detection_pipeline(registry.all());
-        auto pipeline_result = pipeline.detect(bitmap, features, raw_ch_span, *ctx.cfg, matched_schemes);
+        auto pipeline_result = pipeline.detect(
+            detect_input{bitmap, features, raw_ch_span, *ctx.cfg},
+            matched_schemes);
 
         // Phase 5: 构建 preview transport
         // safe: casting uint8_t record data to byte span for preview transport replay

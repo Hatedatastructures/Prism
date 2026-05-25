@@ -161,8 +161,8 @@ static void BM_SmuxBuildUdpDatagram_IPv4(benchmark::State &state)
     for (auto _ : state)
     {
         arena.reset();
-        auto buf = multiplex::smux::build_udp_datagram("127.0.0.1", 53,
-                                                       std::span<const std::byte>(payload.data(), payload.size()), mr);
+        auto buf = multiplex::smux::build_udp_dgram(
+            {"127.0.0.1", 53, std::span<const std::byte>(payload.data(), payload.size())}, mr);
         benchmark::DoNotOptimize(buf);
     }
     state.SetBytesProcessed(int64_t(state.iterations()) * int64_t(9 + 4 + payload.size()));

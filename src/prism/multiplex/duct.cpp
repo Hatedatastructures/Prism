@@ -18,7 +18,7 @@ namespace psm::multiplex
     // 帧载荷最大长度（uint16_t 最大值，所有 mux 协议通用上限）
     constexpr std::size_t max_frame_payload = 65535;
 
-    duct::duct(const std::uint32_t stream_id, std::shared_ptr<core> owner,
+    duct::duct(const std::uint32_t stream_id, const std::shared_ptr<core>& owner,
                transport::shared_transmission target, stream_options opts)
         : id_(stream_id), owner_(owner), mr_(opts.mr),
           target_(std::move(target)),
@@ -58,10 +58,10 @@ namespace psm::multiplex
             }
             self->close();
         };
-        net::co_spawn(target_->executor(), target_read_loop(), std::move(read_done));
+        net::co_spawn(target_->executor(), target_readloop(), std::move(read_done));
 
         // target 写循环：客户端 → mux → write_channel_ → target（客户端上传方向）
-        // 不触发 close，由 target_read_loop 退出或自身写错误触发
+        // 不触发 close，由 target_readloop 退出或自身写错误触发
         auto write_done = [self](const std::exception_ptr &ep)
         {
             if (ep)
@@ -80,7 +80,7 @@ namespace psm::multiplex
                 }
             }
         };
-        net::co_spawn(target_->executor(), target_write_loop(), std::move(write_done));
+        net::co_spawn(target_->executor(), target_writeloop(), std::move(write_done));
     }
 
     auto duct::on_mux_data(memory::vector<std::byte> data)
@@ -130,11 +130,11 @@ namespace psm::multiplex
         }
         closed_ = true;
 
-        // 关闭写通道，通知 target_write_loop 退出
+        // 关闭写通道，通知 target_writeloop 退出
         write_channel_.cancel();
 
         // 先关闭 target socket（取消所有 pending 异步操作），但不立即释放对象。
-        // target_write_loop 可能正 co_await 在 async_write 上，completion handler 需要
+        // target_writeloop 可能正 co_await 在 async_write 上，completion handler 需要
         // target 对象在 close() 返回后、handler 执行时仍然存活。
         // target_ 将在 duct 析构时自然释放，此时所有协程已完成。
         if (target_)
@@ -163,7 +163,7 @@ namespace psm::multiplex
     // target 读循环（客户端下行/下载方向）
     // 从 target 读取数据，通过 owner_->send_data 发回 mux 客户端。
     // 数据直接读入 PMR vector 并 move 传递，零额外拷贝。
-    auto duct::target_read_loop()
+    auto duct::target_readloop()
         -> net::awaitable<void>
     {
         std::error_code ec;
@@ -221,7 +221,7 @@ namespace psm::multiplex
     // target 写循环（客户端上行/上传方向）
     // 从 write_channel_ 取数据写入 target。
     // write_channel_ 解耦帧循环与 target 写入，避免慢速 target 阻塞帧循环。
-    auto duct::target_write_loop()
+    auto duct::target_writeloop()
         -> net::awaitable<void>
     {
         while (!closed_)

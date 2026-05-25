@@ -10,7 +10,7 @@
 #include <prism/recognition/result.hpp>
 
 #include <prism/recognition/tls/signal.hpp>
-#include <prism/recognition/tls/feature_bitmap.hpp>
+#include <prism/recognition/tls/features.hpp>
 #include <prism/recognition/target.hpp>
 
 #include <prism/recognition/probe/probe.hpp>

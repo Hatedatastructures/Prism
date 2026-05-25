@@ -1,11 +1,3 @@
-/**
- * @file traffic.cpp
- * @brief per-worker 流量统计实现 + 全局聚合注册表
- * @details traffic_state 的所有方法实现。全局注册表采用 COW 模式：
- * register_instance/unregister_instance 创建新 vector 替换旧的，
- * 旧 vector 不释放（可能有并发的 aggregate() 在读）。
- * worker 数量有限（通常 < 64），内存泄漏可忽略。
- */
 #include <prism/stats/traffic.hpp>
 
 namespace psm::stats::traffic
@@ -70,7 +62,7 @@ namespace psm::stats::traffic
         s.auth_success = auth_success_.load(std::memory_order::relaxed);
         s.auth_failure = auth_failure_.load(std::memory_order::relaxed);
 
-        for (std::size_t i = 0; i < protocol_slot_count; ++i)
+        for (std::size_t i = 0; i < proto_slot_count; ++i)
         {
             s.protocols[i].connections = protocols_[i].connections.load(std::memory_order::relaxed);
             s.protocols[i].active = protocols_[i].active.load(std::memory_order::relaxed);
@@ -89,7 +81,7 @@ namespace psm::stats::traffic
         auth_success_.store(0, std::memory_order::relaxed);
         auth_failure_.store(0, std::memory_order::relaxed);
 
-        for (std::size_t i = 0; i < protocol_slot_count; ++i)
+        for (std::size_t i = 0; i < proto_slot_count; ++i)
         {
             protocols_[i].connections.store(0, std::memory_order::relaxed);
             protocols_[i].active.store(0, std::memory_order::relaxed);
@@ -165,7 +157,7 @@ namespace psm::stats::traffic
             result.total_downlink += s.total_downlink;
             result.auth_success += s.auth_success;
             result.auth_failure += s.auth_failure;
-            for (std::size_t i = 0; i < protocol_slot_count; ++i)
+            for (std::size_t i = 0; i < proto_slot_count; ++i)
             {
                 result.protocols[i].connections += s.protocols[i].connections;
                 result.protocols[i].active += s.protocols[i].active;

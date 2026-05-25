@@ -247,8 +247,8 @@ proxies:
     username: username
     password: prism
     tls: true
-    skip-cert-verify: true # 跳过证书验证，避免测试环境自签证书不受信任导致连接失败
-    # sni: custom.com
+    skip-cert-verify: true
+    sni: "www.bing.com"
 
   - name: "Trojan TCP"
     type: trojan
@@ -257,6 +257,7 @@ proxies:
     password: "prism"
     udp: false
     skip-cert-verify: true
+    sni: "www.bing.com"
 
   - name: "Trojan UDP"
     type: trojan
@@ -265,6 +266,7 @@ proxies:
     password: "prism"
     udp: true
     skip-cert-verify: true
+    sni: "www.bing.com"
 
   # SS2022 (Shadowsocks 2022 / SIP022)
   # SS2022 直接走裸 TCP（mihomo 不支持 SS2022 + tls: true）
@@ -387,6 +389,7 @@ proxies:
     uuid: "123e4567-e89b-12d3-a456-426614174000"
     tls: true
     skip-cert-verify: true
+    servername: "www.bing.com"
 
   - name: "VLESS UDP"
     type: vless
@@ -396,6 +399,7 @@ proxies:
     tls: true
     udp: true
     skip-cert-verify: true
+    servername: "www.bing.com"
 
   - name: "VLESS Smux TCP"
     type: vless
@@ -404,6 +408,7 @@ proxies:
     uuid: "123e4567-e89b-12d3-a456-426614174000"
     tls: true
     skip-cert-verify: true
+    servername: "www.bing.com"
     smux:
       enabled: true
       protocol: smux
@@ -416,6 +421,7 @@ proxies:
     uuid: "123e4567-e89b-12d3-a456-426614174000"
     tls: true
     skip-cert-verify: true
+    servername: "www.bing.com"
     smux:
       enabled: true
       protocol: smux
@@ -428,6 +434,7 @@ proxies:
     uuid: "123e4567-e89b-12d3-a456-426614174000"
     tls: true
     skip-cert-verify: true
+    servername: "www.bing.com"
     smux:
       enabled: true
       protocol: yamux
@@ -440,6 +447,7 @@ proxies:
     uuid: "123e4567-e89b-12d3-a456-426614174000"
     tls: true
     skip-cert-verify: true
+    servername: "www.bing.com"
     smux:
       enabled: true
       protocol: yamux

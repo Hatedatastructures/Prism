@@ -1,17 +1,9 @@
-/**
- * @file decrypt.cpp
- * @brief ECH 解密实现
- * @details 使用 HPKE 解密 ECH outer payload。
- *
- * **当前状态**：框架已实现，HPKE 解密逻辑待完善。
- * 需要实现 HPKE SetupBaseS 和 AEAD Open 操作。
- */
 #include <prism/stealth/ech/util/decrypt.hpp>
 #include <prism/trace.hpp>
 
 namespace psm::stealth::ech
 {
-    auto decrypt_ech_payload(std::span<const std::byte> outer_payload, std::string_view ech_key)
+    auto decrypt_ech_payload(std::span<const std::byte> outer_payload, std::string_view  /*ech_key*/)
         -> decrypt_result
     {
         decrypt_result result;
@@ -20,7 +12,7 @@ namespace psm::stealth::ech
         // 最小长度: version(2) + config_id(1) + enc_len(2) + payload_len(2) = 7
         if (outer_payload.size() < 7)
         {
-            result.error = fault::code::ech_payload_invalid;
+            result.error = fault::code::ech_badpayload;
             trace::debug("[ECH] Payload too small: {} bytes", outer_payload.size());
             return result;
         }
@@ -31,7 +23,7 @@ namespace psm::stealth::ech
             static_cast<std::uint8_t>(outer_payload[1]));
         if (version != 0xfe0d)
         {
-            result.error = fault::code::ech_version_mismatch;
+            result.error = fault::code::ech_badver;
             trace::debug("[ECH] Version mismatch: expected 0xfe0d, got 0x{:04x}", version);
             return result;
         }

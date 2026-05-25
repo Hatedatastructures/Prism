@@ -55,8 +55,8 @@ namespace psm::stealth::anytls
         memory::string padding_scheme;   ///< Padding 方案字符串
 
         // === 超时配置 ===
-        std::uint32_t handshake_timeout_ms{5000};        ///< 握手超时（毫秒）
-        std::uint32_t idle_session_timeout_ms{30000};    ///< 空闲会话超时（毫秒）
+        std::uint32_t hs_timeout{5000};                ///< 握手超时（毫秒）
+        std::uint32_t idle_sess_timeout{30000};         ///< 空闲会话超时（毫秒）
 
         /**
          * @brief 检查配置是否有效

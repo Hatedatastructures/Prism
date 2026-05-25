@@ -1,9 +1,3 @@
-/**
- * @file common.cpp
- * @brief 伪装层共享工具函数实现
- * @details 实现 read_raw_tls_frame 等需要协程支持的工具函数。
- */
-
 #include <prism/stealth/common.hpp>
 #include <cstring>
 

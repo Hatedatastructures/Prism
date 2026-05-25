@@ -37,7 +37,7 @@ namespace psm::stealth::restls
         memory::string password;                         ///< 认证密码
         memory::string version_hint;                     ///< 版本提示: "tls12" 或 "tls13"
         memory::string restls_script;                    ///< 流量控制脚本
-        std::uint32_t handshake_timeout_ms{5000};        ///< 握手超时（毫秒）
+        std::uint32_t hs_timeout{5000};               ///< 握手超时（毫秒）
 
         /**
          * @brief 检查配置是否有效

@@ -19,7 +19,7 @@
 #include <boost/asio.hpp>
 #include <prism/fault/code.hpp>
 #include <prism/transport/transmission.hpp>
-#include <prism/protocol/protocol_type.hpp>
+#include <prism/protocol/types.hpp>
 #include <prism/protocol/common/target.hpp>
 
 namespace psm::outbound
@@ -28,7 +28,7 @@ namespace psm::outbound
     using shared_transmission = transport::shared_transmission;
 
     /// UDP 数据报路由回调类型
-    using datagram_router_fn = std::function<net::awaitable<std::pair<fault::code,
+    using dgram_router_fn = std::function<net::awaitable<std::pair<fault::code,
                                                                       net::ip::udp::endpoint>>(std::string_view, std::string_view)>;
 
     /**
@@ -60,7 +60,7 @@ namespace psm::outbound
          * @details 实现类内部决定路由策略：直连走 DNS 解析 + 连接池，
          * 代理走上游协议握手，代理组走子代理选择。
          */
-        virtual auto async_connect(const protocol::target &target, const net::any_io_executor &executor)
+        [[nodiscard]] virtual auto async_connect(const protocol::target &target, const net::any_io_executor &executor)
             -> net::awaitable<std::pair<fault::code, shared_transmission>> = 0;
 
         /**
@@ -68,8 +68,8 @@ namespace psm::outbound
          * @return 回调函数，接受 (host, port) 返回 (错误码, udp_endpoint)
          * @details 替代直接传递 router 引用，将 DNS 解析封装在实现内部。
          */
-        virtual auto make_datagram_router()
-            -> datagram_router_fn = 0;
+        [[nodiscard]] virtual auto make_dgram_router()
+            -> dgram_router_fn = 0;
 
         /**
          * @brief 获取代理名称

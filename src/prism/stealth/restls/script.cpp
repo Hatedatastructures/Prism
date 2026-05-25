@@ -148,7 +148,7 @@ namespace psm::stealth::restls
         else
         {
             // target 包含 auth_header (12 bytes)
-            const auto effective_target = target - static_cast<std::int16_t>(auth_header_len);
+            const auto effective_target = target - static_cast<std::int16_t>(auth_hdrlen);
             if (counter < lines_.size() && effective_target > 0 && data_available >= static_cast<std::size_t>(effective_target))
             {
                 alloc.data_len = effective_target;
@@ -163,12 +163,12 @@ namespace psm::stealth::restls
             {
                 // counter 超出 script 范围，无 padding
                 alloc.data_len = static_cast<std::int16_t>(
-                    std::min(data_available, static_cast<std::size_t>(max_plaintext - auth_header_len)));
+                    std::min(data_available, static_cast<std::size_t>(max_plaintext - auth_hdrlen)));
                 alloc.padding_len = 0;
             }
         }
 
-        alloc.payload_len = static_cast<std::int16_t>(auth_header_len) + alloc.data_len + alloc.padding_len;
+        alloc.payload_len = static_cast<std::int16_t>(auth_hdrlen) + alloc.data_len + alloc.padding_len;
         alloc.write_blocking = blocking;
 
         return alloc;

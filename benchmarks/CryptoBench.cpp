@@ -254,7 +254,7 @@ static void BM_HkdfExpandLabel(benchmark::State &state)
 
     for (auto _ : state)
     {
-        auto [ec, output] = crypto::hkdf_expand_label(secret, "key", context, 16);
+        auto [ec, output] = crypto::hkdf_expand_label({secret, "key", context, 16});
         benchmark::DoNotOptimize(output);
     }
     state.SetBytesProcessed(static_cast<std::int64_t>(state.iterations()) * 16);

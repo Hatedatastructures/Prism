@@ -22,6 +22,16 @@
 
 namespace psm::protocol::socks5::wire
 {
+    /**
+     * @brief 认证结果
+     * @details 表示认证验证的最终结果。
+     */
+    enum class auth_result : std::uint8_t
+    {
+        failed,  ///< 认证失败
+        success  ///< 认证成功
+    };
+
     // 委托到共享地址解析函数
     using common::framing::parse_ipv4;
     using common::framing::parse_ipv6;
@@ -117,7 +127,7 @@ namespace psm::protocol::socks5::wire
      * @details 存储解析后的 UDP 报头信息和头部大小。头部大小用于
      * 计算数据载荷的起始偏移，便于后续数据处理。
      */
-    struct udp_header_parse
+    struct udp_hdr_parse
     {
         // UDP 报头信息
         udp_header header;
@@ -135,7 +145,7 @@ namespace psm::protocol::socks5::wire
      * 编码格式为 RSV(2) + FRAG(1) + ATYP(1) + DST.ADDR(变长) +
      * DST.PORT(2)。地址根据类型写入不同格式的数据。
      */
-    inline auto encode_udp_header(const udp_header &header, memory::vector<std::uint8_t> &out)
+    inline auto encode_udp_hdr(const udp_header &header, memory::vector<std::uint8_t> &out)
         -> fault::code
     {
         // 预分配：RSV(2) + FRAG(1) + ATYP(1) + max(域名255+1, IPv4 4, IPv6 16) + PORT(2) = 最大 262
@@ -176,14 +186,14 @@ namespace psm::protocol::socks5::wire
     /**
      * @brief 解码 SOCKS5 UDP 报头
      * @param buffer UDP 数据报缓冲区
-     * @return std::pair<fault::code, udp_header_parse> 解码结果
+     * @return std::pair<fault::code, udp_hdr_parse> 解码结果
      * @details 解析 UDP 报头，返回报头信息和 DATA 起始偏移。首先
      * 验证 RSV 字段是否为 0x0000，然后检查 FRAG 字段是否为 0。
      * FRAG != 0 时返回 not_supported 错误，符合 SOCKS5 规范要求。
      * 地址解析支持 IPv4、IPv6 和域名三种类型。
      */
-    inline auto decode_udp_header(std::span<const std::uint8_t> buffer)
-        -> std::pair<fault::code, udp_header_parse>
+    inline auto decode_udp_hdr(std::span<const std::uint8_t> buffer)
+        -> std::pair<fault::code, udp_hdr_parse>
     {
         if (buffer.size() < 10)
         {
@@ -269,7 +279,7 @@ namespace psm::protocol::socks5::wire
             return {port_ec, {}};
         }
 
-        udp_header_parse result;
+        udp_hdr_parse result;
         result.header.destination_address = dest_addr;
         result.header.destination_port = port;
         result.header.frag = frag;
@@ -285,13 +295,13 @@ namespace psm::protocol::socks5::wire
      * @param out 输出缓冲区
      * @return fault::code 编码结果
      * @details 将 UDP 报头和用户数据编码为完整的 SOCKS5 UDP 数据报。
-     * 首先调用 encode_udp_header 编码头部，然后追加用户数据。
+     * 首先调用 encode_udp_hdr 编码头部，然后追加用户数据。
      * 输出缓冲区将包含完整的可发送数据报。
      */
-    inline auto encode_udp_datagram(const udp_header &header, std::span<const std::uint8_t> data, memory::vector<std::uint8_t> &out)
+    inline auto encode_udp_dgram(const udp_header &header, std::span<const std::uint8_t> data, memory::vector<std::uint8_t> &out)
         -> fault::code
     {
-        if (fault::failed(encode_udp_header(header, out)))
+        if (fault::failed(encode_udp_hdr(header, out)))
         {
             return fault::code::bad_message;
         }
@@ -305,7 +315,7 @@ namespace psm::protocol::socks5::wire
      * @details 存储解析后的认证请求信息。子协商版本固定为 0x01，
      * 用户名和密码均为原始字节视图，指向调用者管理的缓冲区。
      */
-    struct password_auth_request
+    struct pw_auth_request
     {
         std::uint8_t version;      // 子协商版本，固定 0x01
         std::string_view username; // 用户名（1-255 字节）
@@ -319,8 +329,8 @@ namespace psm::protocol::socks5::wire
      * @details 解析格式为 VER(1) + ULEN(1) + UNAME(n) + PLEN(1) + PASSWD(n)
      * 的认证请求。验证子协商版本为 0x01，用户名和密码长度在 1-255 范围内。
      */
-    [[nodiscard]] inline auto parse_password_auth(const std::span<const std::uint8_t> data)
-        -> std::pair<fault::code, password_auth_request>
+    [[nodiscard]] inline auto parse_pw_auth(const std::span<const std::uint8_t> data)
+        -> std::pair<fault::code, pw_auth_request>
     {
         if (data.size() < 2)
         {
@@ -361,14 +371,14 @@ namespace psm::protocol::socks5::wire
 
     /**
      * @brief 构建 RFC 1929 认证响应
-     * @param success 认证是否成功
+     * @param result 认证结果
      * @return 2 字节响应数据
      * @details 构建格式为 VER(1) + STATUS(1) 的认证响应。
      * STATUS 0x00 表示成功，0x01 表示失败。
      */
-    [[nodiscard]] inline auto build_password_auth_response(const bool success)
+    [[nodiscard]] inline auto build_pw_auth_response(auth_result result)
         -> std::array<std::uint8_t, 2>
     {
-        return {0x01, static_cast<std::uint8_t>(success ? 0x00 : 0x01)};
+        return {0x01, static_cast<std::uint8_t>(result == auth_result::success ? 0x00 : 0x01)};
     }
 }

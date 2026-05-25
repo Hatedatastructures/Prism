@@ -48,7 +48,7 @@ namespace psm::testing
          * @brief 输出信息级别日志
          * @param msg 日志消息
          */
-        auto LogInfo(const std::string_view msg) const -> void
+        void LogInfo(const std::string_view msg) const
         {
             psm::trace::info("[{}] {}", tag_, msg);
         }
@@ -57,7 +57,7 @@ namespace psm::testing
          * @brief 记录测试通过并递增计数器
          * @param msg 测试名称
          */
-        auto LogPass(const std::string_view msg) -> void
+        void LogPass(const std::string_view msg)
         {
             ++passed_;
             psm::trace::info("[{}] PASS: {}", tag_, msg);
@@ -67,7 +67,7 @@ namespace psm::testing
          * @brief 记录测试失败并递增计数器
          * @param msg 失败原因
          */
-        auto LogFail(const std::string_view msg) -> void
+        void LogFail(const std::string_view msg)
         {
             ++failed_;
             psm::trace::error("[{}] FAIL: {}", tag_, msg);
@@ -78,7 +78,7 @@ namespace psm::testing
          * @param condition 待检查的条件
          * @param message 条件描述
          */
-        auto Check(const bool condition, const std::string_view message) -> void
+        void Check(const bool condition, const std::string_view message)
         {
             if (condition)
             {

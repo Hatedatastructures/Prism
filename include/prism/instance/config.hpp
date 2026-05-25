@@ -18,6 +18,7 @@
 #include <prism/stealth/restls/config.hpp>
 #include <prism/stealth/anytls/config.hpp>
 #include <prism/stealth/trusttunnel/config.hpp>
+#include <prism/stealth/native/config.hpp>
 
 namespace psm::instance
 {
@@ -157,6 +158,7 @@ namespace psm::instance
             psm::stealth::restls::config restls;
             psm::stealth::anytls::config anytls;
             psm::stealth::trusttunnel::config trusttunnel;
+            psm::stealth::native::config native_tls;
         };
     }
 

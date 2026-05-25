@@ -12,30 +12,30 @@
 namespace psm::stealth::shadowtls
 {
     // TLS 记录层常量
-    constexpr std::size_t tls_header_size = 5;          // TLS 记录头长度
-    constexpr std::size_t tls_random_size = 32;         // TLS Random 长度
-    constexpr std::size_t tls_session_id_size = 32;     // ShadowTLS 要求的 SessionID 长度
-    constexpr std::size_t hmac_size = 4;                // HMAC 标签长度（4 字节）
+    constexpr std::size_t tls_hdrsize = 5;               // TLS 记录头长度
+    constexpr std::size_t tls_rndsize = 32;              // TLS Random 长度
+    constexpr std::size_t tls_session_id_sz = 32;        // ShadowTLS 要求的 SessionID 长度
+    constexpr std::size_t hmac_size = 4;                 // HMAC 标签长度（4 字节）
 
     // TLS 内容类型
-    constexpr std::uint8_t content_type_handshake = 0x16;
-    constexpr std::uint8_t content_type_application_data = 0x17;
+    constexpr std::uint8_t content_handshake = 0x16;
+    constexpr std::uint8_t content_appdata = 0x17;
 
     // TLS 握手类型
-    constexpr std::uint8_t handshake_type_client_hello = 0x01;
-    constexpr std::uint8_t handshake_type_server_hello = 0x02;
+    constexpr std::uint8_t hs_type_clienthello = 0x01;
+    constexpr std::uint8_t hs_type_serverhello = 0x02;
 
     // TLS 1.3 版本号
-    constexpr std::uint16_t tls_version_1_3 = 0x0304;
+    constexpr std::uint16_t tls_ver13 = 0x0304;
 
     // TLS 扩展类型
-    constexpr std::uint16_t extension_supported_versions = 43;
+    constexpr std::uint16_t ext_supported_versions = 43;
 
     // SessionID 中 HMAC 的位置
     // TLS Header(5) + Handshake Header(4) + SessionID Length(1) = 10
     // SessionID 32 字节，HMAC 在最后 4 字节
-    constexpr std::size_t session_id_length_index = 43; // ClientHello 中 SessionID 长度字节的偏移
+    constexpr std::size_t session_id_len_idx = 43; // ClientHello 中 SessionID 长度字节的偏移
 
     // Data frame header size (TLS Header 5 + HMAC 4)
-    constexpr std::size_t tls_hmac_header_size = tls_header_size + hmac_size; // 9
+    constexpr std::size_t tls_hmac_hdrsize = tls_hdrsize + hmac_size; // 9
 } // namespace psm::stealth::shadowtls

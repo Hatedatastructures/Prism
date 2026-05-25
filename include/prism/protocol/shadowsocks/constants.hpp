@@ -36,10 +36,10 @@ namespace psm::protocol::shadowsocks
     static constexpr std::size_t aead_tag_len = 16;
 
     // 固定头明文长度：type(1) + timestamp(8) + varHeaderLen(2) = 11
-    static constexpr std::size_t fixed_header_plain = 11;
+    static constexpr std::size_t fixed_hdr_plain = 11;
 
     // 固定头密文长度：明文 + tag(16) = 27
-    static constexpr std::size_t fixed_header_size = fixed_header_plain + aead_tag_len;
+    static constexpr std::size_t fixed_hdr_size = fixed_hdr_plain + aead_tag_len;
 
     // BLAKE3 KDF context（SIP022 规范：所有方法统一使用此字符串）
     static constexpr std::string_view kdf_context = "shadowsocks 2022 session subkey";
@@ -48,7 +48,7 @@ namespace psm::protocol::shadowsocks
     static constexpr std::uint16_t max_chunk_size = 0x3FFF;
 
     // 加密长度块大小：2 字节长度 + 16 字节 tag = 18
-    static constexpr std::size_t length_block_size = 2 + aead_tag_len;
+    static constexpr std::size_t len_block_size = 2 + aead_tag_len;
 
     // SOCKS5 地址类型
     static constexpr std::uint8_t atyp_ipv4 = 0x01;
@@ -62,7 +62,7 @@ namespace psm::protocol::shadowsocks
     static constexpr std::size_t packet_id_len = 8;
 
     // UDP Separate Header 总长度（SessionID + PacketID）
-    static constexpr std::size_t separate_header_len = session_id_len + packet_id_len;
+    static constexpr std::size_t separate_hdr_len = session_id_len + packet_id_len;
 
     // 方法名映射（配置用）
     static constexpr std::string_view method_aes_128 = "2022-blake3-aes-128-gcm";

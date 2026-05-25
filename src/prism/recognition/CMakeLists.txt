@@ -9,12 +9,12 @@ target_sources(${PROJECT_NAME}_static_library
             ${PROJECT_SOURCE_DIR}/include/prism/recognition/recognition.hpp
             ${PROJECT_SOURCE_DIR}/include/prism/recognition/confidence.hpp
             ${PROJECT_SOURCE_DIR}/include/prism/recognition/result.hpp
-            ${PROJECT_SOURCE_DIR}/include/prism/recognition/scheme_route_table.hpp
-            ${PROJECT_SOURCE_DIR}/include/prism/recognition/layered_pipeline.hpp
+            ${PROJECT_SOURCE_DIR}/include/prism/recognition/routes.hpp
+            ${PROJECT_SOURCE_DIR}/include/prism/recognition/pipeline.hpp
 
             # TLS 特征分析子模块
             ${PROJECT_SOURCE_DIR}/include/prism/recognition/tls/signal.hpp
-            ${PROJECT_SOURCE_DIR}/include/prism/recognition/tls/feature_bitmap.hpp
+            ${PROJECT_SOURCE_DIR}/include/prism/recognition/tls/features.hpp
 
             # 目标地址解析
             ${PROJECT_SOURCE_DIR}/include/prism/recognition/target.hpp
@@ -30,10 +30,10 @@ target_sources(${PROJECT_NAME}_static_library
         ${PROJECT_SOURCE_DIR}/src/prism/recognition/recognition.cpp
 
         # SNI 路由表
-        ${PROJECT_SOURCE_DIR}/src/prism/recognition/scheme_route_table.cpp
+        ${PROJECT_SOURCE_DIR}/src/prism/recognition/routes.cpp
 
         # 分层检测管道
-        ${PROJECT_SOURCE_DIR}/src/prism/recognition/layered_pipeline.cpp
+        ${PROJECT_SOURCE_DIR}/src/prism/recognition/pipeline.cpp
 
         # TLS 信号解析
         ${PROJECT_SOURCE_DIR}/src/prism/recognition/tls/signal.cpp

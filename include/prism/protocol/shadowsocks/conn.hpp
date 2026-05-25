@@ -14,7 +14,7 @@
 #include <prism/protocol/shadowsocks/packet.hpp>
 #include <prism/protocol/shadowsocks/config.hpp>
 #include <prism/protocol/shadowsocks/util/salts.hpp>
-#include <prism/protocol/protocol_type.hpp>
+#include <prism/protocol/types.hpp>
 #include <prism/protocol/common/target.hpp>
 #include <prism/crypto/aead.hpp>
 #include <prism/memory/container.hpp>
@@ -65,7 +65,7 @@ namespace psm::protocol::shadowsocks
          * @brief 获取关联的执行器
          * @return executor_type 执行器
          */
-        auto executor() const
+        [[nodiscard]] auto executor() const
             -> executor_type override;
 
         /**
@@ -75,7 +75,7 @@ namespace psm::protocol::shadowsocks
          * @param ec 错误码输出参数
          * @return net::awaitable<std::size_t> 异步操作，完成后返回读取的字节数
          */
-        auto async_read_some(std::span<std::byte> buffer, std::error_code &ec)
+        [[nodiscard]] auto async_read_some(std::span<std::byte> buffer, std::error_code &ec)
             -> net::awaitable<std::size_t> override;
 
         /**
@@ -85,7 +85,7 @@ namespace psm::protocol::shadowsocks
          * @param ec 错误码输出参数
          * @return net::awaitable<std::size_t> 异步操作，完成后返回写入的字节数
          */
-        auto async_write_some(std::span<const std::byte> buffer, std::error_code &ec)
+        [[nodiscard]] auto async_write_some(std::span<const std::byte> buffer, std::error_code &ec)
             -> net::awaitable<std::size_t> override;
 
         /**
@@ -105,7 +105,7 @@ namespace psm::protocol::shadowsocks
          * 握手成功后需调用 acknowledge() 发送响应
          * @return 错误码和请求信息
          */
-        auto handshake()
+        [[nodiscard]] auto handshake()
             -> net::awaitable<std::pair<fault::code, request>>;
 
         /**
@@ -114,7 +114,7 @@ namespace psm::protocol::shadowsocks
          * 上游拨号成功后，避免拨号失败时客户端收到误导性的成功响应
          * @return 错误码
          */
-        auto acknowledge()
+        [[nodiscard]] auto acknowledge()
             -> net::awaitable<fault::code>;
 
         /**
@@ -135,19 +135,19 @@ namespace psm::protocol::shadowsocks
         std::unique_ptr<crypto::aead_context> decrypt_ctx_; // 解密上下文
         std::unique_ptr<crypto::aead_context> encrypt_ctx_; // 加密上下文
         cipher_method method_{cipher_method::aes_128_gcm};  // 加密方法
-        std::size_t key_salt_length_{16};                   // 密钥/salt 长度
+        std::size_t key_salt_len_{16};                   // 密钥/salt 长度
 
         std::vector<std::uint8_t> psk_; // 解码后的 PSK
 
         memory::vector<std::byte> decrypted_; // 解密后的数据缓冲区
-        std::size_t decrypted_offset_{0};     // 已消费的解密缓冲区偏移
+        std::size_t decrypted_off_{0};     // 已消费的解密缓冲区偏移
 
-        std::array<std::byte, length_block_size> length_buf_{}; // 加密长度块缓冲区（2+16=18字节）
+        std::array<std::byte, len_block_size> length_buf_{}; // 加密长度块缓冲区（2+16=18字节）
         memory::vector<std::byte> chunk_buf_;                   // 加密 payload 块缓冲区
-        std::uint16_t current_payload_len_{0};                  // 当前 chunk 的 payload 长度
+        std::uint16_t cur_payload_len_{0};                  // 当前 chunk 的 payload 长度
 
-        memory::vector<std::byte> initial_payload_; // 握手中的初始 payload
-        std::size_t initial_offset_{0};             // 初始 payload 偏移
+        memory::vector<std::byte> init_payload_; // 握手中的初始 payload
+        std::size_t init_off_{0};             // 初始 payload 偏移
 
         memory::vector<std::uint8_t> payload_enc_buf_; // 发送加密缓冲区（复用）
 
@@ -169,7 +169,7 @@ namespace psm::protocol::shadowsocks
          * @details 读取 type + timestamp + varHeaderLen
          * @return 错误码、变长头长度和时间戳
          */
-        auto read_fixed_header() const
+        [[nodiscard]] auto read_fixed_hdr() const
             -> net::awaitable<std::tuple<fault::code, std::uint16_t, std::int64_t>>;
 
         /**
@@ -179,7 +179,7 @@ namespace psm::protocol::shadowsocks
          * @param req 请求结构，解析结果填充到此对象
          * @return 错误码
          */
-        auto read_variable_header(std::uint16_t var_header_len, request &req)
+        [[nodiscard]] auto read_var_hdr(std::uint16_t var_hdr_len, request &req)
             -> net::awaitable<fault::code>;
 
         /**
@@ -188,7 +188,7 @@ namespace psm::protocol::shadowsocks
          * @param server_ts 服务端时间戳
          * @return 错误码
          */
-        auto send_response(std::span<const std::uint8_t> client_salt, std::int64_t server_ts)
+        [[nodiscard]] auto send_response(std::span<const std::uint8_t> client_salt, std::int64_t server_ts)
             -> net::awaitable<fault::code>;
 
         /**
@@ -196,7 +196,7 @@ namespace psm::protocol::shadowsocks
          * @param ec 错误码输出参数
          * @return 异步操作
          */
-        auto fetch_chunk(std::error_code &ec)
+        [[nodiscard]] auto fetch_chunk(std::error_code &ec)
             -> net::awaitable<void>;
 
         /**
@@ -205,7 +205,7 @@ namespace psm::protocol::shadowsocks
          * @param ec 错误码输出参数
          * @return 实际写入的字节数
          */
-        auto send_chunk(std::span<const std::byte> data, std::error_code &ec)
+        [[nodiscard]] auto send_chunk(std::span<const std::byte> data, std::error_code &ec)
             -> net::awaitable<std::size_t>;
     };
 
@@ -218,7 +218,7 @@ namespace psm::protocol::shadowsocks
      * @param salts Salt 重放保护池
      * @return shared_conn 中继器共享指针
      */
-    inline auto make_conn(shared_transmission next_layer, const config &cfg, std::shared_ptr<salt_pool> salts)
+    [[nodiscard]] inline auto make_conn(shared_transmission next_layer, const config &cfg, std::shared_ptr<salt_pool> salts)
         -> shared_conn
     {
         return std::make_shared<conn>(std::move(next_layer), cfg, std::move(salts));

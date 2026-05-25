@@ -5,7 +5,7 @@
 namespace psm::multiplex::yamux
 {
     auto build_header(const frame_header &hdr) noexcept
-        -> std::array<std::byte, frame_header_size>
+        -> std::array<std::byte, frame_hdrsize>
     {
         return {
             // Version (1B)
@@ -31,7 +31,7 @@ namespace psm::multiplex::yamux
     auto parse_header(const std::span<const std::byte> buffer) noexcept
         -> std::optional<frame_header>
     {
-        if (buffer.size() < frame_header_size)
+        if (buffer.size() < frame_hdrsize)
         {
             return std::nullopt;
         }
@@ -81,7 +81,7 @@ namespace psm::multiplex::yamux
     }
 
     auto build_window_update_frame(const flags f, const std::uint32_t stream_id, const std::uint32_t delta) noexcept
-        -> std::array<std::byte, frame_header_size>
+        -> std::array<std::byte, frame_hdrsize>
     {
         frame_header hdr{};
         hdr.type = message_type::window_update;
@@ -92,7 +92,7 @@ namespace psm::multiplex::yamux
     }
 
     auto build_ping_frame(const flags f, const std::uint32_t ping_id) noexcept
-        -> std::array<std::byte, frame_header_size>
+        -> std::array<std::byte, frame_hdrsize>
     {
         frame_header hdr{};
         hdr.type = message_type::ping;
@@ -103,7 +103,7 @@ namespace psm::multiplex::yamux
     }
 
     auto build_go_away_frame(const go_away_code code) noexcept
-        -> std::array<std::byte, frame_header_size>
+        -> std::array<std::byte, frame_hdrsize>
     {
         frame_header hdr{};
         hdr.type = message_type::go_away;
@@ -131,7 +131,7 @@ namespace psm::multiplex::yamux
     }
 
     auto make_fin_frame(const std::uint32_t stream_id) noexcept
-        -> std::array<std::byte, frame_header_size>
+        -> std::array<std::byte, frame_hdrsize>
     {
         frame_header hdr{};
         hdr.type = message_type::data;

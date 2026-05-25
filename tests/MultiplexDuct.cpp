@@ -60,9 +60,9 @@ void TestSmuxConfigDefaults()
 
     runner.Check(cfg.max_streams == 32, "smux::config::max_streams defaults to 32");
     runner.Check(cfg.buffer_size == 4096, "smux::config::buffer_size defaults to 4096");
-    runner.Check(cfg.keepalive_interval_ms == 30000, "smux::config::keepalive_interval_ms defaults to 30000");
-    runner.Check(cfg.udp_idle_timeout_ms == 60000, "smux::config::udp_idle_timeout_ms defaults to 60000");
-    runner.Check(cfg.udp_max_datagram == 65535, "smux::config::udp_max_datagram defaults to 65535");
+    runner.Check(cfg.keepalive_interval == 30000, "smux::config::keepalive_interval defaults to 30000");
+    runner.Check(cfg.udp_idle_timeout == 60000, "smux::config::udp_idle_timeout defaults to 60000");
+    runner.Check(cfg.udp_max_dgram == 65535, "smux::config::udp_max_dgram defaults to 65535");
 }
 
 // ---------- yamux config ----------
@@ -81,11 +81,11 @@ void TestYamuxConfigDefaults()
     runner.Check(cfg.buffer_size == 4096, "yamux::config::buffer_size defaults to 4096");
     runner.Check(cfg.initial_window == 256 * 1024, "yamux::config::initial_window defaults to 256KB");
     runner.Check(cfg.enable_ping == true, "yamux::config::enable_ping defaults to true");
-    runner.Check(cfg.ping_interval_ms == 30000, "yamux::config::ping_interval_ms defaults to 30000");
-    runner.Check(cfg.stream_open_timeout_ms == 30000, "yamux::config::stream_open_timeout_ms defaults to 30000");
-    runner.Check(cfg.stream_close_timeout_ms == 30000, "yamux::config::stream_close_timeout_ms defaults to 30000");
-    runner.Check(cfg.udp_idle_timeout_ms == 60000, "yamux::config::udp_idle_timeout_ms defaults to 60000");
-    runner.Check(cfg.udp_max_datagram == 65535, "yamux::config::udp_max_datagram defaults to 65535");
+    runner.Check(cfg.ping_interval == 30000, "yamux::config::ping_interval defaults to 30000");
+    runner.Check(cfg.stream_open_timeout == 30000, "yamux::config::stream_open_timeout defaults to 30000");
+    runner.Check(cfg.stream_close_timeout == 30000, "yamux::config::stream_close_timeout defaults to 30000");
+    runner.Check(cfg.udp_idle_timeout == 60000, "yamux::config::udp_idle_timeout defaults to 60000");
+    runner.Check(cfg.udp_max_dgram == 65535, "yamux::config::udp_max_dgram defaults to 65535");
 }
 
 // ---------- multiplex config ----------
@@ -105,19 +105,19 @@ void TestMultiplexConfigDefaults()
     // 验证子配置继承各自默认值
     runner.Check(cfg.smux.max_streams == 32, "multiplex::config::smux.max_streams defaults to 32");
     runner.Check(cfg.smux.buffer_size == 4096, "multiplex::config::smux.buffer_size defaults to 4096");
-    runner.Check(cfg.smux.keepalive_interval_ms == 30000, "multiplex::config::smux.keepalive_interval_ms defaults to 30000");
-    runner.Check(cfg.smux.udp_idle_timeout_ms == 60000, "multiplex::config::smux.udp_idle_timeout_ms defaults to 60000");
-    runner.Check(cfg.smux.udp_max_datagram == 65535, "multiplex::config::smux.udp_max_datagram defaults to 65535");
+    runner.Check(cfg.smux.keepalive_interval == 30000, "multiplex::config::smux.keepalive_interval defaults to 30000");
+    runner.Check(cfg.smux.udp_idle_timeout == 60000, "multiplex::config::smux.udp_idle_timeout defaults to 60000");
+    runner.Check(cfg.smux.udp_max_dgram == 65535, "multiplex::config::smux.udp_max_dgram defaults to 65535");
 
     runner.Check(cfg.yamux.max_streams == 32, "multiplex::config::yamux.max_streams defaults to 32");
     runner.Check(cfg.yamux.buffer_size == 4096, "multiplex::config::yamux.buffer_size defaults to 4096");
     runner.Check(cfg.yamux.initial_window == 256 * 1024, "multiplex::config::yamux.initial_window defaults to 256KB");
     runner.Check(cfg.yamux.enable_ping == true, "multiplex::config::yamux.enable_ping defaults to true");
-    runner.Check(cfg.yamux.ping_interval_ms == 30000, "multiplex::config::yamux.ping_interval_ms defaults to 30000");
-    runner.Check(cfg.yamux.stream_open_timeout_ms == 30000, "multiplex::config::yamux.stream_open_timeout_ms defaults to 30000");
-    runner.Check(cfg.yamux.stream_close_timeout_ms == 30000, "multiplex::config::yamux.stream_close_timeout_ms defaults to 30000");
-    runner.Check(cfg.yamux.udp_idle_timeout_ms == 60000, "multiplex::config::yamux.udp_idle_timeout_ms defaults to 60000");
-    runner.Check(cfg.yamux.udp_max_datagram == 65535, "multiplex::config::yamux.udp_max_datagram defaults to 65535");
+    runner.Check(cfg.yamux.ping_interval == 30000, "multiplex::config::yamux.ping_interval defaults to 30000");
+    runner.Check(cfg.yamux.stream_open_timeout == 30000, "multiplex::config::yamux.stream_open_timeout defaults to 30000");
+    runner.Check(cfg.yamux.stream_close_timeout == 30000, "multiplex::config::yamux.stream_close_timeout defaults to 30000");
+    runner.Check(cfg.yamux.udp_idle_timeout == 60000, "multiplex::config::yamux.udp_idle_timeout defaults to 60000");
+    runner.Check(cfg.yamux.udp_max_dgram == 65535, "multiplex::config::yamux.udp_max_dgram defaults to 65535");
 }
 
 /**

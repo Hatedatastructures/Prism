@@ -20,13 +20,13 @@ namespace
     int passed = 0;
     int failed = 0;
 
-    auto LogPass(const std::string &msg) -> void
+    void LogPass(const std::string &msg)
     {
         ++passed;
         psm::trace::info("[Reality] PASS: {}", msg);
     }
 
-    auto LogFail(const std::string &msg) -> void
+    void LogFail(const std::string &msg)
     {
         ++failed;
         psm::trace::error("[Reality] FAIL: {}", msg);
@@ -55,7 +55,7 @@ namespace
                 return {};
             }
 
-            if (msg_type != psm::protocol::tls::HANDSHAKE_TYPE_CERTIFICATE)
+            if (msg_type != psm::protocol::tls::HS_CERTIFICATE)
             {
                 offset += msg_len;
                 continue;
@@ -113,17 +113,17 @@ void TestRealityCertificateParsesAsEd25519()
     auto eph = crypto::generate_x25519_keypair();
 
     key_material keys{};
-    for (std::size_t i = 0; i < keys.server_finished_key.size(); ++i)
+    for (std::size_t i = 0; i < keys.server_finkey.size(); ++i)
     {
-        keys.server_finished_key[i] = static_cast<std::uint8_t>(i + 1);
+        keys.server_finkey[i] = static_cast<std::uint8_t>(i + 1);
     }
-    for (std::size_t i = 0; i < keys.server_handshake_key.size(); ++i)
+    for (std::size_t i = 0; i < keys.server_hskey.size(); ++i)
     {
-        keys.server_handshake_key[i] = static_cast<std::uint8_t>(0x10 + i);
+        keys.server_hskey[i] = static_cast<std::uint8_t>(0x10 + i);
     }
-    for (std::size_t i = 0; i < keys.server_handshake_iv.size(); ++i)
+    for (std::size_t i = 0; i < keys.server_hsiv.size(); ++i)
     {
-        keys.server_handshake_iv[i] = static_cast<std::uint8_t>(0x20 + i);
+        keys.server_hsiv[i] = static_cast<std::uint8_t>(0x20 + i);
     }
 
     std::array<std::uint8_t, 32> auth_key{};
@@ -132,21 +132,22 @@ void TestRealityCertificateParsesAsEd25519()
         auth_key[i] = static_cast<std::uint8_t>(0x40 + i);
     }
 
-    const auto [ec, sh] = generate_server_hello(
-        client_hello,
-        std::span<const std::uint8_t>(eph.public_key.data(), eph.public_key.size()),
-        keys,
-        {},
-        std::span<const std::uint8_t>(client_hello.raw_hs_msg.data(), client_hello.raw_hs_msg.size()),
-        std::span<const std::uint8_t>(auth_key.data(), auth_key.size()));
+    const auto [ec, sh] = generate_shello(
+        hello_request{
+            client_hello,
+            std::span<const std::uint8_t>(eph.public_key.data(), eph.public_key.size()),
+            keys,
+            {},
+            std::span<const std::uint8_t>(client_hello.raw_hs_msg.data(), client_hello.raw_hs_msg.size()),
+            std::span<const std::uint8_t>(auth_key.data(), auth_key.size())});
 
     if (fault::failed(ec))
     {
-        LogFail("generate_server_hello failed");
+        LogFail("generate_shello failed");
         return;
     }
 
-    const auto cert_der = ExtractLeafCertDer(sh.encrypted_handshake_plaintext);
+    const auto cert_der = ExtractLeafCertDer(sh.enc_hs_plain);
     if (cert_der.empty())
     {
         LogFail("failed to extract leaf certificate DER from handshake plaintext");

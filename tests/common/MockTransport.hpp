@@ -198,7 +198,7 @@ namespace psm::testing
          * 必须通过 io_context.run() 或 io_context.poll() 驱动才能被读协程感知。
          * @param data 要注入的数据
          */
-        auto inject_read(std::vector<std::byte> data) -> void
+        void inject_read(std::vector<std::byte> data)
         {
             read_queue_.push_back(std::move(data));
         }
@@ -209,7 +209,7 @@ namespace psm::testing
          * @param data 数据指针
          * @param size 数据长度
          */
-        auto inject_read(const std::byte *data, std::size_t size) -> void
+        void inject_read(const std::byte *data, std::size_t size)
         {
             read_queue_.emplace_back(data, data + size);
         }
@@ -226,7 +226,7 @@ namespace psm::testing
         /**
          * @brief 清空已写入的数据缓冲区
          */
-        auto clear_written_data() -> void
+        void clear_written_data()
         {
             written_data_.clear();
         }
@@ -235,7 +235,7 @@ namespace psm::testing
          * @brief 设置下次读取返回的错误码
          * @param ec 错误码
          */
-        auto set_read_error(std::error_code ec) -> void
+        void set_read_error(std::error_code ec)
         {
             read_error_ = ec;
         }
@@ -244,7 +244,7 @@ namespace psm::testing
          * @brief 设置下次写入返回的错误码
          * @param ec 错误码
          */
-        auto set_write_error(std::error_code ec) -> void
+        void set_write_error(std::error_code ec)
         {
             write_error_ = ec;
         }

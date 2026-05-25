@@ -99,7 +99,7 @@ namespace psm::transport
          * @details 返回底层 socket 关联的执行器，用于调度异步操作。
          * @return executor_type 执行器
          */
-        executor_type executor() const override
+        [[nodiscard]] executor_type executor() const override
         {
             return const_cast<socket_type &>(native_socket()).get_executor();
         }
@@ -127,7 +127,7 @@ namespace psm::transport
          * @param ec 错误码输出参数
          * @return net::awaitable<std::size_t> 异步操作，完成后返回读取的字节数
          */
-        auto async_read_some(std::span<std::byte> buffer, std::error_code &ec)
+        [[nodiscard]] auto async_read_some(std::span<std::byte> buffer, std::error_code &ec)
             -> net::awaitable<std::size_t> override
         {
             boost::system::error_code sys_ec;
@@ -175,7 +175,7 @@ namespace psm::transport
          * @param ec 错误码输出参数
          * @return net::awaitable<std::size_t> 异步操作，完成后返回写入的字节数
          */
-        auto async_write_some(std::span<const std::byte> buffer, std::error_code &ec)
+        [[nodiscard]] auto async_write_some(std::span<const std::byte> buffer, std::error_code &ec)
             -> net::awaitable<std::size_t> override
         {
             boost::system::error_code sys_ec;
@@ -245,7 +245,7 @@ namespace psm::transport
          * @return socket_type& socket 引用
          * @note 用于需要直接操作 socket 的场景（如设置 TCP_NODELAY）。
          */
-        socket_type &native_socket() noexcept
+        [[nodiscard]] socket_type &native_socket() noexcept
         {
             if (pooled_.valid())
             {
@@ -259,7 +259,7 @@ namespace psm::transport
          * @details 返回底层 TCP socket 的常量引用，用于只读访问。
          * @return const socket_type& socket 常量引用
          */
-        const socket_type &native_socket() const noexcept
+        [[nodiscard]] const socket_type &native_socket() const noexcept
         {
             if (pooled_.valid())
             {
@@ -275,7 +275,7 @@ namespace psm::transport
          * @return socket_type socket（可能已移动），池连接或无 socket 时返回 std::nullopt
          * @warning 调用后 reliable transport 不再可用
          */
-        std::optional<socket_type> release_socket() noexcept
+        [[nodiscard]] std::optional<socket_type> release_socket() noexcept
         {
             if (pooled_.valid())
             {
@@ -304,7 +304,7 @@ namespace psm::transport
      * @param executor 执行器
      * @return shared_transmission 创建的 reliable 实例
      */
-    inline shared_transmission make_reliable(net::any_io_executor executor)
+    [[nodiscard]] inline shared_transmission make_reliable(const net::any_io_executor& executor)
     {
         return std::make_shared<reliable>(executor);
     }
@@ -316,7 +316,7 @@ namespace psm::transport
      * @param socket TCP socket
      * @return shared_transmission 创建的 reliable 实例
      */
-    inline shared_transmission make_reliable(net::ip::tcp::socket socket)
+    [[nodiscard]] inline shared_transmission make_reliable(net::ip::tcp::socket socket)
     {
         return std::make_shared<reliable>(std::move(socket));
     }
@@ -329,7 +329,7 @@ namespace psm::transport
      * @return shared_transmission 创建的 reliable 实例
      * @note 该重载用于连接池复用场景
      */
-    inline shared_transmission make_reliable(psm::connect::pooled_connection pooled)
+    [[nodiscard]] inline shared_transmission make_reliable(psm::connect::pooled_connection pooled)
     {
         return std::make_shared<reliable>(std::move(pooled));
     }

@@ -32,12 +32,12 @@ namespace psm::resolve::dns
     {
     }
 
-    auto upstream::get_ssl_context(const dns_remote &server)
+    auto upstream::get_ssl_ctx(const dns_remote &server)
         -> std::shared_ptr<ssl::context>
     {
         const auto hostname = server.hostname.empty() ? server.address : server.hostname;
-        const bool verify_peer = !server.no_check_certificate;
-        ssl_cache_key key{memory::string(hostname, mr_), verify_peer};
+        const bool verify_peer = !server.skip_cert_check;
+        ssl_key key{memory::string(hostname, mr_), verify_peer};
 
         if (auto it = ssl_cache_.find(key); it != ssl_cache_.end())
         {
@@ -64,7 +64,7 @@ namespace psm::resolve::dns
         return ctx;
     }
 
-    void upstream::set_servers(const memory::vector<dns_remote> servers)
+    void upstream::set_servers(const memory::vector<dns_remote>& servers)
     {
         servers_ = servers;
     }
@@ -101,8 +101,7 @@ namespace psm::resolve::dns
         };
 
         // 为 TCP socket 装配超时回调
-        auto arm_tcp(transport_context &ctx, const std::shared_ptr<net::ip::tcp::socket> &sock)
-            -> void
+        void arm_tcp(transport_context &ctx, const std::shared_ptr<net::ip::tcp::socket> &sock)
         {
             ctx.timer.expires_after(std::chrono::milliseconds(ctx.timeout_ms));
             ctx.timer.async_wait([sock](boost::system::error_code e)
@@ -114,8 +113,7 @@ namespace psm::resolve::dns
         }
 
         // 为 SSL stream 装配超时回调
-        auto arm_ssl_stream(transport_context &ctx, const std::shared_ptr<ssl::stream<net::ip::tcp::socket>> &ssl_sock)
-            -> void
+        void arm_ssl_stream(transport_context &ctx, const std::shared_ptr<ssl::stream<net::ip::tcp::socket>> &ssl_sock)
         {
             ctx.timer.expires_after(std::chrono::milliseconds(ctx.timeout_ms));
             ctx.timer.async_wait([ssl_sock](boost::system::error_code e)
@@ -588,32 +586,40 @@ namespace psm::resolve::dns
 
         // ─── 公共查询管道 ─────────────────────────────────────
 
+        // 查询上下文：聚合 query_via 的多个参数，避免函数参数超过 3 个
+        struct query_context
+        {
+            const dns_remote &server;                  ///< 目标上游服务器配置
+            const message &query;                      ///< DNS 查询报文
+            uint32_t default_timeout;                  ///< 默认超时（毫秒）
+            memory::resource_pointer mr;               ///< PMR 内存资源
+        };
+
         // 执行完整的 DNS 查询流程：connect -> send -> recv -> parse -> validate
         template <typename Transport>
-        auto query_via(Transport transport, const dns_remote &server, const message &query,
-                       net::io_context &ioc, uint32_t default_timeout, memory::resource_pointer mr)
+        auto query_via(Transport transport, net::io_context &ioc, query_context qctx)
             -> net::awaitable<transport_result>
         {
             const auto start = std::chrono::steady_clock::now();
-            auto result = query_result(mr);
+            auto result = query_result(qctx.mr);
             transport_result tr;
 
-            const auto effective_timeout = server.timeout_ms > 0 ? server.timeout_ms : default_timeout;
+            const auto effective_timeout = qctx.server.timeout_ms > 0 ? qctx.server.timeout_ms : qctx.default_timeout;
             transport_context ctx(ioc, effective_timeout);
             boost::system::error_code ec;
 
             // 1. 建立连接
-            co_await transport.connect(ioc, server, ctx, ec);
+            co_await transport.connect(ioc, qctx.server, ctx, ec);
             if (ec) [[unlikely]]
             {
                 if (is_timeout(ec))
                 {
-                    trace::warn("[Resolve] connect to {}:{} timed out", server.address, server.port);
+                    trace::warn("[Resolve] connect to {}:{} timed out", qctx.server.address, qctx.server.port);
                     result.error = fault::code::timeout;
                 }
                 else
                 {
-                    trace::warn("[Resolve] connect to {}:{} failed: {}", server.address, server.port, ec.message());
+                    trace::warn("[Resolve] connect to {}:{} failed: {}", qctx.server.address, qctx.server.port, ec.message());
                     result.error = fault::code::io_error;
                 }
                 tr.result = std::move(result);
@@ -621,18 +627,18 @@ namespace psm::resolve::dns
             }
 
             // 2. 序列化并发送查询
-            auto payload = query.pack();
+            auto payload = qctx.query.pack();
             co_await transport.send(payload, ctx, ec);
             if (ec) [[unlikely]]
             {
-                trace::warn("[Resolve] write to {} failed: {}", server.address, ec.message());
+                trace::warn("[Resolve] write to {} failed: {}", qctx.server.address, ec.message());
                 result.error = is_timeout(ec) ? fault::code::timeout : fault::code::io_error;
                 tr.result = std::move(result);
                 co_return tr;
             }
 
             // 3. 接收响应
-            auto response_buf = co_await transport.recv(mr, ctx, ec);
+            auto response_buf = co_await transport.recv(qctx.mr, ctx, ec);
 
             // 4. 关闭连接（确保在错误路径上也关闭）
             transport.close();
@@ -642,18 +648,18 @@ namespace psm::resolve::dns
                                  std::chrono::steady_clock::now() - start)
                                  .count();
             result.rtt_ms = static_cast<uint64_t>(rtt);
-            result.server_addr = memory::string(server.address, mr);
+            result.server_addr = memory::string(qctx.server.address, qctx.mr);
 
             if (ec) [[unlikely]]
             {
                 if (is_timeout(ec))
                 {
-                    trace::warn("[Resolve] recv from {} timed out ({}ms)", server.address, effective_timeout);
+                    trace::warn("[Resolve] recv from {} timed out ({}ms)", qctx.server.address, effective_timeout);
                     result.error = fault::code::timeout;
                 }
                 else
                 {
-                    trace::warn("[Resolve] recv from {} failed: {}", server.address, ec.message());
+                    trace::warn("[Resolve] recv from {} failed: {}", qctx.server.address, ec.message());
                     result.error = fault::code::io_error;
                 }
                 tr.result = std::move(result);
@@ -663,17 +669,17 @@ namespace psm::resolve::dns
             // 6. 解析响应报文
             if (response_buf.empty()) [[unlikely]]
             {
-                trace::warn("[Resolve] empty response from {}", server.address);
+                trace::warn("[Resolve] empty response from {}", qctx.server.address);
                 result.error = fault::code::bad_message;
                 tr.result = std::move(result);
                 co_return tr;
             }
 
             auto resp = message::unpack(
-                std::span<const uint8_t>(response_buf.data(), response_buf.size()), mr);
-            if (!resp || resp->id != query.id) [[unlikely]]
+                std::span<const uint8_t>(response_buf.data(), response_buf.size()), qctx.mr);
+            if (!resp || resp->id != qctx.query.id) [[unlikely]]
             {
-                trace::warn("[Resolve] bad response from {}", server.address);
+                trace::warn("[Resolve] bad response from {}", qctx.server.address);
                 result.error = fault::code::bad_message;
                 tr.result = std::move(result);
                 co_return tr;
@@ -682,7 +688,7 @@ namespace psm::resolve::dns
             // 7. 检查 RCODE（0 = NoError, 3 = NXDomain 均视为可处理）
             if (resp->rcode != 0 && resp->rcode != 3) [[unlikely]]
             {
-                trace::warn("[Resolve] rcode={} from {}", resp->rcode, server.address);
+                trace::warn("[Resolve] rcode={} from {}", resp->rcode, qctx.server.address);
                 result.response = std::move(*resp);
                 result.error = fault::code::dns_failed;
                 tr.result = std::move(result);
@@ -706,7 +712,7 @@ namespace psm::resolve::dns
         -> net::awaitable<query_result>
     {
         auto [result, resp] = co_await query_via(
-            udp_transport{}, server, query, ioc_, timeout_ms_, mr_);
+            udp_transport{}, ioc_, {server, query, timeout_ms_, mr_});
 
         // TC 截断回退：UDP 响应被截断时自动重试 TCP
         if (succeeded(result.error) && resp && resp->tc) [[unlikely]]
@@ -721,30 +727,30 @@ namespace psm::resolve::dns
         -> net::awaitable<query_result>
     {
         auto [result, resp] = co_await query_via(
-            tcp_transport{}, server, query, ioc_, timeout_ms_, mr_);
+            tcp_transport{}, ioc_, {server, query, timeout_ms_, mr_});
         co_return std::move(result);
     }
 
     auto upstream::query_tls(const dns_remote &server, const message &query)
         -> net::awaitable<query_result>
     {
-        auto ssl_ctx = get_ssl_context(server);
+        auto ssl_ctx = get_ssl_ctx(server);
         auto [result, resp] = co_await query_via(
-            tls_transport{nullptr, ssl_ctx}, server, query, ioc_, timeout_ms_, mr_);
+            tls_transport{nullptr, ssl_ctx}, ioc_, {server, query, timeout_ms_, mr_});
         co_return std::move(result);
     }
 
     auto upstream::query_https(const dns_remote &server, const message &query)
         -> net::awaitable<query_result>
     {
-        auto ssl_ctx = get_ssl_context(server);
+        auto ssl_ctx = get_ssl_ctx(server);
         const auto host_header = server.hostname.empty() ? server.address : server.hostname;
         auto [result, resp] = co_await query_via(
             https_transport{
                 nullptr, ssl_ctx,
                 memory::string(server.http_path, mr_),
                 memory::string(host_header, mr_)},
-            server, query, ioc_, timeout_ms_, mr_);
+            ioc_, {server, query, timeout_ms_, mr_});
         co_return std::move(result);
     }
 

@@ -29,19 +29,19 @@ namespace
         return oss.str();
     }
 
-    auto LogPass(const std::string_view msg) -> void
+    void LogPass(const std::string_view msg)
     {
         ++passed;
         psm::trace::info("[Shadowtls] PASS: {}", std::string{msg});
     }
 
-    auto LogFail(const std::string_view msg) -> void
+    void LogFail(const std::string_view msg)
     {
         ++failed;
         psm::trace::error("[Shadowtls] FAIL: {}", std::string{msg});
     }
 
-    auto Check(const bool condition, const std::string_view message) -> void
+    void Check(const bool condition, const std::string_view message)
     {
         if (condition) LogPass(message); else LogFail(message);
     }

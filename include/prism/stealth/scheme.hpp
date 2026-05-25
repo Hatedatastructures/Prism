@@ -23,9 +23,9 @@
 #include <prism/transport/transmission.hpp>
 #include <prism/fault/code.hpp>
 #include <prism/memory/container.hpp>
-#include <prism/protocol/protocol_type.hpp>
+#include <prism/protocol/types.hpp>
 #include <prism/protocol/tls/types.hpp>
-#include <prism/recognition/tls/feature_bitmap.hpp>
+#include <prism/recognition/tls/features.hpp>
 
 namespace psm::connect
 {
@@ -110,6 +110,7 @@ namespace psm::stealth
         memory::vector<std::byte> preread;        ///< 内层预读数据
         fault::code error = fault::code::success; ///< 错误码
         memory::string scheme;                    ///< 成功执行的方案名
+        bool polluted{false};                     ///< 握手已向客户端写入数据但最终失败，不可 rewind
     };
 
     /**
@@ -172,7 +173,7 @@ namespace psm::stealth
             -> bool = 0;
 
         /// 获取 SNI 白名单
-        [[nodiscard]] virtual auto snis(const psm::config &cfg) const
+        [[nodiscard]] virtual auto snis(const psm::config & /*cfg*/) const
             -> memory::vector<memory::string>
         {
             return {}; // 默认无 SNI 白名单
@@ -188,7 +189,7 @@ namespace psm::stealth
          * @details 只做字节比较，不涉及 HMAC 或解密。
          * 例如 Reality 检查 session_id[0:3] == [0x01, 0x08, 0x02]。
          */
-        [[nodiscard]] virtual auto sniff(std::uint32_t bitmap, const hello_features &features) const
+        [[nodiscard]] virtual auto sniff(std::uint32_t /*bitmap*/, const hello_features & /*features*/) const
             -> sniff_result
         {
             // 默认：不支持快速检测
@@ -206,7 +207,7 @@ namespace psm::stealth
          * @details 涉及 HMAC 验证或解密，延迟执行。
          * 例如 ShadowTLS HMAC 验证、AnyTLS ECH 解密。
          */
-        [[nodiscard]] virtual auto verify(const hello_features &features, std::span<const std::byte> raw, const psm::config &cfg) const
+        [[nodiscard]] virtual auto verify(const hello_features & /*features*/, std::span<const std::byte> /*raw*/, const psm::config & /*cfg*/) const
             -> verify_result
         {
             // 默认：不支持详细检测
@@ -222,7 +223,7 @@ namespace psm::stealth
          * @details 无 ClientHello 独占特征，依赖 SNI 匹配。
          * 例如 Restls、TrustTunnel、Native。
          */
-        [[nodiscard]] virtual auto guess(const psm::config &cfg) const
+        [[nodiscard]] virtual auto guess(const psm::config & /*cfg*/) const
             -> verify_result
         {
             // 默认：返回权重分

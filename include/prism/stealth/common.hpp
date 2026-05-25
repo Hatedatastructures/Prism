@@ -35,7 +35,7 @@ namespace psm::stealth::common
     {
         std::array<std::uint8_t, 12> nonce{};
         std::memcpy(nonce.data(), iv.data(), 12);
-        for (int i = 0; i < 8; ++i)
+        for (std::size_t i = 0; i < 8; ++i)
         {
             nonce[12 - 1 - i] ^= static_cast<std::uint8_t>((sequence >> (8 * i)) & 0xFF);
         }
@@ -82,7 +82,7 @@ namespace psm::stealth::common
      * @param deadline 可选超时定时器，非空时设置 30 秒超时，到期取消 socket
      * @return 完整 TLS 帧数据，读取失败时返回 std::nullopt
      */
-    auto read_raw_tls_frame(net::ip::tcp::socket &sock, std::error_code &ec,
+    [[nodiscard]] auto read_raw_tls_frame(net::ip::tcp::socket &sock, std::error_code &ec,
                             net::steady_timer *deadline = nullptr)
         -> net::awaitable<std::optional<memory::vector<std::byte>>>;
 

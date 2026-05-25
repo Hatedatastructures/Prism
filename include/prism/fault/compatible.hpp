@@ -85,7 +85,7 @@ namespace psm::fault
      * @details 首次调用时构造单例，C++11 保证线程安全。
      * @warning 不要在静态析构阶段使用返回的引用。
      */
-    inline const std::error_category &category() noexcept
+    [[nodiscard]] inline const std::error_category &category() noexcept
     {
         static fault_category instance;
         return instance;
@@ -99,7 +99,7 @@ namespace psm::fault
      * 配合 is_error_code_enum 特化支持隐式转换。
      * @note 通常不需要显式调用此函数。
      */
-    inline std::error_code make_error_code(code c) noexcept
+    [[nodiscard]] inline std::error_code make_error_code(code c) noexcept
     {
         return {static_cast<int>(c), category()};
     }
@@ -186,7 +186,7 @@ namespace boost::system
      * @details 首次调用时构造单例，C++11 保证线程安全。
      * @warning 不要在静态析构阶段使用返回的引用。
      */
-    inline const error_category &category() noexcept
+    [[nodiscard]] inline const error_category &category() noexcept
     {
         static fault_category instance;
         return instance;
@@ -199,7 +199,7 @@ namespace boost::system
      * @details 将 fault::code 枚举值转换为
      * boost::system::error_code，配合特化支持隐式转换。
      */
-    inline error_code make_error_code(const psm::fault::code c) noexcept
+    [[nodiscard]] inline error_code make_error_code(const psm::fault::code c) noexcept
     {
         return {static_cast<int>(c), category()};
     }

@@ -11,8 +11,8 @@
  */
 
 #include <prism/recognition/probe/probe.hpp>
-#include <prism/recognition/scheme_route_table.hpp>
-#include <prism/recognition/tls/feature_bitmap.hpp>
+#include <prism/recognition/routes.hpp>
+#include <prism/recognition/tls/features.hpp>
 #include <prism/protocol/tls/types.hpp>
 #include <prism/stealth/reality/scheme.hpp>
 #include <prism/stealth/registry.hpp>

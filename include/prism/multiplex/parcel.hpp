@@ -37,6 +37,30 @@ namespace psm::multiplex
     namespace net = boost::asio;
 
     /**
+     * @brief 地址编码模式
+     * @details 控制 UDP 数据报在 mux 帧中的地址编码方式。
+     */
+    enum class addr_mode : std::uint8_t
+    {
+        length_prefixed,  ///< 仅 length+payload，目标地址使用 SYN 时解析的地址
+        packet_addr       ///< 每帧携带 SOCKS5 地址格式的目标地址
+    };
+
+    /**
+     * @brief parcel 构造配置
+     * @details 将 parcel 构造所需的流标识符、UDP 参数、内存资源和地址编码模式
+     * 聚合为单一结构体，降低构造函数和工厂函数的参数数量。
+     */
+    struct parcel_config
+    {
+        std::uint32_t stream_id = 0;                         ///< 流标识符，由 mux 协议在 SYN 帧中分配
+        std::uint32_t udp_idle_timeout = 30000;           ///< UDP 管道空闲超时（毫秒），超时自动关闭
+        std::uint32_t udp_max_dgram = 4096;               ///< UDP 数据报最大长度（字节）
+        memory::resource_pointer mr;                         ///< PMR 内存资源，用于分配缓冲区和编码数据
+        addr_mode mode = addr_mode::length_prefixed;         ///< 地址编码模式
+    };
+
+    /**
      * @class parcel
      * @brief 多路复用 UDP 数据报管道，属于 core 管理的活跃 UDP 流，在 core 的下层
      * @details parcel 管理单条 UDP 流的完整生命周期，从 activate_stream 解析出
@@ -61,30 +85,24 @@ namespace psm::multiplex
     public:
         /**
          * @brief 构造 parcel
-         * @param stream_id 流标识符，由 mux 协议在 SYN 帧中分配
+         * @param config parcel 配置结构体，包含流标识符、UDP 参数、内存资源和地址编码模式
          * @param owner 所属 core 的共享指针，用于调用 send_data 发送 mux 帧
          * @param router 路由器引用，用于 DNS 解析目标主机名
-         * @param udp_idle_timeout UDP 管道空闲超时（毫秒），超时自动关闭
-         * @param udp_max_dg UDP 数据报最大长度（字节）
-         * @param mr PMR 内存资源，用于分配缓冲区和编码数据
-         * @param packet_addr 是否为 PacketAddr 模式（每帧携带目标地址）
          * @details 构造后 parcel 处于就绪状态，需调用 start() 启动空闲超时监控。
          * egress_socket_ 延迟创建，首次发送数据报时按目标协议族（IPv4/IPv6）初始化。
-         * packet_addr=true 时每帧使用 SOCKS5 地址格式，packet_addr=false 时使用
+         * packet_addr 模式时每帧使用 SOCKS5 地址格式，length_prefixed 模式时使用
          * length-prefixed 格式（目标地址使用 SYN 时解析的地址）。
          * @note 方法定义在 parcel.cpp 中
          */
-        parcel(std::uint32_t stream_id, std::shared_ptr<core> owner,
-               connect::router &router,
-               std::uint32_t udp_idle_timeout, std::uint32_t udp_max_dg,
-               memory::resource_pointer mr, bool packet_addr = false);
+        parcel(const parcel_config& config, const std::shared_ptr<core>& owner,
+               connect::router &router);
 
         ~parcel();
 
         /**
          * @brief 启动空闲超时监控
          * @details 通过 co_spawn 启动 uplink_loop 协程，监控 parcel 数据活动。
-         * 空闲超时由 config::udp_idle_timeout_ms 控制，超时后自动 close()。
+         * 空闲超时由 config::udp_idle_timeout 控制，超时后自动 close()。
          * uplink_loop 通过 shared_from_this 持有 self 保活。
          * @note 方法定义在 parcel.cpp 中
          */
@@ -123,10 +141,10 @@ namespace psm::multiplex
         }
 
         /**
-         * @brief 设置无 PacketAddr 模式的固定目标地址
+         * @brief 设置 length_prefixed 模式的固定目标地址
          * @param host 目标主机名
          * @param port 目标端口
-         * @details 仅在 packet_addr=false 模式下有效。目标地址在 SYN 阶段解析，
+         * @details 仅在 length_prefixed 模式下有效。目标地址在 SYN 阶段解析，
          * 后续所有数据报发送到同一目标。
          */
         void set_destination(std::string_view host, std::uint16_t port)
@@ -166,7 +184,7 @@ namespace psm::multiplex
          * 首次发送时启动 downlink_loop 协程异步读取响应并回传。
          * @note 方法定义在 parcel.cpp 中
          */
-        auto do_send(const memory::string &target_host, std::uint16_t target_port, std::span<const std::byte> payload)
+        [[nodiscard]] auto do_send(const memory::string &target_host, std::uint16_t target_port, std::span<const std::byte> payload)
             -> net::awaitable<void>;
 
         /**
@@ -181,7 +199,7 @@ namespace psm::multiplex
 
         /**
          * @brief 重置空闲计时器
-         * @details 将 idle_timer_ 的超时时间重新设置为 config_.udp_idle_timeout_ms，
+         * @details 将 idle_timer_ 的超时时间重新设置为 config_.udp_idle_timeout，
          * 延迟管道的空闲关闭。每次 on_mux_data 调用时触发。
          * @note 方法定义在 parcel.cpp 中
          */
@@ -196,18 +214,18 @@ namespace psm::multiplex
          * 协议切换时（目标从 IPv4 变为 IPv6 或反之）自动重建 socket。
          * @note 方法定义在 parcel.cpp 中
          */
-        auto ensure_socket(net::ip::udp::endpoint::protocol_type protocol)
+        [[nodiscard]] auto ensure_socket(net::ip::udp::endpoint::protocol_type protocol)
             -> net::awaitable<bool>;
 
         std::uint32_t id_;                   // 流标识符，由 mux SYN 帧分配
         std::weak_ptr<core> owner_;          // 所属 core 的弱引用，不构成循环引用
         connect::router &router_;            // 路由器引用，用于 DNS 解析目标主机名
         net::any_io_executor executor_;      // 缓存的 executor，core 销毁后仍可用
-        std::uint32_t udp_idle_timeout_ms_;  // UDP 管道空闲超时（毫秒）
-        std::uint32_t udp_max_datagram_;     // UDP 数据报最大长度（字节）
+        std::uint32_t udp_idle_timeout_;  // UDP 管道空闲超时（毫秒）
+        std::uint32_t udp_max_dgram_;     // UDP 数据报最大长度（字节）
         memory::resource_pointer mr_;        // PMR 内存资源，用于缓冲区分配
         bool closed_ = false;                // 关闭标志，close() 幂等性保证
-        bool packet_addr_ = false;           // PacketAddr 模式标志，true=每帧带地址，false=仅 length+payload
+        addr_mode addr_mode_ = addr_mode::length_prefixed; // 地址编码模式
         memory::string destination_host_;    // 无 PacketAddr 模式时，SYN 阶段解析的目标主机
         std::uint16_t destination_port_ = 0; // 无 PacketAddr 模式时，SYN 阶段解析的目标端口
 
@@ -226,22 +244,16 @@ namespace psm::multiplex
 
     /**
      * @brief 创建 parcel 共享指针
-     * @param stream_id 流标识符
+     * @param config parcel 配置结构体
      * @param owner 所属 core 的共享指针
      * @param router 路由器引用
-     * @param udp_idle_timeout UDP 管道空闲超时（毫秒）
-     * @param udp_max_dg UDP 数据报最大长度（字节）
-     * @param mr PMR 内存资源
-     * @param packet_addr 是否为 PacketAddr 模式
      * @return parcel 的共享指针
      */
-    [[nodiscard]] inline auto make_parcel(std::uint32_t stream_id, std::shared_ptr<core> owner,
-                                          connect::router &router, std::uint32_t udp_idle_timeout, std::uint32_t udp_max_dg,
-                                          memory::resource_pointer mr = {}, bool packet_addr = false)
+    [[nodiscard]] inline auto make_parcel(const parcel_config& config, const std::shared_ptr<core>& owner,
+                                          connect::router &router)
         -> std::shared_ptr<parcel>
     {
-        return std::make_shared<parcel>(stream_id, std::move(owner), router,
-                                        udp_idle_timeout, udp_max_dg, mr, packet_addr);
+        return std::make_shared<parcel>(config, std::move(owner), router);
     }
 
 } // namespace psm::multiplex

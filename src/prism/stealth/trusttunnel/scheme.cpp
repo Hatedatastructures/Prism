@@ -1,11 +1,3 @@
-/**
- * @file scheme.cpp
- * @brief TrustTunnel 伪装方案实现
- * @details Path A TLS 终结 + h2mux HTTP/2 CONNECT 多路复用。
- * SSL 握手（ALPN=h2）→ h2mux::craft → CONNECT → Basic auth → 200 OK → duct/parcel。
- * 所有 stream 由 craft 内部管理，不经过 session::diversion() 分发。
- */
-
 #include <prism/stealth/trusttunnel/scheme.hpp>
 #include <prism/multiplex/h2mux/craft.hpp>
 #include <prism/connect/util.hpp>
@@ -13,7 +5,7 @@
 #include <prism/context/context.hpp>
 #include <prism/transport/encrypted.hpp>
 #include <prism/transport/preview.hpp>
-#include <prism/protocol/protocol_type.hpp>
+#include <prism/protocol/types.hpp>
 #include <prism/trace.hpp>
 #include <prism/fault/handling.hpp>
 #include <prism/memory/container.hpp>
@@ -220,8 +212,12 @@ namespace psm::stealth::trusttunnel
 
         auto mux_cfg = ctx.cfg->mux;
         auto craft = std::make_shared<multiplex::h2mux::craft>(
-            encrypted_trans, ctx.session->worker_ctx.router, mux_cfg,
-            trusttunnel_resolver);
+            encrypted_trans,
+            multiplex::h2mux::craft_init{
+                ctx.session->worker_ctx.router,
+                mux_cfg,
+                trusttunnel_resolver
+            });
 
         // Step 3: 启动 craft（nghttp2 session 初始化 + frame_loop）
         craft->start();
@@ -244,7 +240,7 @@ namespace psm::stealth::trusttunnel
         if (cfg.users.empty() || !verify_basic_auth(auth_view, cfg.users))
         {
             trace::warn("[TrustTunnel] Authentication failed");
-            craft->respond_connect(first.stream_id, 407);
+            (void)craft->respond_connect(first.stream_id, 407);
             co_await craft->send_pending();
             result.error = fault::code::auth_failed;
             co_return result;
@@ -253,7 +249,7 @@ namespace psm::stealth::trusttunnel
         trace::debug("[TrustTunnel] Authenticated, authority={}", first.authority);
 
         // Step 6: 回复 200 OK + 激活第一个 stream
-        craft->respond_connect(first.stream_id, 200);
+        (void)craft->respond_connect(first.stream_id, 200);
         co_await craft->send_pending();
         co_await craft->activate_stream(first.stream_id);
 

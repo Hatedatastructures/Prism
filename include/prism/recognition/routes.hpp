@@ -1,5 +1,5 @@
 /**
- * @file scheme_route_table.hpp
+ * @file routes.hpp
  * @brief SNI 路由表
  * @details 根据 ClientHello SNI 快速路由到对应伪装方案。
  * 从配置构建，启动时初始化，支持多方案共享同一 SNI（返回多个候选）。
@@ -44,7 +44,7 @@ namespace psm::recognition
          * @details 遍历所有 stealth 方案的 server_names，
          * 构建 SNI → 方案名称的映射。
          */
-        static auto build(const psm::config &cfg)
+        [[nodiscard]] static auto build(const psm::config &cfg)
             -> scheme_route_table;
 
         /**
@@ -87,7 +87,6 @@ namespace psm::recognition
          * @param sni SNI 值
          * @param scheme_name 方案名称
          */
-        auto add_route(std::string_view sni, std::string_view scheme_name)
-            -> void;
+        void add_route(std::string_view sni, std::string_view scheme_name);
     };
 } // namespace psm::recognition

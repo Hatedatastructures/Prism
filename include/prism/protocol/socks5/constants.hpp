@@ -51,7 +51,7 @@ namespace psm::protocol::socks5
      * @brief SOCKS5 认证方法
      * @details 定义客户端和服务端协商的认证方式。无认证模式直接
      * 进入请求阶段，GSSAPI 和用户名密码需要额外的认证交互。
-     * no_acceptable_methods 表示协商失败，服务端不支持客户端
+     * no_acceptable 表示协商失败，服务端不支持客户端
      * 提供的任何认证方法。
      */
     enum class auth_method : std::uint8_t
@@ -63,7 +63,7 @@ namespace psm::protocol::socks5
         /** @brief 用户名/密码认证 */
         password = 0x02,
         /** @brief 无可接受的认证方法 */
-        no_acceptable_methods = 0xFF
+        no_acceptable = 0xFF
     };
 
     /**
@@ -81,7 +81,7 @@ namespace psm::protocol::socks5
         /** @brief 服务器内部错误 */
         server_failure = 0x01,
         /** @brief 连接被策略拒绝 */
-        connection_not_allowed = 0x02,
+        connect_denied = 0x02,
         /** @brief 网络不可达 */
         network_unreachable = 0x03,
         /** @brief 主机不可达 */
@@ -91,8 +91,8 @@ namespace psm::protocol::socks5
         /** @brief TTL 过期 */
         ttl_expired = 0x06,
         /** @brief 不支持的命令 */
-        command_not_supported = 0x07,
+        cmd_unsupported = 0x07,
         /** @brief 不支持的地址类型 */
-        address_type_not_supported = 0x08
+        atype_unsupported = 0x08
     };
 }

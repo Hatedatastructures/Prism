@@ -105,7 +105,7 @@ namespace psm::crypto
          * @param ad 附加数据（可选）
          * @return 成功返回 fault::code::success，失败返回 crypto_error
          */
-        auto seal(std::span<std::uint8_t> out, std::span<const std::uint8_t> plaintext, std::span<const std::uint8_t> ad = {})
+        [[nodiscard]] auto seal(std::span<std::uint8_t> out, std::span<const std::uint8_t> plaintext, std::span<const std::uint8_t> ad = {})
             -> fault::code;
 
         /**
@@ -117,7 +117,7 @@ namespace psm::crypto
          * @param ad 附加数据（可选）
          * @return 成功返回 fault::code::success，失败返回 crypto_error
          */
-        auto open(std::span<std::uint8_t> out, std::span<const std::uint8_t> ciphertext, std::span<const std::uint8_t> ad = {})
+        [[nodiscard]] auto open(std::span<std::uint8_t> out, std::span<const std::uint8_t> ciphertext, std::span<const std::uint8_t> ad = {})
             -> fault::code;
 
         /**
@@ -130,7 +130,7 @@ namespace psm::crypto
          * @param ad 附加数据（可选）
          * @return 成功返回 fault::code::success，失败返回 crypto_error
          */
-        auto seal(std::span<std::uint8_t> out, std::span<const std::uint8_t> plaintext,
+        [[nodiscard]] auto seal(std::span<std::uint8_t> out, std::span<const std::uint8_t> plaintext,
                   std::span<const std::uint8_t> nonce, std::span<const std::uint8_t> ad)
             -> fault::code;
 
@@ -144,7 +144,7 @@ namespace psm::crypto
          * @param ad 附加数据（可选）
          * @return 成功返回 fault::code::success，失败返回 crypto_error
          */
-        auto open(std::span<std::uint8_t> out, std::span<const std::uint8_t> ciphertext,
+        [[nodiscard]] auto open(std::span<std::uint8_t> out, std::span<const std::uint8_t> ciphertext,
                   std::span<const std::uint8_t> nonce, std::span<const std::uint8_t> ad)
             -> fault::code;
 
@@ -203,7 +203,7 @@ namespace psm::crypto
          * @details 按 SS2022 规范要求，以小端序递增 nonce 值。
          * @return true 递增成功，false nonce 溢出（所有字节均为 0xFF）
          */
-        auto increment_nonce() -> bool;
+        [[nodiscard]] auto increment_nonce() -> bool;
 
         static void delete_aead_ctx(evp_aead_ctx_st *ctx) noexcept;
 

@@ -21,24 +21,24 @@ namespace psm::crypto
          * @brief Base64 解码查找表
          * @details 将 ASCII 字符映射到对应的 6 位值，无效字符映射为 255。
          */
-        constexpr auto make_decode_table()
+        [[nodiscard]] constexpr auto make_decode_table()
             -> std::array<std::uint8_t, 256>
         {
             std::array<std::uint8_t, 256> table{};
             table.fill(255);
 
             // A-Z -> 0-25
-            for (int i = 0; i < 26; ++i)
+            for (std::size_t i = 0; i < 26; ++i)
             {
                 table[static_cast<std::size_t>('A' + i)] = static_cast<std::uint8_t>(i);
             }
             // a-z -> 26-51
-            for (int i = 0; i < 26; ++i)
+            for (std::size_t i = 0; i < 26; ++i)
             {
                 table[static_cast<std::size_t>('a' + i)] = static_cast<std::uint8_t>(26 + i);
             }
             // 0-9 -> 52-61
-            for (int i = 0; i < 10; ++i)
+            for (std::size_t i = 0; i < 10; ++i)
             {
                 table[static_cast<std::size_t>('0' + i)] = static_cast<std::uint8_t>(52 + i);
             }
@@ -98,7 +98,7 @@ namespace psm::crypto
         result.reserve((valid_count / 4) * 3);
 
         std::uint8_t group[4]{};
-        int group_count = 0;
+        std::size_t group_count = 0;
 
         for (const auto c : input)
         {

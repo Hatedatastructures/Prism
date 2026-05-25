@@ -1,9 +1,3 @@
-/**
- * @file auth.cpp
- * @brief ShadowTLS v3 认证逻辑实现
- * @details 使用 OpenSSL 的 HMAC-SHA1 和 SHA256 实现 ShadowTLS v3 认证。
- * 认证算法完全参照 sing-shadowtls v3_server.go。
- */
 
 #include <prism/stealth/shadowtls/util/auth.hpp>
 #include <prism/stealth/shadowtls/util/constants.hpp>
@@ -39,7 +33,7 @@ namespace psm::stealth::shadowtls
     {
         // 最小长度检查: TLS Header(5) + Handshake Header(4) + Version(2) +
         //   Random(32) + SessionID Length(1) + SessionID(32) = 76
-        constexpr std::size_t min_len = tls_header_size + 1 + 3 + 2 + tls_random_size + 1 + tls_session_id_size;
+        constexpr std::size_t min_len = tls_hdrsize + 1 + 3 + 2 + tls_rndsize + 1 + tls_session_id_sz;
         if (client_hello.size() < min_len)
         {
             return false;
@@ -49,35 +43,35 @@ namespace psm::stealth::shadowtls
         const auto *raw = reinterpret_cast<const std::uint8_t *>(client_hello.data());
 
         // TLS 记录类型必须是 Handshake (0x16)
-        if (raw[0] != content_type_handshake)
+        if (raw[0] != content_handshake)
         {
             return false;
         }
 
         // 握手类型必须是 ClientHello (0x01)
         // TLS Header(5) 之后是 Handshake Header，第 1 字节是 handshake type
-        if (raw[5] != handshake_type_client_hello)
+        if (raw[5] != hs_type_clienthello)
         {
             return false;
         }
 
         // SessionID 长度必须是 32
-        if (raw[session_id_length_index] != tls_session_id_size)
+        if (raw[session_id_len_idx] != tls_session_id_sz)
         {
             return false;
         }
 
         // 构建用于 HMAC 计算的数据：
         // ClientHello 去掉 TLS header，SessionID 中 HMAC 位置填 0
-        const std::size_t data_size = client_hello.size() - tls_header_size;
+        const std::size_t data_size = client_hello.size() - tls_hdrsize;
         std::vector<std::uint8_t> hmac_data(data_size);
         for (std::size_t i = 0; i < data_size; ++i)
         {
-            hmac_data[i] = static_cast<std::uint8_t>(client_hello[tls_header_size + i]);
+            hmac_data[i] = static_cast<std::uint8_t>(client_hello[tls_hdrsize + i]);
         }
 
         // 将 SessionID 中的 HMAC 部分（最后 4 字节）填 0
-        constexpr std::size_t hmac_offset_in_data = session_id_length_index + 1 + tls_session_id_size - hmac_size - tls_header_size;
+        constexpr std::size_t hmac_offset_in_data = session_id_len_idx + 1 + tls_session_id_sz - hmac_size - tls_hdrsize;
         std::memset(hmac_data.data() + hmac_offset_in_data, 0, hmac_size);
 
         // 计算 HMAC-SHA1
@@ -85,7 +79,7 @@ namespace psm::stealth::shadowtls
         const auto expected = compute_hmac(password, reinterpret_cast<const std::byte *>(hmac_data.data()), hmac_data.size());
 
         // 提取客户端 SessionID 中的 HMAC 标签
-        constexpr std::size_t client_hmac_offset = session_id_length_index + 1 + tls_session_id_size - hmac_size;
+        constexpr std::size_t client_hmac_offset = session_id_len_idx + 1 + tls_session_id_sz - hmac_size;
         std::array<std::uint8_t, 4> client_tag{};
         std::memcpy(client_tag.data(), raw + client_hmac_offset, hmac_size);
 

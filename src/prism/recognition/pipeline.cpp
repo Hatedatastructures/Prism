@@ -1,10 +1,4 @@
-/**
- * @file layered_pipeline.cpp
- * @brief 分层检测管道实现
- * @details 按成本分层执行检测，避免不必要的 HMAC 计算。
- */
-
-#include <prism/recognition/layered_pipeline.hpp>
+#include <prism/recognition/pipeline.hpp>
 #include <prism/stealth/registry.hpp>
 #include <prism/trace.hpp>
 #include <algorithm>
@@ -45,17 +39,14 @@ namespace psm::recognition
     }
 
     auto layered_detection_pipeline::detect(
-        std::uint32_t bitmap,
-        const hello_features &features,
-        std::span<const std::byte> raw,
-        const psm::config &cfg,
+        detect_input input,
         const std::vector<stealth::shared_scheme> &matched_schemes) const
         -> pipeline_result
     {
-        trace::debug("[LayeredPipeline] Starting detection, SNI: {}", features.server_name);
+        trace::debug("[LayeredPipeline] Starting detection, SNI: {}", input.features.server_name);
 
         // === Tier 0: 零成本检测 ===
-        auto tier0_result = detect_tier0(bitmap, features, cfg);
+        auto tier0_result = detect_tier0(input.bitmap, input.features, input.cfg);
         if (tier0_result.deterministic_hit)
         {
             trace::debug("[LayeredPipeline] Tier 0 deterministic hit: {}",
@@ -64,7 +55,7 @@ namespace psm::recognition
         }
 
         // === Tier 1: 有成本检测 ===
-        auto tier1_result = detect_tier1(features, raw, cfg);
+        auto tier1_result = detect_tier1(input.features, input.raw, input.cfg);
         if (tier1_result.deterministic_hit)
         {
             trace::debug("[LayeredPipeline] Tier 1 deterministic hit: {}",
@@ -73,7 +64,7 @@ namespace psm::recognition
         }
 
         // === Tier 2: 模糊检测 ===
-        auto tier2_result = detect_tier2(cfg, matched_schemes);
+        auto tier2_result = detect_tier2(input.cfg, matched_schemes);
         trace::debug("[LayeredPipeline] Tier 2 fuzzy match: {} candidates",
                      tier2_result.candidates.size());
 
@@ -188,36 +179,19 @@ namespace psm::recognition
         }
         else
         {
-            // 无 SNI 匹配：执行所有 Tier 2 方案
-            for (const auto &scheme : tier2_schemes_)
+            // 无 SNI 匹配：只使用 native 兜底方案
+            // restls/shadowtls/anytls/trusttunnel 等方案会连接外部后端并向客户端
+            // 写入 TLS 数据（pollute socket），导致后续方案无法正常工作。
+            // native 是纯本地 TLS 握手，不连接外部后端，不会污染 socket。
+            if (native_scheme_ && native_scheme_->active(cfg))
             {
-                if (!scheme->active(cfg))
-                    continue;
-
-                auto guess_res = scheme->guess(cfg);
-                if (guess_res.score > 0)
-                {
-                    trace::debug("[LayeredPipeline] Tier 2 (all): {} score={}",
-                                 scheme->name(), guess_res.score);
-
-                    result.candidates.push_back({
-                        .name = memory::string(scheme->name()),
-                        .score = guess_res.score,
-                        .tier = 2,
-                        .is_deterministic = false});
-                }
+                trace::debug("[LayeredPipeline] No SNI match, using native fallback only");
+                result.candidates.push_back({
+                    .name = memory::string(native_scheme_->name()),
+                    .score = native_scheme_->guess(cfg).score,
+                    .tier = 2,
+                    .is_deterministic = false});
             }
-        }
-
-        // 始终添加 native 作为兜底
-        if (native_scheme_)
-        {
-            auto guess_res = native_scheme_->guess(cfg);
-            result.candidates.push_back({
-                .name = memory::string(native_scheme_->name()),
-                .score = guess_res.score,
-                .tier = 2,
-                .is_deterministic = false});
         }
 
         // 按评分排序（高分在前）

@@ -8,7 +8,7 @@
  * 累积首个 PSH 的地址数据，地址完整后 activate_stream() 连接目标创建
  * duct（TCP）或 parcel（UDP），后续 PSH 帧通过 dispatch_push() 非阻塞
  * 分发到 duct/parcel。发送路径（客户端下载方向）：
- * duct::target_read_loop() 到 send_data() 到 push_frame() 到 channel_ 到
+ * duct::target_readloop() 到 send_data() 到 push_frame() 到 channel_ 到
  * send_loop() 到 transport，header 与 payload 分离传递消除 serialize 的
  * payload memcpy。
  * @note 通过 core 的虚函数接口发送帧，不依赖具体协议
@@ -46,7 +46,7 @@ namespace psm::multiplex::smux
      * @details 帧格式：[Version 1B][Cmd=SYN 1B][Length=0 2B LE][StreamID 4B LE]
      */
     [[nodiscard]] auto make_syn_frame(std::uint32_t stream_id)
-        -> std::array<std::byte, frame_header_size>;
+        -> std::array<std::byte, frame_hdrsize>;
 
     /**
      * @brief 构建 FIN 帧字节序列
@@ -55,7 +55,7 @@ namespace psm::multiplex::smux
      * @details 帧格式：[Version 1B][Cmd=FIN 1B][Length=0 2B LE][StreamID 4B LE]
      */
     [[nodiscard]] auto make_fin_frame(std::uint32_t stream_id)
-        -> std::array<std::byte, frame_header_size>;
+        -> std::array<std::byte, frame_hdrsize>;
 
     /**
      * @struct outbound_frame
@@ -66,7 +66,7 @@ namespace psm::multiplex::smux
      */
     struct outbound_frame
     {
-        std::array<std::byte, frame_header_size> header{}; // 编码后的帧头（8 字节）
+        std::array<std::byte, frame_hdrsize> header{}; // 编码后的帧头（8 字节）
         memory::vector<std::byte> payload;                 // 帧载荷数据（所有权转移）
 
         outbound_frame() = default;
@@ -111,7 +111,7 @@ namespace psm::multiplex::smux
         /**
          * @brief 发送 FIN 匇到客户端
          * @param stream_id 目标流标识符
-         * @details 通过 co_spawn 异步发送，不阻塞调用者（通常是 duct 的 target_read_loop）。
+         * @details 通过 co_spawn 异步发送，不阻塞调用者（通常是 duct 的 target_readloop）。
          * @note 方法定义在 craft.cpp 中
          */
         void send_fin(std::uint32_t stream_id) override;
@@ -207,7 +207,7 @@ namespace psm::multiplex::smux
 
         /**
          * @brief NOP 心跳循环
-         * @details 当 keepalive_interval_ms > 0 时运行，按配置间隔发送 NOP 帧，
+         * @details 当 keepalive_interval > 0 时运行，按配置间隔发送 NOP 帧，
          * 保持连接活性。定时器等待期间会话关闭则退出。
          */
         auto keepalive_loop()

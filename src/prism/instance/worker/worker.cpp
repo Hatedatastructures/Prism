@@ -61,7 +61,7 @@ namespace psm::instance::worker
     // 停止 Worker 事件循环，实现优雅停机。
     // 停止 io_context，使阻塞在 run() 的线程正常退出。
     // 连接池会在 worker 析构时自动清理所有缓存连接。
-    auto worker::stop() -> void
+    void worker::stop()
     {
         ioc_.stop();
     }
@@ -72,14 +72,14 @@ namespace psm::instance::worker
     // launch::dispatch 内部会创建会话对象，开始协议探测和处理。
     void worker::dispatch_socket(tcp::socket socket)
     {
-        launch::dispatch(launch::session_launch_params{server_ctx_, worker_ctx_, metrics_, std::move(socket)});
+        launch::dispatch(launch::launch_params{server_ctx_, worker_ctx_, metrics_, std::move(socket)});
     }
 
     // 采集当前 Worker 的负载快照，供 Balancer 做调度决策。
     // 返回的快照包含：活跃会话数、待处理连接数、事件循环延迟。
     // 这些指标是 Balancer 判断是否过载、是否需要全局背压的依据。
     auto worker::load_snapshot() const noexcept
-        -> ::psm::stats::worker_load_snapshot
+        -> ::psm::stats::worker_snapshot
     {
         return metrics_.snapshot();
     }

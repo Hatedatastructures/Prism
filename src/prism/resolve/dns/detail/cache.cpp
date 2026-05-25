@@ -10,10 +10,10 @@ namespace psm::resolve::dns::detail
 {
 
     cache::cache(const memory::resource_pointer mr, const std::chrono::seconds ttl,
-                 const std::size_t max_entries, const bool serve_stale)
+                 const std::size_t max_entries, const stale_policy stale)
         : mr_(mr ? mr : memory::current_resource()),
           default_ttl_(ttl), max_entries_(max_entries),
-          serve_stale_(serve_stale), lru_order_(mr_), entries_(mr_)
+          serve_stale_(stale == stale_policy::serve), lru_order_(mr_), entries_(mr_)
     {
     }
 
@@ -34,7 +34,7 @@ namespace psm::resolve::dns::detail
         return key;
     }
 
-    auto cache::make_key_view(const std::string_view domain, const qtype qt,
+    auto cache::key_view(const std::string_view domain, const qtype qt,
                               const std::span<char> buffer)
         -> std::string_view
     {
@@ -50,8 +50,8 @@ namespace psm::resolve::dns::detail
     {
         // 使用栈缓冲区构造查找 key，避免 PMR 分配
         std::array<char, 260> buffer;
-        const auto key_view = make_key_view(domain, qt, buffer);
-        const auto it = entries_.find(key_view);
+        const auto key = key_view(domain, qt, buffer);
+        const auto it = entries_.find(key);
 
         // 未命中
         if (it == entries_.end())
@@ -108,10 +108,10 @@ namespace psm::resolve::dns::detail
 
         // 使用栈缓冲区构造查找 key，避免 PMR string 分配
         std::array<char, 260> buffer;
-        const auto key_view = make_key_view(domain, qt, buffer);
+        const auto key = key_view(domain, qt, buffer);
 
         // 检查是否已存在（更新情况）— 单次查找
-        if (const auto existing_it = entries_.find(key_view); existing_it != entries_.end())
+        if (const auto existing_it = entries_.find(key); existing_it != entries_.end())
         {
             // 更新现有条目，保持 LRU 位置（移到头部）
             const auto &lru_it = existing_it->second.second;
@@ -127,7 +127,7 @@ namespace psm::resolve::dns::detail
         }
 
         // 新插入：需要持久化 key（string_view 指向栈缓冲，需要拷贝到 PMR string）
-        const auto key = memory::string(key_view, mr_);
+        const auto pmr_key = memory::string(key, mr_);
 
         // 构建缓存条目
         cache_entry entry(mr_);
@@ -138,11 +138,11 @@ namespace psm::resolve::dns::detail
         entry.failed = false;
 
         // 新插入：添加到 LRU 链表头部
-        lru_order_.push_front(key);
+        lru_order_.push_front(pmr_key);
         const auto lru_it = lru_order_.begin();
 
         // 插入缓存表
-        entries_.emplace(key, std::make_pair(std::move(entry), lru_it));
+        entries_.emplace(pmr_key, std::make_pair(std::move(entry), lru_it));
 
         // LRU 淘汰：条目数超过上限时移除链表尾部（最旧）条目
         while (entries_.size() > max_entries_)
@@ -160,10 +160,10 @@ namespace psm::resolve::dns::detail
 
         // 使用栈缓冲区构造查找 key，避免 PMR string 分配
         std::array<char, 260> buffer;
-        const auto key_view = make_key_view(domain, qt, buffer);
+        const auto key = key_view(domain, qt, buffer);
 
         // 检查是否已存在（更新情况）— 单次查找
-        if (const auto existing_it = entries_.find(key_view); existing_it != entries_.end())
+        if (const auto existing_it = entries_.find(key); existing_it != entries_.end())
         {
             auto &lru_it = existing_it->second.second;
             lru_order_.splice(lru_order_.begin(), lru_order_, lru_it);
@@ -177,7 +177,7 @@ namespace psm::resolve::dns::detail
         }
 
         // 新插入：需要持久化 key
-        const auto key = memory::string(key_view, mr_);
+        const auto pmr_key = memory::string(key, mr_);
 
         // 构建负缓存条目
         cache_entry entry(mr_);
@@ -187,11 +187,11 @@ namespace psm::resolve::dns::detail
         entry.failed = true;
 
         // 新插入：添加到 LRU 链表头部
-        lru_order_.push_front(key);
+        lru_order_.push_front(pmr_key);
         const auto lru_it = lru_order_.begin();
 
         // 插入缓存表
-        entries_.emplace(key, std::make_pair(std::move(entry), lru_it));
+        entries_.emplace(pmr_key, std::make_pair(std::move(entry), lru_it));
 
         trace::debug("[Resolve] negative cache inserted: {} for {}s", domain, negative_ttl.count());
     }

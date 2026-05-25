@@ -94,7 +94,7 @@ namespace psm::transport
          * @details 返回底层 socket 关联的执行器，用于调度异步操作。
          * @return executor_type 执行器
          */
-        executor_type executor() const override
+        [[nodiscard]] executor_type executor() const override
         {
             return const_cast<socket_type &>(socket_).get_executor();
         }
@@ -115,7 +115,7 @@ namespace psm::transport
          * @details 返回当前设置的远程端点。如果未设置则返回空。
          * @return std::optional<endpoint_type> 远程端点（如果已设置）
          */
-        std::optional<endpoint_type> remote_endpoint() const noexcept
+        [[nodiscard]] std::optional<endpoint_type> remote_endpoint() const noexcept
         {
             return remote_endpoint_;
         }
@@ -129,7 +129,7 @@ namespace psm::transport
          * @param ec 错误码输出参数
          * @return net::awaitable<std::size_t> 异步操作，完成后返回读取的字节数
          */
-        auto async_read_some(std::span<std::byte> buffer, std::error_code &ec)
+        [[nodiscard]] auto async_read_some(std::span<std::byte> buffer, std::error_code &ec)
             -> net::awaitable<std::size_t> override
         {
             boost::system::error_code sys_ec;
@@ -167,7 +167,7 @@ namespace psm::transport
          * @param ec 错误码输出参数
          * @return net::awaitable<std::size_t> 异步操作，完成后返回写入的字节数
          */
-        auto async_write_some(std::span<const std::byte> buffer, std::error_code &ec)
+        [[nodiscard]] auto async_write_some(std::span<const std::byte> buffer, std::error_code &ec)
             -> net::awaitable<std::size_t> override
         {
             if (!remote_endpoint_)
@@ -210,7 +210,7 @@ namespace psm::transport
          * @details 返回底层 UDP socket 的引用，用于直接操作 socket。
          * @return socket_type& socket 引用
          */
-        socket_type &native_socket() noexcept
+        [[nodiscard]] socket_type &native_socket() noexcept
         {
             return socket_;
         }
@@ -220,7 +220,7 @@ namespace psm::transport
          * @details 返回底层 UDP socket 的常量引用，用于只读访问。
          * @return const socket_type& socket 常量引用
          */
-        const socket_type &native_socket() const noexcept
+        [[nodiscard]] const socket_type &native_socket() const noexcept
         {
             return socket_;
         }
@@ -239,7 +239,7 @@ namespace psm::transport
      * @param remote_endpoint 远程端点（可选）
      * @return shared_transmission 创建的 unreliable 实例
      */
-    inline auto make_unreliable(net::any_io_executor executor, std::optional<net::ip::udp::endpoint> remote_endpoint = std::nullopt)
+    [[nodiscard]] inline auto make_unreliable(net::any_io_executor executor, std::optional<net::ip::udp::endpoint> remote_endpoint = std::nullopt)
         -> shared_transmission
     {
         return std::make_shared<unreliable>(executor, std::move(remote_endpoint));
@@ -253,7 +253,7 @@ namespace psm::transport
      * @param remote_endpoint 远程端点（可选）
      * @return shared_transmission 创建的 unreliable 实例
      */
-    inline auto make_unreliable(net::ip::udp::socket socket, std::optional<net::ip::udp::endpoint> remote_endpoint = std::nullopt)
+    [[nodiscard]] inline auto make_unreliable(net::ip::udp::socket socket, std::optional<net::ip::udp::endpoint> remote_endpoint = std::nullopt)
         -> shared_transmission
     {
         return std::make_shared<unreliable>(std::move(socket), std::move(remote_endpoint));

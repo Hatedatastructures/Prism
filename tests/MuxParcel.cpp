@@ -35,7 +35,7 @@ using namespace psm::multiplex::smux;
     std::span<const std::byte> incoming) -> bool
 {
     accumulated.insert(accumulated.end(), incoming.begin(), incoming.end());
-    return parse_udp_datagram(accumulated, psm::memory::current_resource()).has_value();
+    return parse_udp_dgram(accumulated, psm::memory::current_resource()).has_value();
 }
 
 /**
@@ -63,7 +63,7 @@ void TestCrossFrameSplitPacketAddrIPv4()
 
     // 构建完整数据报：ATYP(1)+Addr(4)+Port(2)+Len(2)+Payload(4) = 13 bytes
     const std::byte payload[] = {std::byte{0x01}, std::byte{0x02}, std::byte{0x03}, std::byte{0x04}};
-    auto full = build_udp_datagram("127.0.0.1", 9090, payload, psm::memory::current_resource());
+    auto full = build_udp_dgram({"127.0.0.1", 9090, payload}, psm::memory::current_resource());
 
     // 拆分为 3 个帧片段：[0,3) + [3,8) + [8,13)
     const auto frag1 = std::span<const std::byte>(full.data(), 3);
@@ -86,7 +86,7 @@ void TestCrossFrameSplitPacketAddrIPv4()
 
     if (ok3)
     {
-        auto result = parse_udp_datagram(buf, psm::memory::current_resource());
+        auto result = parse_udp_dgram(buf, psm::memory::current_resource());
         runner.Check(result.has_value(), "cross-frame IPv4: final parse valid");
         if (result)
         {
@@ -110,7 +110,7 @@ void TestCrossFrameSplitPacketAddrDomain()
     runner.LogInfo("=== TestCrossFrameSplitPacketAddrDomain ===");
 
     const std::byte payload[] = {std::byte{0x42}};
-    auto full = build_udp_datagram("example.com", 443, payload, psm::memory::current_resource());
+    auto full = build_udp_dgram({"example.com", 443, payload}, psm::memory::current_resource());
 
     // 在域名中间拆帧
     const auto frag1 = std::span<const std::byte>(full.data(), 4);
@@ -126,7 +126,7 @@ void TestCrossFrameSplitPacketAddrDomain()
 
     if (ok2)
     {
-        auto result = parse_udp_datagram(buf, psm::memory::current_resource());
+        auto result = parse_udp_dgram(buf, psm::memory::current_resource());
         runner.Check(result.has_value(), "cross-frame domain: final parse valid");
         if (result)
         {
@@ -194,9 +194,9 @@ void TestSingleFrameMultipleDatagrams()
     const std::byte payload2[] = {std::byte{0xBB}, std::byte{0xCC}};
     const std::byte payload3[] = {std::byte{0xDD}, std::byte{0xEE}, std::byte{0xFF}};
 
-    auto enc1 = build_udp_datagram("10.0.0.1", 1001, payload1, psm::memory::current_resource());
-    auto enc2 = build_udp_datagram("10.0.0.2", 1002, payload2, psm::memory::current_resource());
-    auto enc3 = build_udp_datagram("10.0.0.3", 1003, payload3, psm::memory::current_resource());
+    auto enc1 = build_udp_dgram({"10.0.0.1", 1001, payload1}, psm::memory::current_resource());
+    auto enc2 = build_udp_dgram({"10.0.0.2", 1002, payload2}, psm::memory::current_resource());
+    auto enc3 = build_udp_dgram({"10.0.0.3", 1003, payload3}, psm::memory::current_resource());
 
     // 拼接到同一缓冲区
     psm::memory::vector<std::byte> combined;
@@ -209,7 +209,7 @@ void TestSingleFrameMultipleDatagrams()
 
     // 数据报 1
     auto span1 = std::span<const std::byte>(combined.data() + offset, combined.size() - offset);
-    auto r1 = parse_udp_datagram(span1, psm::memory::current_resource());
+    auto r1 = parse_udp_dgram(span1, psm::memory::current_resource());
     runner.Check(r1.has_value(), "multi-dgram: datagram 1 parsed");
     if (r1)
     {
@@ -221,7 +221,7 @@ void TestSingleFrameMultipleDatagrams()
 
     // 数据报 2
     auto span2 = std::span<const std::byte>(combined.data() + offset, combined.size() - offset);
-    auto r2 = parse_udp_datagram(span2, psm::memory::current_resource());
+    auto r2 = parse_udp_dgram(span2, psm::memory::current_resource());
     runner.Check(r2.has_value(), "multi-dgram: datagram 2 parsed");
     if (r2)
     {
@@ -233,7 +233,7 @@ void TestSingleFrameMultipleDatagrams()
 
     // 数据报 3
     auto span3 = std::span<const std::byte>(combined.data() + offset, combined.size() - offset);
-    auto r3 = parse_udp_datagram(span3, psm::memory::current_resource());
+    auto r3 = parse_udp_dgram(span3, psm::memory::current_resource());
     runner.Check(r3.has_value(), "multi-dgram: datagram 3 parsed");
     if (r3)
     {
@@ -317,8 +317,8 @@ void TestPartialThenComplete()
     const std::byte p1[] = {std::byte{0x01}, std::byte{0x02}};
     const std::byte p2[] = {std::byte{0x03}, std::byte{0x04}, std::byte{0x05}};
 
-    auto enc1 = build_udp_datagram("10.0.0.1", 1111, p1, psm::memory::current_resource());
-    auto enc2 = build_udp_datagram("10.0.0.2", 2222, p2, psm::memory::current_resource());
+    auto enc1 = build_udp_dgram({"10.0.0.1", 1111, p1}, psm::memory::current_resource());
+    auto enc2 = build_udp_dgram({"10.0.0.2", 2222, p2}, psm::memory::current_resource());
 
     // 缓冲区：完整数据报 1 + 不完整数据报 2（前 3 字节）
     psm::memory::vector<std::byte> buf;
@@ -327,7 +327,7 @@ void TestPartialThenComplete()
 
     // 解析数据报 1
     auto span = std::span<const std::byte>(buf.data(), buf.size());
-    auto r1 = parse_udp_datagram(span, psm::memory::current_resource());
+    auto r1 = parse_udp_dgram(span, psm::memory::current_resource());
     runner.Check(r1.has_value(), "partial: datagram 1 complete");
 
     if (r1)
@@ -339,14 +339,14 @@ void TestPartialThenComplete()
 
         // 数据报 2 不完整
         auto remaining = std::span<const std::byte>(buf.data() + offset, buf.size() - offset);
-        auto r2 = parse_udp_datagram(remaining, psm::memory::current_resource());
+        auto r2 = parse_udp_dgram(remaining, psm::memory::current_resource());
         runner.Check(!r2.has_value(), "partial: datagram 2 incomplete");
 
         // 模拟后续帧到达，补充数据报 2 剩余数据
         buf.insert(buf.end(), enc2.begin() + 3, enc2.end());
 
         auto full_remaining = std::span<const std::byte>(buf.data() + offset, buf.size() - offset);
-        auto r3 = parse_udp_datagram(full_remaining, psm::memory::current_resource());
+        auto r3 = parse_udp_dgram(full_remaining, psm::memory::current_resource());
         runner.Check(r3.has_value(), "partial: datagram 2 now complete");
         if (r3)
         {
@@ -376,14 +376,14 @@ void TestOverflowProtection()
     // 构建合规数据报（IPv4: 9 + payload）
     psm::memory::vector<std::byte> small_payload;
     small_payload.resize(10, std::byte{0xAB});
-    auto enc_small = build_udp_datagram("127.0.0.1", 80, small_payload, psm::memory::current_resource());
+    auto enc_small = build_udp_dgram({"127.0.0.1", 80, small_payload}, psm::memory::current_resource());
 
     runner.Check(enc_small.size() <= udp_max_dg, "overflow: small datagram within limit");
 
     // 构建超限数据报
     psm::memory::vector<std::byte> large_payload;
     large_payload.resize(128, std::byte{0xCD});
-    auto enc_large = build_udp_datagram("127.0.0.1", 80, large_payload, psm::memory::current_resource());
+    auto enc_large = build_udp_dgram({"127.0.0.1", 80, large_payload}, psm::memory::current_resource());
 
     runner.Check(enc_large.size() > udp_max_dg, "overflow: large datagram exceeds limit");
 
@@ -402,7 +402,7 @@ void TestOverflowProtection()
 
     // 解析层：溢出后第一个数据报仍然可正确解析
     // （在 parcel 实际逻辑中，溢出时直接 close 不会到达 parse）
-    auto result = parse_udp_datagram(mux_buffer, psm::memory::current_resource());
+    auto result = parse_udp_dgram(mux_buffer, psm::memory::current_resource());
     runner.Check(result.has_value(), "overflow: first datagram still parseable");
     if (result)
     {
@@ -433,7 +433,7 @@ void TestEmptyAndZeroPayload()
 
     // 空数据
     psm::memory::vector<std::byte> empty_buf;
-    auto r1 = parse_udp_datagram(empty_buf, psm::memory::current_resource());
+    auto r1 = parse_udp_dgram(empty_buf, psm::memory::current_resource());
     runner.Check(!r1.has_value(), "empty: empty data returns nullopt");
 
     auto r2 = parse_udp_length_prefixed(empty_buf);
@@ -441,10 +441,10 @@ void TestEmptyAndZeroPayload()
 
     // 零长度 payload（PacketAddr IPv4: 9 + 0 = 9 字节）
     const auto zero_span = std::span<const std::byte>{};
-    auto enc_zero = build_udp_datagram("127.0.0.1", 1234, zero_span, psm::memory::current_resource());
+    auto enc_zero = build_udp_dgram({"127.0.0.1", 1234, zero_span}, psm::memory::current_resource());
     runner.Check(enc_zero.size() == 9, "zero-payload: IPv4 header is 9 bytes");
 
-    auto r3 = parse_udp_datagram(enc_zero, psm::memory::current_resource());
+    auto r3 = parse_udp_dgram(enc_zero, psm::memory::current_resource());
     runner.Check(r3.has_value(), "zero-payload: parse succeeds");
     if (r3)
     {

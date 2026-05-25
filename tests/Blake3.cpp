@@ -27,7 +27,7 @@ namespace
      * @brief 输出信息级别日志
      * @param msg 日志消息
      */
-    auto LogInfo(const std::string_view msg) -> void
+    void LogInfo(const std::string_view msg)
     {
         psm::trace::info("[Blake3] {}", msg);
     }
@@ -36,7 +36,7 @@ namespace
      * @brief 记录测试通过并递增计数器
      * @param msg 测试名称
      */
-    auto LogPass(const std::string_view msg) -> void
+    void LogPass(const std::string_view msg)
     {
         ++passed;
         psm::trace::info("[Blake3] PASS: {}", msg);
@@ -46,7 +46,7 @@ namespace
      * @brief 记录测试失败并递增计数器
      * @param msg 失败原因
      */
-    auto LogFail(const std::string_view msg) -> void
+    void LogFail(const std::string_view msg)
     {
         ++failed;
         psm::trace::error("[Blake3] FAIL: {}", msg);
@@ -137,7 +137,7 @@ void TestBlake3SpanVsVectorOverload()
 
     // span 重载
     std::vector<std::uint8_t> span_result(32);
-    psm::crypto::derive_key("test overload", material, 32, span_result);
+    psm::crypto::derive_key("test overload", material, span_result);
 
     if (vec_result.size() != span_result.size())
     {

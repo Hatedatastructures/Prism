@@ -1,17 +1,6 @@
-/**
- * @file handshake.cpp
- * @brief Restls 服务端握手实现
- * @details 完整 Restls 握手流程：
- * 1. 转发 ClientHello 到后端 TLS 服务器
- * 2. 读取 ServerHello，提取 server_random，判断 TLS 1.2/1.3
- * 3. 计算server_auth_mask，XOR 后端返回的第一个 encrypted record
- * 4. 双工转发：后端→客户端（首个 encrypted record 被 XOR），
- *    客户端→后端（捕获 clientFinished）
- * 5. 认证成功后关闭后端，返回 restls_transport 所需的全部状态
- */
-
 #include <prism/stealth/restls/handshake.hpp>
 #include <prism/stealth/restls/crypto.hpp>
+#include <prism/stealth/restls/transport.hpp>
 #include <prism/stealth/common.hpp>
 #include <prism/trace.hpp>
 #include <prism/fault/code.hpp>
@@ -33,7 +22,7 @@ namespace psm::stealth::restls
     static auto extract_server_random(std::span<const std::byte> server_hello)
         -> std::optional<std::array<std::uint8_t, 32>>
     {
-        if (server_hello.size() < tls_header_size + 1 + 3 + 2 + 32)
+        if (server_hello.size() < tls_hdrsize + 1 + 3 + 2 + 32)
         {
             return std::nullopt;
         }
@@ -42,14 +31,14 @@ namespace psm::stealth::restls
         const auto *raw = reinterpret_cast<const std::uint8_t *>(server_hello.data());
         // TLS Header(5) + HandshakeType(1) + Length(3) + Version(2) + Random(32)
         std::array<std::uint8_t, 32> random{};
-        std::memcpy(random.data(), raw + tls_header_size + 1 + 3 + 2, 32);
+        std::memcpy(random.data(), raw + tls_hdrsize + 1 + 3 + 2, 32);
         return random;
     }
 
     static auto is_tls13_server_hello(std::span<const std::byte> server_hello)
         -> bool
     {
-        if (server_hello.size() < tls_header_size + 1 + 3 + 2 + 32 + 1)
+        if (server_hello.size() < tls_hdrsize + 1 + 3 + 2 + 32 + 1)
         {
             return false;
         }
@@ -57,7 +46,7 @@ namespace psm::stealth::restls
         // safe: casting byte buffer to uint8_t to parse TLS ServerHello for version detection
         const auto *raw = reinterpret_cast<const std::uint8_t *>(server_hello.data());
         // 跳过 TLS Header(5) + HandshakeType(1) + Length(3) + Version(2) + Random(32)
-        std::size_t offset = tls_header_size + 1 + 3 + 2 + 32;
+        std::size_t offset = tls_hdrsize + 1 + 3 + 2 + 32;
 
         // SessionID Length(1)
         if (offset >= server_hello.size())
@@ -125,16 +114,17 @@ namespace psm::stealth::restls
     // ═══════════════════════════════════════════════════════════
 
     // 转发后端数据到客户端，XOR 第一个 encrypted record
-    // 后端返回的第一个 ApplicationData 记录被 server_auth_mask XOR。
+    // 后端返回的第一个 ApplicationData 记录被 server_mask XOR。
     // 后续记录原样转发。检测到后端关闭后返回。
     static auto relay_backend_to_client(
         net::ip::tcp::socket &backend_sock,
         net::ip::tcp::socket &client_sock,
-        std::span<const std::uint8_t, handshake_mac_len> auth_mask,
-        bool tls13,
+        std::span<const std::uint8_t, hs_maclen> auth_mask,
+        tls_version version,
         memory::vector<std::byte> &first_encrypted)
         -> net::awaitable<bool>
     {
+        const bool is_tls13 = (version == tls_version::v13);
         bool first_app_data = true;
 
         while (true)
@@ -150,10 +140,10 @@ namespace psm::stealth::restls
             // safe: casting byte frame buffer to uint8_t for TLS content type inspection and XOR processing
             const auto *raw = reinterpret_cast<const std::uint8_t *>(frame.data());
 
-            if (first_app_data && raw[0] == 0x17 && frame.size() > tls_header_size)
+            if (first_app_data && raw[0] == 0x17 && frame.size() > tls_hdrsize)
             {
                 // XOR 第一个 encrypted record
-                const std::size_t xor_offset = tls13 ? tls_header_size : (tls_header_size + 8);
+                const std::size_t xor_offset = is_tls13 ? tls_hdrsize : (tls_hdrsize + 8);
                 // safe: casting mutable byte buffer region to uint8_t span for in-place XOR masking
                 auto payload = std::span<std::uint8_t>(
                     reinterpret_cast<std::uint8_t *>(frame.data()) + xor_offset,
@@ -186,7 +176,7 @@ namespace psm::stealth::restls
     static auto relay_client_to_backend(
         net::ip::tcp::socket &client_sock,
         net::ip::tcp::socket &backend_sock,
-        bool tls13,
+        tls_version version,
         memory::vector<std::uint8_t> &client_finished)
         -> net::awaitable<bool>
     {
@@ -205,7 +195,7 @@ namespace psm::stealth::restls
             // safe: casting byte frame buffer to uint8_t pointer for TLS record parsing
             const auto *raw = reinterpret_cast<const std::uint8_t *>(frame.data());
 
-            if (first_app_data && raw[0] == 0x17 && frame.size() > tls_header_size)
+            if (first_app_data && raw[0] == 0x17 && frame.size() > tls_hdrsize)
             {
                 // 捕获 clientFinished（完整 TLS record 含 header）
                 // safe: casting byte frame buffer to uint8_t iterators for clientFinished capture
@@ -310,9 +300,13 @@ namespace psm::stealth::restls
             {
                 trace::warn("[Restls] write ServerHello failed: {}", write_ec.message());
                 result.error = fault::code::connection_refused;
+                result.polluted = true;
                 co_return result;
             }
         }
+
+        // Step 4 完成后，客户端已收到 ServerHello，后续失败不可 rewind
+        result.polluted = true;
 
         // Step 5: 提取 server_random 和判断 TLS 版本
         auto sh_span = std::span<const std::byte>(server_hello_opt->data(), server_hello_opt->size());
@@ -325,13 +319,14 @@ namespace psm::stealth::restls
         }
 
         const bool tls13 = is_tls13_server_hello(sh_span);
+        const auto version = tls13 ? tls_version::v13 : tls_version::v12;
         auto server_random = *sr_opt;
         auto sr_span = std::span<const std::uint8_t, 32>(server_random);
 
         trace::debug("[Restls] server_random extracted, tls13={}", tls13);
 
-        // Step 6: 计算 server_auth_mask
-        auto auth_mask = compute_server_auth_mask(secret_span, sr_span);
+        // Step 6: 计算 server_mask
+        auto auth_mask = compute_server_mask(secret_span, sr_span);
 
         // Step 7: 双工转发
         // 后端→客户端：XOR 第一个 encrypted record
@@ -343,12 +338,12 @@ namespace psm::stealth::restls
         auto cancel_signal = std::make_shared<net::cancellation_signal>();
 
         // 客户端→后端 relay（捕获 clientFinished）
-        auto client_relay = [&client_sock, &backend_sock, tls13,
+        auto client_relay = [&client_sock, &backend_sock, version,
                              &client_finished, relay_done]()
             -> net::awaitable<void>
         {
             memory::vector<std::uint8_t> cf;
-            co_await relay_client_to_backend(client_sock, backend_sock, tls13, cf);
+            co_await relay_client_to_backend(client_sock, backend_sock, version, cf);
             client_finished = std::move(cf);
             relay_done->store(true);
         };
@@ -359,8 +354,8 @@ namespace psm::stealth::restls
         // 后端→客户端 relay（XOR 第一个 encrypted record）
         co_await relay_backend_to_client(
             backend_sock, client_sock,
-            std::span<const std::uint8_t, handshake_mac_len>(auth_mask),
-            tls13, first_encrypted);
+            std::span<const std::uint8_t, hs_maclen>(auth_mask),
+            version, first_encrypted);
 
         // 关闭后端连接
         {

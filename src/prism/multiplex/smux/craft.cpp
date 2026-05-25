@@ -19,7 +19,7 @@ namespace psm::multiplex::smux
     namespace
     {
         // 构建帧头为字节数组（不包含 payload）
-        [[nodiscard]] std::array<std::byte, frame_header_size> build_header(
+        [[nodiscard]] std::array<std::byte, frame_hdrsize> build_header(
             const command cmd, const std::uint32_t stream_id, const std::uint16_t length)
         {
             return {
@@ -47,13 +47,13 @@ namespace psm::multiplex::smux
     }
 
     auto make_syn_frame(const std::uint32_t stream_id)
-        -> std::array<std::byte, frame_header_size>
+        -> std::array<std::byte, frame_hdrsize>
     {
         return build_header(command::syn, stream_id, 0);
     }
 
     auto make_fin_frame(const std::uint32_t stream_id)
-        -> std::array<std::byte, frame_header_size>
+        -> std::array<std::byte, frame_hdrsize>
     {
         return build_header(command::fin, stream_id, 0);
     }
@@ -79,7 +79,7 @@ namespace psm::multiplex::smux
         net::co_spawn(executor(), std::move(start_send_loop), net::detached);
 
         // 启动 NOP 心跳（有间隔时）
-        if (config_.smux.keepalive_interval_ms > 0)
+        if (config_.smux.keepalive_interval > 0)
         {
             auto start_keepalive = [self]() -> net::awaitable<void>
             {
@@ -100,7 +100,7 @@ namespace psm::multiplex::smux
         trace::debug("{} frame loop started", tag);
 
         std::error_code ec;
-        std::array<std::byte, frame_header_size> frame_buffer{};
+        std::array<std::byte, frame_hdrsize> frame_buffer{};
 
         // 持续读取并处理帧，直到会话关闭或发生错误
         while (active_.load(std::memory_order_acquire))
@@ -108,7 +108,7 @@ namespace psm::multiplex::smux
             // 读取 8 字节帧头（std::array 转 span 传递）
             const auto frame_span = std::span<std::byte>(frame_buffer);
             const auto hdr_n = co_await transport::async_read(*transport_, frame_span, ec);
-            if (ec || hdr_n < frame_header_size)
+            if (ec || hdr_n < frame_hdrsize)
             {
                 if (ec != std::errc::operation_canceled)
                 {
@@ -366,9 +366,15 @@ namespace psm::multiplex::smux
             pending_.erase(stream_id);
 
             // 创建 UDP parcel，先注册到 parcels_ 再启动，确保 FIN/RST 能正确找到并关闭
-            auto dp = make_parcel(stream_id, shared_from_this(), router_,
-                                  config_.smux.udp_idle_timeout_ms, config_.smux.udp_max_datagram,
-                                  mr_, packet_addr);
+            auto dp = make_parcel(
+                parcel_config{
+                    .stream_id = stream_id,
+                    .udp_idle_timeout = config_.smux.udp_idle_timeout,
+                    .udp_max_dgram = config_.smux.udp_max_dgram,
+                    .mr = mr_,
+                    .mode = packet_addr ? addr_mode::packet_addr : addr_mode::length_prefixed,
+                },
+                shared_from_this(), router_);
             if (!packet_addr)
             {
                 dp->set_destination(host, port);
@@ -554,13 +560,13 @@ namespace psm::multiplex::smux
     auto craft::keepalive_loop()
         -> net::awaitable<void>
     {
-        trace::debug("{} keepalive loop started, interval={}ms", tag, config_.smux.keepalive_interval_ms);
+        trace::debug("{} keepalive loop started, interval={}ms", tag, config_.smux.keepalive_interval);
         net::steady_timer timer(executor());
         try
         {
             while (is_active())
             {
-                timer.expires_after(std::chrono::milliseconds(config_.smux.keepalive_interval_ms));
+                timer.expires_after(std::chrono::milliseconds(config_.smux.keepalive_interval));
                 boost::system::error_code ec;
                 co_await timer.async_wait(net::redirect_error(net::use_awaitable, ec));
                 if (ec || !is_active())

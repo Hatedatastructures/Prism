@@ -42,6 +42,26 @@ namespace psm
 #include <prism/instance/serialize.hpp>
 #include <glaze/glaze.hpp>
 
+// ============================================================================
+// connect::config (pool)
+// ============================================================================
+
+template <>
+struct glz::meta<psm::connect::config>
+{
+    using T = psm::connect::config;
+    static constexpr auto value = glz::object(
+        "max_cache_per_endpoint", &T::max_cache_peraddr,
+        "connect_timeout_ms",     &T::conn_timeout,
+        "max_idle_seconds",       &T::max_idle_sec,
+        "cleanup_interval_sec",   &T::clean_interval,
+        "recv_buffer_size",       &T::recv_bufsz,
+        "send_buffer_size",       &T::send_bufsz,
+        "tcp_nodelay",            &T::tcp_nodelay,
+        "keep_alive",             &T::keep_alive,
+        "cache_ipv6",             &T::cache_ipv6);
+};
+
 template <>
 struct glz::meta<psm::config>
 {

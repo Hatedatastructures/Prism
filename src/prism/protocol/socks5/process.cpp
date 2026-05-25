@@ -63,24 +63,24 @@ namespace psm::protocol::socks5
                 if (dial_ec == fault::code::ipv6_disabled)
                 {
                     trace::debug("{} IPv6 disabled: {}:{}", Socks5Str, target.host, target.port);
-                    co_await agent->async_write_error(reply_code::network_unreachable);
+                    co_await agent->send_error(reply_code::network_unreachable);
                 }
                 else
                 {
                     trace::warn("{} dial failed: {}, target: {}:{}", Socks5Str, fault::describe(dial_ec), target.host, target.port);
-                    co_await agent->async_write_error(reply_code::host_unreachable);
+                    co_await agent->send_error(reply_code::host_unreachable);
                 }
                 co_return;
             }
 
             // 拨号成功，发送 SOCKS5 成功响应
-            if (fault::failed(co_await agent->async_write_success(request)))
+            if (fault::failed(co_await agent->send_success(request)))
             {
                 co_return;
             }
 
             // 进入双向隧道转发
-            co_await psm::connect::tunnel(agent->release(), std::move(outbound), ctx);
+            co_await psm::connect::tunnel({agent->release(), outbound, ctx});
             break;
         }
         case command::udp_associate:
@@ -94,8 +94,8 @@ namespace psm::protocol::socks5
 
             // 启动 UDP 关联处理
             auto datagram_router = ctx.outbound_proxy
-                ? ctx.outbound_proxy->make_datagram_router()
-                : psm::connect::make_datagram_router(ctx.worker_ctx.router);
+                ? ctx.outbound_proxy->make_dgram_router()
+                : psm::connect::make_dgram_router(ctx.worker_ctx.router);
             const auto associate_ec = co_await agent->async_associate(request, std::move(datagram_router));
             if (fault::failed(associate_ec))
             {
@@ -106,7 +106,7 @@ namespace psm::protocol::socks5
         default:
             // BIND 命令不支持
             trace::warn("{} BIND not supported", Socks5Str);
-            co_await agent->async_write_error(reply_code::command_not_supported);
+            co_await agent->send_error(reply_code::cmd_unsupported);
             break;
         }
     }

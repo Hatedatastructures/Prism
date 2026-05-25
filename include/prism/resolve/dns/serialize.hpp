@@ -56,7 +56,7 @@ struct glz::meta<psm::resolve::dns::dns_remote>
         "port", &T::port,
         "timeout_ms", &T::timeout_ms,
         "http_path", &T::http_path,
-        "no_check_certificate", &T::no_check_certificate);
+        "no_check_certificate", &T::skip_cert_check);
 };
 
 // ============================================================================

@@ -12,14 +12,13 @@ namespace psm::crypto
     // material：输入密钥材料（如主密钥）
     // out_len：输出长度（BLAKE3 支持任意长度的输出）
     // out：输出缓冲区
-    auto derive_key(const std::string_view context, const std::span<const std::uint8_t> material,
-                    const std::size_t out_len, const std::span<std::uint8_t> out)
-        -> void
+    void derive_key(const std::string_view context, const std::span<const std::uint8_t> material,
+                    const std::span<std::uint8_t> out)
     {
         blake3_hasher hasher;
         blake3_hasher_init_derive_key_raw(&hasher, context.data(), context.size());
         blake3_hasher_update(&hasher, material.data(), material.size());
-        blake3_hasher_finalize(&hasher, out.data(), out_len);
+        blake3_hasher_finalize(&hasher, out.data(), out.size());
     }
 
     // 便捷版本：自动分配输出缓冲区并返回。
@@ -27,7 +26,7 @@ namespace psm::crypto
         -> std::vector<std::uint8_t>
     {
         std::vector<std::uint8_t> out(out_len);
-        derive_key(context, material, out_len, out);
+        derive_key(context, material, out);
         return out;
     }
 

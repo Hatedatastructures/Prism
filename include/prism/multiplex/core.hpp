@@ -20,7 +20,7 @@
 #include <boost/asio.hpp>
 
 #include <prism/multiplex/config.hpp>
-#include <prism/protocol/protocol_type.hpp>
+#include <prism/protocol/types.hpp>
 #include <prism/transport/transmission.hpp>
 #include <prism/memory/container.hpp>
 
@@ -131,7 +131,7 @@ namespace psm::multiplex
          * @param stream_id 目标流标识符
          * @param payload 要发送的数据（所有权转移，零拷贝传递）
          * @details 将 payload 编码为协议数据帧并发送。payload 通过 move 传递，
-         * 不执行额外拷贝。由 duct::target_read_loop 和 parcel::relay_datagram 调用。
+         * 不执行额外拷贝。由 duct::target_readloop 和 parcel::relay_datagram 调用。
          */
         virtual auto send_data(std::uint32_t stream_id, memory::vector<std::byte> payload) const
             -> net::awaitable<void> = 0;
@@ -139,7 +139,7 @@ namespace psm::multiplex
         /**
          * @brief 发送 FIN 帧到客户端
          * @param stream_id 目标流标识符
-         * @details 异步发送半关闭帧，不阻塞调用者。由 duct::target_read_loop
+         * @details 异步发送半关闭帧，不阻塞调用者。由 duct::target_readloop
          * 在 target EOF 后调用，或由 activate_stream 在连接失败时调用。
          */
         virtual void send_fin(std::uint32_t stream_id) = 0;

@@ -7,6 +7,8 @@
  */
 #pragma once
 
+#include <cstdint>
+
 #include <prism/memory/container.hpp>
 
 namespace psm::memory
@@ -44,7 +46,7 @@ namespace psm::memory
          * 不确定的长期对象。使用 new 分配，确保在静态
          * 析构阶段后仍可用。
          */
-        static synchronized_pool *global_pool()
+        [[nodiscard]] static synchronized_pool *global_pool()
         {
             static auto *pool = []()
             {
@@ -65,7 +67,7 @@ namespace psm::memory
          * 计算和单线程处理逻辑。使用 thread_local 存储，
          * 每个线程独立实例。
          */
-        static unsynchronized_pool *thread_local_pool()
+        [[nodiscard]] static unsynchronized_pool *thread_local_pool()
         {
             // thread_local 保证每个线程一份
             thread_local auto *pool = []()
@@ -86,7 +88,7 @@ namespace psm::memory
          * 的语义化别名。分配的对象生命周期必须与当前线程
          * 绑定，禁止跨线程传递。
          */
-        static unsynchronized_pool *hot_path_pool()
+        [[nodiscard]] static unsynchronized_pool *hot_path_pool()
         {
             return thread_local_pool();
         }
@@ -108,7 +110,7 @@ namespace psm::memory
      * @brief 内存池类型选择
      * @details 用于 pooled_object 基类选择不同的内存池策略。
      */
-    enum class pool_type
+    enum class pool_type : std::uint8_t
     {
         global, ///< 全局线程安全池，适用于跨线程传递对象
         local,  ///< 线程局部无锁池，适用于单线程热路径对象
@@ -133,7 +135,7 @@ namespace psm::memory
          * @brief 获取目标内存池
          * @return 根据池类型返回对应的内存池指针
          */
-        static resource_pointer get_target_pool()
+        [[nodiscard]] static resource_pointer get_target_pool()
         {
             if (Type == pool_type::global)
             {
@@ -242,7 +244,7 @@ namespace psm::memory
          * @brief 获取内存资源指针
          * @return 内存资源指针，可用于创建 PMR 容器
          */
-        resource_pointer get() { return &resource_; }
+        [[nodiscard]] resource_pointer get() { return &resource_; }
 
         /**
          * @brief 重置分配器

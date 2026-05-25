@@ -130,7 +130,7 @@ namespace psm::exception
          * @param desc 额外描述
          * @return 组合后的错误消息
          */
-        static std::string create_what(const std::error_code &ec, std::string_view desc)
+        [[nodiscard]] static std::string create_what(const std::error_code &ec, std::string_view desc)
         {
             if (desc.empty())
             {

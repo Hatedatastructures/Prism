@@ -29,16 +29,16 @@ namespace psm::instance::front
     // 计算单个 worker 的负载评分（0.0 = 空闲，越高越忙）。
     // 三个维度加权求和：活跃会话数（权重最大）、待处理移交数、事件循环延迟。
     // 用比率而非绝对值，这样不同容量的 worker 可以公平比较。
-    auto balancer::score(const ::psm::stats::worker_load_snapshot &snapshot) const noexcept
+    auto balancer::score(const ::psm::stats::worker_snapshot &snapshot) const noexcept
         -> double
     {
         const auto session_capacity = std::max(1U, config_.session_capacity);
         const auto pending_capacity = std::max(1U, config_.pending_capacity);
-        const auto lag_capacity = std::max(std::uint64_t{1}, config_.lag_capacity_us);
+        const auto lag_capacity = std::max(std::uint64_t{1}, config_.lag_cap_us);
 
         const double session_ratio = static_cast<double>(snapshot.active_sessions) / session_capacity;
         const double pending_ratio = static_cast<double>(snapshot.pending_handoffs) / pending_capacity;
-        const double lag_ratio = static_cast<double>(snapshot.event_loop_lag_us) / lag_capacity;
+        const double lag_ratio = static_cast<double>(snapshot.loop_lag_us) / lag_capacity;
 
         return session_ratio * config_.weight_session +
                pending_ratio * config_.weight_pending +
@@ -104,7 +104,7 @@ namespace psm::instance::front
         // 遍历所有 worker：采集负载、更新过载状态、记录候选分数
         for (std::size_t index = 0; index < workers_count; ++index)
         {
-            const ::psm::stats::worker_load_snapshot snapshot = bindings_[index].snapshot();
+            const ::psm::stats::worker_snapshot snapshot = bindings_[index].snapshot();
             const double load_score = score(snapshot);
             refresh_state(index, load_score);
 
@@ -135,7 +135,7 @@ namespace psm::instance::front
         }
 
         // 全局背压：所有 worker 都过载 或 全局最低评分已经很高
-        const bool backpressure = overloaded_count == workers_count || min_score >= config_.global_backpressure_threshold;
+        const bool backpressure = overloaded_count == workers_count || min_score >= config_.backpressure_thresh;
         return {selected, primary_overloaded, backpressure};
     }
 

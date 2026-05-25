@@ -20,6 +20,7 @@
 #pragma once
 
 #include <boost/asio.hpp>
+#include <cstdint>
 
 namespace psm::connect
 {
@@ -29,7 +30,7 @@ namespace psm::connect
      * @enum socket_state
      * @brief socket 健康状态
      */
-    enum class socket_state
+    enum class socket_state : std::uint8_t
     {
         /** @brief 健康，可安全复用 */
         healthy,

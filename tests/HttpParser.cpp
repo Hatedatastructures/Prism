@@ -1,8 +1,8 @@
 /**
  * @file HttpParser.cpp
  * @brief HTTP 代理请求解析器单元测试
- * @details 测试 psm::protocol::http::parse_proxy_request() 和
- * psm::protocol::http::extract_relative_path() 的正确性，覆盖基本请求解析、
+ * @details 测试 psm::protocol::http::parse_proxy_req() 和
+ * psm::protocol::http::extract_rel_path() 的正确性，覆盖基本请求解析、
  * CONNECT 方法、POST 方法、Proxy-Authorization 头、大小写不敏感、
  * 空白修剪、畸形输入、偏移量精度、路径提取等场景。
  */
@@ -22,7 +22,7 @@ namespace
      * @brief 输出信息级别日志
      * @param msg 日志消息
      */
-    auto LogInfo(const std::string_view msg) -> void
+    void LogInfo(const std::string_view msg)
     {
         psm::trace::info("[HttpParser] {}", msg);
     }
@@ -31,7 +31,7 @@ namespace
      * @brief 记录测试通过并递增计数器
      * @param msg 测试名称
      */
-    auto LogPass(const std::string_view msg) -> void
+    void LogPass(const std::string_view msg)
     {
         ++passed;
         psm::trace::info("[HttpParser] PASS: {}", msg);
@@ -41,7 +41,7 @@ namespace
      * @brief 记录测试失败并递增计数器
      * @param msg 失败原因
      */
-    auto LogFail(const std::string_view msg) -> void
+    void LogFail(const std::string_view msg)
     {
         ++failed;
         psm::trace::error("[HttpParser] FAIL: {}", msg);
@@ -58,12 +58,12 @@ void TestBasicGetRequest()
     // 构造标准 GET 请求，验证各字段完整提取
     const std::string raw = "GET /index.html HTTP/1.1\r\nHost: www.example.com\r\n\r\n";
     psm::protocol::http::proxy_request req{};
-    auto result = psm::protocol::http::parse_proxy_request(raw, req);
+    auto result = psm::protocol::http::parse_proxy_req(raw, req);
 
     // 解析成功是后续断言的前提
     if (result != psm::fault::code::success)
     {
-        LogFail("parse_proxy_request should return success for valid GET request");
+        LogFail("parse_proxy_req should return success for valid GET request");
         return;
     }
     // 验证方法字段被正确提取
@@ -97,7 +97,7 @@ void TestBasicGetRequest()
         return;
     }
     // header_end 标记头部终止符之后的位置
-    if (req.header_end == 0)
+    if (req.hdr_end == 0)
     {
         LogFail("header_end should not be 0");
         return;
@@ -116,7 +116,7 @@ void TestConnectRequest()
     // CONNECT 方法的 target 是 authority 形式，非路径
     const std::string raw = "CONNECT www.example.com:443 HTTP/1.1\r\nHost: www.example.com:443\r\n\r\n";
     psm::protocol::http::proxy_request req{};
-    auto result = psm::protocol::http::parse_proxy_request(raw, req);
+    auto result = psm::protocol::http::parse_proxy_req(raw, req);
 
     if (result != psm::fault::code::success)
     {
@@ -149,7 +149,7 @@ void TestPostRequest()
     // POST 请求带 Content-Length 头，验证不影响核心字段解析
     const std::string raw = "POST /api HTTP/1.1\r\nHost: api.example.com\r\nContent-Length: 100\r\n\r\n";
     psm::protocol::http::proxy_request req{};
-    auto result = psm::protocol::http::parse_proxy_request(raw, req);
+    auto result = psm::protocol::http::parse_proxy_req(raw, req);
 
     if (result != psm::fault::code::success)
     {
@@ -182,7 +182,7 @@ void TestProxyAuthorization()
     // 验证 Basic 认证凭据被完整提取（含 scheme 和 token）
     const std::string raw = "GET / HTTP/1.1\r\nHost: example.com\r\nProxy-Authorization: Basic dXNlcjpwYXNz\r\n\r\n";
     psm::protocol::http::proxy_request req{};
-    auto result = psm::protocol::http::parse_proxy_request(raw, req);
+    auto result = psm::protocol::http::parse_proxy_req(raw, req);
 
     if (result != psm::fault::code::success)
     {
@@ -209,7 +209,7 @@ void TestBothAuthAndHost()
     // Host 和 Proxy-Authorization 同时存在时均应被提取
     const std::string raw = "GET /secret HTTP/1.1\r\nHost: secure.example.com\r\nProxy-Authorization: Bearer token123\r\n\r\n";
     psm::protocol::http::proxy_request req{};
-    auto result = psm::protocol::http::parse_proxy_request(raw, req);
+    auto result = psm::protocol::http::parse_proxy_req(raw, req);
 
     if (result != psm::fault::code::success)
     {
@@ -243,7 +243,7 @@ void TestCaseInsensitiveHeaders()
     {
         const std::string raw = "GET / HTTP/1.1\r\nHOST: example.com\r\n\r\n";
         psm::protocol::http::proxy_request req{};
-        auto result = psm::protocol::http::parse_proxy_request(raw, req);
+        auto result = psm::protocol::http::parse_proxy_req(raw, req);
 
         if (result != psm::fault::code::success || req.host != "example.com")
         {
@@ -256,7 +256,7 @@ void TestCaseInsensitiveHeaders()
     {
         const std::string raw = "GET / HTTP/1.1\r\nhOsT: mixed.com\r\n\r\n";
         psm::protocol::http::proxy_request req{};
-        auto result = psm::protocol::http::parse_proxy_request(raw, req);
+        auto result = psm::protocol::http::parse_proxy_req(raw, req);
 
         if (result != psm::fault::code::success || req.host != "mixed.com")
         {
@@ -269,7 +269,7 @@ void TestCaseInsensitiveHeaders()
     {
         const std::string raw = "GET / HTTP/1.1\r\nHost: x.com\r\nproxy-AUTHORIZATION: Basic abc\r\n\r\n";
         psm::protocol::http::proxy_request req{};
-        auto result = psm::protocol::http::parse_proxy_request(raw, req);
+        auto result = psm::protocol::http::parse_proxy_req(raw, req);
 
         if (result != psm::fault::code::success || req.authorization != "Basic abc")
         {
@@ -291,7 +291,7 @@ void TestHeaderWhitespaceTrim()
     // Host 值前后含多余空白，验证自动修剪
     const std::string raw = "GET / HTTP/1.1\r\nHost:  example.com \r\n\r\n";
     psm::protocol::http::proxy_request req{};
-    auto result = psm::protocol::http::parse_proxy_request(raw, req);
+    auto result = psm::protocol::http::parse_proxy_req(raw, req);
 
     if (result != psm::fault::code::success)
     {
@@ -318,7 +318,7 @@ void TestMalformedHeaderNoColon()
     // 畸形头行缺少冒号分隔符，解析器应静默跳过
     const std::string raw = "GET / HTTP/1.1\r\nHost: example.com\r\nX-Bad-Header\r\n\r\n";
     psm::protocol::http::proxy_request req{};
-    auto result = psm::protocol::http::parse_proxy_request(raw, req);
+    auto result = psm::protocol::http::parse_proxy_req(raw, req);
 
     // 解析不应因畸形行失败
     if (result != psm::fault::code::success)
@@ -346,7 +346,7 @@ void TestRequestWithBodyData()
     // 请求附带 body，验证 header_end 定位到 body 起始
     const std::string raw = "POST /api HTTP/1.1\r\nHost: example.com\r\nContent-Length: 11\r\n\r\nhello world";
     psm::protocol::http::proxy_request req{};
-    auto result = psm::protocol::http::parse_proxy_request(raw, req);
+    auto result = psm::protocol::http::parse_proxy_req(raw, req);
 
     if (result != psm::fault::code::success)
     {
@@ -356,7 +356,7 @@ void TestRequestWithBodyData()
 
     // header_end 应指向 \r\n\r\n 之后、body 之前
     const std::size_t expected_header_end = raw.find("\r\n\r\n") + 4;
-    if (req.header_end != expected_header_end)
+    if (req.hdr_end != expected_header_end)
     {
         LogFail("header_end should point to body start");
         return;
@@ -379,7 +379,7 @@ void TestReqLineAndHeaderEndOffsets()
     // req_line_end = 16, header_end = 16 + 13 + 2 = 31
     const std::string raw = "GET / HTTP/1.1\r\nHost: x.com\r\n\r\n";
     psm::protocol::http::proxy_request req{};
-    auto result = psm::protocol::http::parse_proxy_request(raw, req);
+    auto result = psm::protocol::http::parse_proxy_req(raw, req);
 
     if (result != psm::fault::code::success)
     {
@@ -397,7 +397,7 @@ void TestReqLineAndHeaderEndOffsets()
 
     // 头部结束位置：\r\n\r\n 之后
     const std::size_t expected_header_end = raw.find("\r\n\r\n") + 4; // 31
-    if (req.header_end != expected_header_end)
+    if (req.hdr_end != expected_header_end)
     {
         LogFail("header_end offset incorrect");
         return;
@@ -416,7 +416,7 @@ void TestMissingHeaderTerminator()
     // 缺少 \r\n\r\n 终止符，报文不完整
     const std::string raw = "GET / HTTP/1.1\r\nHost: example.com\r\n";
     psm::protocol::http::proxy_request req{};
-    auto result = psm::protocol::http::parse_proxy_request(raw, req);
+    auto result = psm::protocol::http::parse_proxy_req(raw, req);
 
     // 必须返回解析错误
     if (result != psm::fault::code::parse_error)
@@ -438,7 +438,7 @@ void TestMissingRequestLineCrlf()
     // 请求行缺少 CRLF，无法定位行尾
     const std::string raw = "GET / HTTP/1.1";
     psm::protocol::http::proxy_request req{};
-    auto result = psm::protocol::http::parse_proxy_request(raw, req);
+    auto result = psm::protocol::http::parse_proxy_req(raw, req);
 
     if (result != psm::fault::code::parse_error)
     {
@@ -459,7 +459,7 @@ void TestEmptyInput()
     // 空输入边界条件
     const std::string raw = "";
     psm::protocol::http::proxy_request req{};
-    auto result = psm::protocol::http::parse_proxy_request(raw, req);
+    auto result = psm::protocol::http::parse_proxy_req(raw, req);
 
     if (result != psm::fault::code::parse_error)
     {
@@ -479,7 +479,7 @@ void TestExtractPathFromAbsoluteUri()
 
     // 带 query 和 fragment 的完整 URI，提取路径部分
     {
-        auto path = psm::protocol::http::extract_relative_path("http://example.com/path?q=1#frag");
+        auto path = psm::protocol::http::extract_rel_path("http://example.com/path?q=1#frag");
         if (path != "/path?q=1#frag")
         {
             LogFail("http://example.com/path?q=1#frag should extract '/path?q=1#frag'");
@@ -489,7 +489,7 @@ void TestExtractPathFromAbsoluteUri()
 
     // HTTPS 协议也应正确去除 authority 部分
     {
-        auto path = psm::protocol::http::extract_relative_path("https://example.com/api");
+        auto path = psm::protocol::http::extract_rel_path("https://example.com/api");
         if (path != "/api")
         {
             LogFail("https://example.com/api should extract '/api'");
@@ -509,7 +509,7 @@ void TestExtractPathNoPathComponent()
 
     // URI 无路径时默认返回根路径 "/"
     {
-        auto path = psm::protocol::http::extract_relative_path("http://example.com");
+        auto path = psm::protocol::http::extract_rel_path("http://example.com");
         if (path != "/")
         {
             LogFail("http://example.com should extract '/'");
@@ -518,7 +518,7 @@ void TestExtractPathNoPathComponent()
     }
 
     {
-        auto path = psm::protocol::http::extract_relative_path("https://example.com");
+        auto path = psm::protocol::http::extract_rel_path("https://example.com");
         if (path != "/")
         {
             LogFail("https://example.com should extract '/'");
@@ -538,7 +538,7 @@ void TestExtractPathAlreadyRelative()
 
     // 已经是相对路径的输入应原样返回
     {
-        auto path = psm::protocol::http::extract_relative_path("/path?q=1");
+        auto path = psm::protocol::http::extract_rel_path("/path?q=1");
         if (path != "/path?q=1")
         {
             LogFail("'/path?q=1' should be returned as-is");
@@ -548,7 +548,7 @@ void TestExtractPathAlreadyRelative()
 
     // CONNECT 风格的 host:port 不应被误判为路径
     {
-        auto path = psm::protocol::http::extract_relative_path("host:443");
+        auto path = psm::protocol::http::extract_rel_path("host:443");
         if (path != "host:443")
         {
             LogFail("'host:443' should be returned as-is");
@@ -569,7 +569,7 @@ void TestMinimalRequest()
     // 仅请求行 + 空头部，host 应为空
     const std::string raw = "GET / HTTP/1.1\r\n\r\n";
     psm::protocol::http::proxy_request req{};
-    auto result = psm::protocol::http::parse_proxy_request(raw, req);
+    auto result = psm::protocol::http::parse_proxy_req(raw, req);
 
     if (result != psm::fault::code::success)
     {
@@ -604,7 +604,7 @@ void TestHttp10Version()
 
     const std::string raw = "GET / HTTP/1.0\r\nHost: example.com\r\n\r\n";
     psm::protocol::http::proxy_request req{};
-    auto result = psm::protocol::http::parse_proxy_request(raw, req);
+    auto result = psm::protocol::http::parse_proxy_req(raw, req);
 
     if (result != psm::fault::code::success)
     {
@@ -635,7 +635,7 @@ void TestHostWithPort()
     // Host 值含端口号，应完整保留
     const std::string raw = "GET / HTTP/1.1\r\nHost: example.com:8080\r\n\r\n";
     psm::protocol::http::proxy_request req{};
-    auto result = psm::protocol::http::parse_proxy_request(raw, req);
+    auto result = psm::protocol::http::parse_proxy_req(raw, req);
 
     if (result != psm::fault::code::success)
     {
@@ -661,7 +661,7 @@ void TestTabSeparator()
     // RFC 7230 允许冒号后使用 OWS（空格或 tab），验证 tab 被正确修剪
     const std::string raw = "GET / HTTP/1.1\r\nHost:\texample.com\r\n\r\n";
     psm::protocol::http::proxy_request req{};
-    auto result = psm::protocol::http::parse_proxy_request(raw, req);
+    auto result = psm::protocol::http::parse_proxy_req(raw, req);
 
     if (result != psm::fault::code::success)
     {
@@ -687,7 +687,7 @@ void TestMultipleHostHeaders()
     // 多个 Host 头：解析器逐行覆盖，最终保留最后一个
     const std::string raw = "GET / HTTP/1.1\r\nHost: first.com\r\nHost: second.com\r\n\r\n";
     psm::protocol::http::proxy_request req{};
-    auto result = psm::protocol::http::parse_proxy_request(raw, req);
+    auto result = psm::protocol::http::parse_proxy_req(raw, req);
 
     if (result != psm::fault::code::success)
     {
@@ -721,7 +721,7 @@ void TestOtherHeadersIgnored()
                             "Connection: keep-alive\r\n"
                             "\r\n";
     psm::protocol::http::proxy_request req{};
-    auto result = psm::protocol::http::parse_proxy_request(raw, req);
+    auto result = psm::protocol::http::parse_proxy_req(raw, req);
 
     if (result != psm::fault::code::success)
     {
@@ -743,7 +743,7 @@ void TestOtherHeadersIgnored()
 }
 
 /**
- * @brief 测试 extract_relative_path 带端口
+ * @brief 测试 extract_rel_path 带端口
  */
 void TestExtractPathWithPort()
 {
@@ -751,7 +751,7 @@ void TestExtractPathWithPort()
 
     // URI 带非标准端口，路径提取不受端口影响
     {
-        auto path = psm::protocol::http::extract_relative_path("http://example.com:8080/path");
+        auto path = psm::protocol::http::extract_rel_path("http://example.com:8080/path");
         if (path != "/path")
         {
             LogFail("http://example.com:8080/path should extract '/path'");
@@ -760,7 +760,7 @@ void TestExtractPathWithPort()
     }
 
     {
-        auto path = psm::protocol::http::extract_relative_path("https://example.com:443/api?q=1");
+        auto path = psm::protocol::http::extract_rel_path("https://example.com:443/api?q=1");
         if (path != "/api?q=1")
         {
             LogFail("https://example.com:443/api?q=1 should extract '/api?q=1'");
@@ -786,7 +786,7 @@ int main()
 
     LogInfo("Starting HTTP parser tests...");
 
-    // parse_proxy_request 测试
+    // parse_proxy_req 测试
     TestBasicGetRequest();
     TestConnectRequest();
     TestPostRequest();
@@ -801,7 +801,7 @@ int main()
     TestMissingRequestLineCrlf();
     TestEmptyInput();
 
-    // extract_relative_path 测试
+    // extract_rel_path 测试
     TestExtractPathFromAbsoluteUri();
     TestExtractPathNoPathComponent();
     TestExtractPathAlreadyRelative();

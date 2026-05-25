@@ -11,7 +11,7 @@
  */
 #pragma once
 
-#include <prism/protocol/protocol_type.hpp>
+#include <prism/protocol/types.hpp>
 #include <prism/protocol/common/target.hpp>
 #include <prism/protocol/common/mux.hpp>
 #include <prism/protocol/tls/types.hpp>

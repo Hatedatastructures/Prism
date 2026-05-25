@@ -29,7 +29,7 @@ static auto MakeBinding(std::uint32_t sessions, std::uint32_t pending, std::uint
 {
     return {
         .dispatch = [](front::tcp::socket) {},
-        .snapshot = [=]() -> psm::stats::worker_load_snapshot
+        .snapshot = [=]() -> psm::stats::worker_snapshot
         {
             return {sessions, pending, lag_us};
         }};

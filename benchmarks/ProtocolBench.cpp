@@ -30,7 +30,7 @@ using namespace psm;
 
 /**
  * @brief HTTP 转发请求行构建
- * @details 测试 build_forward_request_line 的请求行重写性能
+ * @details 测试 build_fwd_line 的请求行重写性能
  */
 static void BM_HttpBuildForwardRequestLine(benchmark::State &state)
 {
@@ -46,7 +46,7 @@ static void BM_HttpBuildForwardRequestLine(benchmark::State &state)
     for (auto _ : state)
     {
         arena.reset();
-        auto line = protocol::http::build_forward_request_line(req, mr);
+        auto line = protocol::http::build_fwd_line(req, mr);
         benchmark::DoNotOptimize(line);
     }
 }
@@ -73,7 +73,7 @@ static void BM_HttpParse_LargeHeader(benchmark::State &state)
     protocol::http::proxy_request req;
     for (auto _ : state)
     {
-        auto ec = protocol::http::parse_proxy_request(request, req);
+        auto ec = protocol::http::parse_proxy_req(request, req);
         benchmark::DoNotOptimize(req);
     }
     state.SetBytesProcessed(static_cast<std::int64_t>(state.iterations()) * static_cast<std::int64_t>(request.size()));
@@ -85,7 +85,7 @@ static void BM_HttpParse_LargeHeader(benchmark::State &state)
 
 /**
  * @brief SOCKS5 UDP 头编码
- * @details 测试 encode_udp_header 的 IPv4 UDP 数据报头编码性能
+ * @details 测试 encode_udp_hdr 的 IPv4 UDP 数据报头编码性能
  */
 static void BM_Socks5EncodeUdpHeader(benchmark::State &state)
 {
@@ -102,14 +102,14 @@ static void BM_Socks5EncodeUdpHeader(benchmark::State &state)
     {
         arena.reset();
         memory::vector<std::uint8_t> out(mr);
-        auto ec = protocol::socks5::wire::encode_udp_header(header, out);
+        auto ec = protocol::socks5::wire::encode_udp_hdr(header, out);
         benchmark::DoNotOptimize(out);
     }
 }
 
 /**
  * @brief SOCKS5 UDP 头解码
- * @details 测试 decode_udp_header 的 IPv4 UDP 数据报头解析性能
+ * @details 测试 decode_udp_hdr 的 IPv4 UDP 数据报头解析性能
  */
 static void BM_Socks5DecodeUdpHeader(benchmark::State &state)
 {
@@ -124,7 +124,7 @@ static void BM_Socks5DecodeUdpHeader(benchmark::State &state)
 
     for (auto _ : state)
     {
-        auto [ec, result] = protocol::socks5::wire::decode_udp_header(buffer);
+        auto [ec, result] = protocol::socks5::wire::decode_udp_hdr(buffer);
         benchmark::DoNotOptimize(result);
     }
     state.SetBytesProcessed(static_cast<std::int64_t>(state.iterations()) * static_cast<std::int64_t>(buffer.size()));
@@ -191,7 +191,7 @@ static void BM_TrojanParseUdpPacket(benchmark::State &state)
     for (auto _ : state)
     {
         arena.reset();
-        auto [ec, result] = protocol::trojan::format::parse_udp_packet(span);
+        auto [ec, result] = protocol::trojan::format::parse_udp_pkt(span);
         benchmark::DoNotOptimize(result);
     }
     state.SetBytesProcessed(static_cast<std::int64_t>(state.iterations()) * static_cast<std::int64_t>(buffer.size()));
@@ -215,11 +215,11 @@ static void BM_TrojanBuildUdpPacket(benchmark::State &state)
         arena.reset();
         memory::vector<std::byte> out(mr);
 
-        protocol::trojan::format::udp_frame frame;
+        protocol::trojan::format::udp_routed frame;
         frame.destination_address = protocol::socks5::ipv4_address{{127, 0, 0, 1}};
         frame.destination_port = 53;
 
-        auto ec = protocol::trojan::format::build_udp_packet(frame, std::span<const std::byte>(payload.data(), payload.size()), out);
+        auto ec = protocol::trojan::format::build_udp_pkt(frame, std::span<const std::byte>(payload.data(), payload.size()), out);
         benchmark::DoNotOptimize(out);
     }
     state.SetBytesProcessed(static_cast<std::int64_t>(state.iterations()) * static_cast<std::int64_t>(payload_size + 7));
@@ -330,7 +330,7 @@ static void BM_VlessParseUdpPacket(benchmark::State &state)
     for (auto _ : state)
     {
         arena.reset();
-        auto [ec, result] = protocol::vless::format::parse_udp_packet(span);
+        auto [ec, result] = protocol::vless::format::parse_udp_pkt(span);
         benchmark::DoNotOptimize(result);
     }
 }
@@ -355,14 +355,14 @@ static void BM_VlessMakeResponse(benchmark::State &state)
 
 /**
  * @brief Shadowsocks 地址端口解析
- * @details 测试 parse_address_port 的性能
+ * @details 测试 parse_addr_port 的性能
  */
 static void BM_ShadowsocksParseAddressPort(benchmark::State &state)
 {
     std::array<std::uint8_t, 7> buf = {0x01, 127, 0, 0, 1, 0x1F, 0x90};
     for (auto _ : state)
     {
-        auto [ec, result] = protocol::shadowsocks::format::parse_address_port(buf);
+        auto [ec, result] = protocol::shadowsocks::format::parse_addr_port(buf);
         benchmark::DoNotOptimize(result);
     }
     state.SetBytesProcessed(static_cast<std::int64_t>(state.iterations()) * static_cast<std::int64_t>(buf.size()));

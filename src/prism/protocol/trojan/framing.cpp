@@ -17,7 +17,7 @@ namespace psm::protocol::trojan::format
         for (size_t i = 0; i < 56; ++i)
         {
             const auto c = static_cast<std::uint8_t>(buffer[i]);
-            if (!((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F')))
+            if ((c < '0' || c > '9') && (c < 'a' || c > 'f') && (c < 'A' || c > 'F'))
             {
                 return {fault::code::protocol_error, {}};
             }
@@ -50,7 +50,7 @@ namespace psm::protocol::trojan::format
         return {fault::code::success, {static_cast<command>(buffer[0]), static_cast<address_type>(buffer[1])}};
     }
 
-    auto build_udp_packet(const udp_frame &frame, std::span<const std::byte> payload, memory::vector<std::byte> &out)
+    auto build_udp_pkt(const udp_routed &frame, std::span<const std::byte> payload, memory::vector<std::byte> &out)
         -> fault::code
     {
         // 预分配：最大地址长度(1+16) + port(2) + length(2) + CRLF(2) + payload
@@ -104,7 +104,7 @@ namespace psm::protocol::trojan::format
         return fault::code::success;
     }
 
-    auto parse_udp_packet(std::span<const std::byte> buffer)
+    auto parse_udp_pkt(std::span<const std::byte> buffer)
         -> std::pair<fault::code, udp_parse_result>
     {
         // 最小长度: ATYP(1) + IPv4(4) + PORT(2) + Length(2) + CRLF(2) = 11

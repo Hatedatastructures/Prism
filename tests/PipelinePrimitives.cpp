@@ -46,55 +46,56 @@ void TestIsMuxTarget()
     runner.LogInfo("=== TestIsMuxTarget ===");
 
     using psm::connect::is_mux_target;
+    using psm::connect::mux_switch;
 
     // mux 启用 + 匹配的 mux 标记地址 -> true
     runner.Check(
-        is_mux_target("example.mux.sing-box.arpa", true) == true,
+        is_mux_target("example.mux.sing-box.arpa", mux_switch::on) == true,
         "mux enabled + matching host -> true");
 
     // mux 启用 + 嵌套子域名 -> true
     runner.Check(
-        is_mux_target("foo.bar.mux.sing-box.arpa", true) == true,
+        is_mux_target("foo.bar.mux.sing-box.arpa", mux_switch::on) == true,
         "mux enabled + nested subdomain -> true");
 
     // mux 启用 + 恰好等于后缀 -> true
     runner.Check(
-        is_mux_target(".mux.sing-box.arpa", true) == true,
+        is_mux_target(".mux.sing-box.arpa", mux_switch::on) == true,
         "mux enabled + exactly suffix -> true");
 
     // mux 启用 + 非匹配主机名 -> false
     runner.Check(
-        is_mux_target("example.com", true) == false,
+        is_mux_target("example.com", mux_switch::on) == false,
         "mux enabled + non-matching host -> false");
 
     // mux 启用 + 类似但不匹配的后缀 -> false
     runner.Check(
-        is_mux_target("mux.sing-box.arpa", true) == false,
+        is_mux_target("mux.sing-box.arpa", mux_switch::on) == false,
         "mux enabled + missing leading dot -> false");
 
     // mux 启用 + 拼写错误的后缀 -> false
     runner.Check(
-        is_mux_target("example.mux.singbox.arpa", true) == false,
+        is_mux_target("example.mux.singbox.arpa", mux_switch::on) == false,
         "mux enabled + misspelled suffix -> false");
 
     // mux 启用 + 空主机名 -> false
     runner.Check(
-        is_mux_target("", true) == false,
+        is_mux_target("", mux_switch::on) == false,
         "mux enabled + empty host -> false");
 
     // mux 启用 + 后缀的前缀（比后缀短） -> false
     runner.Check(
-        is_mux_target("sing-box.arpa", true) == false,
+        is_mux_target("sing-box.arpa", mux_switch::on) == false,
         "mux enabled + partial suffix -> false");
 
     // mux 禁用 + 匹配的 mux 标记地址 -> false
     runner.Check(
-        is_mux_target("example.mux.sing-box.arpa", false) == false,
+        is_mux_target("example.mux.sing-box.arpa", mux_switch::off) == false,
         "mux disabled + matching host -> false");
 
     // mux 禁用 + 任意主机名 -> false
     runner.Check(
-        is_mux_target("anything", false) == false,
+        is_mux_target("anything", mux_switch::off) == false,
         "mux disabled + any host -> false");
 
     runner.LogPass("TestIsMuxTarget");

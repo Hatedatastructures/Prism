@@ -61,7 +61,7 @@ namespace psm::resolve::dns
         std::uint16_t port{53};                   // 服务端口
         std::uint32_t timeout_ms{5000};           // 超时时间（毫秒）
         memory::string http_path;                 // DoH 路径，默认 /dns-query
-        bool no_check_certificate{false};         // 跳过 TLS 证书验证
+        bool skip_cert_check{false};         // 跳过 TLS 证书验证
 
         /**
          * @brief 构造上游服务器配置

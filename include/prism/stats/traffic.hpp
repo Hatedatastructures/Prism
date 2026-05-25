@@ -14,7 +14,7 @@
 #include <vector>
 
 #include <prism/stats/snapshot.hpp>
-#include <prism/protocol/protocol_type.hpp>
+#include <prism/protocol/types.hpp>
 
 namespace psm::stats::traffic
 {
@@ -144,7 +144,7 @@ namespace psm::stats::traffic
         std::atomic<std::uint64_t> total_downlink_{0};                 ///< 全局下行字节
 
         // 协议维度明细
-        protocol_slot protocols_[protocol_slot_count];                 ///< 按 protocol_type 索引的协议槽位数组
+        protocol_slot protocols_[proto_slot_count];                 ///< 按 protocol_type 索引的协议槽位数组
 
         // 认证
         std::atomic<std::uint64_t> auth_success_{0};                   ///< 认证成功次数

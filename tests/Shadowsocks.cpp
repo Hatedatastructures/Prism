@@ -192,7 +192,7 @@ void TestFormatParseAddressPortIPv4()
     // [atyp=0x01][127.0.0.1][port=8080 BE]
     const std::array<std::uint8_t, 7> buf = {0x01, 127, 0, 0, 1, 0x1F, 0x90};
 
-    auto [ec, result] = psm::protocol::shadowsocks::format::parse_address_port(buf);
+    auto [ec, result] = psm::protocol::shadowsocks::format::parse_addr_port(buf);
     if (psm::fault::failed(ec))
     {
         LogFail(std::format("parse failed: {}", std::string_view(psm::fault::describe(ec))));
@@ -240,7 +240,7 @@ void TestFormatParseAddressPortIPv6()
     buf[0] = 0x04;                         // atyp = IPv6
     buf[17] = 0x00; buf[18] = 0x50;        // port = 80
 
-    auto [ec, result] = psm::protocol::shadowsocks::format::parse_address_port(buf);
+    auto [ec, result] = psm::protocol::shadowsocks::format::parse_addr_port(buf);
     if (psm::fault::failed(ec))
     {
         LogFail(std::format("parse failed: {}", std::string_view(psm::fault::describe(ec))));
@@ -278,7 +278,7 @@ void TestFormatParseAddressPortDomain()
     buf.push_back(0x00);
     buf.push_back(0x50);
 
-    auto [ec, result] = psm::protocol::shadowsocks::format::parse_address_port(buf);
+    auto [ec, result] = psm::protocol::shadowsocks::format::parse_addr_port(buf);
     if (psm::fault::failed(ec))
     {
         LogFail(std::format("parse failed: {}", std::string_view(psm::fault::describe(ec))));
@@ -315,7 +315,7 @@ void TestFormatParseAddressPortEmpty()
     LogInfo("=== TestFormatParseAddressPortEmpty ===");
 
     const std::span<const std::uint8_t> empty;
-    auto [ec, result] = psm::protocol::shadowsocks::format::parse_address_port(empty);
+    auto [ec, result] = psm::protocol::shadowsocks::format::parse_addr_port(empty);
 
     if (psm::fault::succeeded(ec))
     {
@@ -420,15 +420,15 @@ void TestFormatKeySaltLength()
 
     using cm = psm::protocol::shadowsocks::cipher_method;
 
-    if (psm::protocol::shadowsocks::format::key_salt_length(cm::aes_128_gcm) != 16)
+    if (psm::protocol::shadowsocks::format::keysalt_len(cm::aes_128_gcm) != 16)
     {
-        LogFail("AES-128-GCM key_salt_length should be 16");
+        LogFail("AES-128-GCM keysalt_len should be 16");
         return;
     }
 
-    if (psm::protocol::shadowsocks::format::key_salt_length(cm::aes_256_gcm) != 32)
+    if (psm::protocol::shadowsocks::format::keysalt_len(cm::aes_256_gcm) != 32)
     {
-        LogFail("AES-256-GCM key_salt_length should be 32");
+        LogFail("AES-256-GCM keysalt_len should be 32");
         return;
     }
 

@@ -42,7 +42,7 @@ namespace psm::multiplex::yamux
         net::co_spawn(executor(), std::move(start_send_loop), net::detached);
 
         // 启动主动 Ping 心跳（启用且有间隔时）
-        if (config_.yamux.enable_ping && config_.yamux.ping_interval_ms > 0)
+        if (config_.yamux.enable_ping && config_.yamux.ping_interval > 0)
         {
             auto start_ping = [self]() -> net::awaitable<void>
             {
@@ -69,7 +69,7 @@ namespace psm::multiplex::yamux
             // 读取 12 字节帧头（std::array 转 span 传递）
             const auto recv_span = std::span<std::byte>(recv_buffer_);
             const auto hdr_n = co_await transport::async_read(*transport_, recv_span, ec);
-            if (ec || hdr_n < frame_header_size)
+            if (ec || hdr_n < frame_hdrsize)
             {
                 if (ec != std::errc::operation_canceled)
                 {
@@ -96,8 +96,8 @@ namespace psm::multiplex::yamux
                 if (hdr.length > max_frame_payload)
                 {
                     trace::warn("{} oversized Data frame: stream={}, length={}", tag, hdr.stream_id, hdr.length);
-                    co_await push_frame(message_type::go_away, flags::none, 0,
-                                        static_cast<std::uint32_t>(go_away_code::protocol_error), {});
+                    co_await push_frame({message_type::go_away, flags::none, 0,
+                                        static_cast<std::uint32_t>(go_away_code::protocol_error), {}});
                     break;
                 }
                 payload.resize(hdr.length);
@@ -165,7 +165,7 @@ namespace psm::multiplex::yamux
         if (pending_.size() + ducts_.size() + parcels_.size() >= config_.yamux.max_streams)
         {
             trace::warn("{} max streams reached, rejecting stream {}", tag, stream_id);
-            co_await push_frame(message_type::window_update, flags::rst, stream_id, 0, {});
+            co_await push_frame({message_type::window_update, flags::rst, stream_id, 0, {}});
             co_return;
         }
 
@@ -188,7 +188,7 @@ namespace psm::multiplex::yamux
         start_pending_timeout(stream_id);
 
         // 回复 WindowUpdate ACK，Length 携带服务端初始窗口大小
-        co_await push_frame(message_type::window_update, flags::ack, stream_id, config_.yamux.initial_window, {});
+        co_await push_frame({message_type::window_update, flags::ack, stream_id, config_.yamux.initial_window, {}});
 
         try_activate_pending(stream_id);
     }
@@ -337,7 +337,7 @@ namespace psm::multiplex::yamux
 
         // 流不存在，回复 RST（不更新接收窗口，避免创建幽灵 window）
         trace::debug("{} data for unknown stream {}", tag, stream_id);
-        co_await push_frame(message_type::window_update, flags::rst, stream_id, 0, {});
+        co_await push_frame({message_type::window_update, flags::rst, stream_id, 0, {}});
     }
 
     void craft::try_activate_pending(const std::uint32_t stream_id)
@@ -433,7 +433,7 @@ namespace psm::multiplex::yamux
             if (pending_.size() + ducts_.size() + parcels_.size() >= config_.yamux.max_streams)
             {
                 trace::warn("{} max streams reached, rejecting stream {}", tag, stream_id);
-                co_await push_frame(message_type::window_update, flags::rst, stream_id, 0, {});
+                co_await push_frame({message_type::window_update, flags::rst, stream_id, 0, {}});
                 co_return;
             }
 
@@ -451,7 +451,7 @@ namespace psm::multiplex::yamux
             window->send_window.store(client_window, std::memory_order_release);
 
             // 回复 WindowUpdate ACK，Length 携带服务端初始窗口大小
-            co_await push_frame(message_type::window_update, flags::ack, stream_id, config_.yamux.initial_window, {});
+            co_await push_frame({message_type::window_update, flags::ack, stream_id, config_.yamux.initial_window, {}});
 
             // 设置 pending 流超时定时器
             start_pending_timeout(stream_id);
@@ -497,7 +497,7 @@ namespace psm::multiplex::yamux
         // SYN 标志：Ping 请求，仅在启用心跳时回复 ACK
         if (has_flag(hdr.flag, flags::syn) && config_.yamux.enable_ping)
         {
-            co_await push_frame(message_type::ping, flags::ack, 0, hdr.length, {});
+            co_await push_frame({message_type::ping, flags::ack, 0, hdr.length, {}});
             co_return;
         }
 
@@ -586,8 +586,15 @@ namespace psm::multiplex::yamux
 
             pending_.erase(stream_id);
 
-            auto dp = make_parcel(stream_id, shared_from_this(), router_,
-                                  config_.yamux.udp_idle_timeout_ms, config_.yamux.udp_max_datagram, mr_, packet_addr);
+            auto dp = make_parcel(
+                parcel_config{
+                    .stream_id = stream_id,
+                    .udp_idle_timeout = config_.yamux.udp_idle_timeout,
+                    .udp_max_dgram = config_.yamux.udp_max_dgram,
+                    .mr = mr_,
+                    .mode = packet_addr ? addr_mode::packet_addr : addr_mode::length_prefixed,
+                },
+                shared_from_this(), router_);
             if (!packet_addr)
             {
                 dp->set_destination(host, port);
@@ -656,35 +663,41 @@ namespace psm::multiplex::yamux
 
     void craft::start_pending_timeout(const std::uint32_t stream_id)
     {
-        if (config_.yamux.stream_open_timeout_ms == 0)
+        if (config_.yamux.stream_open_timeout == 0)
         {
             return;
         }
 
         auto timer = std::make_shared<net::steady_timer>(executor());
-        timer->expires_after(std::chrono::milliseconds(config_.yamux.stream_open_timeout_ms));
+        timer->expires_after(std::chrono::milliseconds(config_.yamux.stream_open_timeout));
         pending_timers_[stream_id] = timer;
 
         auto self = std::static_pointer_cast<craft>(shared_from_this());
-        auto timeout_inspection = [self, stream_id, timer]() -> net::awaitable<void>
+        net::co_spawn(
+            executor(),
+            [self, stream_id, timer = std::move(timer)]() -> net::awaitable<void>
+            { co_return co_await self->pending_timeout(stream_id, std::move(timer)); },
+            net::detached);
+    }
+
+    auto craft::pending_timeout(const std::uint32_t stream_id, std::shared_ptr<net::steady_timer> timer)
+        -> net::awaitable<void>
+    {
+        boost::system::error_code ec;
+        co_await timer->async_wait(net::redirect_error(net::use_awaitable, ec));
+        if (ec)
         {
-            boost::system::error_code ec;
-            co_await timer->async_wait(net::redirect_error(net::use_awaitable, ec));
-            if (ec)
-            {
-                co_return;
-            }
-            // 超时：检查流是否仍在 pending 中
-            if (self->pending_.count(stream_id))
-            {
-                trace::warn("{} stream {} open timeout, resetting", tag, stream_id);
-                self->pending_.erase(stream_id);
-                self->pending_timers_.erase(stream_id);
-                self->windows_.erase(stream_id);
-                co_await self->push_frame(message_type::window_update, flags::rst, stream_id, 0, {});
-            }
-        };
-        net::co_spawn(executor(), std::move(timeout_inspection), net::detached);
+            co_return;
+        }
+        // 超时：检查流是否仍在 pending 中
+        if (pending_.count(stream_id))
+        {
+            trace::warn("{} stream {} open timeout, resetting", tag, stream_id);
+            pending_.erase(stream_id);
+            pending_timers_.erase(stream_id);
+            windows_.erase(stream_id);
+            co_await push_frame({message_type::window_update, flags::rst, stream_id, 0, {}});
+        }
     }
 
     stream_window *craft::get_or_create_window(const std::uint32_t stream_id)
@@ -725,7 +738,7 @@ namespace psm::multiplex::yamux
             window->recv_consumed.store(0, std::memory_order_release);
 
             const std::uint32_t delta = total_consumed;
-            co_await push_frame(message_type::window_update, flags::none, stream_id, delta, {});
+            co_await push_frame({message_type::window_update, flags::none, stream_id, delta, {}});
 
             trace::debug("{} stream {} window update sent, delta={}", tag, stream_id, delta);
         }
@@ -787,16 +800,16 @@ namespace psm::multiplex::yamux
             }
         }
 
-        co_await push_frame(message_type::data, flags::none, stream_id, payload_size, std::move(payload));
+        co_await push_frame({message_type::data, flags::none, stream_id, payload_size, std::move(payload)});
     }
 
     void craft::send_fin(const std::uint32_t stream_id)
     {
-        // 异步发送 FIN，不阻塞调用者（duct 的 target_read_loop）
+        // 异步发送 FIN，不阻塞调用者（duct 的 target_readloop）
         auto self = std::static_pointer_cast<craft>(shared_from_this());
         auto send_fn = [self, stream_id]() -> net::awaitable<void>
         {
-            co_await self->push_frame(message_type::data, flags::fin, stream_id, 0, {});
+            co_await self->push_frame({message_type::data, flags::fin, stream_id, 0, {}});
         };
         auto callback = [stream_id](const std::exception_ptr &ep)
         {
@@ -867,18 +880,17 @@ namespace psm::multiplex::yamux
         core::remove_parcel(stream_id);
     }
 
-    auto craft::push_frame(const message_type type, const flags f, const std::uint32_t stream_id,
-                           const std::uint32_t length, memory::vector<std::byte> payload) const
+    auto craft::push_frame(frame_data data) const
         -> net::awaitable<void>
     {
         outbound_frame frame(mr_);
         frame_header hdr{};
-        hdr.type = type;
-        hdr.flag = f;
-        hdr.stream_id = stream_id;
-        hdr.length = length;
+        hdr.type = data.type;
+        hdr.flag = data.f;
+        hdr.stream_id = data.stream_id;
+        hdr.length = data.length;
         frame.header = build_header(hdr);
-        frame.payload = std::move(payload);
+        frame.payload = std::move(data.payload);
 
         boost::system::error_code ec;
         auto token = net::redirect_error(net::use_awaitable, ec);
@@ -943,13 +955,13 @@ namespace psm::multiplex::yamux
     auto craft::ping_loop()
         -> net::awaitable<void>
     {
-        trace::debug("{} ping loop started, interval={}ms", tag, config_.yamux.ping_interval_ms);
+        trace::debug("{} ping loop started, interval={}ms", tag, config_.yamux.ping_interval);
         net::steady_timer timer(executor());
         try
         {
             while (is_active())
             {
-                timer.expires_after(std::chrono::milliseconds(config_.yamux.ping_interval_ms));
+                timer.expires_after(std::chrono::milliseconds(config_.yamux.ping_interval));
                 boost::system::error_code ec;
                 co_await timer.async_wait(net::redirect_error(net::use_awaitable, ec));
                 if (ec || !is_active())
@@ -957,7 +969,7 @@ namespace psm::multiplex::yamux
                     break;
                 }
                 const auto id = ping_id_.fetch_add(1, std::memory_order_relaxed) + 1;
-                co_await push_frame(message_type::ping, flags::syn, 0, id, {});
+                co_await push_frame({message_type::ping, flags::syn, 0, id, {}});
             }
         }
         catch (const std::exception &e)

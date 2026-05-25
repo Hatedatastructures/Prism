@@ -102,7 +102,7 @@ public:
      * @brief 预注入读取数据
      * @param data 要注入的字节序列
      */
-    auto feed(std::vector<std::byte> data) -> void
+    void feed(std::vector<std::byte> data)
     {
         data_ = std::move(data);
         pos_ = 0;

@@ -3,7 +3,7 @@
  * @brief SNI 路由表单元测试
  */
 
-#include <prism/recognition/scheme_route_table.hpp>
+#include <prism/recognition/routes.hpp>
 #include <prism/config.hpp>
 #include "common/TestRunner.hpp"
 

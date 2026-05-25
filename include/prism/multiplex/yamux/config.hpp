@@ -16,7 +16,7 @@ namespace psm::multiplex::yamux
      * @brief yamux 协议配置
      * @details 控制 yamux 服务端行为的完整参数集。
      * initial_window 影响单流吞吐量，增大可提升高延迟链路的传输效率。
-     * enable_ping 和 ping_interval_ms 控制 Ping 心跳行为，
+     * enable_ping 和 ping_interval 控制 Ping 心跳行为，
      * stream_open/close_timeout_ms 控制流生命周期超时。
      */
     struct config
@@ -25,11 +25,11 @@ namespace psm::multiplex::yamux
         std::uint32_t buffer_size = 4096;              // 每流读取缓冲区大小（字节）
         std::uint32_t initial_window = 256 * 1024;     // 初始流窗口大小（字节），控制单流发送量
         bool enable_ping = true;                       // 是否启用心跳
-        std::uint32_t ping_interval_ms = 30000;        // 心跳间隔（毫秒）
-        std::uint32_t stream_open_timeout_ms = 30000;  // 流打开超时（毫秒）
-        std::uint32_t stream_close_timeout_ms = 30000; // 流关闭超时（毫秒）
-        std::uint32_t udp_idle_timeout_ms = 60000;     // UDP 管道空闲超时（毫秒），超时自动关闭
-        std::uint32_t udp_max_datagram = 65535;        // UDP 数据报最大长度（字节）
+        std::uint32_t ping_interval = 30000;        // 心跳间隔（毫秒）
+        std::uint32_t stream_open_timeout = 30000;  // 流打开超时（毫秒）
+        std::uint32_t stream_close_timeout = 30000; // 流关闭超时（毫秒）
+        std::uint32_t udp_idle_timeout = 60000;     // UDP 管道空闲超时（毫秒），超时自动关闭
+        std::uint32_t udp_max_dgram = 65535;        // UDP 数据报最大长度（字节）
     }; // struct config
 
 } // namespace psm::multiplex::yamux

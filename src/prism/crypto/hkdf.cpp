@@ -147,10 +147,13 @@ namespace psm::crypto
     //
     // 这个函数是 TLS 1.3 密钥调度的核心，所有密钥（握手密钥、应用密钥、finished_key 等）
     // 都通过它派生。label 区分不同的用途（"key"、"iv"、"finished"、"derived" 等）。
-    auto hkdf_expand_label(const std::span<const std::uint8_t> secret, const std::string_view label,
-                           const std::span<const std::uint8_t> context, const std::size_t length)
+    auto hkdf_expand_label(const expand_label_params params)
         -> std::pair<fault::code, std::vector<std::uint8_t>>
     {
+        const auto &secret = params.secret;
+        const auto &label = params.label;
+        const auto &context = params.context;
+        const auto length = params.length;
         // "tls13 " 前缀 + 用户 label（如 "tls13 key"、"tls13 iv"、"tls13 derived"）
         static constexpr std::string_view tls13_prefix = "tls13 ";
         const auto full_label_len = tls13_prefix.size() + label.size();

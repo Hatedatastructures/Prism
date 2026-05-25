@@ -40,7 +40,7 @@ namespace psm::multiplex::yamux
      */
     struct outbound_frame
     {
-        std::array<std::byte, frame_header_size> header{}; // 编码后的帧头（12 字节）
+        std::array<std::byte, frame_hdrsize> header{}; // 编码后的帧头（12 字节）
         memory::vector<std::byte> payload;                 // 帧载荷数据（所有权转移）
 
         outbound_frame() = default;
@@ -51,7 +51,7 @@ namespace psm::multiplex::yamux
      * @struct stream_window
      * @brief 流窗口状态，用于流量控制
      * @details 跟踪单个流的发送和接收窗口，使用原子变量确保线程安全。
-     * duct::target_read_loop 和 frame_loop 可能并发访问 send_window，
+     * duct::target_readloop 和 frame_loop 可能并发访问 send_window，
      * dispatch_data 和 update_recv_window 可能并发访问 recv_consumed。
      * window_signal 用于在窗口不足时等待 WindowUpdate 帧唤醒发送方。
      */
@@ -61,12 +61,34 @@ namespace psm::multiplex::yamux
         std::atomic<std::uint32_t> recv_consumed{0};                   // 已消费的接收数据量（阈值触发 WindowUpdate）
         std::shared_ptr<net::steady_timer> window_signal;              // 窗口更新信号定时器
 
-        explicit stream_window(net::any_io_executor ex)
+        explicit stream_window(const net::any_io_executor& ex)
             : window_signal(std::make_shared<net::steady_timer>(ex))
         {
             window_signal->expires_at(net::steady_timer::time_point::max());
         }
     }; // struct stream_window
+
+    /**
+     * @struct frame_data
+     * @brief 帧数据聚合结构，用于 push_frame 参数收敛
+     * @details 将帧的类型、标志、流标识、长度和载荷聚合为单一结构，
+     * 避免函数参数超过 3 个。length 在 Data 帧中为载荷长度，
+     * 在 WindowUpdate 帧中为窗口增量，在 Ping 帧中为 ping ID，
+     * 在 GoAway 帧中为终止原因码。
+     */
+    struct frame_data
+    {
+        message_type type{message_type::data}; // 消息类型
+        flags f{flags::none};                  // 标志位
+        std::uint32_t stream_id{0};            // 流标识符
+        std::uint32_t length{0};               // Length 字段值
+        memory::vector<std::byte> payload;     // 帧载荷（所有权转移，Data 帧有效）
+
+        frame_data() = default;
+        explicit frame_data(memory::resource_pointer mr) : payload(mr) {}
+        frame_data(message_type t, flags fl, std::uint32_t sid, std::uint32_t len, memory::vector<std::byte> p)
+            : type(t), f(fl), stream_id(sid), length(len), payload(std::move(p)) {}
+    }; // struct frame_data
 
     /**
      * @class craft
@@ -106,7 +128,7 @@ namespace psm::multiplex::yamux
         /**
          * @brief 发送 FIN 帧到客户端
          * @param stream_id 目标流标识符
-         * @details 通过 co_spawn 异步发送，不阻塞调用者（通常是 duct 的 target_read_loop）。
+         * @details 通过 co_spawn 异步发送，不阻塞调用者（通常是 duct 的 target_readloop）。
          * @note 方法定义在 craft.cpp 中
          */
         void send_fin(std::uint32_t stream_id) override;
@@ -258,10 +280,20 @@ namespace psm::multiplex::yamux
         /**
          * @brief 为 pending 流设置超时定时器
          * @param stream_id 流标识符
-         * @details 当 stream_open_timeout_ms > 0 时创建定时器，超时后检查流是否仍在 pending 中，
+         * @details 当 stream_open_timeout > 0 时创建定时器，超时后检查流是否仍在 pending 中，
          * 若是则清理并发送 RST。activate_stream 成功后应取消定时器。
          */
         void start_pending_timeout(std::uint32_t stream_id);
+
+        /**
+         * @brief pending 流超时处理协程
+         * @param stream_id 流标识符
+         * @param timer 超时定时器共享指针
+         * @details 等待定时器到期，若流仍在 pending_ 中则清理状态并发送 RST 帧。
+         * 由 start_pending_timeout 通过 co_spawn 启动，对象存活由调用方保证。
+         */
+        auto pending_timeout(std::uint32_t stream_id, std::shared_ptr<net::steady_timer> timer)
+            -> net::awaitable<void>;
 
         /**
          * @brief 获取或创建流窗口
@@ -270,7 +302,7 @@ namespace psm::multiplex::yamux
          * @param stream_id 流标识符
          * @return stream_window* 流窗口指针，永不返回 nullptr
          */
-        stream_window *get_or_create_window(std::uint32_t stream_id);
+        [[nodiscard]] stream_window *get_or_create_window(std::uint32_t stream_id);
 
         /**
          * @brief 获取流窗口（不创建）
@@ -292,16 +324,11 @@ namespace psm::multiplex::yamux
 
         /**
          * @brief 将帧推送到发送通道
-         * @param type 消息类型
-         * @param f 标志位
-         * @param stream_id 流标识符
-         * @param length Length 字段值
-         * @param payload 帧载荷（所有权转移，Data 帧有效）
+         * @param data 帧数据聚合（类型、标志、流标识、长度、载荷）
          * @details 编码帧头为 12 字节数组，与 payload 组装为 outbound_frame，
          * 通过 channel_ 发送通道传递给 send_loop。header 与 payload 分离，零拷贝。
          */
-        auto push_frame(message_type type, flags f, std::uint32_t stream_id,
-                        std::uint32_t length, memory::vector<std::byte> payload) const
+        auto push_frame(frame_data data) const
             -> net::awaitable<void>;
 
         /**
@@ -314,7 +341,7 @@ namespace psm::multiplex::yamux
 
         /**
          * @brief 主动 Ping 心跳循环
-         * @details 当 enable_ping 为 true 且 ping_interval_ms > 0 时运行，
+         * @details 当 enable_ping 为 true 且 ping_interval > 0 时运行，
          * 按配置间隔发送 Ping(SYN) 帧，检测连接活性。
          * 定时器等待期间会话关闭则退出。
          */
@@ -328,7 +355,7 @@ namespace psm::multiplex::yamux
         memory::unordered_map<std::uint32_t, std::unique_ptr<stream_window>> windows_;            // 流窗口映射
         memory::unordered_map<std::uint32_t, std::shared_ptr<net::steady_timer>> pending_timers_; // pending 流超时定时器
         std::atomic<std::uint32_t> ping_id_{0};                                                   // Ping 标识符计数器
-        std::array<std::byte, frame_header_size> recv_buffer_{};                                  // 帧头读取缓冲（固定 12 字节）
+        std::array<std::byte, frame_hdrsize> recv_buffer_{};                                  // 帧头读取缓冲（固定 12 字节）
     }; // class craft
 
 } // namespace psm::multiplex::yamux

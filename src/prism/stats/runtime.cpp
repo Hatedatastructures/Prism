@@ -1,9 +1,3 @@
-/**
- * @file runtime.cpp
- * @brief 运行状态与负载统计实现
- * @details worker_load 从原有 stats::state 完整迁移，算法零改动。
- * system_state 为全局单例，记录进程启动时间和 worker 数量。
- */
 #include <prism/stats/runtime.hpp>
 #include <prism/trace.hpp>
 
@@ -43,12 +37,12 @@ namespace psm::stats::runtime
     }
 
     auto worker_load::snapshot() const noexcept
-        -> worker_load_snapshot
+        -> worker_snapshot
     {
         return {
             active_sessions_->load(std::memory_order_relaxed),
             pending_handoffs_.load(std::memory_order_relaxed),
-            event_loop_lag_us_.load(std::memory_order_relaxed)};
+            loop_lag_us_.load(std::memory_order_relaxed)};
     }
 
     // 算法流程：
@@ -93,7 +87,7 @@ namespace psm::stats::runtime
             {
                 jitter_baseline_us = (jitter_baseline_us * warmup_samples + capped_lag_us) / (warmup_samples + 1U);
                 ++warmup_samples;
-                event_loop_lag_us_.store(0ULL, std::memory_order_relaxed);
+                loop_lag_us_.store(0ULL, std::memory_order_relaxed);
                 continue;
             }
 
@@ -107,7 +101,7 @@ namespace psm::stats::runtime
             }
 
             smoothed_lag_us = (smoothed_lag_us * 7ULL + effective_lag_us) / 8ULL;
-            event_loop_lag_us_.store(smoothed_lag_us, std::memory_order_relaxed);
+            loop_lag_us_.store(smoothed_lag_us, std::memory_order_relaxed);
         }
     }
 

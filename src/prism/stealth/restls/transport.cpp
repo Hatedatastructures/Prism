@@ -1,11 +1,3 @@
-/**
- * @file transport.cpp
- * @brief Restls 传输层包装器实现
- * @details 处理 Restls 应用数据阶段的读写操作。
- * 读取方向：逐记录验证 auth_mac → mask XOR 解码 → 提取 data。
- * 写入方向：script 分配 → 拼接明文 → mask → auth_mac → TLS record。
- */
-
 #include <prism/stealth/restls/transport.hpp>
 #include <prism/stealth/common.hpp>
 #include <prism/trace.hpp>
@@ -28,25 +20,21 @@ namespace psm::stealth::restls
 
     restls_transport::restls_transport(
         net::ip::tcp::socket socket,
-        std::span<const std::uint8_t, 32> secret,
-        std::span<const std::uint8_t, 32> server_random,
-        std::span<const std::uint8_t> client_finished,
-        script_engine script,
-        std::span<const std::byte> initial_data,
-        bool tls13)
+        restls_handover handover)
         : socket_(std::move(socket))
-        , script_(std::move(script))
-        , tls13_(tls13)
+        , script_(std::move(handover.script))
+        , tls13_(handover.version == tls_version::v13)
+        , tls_version_(handover.version)
     {
-        std::memcpy(secret_.data(), secret.data(), 32);
-        std::memcpy(server_random_.data(), server_random.data(), 32);
-        client_finished_.assign(client_finished.begin(), client_finished.end());
-        if (!initial_data.empty())
+        std::memcpy(secret_.data(), handover.secret.data(), 32);
+        std::memcpy(server_random_.data(), handover.server_random.data(), 32);
+        client_finished_.assign(handover.client_finished.begin(), handover.client_finished.end());
+        if (!handover.initial_data.empty())
         {
-            initial_buffer_.assign(initial_data.begin(), initial_data.end());
+            initial_buffer_.assign(handover.initial_data.begin(), handover.initial_data.end());
         }
         trace::debug("{} created, initial_data={}, tls13={}, client_finished={}",
-                     tag, initial_data.size(), tls13, client_finished.size());
+                     tag, handover.initial_data.size(), (handover.version == tls_version::v13), handover.client_finished.size());
     }
 
     restls_transport::~restls_transport() = default;
@@ -123,12 +111,12 @@ namespace psm::stealth::restls
         boost::system::error_code boost_ec;
 
         // 读取 TLS header (5 bytes)
-        std::array<std::byte, tls_header_size> header{};
+        std::array<std::byte, tls_hdrsize> header{};
         auto header_n = co_await net::async_read(
-            socket_, net::buffer(header.data(), tls_header_size),
+            socket_, net::buffer(header.data(), tls_hdrsize),
             net::redirect_error(net::use_awaitable, boost_ec));
 
-        if (boost_ec || header_n < tls_header_size)
+        if (boost_ec || header_n < tls_hdrsize)
         {
             ec = std::make_error_code(std::errc::connection_reset);
             co_return std::nullopt;
@@ -136,6 +124,7 @@ namespace psm::stealth::restls
 
         // safe: casting byte buffer to uint8_t to parse TLS record header fields
         const auto *raw = reinterpret_cast<const std::uint8_t *>(header.data());
+        if (raw[0] != content_appdata)
         {
             ec = std::make_error_code(std::errc::protocol_error);
             co_return std::nullopt;
@@ -157,7 +146,7 @@ namespace psm::stealth::restls
         }
 
         // 验证最小长度：auth_mac(8) + masked_len(2) + masked_cmd(2) = 12
-        if (payload.size() < auth_header_len)
+        if (payload.size() < auth_hdrlen)
         {
             ec = std::make_error_code(std::errc::protocol_error);
             co_return std::nullopt;
@@ -167,55 +156,55 @@ namespace psm::stealth::restls
         auto *payload_raw = reinterpret_cast<std::uint8_t *>(payload.data());
 
         // 保存 TLS header 用于 auth_mac 验证
-        std::array<std::uint8_t, tls_header_size> tls_hdr{};
-        std::memcpy(tls_hdr.data(), raw, tls_header_size);
+        std::array<std::uint8_t, tls_hdrsize> tls_hdr{};
+        std::memcpy(tls_hdr.data(), raw, tls_hdrsize);
 
         // 1. 提取 auth_mac (bytes 0-7)
-        std::array<std::uint8_t, app_data_mac_len> received_mac{};
-        std::memcpy(received_mac.data(), payload_raw, app_data_mac_len);
+        std::array<std::uint8_t, appdata_maclen> received_mac{};
+        std::memcpy(received_mac.data(), payload_raw, appdata_maclen);
 
         // 2. 计算 mask（基于明文，从 offset 12 开始的数据，最多 32 字节）
         // 注意：此时 masked_len/masked_cmd 还未解码
         // mask 输入使用的是 XOR 之前的明文数据（即 offset 12 之后的内容）
         const std::size_t sample_len = std::min(
-            static_cast<std::size_t>(record_length - app_data_offset), std::size_t{32});
+            static_cast<std::size_t>(record_length - appdata_offset), std::size_t{32});
         auto plaintext_sample = std::span<const std::uint8_t>(
-            payload_raw + app_data_offset, sample_len);
+            payload_raw + appdata_offset, sample_len);
 
-        auto mask = compute_mask(
-            std::span<const std::uint8_t, 32>(secret_),
-            std::span<const std::uint8_t, 32>(server_random_),
-            true, // server→client direction
-            read_counter_,
-            plaintext_sample);
+        auto mask = compute_mask(mask_input{
+            .secret = std::span<const std::uint8_t, 32>(secret_),
+            .server_random = std::span<const std::uint8_t, 32>(server_random_),
+            .direction = flow_direction::to_client,
+            .counter = read_counter_,
+            .plaintext_sample = plaintext_sample});
 
         // 3. XOR 解码 masked_len 和 masked_cmd (bytes 8-11)
         xor_with_mask(
-            std::span<std::uint8_t>(payload_raw + app_data_len_offset, mask_len),
+            std::span<std::uint8_t>(payload_raw + appdata_lenoff, mask_len),
             mask);
 
         // 4. 提取解码后的 data_len 和 cmd
         const std::uint16_t data_len =
-            (static_cast<std::uint16_t>(payload_raw[app_data_len_offset]) << 8) |
-            payload_raw[app_data_len_offset + 1];
+            (static_cast<std::uint16_t>(payload_raw[appdata_lenoff]) << 8) |
+            payload_raw[appdata_lenoff + 1];
         const std::uint16_t cmd =
-            (static_cast<std::uint16_t>(payload_raw[app_data_len_offset + 2]) << 8) |
-            payload_raw[app_data_len_offset + 3];
+            (static_cast<std::uint16_t>(payload_raw[appdata_lenoff + 2]) << 8) |
+            payload_raw[appdata_lenoff + 3];
 
         // 5. 验证 auth_mac
         auto payload_after_mac = std::span<const std::uint8_t>(
-            payload_raw + app_data_len_offset, record_length - app_data_len_offset);
+            payload_raw + appdata_lenoff, record_length - appdata_lenoff);
 
-        auto expected_mac = compute_auth_mac(
-            std::span<const std::uint8_t, 32>(secret_),
-            std::span<const std::uint8_t, 32>(server_random_),
-            true, // server→client direction
-            read_counter_,
-            {}, // no clientFinished in read direction
-            tls_hdr,
-            payload_after_mac);
+        auto expected_mac = compute_auth_mac(auth_mac_input{
+            .secret = std::span<const std::uint8_t, 32>(secret_),
+            .server_random = std::span<const std::uint8_t, 32>(server_random_),
+            .direction = flow_direction::to_client,
+            .counter = read_counter_,
+            .client_finished = {}, // no clientFinished in read direction
+            .tls_header = tls_hdr,
+            .payload_after_mac = payload_after_mac});
 
-        if (CRYPTO_memcmp(received_mac.data(), expected_mac.data(), app_data_mac_len) != 0)
+        if (CRYPTO_memcmp(received_mac.data(), expected_mac.data(), appdata_maclen) != 0)
         {
             trace::warn("{} auth_mac verification failed, counter={}", tag, read_counter_);
             ec = std::make_error_code(std::errc::permission_denied);
@@ -225,7 +214,7 @@ namespace psm::stealth::restls
         ++read_counter_;
 
         // 6. 处理随机响应命令
-        if (cmd == cmd_random_response)
+        if (cmd == cmd_randresp)
         {
             trace::debug("{} received random_response command, count={}", tag, data_len);
             // data_len 被复用为响应请求数量
@@ -242,7 +231,7 @@ namespace psm::stealth::restls
         }
 
         // 7. 提取用户数据
-        const std::size_t data_start = app_data_offset;
+        const std::size_t data_start = appdata_offset;
         const std::size_t data_end = data_start + data_len;
         if (data_end > payload.size())
         {
@@ -292,42 +281,42 @@ namespace psm::stealth::restls
         memory::vector<std::uint8_t> plaintext(total_payload, 0);
 
         // 写入 data_len (big-endian) at offset 8
-        plaintext[app_data_mac_len] = static_cast<std::uint8_t>((alloc.data_len >> 8) & 0xFF);
-        plaintext[app_data_mac_len + 1] = static_cast<std::uint8_t>(alloc.data_len & 0xFF);
+        plaintext[appdata_maclen] = static_cast<std::uint8_t>((alloc.data_len >> 8) & 0xFF);
+        plaintext[appdata_maclen + 1] = static_cast<std::uint8_t>(alloc.data_len & 0xFF);
 
         // 写入 cmd at offset 10
-        plaintext[app_data_mac_len + 2] = static_cast<std::uint8_t>((static_cast<std::uint16_t>(alloc.cmd) >> 8) & 0xFF);
-        plaintext[app_data_mac_len + 3] = static_cast<std::uint8_t>(static_cast<std::uint16_t>(alloc.cmd) & 0xFF);
+        plaintext[appdata_maclen + 2] = static_cast<std::uint8_t>((static_cast<std::uint16_t>(alloc.cmd) >> 8) & 0xFF);
+        plaintext[appdata_maclen + 3] = static_cast<std::uint8_t>(static_cast<std::uint16_t>(alloc.cmd) & 0xFF);
 
         // 写入用户数据 at offset 12
         const auto copy_len = std::min(static_cast<std::size_t>(alloc.data_len), data.size());
         if (copy_len > 0)
         {
-            std::memcpy(plaintext.data() + auth_header_len, data.data(), copy_len);
+            std::memcpy(plaintext.data() + auth_hdrlen, data.data(), copy_len);
         }
 
         // 3. 计算 mask（基于明文数据，从 offset 12 开始，最多 32 字节）
         const std::size_t sample_len = std::min(
-            total_payload > auth_header_len ? total_payload - auth_header_len : std::size_t{0},
+            total_payload > auth_hdrlen ? total_payload - auth_hdrlen : std::size_t{0},
             std::size_t{32});
         auto plaintext_sample = std::span<const std::uint8_t>(
-            plaintext.data() + auth_header_len, sample_len);
+            plaintext.data() + auth_hdrlen, sample_len);
 
-        auto mask = compute_mask(
-            std::span<const std::uint8_t, 32>(secret_),
-            std::span<const std::uint8_t, 32>(server_random_),
-            false, // client→server direction
-            write_counter_,
-            plaintext_sample);
+        auto mask = compute_mask(mask_input{
+            .secret = std::span<const std::uint8_t, 32>(secret_),
+            .server_random = std::span<const std::uint8_t, 32>(server_random_),
+            .direction = flow_direction::to_server,
+            .counter = write_counter_,
+            .plaintext_sample = plaintext_sample});
 
         // 4. XOR masked_len 和 masked_cmd (offset 8-11)
         xor_with_mask(
-            std::span<std::uint8_t>(plaintext.data() + app_data_mac_len, mask_len),
+            std::span<std::uint8_t>(plaintext.data() + appdata_maclen, mask_len),
             mask);
 
         // 5. 构造 TLS header
-        std::array<std::uint8_t, tls_header_size> tls_hdr{};
-        tls_hdr[0] = content_type_application_data;
+        std::array<std::uint8_t, tls_hdrsize> tls_hdr{};
+        tls_hdr[0] = content_appdata;
         tls_hdr[1] = 0x03;
         tls_hdr[2] = 0x03;
         tls_hdr[3] = static_cast<std::uint8_t>((total_payload >> 8) & 0xFF);
@@ -335,7 +324,7 @@ namespace psm::stealth::restls
 
         // 6. 计算 auth_mac
         auto payload_after_mac = std::span<const std::uint8_t>(
-            plaintext.data() + app_data_mac_len, total_payload - app_data_mac_len);
+            plaintext.data() + appdata_maclen, total_payload - appdata_maclen);
 
         auto client_finished_span = std::span<const std::uint8_t>();
         if (first_write_ && !client_finished_.empty())
@@ -343,17 +332,17 @@ namespace psm::stealth::restls
             client_finished_span = std::span<const std::uint8_t>(client_finished_);
         }
 
-        auto mac = compute_auth_mac(
-            std::span<const std::uint8_t, 32>(secret_),
-            std::span<const std::uint8_t, 32>(server_random_),
-            false, // client→server direction
-            write_counter_,
-            client_finished_span,
-            tls_hdr,
-            payload_after_mac);
+        auto mac = compute_auth_mac(auth_mac_input{
+            .secret = std::span<const std::uint8_t, 32>(secret_),
+            .server_random = std::span<const std::uint8_t, 32>(server_random_),
+            .direction = flow_direction::to_server,
+            .counter = write_counter_,
+            .client_finished = client_finished_span,
+            .tls_header = tls_hdr,
+            .payload_after_mac = payload_after_mac});
 
         // 7. 写入 auth_mac 到 plaintext offset 0-7
-        std::memcpy(plaintext.data(), mac.data(), app_data_mac_len);
+        std::memcpy(plaintext.data(), mac.data(), appdata_maclen);
 
         // 首次写入后清除 clientFinished
         if (first_write_)
@@ -363,10 +352,10 @@ namespace psm::stealth::restls
         }
 
         // 8. 发送完整 TLS record
-        const std::size_t frame_size = tls_header_size + total_payload;
+        const std::size_t frame_size = tls_hdrsize + total_payload;
         memory::vector<std::byte> frame(frame_size);
-        std::memcpy(frame.data(), tls_hdr.data(), tls_header_size);
-        std::memcpy(frame.data() + tls_header_size, plaintext.data(), total_payload);
+        std::memcpy(frame.data(), tls_hdr.data(), tls_hdrsize);
+        std::memcpy(frame.data() + tls_hdrsize, plaintext.data(), total_payload);
 
         boost::system::error_code boost_ec;
         co_await net::async_write(
@@ -402,38 +391,40 @@ namespace psm::stealth::restls
         for (std::uint8_t i = 0; i < count; ++i)
         {
             // 构造随机响应帧
-            const auto magic_len = random_response_magic.size();
-            const auto payload_len = auth_header_len + magic_len;
+            const auto magic_len = randresp_magic.size();
+            const auto payload_len = auth_hdrlen + magic_len;
 
             memory::vector<std::uint8_t> plaintext(payload_len, 0);
 
             // data_len = magic_len
-            plaintext[app_data_mac_len] = static_cast<std::uint8_t>((magic_len >> 8) & 0xFF);
-            plaintext[app_data_mac_len + 1] = static_cast<std::uint8_t>(magic_len & 0xFF);
+            plaintext[appdata_maclen] = static_cast<std::uint8_t>((magic_len >> 8) & 0xFF);
+            plaintext[appdata_maclen + 1] = static_cast<std::uint8_t>(magic_len & 0xFF);
             // cmd = random_response
-            plaintext[app_data_mac_len + 2] = static_cast<std::uint8_t>((cmd_random_response >> 8) & 0xFF);
-            plaintext[app_data_mac_len + 3] = static_cast<std::uint8_t>(cmd_random_response & 0xFF);
+            plaintext[appdata_maclen + 2] = static_cast<std::uint8_t>((cmd_randresp >> 8) & 0xFF);
+            plaintext[appdata_maclen + 3] = static_cast<std::uint8_t>(cmd_randresp & 0xFF);
 
             // 写入 magic 字符串
-            std::memcpy(plaintext.data() + auth_header_len,
-                        random_response_magic.data(), magic_len);
+            std::memcpy(plaintext.data() + auth_hdrlen,
+                        randresp_magic.data(), magic_len);
 
             // 计算 mask
             auto sample = std::span<const std::uint8_t>(
-                plaintext.data() + auth_header_len, magic_len);
-            auto mask = compute_mask(
-                std::span<const std::uint8_t, 32>(secret_),
-                std::span<const std::uint8_t, 32>(server_random_),
-                true, read_counter_, sample);
+                plaintext.data() + auth_hdrlen, magic_len);
+            auto mask = compute_mask(mask_input{
+                .secret = std::span<const std::uint8_t, 32>(secret_),
+                .server_random = std::span<const std::uint8_t, 32>(server_random_),
+                .direction = flow_direction::to_client,
+                .counter = read_counter_,
+                .plaintext_sample = sample});
 
             // XOR
             xor_with_mask(
-                std::span<std::uint8_t>(plaintext.data() + app_data_mac_len, mask_len),
+                std::span<std::uint8_t>(plaintext.data() + appdata_maclen, mask_len),
                 mask);
 
             // TLS header
-            std::array<std::uint8_t, tls_header_size> tls_hdr{};
-            tls_hdr[0] = content_type_application_data;
+            std::array<std::uint8_t, tls_hdrsize> tls_hdr{};
+            tls_hdr[0] = content_appdata;
             tls_hdr[1] = 0x03;
             tls_hdr[2] = 0x03;
             tls_hdr[3] = static_cast<std::uint8_t>((payload_len >> 8) & 0xFF);
@@ -441,19 +432,23 @@ namespace psm::stealth::restls
 
             // auth_mac
             auto after_mac = std::span<const std::uint8_t>(
-                plaintext.data() + app_data_mac_len, payload_len - app_data_mac_len);
-            auto mac = compute_auth_mac(
-                std::span<const std::uint8_t, 32>(secret_),
-                std::span<const std::uint8_t, 32>(server_random_),
-                true, read_counter_, {}, tls_hdr, after_mac);
+                plaintext.data() + appdata_maclen, payload_len - appdata_maclen);
+            auto mac = compute_auth_mac(auth_mac_input{
+                .secret = std::span<const std::uint8_t, 32>(secret_),
+                .server_random = std::span<const std::uint8_t, 32>(server_random_),
+                .direction = flow_direction::to_client,
+                .counter = read_counter_,
+                .client_finished = {},
+                .tls_header = tls_hdr,
+                .payload_after_mac = after_mac});
 
-            std::memcpy(plaintext.data(), mac.data(), app_data_mac_len);
+            std::memcpy(plaintext.data(), mac.data(), appdata_maclen);
 
             // 发送
-            const std::size_t frame_size = tls_header_size + payload_len;
+            const std::size_t frame_size = tls_hdrsize + payload_len;
             memory::vector<std::byte> frame(frame_size);
-            std::memcpy(frame.data(), tls_hdr.data(), tls_header_size);
-            std::memcpy(frame.data() + tls_header_size, plaintext.data(), payload_len);
+            std::memcpy(frame.data(), tls_hdr.data(), tls_hdrsize);
+            std::memcpy(frame.data() + tls_hdrsize, plaintext.data(), payload_len);
 
             boost::system::error_code boost_ec;
             co_await net::async_write(

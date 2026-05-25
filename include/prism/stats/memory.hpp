@@ -29,7 +29,7 @@ namespace psm::stats
          * @brief 获取全局单例
          * @return memory_tracker 引用
          */
-        static auto instance()
+        [[nodiscard]] static auto instance()
             -> memory_tracker &
         {
             static memory_tracker inst;

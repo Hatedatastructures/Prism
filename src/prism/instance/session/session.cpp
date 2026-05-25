@@ -1,10 +1,3 @@
-/**
- * @file session.cpp
- * @brief 连接会话编排模块实现
- * @details 会话通过 Recognition 模块进行完整协议识别（外层探测 + TLS 伪装方案识别），
- * 然后通过 handler_table 直接分发到协议处理函数。无虚函数、无工厂模式。
- */
-
 #include <prism/instance/session/session.hpp>
 #include <prism/protocol/http/process.hpp>
 #include <prism/protocol/socks5/process.hpp>
@@ -18,7 +11,7 @@
 #include <prism/trace.hpp>
 #include <prism/exception.hpp>
 #include <prism/stats/traffic.hpp>
-#include <prism/protocol/protocol_type.hpp>
+#include <prism/protocol/types.hpp>
 #include <prism/fault/code.hpp>
 #include <boost/asio/experimental/awaitable_operators.hpp>
 #include <chrono>
@@ -28,7 +21,7 @@ namespace psm::instance::session
     namespace net = boost::asio;
 
     session::session(session_params params)
-        : id_(detail::generate_session_id()),
+        : id_(detail::next_sid()),
           ctx_{id_, params.server, params.worker, frame_arena_, {}, params.server.config().buffer.size, std::move(params.inbound)}
     {
     }
@@ -92,8 +85,8 @@ namespace psm::instance::session
         state_ = state::closing;
         trace::debug("[Session] [{}] Session closing.", id_);
 
-        if (ctx_.active_stream_cancel)
-            ctx_.active_stream_cancel();
+        if (ctx_.stream_cancel)
+            ctx_.stream_cancel();
         if (ctx_.inbound)
             ctx_.inbound->cancel();
         if (ctx_.outbound)
@@ -112,11 +105,11 @@ namespace psm::instance::session
             ctx_.worker_ctx.traffic->on_disconnect(ctx_.detected_protocol);
         }
 
-        if (ctx_.active_stream_close)
+        if (ctx_.stream_close)
         {
-            ctx_.active_stream_close();
-            ctx_.active_stream_close = nullptr;
-            ctx_.active_stream_cancel = nullptr;
+            ctx_.stream_close();
+            ctx_.stream_close = nullptr;
+            ctx_.stream_cancel = nullptr;
         }
         if (ctx_.inbound)
         {
@@ -241,7 +234,7 @@ namespace psm::instance::session
         default:
             if (ctx_.inbound && ctx_.outbound)
             {
-                co_await connect::tunnel(std::move(ctx_.inbound), std::move(ctx_.outbound), ctx_);
+                co_await connect::tunnel({std::move(ctx_.inbound), std::move(ctx_.outbound), ctx_});
             }
             break;
         }

@@ -601,7 +601,7 @@ session::diversion()
 
 ### 新增 protocol_type 枚举值
 
-`protocol/protocol_type.hpp` 添加 `anytls`。
+`protocol/types.hpp` 添加 `anytls`。
 
 ### Stream pipe 设计：boost::asio::experimental::concurrent_channel
 
@@ -644,14 +644,14 @@ recv_loop() → cmdSYN(sid=2)
 | `src/prism/stealth/anytls/padding.cpp` | Padding 实现 |
 | `include/prism/stealth/anytls/session.hpp` | AnyTLS session 管理（多流多路复用） |
 | `src/prism/stealth/anytls/session.cpp` | Session 实现（recv_loop、帧收发） |
-| `include/prism/stealth/anytls/stream_transport.hpp` | 单个 Stream 的 transmission 适配器 |
+| `include/prism/stealth/anytls/mux/transport.hpp` | 单个 Stream 的 transmission 适配器 |
 | `include/prism/protocol/anytls/conn.hpp` | 协议 handler（注册到 dispatch） |
 | `src/prism/protocol/anytls/process.cpp` | 协议处理入口 |
 
 修改文件：
 | 文件 | 修改内容 |
 |------|----------|
-| `include/prism/protocol/protocol_type.hpp` | 添加 `anytls` 枚举值 |
+| `include/prism/protocol/types.hpp` | 添加 `anytls` 枚举值 |
 | `src/prism/stealth/anytls/scheme.cpp` | 从桩实现改为 TLS 握手 + 认证 + session 创建 |
 | `src/prism/instance/session/session.cpp` | switch 添加 `anytls` case |
 | `src/prism/stealth/CMakeLists.txt` | 添加新源文件 |
@@ -767,7 +767,7 @@ private:
 };
 ```
 
-### Phase A4：Stream Transport 适配器（`stream_transport.hpp`）
+### Phase A4：Stream Transport 适配器（`transport.hpp`）
 
 ```cpp
 class anytls_stream_transport final : public transport::transmission
@@ -1170,7 +1170,7 @@ AnyTLS:
   src/prism/stealth/anytls/padding.cpp             (新增)
   include/prism/stealth/anytls/session.hpp         (新增)
   src/prism/stealth/anytls/session.cpp             (新增)
-  include/prism/stealth/anytls/stream_transport.hpp(新增)
+  include/prism/stealth/anytls/mux/transport.hpp(新增)
   include/prism/protocol/anytls/conn.hpp           (新增)
   src/prism/protocol/anytls/process.cpp            (新增)
 
@@ -1188,7 +1188,7 @@ Restls:
   src/prism/stealth/restls/scheme.cpp    (从桩改为调用 handshake + transport)
 
 AnyTLS:
-  include/prism/protocol/protocol_type.hpp  (添加 anytls 枚举值)
+  include/prism/protocol/types.hpp  (添加 anytls 枚举值)
   src/prism/stealth/anytls/scheme.cpp       (从桩改为 TLS + 认证 + session)
   src/prism/instance/session/session.cpp    (switch 添加 anytls case)
 

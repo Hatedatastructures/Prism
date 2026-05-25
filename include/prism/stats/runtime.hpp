@@ -67,23 +67,23 @@ namespace psm::stats::runtime
          * @return 包含活跃会话数、待分发数、事件循环延迟的快照
          */
         [[nodiscard]] auto snapshot() const noexcept
-            -> worker_load_snapshot;
+            -> worker_snapshot;
 
         /**
          * @brief 启动事件循环延迟监测协程
          * @param io_context 要监测的 io_context
          * @return 异步操作，随 io_context 生命周期运行
          * @details 每 250ms 采样一次实际等待时间，经 EMA 平滑后
-         * 存入 event_loop_lag_us_。前 16 次采样为预热，用于
+         * 存入 loop_lag_us_。前 16 次采样为预热，用于
          * 建立抖动基线，之后的有效延迟需超过 1ms 才计入。
          */
-        auto observe(net::io_context &ioc)
+        [[nodiscard]] auto observe(net::io_context &ioc)
             -> net::awaitable<void>;
 
     private:
         std::shared_ptr<std::atomic<std::uint32_t>> active_sessions_;  ///< 活跃会话计数器（共享给 on_closed 回调）
         std::atomic<std::uint32_t> pending_handoffs_{0};               ///< 待分发连接数
-        std::atomic<std::uint64_t> event_loop_lag_us_{0};              ///< 事件循环延迟（微秒，EMA 平滑后）
+        std::atomic<std::uint64_t> loop_lag_us_{0};                     ///< 事件循环延迟（微秒，EMA 平滑后）
     };
 
     /**
@@ -100,7 +100,7 @@ namespace psm::stats::runtime
          * @brief 获取全局单例
          * @return system_state 引用
          */
-        static auto instance()
+        [[nodiscard]] static auto instance()
             -> system_state &;
 
         /**
