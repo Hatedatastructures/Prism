@@ -258,7 +258,7 @@ auto test_smux_tcp_lifecycle(net::any_io_executor ex,
 
     // 创建 smux 服务端 session
     auto server_transport = psm::transport::make_reliable(std::move(server_sock));
-    auto session = std::make_shared<smux::craft>(std::move(server_transport), router, mux_config);
+    auto session = std::make_shared<smux::craft>(core_options{std::move(server_transport), router, mux_config});
     session->start();
 
     // smux::craft::run() 直接进入 frame_loop()，不做 sing-mux 协商
@@ -356,7 +356,7 @@ auto test_yamux_tcp_lifecycle(net::any_io_executor ex,
     auto [client_sock, server_sock] = co_await make_socket_pair(ex);
 
     auto server_transport = psm::transport::make_reliable(std::move(server_sock));
-    auto session = std::make_shared<yamux::craft>(std::move(server_transport), router, mux_config);
+    auto session = std::make_shared<yamux::craft>(core_options{std::move(server_transport), router, mux_config});
     session->start();
 
     // smux/yamux craft::run() 直接进入 frame_loop()，不做 sing-mux 协商
@@ -367,7 +367,7 @@ auto test_yamux_tcp_lifecycle(net::any_io_executor ex,
     // yamux: 仅发送 Data(SYN) 携带地址即可打开流
     // Data(SYN) 内部会触发 handle_syn -> WindowUpdate(ACK) -> try_activate_pending
     auto address = make_tcp_address(echo_port);
-    auto data_syn = yamux::make_syn_frame(stream_id, address);
+    auto data_syn = yamux::build_syn(stream_id, address);
     std::vector<std::byte> syn_frame;
     syn_frame.insert(syn_frame.end(), data_syn.header.begin(), data_syn.header.end());
     syn_frame.insert(syn_frame.end(), data_syn.payload.begin(), data_syn.payload.end());
@@ -422,7 +422,7 @@ auto test_yamux_tcp_lifecycle(net::any_io_executor ex,
     {
         payload.push_back(static_cast<std::byte>(test_data[i]));
     }
-    auto data_frame = yamux::make_data_frame(yamux::flags::none, stream_id, payload);
+    auto data_frame = yamux::build_data(yamux::flags::none, stream_id, payload);
     std::vector<std::byte> send_buf;
     send_buf.insert(send_buf.end(), data_frame.header.begin(), data_frame.header.end());
     send_buf.insert(send_buf.end(), data_frame.payload.begin(), data_frame.payload.end());
@@ -471,7 +471,7 @@ auto test_yamux_tcp_lifecycle(net::any_io_executor ex,
     g_yamux_tcp_pass = echo_ok;
 
     // FIN 关闭流
-    auto fin_hdr = yamux::make_fin_frame(stream_id);
+    auto fin_hdr = yamux::build_fin(stream_id);
     co_await async_write_raw(client_sock, fin_hdr);
 
     // 关闭 client socket 让服务端 frame_loop 感知 EOF
@@ -491,7 +491,7 @@ auto test_smux_udp_lifecycle(net::any_io_executor ex,
     auto [client_sock, server_sock] = co_await make_socket_pair(ex);
 
     auto server_transport = psm::transport::make_reliable(std::move(server_sock));
-    auto session = std::make_shared<smux::craft>(std::move(server_transport), router, mux_config);
+    auto session = std::make_shared<smux::craft>(core_options{std::move(server_transport), router, mux_config});
     session->start();
 
     // smux craft 直接进入 frame_loop，不做协商
@@ -553,7 +553,7 @@ auto test_smux_abrupt_disconnect(net::any_io_executor ex,
     auto [client_sock, server_sock] = co_await make_socket_pair(ex);
 
     auto server_transport = psm::transport::make_reliable(std::move(server_sock));
-    auto session = std::make_shared<smux::craft>(std::move(server_transport), router, mux_config);
+    auto session = std::make_shared<smux::craft>(core_options{std::move(server_transport), router, mux_config});
     session->start();
 
     // smux craft 直接进入 frame_loop，不做协商
@@ -600,7 +600,7 @@ auto test_yamux_abrupt_disconnect(net::any_io_executor ex,
     auto [client_sock, server_sock] = co_await make_socket_pair(ex);
 
     auto server_transport = psm::transport::make_reliable(std::move(server_sock));
-    auto session = std::make_shared<yamux::craft>(std::move(server_transport), router, mux_config);
+    auto session = std::make_shared<yamux::craft>(core_options{std::move(server_transport), router, mux_config});
     session->start();
 
     // yamux craft 直接进入 frame_loop，不做协商
@@ -608,7 +608,7 @@ auto test_yamux_abrupt_disconnect(net::any_io_executor ex,
     const std::uint32_t stream_id = 1;
 
     auto address = make_tcp_address(echo_port);
-    auto data_syn = yamux::make_syn_frame(stream_id, address);
+    auto data_syn = yamux::build_syn(stream_id, address);
     std::vector<std::byte> syn_frame;
     syn_frame.insert(syn_frame.end(), data_syn.header.begin(), data_syn.header.end());
     syn_frame.insert(syn_frame.end(), data_syn.payload.begin(), data_syn.payload.end());
@@ -646,7 +646,7 @@ auto test_smux_multi_stream(net::any_io_executor ex,
     auto [client_sock, server_sock] = co_await make_socket_pair(ex);
 
     auto server_transport = psm::transport::make_reliable(std::move(server_sock));
-    auto session = std::make_shared<smux::craft>(std::move(server_transport), router, mux_config);
+    auto session = std::make_shared<smux::craft>(core_options{std::move(server_transport), router, mux_config});
     session->start();
 
     // smux craft 直接进入 frame_loop，不做协商
@@ -712,7 +712,7 @@ auto test_yamux_rst_stream(net::any_io_executor ex,
     auto [client_sock, server_sock] = co_await make_socket_pair(ex);
 
     auto server_transport = psm::transport::make_reliable(std::move(server_sock));
-    auto session = std::make_shared<yamux::craft>(std::move(server_transport), router, mux_config);
+    auto session = std::make_shared<yamux::craft>(core_options{std::move(server_transport), router, mux_config});
     session->start();
 
     // yamux craft 直接进入 frame_loop，不做协商
@@ -720,7 +720,7 @@ auto test_yamux_rst_stream(net::any_io_executor ex,
     const std::uint32_t stream_id = 5;
 
     auto address = make_tcp_address(echo_port);
-    auto data_syn = yamux::make_syn_frame(stream_id, address);
+    auto data_syn = yamux::build_syn(stream_id, address);
     std::vector<std::byte> syn_frame;
     syn_frame.insert(syn_frame.end(), data_syn.header.begin(), data_syn.header.end());
     syn_frame.insert(syn_frame.end(), data_syn.payload.begin(), data_syn.payload.end());
@@ -754,12 +754,12 @@ auto test_yamux_goaway(net::any_io_executor ex,
     auto [client_sock, server_sock] = co_await make_socket_pair(ex);
 
     auto server_transport = psm::transport::make_reliable(std::move(server_sock));
-    auto session = std::make_shared<yamux::craft>(std::move(server_transport), router, mux_config);
+    auto session = std::make_shared<yamux::craft>(core_options{std::move(server_transport), router, mux_config});
     session->start();
 
     // yamux craft 直接进入 frame_loop，不做协商
 
-    auto go_away = yamux::build_go_away_frame(yamux::go_away_code::protocol_error);
+    auto go_away = yamux::build_goaway(yamux::away_code::protocol_error);
     co_await async_write_raw(client_sock, go_away);
 
     // 等待 session 处理 GoAway 并关闭
@@ -795,7 +795,7 @@ auto run_all_tests(net::any_io_executor ex,
  */
 int main()
 {
-    psm::memory::system::enable_global_pooling();
+    psm::memory::system::enable_pooling();
     psm::trace::init({});
 
     runner.LogInfo("========== MuxLifecycle Tests ==========");
@@ -805,12 +805,12 @@ int main()
 
     // 创建共享测试基础设施
     auto *pool = new psm::connect::connection_pool(*ioc);
-    auto *router_ptr = new psm::connect::router(*pool, *ioc, psm::resolve::dns::config{});
+    auto *router_ptr = new psm::connect::router({*pool, *ioc, psm::resolve::dns::config{}});
     psm::multiplex::config mux_config;
     mux_config.smux.keepalive_interval = 0;
     mux_config.yamux.enable_ping = false;
     mux_config.yamux.ping_interval = 0;
-    mux_config.yamux.stream_open_timeout = 0;
+    mux_config.yamux.open_timeout = 0;
 
     // 标志：run_all_tests 协程是否完成
     std::atomic<bool> tests_done{false};

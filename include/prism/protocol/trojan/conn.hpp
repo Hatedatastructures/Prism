@@ -14,20 +14,24 @@
  */
 #pragma once
 
-#include <boost/asio.hpp>
-#include <prism/transport/transmission.hpp>
-#include <prism/protocol/trojan/packet.hpp>
-#include <prism/protocol/trojan/config.hpp>
-#include <prism/protocol/types.hpp>
 #include <prism/fault/code.hpp>
-#include <memory>
+#include <prism/protocol/trojan/config.hpp>
+#include <prism/protocol/trojan/packet.hpp>
+#include <prism/protocol/types.hpp>
+#include <prism/transport/transmission.hpp>
+
+#include <boost/asio.hpp>
+
 #include <functional>
+#include <memory>
 #include <span>
+
 
 namespace psm::stats::traffic { class traffic_state; }
 
 namespace psm::protocol::trojan
 {
+
     namespace net = boost::asio;
     using shared_transmission = psm::transport::shared_transmission;
 
@@ -65,7 +69,7 @@ namespace psm::protocol::trojan
          * @brief 获取关联的执行器
          * @return executor_type 执行器
          */
-        [[nodiscard]] executor_type executor() const override;
+        [[nodiscard]] auto executor() const -> executor_type override;
 
         /**
          * @brief 异步读取数据
@@ -113,12 +117,12 @@ namespace psm::protocol::trojan
          * @brief 获取内层传输指针（装饰器链导航）
          * @return transmission* 内层传输指针
          */
-        [[nodiscard]] psm::transport::transmission *next_layer() noexcept override
+        [[nodiscard]] auto next_layer() noexcept -> psm::transport::transmission * override
         {
             return next_layer_.get();
         }
 
-        [[nodiscard]] const psm::transport::transmission *next_layer() const noexcept override
+        [[nodiscard]] auto next_layer() const noexcept -> const psm::transport::transmission * override
         {
             return next_layer_.get();
         }
@@ -127,13 +131,13 @@ namespace psm::protocol::trojan
          * @brief 获取底层传输层引用
          * @return transport::transmission& 底层传输层引用
          */
-        [[nodiscard]] psm::transport::transmission &underlying() noexcept;
+        [[nodiscard]] auto underlying() noexcept -> psm::transport::transmission &;
 
         /**
          * @brief 获取底层传输层常量引用
          * @return const transport::transmission& 底层传输层常量引用
          */
-        [[nodiscard]] const psm::transport::transmission &underlying() const noexcept;
+        [[nodiscard]] auto underlying() const noexcept -> const psm::transport::transmission &;
 
         /**
          * @brief 释放底层传输层所有权
@@ -141,7 +145,7 @@ namespace psm::protocol::trojan
          * 适用于需要将底层传输层转移给其他组件的场景
          * @return transport::shared_transmission 底层传输层指针
          */
-        [[nodiscard]] shared_transmission release();
+        [[nodiscard]] auto release() -> shared_transmission;
 
         /**
          * @brief 路由回调函数类型

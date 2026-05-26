@@ -15,18 +15,20 @@
  */
 #pragma once
 
-#include <array>
-#include <cstdint>
+#include <prism/memory/container.hpp>
+#include <prism/multiplex/config.hpp>
+#include <prism/multiplex/core.hpp>
+#include <prism/multiplex/smux/frame.hpp>
 
 #include <boost/asio/experimental/concurrent_channel.hpp>
 
-#include <prism/multiplex/core.hpp>
-#include <prism/multiplex/config.hpp>
-#include <prism/multiplex/smux/frame.hpp>
-#include <prism/memory/container.hpp>
+#include <array>
+#include <cstdint>
+
 
 namespace psm::multiplex::smux
 {
+
     namespace net = boost::asio;
 
     /**
@@ -45,7 +47,7 @@ namespace psm::multiplex::smux
      * @return 8 字节 SYN 帧头（无 payload）
      * @details 帧格式：[Version 1B][Cmd=SYN 1B][Length=0 2B LE][StreamID 4B LE]
      */
-    [[nodiscard]] auto make_syn_frame(std::uint32_t stream_id)
+    [[nodiscard]] auto make_syn(std::uint32_t stream_id)
         -> std::array<std::byte, frame_hdrsize>;
 
     /**
@@ -54,7 +56,7 @@ namespace psm::multiplex::smux
      * @return 8 字节 FIN 帧头（无 payload）
      * @details 帧格式：[Version 1B][Cmd=FIN 1B][Length=0 2B LE][StreamID 4B LE]
      */
-    [[nodiscard]] auto make_fin_frame(std::uint32_t stream_id)
+    [[nodiscard]] auto make_fin(std::uint32_t stream_id)
         -> std::array<std::byte, frame_hdrsize>;
 
     /**
@@ -74,6 +76,21 @@ namespace psm::multiplex::smux
     };
 
     /**
+     * @struct activate_opts
+     * @brief activate_udp/activate_tcp 参数聚合
+     * @details 将流激活所需的流标识、目标地址、模式和剩余数据聚合为单一结构，
+     * 避免 activate_udp/activate_tcp 参数超过 3 个。
+     */
+    struct activate_opts
+    {
+        std::uint32_t stream_id{0};               ///< 流标识符
+        memory::string host;                      ///< 目标主机
+        std::uint16_t port{0};                    ///< 目标端口
+        addr_mode addr{addr_mode::length_prefixed}; ///< 地址编码模式（UDP 专用）
+        memory::vector<std::byte> remaining;      ///< 地址之后的剩余数据
+    }; // struct activate_opts
+
+    /**
      * @class craft
      * @brief smux 多路复用会话服务端
      * @details 继承 core，实现 smux v1 帧协议和 sing-mux 协议协商。
@@ -87,15 +104,11 @@ namespace psm::multiplex::smux
          * @brief 构造 smux 会话
          * @details 初始化传输层、配置和发送通道，会话处于未启动状态，
          * 调用 start() 后才会进入协议主循环
-         * @param transport 已建立的传输层连接（通常是 Trojan 隧道）
-         * @param router 路由器引用，用于解析地址并连接目标
-         * @param cfg smux 配置参数
-         * @param mr PMR 内存资源，为空时使用默认资源
+         * @param opts 构造参数聚合，包含传输层连接、路由器、配置和内存资源
          */
-        craft(transport::shared_transmission transport, connect::router &router,
-              const multiplex::config &cfg, memory::resource_pointer mr = {});
+        explicit craft(core_options opts);
 
-        ~craft() override;
+        ~craft() noexcept override;
 
         /**
          * @brief 发送 PSH 帧到客户端
@@ -122,7 +135,7 @@ namespace psm::multiplex::smux
          * @return net::any_io_executor transport 的执行器
          * @note 用于 duct/parcel 协程调度
          */
-        [[nodiscard]] net::any_io_executor executor() const override;
+        [[nodiscard]] auto executor() const -> net::any_io_executor override;
 
     private:
         /**
@@ -178,6 +191,27 @@ namespace psm::multiplex::smux
          * 地址解析失败时发送错误状态并 FIN。
          */
         auto activate_stream(std::uint32_t stream_id)
+            -> net::awaitable<void>;
+
+        /**
+         * @brief 发送地址解析错误状态并关闭流
+         * @param stream_id 流标识符
+         */
+        auto send_addr_err(std::uint32_t stream_id)
+            -> net::awaitable<void>;
+
+        /**
+         * @brief 激活 UDP 流，创建 parcel
+         * @param opts 激活参数（流标识、目标地址、模式、剩余数据）
+         */
+        auto activate_udp(activate_opts opts)
+            -> net::awaitable<void>;
+
+        /**
+         * @brief 激活 TCP 流，连接目标并创建 duct
+         * @param opts 激活参数（流标识、目标地址、剩余数据；packet_addr 未使用）
+         */
+        auto activate_tcp(activate_opts opts)
             -> net::awaitable<void>;
 
         /**

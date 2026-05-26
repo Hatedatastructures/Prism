@@ -1,11 +1,12 @@
 #include <prism/resolve/dns/detail/rules.hpp>
 
+#include <prism/trace.hpp>
+
 #include <algorithm>
 #include <boost/asio.hpp>
 #include <cctype>
 #include <cstdint>
 #include <string>
-#include <prism/trace.hpp>
 
 namespace psm::resolve::dns::detail
 {
@@ -100,7 +101,9 @@ namespace psm::resolve::dns::detail
 
         // 通配符规则: 在倒数第一个标签节点标记 wildcard
         // 例如 "*.example.com" → 标签 ["com", "example"]，在 "example" 节点标记 wildcard
-        const auto wildcard_depth = is_wildcard ? labels.size() - 1 : 0;
+        std::size_t wildcard_depth = 0;
+        if (is_wildcard)
+            wildcard_depth = labels.size() - 1;
 
         node *current = root_.get();
         for (std::size_t i = 0; i < labels.size(); ++i)

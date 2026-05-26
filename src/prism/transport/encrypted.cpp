@@ -1,16 +1,20 @@
 #include <prism/transport/encrypted.hpp>
 #include <prism/trace.hpp>
 
-constexpr std::string_view SslStr = "[Transport.Encrypted]";
+namespace
+{
+    constexpr std::string_view ssl_str = "[Transport.Encrypted]";
+}
 
 namespace psm::transport
 {
+
     auto encrypted::ssl_handshake(shared_transmission inbound, ssl::context &ssl_ctx)
         -> net::awaitable<std::tuple<fault::code, encrypted::shared_stream, shared_transmission>>
     {
         if (!inbound)
         {
-            trace::warn("{} No inbound transmission for TLS handshake", SslStr);
+            trace::warn("{} No inbound transmission for TLS handshake", ssl_str);
             co_return std::make_tuple(fault::code::io_error, nullptr, nullptr);
         }
 
@@ -22,12 +26,12 @@ namespace psm::transport
         co_await stream->async_handshake(ssl::stream_base::server, token);
         if (ec)
         {
-            trace::warn("{} TLS handshake failed: {} ({})", SslStr, ec.message(), ec.value());
+            trace::warn("{} TLS handshake failed: {} ({})", ssl_str, ec.message(), ec.value());
             auto recovered = stream->lowest_layer().release();
             co_return std::make_tuple(fault::to_code(ec), nullptr, std::move(recovered));
         }
 
-        trace::debug("{} TLS handshake succeeded", SslStr);
+        trace::debug("{} TLS handshake succeeded", ssl_str);
         co_return std::make_tuple(fault::code::success, stream, nullptr);
     }
 

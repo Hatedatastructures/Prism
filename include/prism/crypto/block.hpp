@@ -12,8 +12,10 @@
 #include <cstdint>
 #include <span>
 
+
 namespace psm::crypto
 {
+
     /**
      * @brief AES-ECB 单块加密（16 字节 → 16 字节）
      * @details 对单个 16 字节块执行 AES-ECB 加密。支持 AES-128
@@ -22,7 +24,7 @@ namespace psm::crypto
      * @param key AES 密钥（16 或 32 字节）
      * @return 密文（16 字节）
      */
-    [[nodiscard]] auto aes_ecb_encrypt(std::span<const std::uint8_t, 16> input, std::span<const std::uint8_t> key)
+    [[nodiscard]] auto ecb_encrypt(std::span<const std::uint8_t, 16> input, std::span<const std::uint8_t> key)
         -> std::array<std::uint8_t, 16>;
 
     /**
@@ -33,6 +35,6 @@ namespace psm::crypto
      * @param key AES 密钥（16 或 32 字节）
      * @return 明文（16 字节）
      */
-    [[nodiscard]] auto aes_ecb_decrypt(std::span<const std::uint8_t, 16> input, std::span<const std::uint8_t> key)
+    [[nodiscard]] auto ecb_decrypt(std::span<const std::uint8_t, 16> input, std::span<const std::uint8_t> key)
         -> std::array<std::uint8_t, 16>;
 } // namespace psm::crypto

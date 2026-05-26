@@ -11,28 +11,32 @@
 
 #pragma once
 
-#include <memory>
+#include <prism/memory/pool.hpp>
+#include <prism/multiplex/config.hpp>
+#include <prism/multiplex/core.hpp>
+#include <prism/protocol/types.hpp>
+#include <prism/transport/transmission.hpp>
 
 #include <boost/asio.hpp>
 
-#include <prism/multiplex/config.hpp>
-#include <prism/multiplex/core.hpp>
-#include <prism/transport/transmission.hpp>
-#include <prism/memory/pool.hpp>
-#include <prism/protocol/types.hpp>
+#include <memory>
+
 
 namespace psm::connect
 {
+
     class router;
 }
 
 namespace psm::stats::traffic
 {
+
     class traffic_state;
 }
 
 namespace psm::multiplex
 {
+
     namespace net = boost::asio;
 
     /**

@@ -286,7 +286,7 @@ void TestToCodeStdRoundTrip()
 int main()
 {
     // 初始化 PMR 全局内存池，热路径容器依赖此调用
-    psm::memory::system::enable_global_pooling();
+    psm::memory::system::enable_pooling();
     // 使用默认配置初始化 spdlog 日志系统
     psm::trace::init({});
 

@@ -1,6 +1,7 @@
 #include <prism/protocol/vless/framing.hpp>
-#include <prism/protocol/common/framing.hpp>
 #include <prism/fault.hpp>
+#include <prism/protocol/common/framing.hpp>
+
 #include <cstring>
 
 namespace
@@ -15,6 +16,7 @@ namespace
 
 namespace psm::protocol::vless::format
 {
+
     auto parse_request(std::span<const std::uint8_t> buffer)
         -> std::optional<request>
     {

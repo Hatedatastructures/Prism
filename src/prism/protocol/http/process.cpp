@@ -1,20 +1,22 @@
 #include <prism/protocol/http/process.hpp>
-#include <prism/protocol/http/conn.hpp>
-#include <prism/protocol/types.hpp>
-#include <prism/protocol/common/target.hpp>
-#include <prism/recognition/target.hpp>
-#include <prism/trace.hpp>
+#include <prism/config.hpp>
 #include <prism/connect/dial/dial.hpp>
 #include <prism/connect/tunnel/tunnel.hpp>
-#include <prism/transport/preview.hpp>
 #include <prism/outbound/proxy.hpp>
-#include <prism/config.hpp>
+#include <prism/protocol/http/conn.hpp>
+#include <prism/protocol/common/target.hpp>
+#include <prism/protocol/types.hpp>
+#include <prism/recognition/target.hpp>
+#include <prism/trace.hpp>
+#include <prism/transport/preview.hpp>
+
 #include <string_view>
 
 constexpr std::string_view HttpStr = "[Protocol.Http]";
 
 namespace psm::protocol::http
 {
+
     auto handle(context::session &ctx, std::span<const std::byte> data)
         -> net::awaitable<void>
     {
@@ -39,15 +41,26 @@ namespace psm::protocol::http
         trace::info("{} {} {} -> {}:{}", HttpStr, req.method, req.target, target.host, target.port);
 
         // 连接目标服务器
-        const auto [dial_ec, outbound] = ctx.outbound_proxy
-            ? co_await psm::connect::dial(
-                  *ctx.outbound_proxy, target, ctx.worker_ctx.io_context.get_executor())
-            : co_await psm::connect::dial(
-                  ctx.worker_ctx.router, "HTTP", target, {.allow_reverse = true, .require_open = false});
+        psm::transport::shared_transmission outbound;
+        fault::code dial_ec;
+        if (ctx.outbound_proxy)
+        {
+            auto [ec, trans] = co_await psm::connect::dial(
+                *ctx.outbound_proxy, target, ctx.worker_ctx.io_context.get_executor());
+            dial_ec = ec;
+            outbound = std::move(trans);
+        }
+        else
+        {
+            auto [ec, trans] = co_await psm::connect::dial(
+                ctx.worker_ctx.router, psm::connect::dial_options{"HTTP", target, psm::connect::dial_options::flag::no_open});
+            dial_ec = ec;
+            outbound = std::move(trans);
+        }
         if (fault::failed(dial_ec) || !outbound)
         {
             trace::warn("{} dial failed: {}:{}", HttpStr, target.host, target.port);
-            co_await relay->send_bad_gateway();
+            co_await relay->send_gateway_err();
             co_return;
         }
 
@@ -55,7 +68,7 @@ namespace psm::protocol::http
         if (req.method == "CONNECT")
         {   // https
             // CONNECT：发送 200 响应，释放传输层，进入隧道
-            if (fault::failed(co_await relay->send_connect_ok()))
+            if (fault::failed(co_await relay->send_ok()))
             {
                 co_return;
             }

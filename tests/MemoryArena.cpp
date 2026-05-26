@@ -200,7 +200,7 @@ void TestArenaMultipleReset()
  */
 int main()
 {
-    psm::memory::system::enable_global_pooling();
+    psm::memory::system::enable_pooling();
     psm::trace::init({});
 
     runner.LogInfo("Starting MemoryArena tests...");

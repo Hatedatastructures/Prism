@@ -8,22 +8,27 @@
  */
 #pragma once
 
-#include <boost/asio.hpp>
-#include <prism/transport/transmission.hpp>
+#include <prism/crypto/aead.hpp>
+#include <prism/fault/code.hpp>
+#include <prism/memory/container.hpp>
+#include <prism/protocol/common/target.hpp>
+#include <prism/protocol/shadowsocks/config.hpp>
 #include <prism/protocol/shadowsocks/constants.hpp>
 #include <prism/protocol/shadowsocks/packet.hpp>
-#include <prism/protocol/shadowsocks/config.hpp>
 #include <prism/protocol/shadowsocks/util/salts.hpp>
 #include <prism/protocol/types.hpp>
-#include <prism/protocol/common/target.hpp>
-#include <prism/crypto/aead.hpp>
-#include <prism/memory/container.hpp>
+#include <prism/transport/transmission.hpp>
+
+#include <boost/asio.hpp>
+
 #include <memory>
 #include <span>
 #include <tuple>
 
+
 namespace psm::protocol::shadowsocks
 {
+
     namespace net = boost::asio;
     using shared_transmission = psm::transport::shared_transmission;
 
@@ -43,12 +48,12 @@ namespace psm::protocol::shadowsocks
          * @brief 获取内层传输指针（装饰器链导航）
          * @return transmission* 内层传输指针
          */
-        [[nodiscard]] transport::transmission *next_layer() noexcept override
+        [[nodiscard]] auto next_layer() noexcept -> transport::transmission * override
         {
             return next_layer_.get();
         }
 
-        [[nodiscard]] const transport::transmission *next_layer() const noexcept override
+        [[nodiscard]] auto next_layer() const noexcept -> const transport::transmission * override
         {
             return next_layer_.get();
         }
@@ -137,7 +142,7 @@ namespace psm::protocol::shadowsocks
         cipher_method method_{cipher_method::aes_128_gcm};  // 加密方法
         std::size_t key_salt_len_{16};                   // 密钥/salt 长度
 
-        std::vector<std::uint8_t> psk_; // 解码后的 PSK
+        memory::vector<std::uint8_t> psk_; // 解码后的 PSK
 
         memory::vector<std::byte> decrypted_; // 解密后的数据缓冲区
         std::size_t decrypted_off_{0};     // 已消费的解密缓冲区偏移

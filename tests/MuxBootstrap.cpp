@@ -324,13 +324,13 @@ int main()
 
     try
     {
-        psm::memory::system::enable_global_pooling();
+        psm::memory::system::enable_pooling();
         psm::trace::init({});
 
         // 共享基础设施：io_context、连接池、路由器、多路复用配置
         net::io_context ioc;
         psm::connect::connection_pool pool(ioc);
-        psm::connect::router rtr(pool, ioc, psm::resolve::dns::config{});
+        psm::connect::router rtr({pool, ioc, psm::resolve::dns::config{}});
         psm::multiplex::config mux_cfg;
 
         TestVersion0Protocol0Smux(ioc, rtr, mux_cfg);

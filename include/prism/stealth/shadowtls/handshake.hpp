@@ -12,17 +12,21 @@
  */
 #pragma once
 
-#include <boost/asio.hpp>
+#include <prism/memory/container.hpp>
 #include <prism/stealth/scheme.hpp>
 #include <prism/stealth/shadowtls/config.hpp>
-#include <prism/memory/container.hpp>
+
+#include <boost/asio.hpp>
 #include <openssl/hmac.h>
-#include <vector>
+
 #include <cstddef>
 #include <memory>
+#include <vector>
+
 
 namespace psm::stealth::shadowtls
 {
+
     namespace net = boost::asio;
 
     /// HMAC 上下文删除器
@@ -50,19 +54,27 @@ namespace psm::stealth::shadowtls
     };
 
     /**
+     * @struct handshake_opts
+     * @brief handshake 参数收敛
+     * @details 将 4 个参数收敛为单一结构体，遵守 Rule 1。
+     */
+    struct handshake_opts
+    {
+        net::ip::tcp::socket &client_sock;
+        const config &cfg;
+        memory::vector<std::byte> client_hello;
+        handshake_detail &detail;
+    };
+
+    /**
      * @brief ShadowTLS v3 服务端握手
      * @details 执行完整的 ShadowTLS v3 握手流程：
      * 1. 使用已读取的 ClientHello 验证 HMAC
      * 2. 转发到后端服务器
      * 3. 处理握手阶段数据帧
-     * @param client_sock 客户端 TCP socket
-     * @param cfg ShadowTLS 配置
-     * @param client_hello 已读取的完整 ClientHello 帧（含 TLS header）
-     * @param detail 输出参数，握手成功时填充 ShadowTLS 特有数据
+     * @param opts 握手参数（client_sock, cfg, client_hello, detail）
      * @return 握手结果（使用 stealth 基类的 handshake_result）
      */
-    [[nodiscard]] auto handshake(net::ip::tcp::socket &client_sock, const config &cfg,
-                   memory::vector<std::byte> client_hello,
-                   handshake_detail &detail)
+    [[nodiscard]] auto handshake(handshake_opts opts)
         -> net::awaitable<stealth::handshake_result>;
 } // namespace psm::stealth::shadowtls

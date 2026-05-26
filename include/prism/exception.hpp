@@ -12,6 +12,8 @@
 #pragma once
 
 #include <prism/exception/deviant.hpp>
-#include <prism/exception/protocol.hpp>
 #include <prism/exception/network.hpp>
+#include <prism/exception/protocol.hpp>
 #include <prism/exception/security.hpp>
+
+

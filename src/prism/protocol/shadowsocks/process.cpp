@@ -1,14 +1,15 @@
 #include <prism/protocol/shadowsocks/process.hpp>
-#include <prism/protocol/shadowsocks/conn.hpp>
-#include <prism/connect/tunnel/forward.hpp>
-#include <prism/transport/preview.hpp>
 #include <prism/config.hpp>
+#include <prism/connect/tunnel/forward.hpp>
+#include <prism/protocol/shadowsocks/conn.hpp>
 #include <prism/trace/spdlog.hpp>
+#include <prism/transport/preview.hpp>
 
 constexpr std::string_view shadowsocks_tag = "[Protocol.Shadowsocks]";
 
 namespace psm::protocol::shadowsocks
 {
+
     auto handle(context::session &ctx, std::span<const std::byte> data)
         -> net::awaitable<void>
     {
@@ -19,7 +20,7 @@ namespace psm::protocol::shadowsocks
         // worker 线程独占 salt pool（thread_local 保证每个工作线程独立实例，无需锁）
         thread_local std::shared_ptr<salt_pool> worker_salt_pool;
         thread_local std::int64_t cached_ttl = 0;
-        const auto current_ttl = ctx.server_ctx.config().protocol.shadowsocks.salt_pool_ttl;
+        const auto current_ttl = ctx.server_ctx.config().protocol.shadowsocks.salt_ttl;
         if (!worker_salt_pool || cached_ttl != current_ttl)
         {
             worker_salt_pool = std::make_shared<salt_pool>(current_ttl);

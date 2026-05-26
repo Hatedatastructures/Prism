@@ -1,7 +1,7 @@
 #include <prism/protocol/trojan/framing.hpp>
+
 #include <cstdint>
 #include <cstring>
-
 namespace psm::protocol::trojan::format
 {
 
@@ -14,7 +14,7 @@ namespace psm::protocol::trojan::format
         }
 
         std::array<char, 56> credential{};
-        for (size_t i = 0; i < 56; ++i)
+        for (std::size_t i = 0; i < 56; ++i)
         {
             const auto c = static_cast<std::uint8_t>(buffer[i]);
             if ((c < '0' || c > '9') && (c < 'a' || c > 'f') && (c < 'A' || c > 'F'))

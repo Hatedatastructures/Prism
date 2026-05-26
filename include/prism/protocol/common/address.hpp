@@ -5,7 +5,7 @@
  * 各协议 (SOCKS5/Trojan/VLESS/Shadowsocks) 通过 using 声明引用这些
  * 共享类型，消除四个 message.hpp 中的重复定义。地址使用 std::variant
  * 实现类型安全的多态，所有结构设计为零拷贝友好，可直接从协议缓冲区
- * 填充。提供 address_to_string 工具函数用于调试和日志输出。
+ * 填充。提供 addr_to_str 工具函数用于调试和日志输出。
  */
 
 #pragma once
@@ -21,8 +21,10 @@
 
 #include <prism/memory/container.hpp>
 
+
 namespace psm::protocol::common
 {
+
     /**
      * @struct ipv4_address
      * @brief IPv4 地址结构
@@ -93,7 +95,7 @@ namespace psm::protocol::common
      * 使用 inet_ntop 进行格式化，域名直接返回原始内容。支持
      * 自定义内存分配器，适用于日志记录和调试输出场景。
      */
-    [[nodiscard]] inline auto address_to_string(const address &addr, memory::resource_pointer mr = memory::current_resource())
+    [[nodiscard]] inline auto addr_to_str(const address &addr, memory::resource_pointer mr = memory::current_resource())
         -> memory::string
     {
         auto translate = [mr]<typename A>(const A &arg)

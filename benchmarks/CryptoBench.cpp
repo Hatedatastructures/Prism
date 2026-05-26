@@ -32,7 +32,7 @@ static void BM_AeadContinuousSealAes128Gcm(benchmark::State &state)
 
     constexpr std::size_t buf_size = 65536;
     std::vector<std::uint8_t> plaintext(buf_size, 0x42);
-    std::vector<std::uint8_t> ciphertext(crypto::aead_context::seal_output_size(plaintext.size()));
+    std::vector<std::uint8_t> ciphertext(crypto::aead_context::seal_size(plaintext.size()));
 
     for (auto _ : state)
     {
@@ -51,17 +51,17 @@ static void BM_AeadContinuousOpenAes128Gcm(benchmark::State &state)
 
     constexpr std::size_t buf_size = 65536;
     std::vector<std::uint8_t> plaintext(buf_size, 0x42);
-    std::vector<std::uint8_t> ciphertext(crypto::aead_context::seal_output_size(plaintext.size()));
+    std::vector<std::uint8_t> ciphertext(crypto::aead_context::seal_size(plaintext.size()));
 
     crypto::aead_context seal_ctx(crypto::aead_cipher::aes_128_gcm, key);
-    seal_ctx.seal(ciphertext, plaintext, nonce, {});
+    seal_ctx.seal(crypto::seal_input{ciphertext, plaintext, nonce, {}});
 
     std::vector<std::uint8_t> decrypted(buf_size);
     crypto::aead_context open_ctx(crypto::aead_cipher::aes_128_gcm, key);
 
     for (auto _ : state)
     {
-        auto ec = open_ctx.open(decrypted, ciphertext, nonce, {});
+        auto ec = open_ctx.open(crypto::open_input{decrypted, ciphertext, nonce, {}});
         if (fault::failed(ec))
             state.SkipWithError("open failed");
         benchmark::DoNotOptimize(decrypted);
@@ -76,7 +76,7 @@ static void BM_AeadContinuousSealAes256Gcm(benchmark::State &state)
 
     constexpr std::size_t buf_size = 65536;
     std::vector<std::uint8_t> plaintext(buf_size, 0x42);
-    std::vector<std::uint8_t> ciphertext(crypto::aead_context::seal_output_size(plaintext.size()));
+    std::vector<std::uint8_t> ciphertext(crypto::aead_context::seal_size(plaintext.size()));
 
     for (auto _ : state)
     {
@@ -95,17 +95,17 @@ static void BM_AeadContinuousOpenAes256Gcm(benchmark::State &state)
 
     constexpr std::size_t buf_size = 65536;
     std::vector<std::uint8_t> plaintext(buf_size, 0x42);
-    std::vector<std::uint8_t> ciphertext(crypto::aead_context::seal_output_size(plaintext.size()));
+    std::vector<std::uint8_t> ciphertext(crypto::aead_context::seal_size(plaintext.size()));
 
     crypto::aead_context seal_ctx(crypto::aead_cipher::aes_256_gcm, key);
-    seal_ctx.seal(ciphertext, plaintext, nonce, {});
+    seal_ctx.seal(crypto::seal_input{ciphertext, plaintext, nonce, {}});
 
     std::vector<std::uint8_t> decrypted(buf_size);
     crypto::aead_context open_ctx(crypto::aead_cipher::aes_256_gcm, key);
 
     for (auto _ : state)
     {
-        auto ec = open_ctx.open(decrypted, ciphertext, nonce, {});
+        auto ec = open_ctx.open(crypto::open_input{decrypted, ciphertext, nonce, {}});
         if (fault::failed(ec))
             state.SkipWithError("open failed");
         benchmark::DoNotOptimize(decrypted);
@@ -121,7 +121,7 @@ static void BM_AeadSeal_MultiSize(benchmark::State &state)
 
     const auto size = static_cast<std::size_t>(state.range(0));
     std::vector<std::uint8_t> plaintext(size, 0x42);
-    std::vector<std::uint8_t> ciphertext(crypto::aead_context::seal_output_size(plaintext.size()));
+    std::vector<std::uint8_t> ciphertext(crypto::aead_context::seal_size(plaintext.size()));
 
     for (auto _ : state)
     {
@@ -141,15 +141,15 @@ static void BM_AeadOpen_MultiSize(benchmark::State &state)
 
     const auto size = static_cast<std::size_t>(state.range(0));
     std::vector<std::uint8_t> plaintext(size, 0x42);
-    std::vector<std::uint8_t> ciphertext(crypto::aead_context::seal_output_size(plaintext.size()));
-    seal_ctx.seal(ciphertext, plaintext, nonce, {});
+    std::vector<std::uint8_t> ciphertext(crypto::aead_context::seal_size(plaintext.size()));
+    seal_ctx.seal(crypto::seal_input{ciphertext, plaintext, nonce, {}});
 
-    std::vector<std::uint8_t> decrypted(crypto::aead_context::open_output_size(ciphertext.size()));
+    std::vector<std::uint8_t> decrypted(crypto::aead_context::open_size(ciphertext.size()));
     crypto::aead_context open_ctx(crypto::aead_cipher::aes_256_gcm, key);
 
     for (auto _ : state)
     {
-        auto ec = open_ctx.open(decrypted, ciphertext, nonce, {});
+        auto ec = open_ctx.open(crypto::open_input{decrypted, ciphertext, nonce, {}});
         if (fault::failed(ec))
             state.SkipWithError("open failed");
         benchmark::DoNotOptimize(decrypted);
@@ -183,7 +183,7 @@ static void BM_X25519Keygen(benchmark::State &state)
 {
     for (auto _ : state)
     {
-        auto keypair = crypto::generate_x25519_keypair();
+        auto keypair = crypto::generate_keypair();
         benchmark::DoNotOptimize(keypair);
     }
 }
@@ -196,15 +196,15 @@ static void BM_X25519DerivePublic(benchmark::State &state)
 
     for (auto _ : state)
     {
-        auto public_key = crypto::derive_x25519_public_key(private_key);
+        auto public_key = crypto::derive_pubkey(private_key);
         benchmark::DoNotOptimize(public_key);
     }
 }
 
 static void BM_X25519KeyExchange(benchmark::State &state)
 {
-    auto alice = crypto::generate_x25519_keypair();
-    auto bob = crypto::generate_x25519_keypair();
+    auto alice = crypto::generate_keypair();
+    auto bob = crypto::generate_keypair();
 
     for (auto _ : state)
     {
@@ -254,7 +254,7 @@ static void BM_HkdfExpandLabel(benchmark::State &state)
 
     for (auto _ : state)
     {
-        auto [ec, output] = crypto::hkdf_expand_label({secret, "key", context, 16});
+        auto [ec, output] = crypto::expand_label({secret, "key", context, 16});
         benchmark::DoNotOptimize(output);
     }
     state.SetBytesProcessed(static_cast<std::int64_t>(state.iterations()) * 16);

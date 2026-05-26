@@ -13,13 +13,13 @@
 #include <optional>
 #include <span>
 
+
 namespace psm::stealth::anytls
 {
-    // ── 帧常量 ──
+
 
     constexpr std::size_t frame_header_size = 7;
 
-    // ── 命令类型 ──
 
     /**
      * @enum command
@@ -41,10 +41,9 @@ namespace psm::stealth::anytls
         synack = 0x07,           // 流打开确认（S→C，v2+）
         heart_req = 0x08,        // 心跳请求
         heart_resp = 0x09,       // 心跳响应
-        server_settings = 0x0A,  // 服务端 Settings（S→C，v2+）
+        server_settings = 0x0A   ///< 服务端 Settings（S→C，v2+）
     }; // enum class command
 
-    // ── 帧头 ──
 
     /**
      * @struct frame_header

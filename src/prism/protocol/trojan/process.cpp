@@ -1,15 +1,16 @@
 #include <prism/protocol/trojan/process.hpp>
-#include <prism/protocol/trojan/conn.hpp>
-#include <prism/multiplex/bootstrap.hpp>
 #include <prism/account/directory.hpp>
-#include <prism/memory/container.hpp>
-#include <prism/trace.hpp>
-#include <prism/connect/tunnel/forward.hpp>
-#include <prism/connect/dial/dial.hpp>
-#include <prism/connect/util.hpp>
-#include <prism/transport/preview.hpp>
-#include <prism/outbound/proxy.hpp>
 #include <prism/config.hpp>
+#include <prism/connect/dial/dial.hpp>
+#include <prism/connect/tunnel/forward.hpp>
+#include <prism/connect/util.hpp>
+#include <prism/memory/container.hpp>
+#include <prism/multiplex/bootstrap.hpp>
+#include <prism/outbound/proxy.hpp>
+#include <prism/protocol/trojan/conn.hpp>
+#include <prism/trace.hpp>
+#include <prism/transport/preview.hpp>
+
 #include <charconv>
 #include <string_view>
 
@@ -17,6 +18,7 @@ constexpr std::string_view TrojanStr = "[Protocol.Trojan]";
 
 namespace psm::protocol::trojan
 {
+
     namespace account = psm::account;
 
     auto handle(context::session &ctx, std::span<const std::byte> data)
@@ -69,8 +71,10 @@ namespace psm::protocol::trojan
             target.port.assign(port_buf, std::distance(port_buf, pe));
 
             // Mihomo smux 兼容：客户端用 CONNECT + 虚假地址标记 mux 连接
-            if (psm::connect::is_mux_target(target.host, ctx.server_ctx.config().mux.enabled
-                ? psm::connect::mux_switch::on : psm::connect::mux_switch::off))
+            auto mux_sw = psm::connect::mux_switch::off;
+            if (ctx.server_ctx.config().mux.enabled)
+                mux_sw = psm::connect::mux_switch::on;
+            if (psm::connect::is_mux(target.host, mux_sw))
             {
                 trace::info("{} mux session started", TrojanStr);
                 ctx.stream_close = nullptr;
@@ -101,10 +105,17 @@ namespace psm::protocol::trojan
         {
             trace::info("{} UDP_ASSOCIATE started", TrojanStr);
 
-            auto datagram_router = ctx.outbound_proxy
-                ? ctx.outbound_proxy->make_dgram_router()
-                : psm::connect::make_dgram_router(ctx.worker_ctx.router);
-            const auto associate_ec = co_await agent->async_associate(std::move(datagram_router));
+            using route_fn = std::function<net::awaitable<std::pair<fault::code, net::ip::udp::endpoint>>(std::string_view, std::string_view)>;
+            route_fn dgram_router;
+            if (ctx.outbound_proxy)
+            {
+                dgram_router = ctx.outbound_proxy->make_router();
+            }
+            else
+            {
+                dgram_router = psm::connect::make_router(ctx.worker_ctx.router);
+            }
+            const auto associate_ec = co_await agent->async_associate(std::move(dgram_router));
             if (fault::failed(associate_ec))
             {
                 trace::warn("{} UDP_ASSOCIATE failed: {}", TrojanStr, fault::describe(associate_ec));
@@ -140,4 +151,5 @@ namespace psm::protocol::trojan
             break;
         }
     }
+
 } // namespace psm::protocol::trojan

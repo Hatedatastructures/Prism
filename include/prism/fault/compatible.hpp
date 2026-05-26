@@ -11,14 +11,18 @@
 #pragma once
 
 #include <prism/fault/code.hpp>
-#include <system_error>
-#include <string>
-#include <array>
-#include <type_traits>
+
 #include <boost/system/error_code.hpp>
+
+#include <array>
+#include <string>
+#include <system_error>
+#include <type_traits>
+
 
 namespace psm::fault
 {
+
     /**
      * @brief 获取缓存的错误消息
      * @param c 错误码枚举值
@@ -27,7 +31,8 @@ namespace psm::fault
      * 缓存，后续调用直接返回引用，无内存分配。
      * @note 首次调用有一次分配开销，后续调用为零开销。
      */
-    [[nodiscard]] inline const std::string &cached_message(code c) noexcept
+    [[nodiscard]] inline auto cached_message(code c) noexcept
+        -> const std::string &
     {
         constexpr auto code_count = static_cast<std::size_t>(code::_count);
         static const auto messages = []()
@@ -63,7 +68,8 @@ namespace psm::fault
          * @brief 获取分类名称
          * @return 分类名称字符串 "psm::fault"
          */
-        [[nodiscard]] const char *name() const noexcept override
+        [[nodiscard]] auto name() const noexcept
+            -> const char * override
         {
             return "psm::fault";
         }
@@ -73,7 +79,8 @@ namespace psm::fault
          * @param c 错误码整数值
          * @return 错误消息字符串
          */
-        [[nodiscard]] std::string message(int c) const override
+        [[nodiscard]] auto message(int c) const
+            -> std::string override
         {
             return cached_message(static_cast<code>(c));
         }
@@ -85,7 +92,8 @@ namespace psm::fault
      * @details 首次调用时构造单例，C++11 保证线程安全。
      * @warning 不要在静态析构阶段使用返回的引用。
      */
-    [[nodiscard]] inline const std::error_category &category() noexcept
+    [[nodiscard]] inline auto category() noexcept
+        -> const std::error_category &
     {
         static fault_category instance;
         return instance;
@@ -99,14 +107,17 @@ namespace psm::fault
      * 配合 is_error_code_enum 特化支持隐式转换。
      * @note 通常不需要显式调用此函数。
      */
-    [[nodiscard]] inline std::error_code make_error_code(code c) noexcept
+    [[nodiscard]] inline auto make_error_code(code c) noexcept
+        -> std::error_code
     {
         return {static_cast<int>(c), category()};
     }
+
 } // namespace psm::fault
 
 namespace std
 {
+
     /**
      * @brief 特化 is_error_code_enum
      * @details 标记 fault::code 为错误码枚举，启用与
@@ -130,7 +141,8 @@ namespace std
          * @param c 错误码枚举值
          * @return 哈希值
          */
-        [[nodiscard]] size_t operator()(const psm::fault::code c) const noexcept
+        [[nodiscard]] auto operator()(const psm::fault::code c) const noexcept
+            -> std::size_t
         {
             return hash<int>{}(static_cast<int>(c));
         }
@@ -139,6 +151,7 @@ namespace std
 
 namespace boost::system
 {
+
     /**
      * @brief 特化 is_error_code_enum
      * @details 标记 fault::code 为 Boost 错误码枚举，启用
@@ -164,7 +177,8 @@ namespace boost::system
          * @brief 获取分类名称
          * @return 分类名称字符串 "psm::fault"
          */
-        [[nodiscard]] const char *name() const noexcept override
+        [[nodiscard]] auto name() const noexcept
+            -> const char * override
         {
             return "psm::fault";
         }
@@ -174,7 +188,8 @@ namespace boost::system
          * @param c 错误码整数值
          * @return 错误消息字符串
          */
-        [[nodiscard]] std::string message(int c) const override
+        [[nodiscard]] auto message(int c) const
+            -> std::string override
         {
             return psm::fault::cached_message(static_cast<psm::fault::code>(c));
         }
@@ -186,7 +201,8 @@ namespace boost::system
      * @details 首次调用时构造单例，C++11 保证线程安全。
      * @warning 不要在静态析构阶段使用返回的引用。
      */
-    [[nodiscard]] inline const error_category &category() noexcept
+    [[nodiscard]] inline auto category() noexcept
+        -> const error_category &
     {
         static fault_category instance;
         return instance;
@@ -199,8 +215,10 @@ namespace boost::system
      * @details 将 fault::code 枚举值转换为
      * boost::system::error_code，配合特化支持隐式转换。
      */
-    [[nodiscard]] inline error_code make_error_code(const psm::fault::code c) noexcept
+    [[nodiscard]] inline auto make_error_code(const psm::fault::code c) noexcept
+        -> error_code
     {
         return {static_cast<int>(c), category()};
     }
+
 } // namespace boost::system

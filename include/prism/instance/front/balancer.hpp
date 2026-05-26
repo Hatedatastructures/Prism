@@ -10,17 +10,19 @@
 
 #pragma once
 
+#include <prism/memory/container.hpp>
+#include <prism/stats/snapshot.hpp>
+
+#include <boost/asio.hpp>
+
 #include <cstddef>
 #include <cstdint>
 #include <functional>
 
-#include <boost/asio.hpp>
-
-#include <prism/memory/container.hpp>
-#include <prism/stats/snapshot.hpp>
 
 namespace psm::instance::front
 {
+
     namespace net = boost::asio;
     using tcp = boost::asio::ip::tcp;
 
@@ -42,7 +44,7 @@ namespace psm::instance::front
         double weight_lag{0.30};                    // 延迟权重
         std::uint32_t session_capacity{1024};       // 会话容量基准值
         std::uint32_t pending_capacity{256};        // 待处理容量基准值
-        std::uint64_t lag_cap_us{5000};        // 延迟容量基准值，单位微秒
+        std::uint64_t lag_cap{5000};        // 延迟容量基准值，单位微秒
     };
 
     /**

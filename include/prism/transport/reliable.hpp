@@ -12,18 +12,22 @@
  */
 #pragma once
 
-#include <boost/asio.hpp>
-#include <boost/asio/any_completion_handler.hpp>
-#include <prism/transport/transmission.hpp>
 #include <prism/connect/pool/pool.hpp>
 #include <prism/fault/handling.hpp>
+#include <prism/transport/transmission.hpp>
+
+#include <boost/asio.hpp>
+#include <boost/asio/any_completion_handler.hpp>
+
 #include <array>
 #include <memory>
 #include <optional>
 #include <utility>
 
+
 namespace psm::transport
 {
+
     namespace net = boost::asio;
 
     /**
@@ -45,7 +49,7 @@ namespace psm::transport
      * @warning 关闭后传输层对象不再可用，不应再调用其任何方法。
      * @throws std::bad_alloc 如果内存分配失败
      */
-    class reliable : public transmission, public std::enable_shared_from_this<reliable>
+    class reliable final : public transmission, public std::enable_shared_from_this<reliable>
     {
     public:
         using socket_type = net::ip::tcp::socket;
@@ -99,7 +103,7 @@ namespace psm::transport
          * @details 返回底层 socket 关联的执行器，用于调度异步操作。
          * @return executor_type 执行器
          */
-        [[nodiscard]] executor_type executor() const override
+        [[nodiscard]] auto executor() const -> executor_type override
         {
             return const_cast<socket_type &>(native_socket()).get_executor();
         }
@@ -108,12 +112,12 @@ namespace psm::transport
          * @brief 获取内层传输
          * @return nullptr reliable 是叶子节点，没有内层
          */
-        [[nodiscard]] transmission *next_layer() noexcept override
+        [[nodiscard]] auto next_layer() noexcept -> transmission * override
         {
             return nullptr;
         }
 
-        [[nodiscard]] const transmission *next_layer() const noexcept override
+        [[nodiscard]] auto next_layer() const noexcept -> const transmission * override
         {
             return nullptr;
         }
@@ -145,8 +149,7 @@ namespace psm::transport
          * @param buffer 目标缓冲区
          * @param handler 完成处理器
          */
-        void async_read_some(std::span<std::byte> buffer,
-            net::any_completion_handler<void(boost::system::error_code, std::size_t)> handler) override
+        void async_read_some(std::span<std::byte> buffer, net::any_completion_handler<void(boost::system::error_code, std::size_t)> handler) override
         {
             native_socket().async_read_some(
                 net::buffer(buffer.data(), buffer.size()), std::move(handler));
@@ -159,8 +162,7 @@ namespace psm::transport
          * @param buffer 源数据缓冲区
          * @param handler 完成处理器
          */
-        void async_write_some(std::span<const std::byte> buffer,
-            net::any_completion_handler<void(boost::system::error_code, std::size_t)> handler) override
+        void async_write_some(std::span<const std::byte> buffer, net::any_completion_handler<void(boost::system::error_code, std::size_t)> handler) override
         {
             native_socket().async_write_some(
                 net::buffer(buffer.data(), buffer.size()), std::move(handler));
@@ -245,7 +247,8 @@ namespace psm::transport
          * @return socket_type& socket 引用
          * @note 用于需要直接操作 socket 的场景（如设置 TCP_NODELAY）。
          */
-        [[nodiscard]] socket_type &native_socket() noexcept
+        [[nodiscard]] auto native_socket() noexcept
+            -> socket_type &
         {
             if (pooled_.valid())
             {
@@ -259,7 +262,8 @@ namespace psm::transport
          * @details 返回底层 TCP socket 的常量引用，用于只读访问。
          * @return const socket_type& socket 常量引用
          */
-        [[nodiscard]] const socket_type &native_socket() const noexcept
+        [[nodiscard]] auto native_socket() const noexcept
+            -> const socket_type &
         {
             if (pooled_.valid())
             {
@@ -275,7 +279,8 @@ namespace psm::transport
          * @return socket_type socket（可能已移动），池连接或无 socket 时返回 std::nullopt
          * @warning 调用后 reliable transport 不再可用
          */
-        [[nodiscard]] std::optional<socket_type> release_socket() noexcept
+        [[nodiscard]] auto release_socket() noexcept
+            -> std::optional<socket_type>
         {
             if (pooled_.valid())
             {
@@ -333,4 +338,4 @@ namespace psm::transport
     {
         return std::make_shared<reliable>(std::move(pooled));
     }
-}
+} // namespace psm::transport

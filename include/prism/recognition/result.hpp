@@ -7,13 +7,15 @@
 
 #pragma once
 
-#include <prism/memory/container.hpp>
-#include <prism/recognition/confidence.hpp>
-#include <prism/protocol/tls/types.hpp>
 #include <prism/fault/code.hpp>
+#include <prism/memory/container.hpp>
+#include <prism/protocol/tls/types.hpp>
+#include <prism/recognition/confidence.hpp>
+
 
 namespace psm::recognition
 {
+
     using hello_features = protocol::tls::hello_features;
     /**
      * @struct analysis_result

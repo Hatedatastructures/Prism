@@ -1,61 +1,75 @@
 #include <prism/multiplex/parcel.hpp>
+#include <prism/connect/dial/dial.hpp>
+#include <prism/connect/dial/router.hpp>
 #include <prism/multiplex/core.hpp>
 #include <prism/multiplex/smux/frame.hpp>
-#include <prism/connect/dial/router.hpp>
-#include <prism/connect/dial/dial.hpp>
 #include <prism/trace.hpp>
+
+#include <boost/asio/co_spawn.hpp>
+
 #include <atomic>
 #include <charconv>
 #include <optional>
 
-#include <boost/asio/co_spawn.hpp>
-
-constexpr std::string_view tag = "[Mux.Parcel]";
+namespace
+{
+    constexpr std::string_view tag = "[Mux.Parcel]";
+} // namespace
 
 namespace psm::multiplex
 {
+
     parcel::parcel(const parcel_config& config, const std::shared_ptr<core>& owner,
                    connect::router &router)
         : id_(config.stream_id), owner_(owner), router_(router),
           executor_(owner->executor()),
-          udp_idle_timeout_(config.udp_idle_timeout), udp_max_dgram_(config.udp_max_dgram),
+          idle_timeout_(config.idle_timeout), max_dgram_(config.max_dgram),
           mr_(config.mr), idle_timer_(executor_), recv_buffer_(config.mr), addr_mode_(config.mode),
           mux_buffer_(config.mr)
     {
-        recv_buffer_.resize(udp_max_dgram_);
+        recv_buffer_.resize(max_dgram_);
     }
 
-    parcel::~parcel()
+
+    parcel::~parcel() noexcept
     {
         close();
     }
 
+
     void parcel::start()
     {
-        touch_idle_timer();
+        touch_timer();
 
         auto self = shared_from_this();
-        auto on_done = [self](const std::exception_ptr &ep)
-        {
-            if (ep)
+        net::co_spawn(executor_, uplink_loop(),
+            [self](const std::exception_ptr &ep)
             {
-                try
-                {
-                    std::rethrow_exception(ep);
-                }
-                catch (const std::exception &e)
-                {
-                    trace::debug("{} stream {} UDP uplink error: {}", tag, self->id_, e.what());
-                }
-                catch (...)
-                {
-                    trace::error("{} stream {} UDP uplink unknown error", tag, self->id_);
-                }
-            }
-            self->close();
-        };
-        net::co_spawn(executor_, uplink_loop(), std::move(on_done));
+                self->on_uplink_done(ep);
+            });
     }
+
+
+    void parcel::on_uplink_done(const std::exception_ptr &ep)
+    {
+        if (ep)
+        {
+            try
+            {
+                std::rethrow_exception(ep);
+            }
+            catch (const std::exception &e)
+            {
+                trace::debug("{} stream {} UDP uplink error: {}", tag, id_, e.what());
+            }
+            catch (...)
+            {
+                trace::error("{} stream {} UDP uplink unknown error", tag, id_);
+            }
+        }
+        close();
+    }
+
 
     auto parcel::uplink_loop()
         -> net::awaitable<void>
@@ -76,10 +90,12 @@ namespace psm::multiplex
         co_return;
     }
 
-    void parcel::touch_idle_timer()
+
+    void parcel::touch_timer()
     {
-        idle_timer_.expires_after(std::chrono::milliseconds(udp_idle_timeout_));
+        idle_timer_.expires_after(std::chrono::milliseconds(idle_timeout_));
     }
+
 
     auto parcel::ensure_socket(const net::ip::udp::endpoint::protocol_type protocol)
         -> net::awaitable<bool>
@@ -113,20 +129,21 @@ namespace psm::multiplex
         }
     }
 
-    auto parcel::on_mux_data(std::span<const std::byte> data)
+
+    auto parcel::on_data(std::span<const std::byte> data)
         -> net::awaitable<void>
     {
         if (closed_)
         {
             co_return;
         }
-        touch_idle_timer();
+        touch_timer();
 
         // 累积到缓冲区
         mux_buffer_.insert(mux_buffer_.end(), data.begin(), data.end());
 
         // 缓冲区超过最大数据报大小时关闭管道，防止内存持续膨胀
-        if (mux_buffer_.size() > udp_max_dgram_)
+        if (mux_buffer_.size() > max_dgram_)
         {
             close();
             co_return;
@@ -140,6 +157,7 @@ namespace psm::multiplex
         }
     }
 
+
     auto parcel::process_buffer()
         -> net::awaitable<void>
     {
@@ -148,7 +166,7 @@ namespace psm::multiplex
             bool has_progress;
             do
             {
-                // 交换缓冲区：local_buf 数据不再被 on_mux_data 修改，span 指针稳定
+                // 交换缓冲区：local_buf 数据不再被 on_data 修改，span 指针稳定
                 memory::vector<std::byte> local_buf(mr_);
                 std::swap(local_buf, mux_buffer_);
                 // 保存并重置偏移量：快路径 swap 回去后 mux_offset_ 标记了未消费数据的起始位置
@@ -162,7 +180,7 @@ namespace psm::multiplex
 
                     if (addr_mode_ == addr_mode::packet_addr)
                     {
-                        auto dgram = smux::parse_udp_dgram(buf, mr_);
+                        auto dgram = smux::parse_dgram(buf, mr_);
                         if (!dgram)
                         {
                             break;
@@ -172,7 +190,7 @@ namespace psm::multiplex
                     }
                     else
                     {
-                        auto dgram = smux::parse_udp_length_prefixed(buf);
+                        auto dgram = smux::parse_prefixed(buf);
                         if (!dgram)
                         {
                             break;
@@ -225,6 +243,7 @@ namespace psm::multiplex
         processing_.store(false, std::memory_order_release);
     }
 
+
     auto parcel::do_send(const memory::string &target_host, const std::uint16_t target_port,
                          std::span<const std::byte> payload)
         -> net::awaitable<void>
@@ -275,6 +294,7 @@ namespace psm::multiplex
         }
     }
 
+
     auto parcel::downlink_loop()
         -> net::awaitable<void>
     {
@@ -310,11 +330,11 @@ namespace psm::multiplex
                 memory::vector<std::byte> encoded(mr_);
                 if (addr_mode_ == addr_mode::packet_addr)
                 {
-                    encoded = smux::build_udp_dgram({reply_host, reply_port, reply_payload}, mr_);
+                    encoded = smux::build_dgram({reply_host, reply_port, reply_payload}, mr_);
                 }
                 else
                 {
-                    encoded = smux::build_udp_length_prefixed(reply_payload, mr_);
+                    encoded = smux::build_prefixed(reply_payload, mr_);
                 }
 
                 // 通过 mux PSH 帧回传给客户端
@@ -338,6 +358,7 @@ namespace psm::multiplex
         }
         recv_running_.store(false, std::memory_order_release);
     }
+
 
     void parcel::close()
     {

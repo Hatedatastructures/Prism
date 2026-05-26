@@ -1,23 +1,25 @@
 #include <prism/protocol/vless/process.hpp>
-#include <prism/protocol/vless/conn.hpp>
-#include <prism/protocol/common/mux.hpp>
-#include <prism/multiplex/bootstrap.hpp>
 #include <prism/account/directory.hpp>
-#include <prism/memory/container.hpp>
-#include <prism/trace.hpp>
-#include <cstdint>
+#include <prism/config.hpp>
+#include <prism/connect/dial/dial.hpp>
 #include <prism/connect/tunnel/forward.hpp>
 #include <prism/connect/util.hpp>
-#include <prism/connect/dial/dial.hpp>
-#include <prism/transport/preview.hpp>
+#include <prism/memory/container.hpp>
+#include <prism/multiplex/bootstrap.hpp>
 #include <prism/outbound/proxy.hpp>
-#include <prism/config.hpp>
+#include <prism/protocol/common/mux.hpp>
+#include <prism/protocol/vless/conn.hpp>
+#include <prism/trace.hpp>
+#include <prism/transport/preview.hpp>
+
+#include <cstdint>
 #include <string_view>
 
 constexpr std::string_view VlessStr = "[Protocol.Vless]";
 
 namespace psm::protocol::vless
 {
+
     namespace account = psm::account;
 
     auto handle(context::session &ctx, std::span<const std::byte> data)
@@ -71,8 +73,10 @@ namespace psm::protocol::vless
             target.port.assign(port_buf, std::distance(port_buf, pe));
 
             // Mihomo smux 兼容：客户端用 mux 命令或虚假地址标记多路复用连接
-            if (psm::connect::is_mux_target(target.host, ctx.server_ctx.config().mux.enabled
-                ? psm::connect::mux_switch::on : psm::connect::mux_switch::off))
+            auto mux_sw = psm::connect::mux_switch::off;
+            if (ctx.server_ctx.config().mux.enabled)
+                mux_sw = psm::connect::mux_switch::on;
+            if (psm::connect::is_mux(target.host, mux_sw))
             {
                 trace::info("{} mux session started", VlessStr);
                 ctx.stream_close = nullptr;
@@ -102,10 +106,17 @@ namespace psm::protocol::vless
         case command::udp:
         {
             trace::info("{} UDP associate started", VlessStr);
-            const auto associate_ec = co_await agent->async_associate(
-                ctx.outbound_proxy
-                    ? ctx.outbound_proxy->make_dgram_router()
-                    : psm::connect::make_dgram_router(ctx.worker_ctx.router));
+            using route_fn = std::function<net::awaitable<std::pair<fault::code, net::ip::udp::endpoint>>(std::string_view, std::string_view)>;
+            route_fn dgram_router;
+            if (ctx.outbound_proxy)
+            {
+                dgram_router = ctx.outbound_proxy->make_router();
+            }
+            else
+            {
+                dgram_router = psm::connect::make_router(ctx.worker_ctx.router);
+            }
+            const auto associate_ec = co_await agent->async_associate(std::move(dgram_router));
             if (fault::failed(associate_ec))
             {
                 trace::warn("{} UDP associate failed: {}", VlessStr, fault::describe(associate_ec));
@@ -121,4 +132,5 @@ namespace psm::protocol::vless
             break;
         }
     }
+
 } // namespace psm::protocol::vless

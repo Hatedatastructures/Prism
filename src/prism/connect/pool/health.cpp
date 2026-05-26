@@ -8,9 +8,11 @@
 
 namespace psm::connect
 {
+
     namespace net = boost::asio;
 
-    [[nodiscard]] socket_state health(const net::ip::tcp::socket &s)
+    [[nodiscard]] auto health(const net::ip::tcp::socket &s)
+        -> socket_state
     {
         if (!s.is_open())
         {
@@ -78,7 +80,8 @@ namespace psm::connect
         return socket_state::has_data;
     }
 
-    [[nodiscard]] bool healthy_fast(const net::ip::tcp::socket &s)
+    [[nodiscard]] auto healthy_fast(const net::ip::tcp::socket &s)
+        -> bool
     {
         if (!s.is_open())
         {

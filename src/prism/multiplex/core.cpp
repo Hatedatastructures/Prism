@@ -1,60 +1,82 @@
+#include <prism/memory/container.hpp>
 #include <prism/multiplex/core.hpp>
 #include <prism/multiplex/duct.hpp>
 #include <prism/multiplex/parcel.hpp>
 #include <prism/stats/traffic.hpp>
 #include <prism/trace.hpp>
-#include <ranges>
-#include <span>
 
 #include <boost/asio/co_spawn.hpp>
 
+#include <ranges>
+#include <span>
+
 constexpr std::string_view tag = "[Mux.Core]";
+
+namespace
+{
+    auto resolve_mr(psm::memory::resource_pointer mr) -> psm::memory::resource_pointer
+    {
+        if (mr)
+            return mr;
+        return psm::memory::current_resource();
+    }
+} // namespace
 
 namespace psm::multiplex
 {
-    core::core(transport::shared_transmission transport, connect::router &router,
-               const config &cfg, const memory::resource_pointer mr)
-        : transport_(std::move(transport)), router_(router), config_(cfg),      
-          mr_(mr ? mr : memory::current_resource()),
+
+    core::core(core_options opts)
+        : transport_(std::move(opts.transport)), router_(opts.router), config_(opts.cfg),
+          mr_(resolve_mr(opts.mr)),
           pending_(mr_), ducts_(mr_), parcels_(mr_)
     {
     }
 
-    core::~core()
+
+    core::~core() noexcept
     {
         close();
     }
+
 
     void core::start()
     {
         active_.store(true, std::memory_order_release);
 
-        auto exception_functor = [self = shared_from_this()](const std::exception_ptr &ep)
-        {
-            if (ep)
-            {
-                try
-                {
-                    std::rethrow_exception(ep);
-                }
-                catch (const std::exception &e)
-                {
-                    trace::error("{} session exception: {}", tag, e.what());
-                }
-                catch (...)
-                {
-                    trace::error("{} session unknown exception", tag);
-                }
-            }
-            self->close();
-        };
+        auto self = shared_from_this();
 
-        auto run_wrapper = [self = shared_from_this()]() -> net::awaitable<void>
+        auto run_wrapper = [self]() -> net::awaitable<void>
         {
             co_await self->run();
         };
-        net::co_spawn(transport_->executor(), run_wrapper(), std::move(exception_functor));
+        net::co_spawn(transport_->executor(), run_wrapper(),
+            [self](const std::exception_ptr &ep)
+            {
+                self->on_exception(ep);
+            });
     }
+
+
+    void core::on_exception(const std::exception_ptr &ep)
+    {
+        if (ep)
+        {
+            try
+            {
+                std::rethrow_exception(ep);
+            }
+            catch (const std::exception &e)
+            {
+                trace::error("{} session exception: {}", tag, e.what());
+            }
+            catch (...)
+            {
+                trace::error("{} session unknown exception", tag);
+            }
+        }
+        close();
+    }
+
 
     void core::close()
     {
@@ -96,10 +118,12 @@ namespace psm::multiplex
         trace::debug("{} session closed", tag);
     }
 
+
     void core::remove_duct(const std::uint32_t stream_id)
     {
         ducts_.erase(stream_id);
     }
+
 
     void core::remove_parcel(const std::uint32_t stream_id)
     {

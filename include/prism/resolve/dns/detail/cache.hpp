@@ -15,20 +15,22 @@
 
 #pragma once
 
+#include <prism/memory/container.hpp>
+#include <prism/resolve/dns/detail/format.hpp>
+#include <prism/resolve/dns/detail/transparent.hpp>
+
+#include <boost/asio.hpp>
+
 #include <chrono>
 #include <cstddef>
 #include <optional>
 #include <span>
 #include <string_view>
 
-#include <boost/asio.hpp>
-
-#include <prism/resolve/dns/detail/format.hpp>
-#include <prism/resolve/dns/detail/transparent.hpp>
-#include <prism/memory/container.hpp>
 
 namespace psm::resolve::dns::detail
 {
+
     namespace net = boost::asio;
 
     /**
@@ -40,7 +42,7 @@ namespace psm::resolve::dns::detail
     struct cache_entry
     {
         memory::vector<net::ip::address> ips;           // 解析结果 IP 地址列表
-        uint32_t ttl{0};                                // 原始 TTL（秒）
+        std::uint32_t ttl{0};                                // 原始 TTL（秒）
         std::chrono::steady_clock::time_point expire;   // 过期时间
         std::chrono::steady_clock::time_point inserted; // 插入时间（用于 FIFO 淘汰）
         bool failed{false};                             // 负缓存标记
@@ -53,6 +55,45 @@ namespace psm::resolve::dns::detail
             : ips(mr)
         {
         }
+    };
+
+    /**
+     * @enum stale_policy
+     * @brief 过期数据策略
+     * @details 控制缓存条目过期后的处理方式。独立于 cache 类定义，
+     * 以便 cache_options 结构体可以引用此枚举类型。
+     */
+    enum class stale_policy : std::uint8_t
+    {
+        discard,  ///< 过期即丢弃
+        serve     ///< 过期后仍返回旧数据（serve-stale 模式）
+    };
+
+    /**
+     * @struct cache_options
+     * @brief DNS 缓存配置参数
+     * @details 聚合 cache 构造所需的全部参数，避免构造函数参数超过 3 个。
+     * 通过结构体传递配置，使调用点更具可读性并方便扩展新参数。
+     */
+    struct cache_options
+    {
+        memory::resource_pointer mr = memory::current_resource(); ///< 内存资源指针
+        std::chrono::seconds ttl{120};                            ///< 默认缓存 TTL（秒）
+        std::size_t max_entries{10000};                           ///< 缓存最大条目数
+        stale_policy stale{stale_policy::serve};                  ///< 过期数据策略
+    };
+
+    /**
+     * @struct put_input
+     * @brief DNS 正向缓存写入参数
+     * @details 聚合 put() 调用所需的全部参数，避免函数参数超过 3 个。
+     */
+    struct put_input
+    {
+        std::string_view domain;                         ///< 域名
+        qtype qt;                                        ///< 查询类型
+        const memory::vector<net::ip::address> &ips;     ///< 解析得到的 IP 地址列表
+        std::uint32_t ttl_seconds;                       ///< 缓存 TTL（秒）
     };
 
     /**
@@ -71,25 +112,10 @@ namespace psm::resolve::dns::detail
     {
     public:
         /**
-         * @brief 过期数据策略
-         * @details 控制缓存条目过期后的处理方式。
-         */
-        enum class stale_policy : std::uint8_t
-        {
-            discard,  ///< 过期即丢弃
-            serve     ///< 过期后仍返回旧数据（serve-stale 模式）
-        };
-
-        /**
          * @brief 构造 DNS 缓存
-         * @param mr 内存资源指针，为 null 时使用 current_resource()
-         * @param ttl 默认缓存 TTL（秒），用于 put() 未指定 TTL 时的回退值
-         * @param max_entries 缓存最大条目数，超过后触发 FIFO 淘汰
-         * @param stale 过期数据策略（默认 serve-stale 模式）
+         * @param opts 缓存配置参数，包含内存资源、TTL、容量上限和过期策略
          */
-        explicit cache(memory::resource_pointer mr = memory::current_resource(),
-                       std::chrono::seconds ttl = std::chrono::seconds(120), std::size_t max_entries = 10000,
-                       stale_policy stale = stale_policy::serve);
+        explicit cache(const cache_options &opts);
 
         /**
          * @brief 查找缓存
@@ -106,15 +132,11 @@ namespace psm::resolve::dns::detail
 
         /**
          * @brief 写入正向缓存
-         * @param domain 域名
-         * @param qt 查询类型
-         * @param ips 解析得到的 IP 地址列表
-         * @param ttl_seconds 缓存 TTL（秒）
+         * @param input 写入参数，包含域名、查询类型、IP 地址列表和 TTL
          * @details 创建新的缓存条目并插入到缓存表中。如果当前条目数
          * 超过 max_entries_，则按 FIFO 策略淘汰最旧的条目。
          */
-        void put(std::string_view domain, qtype qt, const memory::vector<net::ip::address> &ips,
-                 uint32_t ttl_seconds);
+        void put(const put_input &input);
 
         /**
          * @brief 写入负缓存

@@ -9,10 +9,13 @@
 #pragma once
 
 #include <prism/memory/container.hpp>
+
 #include <cstdint>
+
 
 namespace psm::stealth::trusttunnel
 {
+
     /**
      * @struct user
      * @brief TrustTunnel 用户配置
@@ -50,13 +53,13 @@ namespace psm::stealth::trusttunnel
      * @brief TrustTunnel 服务端配置
      * @details 包含 TLS 证书、SNI 白名单、用户认证和网络配置。
      *
-     * **配置项说明**：
-     * - `server_names`: SNI 白名单，只有匹配的 ClientHello 才会执行认证
-     * - `certificate`: TLS 证书文件路径（PEM 格式）
-     * - `private_key`: TLS 私钥文件路径（PEM 格式）
-     * - `users`: 用户认证列表
-     * - `network`: 传输网络类型（TCP/UDP/both）
-     * - `congestion`: 拥塞控制算法（cubic/bbr/new_reno）
+     * 配置项说明：
+     * `server_names`: SNI 白名单，只有匹配的 ClientHello 才会执行认证
+     * `certificate`: TLS 证书文件路径（PEM 格式）
+     * `private_key`: TLS 私钥文件路径（PEM 格式）
+     * `users`: 用户认证列表
+     * `network`: 传输网络类型（TCP/UDP/both）
+     * `congestion`: 拥塞控制算法（cubic/bbr/new_reno）
      */
     struct config
     {

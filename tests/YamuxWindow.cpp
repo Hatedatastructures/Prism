@@ -73,7 +73,7 @@ namespace
     }
 
     /**
-     * @brief 模拟 craft::update_recv_window 的阈值判定逻辑
+     * @brief 模拟 craft::update_recv_win 的阈值判定逻辑
      * @details 累加 consumed 到 recv_consumed，达到 initial_window/2 时返回 true
      * （应发送 WindowUpdate）并重置计数器，否则返回 false。
      */
@@ -127,7 +127,7 @@ void TestWindowExhaustionBlocksWrite()
     // 初始窗口 (256KB) 恰好耗尽
     {
         yamux::stream_window window(ioc.get_executor());
-        constexpr auto initial = yamux::initial_stream_window; // 262144
+        constexpr auto initial = yamux::default_window; // 262144
 
         // 扣减恰好等于初始窗口的数据量
         runner.Check(try_acquire_window(window, initial),
@@ -143,7 +143,7 @@ void TestWindowExhaustionBlocksWrite()
     // 超过初始窗口的请求应立即失败
     {
         yamux::stream_window window(ioc.get_executor());
-        constexpr auto initial = yamux::initial_stream_window;
+        constexpr auto initial = yamux::default_window;
 
         runner.Check(!try_acquire_window(window, initial + 1),
             "WindowExhaustion: request exceeding initial window fails immediately");
@@ -250,12 +250,12 @@ void TestDeltaClamping()
 
     // WindowUpdate 帧编解码：delta 边界值
     {
-        auto frame_zero = yamux::build_window_update_frame(yamux::flags::none, 1, 0);
+        auto frame_zero = yamux::build_winupd(yamux::flags::none, 1, 0);
         auto parsed_zero = yamux::parse_header(frame_zero);
         runner.Check(parsed_zero.has_value() && parsed_zero->length == 0,
             "DeltaClamping: WindowUpdate delta=0 round-trip correct");
 
-        auto frame_max = yamux::build_window_update_frame(
+        auto frame_max = yamux::build_winupd(
             yamux::flags::none, 1, std::numeric_limits<std::uint32_t>::max());
         auto parsed_max = yamux::parse_header(frame_max);
         runner.Check(parsed_max.has_value() &&
@@ -268,7 +268,7 @@ void TestDeltaClamping()
 
 /**
  * @brief 测试 recv_consumed 自动 WindowUpdate 阈值触发
- * @details 模拟 craft::update_recv_window 逻辑：累积消费量达到 initial_window/2 时
+ * @details 模拟 craft::update_recv_win 逻辑：累积消费量达到 initial_window/2 时
  * 触发 WindowUpdate 发送并重置计数器。覆盖小量不触发、精确阈值、
  * 单次大量、多轮触发等场景。
  */
@@ -277,7 +277,7 @@ void TestRecvConsumedAutoWindowUpdate()
     runner.LogInfo("=== TestRecvConsumedAutoWindowUpdate ===");
 
     net::io_context ioc;
-    constexpr auto initial = yamux::initial_stream_window; // 262144
+    constexpr auto initial = yamux::default_window; // 262144
     constexpr auto threshold = initial / 2;                 // 131072
 
     // 小量消费不触发
@@ -449,7 +449,7 @@ void TestWindowUpdateFrameOverSocketPair()
         constexpr std::uint32_t test_stream_id = 42;
         constexpr std::uint32_t test_delta = 65536;
 
-        auto frame = yamux::build_window_update_frame(yamux::flags::none, test_stream_id, test_delta);
+        auto frame = yamux::build_winupd(yamux::flags::none, test_stream_id, test_delta);
 
         boost::system::error_code write_ec;
         net::write(client_sock, net::buffer(frame.data(), frame.size()), write_ec);
@@ -482,8 +482,8 @@ void TestWindowUpdateFrameOverSocketPair()
 
     // --- 场景 2: WindowUpdate(SYN, stream_id=1, delta=256KB) 模拟流打开 ---
     {
-        auto syn_frame = yamux::build_window_update_frame(
-            yamux::flags::syn, 1, yamux::initial_stream_window);
+        auto syn_frame = yamux::build_winupd(
+            yamux::flags::syn, 1, yamux::default_window);
 
         boost::system::error_code write_ec;
         net::write(client_sock, net::buffer(syn_frame.data(), syn_frame.size()), write_ec);
@@ -508,7 +508,7 @@ void TestWindowUpdateFrameOverSocketPair()
                 "SocketPair: SYN frame has SYN flag");
             runner.Check(syn_parsed->stream_id == 1,
                 "SocketPair: SYN frame stream_id == 1");
-            runner.Check(syn_parsed->length == yamux::initial_stream_window,
+            runner.Check(syn_parsed->length == yamux::default_window,
                 "SocketPair: SYN frame delta == 256KB (initial window)");
         }
     }
@@ -516,7 +516,7 @@ void TestWindowUpdateFrameOverSocketPair()
     // --- 场景 3: WindowUpdate(ACK, stream_id=1, delta=512KB) 模拟服务端确认 ---
     {
         constexpr std::uint32_t server_window = 512 * 1024;
-        auto ack_frame = yamux::build_window_update_frame(yamux::flags::ack, 1, server_window);
+        auto ack_frame = yamux::build_winupd(yamux::flags::ack, 1, server_window);
 
         boost::system::error_code write_ec;
         net::write(server_sock, net::buffer(ack_frame.data(), ack_frame.size()), write_ec);
@@ -554,7 +554,7 @@ void TestWindowUpdateFrameOverSocketPair()
  */
 int main()
 {
-    psm::memory::system::enable_global_pooling();
+    psm::memory::system::enable_pooling();
     psm::trace::init({});
 
     runner.LogInfo("========== Yamux Window Flow Control Tests ==========");

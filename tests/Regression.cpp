@@ -279,7 +279,7 @@ void TestTrojanLease()
 int main()
 {
     // 初始化 PMR 全局内存池
-    psm::memory::system::enable_global_pooling();
+    psm::memory::system::enable_pooling();
     // 初始化日志系统
     psm::trace::init({});
 

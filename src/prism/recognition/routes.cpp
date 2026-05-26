@@ -1,13 +1,15 @@
 #include <prism/recognition/routes.hpp>
+
 #include <prism/config.hpp>
 #include <prism/trace.hpp>
 
 namespace psm::recognition
 {
-    auto scheme_route_table::build(const psm::config &cfg)
-        -> scheme_route_table
+
+    auto route_table::build(const psm::config &cfg)
+        -> route_table
     {
-        scheme_route_table table;
+        route_table table;
 
         // Reality server_names → "reality"
         const auto &reality_cfg = cfg.stealth.reality;
@@ -68,7 +70,7 @@ namespace psm::recognition
         return table;
     }
 
-    auto scheme_route_table::lookup(std::string_view sni) const
+    auto route_table::lookup(std::string_view sni) const
         -> memory::vector<memory::string>
     {
         if (sni.empty())
@@ -85,7 +87,7 @@ namespace psm::recognition
         return {};
     }
 
-    auto scheme_route_table::matches_any(std::string_view sni) const
+    auto route_table::matches_any(std::string_view sni) const
         -> bool
     {
         if (sni.empty())
@@ -95,7 +97,7 @@ namespace psm::recognition
         return route_map_.find(key) != route_map_.end();
     }
 
-    auto scheme_route_table::all_registered_snis() const
+    auto route_table::registered_snis() const
         -> memory::vector<memory::string>
     {
         memory::vector<memory::string> snis;
@@ -106,13 +108,13 @@ namespace psm::recognition
         return snis;
     }
 
-    auto scheme_route_table::empty() const noexcept
+    auto route_table::empty() const noexcept
         -> bool
     {
         return route_map_.empty();
     }
 
-    void scheme_route_table::add_route(std::string_view sni, std::string_view scheme_name)
+    void route_table::add_route(std::string_view sni, std::string_view scheme_name)
     {
         if (sni.empty())
             return;

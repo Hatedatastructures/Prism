@@ -6,16 +6,18 @@
  */
 #pragma once
 
+#include <prism/stats/snapshot.hpp>
+
+#include <boost/asio.hpp>
+
 #include <atomic>
 #include <chrono>
 #include <memory>
 
-#include <boost/asio.hpp>
-
-#include <prism/stats/snapshot.hpp>
 
 namespace psm::stats::runtime
 {
+
     namespace net = boost::asio;
 
     /**
@@ -26,10 +28,10 @@ namespace psm::stats::runtime
      * 仅捕获计数器而非整个对象。
      * @note observe() 协程在 worker 的 io_context 上运行，每 250ms 采样一次
      */
-    class worker_load
+    class worker_load final
     {
     public:
-        worker_load();
+        explicit worker_load();
 
         /**
          * @brief 活跃会话 +1
@@ -74,7 +76,7 @@ namespace psm::stats::runtime
          * @param io_context 要监测的 io_context
          * @return 异步操作，随 io_context 生命周期运行
          * @details 每 250ms 采样一次实际等待时间，经 EMA 平滑后
-         * 存入 loop_lag_us_。前 16 次采样为预热，用于
+         * 存入 lag_us_。前 16 次采样为预热，用于
          * 建立抖动基线，之后的有效延迟需超过 1ms 才计入。
          */
         [[nodiscard]] auto observe(net::io_context &ioc)
@@ -83,7 +85,7 @@ namespace psm::stats::runtime
     private:
         std::shared_ptr<std::atomic<std::uint32_t>> active_sessions_;  ///< 活跃会话计数器（共享给 on_closed 回调）
         std::atomic<std::uint32_t> pending_handoffs_{0};               ///< 待分发连接数
-        std::atomic<std::uint64_t> loop_lag_us_{0};                     ///< 事件循环延迟（微秒，EMA 平滑后）
+        std::atomic<std::uint64_t> lag_us_{0};                     ///< 事件循环延迟（微秒，EMA 平滑后）
     };
 
     /**
@@ -93,7 +95,7 @@ namespace psm::stats::runtime
      * 全局唯一实例，main.cpp 中调用 mark_started() 一次初始化。
      * @note 线程安全：所有操作均为原子操作
      */
-    class system_state
+    class system_state final
     {
     public:
         /**

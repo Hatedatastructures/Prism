@@ -1,7 +1,7 @@
 /**
  * @file HandshakeTimeout.cpp
  * @brief 握手超时行为单元测试
- * @details 验证 session deadline、read_raw_tls_frame 超时、
+ * @details 验证 session deadline、read_tls_frame 超时、
  * 以及协议握手 deadline 定时器在超时场景下的正确行为。
  * 使用短超时（100ms ~ 1s）配合 socket pair 模拟对端无响应。
  */
@@ -49,12 +49,12 @@ namespace
     }
 } // namespace
 
-// ─── read_raw_tls_frame 超时测试 ─────────────────────────────────
+// ─── read_tls_frame 超时测试 ─────────────────────────────────
 
 /**
- * @brief 测试 read_raw_tls_frame 在对端不发送数据时超时返回错误
+ * @brief 测试 read_tls_frame 在对端不发送数据时超时返回错误
  * @details 创建 socket pair，server 端不发送任何数据，
- * 调用 read_raw_tls_frame 并设置 100ms deadline。
+ * 调用 read_tls_frame 并设置 100ms deadline。
  * 验证超时后返回 std::nullopt 且错误码表示操作被取消。
  */
 void TestReadRawTlsFrameTimeout(psm::testing::TestRunner &runner)
@@ -76,11 +76,11 @@ void TestReadRawTlsFrameTimeout(psm::testing::TestRunner &runner)
                                    std::chrono::milliseconds(100));
 
         std::error_code ec;
-        auto result = co_await psm::stealth::common::read_raw_tls_frame(
+        auto result = co_await psm::stealth::common::read_tls_frame(
             client_sock, ec, &deadline);
 
         runner.Check(!result.has_value(),
-                     "read_raw_tls_frame should return nullopt on timeout");
+                     "read_tls_frame should return nullopt on timeout");
         runner.Check(!!ec,
                      "error code should be set on timeout");
     };
@@ -99,9 +99,9 @@ void TestReadRawTlsFrameTimeout(psm::testing::TestRunner &runner)
 }
 
 /**
- * @brief 测试 read_raw_tls_frame 在无 deadline 时对端关闭返回 EOF
+ * @brief 测试 read_tls_frame 在无 deadline 时对端关闭返回 EOF
  * @details 不设置 deadline，直接关闭 server 端 socket，
- * 验证 read_raw_tls_frame 返回 nullopt 且错误码为 EOF。
+ * 验证 read_tls_frame 返回 nullopt 且错误码为 EOF。
  */
 void TestReadRawTlsFrameEofNoDeadline(psm::testing::TestRunner &runner)
 {
@@ -119,12 +119,12 @@ void TestReadRawTlsFrameEofNoDeadline(psm::testing::TestRunner &runner)
         server_sock.close();
 
         std::error_code ec;
-        auto result = co_await psm::stealth::common::read_raw_tls_frame(
+        auto result = co_await psm::stealth::common::read_tls_frame(
             client_sock, ec, nullptr);
 
         runner.Check(!result.has_value(),
-                     "read_raw_tls_frame should return nullopt on EOF");
-        // read_raw_tls_frame uses boost::system::error_code internally,
+                     "read_tls_frame should return nullopt on EOF");
+        // read_tls_frame uses boost::system::error_code internally,
         // writes to std::error_code via implicit conversion
         runner.Check(!!ec,
                      "error code should be set when peer closes");
@@ -144,7 +144,7 @@ void TestReadRawTlsFrameEofNoDeadline(psm::testing::TestRunner &runner)
 }
 
 /**
- * @brief 测试 read_raw_tls_frame 在 deadline 到期前成功读取
+ * @brief 测试 read_tls_frame 在 deadline 到期前成功读取
  * @details 发送有效的 TLS 记录头 + 载荷，验证在 deadline 到期前成功读取。
  */
 void TestReadRawTlsFrameSuccessBeforeDeadline(psm::testing::TestRunner &runner)
@@ -179,11 +179,11 @@ void TestReadRawTlsFrameSuccessBeforeDeadline(psm::testing::TestRunner &runner)
                                    std::chrono::seconds(1));
 
         std::error_code ec;
-        auto result = co_await psm::stealth::common::read_raw_tls_frame(
+        auto result = co_await psm::stealth::common::read_tls_frame(
             client_sock, ec, &deadline);
 
         runner.Check(result.has_value(),
-                     "read_raw_tls_frame should return data before deadline");
+                     "read_tls_frame should return data before deadline");
         runner.Check(!ec, "error code should be success");
 
         if (result)
@@ -512,7 +512,7 @@ int main()
 #ifdef _WIN32
         SetConsoleOutputCP(CP_UTF8);
 #endif
-        psm::memory::system::enable_global_pooling();
+        psm::memory::system::enable_pooling();
         psm::trace::init({});
 
         psm::testing::TestRunner runner("HandshakeTimeout");
@@ -521,7 +521,7 @@ int main()
         TestDeadlineTimerExpiry(runner);
         TestDeadlineTimerCancellation(runner);
 
-        // read_raw_tls_frame 超时测试
+        // read_tls_frame 超时测试
         TestReadRawTlsFrameTimeout(runner);
         TestReadRawTlsFrameEofNoDeadline(runner);
         TestReadRawTlsFrameSuccessBeforeDeadline(runner);

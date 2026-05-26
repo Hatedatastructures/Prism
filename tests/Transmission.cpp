@@ -325,7 +325,7 @@ void TestUnreliableSetRemoteEndpoint()
     // 构造一个 UDP 端点作为远端目标
     net::ip::udp::endpoint endpoint(net::ip::make_address("127.0.0.1"), 8888);
     // 设置远端端点，模拟 UDP 目标地址绑定
-    unreliable->set_remote_endpoint(endpoint);
+    unreliable->set_remote(endpoint);
 
     // 取回远端端点并验证地址和端口均正确
     auto remote_opt = unreliable->remote_endpoint();
@@ -359,7 +359,7 @@ void TestUnreliableSetRemoteEndpoint()
 int main()
 {
     // 初始化全局 PMR 内存池，供热路径容器使用
-    psm::memory::system::enable_global_pooling();
+    psm::memory::system::enable_pooling();
     // 初始化 spdlog 日志系统
     psm::trace::init({});
 

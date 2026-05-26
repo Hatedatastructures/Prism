@@ -10,8 +10,10 @@
 #include <cstdint>
 #include <string_view>
 
+
 namespace psm::protocol::shadowsocks
 {
+
     /**
      * @enum cipher_method
      * @brief 支持的 AEAD 加密算法

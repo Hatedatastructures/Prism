@@ -6,18 +6,20 @@
  */
 #pragma once
 
-#include <prism/stealth/scheme.hpp>
 #include <prism/stealth/restls/config.hpp>
+#include <prism/stealth/scheme.hpp>
+
 
 namespace psm::stealth::restls
 {
+
     /**
      * @class scheme
      * @brief Restls 伪装方案实现
      * @details Restls 通过模拟真实 TLS 流量来隐藏代理特征。
      * 服务端与后端 TLS 服务器建立连接，在 TLS 应用数据中嵌入认证信息。
      *
-     * **工作流程**：
+     * 工作流程：
      * 1. 读取客户端 TLS ClientHello
      * 2. 建立到后端 TLS 服务器的连接
      * 3. 在 TLS 应用数据中验证客户端身份

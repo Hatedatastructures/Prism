@@ -1,18 +1,20 @@
 #include <prism/stealth/restls/scheme.hpp>
-#include <prism/stealth/restls/handshake.hpp>
-#include <prism/stealth/restls/transport.hpp>
+
 #include <prism/config.hpp>
-#include <prism/transport/reliable.hpp>
 #include <prism/connect/util.hpp>
+#include <prism/fault/code.hpp>
 #include <prism/protocol/types.hpp>
 #include <prism/recognition/probe/analyzer.hpp>
+#include <prism/stealth/restls/handshake.hpp>
+#include <prism/stealth/restls/transport.hpp>
 #include <prism/trace.hpp>
-#include <prism/fault/code.hpp>
+#include <prism/transport/reliable.hpp>
 
 #include <boost/asio.hpp>
 
 namespace psm::stealth::restls
 {
+
     namespace net = boost::asio;
 
     auto scheme::active(const psm::config &cfg) const noexcept
@@ -65,10 +67,11 @@ namespace psm::stealth::restls
         // 执行 Restls 握手
         handshake_detail detail;
         auto hs_result = co_await restls::handshake(
-            rel->native_socket(),
-            ctx.cfg->stealth.restls,
-            std::move(ctx.preread),
-            detail);
+            restls::handshake_opts{
+                rel->native_socket(),
+                ctx.cfg->stealth.restls,
+                std::move(ctx.preread),
+                detail});
 
         if (!fault::succeeded(hs_result.error))
         {
@@ -79,7 +82,7 @@ namespace psm::stealth::restls
             co_return result;
         }
 
-        trace::debug("[Restls] handshake succeeded, tls13={}", detail.tls13);
+        trace::debug("[Restls] handshake succeeded, tls13={}", detail.version == tls_version::v13);
 
         // 释放底层 socket
         auto raw_socket_opt = rel->release_socket();
@@ -101,7 +104,9 @@ namespace psm::stealth::restls
                 std::span<const std::uint8_t>(detail.client_finished),
                 std::move(detail.script),
                 std::span<const std::byte>(), // 无初始预读数据
-                detail.tls13 ? tls_version::v13 : tls_version::v12
+                [&]() {
+                    return detail.version;
+                }()
             });
 
         // 检测内层协议

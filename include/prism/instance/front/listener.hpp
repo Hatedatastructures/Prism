@@ -10,16 +10,18 @@
 
 #pragma once
 
-#include <chrono>
+#include <prism/config.hpp>
+#include <prism/instance/config.hpp>
+#include <prism/instance/front/balancer.hpp>
 
 #include <boost/asio.hpp>
 
-#include <prism/instance/config.hpp>
-#include <prism/config.hpp>
-#include <prism/instance/front/balancer.hpp>
+#include <chrono>
+
 
 namespace psm::instance::front
 {
+
     namespace net = boost::asio;
     using tcp = boost::asio::ip::tcp;
 

@@ -10,22 +10,23 @@
 #pragma once
 
 #include <prism/stealth/common.hpp>
-#include <prism/stealth/scheme.hpp>
-#include <prism/stealth/registry.hpp>
 #include <prism/stealth/executor.hpp>
 #include <prism/stealth/native.hpp>
+#include <prism/stealth/registry.hpp>
+#include <prism/stealth/scheme.hpp>
 
+#include <prism/stealth/anytls/scheme.hpp>
+#include <prism/stealth/ech/config.hpp>
+#include <prism/stealth/ech/util/decrypt.hpp>
 #include <prism/stealth/reality/config.hpp>
+#include <prism/stealth/reality/handshake.hpp>
+#include <prism/stealth/reality/scheme.hpp>
+#include <prism/stealth/reality/seal.hpp>
 #include <prism/stealth/reality/util/auth.hpp>
 #include <prism/stealth/reality/util/keygen.hpp>
 #include <prism/stealth/reality/util/response.hpp>
-#include <prism/stealth/reality/seal.hpp>
-#include <prism/stealth/reality/handshake.hpp>
-#include <prism/stealth/reality/scheme.hpp>
-
-#include <prism/stealth/shadowtls/scheme.hpp>
 #include <prism/stealth/restls/scheme.hpp>
-#include <prism/stealth/anytls/scheme.hpp>
+#include <prism/stealth/shadowtls/scheme.hpp>
 #include <prism/stealth/trusttunnel/scheme.hpp>
-#include <prism/stealth/ech/config.hpp>
-#include <prism/stealth/ech/util/decrypt.hpp>
+
+

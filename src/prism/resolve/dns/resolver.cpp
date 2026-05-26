@@ -1,32 +1,54 @@
-#include <algorithm>
-#include <cctype>
-#include <cstdint>
-#include <numeric>
+#include <prism/resolve/dns/dns.hpp>
 
+#include <prism/resolve/dns/detail/cache.hpp>
+#include <prism/resolve/dns/detail/coalescer.hpp>
+#include <prism/resolve/dns/detail/rules.hpp>
+#include <prism/resolve/dns/detail/utility.hpp>
 #include <prism/trace.hpp>
 
 #include <boost/asio/experimental/awaitable_operators.hpp>
 
-#include <prism/resolve/dns/dns.hpp>
-#include <prism/resolve/dns/detail/cache.hpp>
-#include <prism/resolve/dns/detail/rules.hpp>
-#include <prism/resolve/dns/detail/coalescer.hpp>
-#include <prism/resolve/dns/detail/utility.hpp>
+#include <algorithm>
+#include <cctype>
+#include <cstdint>
+#include <numeric>
+#include <optional>
 
 namespace psm::resolve::dns
 {
+
     // ─── concrete implementation of resolver ───────────────────
 
     class resolver_impl : public resolver
     {
     public:
         explicit resolver_impl(net::io_context &ioc, config cfg, memory::resource_pointer mr = memory::current_resource())
-            : ioc_(ioc), mr_(mr ? mr : memory::current_resource()), config_(std::move(cfg)),
-              upstream_(ioc_, mr_), cache_(mr_, config_.cache_ttl, config_.cache_size,
-                  config_.serve_stale ? detail::cache::stale_policy::serve : detail::cache::stale_policy::discard),
+            : ioc_(ioc),
+              config_(std::move(cfg)),
+              mr_(memory::current_resource()),
+              upstream_(ioc_, mr_), cache_([&]
+              {
+                  detail::cache_options opts;
+                  opts.mr = mr_;
+                  opts.ttl = config_.cache_ttl;
+                  opts.max_entries = config_.cache_size;
+                  if (config_.serve_stale)
+                  {
+                      opts.stale = detail::stale_policy::serve;
+                  }
+                  else
+                  {
+                      opts.stale = detail::stale_policy::discard;
+                  }
+                  return opts;
+              }()),
               rules_(mr_), coalescer_(mr_),
               alive_(std::make_shared<std::atomic<bool>>(true))
         {
+            if (mr)
+            {
+                mr_ = mr;
+            }
             if (!config_.servers.empty())
             {
                 upstream_.set_servers(std::move(config_.servers));
@@ -64,7 +86,7 @@ namespace psm::resolve::dns
         [[nodiscard]] auto resolve(std::string_view host)
             -> net::awaitable<std::pair<fault::code, memory::vector<net::ip::address>>> override
         {
-            using namespace boost::asio::experimental::awaitable_operators;
+            using boost::asio::experimental::awaitable_operators::operator&&;
 
             if (config_.disable_ipv6)
             {
@@ -96,7 +118,7 @@ namespace psm::resolve::dns
             }
             const auto port_num = *port_opt;
 
-            using namespace boost::asio::experimental::awaitable_operators;
+            using boost::asio::experimental::awaitable_operators::operator&&;
             using ip_result_t = std::pair<fault::code, memory::vector<net::ip::address>>;
 
             ip_result_t result6{fault::code::success, memory::vector<net::ip::address>(mr_)};
@@ -183,47 +205,114 @@ namespace psm::resolve::dns
             }
         }
 
-        [[nodiscard]] auto query_pipeline(std::string_view domain, detail::qtype qt)
-            -> net::awaitable<std::pair<fault::code, memory::vector<net::ip::address>>>
+        /// @brief IP 过滤：移除黑名单和类型不匹配的 IP，返回过滤后的列表
+        [[nodiscard]] auto filter_ips(
+            const memory::vector<net::ip::address> &ips,
+            const detail::qtype qt) const -> memory::vector<net::ip::address>
         {
-            const auto qname = normalize(domain, mr_);
+            memory::vector<net::ip::address> filtered(mr_);
+            filtered.reserve(ips.size());
+            const bool want_v4 = (qt == detail::qtype::a);
+            const bool want_v6 = (qt == detail::qtype::aaaa);
+            for (const auto &ip : ips)
+            {
+                if (!is_blacklisted(ip) && ip.is_v4() == want_v4 && ip.is_v6() == want_v6)
+                {
+                    filtered.push_back(ip);
+                }
+            }
+            return filtered;
+        }
 
-            // 1：规则匹配
+        /// @brief TTL 钳制 + 缓存存储（成功/失败/空结果三条路径）
+        void store_cache(
+            const memory::string &qname,
+            const detail::qtype qt,
+            const query_result &result)
+        {
+            if (!config_.cache_enabled)
+            {
+                return;
+            }
+            if (fault::succeeded(result.error) && !result.ips.empty())
+            {
+                auto ttl = std::uint32_t{0};
+                if (!result.response.answers.empty())
+                {
+                    ttl = result.response.min_ttl();
+                    ttl = std::clamp(ttl, config_.ttl_min, config_.ttl_max);
+                }
+                if (ttl > 0)
+                {
+                    cache_.put({qname, qt, result.ips, ttl});
+                }
+            }
+            else if (fault::failed(result.error) ||
+                     (fault::succeeded(result.error) && result.ips.empty()))
+            {
+                cache_.put_negative(qname, qt, config_.negative_ttl);
+            }
+        }
+
+        [[nodiscard]] auto check_rules(std::string_view qname)
+            -> std::optional<std::pair<fault::code, memory::vector<net::ip::address>>>
+        {
             if (const auto rule = rules_.match(qname); rule)
             {
                 if (rule->blocked)
                 {
                     trace::debug("[Resolve] {} blocked by rule", qname);
-                    co_return std::make_pair(fault::code::blocked, memory::vector<net::ip::address>(mr_));
+                    return std::make_pair(fault::code::blocked, memory::vector<net::ip::address>(mr_));
                 }
                 if (rule->negative)
                 {
                     trace::debug("[Resolve] {} negative rule hit", qname);
-                    co_return std::make_pair(fault::code::success, memory::vector<net::ip::address>(mr_));
+                    return std::make_pair(fault::code::success, memory::vector<net::ip::address>(mr_));
                 }
                 if (!rule->addresses.empty())
                 {
                     trace::debug("[Resolve] {} -> static address ({} IPs)", qname, rule->addresses.size());
-                    co_return std::make_pair(fault::code::success, memory::vector<net::ip::address>(rule->addresses));
+                    return std::make_pair(fault::code::success, memory::vector<net::ip::address>(rule->addresses));
                 }
             }
+            return std::nullopt;
+        }
 
-            // 2：缓存查找
-            if (config_.cache_enabled)
+        [[nodiscard]] auto check_cache(std::string_view qname, detail::qtype qt)
+            -> std::optional<std::pair<fault::code, memory::vector<net::ip::address>>>
+        {
+            if (!config_.cache_enabled)
             {
-                if (auto cached = cache_.get(qname, qt); cached)
+                return std::nullopt;
+            }
+            if (auto cached = cache_.get(qname, qt); cached)
+            {
+                if (cached->empty())
                 {
-                    if (cached->empty())
-                    {
-                        trace::debug("[Resolve] {} negative cache hit", qname);
-                        co_return std::make_pair(fault::code::dns_failed, std::move(*cached));
-                    }
-                    trace::debug("[Resolve] {} cache hit ({} IPs)", qname, cached->size());
-                    co_return std::make_pair(fault::code::success, std::move(*cached));
+                    trace::debug("[Resolve] {} negative cache hit", qname);
+                    return std::make_pair(fault::code::dns_failed, std::move(*cached));
                 }
+                trace::debug("[Resolve] {} cache hit ({} IPs)", qname, cached->size());
+                return std::make_pair(fault::code::success, std::move(*cached));
+            }
+            return std::nullopt;
+        }
+
+        [[nodiscard]] auto query_pipeline(std::string_view domain, detail::qtype qt)
+            -> net::awaitable<std::pair<fault::code, memory::vector<net::ip::address>>>
+        {
+            const auto qname = normalize(domain, mr_);
+
+            if (auto ruled = check_rules(qname); ruled)
+            {
+                co_return std::move(*ruled);
             }
 
-            // 3：请求合并
+            if (auto cached = check_cache(qname, qt); cached)
+            {
+                co_return std::move(*cached);
+            }
+
             coalescer_.flush_cleanup();
 
             const auto qt_str = std::to_string(static_cast<std::uint16_t>(qt));
@@ -242,18 +331,14 @@ namespace psm::resolve::dns
 
                 detail::coalescer::cleanup_flight(flight_it);
 
-                if (config_.cache_enabled)
+                if (auto rechecked = check_cache(qname, qt); rechecked)
                 {
-                    if (auto cached = cache_.get(qname, qt); cached)
-                    {
-                        co_return std::make_pair(cached->empty() ? fault::code::dns_failed : fault::code::success, std::move(*cached));
-                    }
+                    co_return std::move(*rechecked);
                 }
 
                 co_return std::make_pair(fault::code::dns_failed, memory::vector<net::ip::address>(mr_));
             }
 
-            // 4：上游查询
             query_result result(mr_);
             try
             {
@@ -271,20 +356,9 @@ namespace psm::resolve::dns
             flight_it->timer.cancel();
             detail::coalescer::cleanup_flight(flight_it);
 
-            // 5：IP 过滤
             if (fault::succeeded(result.error) && !result.ips.empty())
             {
-                memory::vector<net::ip::address> filtered(mr_);
-                filtered.reserve(result.ips.size());
-                const bool want_v4 = (qt == detail::qtype::a);
-                const bool want_v6 = (qt == detail::qtype::aaaa);
-                for (const auto &ip : result.ips)
-                {
-                    if (!is_blacklisted(ip) && ip.is_v4() == want_v4 && ip.is_v6() == want_v6)
-                    {
-                        filtered.push_back(ip);
-                    }
-                }
+                auto filtered = filter_ips(result.ips, qt);
                 if (filtered.empty())
                 {
                     if (config_.cache_enabled)
@@ -297,28 +371,7 @@ namespace psm::resolve::dns
                 result.ips = std::move(filtered);
             }
 
-            // 6：TTL 钳制 + 缓存存储
-            if (config_.cache_enabled && fault::succeeded(result.error) && !result.ips.empty())
-            {
-                auto ttl = std::uint32_t{0};
-                if (!result.response.answers.empty())
-                {
-                    ttl = result.response.min_ttl();
-                    ttl = std::clamp(ttl, config_.ttl_min, config_.ttl_max);
-                }
-                if (ttl > 0)
-                {
-                    cache_.put(qname, qt, result.ips, ttl);
-                }
-            }
-            else if (config_.cache_enabled && fault::failed(result.error))
-            {
-                cache_.put_negative(qname, qt, config_.negative_ttl);
-            }
-            else if (config_.cache_enabled && fault::succeeded(result.error) && result.ips.empty())
-            {
-                cache_.put_negative(qname, qt, config_.negative_ttl);
-            }
+            store_cache(qname, qt, result);
 
             if (fault::succeeded(result.error))
             {
@@ -377,9 +430,17 @@ namespace psm::resolve::dns
                     const auto &net_bytes = network.address().to_bytes();
                     const auto prefix_len = network.prefix_length();
                     bool match = true;
-                    for (unsigned i = 0; i < 16 && i * 8 < prefix_len; ++i)
+                    for (std::uint32_t i = 0; i < 16 && i * 8 < prefix_len; ++i)
                     {
-                        const auto bits = (i * 8 + 8 <= prefix_len) ? 0xFF : static_cast<uint8_t>(0xFF << (8 - (prefix_len - i * 8)));
+                        std::uint8_t bits;
+                        if (i * 8 + 8 <= prefix_len)
+                        {
+                            bits = 0xFF;
+                        }
+                        else
+                        {
+                            bits = static_cast<std::uint8_t>(0xFF << (8 - (prefix_len - i * 8)));
+                        }
                         if ((addr_bytes[i] & bits) != (net_bytes[i] & bits))
                         {
                             match = false;
@@ -412,7 +473,16 @@ namespace psm::resolve::dns
     auto make_resolver(net::io_context &ioc, config cfg, memory::resource_pointer mr)
         -> std::unique_ptr<resolver>
     {
-        return std::make_unique<resolver_impl>(ioc, std::move(cfg), mr ? mr : memory::current_resource());
+        memory::resource_pointer effective_mr;
+        if (mr)
+        {
+            effective_mr = mr;
+        }
+        else
+        {
+            effective_mr = memory::current_resource();
+        }
+        return std::make_unique<resolver_impl>(ioc, std::move(cfg), effective_mr);
     }
 
 } // namespace psm::resolve::dns

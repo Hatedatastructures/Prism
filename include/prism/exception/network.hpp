@@ -12,8 +12,10 @@
 
 #include <prism/exception/deviant.hpp>
 
+
 namespace psm::exception
 {
+
     /**
      * @class network
      * @brief 网络异常
@@ -100,6 +102,6 @@ namespace psm::exception
          * @details 重写基类的虚函数，返回网络异常的
          * 类型标识符，用于异常分类和日志记录。
          */
-        [[nodiscard]] std::string_view type_name() const noexcept override { return "NETWORK"; }
+        [[nodiscard]] auto type_name() const noexcept -> std::string_view override { return "NETWORK"; }
     }; // class network
 } // namespace psm::exception

@@ -2,6 +2,7 @@
 
 namespace psm::stats::traffic
 {
+
     // --- traffic_state ---
 
     void traffic_state::on_connect() noexcept
@@ -10,12 +11,14 @@ namespace psm::stats::traffic
         total_active_.fetch_add(1, std::memory_order::relaxed);
     }
 
+
     void traffic_state::on_protocol_detected(protocol::protocol_type type) noexcept
     {
         const auto i = static_cast<std::uint8_t>(type);
         protocols_[i].connections.fetch_add(1, std::memory_order::relaxed);
         protocols_[i].active.fetch_add(1, std::memory_order::relaxed);
     }
+
 
     void traffic_state::on_disconnect(protocol::protocol_type type) noexcept
     {
@@ -24,9 +27,8 @@ namespace psm::stats::traffic
         protocols_[i].active.fetch_sub(1, std::memory_order::relaxed);
     }
 
-    void traffic_state::flush_traffic(protocol::protocol_type proto,
-                                       std::uint64_t up,
-                                       std::uint64_t down) noexcept
+
+    void traffic_state::flush_traffic(protocol::protocol_type proto, std::uint64_t up, std::uint64_t down) noexcept
     {
         const auto i = static_cast<std::uint8_t>(proto);
         if (up)
@@ -41,15 +43,18 @@ namespace psm::stats::traffic
         }
     }
 
+
     void traffic_state::on_auth_success() noexcept
     {
         auth_success_.fetch_add(1, std::memory_order::relaxed);
     }
 
+
     void traffic_state::on_auth_failure() noexcept
     {
         auth_failure_.fetch_add(1, std::memory_order::relaxed);
     }
+
 
     auto traffic_state::snapshot() const noexcept
         -> traffic_snapshot
@@ -62,7 +67,7 @@ namespace psm::stats::traffic
         s.auth_success = auth_success_.load(std::memory_order::relaxed);
         s.auth_failure = auth_failure_.load(std::memory_order::relaxed);
 
-        for (std::size_t i = 0; i < proto_slot_count; ++i)
+        for (std::size_t i = 0; i < slot_count; ++i)
         {
             s.protocols[i].connections = protocols_[i].connections.load(std::memory_order::relaxed);
             s.protocols[i].active = protocols_[i].active.load(std::memory_order::relaxed);
@@ -71,6 +76,7 @@ namespace psm::stats::traffic
         }
         return s;
     }
+
 
     void traffic_state::reset() noexcept
     {
@@ -81,7 +87,7 @@ namespace psm::stats::traffic
         auth_success_.store(0, std::memory_order::relaxed);
         auth_failure_.store(0, std::memory_order::relaxed);
 
-        for (std::size_t i = 0; i < proto_slot_count; ++i)
+        for (std::size_t i = 0; i < slot_count; ++i)
         {
             protocols_[i].connections.store(0, std::memory_order::relaxed);
             protocols_[i].active.store(0, std::memory_order::relaxed);
@@ -92,20 +98,25 @@ namespace psm::stats::traffic
 
     // --- 全局注册表（COW 无锁） ---
 
-    using registry_vector = std::vector<traffic_state *>;
-
-    static std::atomic<registry_vector *> g_registry{nullptr};
-
-    static auto load_registry() noexcept
-        -> registry_vector *
+    namespace
     {
-        return g_registry.load(std::memory_order::acquire);
-    }
+        using registry_vector = std::vector<traffic_state *>;
 
-    static void store_registry(registry_vector *v) noexcept
-    {
-        g_registry.store(v, std::memory_order::release);
-    }
+        std::atomic<registry_vector *> g_registry{nullptr};
+
+        auto load_registry() noexcept
+            -> registry_vector *
+        {
+            return g_registry.load(std::memory_order::acquire);
+        }
+
+        void store_registry(registry_vector *v) noexcept
+        {
+            g_registry.store(v, std::memory_order::release);
+        }
+
+    } // namespace
+
 
     void traffic_state::register_instance(traffic_state *s) noexcept
     {
@@ -118,6 +129,7 @@ namespace psm::stats::traffic
         next->push_back(s);
         store_registry(next);
     }
+
 
     void traffic_state::unregister_instance(traffic_state *s) noexcept
     {
@@ -139,6 +151,7 @@ namespace psm::stats::traffic
         store_registry(next);
     }
 
+
     auto traffic_state::aggregate() noexcept
         -> traffic_snapshot
     {
@@ -157,7 +170,7 @@ namespace psm::stats::traffic
             result.total_downlink += s.total_downlink;
             result.auth_success += s.auth_success;
             result.auth_failure += s.auth_failure;
-            for (std::size_t i = 0; i < proto_slot_count; ++i)
+            for (std::size_t i = 0; i < slot_count; ++i)
             {
                 result.protocols[i].connections += s.protocols[i].connections;
                 result.protocols[i].active += s.protocols[i].active;
@@ -167,4 +180,5 @@ namespace psm::stats::traffic
         }
         return result;
     }
+
 } // namespace psm::stats::traffic

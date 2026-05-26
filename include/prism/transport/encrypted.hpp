@@ -8,23 +8,25 @@
 
 #pragma once
 
-#include <array>
-#include <memory>
-#include <span>
-#include <system_error>
+#include <prism/fault/code.hpp>
+#include <prism/fault/handling.hpp>
+#include <prism/trace.hpp>
+#include <prism/transport/adapter/connector.hpp>
+#include <prism/transport/transmission.hpp>
 
 #include <boost/asio.hpp>
 #include <boost/asio/ssl.hpp>
 #include <openssl/ssl.h>
 
-#include <prism/transport/transmission.hpp>
-#include <prism/transport/adapter/connector.hpp>
-#include <prism/fault/code.hpp>
-#include <prism/fault/handling.hpp>
-#include <prism/trace.hpp>
+#include <array>
+#include <memory>
+#include <span>
+#include <system_error>
+
 
 namespace psm::transport
 {
+
     namespace net = boost::asio;
     namespace ssl = net::ssl;
 
@@ -41,7 +43,7 @@ namespace psm::transport
      * @warning 关闭后传输层对象不再可用，不应再调用其任何方法。
      * @throws std::bad_alloc 如果内存分配失败
      */
-    class encrypted : public transmission
+    class encrypted final : public transmission
     {
     public:
         using connector_type = psm::transport::connector;
@@ -73,12 +75,12 @@ namespace psm::transport
          * @brief 获取内层传输
          * @return nullptr encrypted 持有 ssl::stream 而非 transmission*
          */
-        [[nodiscard]] transmission *next_layer() noexcept override
+        [[nodiscard]] auto next_layer() noexcept -> transmission * override
         {
             return nullptr;
         }
 
-        [[nodiscard]] const transmission *next_layer() const noexcept override
+        [[nodiscard]] auto next_layer() const noexcept -> const transmission * override
         {
             return nullptr;
         }
@@ -88,7 +90,7 @@ namespace psm::transport
          * @details 返回底层 TLS 流关联的执行器，用于调度异步操作。
          * @return 底层 TLS 流的执行器
          */
-        [[nodiscard]] executor_type executor() const override
+        [[nodiscard]] auto executor() const -> executor_type override
         {
             return const_cast<stream_type &>(*ssl_stream_).get_executor();
         }
@@ -157,7 +159,8 @@ namespace psm::transport
          * @details 返回内部 TLS 流的引用，用于直接操作 TLS 层。
          * @return stream_type& TLS 流引用
          */
-        [[nodiscard]] stream_type &stream() noexcept
+        [[nodiscard]] auto stream() noexcept
+            -> stream_type &
         {
             return *ssl_stream_;
         }
@@ -167,7 +170,8 @@ namespace psm::transport
          * @details 返回内部 TLS 流的常量引用，用于只读访问。
          * @return const stream_type& TLS 流常量引用
          */
-        [[nodiscard]] const stream_type &stream() const noexcept
+        [[nodiscard]] auto stream() const noexcept
+            -> const stream_type &
         {
             return *ssl_stream_;
         }
@@ -177,7 +181,8 @@ namespace psm::transport
          * @details 将内部持有的 TLS 流共享指针移动返回，调用后对象不再持有流。
          * @return shared_stream TLS 流共享指针
          */
-        [[nodiscard]] shared_stream release()
+        [[nodiscard]] auto release()
+            -> shared_stream
         {
             return std::move(ssl_stream_);
         }

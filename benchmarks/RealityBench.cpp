@@ -31,7 +31,7 @@ namespace
      */
     auto generate_test_keypair()
     {
-        return crypto::generate_x25519_keypair();
+        return crypto::generate_keypair();
     }
 
     /**
@@ -90,7 +90,7 @@ namespace
 
 static void BM_RealityFullHandshake(benchmark::State &state)
 {
-    memory::system::enable_global_pooling();
+    memory::system::enable_pooling();
 
     // 预生成服务端密钥对
     auto server_keypair = generate_test_keypair();
@@ -98,7 +98,7 @@ static void BM_RealityFullHandshake(benchmark::State &state)
     for (auto _ : state)
     {
         // 1. 生成客户端临时密钥对
-        auto client_keypair = crypto::generate_x25519_keypair();
+        auto client_keypair = crypto::generate_keypair();
 
         // 2. X25519 密钥交换
         auto [exchange_ec, shared_secret] = crypto::x25519(
@@ -140,7 +140,7 @@ static void BM_RealityX25519Only(benchmark::State &state)
 
     for (auto _ : state)
     {
-        auto client_keypair = crypto::generate_x25519_keypair();
+        auto client_keypair = crypto::generate_keypair();
 
         auto [ec, shared_secret] = crypto::x25519(
             client_keypair.private_key, server_keypair.public_key);
@@ -181,7 +181,7 @@ static void BM_RealityKeyGen(benchmark::State &state)
 {
     for (auto _ : state)
     {
-        auto keypair = crypto::generate_x25519_keypair();
+        auto keypair = crypto::generate_keypair();
         benchmark::DoNotOptimize(keypair.private_key.data());
         benchmark::ClobberMemory();
     }
@@ -195,7 +195,7 @@ static void BM_RealityDerivePublic(benchmark::State &state)
 
     for (auto _ : state)
     {
-        auto public_key = crypto::derive_x25519_public_key(keypair.private_key);
+        auto public_key = crypto::derive_pubkey(keypair.private_key);
         benchmark::DoNotOptimize(public_key.data());
         benchmark::ClobberMemory();
     }
@@ -265,7 +265,7 @@ static void BM_RealityHkdfExpand(benchmark::State &state)
 
 static void BM_RealityMemoryUsage(benchmark::State &state)
 {
-    memory::system::enable_global_pooling();
+    memory::system::enable_pooling();
     memory::frame_arena arena;
     auto mr = arena.get();
 

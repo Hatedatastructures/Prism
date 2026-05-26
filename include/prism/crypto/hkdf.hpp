@@ -10,6 +10,8 @@
 
 #pragma once
 
+#include <prism/fault/code.hpp>
+
 #include <array>
 #include <cstddef>
 #include <cstdint>
@@ -17,19 +19,20 @@
 #include <string_view>
 #include <utility>
 #include <vector>
-#include <prism/fault/code.hpp>
+
 
 namespace psm::crypto
 {
+
     /**
      * @brief SHA-256 输出长度（字节）
      */
-    constexpr std::size_t SHA256_LEN = 32;
+    constexpr std::size_t sha256_len = 32;
 
     /**
      * @brief SHA-512 输出长度（字节）
      */
-    constexpr std::size_t SHA512_LEN = 64;
+    constexpr std::size_t sha512_len = 64;
 
     /**
      * @brief HMAC-SHA256
@@ -40,7 +43,7 @@ namespace psm::crypto
      * 和 TLS 1.3 Finished 消息的 verify_data 计算。
      */
     [[nodiscard]] auto hmac_sha256(std::span<const std::uint8_t> key, std::span<const std::uint8_t> data)
-        -> std::array<std::uint8_t, SHA256_LEN>;
+        -> std::array<std::uint8_t, sha256_len>;
 
     /**
      * @brief HMAC-SHA512
@@ -49,7 +52,7 @@ namespace psm::crypto
      * @return 64 字节 HMAC-SHA512 结果
      */
     [[nodiscard]] auto hmac_sha512(std::span<const std::uint8_t> key, std::span<const std::uint8_t> data)
-        -> std::array<std::uint8_t, SHA512_LEN>;
+        -> std::array<std::uint8_t, sha512_len>;
 
     /**
      * @brief HKDF-Extract
@@ -60,7 +63,7 @@ namespace psm::crypto
      * 当 salt 为空时使用 32 字节全零作为盐值（RFC 5869）。
      */
     [[nodiscard]] auto hkdf_extract(std::span<const std::uint8_t> salt, std::span<const std::uint8_t> ikm)
-        -> std::array<std::uint8_t, SHA256_LEN>;
+        -> std::array<std::uint8_t, sha256_len>;
 
     /**
      * @brief HKDF-Expand
@@ -81,7 +84,7 @@ namespace psm::crypto
      * @brief HKDF-Expand-Label 参数
      * @details 组合 TLS 1.3 HKDF-Expand-Label 调用所需的全部参数。
      */
-    struct expand_label_params
+    struct expand_params
     {
         std::span<const std::uint8_t> secret;  ///< 输入密钥
         std::string_view label;                 ///< 标签（如 "key", "iv", "finished"）
@@ -98,7 +101,7 @@ namespace psm::crypto
      * HKDF-Expand-Label(Secret, Label, Context, Length) = HKDF-Expand(Secret, HkdfLabel, Length)
      * @note TLS 1.3 自动在 label 前添加 "tls13 " 前缀。
      */
-    [[nodiscard]] auto hkdf_expand_label(expand_label_params params)
+    [[nodiscard]] auto expand_label(expand_params params)
         -> std::pair<fault::code, std::vector<std::uint8_t>>;
 
     /**
@@ -108,7 +111,7 @@ namespace psm::crypto
      * @details 计算 SHA-256(data)，用于 TLS 1.3 transcript hash。
      */
     [[nodiscard]] auto sha256(std::span<const std::uint8_t> data)
-        -> std::array<std::uint8_t, SHA256_LEN>;
+        -> std::array<std::uint8_t, sha256_len>;
 
     /**
      * @brief SHA-256 哈希（两个数据块拼接）
@@ -119,7 +122,7 @@ namespace psm::crypto
      * 比 concat 后再 hash 更高效，避免额外内存分配。
      */
     [[nodiscard]] auto sha256(std::span<const std::uint8_t> data1, std::span<const std::uint8_t> data2)
-        -> std::array<std::uint8_t, SHA256_LEN>;
+        -> std::array<std::uint8_t, sha256_len>;
 
     /**
      * @brief SHA-256 哈希（三个数据块拼接）
@@ -130,5 +133,5 @@ namespace psm::crypto
      * @details 计算 SHA-256(data1 || data2 || data3)，用于 TLS 1.3 transcript hash。
      */
     [[nodiscard]] auto sha256(std::span<const std::uint8_t> data1, std::span<const std::uint8_t> data2, std::span<const std::uint8_t> data3)
-        -> std::array<std::uint8_t, SHA256_LEN>;
+        -> std::array<std::uint8_t, sha256_len>;
 } // namespace psm::crypto

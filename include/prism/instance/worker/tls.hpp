@@ -11,15 +11,17 @@
 
 #pragma once
 
-#include <memory>
-#include <string_view>
+#include <prism/instance/config.hpp>
 
 #include <boost/asio/ssl.hpp>
 
-#include <prism/instance/config.hpp>
+#include <memory>
+#include <string_view>
+
 
 namespace psm::instance::worker::tls
 {
+
     namespace ssl = boost::asio::ssl;
 
     using shared_context = std::shared_ptr<ssl::context>; // TLS 上下文共享指针类型别名

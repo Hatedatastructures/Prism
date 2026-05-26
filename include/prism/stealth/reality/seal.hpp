@@ -8,21 +8,25 @@
 
 #pragma once
 
-#include <array>
-#include <cstddef>
-#include <cstdint>
-#include <span>
-#include <memory>
-#include <system_error>
-#include <prism/transport/transmission.hpp>
 #include <prism/crypto/aead.hpp>
 #include <prism/memory/container.hpp>
 #include <prism/protocol/tls/types.hpp>
 #include <prism/stealth/reality/util/keygen.hpp>
+#include <prism/transport/transmission.hpp>
+
 #include <boost/asio.hpp>
+
+#include <array>
+#include <cstddef>
+#include <cstdint>
+#include <memory>
+#include <span>
+#include <system_error>
+
 
 namespace psm::stealth::reality
 {
+
     namespace net = boost::asio;
 
     /**
@@ -60,12 +64,12 @@ namespace psm::stealth::reality
          * @brief 获取内层传输
          * @return 底层传输指针
          */
-        [[nodiscard]] transport::transmission *next_layer() noexcept override
+        [[nodiscard]] auto next_layer() noexcept -> transport::transmission * override
         {
             return transport_.get();
         }
 
-        [[nodiscard]] const transport::transmission *next_layer() const noexcept override
+        [[nodiscard]] auto next_layer() const noexcept -> const transport::transmission * override
         {
             return transport_.get();
         }

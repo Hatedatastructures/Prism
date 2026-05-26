@@ -9,26 +9,29 @@
 #pragma once
 
 #include <prism/memory/container.hpp>
+
 #include <cstdint>
+
 
 namespace psm::stealth::restls
 {
+
     /**
      * @struct config
      * @brief Restls 服务端配置
      * @details 包含 TLS 后端目标、认证密码、版本提示和流量控制脚本。
      *
-     * **配置项说明**：
-     * - `server_names`: SNI 白名单，只有匹配的 ClientHello 才会执行认证
-     * - `host`: TLS 后端目标服务器（必须是 TLS 1.2 或 TLS 1.3 服务器）
-     * - `password`: 认证密码
-     * - `version_hint`: 版本提示，"tls12" 或 "tls13"
-     * - `restls_script`: 流量控制脚本，用于隐藏代理特征
+     * 配置项说明：
+     * `server_names`: SNI 白名单，只有匹配的 ClientHello 才会执行认证
+     * `host`: TLS 后端目标服务器（必须是 TLS 1.2 或 TLS 1.3 服务器）
+     * `password`: 认证密码
+     * `version_hint`: 版本提示，"tls12" 或 "tls13"
+     * `restls_script`: 流量控制脚本，用于隐藏代理特征
      *
-     * **Restls Script 语法**：
-     * - `300?100`: 发送 300 字节，等待 100ms
-     * - `400~100`: 等待 100ms 后发送 400 字节
-     * - `<1`: 等待客户端数据
+     * Restls Script 语法：
+     * `300?100`: 发送 300 字节，等待 100ms
+     * `400~100`: 等待 100ms 后发送 400 字节
+     * `<1`: 等待客户端数据
      */
     struct config
     {

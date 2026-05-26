@@ -1,11 +1,11 @@
-# Prism 问题清单（第六轮全面审计）
+# Prism 问题清单（第七轮全面审计）
 
 > 按模块和严重程度排序。CRITICAL = 生产安全风险；HIGH = 功能/性能显著影响；MEDIUM = 代码质量/可维护性；LOW = 改进建议。
 >
 > **审计日期**: 2026/05/25
-> **审计范围**: 全项目深度审计（6 个并行 agent）
+> **审计范围**: 全项目深度审计（5 个并行 agent 覆盖所有模块）
 > **审计版本**: main 分支最新
-> **对比基准**: 第五轮审计（123 项）
+> **对比基准**: 第六轮审计（165 项）
 
 ---
 
@@ -1922,41 +1922,232 @@ socks5/trojan/vless conn 继承但从未调用 `shared_from_this()`。
 
 ---
 
-## 统计（第六轮全面审计）
+## 13. 第七轮审计新增问题（2026/05/25）
 
-| 严重程度 | 数量 | 变化（vs 第五轮 123 项） |
+> 本轮审计由 5 个并行 agent 覆盖全模块：crypto/security、stealth/transport、protocol/connect、multiplex/memory/stats、instance/resolve/recognition/loader。
+
+### [CRITICAL] O1 — Executor pipeline 误判 TrustTunnel/AnyTLS 成功为"未匹配"
+
+**位置**: `src/prism/stealth/executor.cpp:89-123`
+
+TrustTunnel 和 AnyTLS 握手成功后返回 `detected = protocol_type::tls`、`error = success`、`transport = nullptr`。executor pipeline 将 `detected == tls` 解释为"不是我的方案"，调用 `try_rewind()`/`pass_through()` 后继续执行下一个方案。后续方案（如 `native`）尝试对已消耗的连接做 SSL 握手必然失败，pipeline 返回错误给 session，**已成功建立的连接被拆除**。
+
+**影响**: TrustTunnel 和 AnyTLS 在生产环境中完全不工作。后台运行的 craft/session 被意外终止。
+
+**修复**: 引入 `protocol_type::consumed` 或在 `handshake_result` 添加 `bool consumed` 字段，executor 遇到时立即返回成功。
+
+---
+
+### [HIGH] O2 — SOCKS5 recv_impl 使用 async_read_some 读定长协议字段
+
+**位置**: `src/prism/protocol/socks5/conn.cpp:470-474`
+
+所有 SOCKS5 定长字段读取（request_header 4 字节、auth 2 字节、domain 长度等）使用 `async_read_some`，后者可能只返回部分字节。调用方直接解析 buffer，假设数据完整。网络分片/TLS 记录边界场景下解析使用零填充残留数据，产生协议错误。
+
+对比 Trojan/VLESS 用 `read_at_least`、SS2022 用 `transport::async_read` 保证精确读取。
+
+**修复**: 将 `recv_impl` 改为循环读取直到填满，或改用 `transport::async_read`。
+
+---
+
+### [HIGH] O3 — 密钥材料析构时未安全清零
+
+**位置**: `include/prism/crypto/x25519.hpp:47-51,92-96`、`reality/util/keygen.hpp:34-46`
+
+`x25519_keypair::private_key`、`ed25519_keypair::private_key`、`key_material` 所有字段均为 `std::array<uint8_t, N>`，析构函数不清零。敏感密钥材料残留在栈/堆上，可被核心转储或内存泄露攻击读取。项目无任何 `OPENSSL_cleanse` 调用。
+
+**修复**: 为密钥结构体添加析构函数调用 `OPENSSL_cleanse`，或实现 `secure_array` 包装器。
+
+---
+
+### [HIGH] O4 — DNS query_via 成功路径读取 moved-from 对象，TC 截断回退完全失效
+
+**位置**: `src/prism/resolve/dns/upstream.cpp:734-740`
+
+```cpp
+tr.result = std::move(result);     // result 被整体搬移
+tr.response = result.response;     // 读取 moved-from 对象 → 空 message
+```
+
+`tr.response` 获得 `tc` 默认值 `false`。后续 `query_udp()` 检查 `resp->tc` 永远不触发 TCP 重试。大 DNS 响应被截断后客户端收到不完整结果，无感知。
+
+**修复**: 先拷贝 `tr.response = result.response`，再搬移 `tr.result = std::move(result)`。
+
+---
+
+### [MEDIUM] O5 — Trojan/VLESS close()/cancel() 在 release() 后空指针解引用
+
+**位置**: `src/prism/protocol/trojan/conn.cpp:116-124`、`src/prism/protocol/vless/conn.cpp:71-78`
+
+`release()` 将 `next_layer_` 置空，但 `close()` 和 `cancel()` 不检查空指针直接调用 `next_layer_->close()`。SOCKS5 和 SS2022 都有空指针保护。
+
+**修复**: 添加 `if (next_layer_)` 检查。
+
+---
+
+### [MEDIUM] O6 — SS2022 fetch_chunk 不校验 SIP022 最大分片大小 0x3FFF
+
+**位置**: `src/prism/protocol/shadowsocks/conn.cpp:489-497`
+
+`cur_payload_len_` 从解密后的长度字段读取但未校验是否超过 `max_chunk_size = 0x3FFF`。持有 PSK 的恶意客户端可发送 65535 字节分片，违反规范且增加内存压力。
+
+**修复**: 在赋值后添加 `if (cur_payload_len_ > max_chunk_size)` 范围校验。
+
+---
+
+### [MEDIUM] O7 — yamux activate_stream 缓冲区交换导致入站数据丢失
+
+**位置**: `src/prism/multiplex/yamux/craft.cpp:538-587`
+
+`activate_stream` 将 `entry.buffer` swap 到局部变量后执行 `co_await send_data` 等。期间 `frame_loop` 交错运行，新到达的 PSH 帧追加到已清空的 `entry.buffer`。`activate_stream` 最终 `pending_.erase(stream_id)` 销毁所有新追加的数据。
+
+smux 通过直接从 `entry.buffer` 读取避免了此问题。
+
+**修复**: 不进行 swap，直接从 `entry.buffer` 提取剩余数据。
+
+---
+
+### [MEDIUM] O8 — h2mux on_stream_close 未完全关闭 duct 管道
+
+**位置**: `src/prism/multiplex/h2mux/craft.cpp:544-565`
+
+`on_stream_close` 只调用 `duct->on_fin()`（半关闭），不从 `ducts_` 移除 duct。`target_readloop` 继续运行但 `nghttp2_submit_data` 返回错误。长连接目标下 duct 和连接无限期打开，traffic 永不刷新。
+
+**修复**: 调用 `duct->close()` 或在 `on_fin()` 后显式 `remove_duct()`。
+
+---
+
+### [MEDIUM] O9 — DNS 负缓存 put_negative 无 LRU 淘汰
+
+**位置**: `src/prism/resolve/dns/detail/cache.cpp:157-197`
+
+正向缓存 `put()` 有 LRU 淘汰，但 `put_negative()` 完全缺失。DNS 放大攻击或上游故障时大量不同域名产生负缓存条目，绕过 `max_entries_` 限制无限增长。
+
+**修复**: 在 `put_negative()` 添加与 `put()` 相同的 LRU 淘汰代码。
+
+---
+
+### [MEDIUM] O10 — DNS DoH Content-Length 无上限校验
+
+**位置**: `src/prism/resolve/dns/upstream.cpp:557-585`
+
+`content_length` 从 HTTP 头解析后直接 `body_buf.resize()`，无上限校验。恶意 DNS 服务器可返回极大值触发 OOM。
+
+**修复**: 添加 `if (content_length > 65535)` 上限（DNS 报文最大 65535 字节）。
+
+---
+
+### [MEDIUM] O11 — DNS unpack 未限制记录总数
+
+**位置**: `src/prism/resolve/dns/detail/format.cpp:402-405`
+
+报文头四个计数合计可达 262140 条记录。精心构造的响应可触发大量 PMR 小对象分配。
+
+**修复**: 添加总记录数限制（如 1024）。
+
+---
+
+### [MEDIUM] O12 — RAND_bytes 返回值未检查
+
+**位置**: `src/prism/crypto/x25519.cpp:17`、`src/prism/stealth/reality/util/response.cpp:84`
+
+两处 `RAND_bytes` 调用均未检查返回值。系统熵不足时使用未定义数据作为密钥。同项目 `shadowsocks/conn.cpp:246` 正确检查了返回值。
+
+**修复**: 检查 `RAND_bytes` 返回值，失败时返回错误。
+
+---
+
+### [MEDIUM] O13 — Reality 空 SNI 绕过白名单验证
+
+**位置**: `src/prism/stealth/reality/util/auth.cpp:58-64`
+
+```cpp
+if (!client_hello.server_name.empty() &&
+    !match_server_name(...))
+```
+
+客户端不发送 SNI 扩展时 `server_name` 为空，整个条件短路为 `false`，白名单验证被跳过。TLS 1.3 不强制 SNI，攻击者可构造无 SNI 的 ClientHello 绕过。
+
+**修复**: 当 `cfg.server_names` 非空时，要求客户端必须提供 SNI 且匹配。
+
+---
+
+### [LOW] O14 — Trojan/VLESS UDP traffic_context 异常路径泄漏
+
+**位置**: `src/prism/protocol/trojan/conn.cpp:320-324`、`src/prism/protocol/vless/conn.cpp:310-314`
+
+裸 `new traffic_context` 仅通过 `udp_frame_loop` 退出时的回调释放。协程异常退出时泄漏。已知 S16 记录了同类问题。
+
+---
+
+### [LOW] O15 — h2mux closed_ 标志从未设置（死代码）
+
+**位置**: `include/prism/multiplex/h2mux/craft.hpp:256`
+
+`closed_` 声明并检查但从未被设置为 `true`。`frame_loop` 完全通过 `active_` 退出。
+
+---
+
+### [LOW] O16 — parcel uplink_loop 非 timeout 退出时误导日志
+
+**位置**: `src/prism/multiplex/parcel.cpp:75`
+
+`close()` 触发退出时仍打印 "UDP idle timeout"。
+
+---
+
+### [LOW] O17 — yamux activate_stream 与 FIN/RST 竞态
+
+**位置**: `src/prism/multiplex/yamux/craft.cpp:585-646`
+
+`co_await send_data` 期间客户端发送 FIN/RST 可能在 `activate_stream` 创建 duct 前擦除 pending。已关闭的流上创建 duct 导致 `target_readloop` 卡在窗口等待。
+
+---
+
+### [LOW] O18 — DNS match_short_id 前缀匹配降低有效熵
+
+**位置**: `src/prism/stealth/reality/util/auth.cpp:44`
+
+服务端配置 4 字节 short_id 时只需匹配前 4 字节，有效熵从 64 位降至 32 位。
+
+---
+
+### [LOW] O19 — config.hpp 直接 include Glaze 破坏分离设计
+
+**位置**: `include/prism/config.hpp:40-43`
+
+`serialize.hpp` 设计意图是分离 Glaze 依赖，但 `config.hpp` 直接 include 所有序列化头和 glaze 本身，分离设计被完全架空。
+
+---
+
+## 统计（第七轮全面审计）
+
+| 严重程度 | 数量 | 变化（vs 第六轮 165 项） |
 |----------|------|------------------------|
-| CRITICAL | 19 | +2 |
-| HIGH | 41 | +9 |
-| MEDIUM | 68 | +16 |
-| LOW | 37 | +15 |
-| **合计** | **165** | **+42** |
+| CRITICAL | 20 | +1 |
+| HIGH | 44 | +3 |
+| MEDIUM | 77 | +9 |
+| LOW | 43 | +6 |
+| **合计** | **184** | **+19** |
 
-**第六轮新增 CRITICAL 问题**：
-- N1: hkdf_expand 栈缓冲区溢出
-- N2: Reality decoded_privkey span 悬挂
+**第七轮新增 CRITICAL 问题**：
+- O1: Executor pipeline 误判 TrustTunnel/AnyTLS 成功（影响：两个协议生产完全不工作）
 
-**第六轮新增 HIGH 问题**：
-- N3: AES-ECB 每次堆分配 EVP_CIPHER_CTX
-- N4: dispatch_push 每帧 co_spawn 协程
-- N5: 隧道 partial write 静默丢数据
-- N6: SOCKS5 UDP 仅绑 IPv4
-- N7: DNS CNAME 规则未实际应用
-- N8: total_active 识别失败连接不递减
-- N9: launch 异常路径不回滚 on_connect
-- N10: AnyTLS write_frame 并发无保护（S15 深层）
-- N11: Reality fetch_dest_cert() 从未调用
+**第七轮新增 HIGH 问题**：
+- O2: SOCKS5 recv_impl 不保证定长读取
+- O3: 密钥材料析构未清零
+- O4: DNS query_via moved-from 读取致 TC 回退失效
 
-**第六轮新增 MEDIUM 问题**：
-- N12-N32: 共 21 项（scatter-gather、堆分配、窗口无超时、死代码、配置被忽略等）
+**第七轮新增 MEDIUM 问题**：
+- O5-O13: 共 9 项（空指针、缓冲区交换、负缓存无淘汰、DoH 无上限、记录数无限制、RAND_bytes 未检查、空 SNI 绕过等）
 
-**第六轮新增 LOW 问题**：
-- N33-N45: 共 13 项
+**第七轮新增 LOW 问题**：
+- O14-O19: 共 6 项
 
 **建议优先处理顺序**：
-1. **CRITICAL 缓冲区安全**: S7/F1 (Restls 死代码) → S5 (open_output_size 下溢) → N1 (hkdf_expand 溢出) → N2 (span 悬挂)
-2. **CRITICAL 并发/所有权**: S7.2 (SYN collision) → L2.C (send_pending) → S6 (SSL_CTX ALPN) → L2.A (AnyTLS close) → L2.E (unregister)
-3. **CRITICAL 数据完整性**: D1.1 (HTTP EOF) → N5 (partial write 丢数据) → D1.2 (Trojan overconsume) → L2.B (preread 双发)
-4. **HIGH 性能热点**: N3 (AES-ECB 堆分配) → N4 (dispatch_push co_spawn) → P1 (隧道缓冲) → N12 (scatter-gather) → P2/P2.1 (mux buffer)
-5. **HIGH 统计准确性**: N8 (total_active 泄漏) → N9 (异常路径不回滚) → N15 (mark_started 未调用) → N16 (stats 原语死代码)
-6. **HIGH 功能缺口**: N7 (DNS CNAME) → N6 (SOCKS5 IPv6) → N11 (Reality 证书) → N10 (write_frame 并发)
+1. **CRITICAL 管道错误**: O1 (executor 误判) → S7/F1 (Restls 死代码) → S5 (open_output_size 下溢) → N1 (hkdf_expand 溢出)
+2. **CRITICAL 并发/所有权**: S7.2 (SYN collision) → L2.C (send_pending) → S6 (SSL_CTX ALPN) → L2.A (AnyTLS close)
+3. **CRITICAL 数据完整性**: D1.1 (HTTP EOF) → N5 (partial write) → D1.2 (Trojan overconsume) → L2.B (preread 双发)
+4. **HIGH 协议正确性**: O2 (SOCKS5 定长读取) → O4 (DNS TC 回退) → O3 (密钥清零) → N3 (AES-ECB) → N4 (dispatch_push)
+5. **HIGH 性能热点**: P1 (隧道缓冲) → N12 (scatter-gather) → P2/P2.1 (mux buffer) → P4 (SS2022 堆分配)
+6. **HIGH 统计/功能**: N8 (total_active) → N9 (异常回滚) → N15 (mark_started) → N7 (DNS CNAME) → N11 (Reality 证书)

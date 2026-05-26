@@ -15,15 +15,17 @@
  */
 #pragma once
 
+#include <prism/memory/container.hpp>
+
 #include <cstdint>
 #include <span>
 #include <string_view>
 #include <vector>
 
-#include <prism/memory/container.hpp>
 
 namespace psm::stealth::anytls
 {
+
     /**
      * @class padding_factory
      * @brief AnyTLS padding 方案解析与大小生成
@@ -54,7 +56,7 @@ namespace psm::stealth::anytls
          * @return 大小列表，-1 表示 CheckMark（放实际 payload），正数为随机 padding 大小
          */
         [[nodiscard]] auto generate_sizes(std::uint32_t pkt) const
-            -> std::vector<std::int32_t>;
+            -> memory::vector<std::int32_t>;
 
         /**
          * @brief 是否启用 padding

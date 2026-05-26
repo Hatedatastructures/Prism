@@ -8,12 +8,13 @@
 
 namespace psm::stats
 {
+
     /**
      * @class gauge
      * @brief EMA 平滑瞬时值
      * @details 非线程安全，仅限单写者场景。默认 alpha=7/8。
      */
-    class gauge
+    class gauge final
     {
     public:
         /**

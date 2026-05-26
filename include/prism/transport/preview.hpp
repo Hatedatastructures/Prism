@@ -11,19 +11,22 @@
 
 #pragma once
 
+#include <prism/memory/container.hpp>
+#include <prism/memory/pool.hpp>
+#include <prism/transport/transmission.hpp>
+
+#include <boost/asio.hpp>
+#include <boost/asio/any_completion_handler.hpp>
+
 #include <cstddef>
 #include <memory>
 #include <span>
 #include <system_error>
 
-#include <boost/asio.hpp>
-#include <boost/asio/any_completion_handler.hpp>
-#include <prism/transport/transmission.hpp>
-#include <prism/memory/container.hpp>
-#include <prism/memory/pool.hpp>
 
 namespace psm::transport
 {
+
     namespace net = boost::asio;
 
     /**
@@ -50,12 +53,12 @@ namespace psm::transport
          * @details 装饰器链导航，返回被包装的内层传输指针。
          * @return transmission* 内层传输指针
          */
-        [[nodiscard]] transmission *next_layer() noexcept override
+        [[nodiscard]] auto next_layer() noexcept -> transmission * override
         {
             return inner_.get();
         }
 
-        [[nodiscard]] const transmission *next_layer() const noexcept override
+        [[nodiscard]] auto next_layer() const noexcept -> const transmission * override
         {
             return inner_.get();
         }
@@ -67,7 +70,9 @@ namespace psm::transport
         [[nodiscard]] auto transport_type() const noexcept
             -> type override
         {
-            return inner_ ? inner_->transport_type() : type::tcp;
+            if (inner_)
+                return inner_->transport_type();
+            return type::tcp;
         }
 
         /**
@@ -75,7 +80,7 @@ namespace psm::transport
          * @details 委托给内部传输对象的 executor 方法
          * @return executor_type 绑定到内部传输的执行器
          */
-        [[nodiscard]] executor_type executor() const override;
+        [[nodiscard]] auto executor() const -> executor_type override;
 
         /**
          * @brief 从预读缓冲区或内部流读取数据
@@ -103,8 +108,7 @@ namespace psm::transport
          * @param buffer 目标缓冲区
          * @param handler 完成处理器
          */
-        void async_read_some(std::span<std::byte> buffer,
-                             net::any_completion_handler<void(boost::system::error_code, std::size_t)> handler) override;
+        void async_read_some(std::span<std::byte> buffer, net::any_completion_handler<void(boost::system::error_code, std::size_t)> handler) override;
 
         /**
          * @brief Completion-handler 风格异步写入
@@ -112,8 +116,7 @@ namespace psm::transport
          * @param buffer 源数据缓冲区
          * @param handler 完成处理器
          */
-        void async_write_some(std::span<const std::byte> buffer,
-                              net::any_completion_handler<void(boost::system::error_code, std::size_t)> handler) override;
+        void async_write_some(std::span<const std::byte> buffer, net::any_completion_handler<void(boost::system::error_code, std::size_t)> handler) override;
 
         /**
          * @brief 完整写入操作

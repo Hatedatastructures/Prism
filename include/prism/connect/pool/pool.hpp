@@ -9,6 +9,13 @@
  */
 #pragma once
 
+#include <prism/connect/pool/config.hpp>
+#include <prism/connect/pool/health.hpp>
+#include <prism/fault/code.hpp>
+#include <prism/memory/container.hpp>
+
+#include <boost/asio.hpp>
+
 #include <array>
 #include <atomic>
 #include <chrono>
@@ -17,15 +24,10 @@
 #include <optional>
 #include <utility>
 
-#include <boost/asio.hpp>
-
-#include <prism/memory/container.hpp>
-#include <prism/fault/code.hpp>
-#include <prism/connect/pool/config.hpp>
-#include <prism/connect/pool/health.hpp>
 
 namespace psm::connect
 {
+
     namespace net = boost::asio;
     using tcp = boost::asio::ip::tcp;
 
@@ -55,7 +57,8 @@ namespace psm::connect
      * @param endpoint TCP 端点
      * @return endpoint_key 端点键
      */
-    [[nodiscard]] endpoint_key make_endpoint_key(const tcp::endpoint &endpoint) noexcept;
+    [[nodiscard]] auto to_key(const tcp::endpoint &endpoint) noexcept
+        -> endpoint_key;
 
     /**
      * @struct endpoint_hash
@@ -71,7 +74,8 @@ namespace psm::connect
          * @param key 端点键
          * @return 哈希值
          */
-        [[nodiscard]] std::size_t operator()(const endpoint_key &key) const noexcept;
+        [[nodiscard]] auto operator()(const endpoint_key &key) const noexcept
+            -> std::size_t;
     };
 
     /**
@@ -99,7 +103,7 @@ namespace psm::connect
          * @param socket 持有的 socket 指针
          * @param endpoint 关联的目标端点
          */
-        pooled_connection(connection_pool *pool, tcp::socket *socket, tcp::endpoint endpoint)
+        explicit pooled_connection(connection_pool *pool, tcp::socket *socket, tcp::endpoint endpoint)
             : pool_(pool), socket_(socket), endpoint_(std::move(endpoint))
         {
         }
@@ -108,10 +112,10 @@ namespace psm::connect
          * @brief 析构函数
          * @details 析构时自动调用 reset() 归还或关闭连接。
          */
-        ~pooled_connection();
+        ~pooled_connection() noexcept;
 
         pooled_connection(const pooled_connection &) = delete;
-        pooled_connection &operator=(const pooled_connection &) = delete;
+        auto operator=(const pooled_connection &) -> pooled_connection & = delete;
 
         /**
          * @brief 移动构造函数
@@ -131,35 +135,35 @@ namespace psm::connect
          * @param other 要移动的连接包装器
          * @return pooled_connection& 当前对象的引用
          */
-        pooled_connection &operator=(pooled_connection &&other) noexcept;
+        auto operator=(pooled_connection &&other) noexcept -> pooled_connection &;
 
         /**
          * @brief 获取 socket 指针
          * @details 返回持有的 socket 指针，无效时返回 nullptr。
          * @return tcp::socket* socket 指针
          */
-        [[nodiscard]] tcp::socket *get() const noexcept { return socket_; }
+        [[nodiscard]] auto get() const noexcept -> tcp::socket * { return socket_; }
 
         /**
          * @brief 解引用 socket
          * @details 返回 socket 的引用，调用前必须确保 valid() 为 true。
          * @return tcp::socket& socket 引用
          */
-        [[nodiscard]] tcp::socket &operator*() const noexcept { return *socket_; }
+        [[nodiscard]] auto operator*() const noexcept -> tcp::socket & { return *socket_; }
 
         /**
          * @brief 访问 socket 成员
          * @details 返回 socket 指针，用于通过箭头操作符访问成员。
          * @return tcp::socket* socket 指针
          */
-        [[nodiscard]] tcp::socket *operator->() const noexcept { return socket_; }
+        [[nodiscard]] auto operator->() const noexcept -> tcp::socket * { return socket_; }
 
         /**
          * @brief 检查连接是否有效
          * @details 检查 socket 指针是否非空。
          * @return bool 有效返回 true
          */
-        [[nodiscard]] bool valid() const noexcept { return socket_ != nullptr; }
+        [[nodiscard]] auto valid() const noexcept -> bool { return socket_ != nullptr; }
 
         /**
          * @brief 检查连接是否有效
@@ -175,7 +179,8 @@ namespace psm::connect
          * @return socket 指针，调用方负责关闭
          * @warning 调用方必须确保最终关闭返回的 socket，否则会泄漏连接。
          */
-        [[nodiscard]] tcp::socket *release() noexcept;
+        [[nodiscard]] auto release() noexcept
+            -> tcp::socket *;
 
         /**
          * @brief 归还或关闭连接
@@ -243,13 +248,13 @@ namespace psm::connect
          * @brief 析构函数
          * @details 调用 clear() 关闭并释放所有缓存连接。
          */
-        ~connection_pool()
+        ~connection_pool() noexcept
         {
             clear();
         }
 
         connection_pool(const connection_pool &) = delete;
-        connection_pool &operator=(const connection_pool &) = delete;
+        auto operator=(const connection_pool &) -> connection_pool & = delete;
 
         /**
          * @brief 获取一个 TCP 连接
@@ -293,13 +298,13 @@ namespace psm::connect
          */
         [[nodiscard]] auto stats() const
             -> pool_stats;
-
         /**
          * @brief 获取连接池配置（只读）
          * @details 返回当前连接池的配置参数。
          * @return const config& 连接池配置的常量引用
          */
-        [[nodiscard]] const config &get_config() const noexcept { return config_; }
+        [[nodiscard]] auto get_config() const noexcept
+            -> const config & { return config_; }
 
     private:
         /**
@@ -311,7 +316,7 @@ namespace psm::connect
 
         /**
          * @brief 后台清理：移除过期连接
-         * @details 遍历缓存中所有端点的连接栈，移除超过 max_idle_sec
+         * @details 遍历缓存中所有端点的连接栈，移除超过 idle_sec
          * 的过期连接。使用原地压缩算法，避免不必要的内存分配。
          * 空栈的端点条目会被一并移除。
          */
@@ -324,6 +329,19 @@ namespace psm::connect
          * @return awaitable<void> 协程返回类型
          */
         [[nodiscard]] auto cleanup_loop() -> net::awaitable<void>;
+
+        struct reuse_opts
+        {
+            const endpoint_key &key;
+            const tcp::endpoint &endpoint;
+            std::chrono::steady_clock::time_point now;
+            std::chrono::seconds idle_timeout;
+        };
+
+        [[nodiscard]] auto try_reuse(reuse_opts opts)
+            -> net::awaitable<std::pair<fault::code, pooled_connection>>;
+
+        void apply_opts(tcp::socket &sock) const;
 
         net::io_context &ioc_;                                                                // IO 上下文，用于异步操作和定时器
         memory::unordered_map<endpoint_key, memory::vector<idle_item>, endpoint_hash> cache_; // 连接缓存，按端点键组织，每个端点使用 LIFO 栈

@@ -12,8 +12,10 @@
 #include <cstdint>
 #include <span>
 
+
 namespace psm::protocol::shadowsocks::util
 {
+
     /**
      * @brief byte 只读 span 转 uint8_t 只读 span
      * @param s 源 byte span

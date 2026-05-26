@@ -1,10 +1,12 @@
 #include <prism/instance/worker/tls.hpp>
-#include <prism/trace.hpp>
 #include <prism/exception.hpp>
+#include <prism/trace.hpp>
+
 #include <cstdint>
 
 namespace psm::instance::worker::tls
 {
+
     void configure(ssl::context &ctx, std::string_view cert, std::string_view key)
     {
         const std::string cert_path(cert.data(), cert.size());

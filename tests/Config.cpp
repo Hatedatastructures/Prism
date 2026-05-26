@@ -58,9 +58,9 @@ void TestSocks5ConfigDefaults()
     runner.Check(cfg.enable_tcp == true, "enable_tcp defaults to true");
     runner.Check(cfg.enable_udp == true, "enable_udp defaults to true");
     runner.Check(cfg.enable_bind == false, "enable_bind defaults to false");
-    runner.Check(cfg.udp_bind_port == 0, "udp_bind_port defaults to 0");
-    runner.Check(cfg.udp_idle_timeout == 60, "udp_idle_timeout defaults to 60");
-    runner.Check(cfg.udp_max_dgram == 65535, "udp_max_dgram defaults to 65535");
+    runner.Check(cfg.bind_port == 0, "bind_port defaults to 0");
+    runner.Check(cfg.idle_timeout == 60, "idle_timeout defaults to 60");
+    runner.Check(cfg.max_dgram == 65535, "max_dgram defaults to 65535");
     runner.Check(cfg.enable_auth == false, "enable_auth defaults to false");
 
     runner.LogPass("SOCKS5 config defaults");
@@ -78,15 +78,15 @@ void TestSocks5ConfigValidate()
     cfg.enable_auth = true;
     cfg.enable_tcp = true;
     cfg.enable_udp = true;
-    cfg.udp_idle_timeout = 120;
-    cfg.udp_max_dgram = 32768;
-    cfg.udp_bind_port = 9000;
+    cfg.idle_timeout = 120;
+    cfg.max_dgram = 32768;
+    cfg.bind_port = 9000;
 
     runner.Check(cfg.enable_auth == true, "enable_auth can be set to true");
     runner.Check(cfg.enable_tcp == true, "enable_tcp remains true");
-    runner.Check(cfg.udp_idle_timeout == 120, "udp_idle_timeout can be customized");
-    runner.Check(cfg.udp_max_dgram == 32768, "udp_max_dgram can be customized");
-    runner.Check(cfg.udp_bind_port == 9000, "udp_bind_port can be customized");
+    runner.Check(cfg.idle_timeout == 120, "idle_timeout can be customized");
+    runner.Check(cfg.max_dgram == 32768, "max_dgram can be customized");
+    runner.Check(cfg.bind_port == 9000, "bind_port can be customized");
 
     runner.LogPass("SOCKS5 config validation");
 }
@@ -102,8 +102,8 @@ void TestTrojanConfigDefaults()
 
     runner.Check(cfg.enable_tcp == true, "enable_tcp defaults to true");
     runner.Check(cfg.enable_udp == false, "enable_udp defaults to false");
-    runner.Check(cfg.udp_idle_timeout == 60, "udp_idle_timeout defaults to 60");
-    runner.Check(cfg.udp_max_dgram == 65535, "udp_max_dgram defaults to 65535");
+    runner.Check(cfg.idle_timeout == 60, "idle_timeout defaults to 60");
+    runner.Check(cfg.max_dgram == 65535, "max_dgram defaults to 65535");
 
     runner.LogPass("Trojan config defaults");
 }
@@ -118,13 +118,13 @@ void TestTrojanConfigValidate()
     trojan::config cfg;
     cfg.enable_tcp = true;
     cfg.enable_udp = true;
-    cfg.udp_idle_timeout = 90;
-    cfg.udp_max_dgram = 32768;
+    cfg.idle_timeout = 90;
+    cfg.max_dgram = 32768;
 
     runner.Check(cfg.enable_tcp == true, "enable_tcp can remain true");
     runner.Check(cfg.enable_udp == true, "enable_udp can be set to true");
-    runner.Check(cfg.udp_idle_timeout == 90, "udp_idle_timeout can be customized");
-    runner.Check(cfg.udp_max_dgram == 32768, "udp_max_dgram can be customized");
+    runner.Check(cfg.idle_timeout == 90, "idle_timeout can be customized");
+    runner.Check(cfg.max_dgram == 32768, "max_dgram can be customized");
 
     runner.LogPass("Trojan config validation");
 }
@@ -139,8 +139,8 @@ void TestVlessConfigDefaults()
     vless::config cfg;
 
     runner.Check(cfg.enable_udp == false, "enable_udp defaults to false");
-    runner.Check(cfg.udp_idle_timeout == 60, "udp_idle_timeout defaults to 60");
-    runner.Check(cfg.udp_max_dgram == 65535, "udp_max_dgram defaults to 65535");
+    runner.Check(cfg.idle_timeout == 60, "idle_timeout defaults to 60");
+    runner.Check(cfg.max_dgram == 65535, "max_dgram defaults to 65535");
 
     runner.LogPass("VLESS config defaults");
 }
@@ -154,12 +154,12 @@ void TestVlessConfigValidate()
 
     vless::config cfg;
     cfg.enable_udp = true;
-    cfg.udp_idle_timeout = 30;
-    cfg.udp_max_dgram = 16384;
+    cfg.idle_timeout = 30;
+    cfg.max_dgram = 16384;
 
     runner.Check(cfg.enable_udp == true, "enable_udp can be set to true");
-    runner.Check(cfg.udp_idle_timeout == 30, "udp_idle_timeout can be customized");
-    runner.Check(cfg.udp_max_dgram == 16384, "udp_max_dgram can be customized");
+    runner.Check(cfg.idle_timeout == 30, "idle_timeout can be customized");
+    runner.Check(cfg.max_dgram == 16384, "max_dgram can be customized");
 
     runner.LogPass("VLESS config validation");
 }
@@ -176,8 +176,8 @@ void TestShadowsocksConfigDefaults()
     runner.Check(cfg.enable_tcp == true, "enable_tcp defaults to true");
     runner.Check(cfg.enable_udp == false, "enable_udp defaults to false");
     runner.Check(cfg.timestamp_window == 30, "timestamp_window defaults to 30");
-    runner.Check(cfg.salt_pool_ttl == 60, "salt_pool_ttl defaults to 60");
-    runner.Check(cfg.udp_idle_timeout == 60, "udp_idle_timeout defaults to 60");
+    runner.Check(cfg.salt_ttl == 60, "salt_ttl defaults to 60");
+    runner.Check(cfg.idle_timeout == 60, "idle_timeout defaults to 60");
     runner.Check(cfg.psk.empty(), "psk defaults to empty");
     runner.Check(cfg.method.empty(), "method defaults to empty");
 
@@ -197,13 +197,13 @@ void TestShadowsocksConfigValidate()
     cfg.enable_tcp = true;
     cfg.enable_udp = true;
     cfg.timestamp_window = 45;
-    cfg.salt_pool_ttl = 90;
+    cfg.salt_ttl = 90;
 
     runner.Check(!cfg.psk.empty(), "psk can be set");
     runner.Check(cfg.method == "2022-blake3-aes-256-gcm", "method can be set explicitly");
     runner.Check(cfg.enable_udp == true, "enable_udp can be set to true");
     runner.Check(cfg.timestamp_window == 45, "timestamp_window can be customized");
-    runner.Check(cfg.salt_pool_ttl == 90, "salt_pool_ttl can be customized");
+    runner.Check(cfg.salt_ttl == 90, "salt_ttl can be customized");
 
     runner.LogPass("Shadowsocks config validation");
 }
@@ -336,7 +336,7 @@ int main()
 #ifdef _WIN32
     SetConsoleOutputCP(CP_UTF8);
 #endif
-    psm::memory::system::enable_global_pooling();
+    psm::memory::system::enable_pooling();
     psm::trace::init({});
 
     runner.LogInfo("Starting Config tests...");

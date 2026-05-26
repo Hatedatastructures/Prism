@@ -5,13 +5,16 @@
  */
 #pragma once
 
-#include <boost/asio.hpp>
 #include <prism/context/context.hpp>
-#include <prism/transport/transmission.hpp>
 #include <prism/protocol/common/target.hpp>
+#include <prism/transport/transmission.hpp>
+
+#include <boost/asio.hpp>
+
 
 namespace psm::connect
 {
+
     namespace net = boost::asio;
     using shared_transmission = transport::shared_transmission;
 

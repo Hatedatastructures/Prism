@@ -1,7 +1,7 @@
 /**
  * @file Block.cpp
  * @brief AES-ECB 单块加解密单元测试
- * @details 测试 psm::crypto 命名空间下的 aes_ecb_encrypt 和 aes_ecb_decrypt
+ * @details 测试 psm::crypto 命名空间下的 ecb_encrypt 和 ecb_decrypt
  * 函数，覆盖 AES-128/AES-256 往返加解密及 NIST SP 800-38A 已知测试向量。
  */
 
@@ -47,13 +47,13 @@ void TestAes128EcbEncryptDecrypt()
     };
 
     // 加密
-    const auto ciphertext = psm::crypto::aes_ecb_encrypt(
+    const auto ciphertext = psm::crypto::ecb_encrypt(
         std::span<const std::uint8_t, 16>{plaintext},
         std::span<const std::uint8_t>{key.data(), key.size()}
     );
 
     // 解密
-    const auto decrypted = psm::crypto::aes_ecb_decrypt(
+    const auto decrypted = psm::crypto::ecb_decrypt(
         std::span<const std::uint8_t, 16>{ciphertext},
         std::span<const std::uint8_t>{key.data(), key.size()}
     );
@@ -92,13 +92,13 @@ void TestAes256EcbEncryptDecrypt()
     };
 
     // 加密
-    const auto ciphertext = psm::crypto::aes_ecb_encrypt(
+    const auto ciphertext = psm::crypto::ecb_encrypt(
         std::span<const std::uint8_t, 16>{plaintext},
         std::span<const std::uint8_t>{key.data(), key.size()}
     );
 
     // 解密
-    const auto decrypted = psm::crypto::aes_ecb_decrypt(
+    const auto decrypted = psm::crypto::ecb_decrypt(
         std::span<const std::uint8_t, 16>{ciphertext},
         std::span<const std::uint8_t>{key.data(), key.size()}
     );
@@ -148,7 +148,7 @@ void TestAes128NistVector()
         0xa8, 0x9e, 0xca, 0xf3, 0x24, 0x66, 0xef, 0x97
     };
 
-    const auto ciphertext = psm::crypto::aes_ecb_encrypt(
+    const auto ciphertext = psm::crypto::ecb_encrypt(
         std::span<const std::uint8_t, 16>{plaintext},
         std::span<const std::uint8_t>{key.data(), key.size()}
     );
@@ -171,7 +171,7 @@ void TestAes128NistVector()
 int main()
 {
     // 初始化全局 PMR 内存池
-    psm::memory::system::enable_global_pooling();
+    psm::memory::system::enable_pooling();
     // 初始化日志系统
     psm::trace::init({});
 

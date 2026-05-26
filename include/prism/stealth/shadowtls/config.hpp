@@ -8,10 +8,13 @@
 #pragma once
 
 #include <prism/memory/container.hpp>
+
 #include <cstdint>
+
 
 namespace psm::stealth::shadowtls
 {
+
     /**
      * @struct user
      * @brief ShadowTLS v3 用户配置

@@ -5,13 +5,13 @@
  */
 #pragma once
 
-#include <prism/recognition/recognition.hpp>
 #include <prism/recognition/confidence.hpp>
-#include <prism/recognition/result.hpp>
-
-#include <prism/recognition/tls/signal.hpp>
-#include <prism/recognition/tls/features.hpp>
-#include <prism/recognition/target.hpp>
-
-#include <prism/recognition/probe/probe.hpp>
 #include <prism/recognition/probe/analyzer.hpp>
+#include <prism/recognition/probe/probe.hpp>
+#include <prism/recognition/recognition.hpp>
+#include <prism/recognition/result.hpp>
+#include <prism/recognition/target.hpp>
+#include <prism/recognition/tls/features.hpp>
+#include <prism/recognition/tls/signal.hpp>
+
+

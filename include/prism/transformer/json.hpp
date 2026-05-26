@@ -10,16 +10,29 @@
  */
 #pragma once
 
+#include <prism/memory/container.hpp>
+
+#include <glaze/glaze.hpp>
+
 #include <string_view>
 #include <type_traits>
 #include <utility>
 
-#include <glaze/glaze.hpp>
-
-#include <prism/memory/container.hpp>
 
 namespace psm::transformer::json
 {
+
+    /**
+     * @struct parse_opts
+     * @brief 反序列化选项
+     * @details 收敛反序列化的内存资源和错误上下文参数
+     */
+    struct parse_opts
+    {
+        memory::resource_pointer mr = memory::current_resource();
+        glz::error_ctx *ec = nullptr;
+    };
+
     /**
      * @brief 将对象序列化为 JSON 字符串
      * @tparam StructureObject 待序列化的对象类型
@@ -28,7 +41,8 @@ namespace psm::transformer::json
      * @return true 序列化成功，false 序列化失败
      */
     template <typename StructureObject>
-    [[nodiscard]] bool serialize(const StructureObject &value, memory::string &out)
+    [[nodiscard]] auto serialize(const StructureObject &value, memory::string &out)
+        -> bool
     {
         out.clear();
         using write_result = decltype(glz::write_json(value, out));
@@ -58,7 +72,8 @@ namespace psm::transformer::json
      * @return true 序列化成功，false 序列化失败
      */
     template <typename StructureObject>
-    [[nodiscard]] bool serialize(const StructureObject &value, memory::string &out, glz::error_ctx &out_ec)
+    [[nodiscard]] auto serialize(const StructureObject &value, memory::string &out, glz::error_ctx &out_ec)
+        -> bool
     {
         out.clear();
         using write_result = decltype(glz::write_json(value, out));
@@ -89,7 +104,8 @@ namespace psm::transformer::json
      * @return 序列化后的 JSON 字符串
      */
     template <typename StructureObject>
-    [[nodiscard]] memory::string serialize(const StructureObject &value, const memory::resource_pointer mr = memory::current_resource())
+    [[nodiscard]] auto serialize(const StructureObject &value, const memory::resource_pointer mr = memory::current_resource())
+        -> memory::string
     {
         memory::string out(mr);
         if (!serialize(value, out))
@@ -109,7 +125,8 @@ namespace psm::transformer::json
      * 避免破坏原对象状态。
      */
     template <typename StructureObject>
-    [[nodiscard]] bool deserialize(const std::string_view json_data, StructureObject &value)
+    [[nodiscard]] auto deserialize(const std::string_view json_data, StructureObject &value)
+        -> bool
     {
         using read_result = decltype(glz::read_json(value, json_data));
 
@@ -157,7 +174,8 @@ namespace psm::transformer::json
      * @return true 反序列化成功，false 反序列化失败
      */
     template <typename StructureObject>
-    [[nodiscard]] bool deserialize(const std::string_view json_data, StructureObject &value, glz::error_ctx &out_ec)
+    [[nodiscard]] auto deserialize(const std::string_view json_data, StructureObject &value, glz::error_ctx &out_ec)
+        -> bool
     {
         using read_result = decltype(glz::read_json(value, json_data));
 
@@ -210,12 +228,17 @@ namespace psm::transformer::json
      * @return true 反序列化成功，false 反序列化失败
      */
     template <typename StructureObject>
-    [[nodiscard]] bool deserialize(const std::string_view json_data, StructureObject &value, memory::resource_pointer mr, glz::error_ctx &out_ec)
+    [[nodiscard]] auto deserialize(const std::string_view json_data, StructureObject &value, parse_opts opts)
+        -> bool
     {
+        auto &mr = opts.mr;
+        auto &out_ec_ptr = opts.ec;
         if (!mr)
         {
             mr = memory::current_resource();
         }
+
+        glz::error_ctx local_ec{};
 
         using read_result = decltype(glz::read_json(value, json_data));
 
@@ -224,17 +247,21 @@ namespace psm::transformer::json
             if constexpr (std::is_constructible_v<StructureObject, memory::resource_pointer> && std::is_move_assignable_v<StructureObject>)
             {
                 StructureObject temp(mr);
-                out_ec = glz::read_json(temp, json_data);
-                if (out_ec)
+                local_ec = glz::read_json(temp, json_data);
+                if (local_ec)
                 {
+                    if (out_ec_ptr) *out_ec_ptr = local_ec;
                     return false;
                 }
                 value = std::move(temp);
+                if (out_ec_ptr) *out_ec_ptr = local_ec;
                 return true;
             }
             else
             {
-                return deserialize(json_data, value, out_ec);
+                local_ec = glz::read_json(value, json_data);
+                if (out_ec_ptr) *out_ec_ptr = local_ec;
+                return !local_ec;
             }
         }
         else
@@ -243,14 +270,14 @@ namespace psm::transformer::json
             {
                 StructureObject temp(mr);
                 glz::read_json(temp, json_data);
-                out_ec = {};
                 value = std::move(temp);
+                if (out_ec_ptr) *out_ec_ptr = {};
                 return true;
             }
             else
             {
                 glz::read_json(value, json_data);
-                out_ec = {};
+                if (out_ec_ptr) *out_ec_ptr = {};
                 return true;
             }
         }
@@ -265,10 +292,11 @@ namespace psm::transformer::json
      * @return true 反序列化成功，false 反序列化失败
      */
     template <typename StructureObject>
-    [[nodiscard]] bool deserialize(const std::string_view json_data, StructureObject &value, memory::resource_pointer mr)
+    [[nodiscard]] auto deserialize(const std::string_view json_data, StructureObject &value, memory::resource_pointer mr)
+        -> bool
     {
         glz::error_ctx ignored_ec{};
-        return deserialize(json_data, value, mr, ignored_ec);
+        return deserialize(json_data, value, parse_opts{mr, &ignored_ec});
     }
 
 } // namespace psm::transformer::json

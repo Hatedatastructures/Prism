@@ -448,27 +448,27 @@ void TestWaitFirstConnectStateLogic()
 // ═══════════════════════════════════════════════════════════
 
 /**
- * @brief 测试 h2_stream_info 结构体默认值与赋值
+ * @brief 测试 stream_info 结构体默认值与赋值
  */
 void TestH2StreamInfoStruct()
 {
     runner.LogInfo("=== TestH2StreamInfoStruct ===");
 
-    h2_stream_info info;
-    runner.Check(info.host.empty(), "h2_stream_info default host is empty");
-    runner.Check(info.port == 0, "h2_stream_info default port == 0");
-    runner.Check(info.type == stream_type::tcp, "h2_stream_info default type == tcp");
-    runner.Check(info.valid == false, "h2_stream_info default valid == false");
+    stream_info info;
+    runner.Check(info.host.empty(), "stream_info default host is empty");
+    runner.Check(info.port == 0, "stream_info default port == 0");
+    runner.Check(info.type == stream_type::tcp, "stream_info default type == tcp");
+    runner.Check(info.valid == false, "stream_info default valid == false");
 
     info.host = "192.168.1.1";
     info.port = 8080;
     info.type = stream_type::udp;
     info.valid = true;
 
-    runner.Check(info.host == "192.168.1.1", "h2_stream_info host assigned");
-    runner.Check(info.port == 8080, "h2_stream_info port assigned");
-    runner.Check(info.type == stream_type::udp, "h2_stream_info type assigned to udp");
-    runner.Check(info.valid == true, "h2_stream_info valid assigned to true");
+    runner.Check(info.host == "192.168.1.1", "stream_info host assigned");
+    runner.Check(info.port == 8080, "stream_info port assigned");
+    runner.Check(info.type == stream_type::udp, "stream_info type assigned to udp");
+    runner.Check(info.valid == true, "stream_info valid assigned to true");
 
     runner.LogPass("H2StreamInfoStruct");
 }
@@ -556,9 +556,9 @@ void TestAddressResolverCallback()
 
     // TrustTunnel resolver: 从 authority 解析 host:port
     address_resolver trusttunnel_resolver =
-        [](int32_t stream_id, const h2_headers &headers) -> h2_stream_info
+        [](int32_t stream_id, const h2_headers &headers) -> stream_info
     {
-        h2_stream_info info;
+        stream_info info;
         const auto &auth = headers.authority;
         const auto colon_pos = auth.find(':');
         if (colon_pos != psm::memory::string::npos)
@@ -615,9 +615,9 @@ void TestAddressResolverCallback()
 
     // sing-mux resolver: 返回 valid=false（等待 DATA 帧）
     address_resolver singmux_resolver =
-        [](int32_t, const h2_headers &) -> h2_stream_info
+        [](int32_t, const h2_headers &) -> stream_info
     {
-        return h2_stream_info{};
+        return stream_info{};
     };
 
     auto result4 = singmux_resolver(7, hdr1);
@@ -639,8 +639,8 @@ void TestH2muxConfigDefaults()
     runner.Check(cfg.buffer_size == 4096, "h2mux config default buffer_size == 4096");
     runner.Check(cfg.max_frame_size == 16384, "h2mux config default max_frame_size == 16384");
     runner.Check(cfg.idle_timeout == 30000, "h2mux config default idle_timeout == 30000");
-    runner.Check(cfg.udp_idle_timeout == 60000, "h2mux config default udp_idle_timeout == 60000");
-    runner.Check(cfg.udp_max_dgram == 65535, "h2mux config default udp_max_dgram == 65535");
+    runner.Check(cfg.udp_idle == 60000, "h2mux config default udp_idle == 60000");
+    runner.Check(cfg.max_dgram == 65535, "h2mux config default max_dgram == 65535");
 
     runner.LogPass("H2muxConfigDefaults");
 }
@@ -654,7 +654,7 @@ int main()
 #ifdef _WIN32
     SetConsoleOutputCP(CP_UTF8);
 #endif
-    psm::memory::system::enable_global_pooling();
+    psm::memory::system::enable_pooling();
     psm::trace::init({});
 
     runner.LogInfo("========== H2mux Tests ==========");

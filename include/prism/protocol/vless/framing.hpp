@@ -6,17 +6,20 @@
  */
 #pragma once
 
+#include <prism/fault/code.hpp>
+#include <prism/memory/container.hpp>
+#include <prism/protocol/vless/packet.hpp>
+
 #include <array>
 #include <cstddef>
 #include <cstdint>
 #include <optional>
 #include <span>
-#include <prism/fault/code.hpp>
-#include <prism/protocol/vless/packet.hpp>
-#include <prism/memory/container.hpp>
+
 
 namespace psm::protocol::vless::format
 {
+
     /**
      * @brief 解析 VLESS 请求
      * @details 从 wire buffer 解析 VLESS 请求头。格式为

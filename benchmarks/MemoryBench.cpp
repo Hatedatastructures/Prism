@@ -79,7 +79,7 @@ static void BM_StdStringAssign_Size(benchmark::State &state)
 
 static void BM_PmrStringAllocation_DefaultResource(benchmark::State &state)
 {
-    memory::system::enable_global_pooling();
+    memory::system::enable_pooling();
 
     for (auto _ : state)
     {
@@ -91,7 +91,7 @@ static void BM_PmrStringAllocation_DefaultResource(benchmark::State &state)
 
 static void BM_PmrStringAssign_DefaultResource_Size(benchmark::State &state)
 {
-    memory::system::enable_global_pooling();
+    memory::system::enable_pooling();
     const auto payload = make_payload(static_cast<std::size_t>(state.range(0)), 'y');
 
     for (auto _ : state)
@@ -134,7 +134,7 @@ static void BM_PmrStringAssign_GlobalPool_Size(benchmark::State &state)
 static void BM_PmrStringAssign_ThreadLocalPool_Size(benchmark::State &state)
 {
     const auto payload = make_payload(static_cast<std::size_t>(state.range(0)), 't');
-    auto *mr = memory::system::thread_local_pool();
+    auto *mr = memory::system::local_pool();
 
     for (auto _ : state)
     {
@@ -280,7 +280,7 @@ static void BM_PmrVectorPush_GlobalPool(benchmark::State &state)
 static void BM_PmrVectorPush_ThreadLocalPool(benchmark::State &state)
 {
     const std::size_t count = static_cast<std::size_t>(state.range(0));
-    auto *mr = memory::system::thread_local_pool();
+    auto *mr = memory::system::local_pool();
 
     for (auto _ : state)
     {
@@ -297,7 +297,7 @@ static void BM_PmrVectorPush_ThreadLocalPool(benchmark::State &state)
 
 static void BM_PmrVectorPush_DefaultResource(benchmark::State &state)
 {
-    memory::system::enable_global_pooling();
+    memory::system::enable_pooling();
     const std::size_t count = static_cast<std::size_t>(state.range(0));
     for (auto _ : state)
     {
@@ -339,7 +339,7 @@ static void BM_PmrVectorPush_FrameArena(benchmark::State &state)
 
 static void BM_MemoryPool_Contention(benchmark::State &state)
 {
-    memory::system::enable_global_pooling();
+    memory::system::enable_pooling();
     const std::size_t size = 128;
 
     for (auto _ : state)
@@ -353,7 +353,7 @@ static void BM_MemoryPool_Contention(benchmark::State &state)
 
 static void BM_GlobalPool_MultiThread(benchmark::State &state)
 {
-    memory::system::enable_global_pooling();
+    memory::system::enable_pooling();
     auto *mr = memory::system::global_pool();
     const std::size_t size = 256;
 
@@ -368,7 +368,7 @@ static void BM_GlobalPool_MultiThread(benchmark::State &state)
 
 static void BM_ThreadLocalPool_MultiThread(benchmark::State &state)
 {
-    auto *mr = memory::system::thread_local_pool();
+    auto *mr = memory::system::local_pool();
     const std::size_t size = 256;
 
     for (auto _ : state)

@@ -393,7 +393,7 @@ int main()
 {
     try
     {
-        psm::memory::system::enable_global_pooling();
+        psm::memory::system::enable_pooling();
         psm::trace::init({});
 
         // 注册 mock 方案

@@ -5,52 +5,56 @@
  * （如 Reality、ShadowTLS、Standard TLS）。调用方通过 handshake() 接口
  * 完成握手和协议检测，获得最终传输层和检测到的协议类型。
  *
- * **分层检测架构**：
- * - SNI 路由（scheme_route_table）确定候选方案
- * - Tier 0: sniff() - 零成本字节比较（Reality session_id 标记）
- * - Tier 1: verify() - 有成本验证（ShadowTLS HMAC）
- * - Tier 2: guess() - 模糊匹配（Restls/TrustTunnel）
- * - handshake() 执行握手，失败则 fallback 到真实 TLS
+ * 分层检测架构：
+ * SNI 路由（scheme_route_table）确定候选方案
+ * Tier 0: sniff() - 零成本字节比较（Reality session_id 标记）
+ * Tier 1: verify() - 有成本验证（ShadowTLS HMAC）
+ * Tier 2: guess() - 模糊匹配（Restls/TrustTunnel）
+ * handshake() 执行握手，失败则 fallback 到真实 TLS
  */
 #pragma once
 
+#include <prism/fault/code.hpp>
+#include <prism/memory/container.hpp>
+#include <prism/protocol/tls/types.hpp>
+#include <prism/protocol/types.hpp>
+#include <prism/recognition/tls/features.hpp>
+#include <prism/transport/transmission.hpp>
+
 #include <boost/asio.hpp>
+
 #include <cstddef>
 #include <cstdint>
 #include <memory>
 #include <string_view>
 
-#include <prism/transport/transmission.hpp>
-#include <prism/fault/code.hpp>
-#include <prism/memory/container.hpp>
-#include <prism/protocol/types.hpp>
-#include <prism/protocol/tls/types.hpp>
-#include <prism/recognition/tls/features.hpp>
 
 namespace psm::connect
 {
+
     class router;
 } // namespace psm::connect
 
 namespace psm
 {
+
     struct config;
 } // namespace psm
 
 namespace psm::context
 {
+
     struct session;
 } // namespace psm::context
 
 namespace psm::stealth
 {
+
     namespace net = boost::asio;
     using shared_transmission = transport::shared_transmission;
     using hello_features = protocol::tls::hello_features;
 
-    // ═══════════════════════════════════════════════════════════════════════
     // 快速检测结果（Tier 0）
-    // ═══════════════════════════════════════════════════════════════════════
 
     /**
      * @struct sniff_result
@@ -72,9 +76,7 @@ namespace psm::stealth
         memory::string note;
     };
 
-    // ═══════════════════════════════════════════════════════════════════════
     // 详细检测结果（Tier 1）
-    // ═══════════════════════════════════════════════════════════════════════
 
     /**
      * @struct verify_result
@@ -94,9 +96,7 @@ namespace psm::stealth
         memory::string note;
     };
 
-    // ═══════════════════════════════════════════════════════════════════════
     // 执行结果和上下文
-    // ═══════════════════════════════════════════════════════════════════════
 
     /**
      * @struct handshake_result
@@ -128,23 +128,21 @@ namespace psm::stealth
         memory::vector<std::byte> preread;        ///< 来自 identify 的 preread 数据（完整 ClientHello）
     };
 
-    // ═══════════════════════════════════════════════════════════════════════
     // 方案基类
-    // ═══════════════════════════════════════════════════════════════════════
 
     /**
      * @class stealth_scheme
      * @brief 传输层伪装方案抽象基类
      * @details 支持分层检测：
-     * - Tier 0: sniff() - 零成本字节比较
-     * - Tier 1: verify() - 有成本验证（HMAC/解密）
-     * - Tier 2: guess() - 模糊匹配（SNI 路由）
-     * - handshake() 执行握手，失败则 fallback 到真实 TLS
+     * Tier 0: sniff() - 零成本字节比较
+     * Tier 1: verify() - 有成本验证（HMAC/解密）
+     * Tier 2: guess() - 模糊匹配（SNI 路由）
+     * handshake() 执行握手，失败则 fallback 到真实 TLS
      */
     class stealth_scheme
     {
     public:
-        virtual ~stealth_scheme() = default;
+        virtual ~stealth_scheme() noexcept = default;
 
         // === 身份 ===
 

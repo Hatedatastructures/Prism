@@ -36,7 +36,7 @@ namespace
 
 static void BM_MemoryAllocRate_FrameArena(benchmark::State &state)
 {
-    memory::system::enable_global_pooling();
+    memory::system::enable_pooling();
     memory::frame_arena arena;
 
     for (auto _ : state)
@@ -56,11 +56,11 @@ static void BM_MemoryAllocRate_FrameArena(benchmark::State &state)
 
 static void BM_MemoryAllocRate_ThreadLocalPool(benchmark::State &state)
 {
-    memory::system::enable_global_pooling();
+    memory::system::enable_pooling();
 
     for (auto _ : state)
     {
-        auto mr = memory::system::thread_local_pool();
+        auto mr = memory::system::local_pool();
         memory::vector<std::byte> buf(mr);
         buf.resize(64 * 1024);
 
@@ -73,7 +73,7 @@ static void BM_MemoryAllocRate_ThreadLocalPool(benchmark::State &state)
 
 static void BM_MemoryAllocRate_GlobalPool(benchmark::State &state)
 {
-    memory::system::enable_global_pooling();
+    memory::system::enable_pooling();
 
     for (auto _ : state)
     {
@@ -94,7 +94,7 @@ static void BM_MemoryAllocRate_GlobalPool(benchmark::State &state)
 
 static void BM_SessionMemoryUsage_100(benchmark::State &state)
 {
-    memory::system::enable_global_pooling();
+    memory::system::enable_pooling();
     memory::frame_arena arena;
     auto mr = arena.get();
 
@@ -123,7 +123,7 @@ static void BM_SessionMemoryUsage_100(benchmark::State &state)
 
 static void BM_SessionMemoryUsage_1K(benchmark::State &state)
 {
-    memory::system::enable_global_pooling();
+    memory::system::enable_pooling();
     memory::frame_arena arena;
     auto mr = arena.get();
 
@@ -156,7 +156,7 @@ static void BM_SessionMemoryUsage_1K(benchmark::State &state)
 
 static void BM_PmrStringAllocation(benchmark::State &state)
 {
-    memory::system::enable_global_pooling();
+    memory::system::enable_pooling();
     memory::frame_arena arena;
     auto mr = arena.get();
 
@@ -176,7 +176,7 @@ static void BM_PmrStringAllocation(benchmark::State &state)
 
 static void BM_PmrVectorPushBack(benchmark::State &state)
 {
-    memory::system::enable_global_pooling();
+    memory::system::enable_pooling();
     memory::frame_arena arena;
     auto mr = arena.get();
 
@@ -199,7 +199,7 @@ static void BM_PmrVectorPushBack(benchmark::State &state)
 
 static void BM_PmrVectorResize(benchmark::State &state)
 {
-    memory::system::enable_global_pooling();
+    memory::system::enable_pooling();
     memory::frame_arena arena;
     auto mr = arena.get();
 

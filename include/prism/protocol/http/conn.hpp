@@ -9,19 +9,23 @@
  */
 #pragma once
 
-#include <prism/transport/transmission.hpp>
-#include <prism/protocol/http/parser.hpp>
-#include <prism/account/entry.hpp>
 #include <prism/account/directory.hpp>
+#include <prism/account/entry.hpp>
+#include <prism/memory/container.hpp>
+#include <prism/protocol/http/parser.hpp>
+#include <prism/transport/transmission.hpp>
+
 #include <boost/asio.hpp>
+
 #include <cstddef>
 #include <memory>
 #include <string_view>
 #include <utility>
-#include <vector>
+
 
 namespace psm::protocol::http
 {
+
     namespace transport = psm::transport;
     namespace net = boost::asio;
 
@@ -31,7 +35,7 @@ namespace psm::protocol::http
      * @details 管理 HTTP 代理请求的完整握手流程：读取请求头、解析请求行和头字段、
      * 执行 Basic 认证（若已配置账户目录）。握手成功后提供响应写入和请求转发能力。
      * 生命周期：由 make_conn 创建 → handshake 完成协议协商 →
-     * send_connect_ok/forward 执行响应 → release 释放传输层 → 析构。
+     * send_ok/forward 执行响应 → release 释放传输层 → 析构。
      * relay 持有的 account::lease 在 relay 析构时自动释放，确保连接计数正确。
      */
     class conn
@@ -59,7 +63,7 @@ namespace psm::protocol::http
          * @return fault::code 写入结果
          * @details 用于 CONNECT 方法成功建连后通知客户端隧道已建立。
          */
-        [[nodiscard]] auto send_connect_ok()
+        [[nodiscard]] auto send_ok()
             -> net::awaitable<fault::code>;
 
         /**
@@ -67,7 +71,7 @@ namespace psm::protocol::http
          * @return fault::code 写入结果
          * @details 用于上游连接失败时通知客户端。
          */
-        [[nodiscard]] auto send_bad_gateway()
+        [[nodiscard]] auto send_gateway_err()
             -> net::awaitable<fault::code>;
 
         /**
@@ -93,14 +97,14 @@ namespace psm::protocol::http
         transport::shared_transmission transport_;
         account::directory *acct_dir_;
         account::lease lease_;
-        std::vector<char> buffer_;
+        memory::vector<char> buffer_;
         std::size_t used_{0};
 
         /**
          * @brief 循环读取直到找到 HTTP 头部结束标记
          * @return 读取成功返回 true，读取失败返回 false
          */
-        [[nodiscard]] auto read_until_hdr_end()
+        [[nodiscard]] auto read_hdr()
             -> net::awaitable<bool>;
 
         /**

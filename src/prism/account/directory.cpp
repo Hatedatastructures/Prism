@@ -2,11 +2,13 @@
 
 namespace psm::account
 {
+
     directory::directory(const memory::resource_pointer resource)
         : allocator_(resource), entries_ptr_()
     {   // 初始化账户目录
         entries_ptr_.store(std::allocate_shared<unordered_map>(allocator_, 0));
     }
+
 
     void directory::reserve(const std::size_t n)
     {
@@ -17,10 +19,12 @@ namespace psm::account
         update_entries(update_function);
     }
 
+
     void directory::clear()
     {
         entries_ptr_.store(std::allocate_shared<unordered_map>(allocator_, 0), std::memory_order_release);
     }
+
 
     void directory::upsert(std::string_view credential, const std::uint32_t max_connections)
     {
@@ -36,6 +40,7 @@ namespace psm::account
         update_entries(update_function);
     }
 
+
     void directory::insert(std::string_view credential, std::shared_ptr<entry> existing_entry)
     {
         auto update_function = [credential, e = std::move(existing_entry)](unordered_map &ref) mutable
@@ -44,6 +49,7 @@ namespace psm::account
         };
         update_entries(update_function);
     }
+
 
     auto directory::find(const std::string_view credential) const noexcept
         -> std::shared_ptr<entry>
@@ -62,4 +68,5 @@ namespace psm::account
 
         return it->second;
     }
+
 } // namespace psm::account

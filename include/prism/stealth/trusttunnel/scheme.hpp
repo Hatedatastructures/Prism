@@ -10,14 +10,16 @@
 #include <prism/stealth/scheme.hpp>
 #include <prism/stealth/trusttunnel/config.hpp>
 
+
 namespace psm::stealth::trusttunnel
 {
+
     /**
      * @class scheme
      * @brief TrustTunnel 伪装方案实现
      * @details TrustTunnel 使用标准 TLS 证书，支持 TCP 和 UDP 传输。
      *
-     * **工作流程**：
+     * 工作流程：
      * 1. 执行标准 TLS 握手（使用配置的证书）
      * 2. 读取 TLS 应用数据（客户端首帧）
      * 3. 验证用户身份

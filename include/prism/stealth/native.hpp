@@ -8,8 +8,10 @@
 
 #include <prism/stealth/scheme.hpp>
 
+
 namespace psm::stealth::native
 {
+
     class native final : public stealth_scheme
     {
     public:

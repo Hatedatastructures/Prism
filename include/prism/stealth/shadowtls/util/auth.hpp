@@ -15,16 +15,19 @@
  */
 #pragma once
 
-#include <span>
-#include <string_view>
-#include <string>
+#include <prism/memory/container.hpp>
+
 #include <array>
-#include <vector>
 #include <cstdint>
 #include <optional>
+#include <span>
+#include <string>
+#include <string_view>
+
 
 namespace psm::stealth::shadowtls
 {
+
     /**
      * @brief 验证 ClientHello 中的 SessionID HMAC
      * @details 从 ClientHello 帧（含 TLS 记录头）中提取 SessionID 的
@@ -48,19 +51,25 @@ namespace psm::stealth::shadowtls
         -> std::array<std::uint8_t, 4>;
 
     /**
+     * @brief verify_frame_hmac 的输入参数
+     */
+    struct verify_input
+    {
+        std::string_view password;
+        std::span<const std::byte> server_random;
+        std::span<const std::byte> payload;
+        std::span<const std::uint8_t, 4> client_hmac;
+    };
+
+    /**
      * @brief 验证握手后的数据帧 HMAC（客户端→服务端方向，单帧独立）
      * @details HMAC-SHA1(password, serverRandom + payload)[:4]
      * 参照 sing-shadowtls verifyApplicationData（无后缀）。
      * @note 此函数用于单帧独立 HMAC。handshake.cpp 中使用累积 HMAC 模式。
-     * @param password 密码
-     * @param server_random TLS ServerRandom（32 字节）
-     * @param payload 数据帧 payload（不含 TLS header 和 HMAC）
-     * @param client_hmac 客户端帧头中的 4 字节 HMAC
+     * @param in 输入参数
      * @return true 如果匹配
      */
-    [[nodiscard]] auto verify_frame_hmac(std::string_view password, std::span<const std::byte> server_random,
-                                         std::span<const std::byte> payload, std::span<const std::uint8_t, 4> client_hmac)
-        -> bool;
+    [[nodiscard]] auto verify_frame_hmac(const verify_input &in) -> bool;
 
     /**
      * @brief 生成数据帧的 HMAC 标签（服务端→客户端方向）
@@ -83,5 +92,5 @@ namespace psm::stealth::shadowtls
      * @return 64 字节写入密钥（SHA256 输出 32 字节，此处取实际长度）
      */
     [[nodiscard]] auto compute_write_key(std::string_view password, std::span<const std::byte> server_random)
-        -> std::vector<std::uint8_t>;
+        -> memory::vector<std::uint8_t>;
 } // namespace psm::stealth::shadowtls

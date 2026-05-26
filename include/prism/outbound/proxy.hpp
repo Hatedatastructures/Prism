@@ -11,25 +11,28 @@
  */
 #pragma once
 
+#include <prism/fault/code.hpp>
+#include <prism/protocol/common/target.hpp>
+#include <prism/protocol/types.hpp>
+#include <prism/transport/transmission.hpp>
+
+#include <boost/asio.hpp>
+
 #include <functional>
 #include <memory>
 #include <string_view>
 #include <utility>
 
-#include <boost/asio.hpp>
-#include <prism/fault/code.hpp>
-#include <prism/transport/transmission.hpp>
-#include <prism/protocol/types.hpp>
-#include <prism/protocol/common/target.hpp>
 
 namespace psm::outbound
 {
+
     namespace net = boost::asio;
     using shared_transmission = transport::shared_transmission;
 
     /// UDP 数据报路由回调类型
-    using dgram_router_fn = std::function<net::awaitable<std::pair<fault::code,
-                                                                      net::ip::udp::endpoint>>(std::string_view, std::string_view)>;
+    using router_fn = std::function<net::awaitable<std::pair<fault::code,
+                                                              net::ip::udp::endpoint>>(std::string_view, std::string_view)>;
 
     /**
      * @class proxy
@@ -50,7 +53,7 @@ namespace psm::outbound
     class proxy
     {
     public:
-        virtual ~proxy() = default;
+        virtual ~proxy() noexcept = default;
 
         /**
          * @brief 建立 TCP 连接到目标
@@ -68,8 +71,8 @@ namespace psm::outbound
          * @return 回调函数，接受 (host, port) 返回 (错误码, udp_endpoint)
          * @details 替代直接传递 router 引用，将 DNS 解析封装在实现内部。
          */
-        [[nodiscard]] virtual auto make_dgram_router()
-            -> dgram_router_fn = 0;
+        [[nodiscard]] virtual auto make_router()
+            -> router_fn = 0;
 
         /**
          * @brief 获取代理名称

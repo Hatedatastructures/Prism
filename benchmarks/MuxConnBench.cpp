@@ -95,7 +95,7 @@ namespace
 
 static void BM_SmuxFrameSerialize(benchmark::State &state)
 {
-    memory::system::enable_global_pooling();
+    memory::system::enable_pooling();
     memory::frame_arena arena;
     auto mr = arena.get();
 
@@ -121,7 +121,7 @@ static void BM_SmuxFrameSerialize(benchmark::State &state)
 
 static void BM_SmuxFrameDeserialize(benchmark::State &state)
 {
-    memory::system::enable_global_pooling();
+    memory::system::enable_pooling();
     memory::frame_arena arena;
     auto mr = arena.get();
 
@@ -149,7 +149,7 @@ static void BM_SmuxFrameDeserialize(benchmark::State &state)
 
 static void BM_YamuxFrameSerialize(benchmark::State &state)
 {
-    memory::system::enable_global_pooling();
+    memory::system::enable_pooling();
     memory::frame_arena arena;
     auto mr = arena.get();
 
@@ -175,7 +175,7 @@ static void BM_YamuxFrameSerialize(benchmark::State &state)
 
 static void BM_YamuxFrameDeserialize(benchmark::State &state)
 {
-    memory::system::enable_global_pooling();
+    memory::system::enable_pooling();
     memory::frame_arena arena;
     auto mr = arena.get();
 
@@ -202,7 +202,7 @@ static void BM_YamuxFrameDeserialize(benchmark::State &state)
 
 static void BM_SmuxMultiStreamBuild_4(benchmark::State &state)
 {
-    memory::system::enable_global_pooling();
+    memory::system::enable_pooling();
     memory::frame_arena arena;
     auto mr = arena.get();
 
@@ -227,7 +227,7 @@ static void BM_SmuxMultiStreamBuild_4(benchmark::State &state)
 
 static void BM_SmuxMultiStreamBuild_16(benchmark::State &state)
 {
-    memory::system::enable_global_pooling();
+    memory::system::enable_pooling();
     memory::frame_arena arena;
     auto mr = arena.get();
 
@@ -251,7 +251,7 @@ static void BM_SmuxMultiStreamBuild_16(benchmark::State &state)
 
 static void BM_SmuxMultiStreamBuild_64(benchmark::State &state)
 {
-    memory::system::enable_global_pooling();
+    memory::system::enable_pooling();
     memory::frame_arena arena;
     auto mr = arena.get();
 
@@ -279,7 +279,7 @@ static void BM_SmuxMultiStreamBuild_64(benchmark::State &state)
 
 static void BM_YamuxMultiStreamBuild_4(benchmark::State &state)
 {
-    memory::system::enable_global_pooling();
+    memory::system::enable_pooling();
     memory::frame_arena arena;
     auto mr = arena.get();
 
@@ -303,7 +303,7 @@ static void BM_YamuxMultiStreamBuild_4(benchmark::State &state)
 
 static void BM_YamuxMultiStreamBuild_16(benchmark::State &state)
 {
-    memory::system::enable_global_pooling();
+    memory::system::enable_pooling();
     memory::frame_arena arena;
     auto mr = arena.get();
 
@@ -327,7 +327,7 @@ static void BM_YamuxMultiStreamBuild_16(benchmark::State &state)
 
 static void BM_YamuxMultiStreamBuild_64(benchmark::State &state)
 {
-    memory::system::enable_global_pooling();
+    memory::system::enable_pooling();
     memory::frame_arena arena;
     auto mr = arena.get();
 
@@ -355,7 +355,7 @@ static void BM_YamuxMultiStreamBuild_64(benchmark::State &state)
 
 static void BM_SmuxAllocsPerOp(benchmark::State &state)
 {
-    memory::system::enable_global_pooling();
+    memory::system::enable_pooling();
     memory::frame_arena arena;
     auto mr = arena.get();
 

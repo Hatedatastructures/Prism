@@ -7,16 +7,19 @@
  */
 #pragma once
 
+#include <prism/fault/code.hpp>
+#include <prism/memory/container.hpp>
+#include <prism/protocol/common/framing.hpp>
+#include <prism/protocol/trojan/packet.hpp>
+
 #include <array>
 #include <cstdint>
 #include <span>
-#include <prism/fault/code.hpp>
-#include <prism/protocol/common/framing.hpp>
-#include <prism/protocol/trojan/packet.hpp>
-#include <prism/memory/container.hpp>
+
 
 namespace psm::protocol::trojan::format
 {
+
     // 委托到共享地址解析函数
     using common::framing::parse_ipv4;
     using common::framing::parse_ipv6;

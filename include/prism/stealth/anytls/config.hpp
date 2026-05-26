@@ -9,10 +9,13 @@
 #pragma once
 
 #include <prism/memory/container.hpp>
+
 #include <cstdint>
+
 
 namespace psm::stealth::anytls
 {
+
     /**
      * @struct user
      * @brief AnyTLS 用户配置
@@ -28,13 +31,13 @@ namespace psm::stealth::anytls
      * @brief AnyTLS 服务端配置
      * @details 包含 TLS 证书、SNI 白名单、用户认证和可选的 ECH 配置。
      *
-     * **配置项说明**：
-     * - `server_names`: SNI 白名单，只有匹配的 ClientHello 才会执行认证
-     * - `certificate`: TLS 证书文件路径（PEM 格式）
-     * - `private_key`: TLS 私钥文件路径（PEM 格式）
-     * - `users`: 用户认证列表
-     * - `ech_key`: 可选的 ECH 密钥（base64 编码），用于叠加 ECH 加密
-     * - `padding_scheme`: 可选的 padding 方案，用于隐藏流量特征
+     * 配置项说明：
+     * `server_names`: SNI 白名单，只有匹配的 ClientHello 才会执行认证
+     * `certificate`: TLS 证书文件路径（PEM 格式）
+     * `private_key`: TLS 私钥文件路径（PEM 格式）
+     * `users`: 用户认证列表
+     * `ech_key`: 可选的 ECH 密钥（base64 编码），用于叠加 ECH 加密
+     * `padding_scheme`: 可选的 padding 方案，用于隐藏流量特征
      */
     struct config
     {

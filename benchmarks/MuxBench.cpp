@@ -153,7 +153,7 @@ static void BM_YamuxFrameDeserialization(benchmark::State &state)
 
 static void BM_SmuxBuildUdpDatagram_IPv4(benchmark::State &state)
 {
-    memory::system::enable_global_pooling();
+    memory::system::enable_pooling();
     memory::frame_arena arena;
     auto mr = arena.get();
     const auto payload = make_payload(static_cast<std::size_t>(state.range(0)));
@@ -161,7 +161,7 @@ static void BM_SmuxBuildUdpDatagram_IPv4(benchmark::State &state)
     for (auto _ : state)
     {
         arena.reset();
-        auto buf = multiplex::smux::build_udp_dgram(
+        auto buf = multiplex::smux::build_dgram(
             {"127.0.0.1", 53, std::span<const std::byte>(payload.data(), payload.size())}, mr);
         benchmark::DoNotOptimize(buf);
     }
@@ -170,7 +170,7 @@ static void BM_SmuxBuildUdpDatagram_IPv4(benchmark::State &state)
 
 static void BM_SmuxBuildUdpLengthPrefixed(benchmark::State &state)
 {
-    memory::system::enable_global_pooling();
+    memory::system::enable_pooling();
     memory::frame_arena arena;
     auto mr = arena.get();
     const auto payload = make_payload(static_cast<std::size_t>(state.range(0)));
@@ -178,7 +178,7 @@ static void BM_SmuxBuildUdpLengthPrefixed(benchmark::State &state)
     for (auto _ : state)
     {
         arena.reset();
-        auto buf = multiplex::smux::build_udp_length_prefixed(
+        auto buf = multiplex::smux::build_prefixed(
             std::span<const std::byte>(payload.data(), payload.size()), mr);
         benchmark::DoNotOptimize(buf);
     }

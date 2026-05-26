@@ -10,21 +10,23 @@
  */
 #pragma once
 
+#include <prism/memory/container.hpp>
+#include <prism/multiplex/config.hpp>
+#include <prism/multiplex/core.hpp>
+#include <prism/multiplex/h2mux/config.hpp>
+
+#include <boost/asio/experimental/concurrent_channel.hpp>
+#include <nghttp2/nghttp2.h>
+
 #include <array>
 #include <cstdint>
 #include <functional>
 #include <memory>
 
-#include <boost/asio/experimental/concurrent_channel.hpp>
-#include <nghttp2/nghttp2.h>
-
-#include <prism/multiplex/core.hpp>
-#include <prism/multiplex/config.hpp>
-#include <prism/multiplex/h2mux/config.hpp>
-#include <prism/memory/container.hpp>
 
 namespace psm::multiplex::h2mux
 {
+
     namespace net = boost::asio;
 
     /**
@@ -46,18 +48,18 @@ namespace psm::multiplex::h2mux
     }; // enum stream_type
 
     /**
-     * @struct h2_stream_info
+     * @struct stream_info
      * @brief address_resolver 返回的流地址信息
      * @details 由 address_resolver 回调填充，包含连接目标的所有信息。
      * valid=false 表示地址信息不完整（如 sing-mux 模式需要等待 DATA 帧）。
      */
-    struct h2_stream_info
+    struct stream_info
     {
         memory::string host;              // 目标主机
         std::uint16_t port = 0;           // 目标端口
         stream_type type = stream_type::tcp; // 流类型
         bool valid = false;               // 地址信息是否完整可用
-    }; // struct h2_stream_info
+    }; // struct stream_info
 
     /**
      * @struct h2_headers
@@ -66,7 +68,7 @@ namespace psm::multiplex::h2mux
      */
     struct h2_headers
     {
-        int32_t stream_id{0};           // HTTP/2 stream ID
+        std::int32_t stream_id{0};           // HTTP/2 stream ID
         memory::string authority;       // :authority 头（CONNECT 目标）
         memory::string host;            // Host 头（用于类型判断）
         memory::string user_agent;      // User-Agent 头
@@ -77,13 +79,13 @@ namespace psm::multiplex::h2mux
      * @brief 地址解析回调类型
      * @param stream_id HTTP/2 stream ID
      * @param headers 从 HEADERS 帧收集的请求头
-     * @return h2_stream_info 解析结果，valid=false 表示需要等待 DATA 帧
+     * @return stream_info 解析结果，valid=false 表示需要等待 DATA 帧
      * @details 由外部注入，根据使用场景不同有两种实现：
      * - sing-mux resolver: authority 为 localhost/空，忽略 HEADERS，等待 StreamRequest
      * - TrustTunnel resolver: 从 authority 解析 host:port，从 Host 判断流类型
      */
-    using address_resolver = std::function<h2_stream_info(
-        int32_t stream_id, const h2_headers &headers)>;
+    using address_resolver = std::function<stream_info(
+        std::int32_t stream_id, const h2_headers &headers)>;
 
     /**
      * @struct h2_pending_entry
@@ -91,11 +93,12 @@ namespace psm::multiplex::h2mux
      * @details HEADERS(CONNECT) 帧创建后由 address_resolver 尝试解析。
      * 如果 resolver 返回 valid=false（sing-mux 模式），则等待首个 DATA 帧
      * 携带的 StreamRequest 数据。connecting 标志防止重复 activate_stream。
+     * @note 命名为 h2_pending_entry 而非 pending_entry，避免与 core::pending_entry 冲突
      */
     struct h2_pending_entry
     {
         h2_headers headers;             // 收集的 HTTP/2 请求头
-        h2_stream_info info;            // resolver 返回的地址信息
+        stream_info info;               // resolver 返回的地址信息
         bool connecting = false;        // 是否已发起连接
     }; // struct h2_pending_entry
 
@@ -142,14 +145,14 @@ namespace psm::multiplex::h2mux
     public:
         /**
          * @brief 构造 h2mux 会话
-         * @param transport 已建立的传输层连接（TLS + ALPN h2）
+         * @param opts core 构造参数聚合（transport + mr）
          * @param init 构造参数聚合（router, cfg, resolver）
-         * @param mr PMR 内存资源，为空时使用默认资源
+         * @details opts.transport 和 opts.mr 传输给 core 基类；
+         * init.router 和 init.cfg 覆盖 opts 中的 router/cfg 字段。
          */
-        craft(transport::shared_transmission transport, craft_init init,
-              memory::resource_pointer mr = {});
+        explicit craft(core_options opts, craft_init init);
 
-        ~craft() override;
+        ~craft() noexcept override;
 
         /**
          * @brief 发送 HTTP/2 DATA 帧到客户端
@@ -171,7 +174,7 @@ namespace psm::multiplex::h2mux
          * @brief 获取 transport executor
          * @return net::any_io_executor transport 的执行器
          */
-        [[nodiscard]] net::any_io_executor executor() const override;
+        [[nodiscard]] auto executor() const -> net::any_io_executor override;
 
         /**
          * @brief 等待第一个 CONNECT 请求
@@ -187,7 +190,7 @@ namespace psm::multiplex::h2mux
          * @param status HTTP 状态码（200 或 407）
          * @return 0 成功，非 0 失败
          */
-        [[nodiscard]] auto respond_connect(int32_t stream_id, std::uint32_t status)
+        [[nodiscard]] auto respond_connect(std::int32_t stream_id, std::uint32_t status)
             -> std::int32_t;
 
         /**
@@ -218,7 +221,7 @@ namespace psm::multiplex::h2mux
          * @details 由 on_frame_recv 回调触发，调用 address_resolver 解析地址，
          * 成功则 spawn activate_stream，失败则 RST_STREAM
          */
-        void handle_connect(int32_t stream_id);
+        void handle_connect(std::int32_t stream_id);
 
         // nghttp2 回调（静态函数，通过 user_data 获取 this）
         static auto on_begin_headers(nghttp2_session *, const nghttp2_frame *, void *) -> int;
@@ -245,13 +248,13 @@ namespace psm::multiplex::h2mux
         memory::unordered_map<std::uint32_t, h2_pending_entry> h2_pending_;
 
         // 发送通道，串行化多流写入
-        using send_channel_type = net::experimental::concurrent_channel<void(boost::system::error_code, outbound_data)>;
-        mutable send_channel_type send_channel_;
+        using channel_type = net::experimental::concurrent_channel<void(boost::system::error_code, outbound_data)>;
+        mutable channel_type send_channel_;
 
         // 第一个 CONNECT 的通知机制
-        bool first_connect_resolved_{false};
+        bool connect_resolved_{false};
         h2_headers first_connect_;
-        net::steady_timer first_connect_waiter_;
+        net::steady_timer connect_waiter_;
 
         bool closed_{false};
     }; // class craft

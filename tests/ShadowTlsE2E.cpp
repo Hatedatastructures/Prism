@@ -254,7 +254,7 @@ namespace
         // payload 在 frame 偏移 9 处
         auto payload_span = std::span<const std::byte>(frame.data() + 9, frame.size() - 9);
 
-        bool ok = verify_frame_hmac(password, sr, payload_span, client_hmac);
+        bool ok = verify_frame_hmac(verify_input{password, sr, payload_span, client_hmac});
 
         if (ok)
         {
@@ -287,7 +287,7 @@ namespace
         auto payload_span = std::span<const std::byte>(
             reinterpret_cast<const std::byte *>(payload.data()), payload.size());
 
-        bool ok = verify_frame_hmac(password, sr, payload_span, wrong_hmac);
+        bool ok = verify_frame_hmac(verify_input{password, sr, payload_span, wrong_hmac});
 
         if (!ok)
         {
@@ -315,7 +315,7 @@ int main()
 #ifdef _WIN32
     SetConsoleOutputCP(CP_UTF8);
 #endif
-    psm::memory::system::enable_global_pooling();
+    psm::memory::system::enable_pooling();
     psm::trace::init({});
 
     psm::trace::info("[ShadowTlsE2E] Starting ShadowTLS integration tests...");

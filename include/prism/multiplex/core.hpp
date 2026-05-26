@@ -13,34 +13,52 @@
  */
 #pragma once
 
+#include <prism/memory/container.hpp>
+#include <prism/multiplex/config.hpp>
+#include <prism/protocol/types.hpp>
+#include <prism/transport/transmission.hpp>
+
+#include <boost/asio.hpp>
+
 #include <atomic>
 #include <cstdint>
 #include <memory>
 
-#include <boost/asio.hpp>
-
-#include <prism/multiplex/config.hpp>
-#include <prism/protocol/types.hpp>
-#include <prism/transport/transmission.hpp>
-#include <prism/memory/container.hpp>
 
 // 前向声明
 namespace psm::connect
 {
+
     class router;
 }
 
 namespace psm::stats::traffic
 {
+
     class traffic_state;
 }
 
 namespace psm::multiplex
 {
+
     namespace net = boost::asio;
 
     class duct;
     class parcel;
+
+    /**
+     * @struct core_options
+     * @brief core 构造参数聚合
+     * @details 将 core 构造函数的传输层连接、路由器、配置和内存资源
+     * 聚合为单一结构体，将构造函数参数降至 1 个。
+     */
+    struct core_options
+    {
+        transport::shared_transmission transport; ///< 已建立的传输层连接（通常是 TLS 隧道）
+        connect::router &router;                 ///< 路由器引用，用于解析地址并连接目标
+        const config &cfg;                       ///< 多路复用配置参数
+        memory::resource_pointer mr = {};        ///< PMR 内存资源，为空时使用默认资源
+    };
 
     /**
      * @class core
@@ -64,18 +82,14 @@ namespace psm::multiplex
     public:
         /**
          * @brief 构造 core
-         * @param transport 已建立的传输层连接（通常是 TLS 隧道）
-         * @param router 路由器引用，用于解析地址并连接目标
-         * @param cfg 多路复用配置参数
-         * @param mr 内存资源，为空时使用默认资源
+         * @param opts 构造参数聚合，包含传输层连接、路由器、配置和内存资源
          * @details 初始化传输层和配置，会话处于未启动状态。
          * 调用 start() 后才会进入协议主循环。
          * @note 方法定义在 core.cpp 中
          */
-        core(transport::shared_transmission transport, connect::router &router,
-             const config &cfg, memory::resource_pointer mr = {});
+        explicit core(core_options opts);
 
-        virtual ~core();
+        virtual ~core() noexcept;
 
         /**
          * @brief 启动 mux 会话
@@ -121,7 +135,7 @@ namespace psm::multiplex
          * @details 通过原子变量读取 active_ 标志，使用 acquire 内存序保证可见性
          * @return bool true 表示会话正在运行
          */
-        [[nodiscard]] bool is_active() const noexcept
+        [[nodiscard]] auto is_active() const noexcept -> bool
         {
             return active_.load(std::memory_order_acquire);
         }
@@ -148,16 +162,7 @@ namespace psm::multiplex
          * @brief 获取当前 executor
          * @return net::any_io_executor 用于 duct/parcel 协程调度
          */
-        [[nodiscard]] virtual net::any_io_executor executor() const = 0;
-
-    private:
-        /**
-         * @brief 协议主循环（纯虚，由子类实现）
-         * @details 实现协议特定的帧读取、解析和分发逻辑。
-         * 由 start() 通过 co_spawn 启动，退出时自动 close()。
-         */
-        virtual auto run()
-            -> net::awaitable<void> = 0;
+        [[nodiscard]] virtual auto executor() const -> net::any_io_executor = 0;
 
     protected:
         /**
@@ -175,6 +180,19 @@ namespace psm::multiplex
          * @note 方法定义在 core.cpp 中
          */
         virtual void remove_parcel(std::uint32_t stream_id);
+
+        /**
+         * @brief 协议主循环（纯虚，由子类实现）
+         * @details 实现协议特定的帧读取、解析和分发逻辑。
+         * 由 start() 通过 co_spawn 启动，退出时自动 close()。
+         */
+        virtual auto run()
+            -> net::awaitable<void> = 0;
+
+        /**
+         * @brief run 协程完成回调
+         */
+        void on_exception(const std::exception_ptr &ep);
 
         transport::shared_transmission transport_; // 底层传输连接
         connect::router &router_;                           // 路由器引用

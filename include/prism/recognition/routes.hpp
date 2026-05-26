@@ -8,33 +8,37 @@
 #pragma once
 
 #include <prism/memory/container.hpp>
+
 #include <string_view>
+
 
 namespace psm
 {
+
     struct config;
 }
 
 namespace psm::recognition
 {
+
     /**
-     * @class scheme_route_table
+     * @class route_table
      * @brief SNI 路由表
      * @details 从各伪装方案的 server_names 配置构建路由表，
      * 实现 SNI → 方案名称的快速映射。
      *
-     * **路由规则**：
-     * - Reality server_names → "reality"
-     * - ShadowTLS server_names → "shadowtls"
-     * - Restls server_names → "restls"
-     * - 未匹配任何 SNI → 返回空列表（后续 fallback 到 native）
+     * 路由规则：
+     * Reality server_names → "reality"
+     * ShadowTLS server_names → "shadowtls"
+     * Restls server_names → "restls"
+     * 未匹配任何 SNI → 返回空列表（后续 fallback 到 native）
      *
-     * **多方案共享 SNI**：
-     * - 同一 SNI 可配置在多个方案中，返回多个候选
-     * - 例如："example.com" 同时配置在 reality 和 shadowtls
-     * - 执行时按优先级顺序尝试
+     * 多方案共享 SNI：
+     * 同一 SNI 可配置在多个方案中，返回多个候选
+     * 例如："example.com" 同时配置在 reality 和 shadowtls
+     * 执行时按优先级顺序尝试
      */
-    class scheme_route_table
+    class route_table
     {
     public:
         /**
@@ -45,7 +49,7 @@ namespace psm::recognition
          * 构建 SNI → 方案名称的映射。
          */
         [[nodiscard]] static auto build(const psm::config &cfg)
-            -> scheme_route_table;
+            -> route_table;
 
         /**
          * @brief 根据 SNI 查找匹配方案
@@ -68,7 +72,7 @@ namespace psm::recognition
          * @brief 获取所有已注册的 SNI 列表
          * @return SNI 列表（用于调试）
          */
-        [[nodiscard]] auto all_registered_snis() const
+        [[nodiscard]] auto registered_snis() const
             -> memory::vector<memory::string>;
 
         /**

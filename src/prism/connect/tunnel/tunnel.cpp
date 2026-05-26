@@ -1,12 +1,15 @@
 #include <prism/connect/tunnel/tunnel.hpp>
+
+#include <prism/account/entry.hpp>
 #include <prism/connect/util.hpp>
 #include <prism/memory/container.hpp>
 #include <prism/memory/pool.hpp>
+#include <prism/stats/traffic.hpp>
 #include <prism/trace.hpp>
 #include <prism/transport/transmission.hpp>
-#include <prism/account/entry.hpp>
-#include <prism/stats/traffic.hpp>
+
 #include <boost/asio/experimental/awaitable_operators.hpp>
+
 #include <array>
 #include <chrono>
 
@@ -14,72 +17,85 @@ constexpr std::string_view TunnelStr = "[Connect.Tunnel]";
 
 namespace psm::connect
 {
+
     namespace
     {
-        /** @brief 转发中继共享状态 */
-        struct relay_state
+        // 转发中继共享状态
+        struct relay_options
         {
             write_policy policy;
             std::array<std::size_t, 2> &total_bytes;
             std::shared_ptr<net::steady_timer> &idle_timer;
             std::function<void(const boost::system::error_code &)> &idle_handler;
             std::chrono::seconds idle_timeout;
+            const shared_transmission &from;
+            const shared_transmission &to;
+            std::span<std::byte> scratch;
+            std::size_t idx;
         };
 
-        /** @brief 单向转发循环，从 from 读取数据写入 to */
-        auto relay_loop(relay_state state, const shared_transmission &from,
-                        const shared_transmission &to, std::span<std::byte> scratch, std::size_t idx)
+        // 单向转发循环，从 from 读取数据写入 to
+        auto relay_loop(relay_options opts)
             -> net::awaitable<void>
         {
-            const bool is_download = (idx == 1);
+            const bool is_download = (opts.idx == 1);
+            const auto *dir = "upload";
+            if (is_download)
+            {
+                dir = "download";
+            }
+            const auto *pol = "partial";
+            if (opts.policy == write_policy::complete)
+            {
+                pol = "complete";
+            }
             trace::debug("{} forward[{}]: started, policy={}",
-                        TunnelStr, is_download ? "download" : "upload",
-                        state.policy == write_policy::complete ? "complete" : "partial");
+                        TunnelStr, dir, pol);
 
             std::error_code ec;
             while (true)
             {
-                const auto transferred = co_await from->async_read_some(scratch, ec);
+                const auto transferred = co_await opts.from->async_read_some(opts.scratch, ec);
                 if (ec || transferred == 0)
                 {
                     trace::debug("{} forward[{}]: read done, transferred={}, ec={}",
-                                TunnelStr, is_download ? "download" : "upload", transferred, ec.message());
+                                TunnelStr, dir, transferred, ec.message());
                     co_return;
                 }
 
-                state.total_bytes[idx] += transferred;
+                opts.total_bytes[opts.idx] += transferred;
                 trace::debug("{} forward[{}]: read {} bytes, total now {}",
-                            TunnelStr, is_download ? "download" : "upload", transferred, state.total_bytes[idx]);
+                            TunnelStr, dir, transferred, opts.total_bytes[opts.idx]);
 
                 // 重置空闲超时
-                state.idle_timer->expires_after(state.idle_timeout);
-                state.idle_timer->async_wait(state.idle_handler);
+                opts.idle_timer->expires_after(opts.idle_timeout);
+                opts.idle_timer->async_wait(opts.idle_handler);
 
-                const auto data = scratch.first(transferred);
+                const auto data = opts.scratch.first(transferred);
                 std::size_t written;
-                if (state.policy == write_policy::complete)
+                if (opts.policy == write_policy::complete)
                 {
                     trace::debug("{} forward[{}]: calling async_write({} bytes)",
-                                TunnelStr, is_download ? "download" : "upload", data.size());
-                    written = co_await transport::async_write(*to, data, ec);
+                                TunnelStr, dir, data.size());
+                    written = co_await transport::async_write(*opts.to, data, ec);
                     trace::debug("{} forward[{}]: async_write returned written={}, ec={}",
-                                TunnelStr, is_download ? "download" : "upload", written, ec.message());
+                                TunnelStr, dir, written, ec.message());
                 }
                 else
                 {
-                    written = co_await to->async_write_some(data, ec);
+                    written = co_await opts.to->async_write_some(data, ec);
                 }
 
-                if (ec || (state.policy == write_policy::complete && written < transferred))
+                if (ec || (opts.policy == write_policy::complete && written < transferred))
                 {
                     trace::debug("{} forward[{}]: write done/failed, written={}, expected={}",
-                                TunnelStr, is_download ? "download" : "upload", written, transferred);
+                                TunnelStr, dir, written, transferred);
                     co_return;
                 }
 
                 // 重置空闲超时
-                state.idle_timer->expires_after(state.idle_timeout);
-                state.idle_timer->async_wait(state.idle_handler);
+                opts.idle_timer->expires_after(opts.idle_timeout);
+                opts.idle_timer->async_wait(opts.idle_handler);
             }
         }
 
@@ -94,9 +110,9 @@ namespace psm::connect
         const auto policy = opts.policy;
         const auto start_time = std::chrono::steady_clock::now();
 
-        auto *mr = memory::system::thread_local_pool();
+        auto *mr = memory::system::local_pool();
         const auto array_size = (std::max)(ctx.buffer_size, 2U);
-        memory::vector<std::byte> buffer(array_size, mr ? mr : memory::current_resource());
+        memory::vector<std::byte> buffer(array_size, memory::effective_mr(mr));
         const auto half = buffer.size() / 2;
         const auto left = std::span(buffer).first(half);
         const auto right = std::span(buffer).last(half);
@@ -119,10 +135,10 @@ namespace psm::connect
         idle_timer->expires_after(idle_timeout);
         idle_timer->async_wait(idle_handler);
 
-        relay_state state{policy, total_bytes, idle_timer, idle_handler, idle_timeout};
+        relay_options state{policy, total_bytes, idle_timer, idle_handler, idle_timeout, inbound, outbound, left, 0};
 
-        using namespace boost::asio::experimental::awaitable_operators;
-        co_await (relay_loop(state, inbound, outbound, left, 0) || relay_loop(state, outbound, inbound, right, 1));
+        using boost::asio::experimental::awaitable_operators::operator||;
+        co_await (relay_loop(state) || relay_loop({policy, total_bytes, idle_timer, idle_handler, idle_timeout, outbound, inbound, right, 1}));
 
         // 取消空闲超时定时器
         idle_timer->cancel();

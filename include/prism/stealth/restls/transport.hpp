@@ -12,6 +12,13 @@
  */
 #pragma once
 
+#include <prism/memory/container.hpp>
+#include <prism/stealth/restls/crypto.hpp>
+#include <prism/stealth/restls/script.hpp>
+#include <prism/transport/transmission.hpp>
+
+#include <boost/asio.hpp>
+
 #include <array>
 #include <atomic>
 #include <cstdint>
@@ -19,15 +26,10 @@
 #include <span>
 #include <string_view>
 
-#include <boost/asio.hpp>
-
-#include <prism/transport/transmission.hpp>
-#include <prism/memory/container.hpp>
-#include <prism/stealth/restls/crypto.hpp>
-#include <prism/stealth/restls/script.hpp>
 
 namespace psm::stealth::restls
 {
+
     namespace net = boost::asio;
 
     /**
@@ -74,7 +76,7 @@ namespace psm::stealth::restls
             net::ip::tcp::socket socket,
             restls_handover handover);
 
-        ~restls_transport() override;
+        ~restls_transport() noexcept override;
 
         [[nodiscard]] auto transport_type() const noexcept
             -> type override
@@ -82,17 +84,17 @@ namespace psm::stealth::restls
             return type::tcp;
         }
 
-        [[nodiscard]] transmission *next_layer() noexcept override
+        [[nodiscard]] auto next_layer() noexcept -> transmission * override
         {
             return nullptr;
         }
 
-        [[nodiscard]] const transmission *next_layer() const noexcept override
+        [[nodiscard]] auto next_layer() const noexcept -> const transmission * override
         {
             return nullptr;
         }
 
-        [[nodiscard]] executor_type executor() const override
+        [[nodiscard]] auto executor() const -> executor_type override
         {
             return const_cast<net::ip::tcp::socket &>(socket_).get_executor();
         }
@@ -131,7 +133,6 @@ namespace psm::stealth::restls
         std::array<std::uint8_t, 32> server_random_;
         memory::vector<std::uint8_t> client_finished_;
         script_engine script_;
-        bool tls13_;
         tls_version tls_version_;
 
         // 读写计数器
@@ -151,6 +152,5 @@ namespace psm::stealth::restls
         memory::vector<std::byte> pending_buffer_;
         std::size_t pending_offset_{0};
 
-        static constexpr std::uint8_t content_appdata = 0x17;
     }; // class restls_transport
 } // namespace psm::stealth::restls

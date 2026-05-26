@@ -5,15 +5,18 @@
  */
 #pragma once
 
+#include <prism/fault/code.hpp>
+#include <prism/protocol/shadowsocks/packet.hpp>
+
 #include <cstdint>
 #include <span>
 #include <string_view>
 #include <vector>
-#include <prism/fault/code.hpp>
-#include <prism/protocol/shadowsocks/packet.hpp>
+
 
 namespace psm::protocol::shadowsocks::format
 {
+
     /**
      * @struct addr_parse_result (文档注释引用旧名)
      * @brief 地址解析结果
@@ -40,7 +43,7 @@ namespace psm::protocol::shadowsocks::format
      * @return 错误码和原始 PSK 字节（16 或 32 字节）
      */
     [[nodiscard]] auto decode_psk(std::string_view base64_psk)
-        -> std::pair<fault::code, std::vector<std::uint8_t>>;
+        -> std::pair<fault::code, memory::vector<std::uint8_t>>;
 
     /**
      * @brief 根据加密方法获取 key/salt 长度
@@ -50,7 +53,9 @@ namespace psm::protocol::shadowsocks::format
     [[nodiscard]] constexpr auto keysalt_len(cipher_method method) noexcept
         -> std::size_t
     {
-        return method == cipher_method::aes_128_gcm ? 16 : 32;
+        if (method == cipher_method::aes_128_gcm)
+            return 16;
+        return 32;
     }
 
     /**

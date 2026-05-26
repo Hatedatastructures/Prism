@@ -6,23 +6,28 @@
  */
 #pragma once
 
-#include <string>
-#include <cstdint>
-#include <span>
-#include <string_view>
+#include <prism/memory/container.hpp>
+
 #include <array>
 #include <cctype>
+#include <cstdint>
+#include <span>
+#include <string>
+#include <string_view>
+
 
 namespace psm::crypto
 {
+
     namespace detail
     {
+
         /**
          * @brief Base64 解码查找表
          * @details 将 ASCII 字符映射到对应的 6 位值，无效字符映射为 255。
          */
-        [[nodiscard]] constexpr auto make_decode_table()
-            -> std::array<std::uint8_t, 256>
+        [[nodiscard]] constexpr auto decode_tbl()
+-> std::array<std::uint8_t, 256>
         {
             std::array<std::uint8_t, 256> table{};
             table.fill(255);
@@ -47,7 +52,7 @@ namespace psm::crypto
             return table;
         }
 
-        constexpr auto base64_decode_table = make_decode_table();
+        constexpr auto dec_table = decode_tbl();
     } // namespace detail
 
     /**
@@ -60,7 +65,7 @@ namespace psm::crypto
      * @note 遵循 RFC 4648 标准 Base64 解码规则。
      */
     [[nodiscard]] inline auto base64_decode(const std::string_view input)
-        -> std::string
+        -> memory::string
     {
         if (input.empty())
         {
@@ -94,7 +99,7 @@ namespace psm::crypto
             return {};
         }
 
-        std::string result;
+        memory::string result{memory::current_resource()};
         result.reserve((valid_count / 4) * 3);
 
         std::uint8_t group[4]{};
@@ -142,7 +147,7 @@ namespace psm::crypto
                 ch = '/';
             }
 
-            const auto value = detail::base64_decode_table[ch];
+            const auto value = detail::dec_table[ch];
             if (value == 255)
             {
                 return {};
@@ -165,10 +170,11 @@ namespace psm::crypto
 
     namespace detail
     {
+
         /**
          * @brief Base64 编码查找表
          */
-        constexpr char base64_encode_table[] =
+        constexpr char encode_tbl[] =
             "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
             "abcdefghijklmnopqrstuvwxyz"
             "0123456789+/";
@@ -182,14 +188,14 @@ namespace psm::crypto
      * 遵循 RFC 4648 标准 Base64 编码规则。
      */
     [[nodiscard]] inline auto base64_encode(std::span<const std::uint8_t> input)
-        -> std::string
+        -> memory::string
     {
         if (input.empty())
         {
             return {};
         }
 
-        std::string result;
+        memory::string result{memory::current_resource()};
         result.reserve(((input.size() + 2) / 3) * 4);
 
         std::size_t i = 0;
@@ -203,10 +209,10 @@ namespace psm::crypto
             const auto b2 = input[i + 2];
             i += 3;
 
-            result.push_back(detail::base64_encode_table[b0 >> 2]);
-            result.push_back(detail::base64_encode_table[((b0 & 0x03) << 4) | (b1 >> 4)]);
-            result.push_back(detail::base64_encode_table[((b1 & 0x0F) << 2) | (b2 >> 6)]);
-            result.push_back(detail::base64_encode_table[b2 & 0x3F]);
+            result.push_back(detail::encode_tbl[b0 >> 2]);
+            result.push_back(detail::encode_tbl[((b0 & 0x03) << 4) | (b1 >> 4)]);
+            result.push_back(detail::encode_tbl[((b1 & 0x0F) << 2) | (b2 >> 6)]);
+            result.push_back(detail::encode_tbl[b2 & 0x3F]);
         }
 
         // 处理剩余字节
@@ -214,8 +220,8 @@ namespace psm::crypto
         if (remaining == 1)
         {
             const auto b0 = input[i];
-            result.push_back(detail::base64_encode_table[b0 >> 2]);
-            result.push_back(detail::base64_encode_table[(b0 & 0x03) << 4]);
+            result.push_back(detail::encode_tbl[b0 >> 2]);
+            result.push_back(detail::encode_tbl[(b0 & 0x03) << 4]);
             result.push_back('=');
             result.push_back('=');
         }
@@ -223,9 +229,9 @@ namespace psm::crypto
         {
             const auto b0 = input[i];
             const auto b1 = input[i + 1];
-            result.push_back(detail::base64_encode_table[b0 >> 2]);
-            result.push_back(detail::base64_encode_table[((b0 & 0x03) << 4) | (b1 >> 4)]);
-            result.push_back(detail::base64_encode_table[(b1 & 0x0F) << 2]);
+            result.push_back(detail::encode_tbl[b0 >> 2]);
+            result.push_back(detail::encode_tbl[((b0 & 0x03) << 4) | (b1 >> 4)]);
+            result.push_back(detail::encode_tbl[(b1 & 0x0F) << 2]);
             result.push_back('=');
         }
 

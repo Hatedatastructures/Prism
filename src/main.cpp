@@ -27,10 +27,10 @@ namespace instance = psm::instance;
 // 启动流程：启用全局内存池 → 加载配置 → 注册处理器 → 构建 worker 线程池 → 绑定均衡器 → 启动监听
 int main(int argc, char *argv[])
 {
-    psm::memory::system::enable_global_pooling();
+    psm::memory::system::enable_pooling();
 
     // 注册所有 TLS 伪装方案
-    psm::stealth::register_all_schemes();
+    psm::stealth::register_schemes();
 
     // 配置文件路径：命令行参数 > 可执行文件同目录下的 configuration.json
     std::filesystem::path configuration_path;
@@ -69,7 +69,9 @@ int main(int argc, char *argv[])
         const auto account_store = psm::loader::build_dir(full_config.instance.auth);
 
         // worker 线程数 = CPU 核心数 - 1（保留一个核心给监听线程），至少 1 个
-        const std::uint32_t workers_count = threads_count > 1U ? threads_count - 1U : 1U;
+        std::uint32_t workers_count = 1U;
+        if (threads_count > 1U)
+            workers_count = threads_count - 1U;
         const psm::config &config_ref = full_config;
 
         // 创建 worker 实例池，每个 worker 持有独立的 io_context 和协议处理管线

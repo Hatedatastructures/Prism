@@ -12,10 +12,13 @@
  */
 #pragma once
 
+#include <cstdint>
 #include <string_view>
+
 
 namespace psm::fault
 {
+
     /**
      * @enum code
      * @brief 全局错误码
@@ -24,7 +27,7 @@ namespace psm::fault
      * 各类错误。
      * @note _count 仅用于内部统计，不应用于错误处理。
      */
-    enum class code : int
+    enum class code : std::int32_t
     {
         /** @brief 操作成功 */
         success = 0,
@@ -61,7 +64,7 @@ namespace psm::fault
         /** @brief DNS 解析失败 */
         dns_failed = 16,
         /** @brief 上游服务器不可达 */
-        upstream_unreachable = 17,
+        unreachable = 17,
         /** @brief 连接被拒绝 */
         connection_refused = 18,
         /** @brief 不支持的命令 */
@@ -73,15 +76,15 @@ namespace psm::fault
         /** @brief 网关错误 */
         bad_gateway = 22,
         /** @brief 主机不可达 */
-        host_unreachable = 23,
+        host_noreply = 23,
         /** @brief 连接被重置 */
         connection_reset = 24,
         /** @brief 网络不可达 */
-        network_unreachable = 25,
+        net_noreply = 25,
         /** @brief SSL 证书加载失败 */
-        ssl_certfail = 26,
+        certfail = 26,
         /** @brief SSL 密钥加载失败 */
-        ssl_keyfail = 27,
+        keyfail = 27,
         /** @brief SOCKS5 认证协商失败 */
         socks5_authfail = 28,
         /** @brief 文件打开失败 */
@@ -91,7 +94,7 @@ namespace psm::fault
         /** @brief 端口已被占用 */
         port_busy = 31,
         /** @brief 证书验证失败 */
-        cert_verifyfail = 32,
+        verifyfail = 32,
         /** @brief 连接被中止 */
         connection_aborted = 33,
         /** @brief 资源不可用 */
@@ -106,17 +109,17 @@ namespace psm::fault
         /** @brief Mux 未启用 */
         mux_disabled = 38,
         /** @brief Mux 会话错误 */
-        mux_sessfail = 39,
+        sessfail = 39,
         /** @brief Mux 流错误 */
-        mux_streamfail = 40,
+        streamfail = 40,
         /** @brief Mux 窗口超限 */
         mux_overflow = 41,
         /** @brief Mux 协议错误 */
-        mux_protoerr = 42,
+        protoerr = 42,
         /** @brief Mux 连接数限制 */
-        mux_connlimit = 43,
+        connlimit = 43,
         /** @brief Mux 流数限制 */
-        mux_streamcap = 44,
+        streamcap = 44,
 
         /** @brief AEAD 加密/解密失败 */
         crypto_error = 45,
@@ -128,23 +131,23 @@ namespace psm::fault
         replay_detected = 48,
 
         /** @brief Reality 未配置 */
-        reality_unset = 49,
+        unset = 49,
         /** @brief Reality 认证失败 */
-        reality_unauth = 50,
+        unauth = 50,
         /** @brief SNI 不在 server_names 中 */
-        reality_badsni = 51,
+        badsni = 51,
         /** @brief X25519 密钥交换失败 */
-        reality_kexfail = 52,
+        kexfail = 52,
         /** @brief Reality TLS 握手失败 */
-        reality_hsfail = 53,
+        hsfail = 53,
         /** @brief 回退目标服务器不可达 */
-        reality_unreach = 54,
+        unreach = 54,
         /** @brief 证书获取/处理失败 */
-        reality_certfail = 55,
+        st_certfail = 55,
         /** @brief TLS 记录解析/生成错误 */
-        reality_recorderr = 56,
+        recorderr = 56,
         /** @brief TLS 1.3 密钥调度错误 */
-        reality_kdferr = 57,
+        kdferr = 57,
 
         /** @brief UDP 会话已过期 */
         udp_expired = 58,
@@ -152,13 +155,13 @@ namespace psm::fault
         pkt_replay = 59,
 
         /** @brief ECH payload 无效 */
-        ech_badpayload = 60,
+        badpayload = 60,
         /** @brief ECH version 不匹配 */
-        ech_badver = 61,
+        badver = 61,
         /** @brief ECH 解密失败 */
-        ech_decfail = 62,
+        decfail = 62,
         /** @brief ECH config_id 不匹配 */
-        ech_badcfg = 63,
+        badcfg = 63,
 
         /** @brief 错误码总数，仅供内部使用 */
         _count = 64
@@ -173,140 +176,76 @@ namespace psm::fault
      * 日志和诊断。对于未知错误码返回 "unknown"。
      * @note 该函数为 constexpr，可在编译时求值。
      */
-    [[nodiscard]] constexpr std::string_view describe(const code value) noexcept
+    [[nodiscard]] constexpr auto describe(const code value) noexcept
+        -> std::string_view
     {
         switch (value)
         {
-        case code::success:
-            return "success";
-        case code::generic_error:
-            return "generic_error";
-        case code::parse_error:
-            return "parse_error";
-        case code::eof:
-            return "eof";
-        case code::would_block:
-            return "would_block";
-        case code::protocol_error:
-            return "protocol_error";
-        case code::bad_message:
-            return "bad_message";
-        case code::invalid_argument:
-            return "invalid_argument";
-        case code::not_supported:
-            return "not_supported";
-        case code::oversized_msg:
-            return "oversized_msg";
-        case code::io_error:
-            return "io_error";
-        case code::timeout:
-            return "timeout";
-        case code::canceled:
-            return "canceled";
-        case code::tls_hsfail:
-            return "tls_hsfail";
-        case code::tls_closefail:
-            return "tls_closefail";
-        case code::auth_failed:
-            return "auth_failed";
-        case code::dns_failed:
-            return "dns_failed";
-        case code::upstream_unreachable:
-            return "upstream_unreachable";
-        case code::connection_refused:
-            return "connection_refused";
-        case code::unsupported_command:
-            return "unsupported_command";
-        case code::unsupported_address:
-            return "unsupported_address";
-        case code::blocked:
-            return "blocked";
-        case code::bad_gateway:
-            return "bad_gateway";
-        case code::host_unreachable:
-            return "host_unreachable";
-        case code::connection_reset:
-            return "connection_reset";
-        case code::network_unreachable:
-            return "network_unreachable";
-        case code::ssl_certfail:
-            return "ssl_certfail";
-        case code::ssl_keyfail:
-            return "ssl_keyfail";
-        case code::socks5_authfail:
-            return "socks5_authfail";
-        case code::file_openfail:
-            return "file_openfail";
-        case code::config_err:
-            return "config_err";
-        case code::port_busy:
-            return "port_busy";
-        case code::cert_verifyfail:
-            return "cert_verifyfail";
-        case code::connection_aborted:
-            return "connection_aborted";
-        case code::resource_unavailable:
-            return "resource_unavailable";
-        case code::ttl_expired:
-            return "ttl_expired";
-        case code::forbidden:
-            return "forbidden";
-        case code::ipv6_disabled:
-            return "ipv6_disabled";
-        case code::mux_disabled:
-            return "mux_disabled";
-        case code::mux_sessfail:
-            return "mux_sessfail";
-        case code::mux_streamfail:
-            return "mux_streamfail";
-        case code::mux_overflow:
-            return "mux_overflow";
-        case code::mux_protoerr:
-            return "mux_protoerr";
-        case code::mux_connlimit:
-            return "mux_connlimit";
-        case code::mux_streamcap:
-            return "mux_streamcap";
-        case code::crypto_error:
-            return "crypto_error";
-        case code::invalid_psk:
-            return "invalid_psk";
-        case code::timestamp_expired:
-            return "timestamp_expired";
-        case code::replay_detected:
-            return "replay_detected";
-        case code::reality_unset:
-            return "reality_unset";
-        case code::reality_unauth:
-            return "reality_unauth";
-        case code::reality_badsni:
-            return "reality_badsni";
-        case code::reality_kexfail:
-            return "reality_kexfail";
-        case code::reality_hsfail:
-            return "reality_hsfail";
-        case code::reality_unreach:
-            return "reality_unreach";
-        case code::reality_certfail:
-            return "reality_certfail";
-        case code::reality_recorderr:
-            return "reality_recorderr";
-        case code::reality_kdferr:
-            return "reality_kdferr";
-        case code::udp_expired:
-            return "udp_expired";
-        case code::pkt_replay:
-            return "pkt_replay";
-        case code::ech_badpayload:
-            return "ech_badpayload";
-        case code::ech_badver:
-            return "ech_badver";
-        case code::ech_decfail:
-            return "ech_decfail";
-        case code::ech_badcfg:
-            return "ech_badcfg";
-        default:
-            return "unknown";
+        case code::success: return "success";
+        case code::generic_error: return "generic_error";
+        case code::parse_error: return "parse_error";
+        case code::eof: return "eof";
+        case code::would_block: return "would_block";
+        case code::protocol_error: return "protocol_error";
+        case code::bad_message: return "bad_message";
+        case code::invalid_argument: return "invalid_argument";
+        case code::not_supported: return "not_supported";
+        case code::oversized_msg: return "oversized_msg";
+        case code::io_error: return "io_error";
+        case code::timeout: return "timeout";
+        case code::canceled: return "canceled";
+        case code::tls_hsfail: return "tls_hsfail";
+        case code::tls_closefail: return "tls_closefail";
+        case code::auth_failed: return "auth_failed";
+        case code::dns_failed: return "dns_failed";
+        case code::unreachable: return "unreachable";
+        case code::connection_refused: return "connection_refused";
+        case code::unsupported_command: return "unsupported_command";
+        case code::unsupported_address: return "unsupported_address";
+        case code::blocked: return "blocked";
+        case code::bad_gateway: return "bad_gateway";
+        case code::host_noreply: return "host_noreply";
+        case code::connection_reset: return "connection_reset";
+        case code::net_noreply: return "net_noreply";
+        case code::certfail: return "certfail";
+        case code::keyfail: return "keyfail";
+        case code::socks5_authfail: return "socks5_authfail";
+        case code::file_openfail: return "file_openfail";
+        case code::config_err: return "config_err";
+        case code::port_busy: return "port_busy";
+        case code::verifyfail: return "verifyfail";
+        case code::connection_aborted: return "connection_aborted";
+        case code::resource_unavailable: return "resource_unavailable";
+        case code::ttl_expired: return "ttl_expired";
+        case code::forbidden: return "forbidden";
+        case code::ipv6_disabled: return "ipv6_disabled";
+        case code::mux_disabled: return "mux_disabled";
+        case code::sessfail: return "sessfail";
+        case code::streamfail: return "streamfail";
+        case code::mux_overflow: return "mux_overflow";
+        case code::protoerr: return "protoerr";
+        case code::connlimit: return "connlimit";
+        case code::streamcap: return "streamcap";
+        case code::crypto_error: return "crypto_error";
+        case code::invalid_psk: return "invalid_psk";
+        case code::timestamp_expired: return "timestamp_expired";
+        case code::replay_detected: return "replay_detected";
+        case code::unset: return "unset";
+        case code::unauth: return "unauth";
+        case code::badsni: return "badsni";
+        case code::kexfail: return "kexfail";
+        case code::hsfail: return "hsfail";
+        case code::unreach: return "unreach";
+        case code::st_certfail: return "st_certfail";
+        case code::recorderr: return "recorderr";
+        case code::kdferr: return "kdferr";
+        case code::udp_expired: return "udp_expired";
+        case code::pkt_replay: return "pkt_replay";
+        case code::badpayload: return "badpayload";
+        case code::badver: return "badver";
+        case code::decfail: return "decfail";
+        case code::badcfg: return "badcfg";
+        default: return "unknown";
         }
     }
 
@@ -317,7 +256,8 @@ namespace psm::fault
      * @details 语义等价于 c == code::success，
      * 使用此函数可提高代码表达力。
      */
-    [[nodiscard]] constexpr bool succeeded(const code c) noexcept
+    [[nodiscard]] constexpr auto succeeded(const code c) noexcept
+        -> bool
     {
         return c == code::success;
     }
@@ -329,8 +269,10 @@ namespace psm::fault
      * @details succeeded() 的互补函数，语义等价于
      * c != code::success。
      */
-    [[nodiscard]] constexpr bool failed(const code c) noexcept
+    [[nodiscard]] constexpr auto failed(const code c) noexcept
+        -> bool
     {
         return !succeeded(c);
     }
+
 } // namespace psm::fault

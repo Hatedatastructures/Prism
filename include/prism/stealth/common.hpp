@@ -7,16 +7,17 @@
 
 #pragma once
 
+#include <prism/memory/container.hpp>
+#include <prism/protocol/tls/types.hpp>
+
+#include <boost/asio.hpp>
+
 #include <array>
 #include <cstdint>
 #include <cstring>
 #include <optional>
 #include <span>
 
-#include <boost/asio.hpp>
-
-#include <prism/memory/container.hpp>
-#include <prism/protocol/tls/types.hpp>
 
 namespace net = boost::asio;
 
@@ -30,7 +31,7 @@ namespace psm::stealth::common
      * @param sequence 记录序列号
      * @return 12 字节 nonce
      */
-    [[nodiscard]] inline auto make_aead_nonce(std::span<const std::uint8_t> iv, std::uint64_t sequence) noexcept
+    [[nodiscard]] inline auto aead_nonce(std::span<const std::uint8_t> iv, std::uint64_t sequence) noexcept
         -> std::array<std::uint8_t, 12>
     {
         std::array<std::uint8_t, 12> nonce{};
@@ -49,7 +50,7 @@ namespace psm::stealth::common
      * @param encrypted_len 加密后载荷长度
      * @return 5 字节附加数据
      */
-    [[nodiscard]] inline auto make_record_ad(std::uint16_t encrypted_len) noexcept
+    [[nodiscard]] inline auto record_ad(std::uint16_t encrypted_len) noexcept
         -> std::array<std::uint8_t, 5>
     {
         return {{0x17,       // CONTENT_TYPE_APPLICATION_DATA
@@ -64,7 +65,7 @@ namespace psm::stealth::common
      * @param data 待异或的数据（就地修改）
      * @param key 异或密钥
      */
-    inline void xor_with_key(std::span<std::byte> data, std::span<const std::uint8_t> key) noexcept
+    inline void xor_key(std::span<std::byte> data, std::span<const std::uint8_t> key) noexcept
     {
         for (std::size_t i = 0; i < data.size(); ++i)
         {
@@ -82,7 +83,7 @@ namespace psm::stealth::common
      * @param deadline 可选超时定时器，非空时设置 30 秒超时，到期取消 socket
      * @return 完整 TLS 帧数据，读取失败时返回 std::nullopt
      */
-    [[nodiscard]] auto read_raw_tls_frame(net::ip::tcp::socket &sock, std::error_code &ec,
+    [[nodiscard]] auto read_tls_frame(net::ip::tcp::socket &sock, std::error_code &ec,
                             net::steady_timer *deadline = nullptr)
         -> net::awaitable<std::optional<memory::vector<std::byte>>>;
 

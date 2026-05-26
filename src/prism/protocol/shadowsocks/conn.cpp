@@ -1,23 +1,26 @@
 #include <prism/protocol/shadowsocks/conn.hpp>
+#include <prism/crypto/base64.hpp>
+#include <prism/crypto/blake3.hpp>
+#include <prism/fault/code.hpp>
+#include <prism/memory/container.hpp>
+#include <prism/protocol/common/address.hpp>
 #include <prism/protocol/shadowsocks/framing.hpp>
 #include <prism/protocol/shadowsocks/util/cast.hpp>
-#include <prism/crypto/blake3.hpp>
-#include <prism/crypto/base64.hpp>
-#include <prism/protocol/common/address.hpp>
-#include <prism/fault/code.hpp>
 #include <prism/trace/spdlog.hpp>
-#include <prism/memory/container.hpp>
 #include <prism/transport/transmission.hpp>
-#include <cstring>
-#include <cstdint>
+
+#include <openssl/rand.h>
+
 #include <charconv>
 #include <chrono>
-#include <openssl/rand.h>
+#include <cstdint>
+#include <cstring>
 
 constexpr std::string_view tag = "[SS2022.Relay]";
 
 namespace psm::protocol::shadowsocks
 {
+
     namespace
     {
         using util::as_u8;
@@ -30,7 +33,7 @@ namespace psm::protocol::shadowsocks
             return {reinterpret_cast<std::uint8_t *>(v.data()), v.size()};
         }
 
-        // PMR byte vector -> uint8_t writable span, for AEAD decryption output
+        // PMR byte vector → uint8_t 可写 span，用于 AEAD 解密输出
         [[nodiscard]] auto as_u8_mut(memory::vector<std::byte> &v) noexcept
             -> std::span<std::uint8_t>
         {
@@ -44,11 +47,12 @@ namespace psm::protocol::shadowsocks
         {
             return std::as_bytes(std::span{c});
         }
+
     } // namespace
 
     conn::conn(transport::shared_transmission next_layer, const config &cfg,
                  std::shared_ptr<salt_pool> salts)
-        : next_layer_(std::move(next_layer)), config_(cfg), salt_pool_(std::move(salts))
+        : next_layer_(std::move(next_layer)), config_(cfg), salt_pool_(std::move(salts)), psk_(memory::current_resource())
     {
         const auto [ec, psk_bytes] = format::decode_psk(config_.psk);
         if (ec != fault::code::success)
@@ -56,17 +60,19 @@ namespace psm::protocol::shadowsocks
             trace::error("{} invalid PSK configuration: {}", tag, fault::describe(ec));
             return;
         }
-        psk_ = psk_bytes;
+        psk_.assign(psk_bytes.begin(), psk_bytes.end());
 
         method_ = format::resolve_method(config_.method, psk_.size());
         key_salt_len_ = format::keysalt_len(method_);
     }
+
 
     auto conn::executor() const
         -> executor_type
     {
         return next_layer_->executor();
     }
+
 
     void conn::close()
     {
@@ -76,6 +82,7 @@ namespace psm::protocol::shadowsocks
         }
     }
 
+
     void conn::cancel()
     {
         if (next_layer_)
@@ -83,6 +90,7 @@ namespace psm::protocol::shadowsocks
             next_layer_->cancel();
         }
     }
+
 
     auto conn::derive_aead_context(const std::span<const std::uint8_t> salt) const
         -> std::unique_ptr<crypto::aead_context>
@@ -113,6 +121,7 @@ namespace psm::protocol::shadowsocks
 
         return std::make_unique<crypto::aead_context>(cipher, std::span(key));
     }
+
 
     auto conn::read_fixed_hdr() const
         -> net::awaitable<std::tuple<fault::code, std::uint16_t, std::int64_t>>
@@ -159,9 +168,11 @@ namespace psm::protocol::shadowsocks
         const auto now = std::chrono::duration_cast<std::chrono::seconds>(
                              std::chrono::system_clock::now().time_since_epoch())
                              .count();
-        const auto diff = static_cast<std::int64_t>(client_ts) > now
-                              ? static_cast<std::int64_t>(client_ts) - now
-                              : now - static_cast<std::int64_t>(client_ts);
+        std::int64_t diff = now - static_cast<std::int64_t>(client_ts);
+        if (static_cast<std::int64_t>(client_ts) > now)
+        {
+            diff = static_cast<std::int64_t>(client_ts) - now;
+        }
         if (diff > config_.timestamp_window)
         {
             trace::warn("{} timestamp expired: client_ts={}, server_ts={}, diff={}s",
@@ -174,6 +185,7 @@ namespace psm::protocol::shadowsocks
 
         co_return std::tuple{fault::code::success, var_header_len, now};
     }
+
 
     auto conn::read_var_hdr(const std::uint16_t var_header_len, request &req)
         -> net::awaitable<fault::code>
@@ -211,7 +223,7 @@ namespace psm::protocol::shadowsocks
         req.port = addr_result.port;
 
         target_ = protocol::target();
-        target_.host = protocol::common::address_to_string(req.destination_address);
+        target_.host = protocol::common::addr_to_str(req.destination_address);
         char port_buf[8];
         const auto [pe, pec] = std::to_chars(port_buf, port_buf + sizeof(port_buf), req.port);
         target_.port.assign(port_buf, std::distance(port_buf, pe));
@@ -234,6 +246,7 @@ namespace psm::protocol::shadowsocks
 
         co_return fault::code::success;
     }
+
 
     auto conn::send_response(const std::span<const std::uint8_t> client_salt, const std::int64_t server_ts)
         -> net::awaitable<fault::code>
@@ -270,7 +283,7 @@ namespace psm::protocol::shadowsocks
 
         // AEAD 加密响应固定头
         memory::vector<std::uint8_t> resp_fixed_enc(
-            crypto::aead_context::seal_output_size(resp_fixed_plain_len));
+            crypto::aead_context::seal_size(resp_fixed_plain_len));
         if (const auto r = encrypt_ctx_->seal(resp_fixed_enc, resp_fixed_plain);
             r != fault::code::success)
         {
@@ -309,6 +322,7 @@ namespace psm::protocol::shadowsocks
 
         co_return fault::code::success;
     }
+
 
     auto conn::handshake()
         -> net::awaitable<std::pair<fault::code, request>>
@@ -399,6 +413,7 @@ namespace psm::protocol::shadowsocks
         co_return std::pair{fault::code::success, req};
     }
 
+
     auto conn::acknowledge()
         -> net::awaitable<fault::code>
     {
@@ -406,6 +421,7 @@ namespace psm::protocol::shadowsocks
             std::span<const std::uint8_t>(client_salt_.data(), client_salt_.size()),
             handshake_ts_);
     }
+
 
     auto conn::async_read_some(std::span<std::byte> buffer, std::error_code &ec)
         -> net::awaitable<std::size_t>
@@ -467,6 +483,7 @@ namespace psm::protocol::shadowsocks
         co_return n;
     }
 
+
     auto conn::fetch_chunk(std::error_code &ec)
         -> net::awaitable<void>
     {
@@ -514,11 +531,13 @@ namespace psm::protocol::shadowsocks
         }
     }
 
+
     auto conn::async_write_some(const std::span<const std::byte> buffer, std::error_code &ec)
         -> net::awaitable<std::size_t>
     {
         co_return co_await send_chunk(buffer, ec);
     }
+
 
     auto conn::send_chunk(const std::span<const std::byte> data, std::error_code &ec)
         -> net::awaitable<std::size_t>
@@ -543,7 +562,7 @@ namespace psm::protocol::shadowsocks
         }
 
         // 加密 payload（复用成员缓冲区，避免每次堆分配）
-        payload_enc_buf_.resize(crypto::aead_context::seal_output_size(chunk_len));
+        payload_enc_buf_.resize(crypto::aead_context::seal_size(chunk_len));
         if (const auto r = encrypt_ctx_->seal(payload_enc_buf_, as_u8(data.first(chunk_len)));
             r != fault::code::success)
         {
@@ -565,9 +584,29 @@ namespace psm::protocol::shadowsocks
         auto ec_msg = ec.message();
         if (!ec_msg.empty() && (ec_msg.back() == '\n' || ec_msg.back() == '\r'))
             ec_msg = ec_msg.substr(0, ec_msg.find_first_of("\r\n"));
+        std::size_t logged_len;
+        if (ec)
+        {
+            logged_len = 0;
+        }
+        else
+        {
+            logged_len = chunk_len;
+        }
         trace::debug("{} send_chunk: transport::async_write completed, ec={}, returned {}",
-                    tag, ec_msg, ec ? 0 : chunk_len);
+                    tag, ec_msg, logged_len);
 
-        co_return ec ? 0 : chunk_len;
+        std::size_t sent;
+        if (ec)
+        {
+            sent = 0;
+        }
+        else
+        {
+            sent = chunk_len;
+        }
+
+        co_return sent;
     }
+
 } // namespace psm::protocol::shadowsocks

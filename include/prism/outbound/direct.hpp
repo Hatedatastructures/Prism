@@ -10,19 +10,21 @@
  */
 #pragma once
 
+#include <prism/connect/dial/dial.hpp>
+#include <prism/connect/dial/router.hpp>
+#include <prism/connect/pool/pool.hpp>
+#include <prism/fault/code.hpp>
+#include <prism/outbound/proxy.hpp>
+#include <prism/trace.hpp>
+#include <prism/transport/reliable.hpp>
+
 #include <string_view>
 #include <utility>
 
-#include <prism/outbound/proxy.hpp>
-#include <prism/connect/dial/router.hpp>
-#include <prism/connect/dial/dial.hpp>
-#include <prism/transport/reliable.hpp>
-#include <prism/connect/pool/pool.hpp>
-#include <prism/fault/code.hpp>
-#include <prism/trace.hpp>
 
 namespace psm::outbound
 {
+
     /**
      * @class direct
      * @brief 直连出站代理
@@ -93,7 +95,7 @@ namespace psm::outbound
                                 transport::make_reliable(std::move(conn))};
         }
 
-        [[nodiscard]] auto make_dgram_router()
+        [[nodiscard]] auto make_router()
             -> std::function<net::awaitable<std::pair<fault::code, net::ip::udp::endpoint>>(
                 std::string_view, std::string_view)> override
         {

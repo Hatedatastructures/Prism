@@ -14,6 +14,7 @@
 
 #include <glaze/glaze.hpp>
 
+
 template <>
 struct glz::meta<psm::instance::endpoint>
 {
@@ -80,9 +81,9 @@ struct glz::meta<psm::protocol::socks5::config>
         "enable_tcp",        &T::enable_tcp,
         "enable_udp",        &T::enable_udp,
         "enable_bind",       &T::enable_bind,
-        "udp_bind_port",     &T::udp_bind_port,
-        "udp_idle_timeout",  &T::udp_idle_timeout,
-        "udp_max_datagram",  &T::udp_max_dgram,
+        "udp_bind_port",     &T::bind_port,
+        "udp_idle_timeout",  &T::idle_timeout,
+        "udp_max_datagram",  &T::max_dgram,
         "enable_auth",       &T::enable_auth);
 };
 
@@ -93,8 +94,8 @@ struct glz::meta<psm::protocol::trojan::config>
     static constexpr auto value = glz::object(
         "enable_tcp",        &T::enable_tcp,
         "enable_udp",        &T::enable_udp,
-        "udp_idle_timeout",  &T::udp_idle_timeout,
-        "udp_max_datagram",  &T::udp_max_dgram);
+        "udp_idle_timeout",  &T::idle_timeout,
+        "udp_max_datagram",  &T::max_dgram);
 };
 
 template <>
@@ -103,8 +104,8 @@ struct glz::meta<psm::protocol::vless::config>
     using T = psm::protocol::vless::config;
     static constexpr auto value = glz::object(
         "enable_udp",        &T::enable_udp,
-        "udp_idle_timeout",  &T::udp_idle_timeout,
-        "udp_max_datagram",  &T::udp_max_dgram);
+        "udp_idle_timeout",  &T::idle_timeout,
+        "udp_max_datagram",  &T::max_dgram);
 };
 
 template <>

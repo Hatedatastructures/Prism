@@ -1,25 +1,28 @@
 #include <prism/protocol/trojan/conn.hpp>
-#include <prism/protocol/common/form.hpp>
-#include <prism/protocol/trojan/constants.hpp>
-#include <prism/protocol/trojan/framing.hpp>
 #include <prism/fault/handling.hpp>
+#include <prism/memory/container.hpp>
+#include <prism/protocol/common/form.hpp>
 #include <prism/protocol/common/read.hpp>
 #include <prism/protocol/common/udprelay.hpp>
-#include <prism/memory/container.hpp>
-#include <prism/trace.hpp>
+#include <prism/protocol/trojan/constants.hpp>
+#include <prism/protocol/trojan/framing.hpp>
 #include <prism/stats/traffic.hpp>
+#include <prism/trace.hpp>
+
 #include <boost/asio/experimental/awaitable_operators.hpp>
+
+#include <algorithm>
 #include <array>
 #include <charconv>
 #include <string_view>
-#include <algorithm>
 
 constexpr std::string_view udp_tag = "[Trojan.UDP]";
 
 namespace psm::protocol::trojan
 {
+
     // 引用共享读取工具函数
-    using protocol::common::read_at_least;
+    using protocol::common::read_min;
     using protocol::common::read_remaining;
 
     // 验证命令并确定传输形式
@@ -46,6 +49,7 @@ namespace psm::protocol::trojan
             return {fault::code::unsupported_command, form::stream};
         }
     }
+
 
     // 从缓冲区解析地址
     inline auto parse_address_from_buffer(const std::span<const std::uint8_t> buffer, const std::size_t offset, const address_type atyp)
@@ -90,16 +94,87 @@ namespace psm::protocol::trojan
         }
     }
 
+
+    // 验证凭据和首个 CRLF (bytes 0-57)
+    inline auto verify_credential(
+        const std::span<const std::uint8_t> data,
+        const std::function<bool(std::string_view)> &verifier,
+        std::array<char, 56> &credential_out) -> fault::code
+    {
+        auto [cred_ec, credential] = format::parse_credential(data.subspan(0, 56));
+        if (fault::failed(cred_ec))
+        {
+            return cred_ec;
+        }
+        if (verifier)
+        {
+            const std::string_view cred_view(credential.data(), 56);
+            if (!verifier(cred_view))
+            {
+                return fault::code::auth_failed;
+            }
+        }
+        const auto crlf_ec = format::parse_crlf(data.subspan(56, 2));
+        if (fault::failed(crlf_ec))
+        {
+            return crlf_ec;
+        }
+        std::ranges::copy(credential, credential_out.begin());
+        return fault::code::success;
+    }
+
+
+    // 解析目标地址、端口和结束 CRLF
+    inline auto parse_request_target(
+        const std::span<const std::uint8_t> data,
+        const std::size_t offset,
+        const address_type atyp,
+        const std::size_t total) -> std::tuple<fault::code, address, std::uint16_t>
+    {
+        auto [addr_ec, dest_addr, addr_size] = parse_address_from_buffer(data, offset, atyp);
+        if (fault::failed(addr_ec))
+        {
+            return {addr_ec, address{}, 0};
+        }
+        auto cur = offset + addr_size;
+
+        if (cur + 2 > total)
+        {
+            return {fault::code::bad_message, address{}, 0};
+        }
+        auto [port_ec, port] = format::parse_port(data.subspan(cur, 2));
+        if (fault::failed(port_ec))
+        {
+            return {port_ec, address{}, 0};
+        }
+        cur += 2;
+
+        if (cur + 2 > total)
+        {
+            return {fault::code::bad_message, address{}, 0};
+        }
+        const auto crlf_ec = format::parse_crlf(data.subspan(cur, 2));
+        if (fault::failed(crlf_ec))
+        {
+            return {crlf_ec, address{}, 0};
+        }
+        return {fault::code::success, dest_addr, port};
+    }
+
+
     conn::conn(transport::shared_transmission next_layer, const config &cfg,
                  std::function<bool(std::string_view)> credential_verifier)
         : next_layer_(std::move(next_layer)), config_(cfg), verifier_(std::move(credential_verifier))
     {
     }
 
-    conn::executor_type conn::executor() const
+
+    auto conn::executor() const
+        -> executor_type
     {
         return next_layer_->executor();
     }
+
 
     auto conn::async_read_some(const std::span<std::byte> buffer, std::error_code &ec)
         -> net::awaitable<std::size_t>
@@ -107,21 +182,25 @@ namespace psm::protocol::trojan
         co_return co_await next_layer_->async_read_some(buffer, ec);
     }
 
+
     auto conn::async_write_some(const std::span<const std::byte> buffer, std::error_code &ec)
         -> net::awaitable<std::size_t>
     {
         co_return co_await next_layer_->async_write_some(buffer, ec);
     }
 
+
     void conn::close()
     {
         next_layer_->close();
     }
 
+
     void conn::cancel()
     {
         next_layer_->cancel();
     }
+
 
     auto conn::handshake() const
         -> net::awaitable<std::pair<fault::code, request>>
@@ -147,42 +226,22 @@ namespace psm::protocol::trojan
         static constexpr std::size_t k_min_request_size = 68;
 
         // 第一次批量读取：至少 68 字节
-        auto [read_ec, total] = co_await read_at_least(*next_layer_, byte_span, k_min_request_size);
+        auto [read_ec, total] = co_await read_min(*next_layer_, byte_span, k_min_request_size);
         if (fault::failed(read_ec))
         {
             deadline.cancel();
+            auto result_ec = read_ec;
             if (read_ec == fault::code::canceled)
-            {
-                co_return std::pair{fault::code::timeout, request{}};
-            }
-            co_return std::pair{read_ec, request{}};
+                result_ec = fault::code::timeout;
+            co_return std::pair{result_ec, request{}};
         }
 
-        // 解析凭据 (0-55)
-        auto [cred_ec, credential] = format::parse_credential(data_span.subspan(0, 56));
-        if (fault::failed(cred_ec))
+        // 解析凭据 + 验证 + 首个 CRLF
+        std::array<char, 56> credential{};
+        if (const auto ec = verify_credential(data_span, verifier_, credential); fault::failed(ec))
         {
             deadline.cancel();
-            co_return std::pair{cred_ec, request{}};
-        }
-
-        // 验证凭据
-        if (verifier_)
-        {
-            const std::string_view cred_view(credential.data(), 56);
-            if (!verifier_(cred_view))
-            {
-                deadline.cancel();
-                co_return std::pair{fault::code::auth_failed, request{}};
-            }
-        }
-
-        // 验证第一个 CRLF (56-57)
-        auto crlf1_ec = format::parse_crlf(data_span.subspan(56, 2));
-        if (fault::failed(crlf1_ec))
-        {
-            deadline.cancel();
-            co_return std::pair{crlf1_ec, request{}};
+            co_return std::pair{ec, request{}};
         }
 
         // 解析命令和地址类型 (58-59)
@@ -194,7 +253,7 @@ namespace psm::protocol::trojan
         }
 
         // 根据地址类型计算完整请求长度
-        std::size_t offset = 60;
+        const std::size_t offset = 60;
         std::size_t required_total = offset;
 
         switch (header.atyp)
@@ -219,53 +278,24 @@ namespace psm::protocol::trojan
         // 如果数据不足，补读剩余字节
         if (total < required_total)
         {
-            auto [rem_ec, new_total] = co_await read_remaining(*next_layer_, byte_span, total, required_total);
+            auto [rem_ec, new_total] = co_await read_remaining({*next_layer_, byte_span, total, required_total});
             if (fault::failed(rem_ec))
             {
                 deadline.cancel();
+                auto rem_result_ec = rem_ec;
                 if (rem_ec == fault::code::canceled)
-                {
-                    co_return std::pair{fault::code::timeout, request{}};
-                }
-                co_return std::pair{rem_ec, request{}};
+                    rem_result_ec = fault::code::timeout;
+                co_return std::pair{rem_result_ec, request{}};
             }
             total = new_total;
         }
 
-        // 解析目标地址
-        auto [addr_ec, dest_addr, addr_size] = parse_address_from_buffer(data_span, offset, header.atyp);
-        if (fault::failed(addr_ec))
+        // 解析目标地址、端口和结束 CRLF
+        auto [target_ec, dest_addr, port] = parse_request_target(data_span, offset, header.atyp, total);
+        if (fault::failed(target_ec))
         {
             deadline.cancel();
-            co_return std::pair{addr_ec, request{}};
-        }
-        offset += addr_size;
-
-        // 解析端口
-        if (offset + 2 > total)
-        {
-            deadline.cancel();
-            co_return std::pair{fault::code::bad_message, request{}};
-        }
-        auto [port_ec, port] = format::parse_port(data_span.subspan(offset, 2));
-        if (fault::failed(port_ec))
-        {
-            deadline.cancel();
-            co_return std::pair{port_ec, request{}};
-        }
-        offset += 2;
-
-        // 验证结束 CRLF
-        if (offset + 2 > total)
-        {
-            deadline.cancel();
-            co_return std::pair{fault::code::bad_message, request{}};
-        }
-        auto crlf2_ec = format::parse_crlf(data_span.subspan(offset, 2));
-        if (fault::failed(crlf2_ec))
-        {
-            deadline.cancel();
-            co_return std::pair{crlf2_ec, request{}};
+            co_return std::pair{target_ec, request{}};
         }
 
         // 验证命令
@@ -289,20 +319,24 @@ namespace psm::protocol::trojan
         co_return std::pair{fault::code::success, req};
     }
 
+
     transport::transmission &conn::underlying() noexcept
     {
         return *next_layer_;
     }
+
 
     const transport::transmission &conn::underlying() const noexcept
     {
         return *next_layer_;
     }
 
+
     transport::shared_transmission conn::release()
     {
         return std::move(next_layer_);
     }
+
 
     auto conn::async_associate(route_callback route_cb) const
         -> net::awaitable<fault::code>
@@ -317,17 +351,21 @@ namespace psm::protocol::trojan
             stats::traffic::traffic_state *traffic;
             protocol::protocol_type proto;
         };
-        auto *tc = traffic_ ? new traffic_context{traffic_, proto_} : nullptr;
+        auto *tc = [&]() -> traffic_context * {
+            if (traffic_)
+                return new traffic_context{traffic_, proto_};
+            return nullptr;
+        }();
 
         net::steady_timer idle_timer(next_layer_->executor());
 
-        co_await protocol::common::udp_frame_loop<
+        co_await protocol::common::frame_loop<
             decltype(format::parse_udp_pkt),
             decltype(format::build_udp_pkt),
             format::udp_routed,
             format::udp_parse_result>(
             *next_layer_,
-            protocol::common::udp_frame_ctx<
+            protocol::common::frame_ctx<
                 decltype(format::parse_udp_pkt),
                 decltype(format::build_udp_pkt),
                 format::udp_routed,
@@ -336,18 +374,23 @@ namespace psm::protocol::trojan
                 format::build_udp_pkt,
                 std::move(route_cb)
             },
-            protocol::common::udp_loop_cfg{
+            protocol::common::loop_cfg{
                 idle_timer,
                 udp_tag,
-                config_.udp_idle_timeout,
-                config_.udp_max_dgram,
-                tc ? [](void *ctx, std::uint64_t up, std::uint64_t down) noexcept {
+                config_.idle_timeout,
+                config_.max_dgram,
+                [](void *ctx, std::uint64_t up, std::uint64_t down) noexcept {
                     auto *tc = static_cast<traffic_context*>(ctx);
                     tc->traffic->flush_traffic(tc->proto, up, down);
                     delete tc;
-                } : nullptr,
+                },
                 tc
             });
+
+        if (!tc)
+        {
+            // No traffic callback, UDP loop won't report stats
+        }
         co_return fault::code::success;
     }
 

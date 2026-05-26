@@ -14,16 +14,18 @@
  */
 #pragma once
 
+#include <prism/memory/container.hpp>
+
 #include <cstdint>
 #include <optional>
 #include <span>
 #include <string_view>
 #include <vector>
 
-#include <prism/memory/container.hpp>
 
 namespace psm::stealth::restls
 {
+
     /**
      * @enum command_type
      * @brief Script 行命令类型

@@ -1,17 +1,19 @@
 #include <prism/stealth/native.hpp>
+
 #include <prism/config.hpp>
 #include <prism/connect.hpp>
 #include <prism/connect/util.hpp>
-#include <prism/transport/encrypted.hpp>
-#include <prism/transport/preview.hpp>
-#include <prism/trace.hpp>
 #include <prism/fault/handling.hpp>
 #include <prism/protocol/types.hpp>
-#include <prism/recognition/probe/analyzer.hpp>
 #include <prism/protocol/tls/types.hpp>
+#include <prism/recognition/probe/analyzer.hpp>
+#include <prism/trace.hpp>
+#include <prism/transport/encrypted.hpp>
+#include <prism/transport/preview.hpp>
 
 namespace psm::stealth::native
 {
+
     namespace net = boost::asio;
     namespace ssl = net::ssl;
     auto native::active(const psm::config &cfg) const noexcept
@@ -29,9 +31,8 @@ namespace psm::stealth::native
     auto native::guess(const psm::config & /*cfg*/) const
         -> verify_result
     {
-        // Native 是兜底方案，返回最低分
         return {
-            .score = 50,  // 最低分，排在所有其他方案之后
+            .score = 50,
             .solo_flag = 0,
             .note = "native TLS fallback"};
     }
@@ -62,10 +63,9 @@ namespace psm::stealth::native
             co_return result;
         }
 
-        // 解包 snapshot/preview 层，提取底层原始传输
         // native 不能在 snapshot 上做 SSL 握手：snapshot 的回放机制与
         // BoringSSL SSL_accept 的读写交替流程冲突
-        auto raw = connect::peel_to_raw(std::move(ctx.inbound));
+        auto raw = connect::peel(std::move(ctx.inbound));
 
         if (!raw)
         {

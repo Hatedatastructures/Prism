@@ -1,19 +1,30 @@
+#include <prism/resolve/dns/detail/cache.hpp>
+
+#include <prism/memory/container.hpp>
+#include <prism/trace.hpp>
+
 #include <algorithm>
 #include <cstdio>
 #include <cstring>
 #include <string>
 
-#include <prism/resolve/dns/detail/cache.hpp>
-#include <prism/trace.hpp>
+namespace
+{
+    auto resolve_mr(psm::memory::resource_pointer mr) -> psm::memory::resource_pointer
+    {
+        if (mr)
+            return mr;
+        return psm::memory::current_resource();
+    }
+} // namespace
 
 namespace psm::resolve::dns::detail
 {
 
-    cache::cache(const memory::resource_pointer mr, const std::chrono::seconds ttl,
-                 const std::size_t max_entries, const stale_policy stale)
-        : mr_(mr ? mr : memory::current_resource()),
-          default_ttl_(ttl), max_entries_(max_entries),
-          serve_stale_(stale == stale_policy::serve), lru_order_(mr_), entries_(mr_)
+    cache::cache(const cache_options &opts)
+        : mr_(resolve_mr(opts.mr)),
+          default_ttl_(opts.ttl), max_entries_(opts.max_entries),
+          serve_stale_(opts.stale == stale_policy::serve), lru_order_(mr_), entries_(mr_)
     {
     }
 
@@ -101,14 +112,13 @@ namespace psm::resolve::dns::detail
         return std::nullopt;
     }
 
-    void cache::put(const std::string_view domain, const qtype qt, const memory::vector<net::ip::address> &ips,
-                    const uint32_t ttl_seconds)
+    void cache::put(const put_input &input)
     {
         const auto now = std::chrono::steady_clock::now();
 
         // 使用栈缓冲区构造查找 key，避免 PMR string 分配
         std::array<char, 260> buffer;
-        const auto key = key_view(domain, qt, buffer);
+        const auto key = key_view(input.domain, input.qt, buffer);
 
         // 检查是否已存在（更新情况）— 单次查找
         if (const auto existing_it = entries_.find(key); existing_it != entries_.end())
@@ -118,9 +128,9 @@ namespace psm::resolve::dns::detail
             lru_order_.splice(lru_order_.begin(), lru_order_, lru_it);
 
             auto &entry = existing_it->second.first;
-            entry.ips.assign(ips.begin(), ips.end());
-            entry.ttl = ttl_seconds;
-            entry.expire = now + std::chrono::seconds(ttl_seconds);
+            entry.ips.assign(input.ips.begin(), input.ips.end());
+            entry.ttl = input.ttl_seconds;
+            entry.expire = now + std::chrono::seconds(input.ttl_seconds);
             entry.inserted = now;
             entry.failed = false;
             return;
@@ -131,9 +141,9 @@ namespace psm::resolve::dns::detail
 
         // 构建缓存条目
         cache_entry entry(mr_);
-        entry.ips.assign(ips.begin(), ips.end());
-        entry.ttl = ttl_seconds;
-        entry.expire = now + std::chrono::seconds(ttl_seconds);
+        entry.ips.assign(input.ips.begin(), input.ips.end());
+        entry.ttl = input.ttl_seconds;
+        entry.expire = now + std::chrono::seconds(input.ttl_seconds);
         entry.inserted = now;
         entry.failed = false;
 
@@ -169,7 +179,7 @@ namespace psm::resolve::dns::detail
             lru_order_.splice(lru_order_.begin(), lru_order_, lru_it);
 
             auto &entry = existing_it->second.first;
-            entry.ttl = static_cast<uint32_t>(negative_ttl.count());
+            entry.ttl = static_cast<std::uint32_t>(negative_ttl.count());
             entry.expire = now + negative_ttl;
             entry.inserted = now;
             entry.failed = true;
@@ -181,7 +191,7 @@ namespace psm::resolve::dns::detail
 
         // 构建负缓存条目
         cache_entry entry(mr_);
-        entry.ttl = static_cast<uint32_t>(negative_ttl.count());
+        entry.ttl = static_cast<std::uint32_t>(negative_ttl.count());
         entry.expire = now + negative_ttl;
         entry.inserted = now;
         entry.failed = true;

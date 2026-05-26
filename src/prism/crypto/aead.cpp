@@ -1,13 +1,16 @@
 #include <prism/crypto/aead.hpp>
+
 #include <prism/trace/spdlog.hpp>
+
 #include <openssl/evp.h>
-#include <memory>
+
 #include <cstring>
+#include <memory>
 
 namespace psm::crypto
 {
-    // 删除器实现
-    void aead_context::delete_aead_ctx(evp_aead_ctx_st *ctx) noexcept
+
+    void aead_context::release_ctx(evp_aead_ctx_st *ctx) noexcept
     {
         if (ctx)
         {
@@ -16,11 +19,9 @@ namespace psm::crypto
         }
     }
 
-    // 构造时根据算法类型选择对应的 BoringSSL AEAD 实现，并用密钥初始化上下文。
-    // AES-GCM 和 ChaCha20 的 nonce 都是 12 字节，XChaCha20 扩展到 24 字节。
-    // EVP_AEAD_CTX 是 BoringSSL 的不透明结构，用 unique_ptr + 函数指针删除器管理生命周期。
+
     aead_context::aead_context(const aead_cipher cipher, const std::span<const std::uint8_t> key)
-        : ctx_(nullptr, &delete_aead_ctx), key_length_(key.size())
+        : ctx_(nullptr, &release_ctx), key_length_(key.size())
     {
         const EVP_AEAD *aead = nullptr;
         switch (cipher)
@@ -42,13 +43,13 @@ namespace psm::crypto
             nonce_len_ = 24;
             break;
         default:
-            trace::error("[Crypto.AEAD] unknown cipher type: {}", static_cast<int>(cipher));
+            trace::error("[Crypto.AEAD] 未知加密算法: {}", static_cast<std::int32_t>(cipher));
             return;
         }
 
         if (!aead)
         {
-            trace::error("[Crypto.AEAD] failed to get AEAD algorithm");
+            trace::error("[Crypto.AEAD] 获取 AEAD 算法失败");
             return;
         }
 
@@ -56,7 +57,7 @@ namespace psm::crypto
         EVP_AEAD_CTX_zero(raw_ctx);
         if (!EVP_AEAD_CTX_init(raw_ctx, aead, key.data(), key.size(), EVP_AEAD_DEFAULT_TAG_LENGTH, nullptr))
         {
-            trace::error("[Crypto.AEAD] EVP_AEAD_CTX_init failed");
+            trace::error("[Crypto.AEAD] EVP_AEAD_CTX_init 失败");
             EVP_AEAD_CTX_cleanup(raw_ctx);
             delete raw_ctx;
             return;
@@ -64,18 +65,17 @@ namespace psm::crypto
         ctx_.reset(raw_ctx);
     }
 
-    // 析构由 unique_ptr 自动处理，无需手动清理。
+
     aead_context::~aead_context() = default;
 
-    // 移动构造：转移 ctx_ 所有权后，将源对象置为安全状态（nullptr + 零 nonce），
-    // 防止析构时双重释放。
+
     aead_context::aead_context(aead_context &&other) noexcept
         : ctx_(std::move(other.ctx_)), nonce_(other.nonce_), key_length_(other.key_length_), nonce_len_(other.nonce_len_)
     {
         other.nonce_.fill(0);
     }
 
-    // 移动赋值：先清理自己的资源，再接管对方的，最后将对方置为安全状态。
+
     auto aead_context::operator=(aead_context &&other) noexcept
         -> aead_context &
     {
@@ -90,8 +90,7 @@ namespace psm::crypto
         return *this;
     }
 
-    // 加密：明文 → 密文 + 认证标签。输出 buffer 大小 = 明文长度 + 标签长度（通常 16 字节）。
-    // 加密成功后 nonce 自动 +1。
+
     auto aead_context::seal(const std::span<std::uint8_t> out, const std::span<const std::uint8_t> plaintext,
                             const std::span<const std::uint8_t> ad)
         -> fault::code
@@ -115,14 +114,13 @@ namespace psm::crypto
 
         if (!increment_nonce())
         {
-            trace::error("[Crypto.AEAD] nonce overflow in seal");
+            trace::error("[Crypto.AEAD] seal nonce 溢出");
             return fault::code::crypto_error;
         }
         return fault::code::success;
     }
 
-    // 解密：密文 + 认证标签 → 明文。如果密文被篡改或标签不匹配，解密失败。
-    // 解密成功后 nonce 自动 +1（必须和加密时的 nonce 递增顺序一致）。
+
     auto aead_context::open(const std::span<std::uint8_t> out, const std::span<const std::uint8_t> ciphertext,
                             const std::span<const std::uint8_t> ad)
         -> fault::code
@@ -146,14 +144,14 @@ namespace psm::crypto
 
         if (!increment_nonce())
         {
-            trace::error("[Crypto.AEAD] nonce overflow in open");
+            trace::error("[Crypto.AEAD] open nonce 溢出");
             return fault::code::crypto_error;
         }
         return fault::code::success;
     }
 
-    auto aead_context::seal(const std::span<std::uint8_t> out, const std::span<const std::uint8_t> plaintext,
-                            const std::span<const std::uint8_t> nonce, const std::span<const std::uint8_t> ad)
+
+    auto aead_context::seal(seal_input input)
         -> fault::code
     {
         if (!ctx_)
@@ -163,10 +161,10 @@ namespace psm::crypto
 
         std::size_t out_len = 0;
         const auto result = EVP_AEAD_CTX_seal(
-            ctx_.get(), out.data(), &out_len, out.size(),
-            nonce.data(), nonce.size(),
-            plaintext.data(), plaintext.size(),
-            ad.data(), ad.size());
+            ctx_.get(), input.out.data(), &out_len, input.out.size(),
+            input.nonce.data(), input.nonce.size(),
+            input.plaintext.data(), input.plaintext.size(),
+            input.ad.data(), input.ad.size());
 
         if (!result)
         {
@@ -176,8 +174,8 @@ namespace psm::crypto
         return fault::code::success;
     }
 
-    auto aead_context::open(const std::span<std::uint8_t> out, const std::span<const std::uint8_t> ciphertext,
-                            const std::span<const std::uint8_t> nonce, const std::span<const std::uint8_t> ad)
+
+    auto aead_context::open(open_input input)
         -> fault::code
     {
         if (!ctx_)
@@ -187,10 +185,10 @@ namespace psm::crypto
 
         std::size_t out_len = 0;
         const auto result = EVP_AEAD_CTX_open(
-            ctx_.get(), out.data(), &out_len, out.size(),
-            nonce.data(), nonce.size(),
-            ciphertext.data(), ciphertext.size(),
-            ad.data(), ad.size());
+            ctx_.get(), input.out.data(), &out_len, input.out.size(),
+            input.nonce.data(), input.nonce.size(),
+            input.ciphertext.data(), input.ciphertext.size(),
+            input.ad.data(), input.ad.size());
 
         if (!result)
         {
@@ -200,9 +198,7 @@ namespace psm::crypto
         return fault::code::success;
     }
 
-    // Nonce 小端序递增：从 byte[0] 开始加 1，溢出则进位到 byte[1]，以此类推。
-    // 这是 SS2022 (SIP022) 规范要求的 nonce 递增方式。
-    // 当所有字节均为 0xFF 时递增会导致溢出到全零，此时返回 false 表示 nonce 耗尽。
+
     auto aead_context::increment_nonce() -> bool
     {
         for (std::size_t i = 0; i < nonce_len_; ++i)
@@ -215,4 +211,5 @@ namespace psm::crypto
         }
         return false;
     }
+
 } // namespace psm::crypto

@@ -9,18 +9,21 @@
 
 #pragma once
 
+#include <prism/crypto/hkdf.hpp>
+#include <prism/fault/code.hpp>
+#include <prism/protocol/tls/types.hpp>
+
 #include <array>
 #include <cstddef>
 #include <cstdint>
 #include <span>
 #include <utility>
-#include <prism/fault/code.hpp>
-#include <prism/crypto/hkdf.hpp>
-#include <prism/protocol/tls/types.hpp>
+
 
 namespace psm::stealth::reality
 {
-    using psm::crypto::SHA256_LEN;
+
+    using psm::crypto::sha256_len;
     using psm::protocol::tls::AEAD_NONCE_LEN;
     using psm::protocol::tls::AES_128_KEY_LEN;
     using constspan = std::span<const std::uint8_t>;
@@ -41,8 +44,8 @@ namespace psm::stealth::reality
         std::array<std::uint8_t, AEAD_NONCE_LEN> server_appiv{};       // 应用阶段服务端 IV
         std::array<std::uint8_t, AES_128_KEY_LEN> client_appkey{};      // 应用阶段客户端加密密钥
         std::array<std::uint8_t, AEAD_NONCE_LEN> client_appiv{};       // 应用阶段客户端 IV
-        std::array<std::uint8_t, SHA256_LEN> server_finkey{};           // 服务端 Finished 验证密钥
-        std::array<std::uint8_t, SHA256_LEN> master_secret{};           // 主密钥
+        std::array<std::uint8_t, sha256_len> server_finkey{};           // 服务端 Finished 验证密钥
+        std::array<std::uint8_t, sha256_len> master_secret{};           // 主密钥
     };
 
     /**
@@ -53,7 +56,7 @@ namespace psm::stealth::reality
      * @param server_hello_msg 完整的 ServerHello 握手消息
      * @return 错误码和派生出的密钥材料
      */
-    [[nodiscard]] auto derive_handshake_keys(constspan shared_secret, constspan chello_msg, constspan shello_msg)
+    [[nodiscard]] auto derive_hs_keys(constspan shared_secret, constspan chello_msg, constspan shello_msg)
         -> std::pair<fault::code, key_material>;
 
     /**
@@ -65,7 +68,7 @@ namespace psm::stealth::reality
      * @param keys 密钥材料，应用阶段字段将被填充
      * @return fault::code 错误码，成功时为 success
      */
-    [[nodiscard]] auto derive_application_keys(constspan master_secret, constspan server_finhash, key_material &keys)
+    [[nodiscard]] auto derive_app_keys(constspan master_secret, constspan server_finhash, key_material &keys)
         -> fault::code;
 
     /**
@@ -74,8 +77,8 @@ namespace psm::stealth::reality
      * 消息的验证数据，用于握手完整性校验
      * @param finished_key Finished 验证密钥
      * @param transcript_hash 握手消息的 transcript 哈希
-     * @return 计算出的 verify_data，长度为 SHA256_LEN
+     * @return 计算出的 verify_data，长度为 sha256_len
      */
-    [[nodiscard]] auto compute_finished_verify(constspan finished_key, constspan transcript_hash)
-        -> std::array<std::uint8_t, SHA256_LEN>;
+    [[nodiscard]] auto compute_verify(constspan finished_key, constspan transcript_hash)
+        -> std::array<std::uint8_t, sha256_len>;
 } // namespace psm::stealth::reality

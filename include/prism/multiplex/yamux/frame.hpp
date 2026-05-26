@@ -12,15 +12,18 @@
  */
 #pragma once
 
+#include <prism/memory/container.hpp>
+
 #include <array>
 #include <cstddef>
 #include <cstdint>
 #include <optional>
 #include <span>
-#include <vector>
+
 
 namespace psm::multiplex::yamux
 {
+
     // 协议版本号，yamux 规范规定 Version 字段固定为 0
     constexpr std::uint8_t protocol_version = 0x00;
 
@@ -28,7 +31,7 @@ namespace psm::multiplex::yamux
     constexpr std::size_t frame_hdrsize = 12;
 
     // 初始流窗口大小（256KB），用于 WindowUpdate SYN/ACK 的 Length 字段和接收窗口阈值
-    constexpr std::uint32_t initial_stream_window = 256 * 1024;
+    constexpr std::uint32_t default_window = 256 * 1024;
 
     /**
      * @enum message_type
@@ -84,20 +87,20 @@ namespace psm::multiplex::yamux
      * @param flag 目标标志
      * @return true 表示包含该标志
      */
-    [[nodiscard]] constexpr bool has_flag(flags f, flags flag) noexcept
+    [[nodiscard]] constexpr auto has_flag(flags f, flags flag) noexcept -> bool
     {
         return (f & flag) != flags::none;
     }
 
     /**
-     * @enum go_away_code
+     * @enum away_code
      * @brief GoAway 帧的终止原因码，对应 GoAway 帧的 Length 字段
      */
-    enum class go_away_code : std::uint32_t
+    enum class away_code : std::uint32_t
     {
         /** @brief 协议错误，收到无法识别的帧或非法状态转换 */
         protocol_error = 1
-    }; // enum go_away_code
+    }; // enum away_code
 
     // 帧结构
 
@@ -120,7 +123,7 @@ namespace psm::multiplex::yamux
          * @brief 检查是否为会话级消息（StreamID == 0）
          * @return true 表示该帧属于会话级（如 Ping、GoAway）
          */
-        [[nodiscard]] bool is_session() const noexcept
+        [[nodiscard]] auto is_session() const noexcept -> bool
         {
             return stream_id == 0;
         }
@@ -133,14 +136,16 @@ namespace psm::multiplex::yamux
      * @param hdr 帧头结构
      * @return 编码后的 12 字节数组
      */
-    [[nodiscard]] std::array<std::byte, frame_hdrsize> build_header(const frame_header &hdr) noexcept;
+    [[nodiscard]] auto build_header(const frame_header &hdr) noexcept
+        -> std::array<std::byte, frame_hdrsize>;
 
     /**
      * @brief 解析 12 字节帧头
      * @param buffer 输入缓冲区，至少包含 12 字节
      * @return 解析结果，Version 或 Type 非法时返回 nullopt
      */
-    [[nodiscard]] std::optional<frame_header> parse_header(std::span<const std::byte> buffer) noexcept;
+    [[nodiscard]] auto parse_header(std::span<const std::byte> buffer) noexcept
+        -> std::optional<frame_header>;
 
     /**
      * @brief 构建 WindowUpdate 帧（仅 12 字节帧头，无载荷）
@@ -149,8 +154,9 @@ namespace psm::multiplex::yamux
      * @param delta 窗口增量（字节数）
      * @return 编码后的 12 字节数组
      */
-    [[nodiscard]] std::array<std::byte, frame_hdrsize> build_window_update_frame(
-        flags f, std::uint32_t stream_id, std::uint32_t delta) noexcept;
+    [[nodiscard]] auto build_winupd(
+        flags f, std::uint32_t stream_id, std::uint32_t delta) noexcept
+        -> std::array<std::byte, frame_hdrsize>;
 
     /**
      * @brief 构建 Ping 帧（仅 12 字节帧头，无载荷）
@@ -158,15 +164,17 @@ namespace psm::multiplex::yamux
      * @param ping_id ping 标识符，响应帧必须携带与请求相同的 ID
      * @return 编码后的 12 字节数组
      */
-    [[nodiscard]] std::array<std::byte, frame_hdrsize> build_ping_frame(
-        flags f, std::uint32_t ping_id) noexcept;
+    [[nodiscard]] auto build_ping(
+        flags f, std::uint32_t ping_id) noexcept
+        -> std::array<std::byte, frame_hdrsize>;
 
     /**
      * @brief 构建 GoAway 帧（仅 12 字节帧头，无载荷）
      * @param code 终止原因码
      * @return 编码后的 12 字节数组
      */
-    [[nodiscard]] std::array<std::byte, frame_hdrsize> build_go_away_frame(go_away_code code) noexcept;
+    [[nodiscard]] auto build_goaway(away_code code) noexcept
+        -> std::array<std::byte, frame_hdrsize>;
 
     /**
      * @struct data_frame
@@ -177,7 +185,7 @@ namespace psm::multiplex::yamux
     struct data_frame
     {
         std::array<std::byte, frame_hdrsize> header{}; // 编码后的帧头
-        std::vector<std::byte> payload;                     // 帧载荷
+        memory::vector<std::byte> payload;                     // 帧载荷
     }; // struct data_frame
 
     /**
@@ -187,19 +195,21 @@ namespace psm::multiplex::yamux
      * @param payload 帧载荷数据（可为空）
      * @return 包含帧头和载荷的 data_frame 结构
      */
-    [[nodiscard]] data_frame make_data_frame(flags f, std::uint32_t stream_id,
-                                             std::span<const std::byte> payload) noexcept;
+    [[nodiscard]] auto build_data(flags f, std::uint32_t stream_id,
+                                             std::span<const std::byte> payload) noexcept
+        -> data_frame;
 
     /**
      * @brief 构建 Data(SYN) 帧（帧头 + 载荷）
      * @param stream_id 流标识符
      * @param payload 帧载荷数据（通常携带目标地址）
      * @return 包含帧头和载荷的 data_frame 结构
-     * @details 等价于 make_data_frame(flags::syn, stream_id, payload)，
+     * @details 等价于 build_data(flags::syn, stream_id, payload)，
      * 用于 sing-mux 兼容模式的新流创建。
      */
-    [[nodiscard]] data_frame make_syn_frame(std::uint32_t stream_id,
-                                            std::span<const std::byte> payload) noexcept;
+    [[nodiscard]] auto build_syn(std::uint32_t stream_id,
+                                            std::span<const std::byte> payload) noexcept
+        -> data_frame;
 
     /**
      * @brief 构建 Data(FIN) 帧（仅 12 字节帧头，无载荷）
@@ -207,6 +217,7 @@ namespace psm::multiplex::yamux
      * @return 编码后的 12 字节数组
      * @details FIN 帧不携带载荷，Length 字段为 0。
      */
-    [[nodiscard]] std::array<std::byte, frame_hdrsize> make_fin_frame(std::uint32_t stream_id) noexcept;
+    [[nodiscard]] auto build_fin(std::uint32_t stream_id) noexcept
+        -> std::array<std::byte, frame_hdrsize>;
 
 } // namespace psm::multiplex::yamux

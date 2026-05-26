@@ -30,11 +30,11 @@ using namespace psm;
 
 /**
  * @brief HTTP 转发请求行构建
- * @details 测试 build_fwd_line 的请求行重写性能
+ * @details 测试 build_fwd 的请求行重写性能
  */
 static void BM_HttpBuildForwardRequestLine(benchmark::State &state)
 {
-    memory::system::enable_global_pooling();
+    memory::system::enable_pooling();
     memory::frame_arena arena;
     auto mr = arena.get();
 
@@ -46,7 +46,7 @@ static void BM_HttpBuildForwardRequestLine(benchmark::State &state)
     for (auto _ : state)
     {
         arena.reset();
-        auto line = protocol::http::build_fwd_line(req, mr);
+        auto line = protocol::http::build_fwd(req, mr);
         benchmark::DoNotOptimize(line);
     }
 }
@@ -73,7 +73,7 @@ static void BM_HttpParse_LargeHeader(benchmark::State &state)
     protocol::http::proxy_request req;
     for (auto _ : state)
     {
-        auto ec = protocol::http::parse_proxy_req(request, req);
+        auto ec = protocol::http::parse_req(request, req);
         benchmark::DoNotOptimize(req);
     }
     state.SetBytesProcessed(static_cast<std::int64_t>(state.iterations()) * static_cast<std::int64_t>(request.size()));
@@ -89,7 +89,7 @@ static void BM_HttpParse_LargeHeader(benchmark::State &state)
  */
 static void BM_Socks5EncodeUdpHeader(benchmark::State &state)
 {
-    memory::system::enable_global_pooling();
+    memory::system::enable_pooling();
     memory::frame_arena arena;
     auto mr = arena.get();
 
@@ -102,7 +102,7 @@ static void BM_Socks5EncodeUdpHeader(benchmark::State &state)
     {
         arena.reset();
         memory::vector<std::uint8_t> out(mr);
-        auto ec = protocol::socks5::wire::encode_udp_hdr(header, out);
+        auto ec = protocol::socks5::wire::encode_hdr(header, out);
         benchmark::DoNotOptimize(out);
     }
 }
@@ -124,7 +124,7 @@ static void BM_Socks5DecodeUdpHeader(benchmark::State &state)
 
     for (auto _ : state)
     {
-        auto [ec, result] = protocol::socks5::wire::decode_udp_hdr(buffer);
+        auto [ec, result] = protocol::socks5::wire::decode_hdr(buffer);
         benchmark::DoNotOptimize(result);
     }
     state.SetBytesProcessed(static_cast<std::int64_t>(state.iterations()) * static_cast<std::int64_t>(buffer.size()));
@@ -136,7 +136,7 @@ static void BM_Socks5DecodeUdpHeader(benchmark::State &state)
  */
 static void BM_Socks5BuildSuccessResponse(benchmark::State &state)
 {
-    memory::system::enable_global_pooling();
+    memory::system::enable_pooling();
     memory::frame_arena arena;
     auto mr = arena.get();
 
@@ -169,7 +169,7 @@ static void BM_Socks5BuildSuccessResponse(benchmark::State &state)
  */
 static void BM_TrojanParseUdpPacket(benchmark::State &state)
 {
-    memory::system::enable_global_pooling();
+    memory::system::enable_pooling();
     memory::frame_arena arena;
     auto mr = arena.get();
 
@@ -203,7 +203,7 @@ static void BM_TrojanParseUdpPacket(benchmark::State &state)
  */
 static void BM_TrojanBuildUdpPacket(benchmark::State &state)
 {
-    memory::system::enable_global_pooling();
+    memory::system::enable_pooling();
     memory::frame_arena arena;
     auto mr = arena.get();
 
@@ -308,7 +308,7 @@ static void BM_VlessParseRequest_Domain(benchmark::State &state)
  */
 static void BM_VlessParseUdpPacket(benchmark::State &state)
 {
-    memory::system::enable_global_pooling();
+    memory::system::enable_pooling();
     memory::frame_arena arena;
     auto mr = arena.get();
 

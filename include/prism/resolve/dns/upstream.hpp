@@ -17,20 +17,22 @@
  */
 #pragma once
 
-#include <cstdint>
-#include <memory>
-#include <string_view>
+#include <prism/fault/code.hpp>
+#include <prism/memory/container.hpp>
+#include <prism/resolve/dns/config.hpp>
+#include <prism/resolve/dns/detail/format.hpp>
 
 #include <boost/asio.hpp>
 #include <boost/asio/ssl.hpp>
 
-#include <prism/resolve/dns/detail/format.hpp>
-#include <prism/resolve/dns/config.hpp>
-#include <prism/memory/container.hpp>
-#include <prism/fault/code.hpp>
+#include <cstdint>
+#include <memory>
+#include <string_view>
+
 
 namespace psm::resolve::dns
 {
+
     namespace net = boost::asio;
     namespace ssl = net::ssl;
 
@@ -50,7 +52,7 @@ namespace psm::resolve::dns
     {
         message response;                        // DNS 响应报文
         memory::vector<net::ip::address> ips;    // 从响应中提取的 IP 地址
-        uint64_t rtt_ms{0};                      // 往返时间（毫秒）
+        std::uint64_t rtt_ms{0};                      // 往返时间（毫秒）
         memory::string server_addr;              // 响应来自哪个上游服务器
         fault::code error{fault::code::success}; // 错误码
 
@@ -107,7 +109,7 @@ namespace psm::resolve::dns
          * @details 当上游服务器未配置独立超时时间时使用此默认值。
          * @param ms 超时时间（毫秒）
          */
-        void set_timeout(uint32_t ms);
+        void set_timeout(std::uint32_t ms);
 
         /**
          * @brief 异步查询域名
@@ -163,11 +165,41 @@ namespace psm::resolve::dns
         [[nodiscard]] auto query_https(const dns_remote &server, const message &query)
             -> net::awaitable<query_result>;
 
+        /**
+         * @brief 顺序尝试所有上游服务器（fallback 模式）
+         * @details 依次查询每个上游，返回首个成功结果；全部失败则返回错误。
+         * @param domain 待查询的域名
+         * @param query_msg DNS 查询报文
+         * @return 协程对象，返回 query_result
+         */
+        [[nodiscard]] auto resolve_fallback(std::string_view domain, const message &query_msg)
+            -> net::awaitable<query_result>;
+
+        /**
+         * @brief 并发查询所有上游服务器（first/fastest 模式）
+         * @details 并发启动所有查询，first 模式返回首个成功响应，
+         * fastest 模式等待全部完成后选择 RTT 最低的成功响应。
+         * @param query_msg DNS 查询报文
+         * @return 协程对象，返回 query_result
+         */
+        [[nodiscard]] auto resolve_concurrent(const message &query_msg)
+            -> net::awaitable<query_result>;
+
+        /**
+         * @brief 从并发结果中选择最佳响应
+         * @details fastest 模式选择 RTT 最低的成功响应；
+         * 若全部失败则返回第一个结果。
+         * @param results 所有上游的查询结果
+         * @return 最佳结果的移动引用
+         */
+        [[nodiscard]] auto select_best_result(memory::vector<query_result> &results)
+            -> query_result;
+
         net::io_context &ioc_;                     // IO 上下文
         memory::resource_pointer mr_;              // 内存资源
         memory::vector<dns_remote> servers_;       // 上游服务器列表
         resolve_mode mode_{resolve_mode::fastest}; // 解析策略
-        uint32_t timeout_ms_{4000};                // 默认超时（毫秒）
+        std::uint32_t timeout_ms_{4000};                // 默认超时（毫秒）
 
         /**
          * @struct ssl_key
@@ -193,7 +225,7 @@ namespace psm::resolve::dns
          */
         struct ssl_key_hash
         {
-            [[nodiscard]] std::size_t operator()(const ssl_key &k) const noexcept
+            [[nodiscard]] auto operator()(const ssl_key &k) const noexcept -> std::size_t
             {
                 auto h = std::hash<memory::string>{}(k.hostname);
                 h ^= std::hash<bool>{}(k.verify_peer) + 0x9e3779b9 + (h << 6) + (h >> 2);
@@ -202,6 +234,16 @@ namespace psm::resolve::dns
         };
 
         memory::unordered_map<ssl_key, std::shared_ptr<ssl::context>, ssl_key_hash> ssl_cache_; // SSL 上下文缓存
+
+        /**
+         * @brief 根据协议类型选择查询方法
+         * @details 根据 server.protocol 分发到对应的传输层查询方法。
+         * @param server 目标上游服务器配置
+         * @param query DNS 查询报文
+         * @return 协程对象，返回该上游的查询结果
+         */
+        [[nodiscard]] auto query_server(const dns_remote &server, const message &query)
+            -> net::awaitable<query_result>;
 
         /**
          * @brief 获取或创建 SSL 上下文

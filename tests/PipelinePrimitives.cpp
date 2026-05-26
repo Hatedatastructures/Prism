@@ -2,7 +2,7 @@
  * @file PipelinePrimitives.cpp
  * @brief 管道原语单元测试
  * @details 验证 psm::connect 和 psm::transport 命名空间下的核心功能，包括：
- * 1. is_mux_target() 对 mux 标记地址的检测逻辑
+ * 1. is_mux() 对 mux 标记地址的检测逻辑
  * 2. preview 预读回放包装器的构造与基本属性
  * 3. probe_result 探测结果辅助方法的正确性
  */
@@ -34,7 +34,7 @@ namespace
 // ============================================================================
 
 /**
- * @brief 测试 is_mux_target() 对 mux 标记地址的检测
+ * @brief 测试 is_mux() 对 mux 标记地址的检测
  * @details 覆盖以下场景：
  * - mux 启用 + 匹配的 .mux.sing-box.arpa 后缀 -> true
  * - mux 启用 + 非匹配主机名 -> false
@@ -45,57 +45,57 @@ void TestIsMuxTarget()
 {
     runner.LogInfo("=== TestIsMuxTarget ===");
 
-    using psm::connect::is_mux_target;
+    using psm::connect::is_mux;
     using psm::connect::mux_switch;
 
     // mux 启用 + 匹配的 mux 标记地址 -> true
     runner.Check(
-        is_mux_target("example.mux.sing-box.arpa", mux_switch::on) == true,
+        is_mux("example.mux.sing-box.arpa", mux_switch::on) == true,
         "mux enabled + matching host -> true");
 
     // mux 启用 + 嵌套子域名 -> true
     runner.Check(
-        is_mux_target("foo.bar.mux.sing-box.arpa", mux_switch::on) == true,
+        is_mux("foo.bar.mux.sing-box.arpa", mux_switch::on) == true,
         "mux enabled + nested subdomain -> true");
 
     // mux 启用 + 恰好等于后缀 -> true
     runner.Check(
-        is_mux_target(".mux.sing-box.arpa", mux_switch::on) == true,
+        is_mux(".mux.sing-box.arpa", mux_switch::on) == true,
         "mux enabled + exactly suffix -> true");
 
     // mux 启用 + 非匹配主机名 -> false
     runner.Check(
-        is_mux_target("example.com", mux_switch::on) == false,
+        is_mux("example.com", mux_switch::on) == false,
         "mux enabled + non-matching host -> false");
 
     // mux 启用 + 类似但不匹配的后缀 -> false
     runner.Check(
-        is_mux_target("mux.sing-box.arpa", mux_switch::on) == false,
+        is_mux("mux.sing-box.arpa", mux_switch::on) == false,
         "mux enabled + missing leading dot -> false");
 
     // mux 启用 + 拼写错误的后缀 -> false
     runner.Check(
-        is_mux_target("example.mux.singbox.arpa", mux_switch::on) == false,
+        is_mux("example.mux.singbox.arpa", mux_switch::on) == false,
         "mux enabled + misspelled suffix -> false");
 
     // mux 启用 + 空主机名 -> false
     runner.Check(
-        is_mux_target("", mux_switch::on) == false,
+        is_mux("", mux_switch::on) == false,
         "mux enabled + empty host -> false");
 
     // mux 启用 + 后缀的前缀（比后缀短） -> false
     runner.Check(
-        is_mux_target("sing-box.arpa", mux_switch::on) == false,
+        is_mux("sing-box.arpa", mux_switch::on) == false,
         "mux enabled + partial suffix -> false");
 
     // mux 禁用 + 匹配的 mux 标记地址 -> false
     runner.Check(
-        is_mux_target("example.mux.sing-box.arpa", mux_switch::off) == false,
+        is_mux("example.mux.sing-box.arpa", mux_switch::off) == false,
         "mux disabled + matching host -> false");
 
     // mux 禁用 + 任意主机名 -> false
     runner.Check(
-        is_mux_target("anything", mux_switch::off) == false,
+        is_mux("anything", mux_switch::off) == false,
         "mux disabled + any host -> false");
 
     runner.LogPass("TestIsMuxTarget");
@@ -361,7 +361,7 @@ void TestShutCloseNullptr()
  */
 int main()
 {
-    psm::memory::system::enable_global_pooling();
+    psm::memory::system::enable_pooling();
     psm::trace::init({});
 
     runner.LogInfo("Starting PipelinePrimitives tests...");

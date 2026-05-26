@@ -8,21 +8,24 @@
  */
 #pragma once
 
-#include <string>
-#include <vector>
 #include <list>
 #include <map>
+#include <memory_resource>
+#include <string>
+#include <type_traits>
 #include <unordered_map>
 #include <unordered_set>
-#include <memory_resource>
-#include <type_traits>
+#include <vector>
+
 
 namespace psm
 {
+
 }
 
 namespace psm::memory
 {
+
     using resource = std::pmr::memory_resource; // 内存资源类型，配合 monotonic_buffer 使用具有良好的缓存友好性
 
     using resource_pointer = std::add_pointer_t<resource>; // 内存资源指针类型，用于在函数间传递内存资源引用
@@ -30,7 +33,7 @@ namespace psm::memory
     /**
      * @brief 获取当前默认内存资源
      * @details 对 std::pmr::get_default_resource() 的包装。
-     * 如果调用了 system::enable_global_pooling()，则返回
+     * 如果调用了 system::enable_pooling()，则返回
      * global_pool()，否则返回系统堆分配器。
      * @return 当前默认内存资源指针，永不返回 nullptr
      */
@@ -38,6 +41,21 @@ namespace psm::memory
         -> resource_pointer
     {
         return std::pmr::get_default_resource();
+    }
+
+    /**
+     * @brief 获取有效的内存资源指针
+     * @details 如果传入的 mr 非空则直接返回，否则返回默认内存资源。
+     * 用于统一替代 mr ? mr : current_resource() 三元模式。
+     * @param mr 可选的内存资源指针
+     * @return 有效的内存资源指针，永不返回 nullptr
+     */
+    [[nodiscard]] inline auto effective_mr(resource_pointer mr) noexcept
+        -> resource_pointer
+    {
+        if (mr)
+            return mr;
+        return current_resource();
     }
 
     template <typename Type>

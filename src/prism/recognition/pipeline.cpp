@@ -1,10 +1,13 @@
 #include <prism/recognition/pipeline.hpp>
+
 #include <prism/stealth/registry.hpp>
 #include <prism/trace.hpp>
+
 #include <algorithm>
 
 namespace psm::recognition
 {
+
     using hello_features = protocol::tls::hello_features;
 
     layered_detection_pipeline::layered_detection_pipeline(

@@ -8,10 +8,12 @@
  */
 #pragma once
 
-#include <string_view>
 #include <prism/memory/container.hpp>
 #include <prism/protocol/common/target.hpp>
 #include <prism/protocol/http/parser.hpp>
+
+#include <string_view>
+
 
 namespace psm::recognition {
 
@@ -32,7 +34,7 @@ namespace psm::recognition {
  * @note 如果解析失败，返回的目标对象可能包含空字符串。
  * @warning 请求对象必须包含有效的 HTTP 请求数据。
  */
-auto resolve(const protocol::http::proxy_request &req, memory::resource_pointer mr = nullptr)
+[[nodiscard]] auto resolve(const protocol::http::proxy_request &req, memory::resource_pointer mr = nullptr)
     -> protocol::target;
 
 /**
@@ -51,7 +53,7 @@ auto resolve(const protocol::http::proxy_request &req, memory::resource_pointer 
  * @note 对于非 HTTP 协议，positive 标志通常为 true（正向代理）。
  * @warning IPv6 地址必须用方括号括起，否则解析可能失败。
  */
-auto resolve(std::string_view host_port, memory::resource_pointer mr = nullptr)
+[[nodiscard]] auto resolve(std::string_view host_port, memory::resource_pointer mr = nullptr)
     -> protocol::target;
 
 /**

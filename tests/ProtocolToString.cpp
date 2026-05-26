@@ -96,7 +96,7 @@ void TestTostringviewCoverage()
  */
 int main()
 {
-    psm::memory::system::enable_global_pooling();
+    psm::memory::system::enable_pooling();
     psm::trace::init({});
 
     runner.LogInfo("Starting ProtocolToString tests...");

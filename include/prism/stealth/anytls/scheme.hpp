@@ -7,26 +7,28 @@
  */
 #pragma once
 
-#include <prism/stealth/scheme.hpp>
 #include <prism/stealth/anytls/config.hpp>
+#include <prism/stealth/scheme.hpp>
+
 
 namespace psm::stealth::anytls
 {
+
     /**
      * @class scheme
      * @brief AnyTLS 伪装方案实现
      * @details AnyTLS 使用标准 TLS 证书，通过应用层认证实现代理功能。
      * 服务端在 TLS 握手完成后，从 TLS 应用数据中读取认证信息。
      *
-     * **工作流程**：
+     * 工作流程：
      * 1. 执行标准 TLS 握手（使用配置的证书）
      * 2. 读取 TLS 应用数据（客户端首帧）
      * 3. 解析 AnyTLS 认证帧，验证用户身份
      * 4. 认证成功后，检测内层协议
      *
-     * **ECH 支持**：
-     * - 如果配置了 ech_key，可以叠加 ECH 加密
-     * - ECH 解密在 Tier 1 的 verify 中执行
+     * ECH 支持：
+     * 如果配置了 ech_key，可以叠加 ECH 加密
+     * ECH 解密在 Tier 1 的 verify 中执行
      */
     class scheme final : public stealth_scheme
     {

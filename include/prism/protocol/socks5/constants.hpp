@@ -10,8 +10,10 @@
 
 #include <cstdint>
 
+
 namespace psm::protocol::socks5
 {
+
     /**
      * @enum command
      * @brief SOCKS5 命令类型

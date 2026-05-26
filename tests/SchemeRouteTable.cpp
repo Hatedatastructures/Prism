@@ -49,10 +49,10 @@ void TestSchemeRouteTableBuild()
     psm::testing::TestRunner runner("SchemeRouteTable::build");
 
     auto cfg = BuildTestConfig();
-    auto table = psm::recognition::scheme_route_table::build(cfg);
+    auto table = psm::recognition::route_table::build(cfg);
 
     runner.Check(!table.empty(), "Route table should not be empty");
-    runner.Check(table.all_registered_snis().size() == 5, "Should have 5 registered SNIs");
+    runner.Check(table.registered_snis().size() == 5, "Should have 5 registered SNIs");
 
     runner.Summary();
 }
@@ -62,7 +62,7 @@ void TestSchemeRouteTableLookup()
     psm::testing::TestRunner runner("SchemeRouteTable::lookup");
 
     auto cfg = BuildTestConfig();
-    auto table = psm::recognition::scheme_route_table::build(cfg);
+    auto table = psm::recognition::route_table::build(cfg);
 
     // 测试 Reality SNI
     auto schemes = table.lookup("reality.example.com");
@@ -90,7 +90,7 @@ void TestSchemeRouteTableMatchesAny()
     psm::testing::TestRunner runner("SchemeRouteTable::matches_any");
 
     auto cfg = BuildTestConfig();
-    auto table = psm::recognition::scheme_route_table::build(cfg);
+    auto table = psm::recognition::route_table::build(cfg);
 
     runner.Check(table.matches_any("reality.example.com"), "Reality SNI should match");
     runner.Check(table.matches_any("shadowtls.example.com"), "ShadowTLS SNI should match");

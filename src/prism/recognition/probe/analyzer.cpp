@@ -2,6 +2,7 @@
 
 namespace psm::recognition::probe
 {
+
     auto detect(const std::string_view peek_data)
         -> protocol::protocol_type
     {

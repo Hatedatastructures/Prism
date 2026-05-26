@@ -8,16 +8,18 @@
  */
 #pragma once
 
+#include <prism/protocol/types.hpp>
+#include <prism/stats/snapshot.hpp>
+
 #include <atomic>
 #include <cstdint>
 #include <memory>
 #include <vector>
 
-#include <prism/stats/snapshot.hpp>
-#include <prism/protocol/types.hpp>
 
 namespace psm::stats::traffic
 {
+
     /**
      * @struct alignas(64) protocol_slot
      * @brief 单个协议维度的原子计数器组
@@ -45,10 +47,10 @@ namespace psm::stats::traffic
      * @note 线程安全：所有方法均为原子操作，但设计上仅由单写者调用
      * @note 生命周期：由 worker 持有，随 worker 析构自动析构
      */
-    class alignas(64) traffic_state
+    class alignas(64) traffic_state final
     {
     public:
-        traffic_state() = default;
+        explicit traffic_state() = default;
 
         /**
          * @brief 新连接建立时调用
@@ -81,9 +83,7 @@ namespace psm::stats::traffic
          * 每次调用产生 4 次 fetch_add（total_uplink, total_downlink,
          * protocols_[i].uplink_bytes, protocols_[i].downlink_bytes）
          */
-        void flush_traffic(protocol::protocol_type proto,
-                           std::uint64_t up,
-                           std::uint64_t down) noexcept;
+        void flush_traffic(protocol::protocol_type proto, std::uint64_t up, std::uint64_t down) noexcept;
 
         /**
          * @brief 认证成功计数 +1
@@ -137,16 +137,13 @@ namespace psm::stats::traffic
             -> traffic_snapshot;
 
     private:
-        // 全局汇总
         std::atomic<std::uint64_t> total_connections_{0};              ///< 全局总连接数
         std::atomic<std::uint64_t> total_active_{0};                   ///< 全局活跃连接数
         std::atomic<std::uint64_t> total_uplink_{0};                   ///< 全局上行字节
         std::atomic<std::uint64_t> total_downlink_{0};                 ///< 全局下行字节
 
-        // 协议维度明细
-        protocol_slot protocols_[proto_slot_count];                 ///< 按 protocol_type 索引的协议槽位数组
+        protocol_slot protocols_[slot_count];                 ///< 按 protocol_type 索引的协议槽位数组
 
-        // 认证
         std::atomic<std::uint64_t> auth_success_{0};                   ///< 认证成功次数
         std::atomic<std::uint64_t> auth_failure_{0};                   ///< 认证失败次数
     };

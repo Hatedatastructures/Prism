@@ -40,7 +40,7 @@ void TestSmuxCraftSynFrame()
 {
     runner.LogInfo("=== TestSmuxCraftSynFrame ===");
 
-    auto frame = psm::multiplex::smux::make_syn_frame(100);
+    auto frame = psm::multiplex::smux::make_syn(100);
 
     runner.Check(frame.size() == 8, "syn frame = 8 bytes (header only)");
 
@@ -57,7 +57,7 @@ void TestSmuxCraftFinFrame()
 {
     runner.LogInfo("=== TestSmuxCraftFinFrame ===");
 
-    auto frame = psm::multiplex::smux::make_fin_frame(200);
+    auto frame = psm::multiplex::smux::make_fin(200);
 
     runner.Check(frame.size() == 8, "fin frame = 8 bytes (header only)");
 
@@ -75,7 +75,7 @@ int main()
 #ifdef _WIN32
     SetConsoleOutputCP(CP_UTF8);
 #endif
-    psm::memory::system::enable_global_pooling();
+    psm::memory::system::enable_pooling();
     psm::trace::init({});
 
     runner.LogInfo("========== SmuxCraft Tests ==========");

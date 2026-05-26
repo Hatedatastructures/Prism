@@ -9,34 +9,37 @@
  */
 #pragma once
 
+#include <prism/fault/code.hpp>
+
 #include <array>
 #include <cstddef>
 #include <cstdint>
 #include <span>
 #include <utility>
-#include <prism/fault/code.hpp>
+
 
 namespace psm::crypto
 {
+
     /**
      * @brief X25519 密钥长度（字节）
      */
-    constexpr std::size_t X25519_KEY_LEN = 32;
+    constexpr std::size_t x25519_klen = 32;
 
     /**
      * @brief X25519 共享密钥长度（字节）
      */
-    constexpr std::size_t X25519_SHARED_LEN = 32;
+    constexpr std::size_t x25519_slen = 32;
 
     /**
      * @brief Ed25519 公钥长度（字节）
      */
-    constexpr std::size_t ED25519_KEY_LEN = 32;
+    constexpr std::size_t ed25519_klen = 32;
 
     /**
      * @brief Ed25519 私钥长度（字节，含种子+公钥的完整格式）
      */
-    constexpr std::size_t ED25519_PRIVATE_KEY_LEN = 64;
+    constexpr std::size_t ed25519_plen = 64;
 
     /**
      * @struct x25519_keypair
@@ -46,8 +49,8 @@ namespace psm::crypto
      */
     struct x25519_keypair
     {
-        std::array<std::uint8_t, X25519_KEY_LEN> private_key{}; // X25519 私钥（32 字节标量）
-        std::array<std::uint8_t, X25519_KEY_LEN> public_key{};  // X25519 公钥（Curve25519 上的点，32 字节）
+        std::array<std::uint8_t, x25519_klen> private_key{}; // X25519 私钥（32 字节标量）
+        std::array<std::uint8_t, x25519_klen> public_key{};  // X25519 公钥（Curve25519 上的点，32 字节）
     };
 
     /**
@@ -56,7 +59,7 @@ namespace psm::crypto
      * 然后从私钥推导对应的公钥。
      * @return 随机生成的 X25519 密钥对
      */
-    [[nodiscard]] auto generate_x25519_keypair()
+    [[nodiscard]] auto generate_keypair()
         -> x25519_keypair;
 
     /**
@@ -66,22 +69,22 @@ namespace psm::crypto
      * @param private_key 32 字节 X25519 私钥
      * @return 推导出的 32 字节公钥，失败时返回全零
      */
-    [[nodiscard]] auto derive_x25519_public_key(std::span<const std::uint8_t> private_key)
-        -> std::array<std::uint8_t, X25519_KEY_LEN>;
+    [[nodiscard]] auto derive_pubkey(std::span<const std::uint8_t> private_key)
+        -> std::array<std::uint8_t, x25519_klen>;
 
     /**
      * @brief X25519 密钥交换
-     * @details 计算 shared_secret = X25519(private_key, peer_public_key)。
+     * @details 计算 shared_secret = X25519(private_key, peer_pubkey)。
      * 成功时返回 fault::code::success 和共享密钥。
      * 失败可能原因：无效的公钥（低阶点）或 EVP API 错误。
      * @param private_key 本方 32 字节 X25519 私钥
-     * @param peer_public_key 对方 32 字节 X25519 公钥
+     * @param peer_pubkey 对方 32 字节 X25519 公钥
      * @return 错误码和 32 字节共享密钥的配对
      * @note 即使对方公钥是低阶点，X25519 也会成功计算（输出全零），
      * 调用者应检查共享密钥是否为全零以检测此类攻击。
      */
-    [[nodiscard]] auto x25519(std::span<const std::uint8_t> private_key, std::span<const std::uint8_t> peer_public_key)
-        -> std::pair<fault::code, std::array<std::uint8_t, X25519_SHARED_LEN>>;
+    [[nodiscard]] auto x25519(std::span<const std::uint8_t> private_key, std::span<const std::uint8_t> peer_pubkey)
+        -> std::pair<fault::code, std::array<std::uint8_t, x25519_slen>>;
 
     /**
      * @struct ed25519_keypair
@@ -91,7 +94,7 @@ namespace psm::crypto
      */
     struct ed25519_keypair
     {
-        std::array<std::uint8_t, ED25519_PRIVATE_KEY_LEN> private_key{}; // Ed25519 完整私钥（64 字节：种子+公钥）
-        std::array<std::uint8_t, ED25519_KEY_LEN> public_key{};          // Ed25519 公钥（32 字节）
+        std::array<std::uint8_t, ed25519_plen> private_key{}; // Ed25519 完整私钥（64 字节：种子+公钥）
+        std::array<std::uint8_t, ed25519_klen> public_key{};          // Ed25519 公钥（32 字节）
     };
 } // namespace psm::crypto

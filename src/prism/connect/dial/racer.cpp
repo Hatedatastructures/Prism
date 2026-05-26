@@ -8,6 +8,7 @@
 
 namespace psm::connect
 {
+
     namespace net = boost::asio;
     using tcp = boost::asio::ip::tcp;
 
@@ -67,7 +68,9 @@ namespace psm::connect
         // 第 1 个端点立即连接，后续按 250ms 间隔递增启动（RFC 8305）
         for (std::size_t i = 0; i < count; ++i)
         {
-            const auto delay = (i == 0) ? std::chrono::milliseconds(0) : secondary_delay * static_cast<long>(i);
+            std::chrono::milliseconds delay{0};
+            if (i > 0)
+                delay = secondary_delay * static_cast<long>(i);
 
             net::co_spawn(executor, race_endpoint(endpoints[i], delay, ctx), net::detached);
         }

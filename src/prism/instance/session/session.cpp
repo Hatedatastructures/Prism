@@ -1,32 +1,36 @@
 #include <prism/instance/session/session.hpp>
+
+#include <prism/config.hpp>
+#include <prism/connect/tunnel/tunnel.hpp>
+#include <prism/exception.hpp>
+#include <prism/fault/code.hpp>
 #include <prism/protocol/http/process.hpp>
+#include <prism/protocol/shadowsocks/process.hpp>
 #include <prism/protocol/socks5/process.hpp>
 #include <prism/protocol/trojan/process.hpp>
-#include <prism/protocol/vless/process.hpp>
-#include <prism/protocol/shadowsocks/process.hpp>
-#include <prism/connect/tunnel/tunnel.hpp>
-#include <prism/recognition/recognition.hpp>
-#include <prism/transport/reliable.hpp>
-#include <prism/config.hpp>
-#include <prism/trace.hpp>
-#include <prism/exception.hpp>
-#include <prism/stats/traffic.hpp>
 #include <prism/protocol/types.hpp>
-#include <prism/fault/code.hpp>
+#include <prism/protocol/vless/process.hpp>
+#include <prism/recognition/recognition.hpp>
+#include <prism/stats/traffic.hpp>
+#include <prism/trace.hpp>
+#include <prism/transport/reliable.hpp>
+
 #include <boost/asio/experimental/awaitable_operators.hpp>
+
 #include <chrono>
 
 namespace psm::instance::session
 {
+
     namespace net = boost::asio;
 
     session::session(session_params params)
         : id_(detail::next_sid()),
-          ctx_{id_, params.server, params.worker, frame_arena_, {}, params.server.config().buffer.size, std::move(params.inbound)}
+          ctx_{context::session_opts{id_, params.server, params.worker, frame_arena_, {}, params.server.config().buffer.size, std::move(params.inbound)}}
     {
     }
 
-    session::~session()
+    session::~session() noexcept
     {
         release_resources();
     }
@@ -165,7 +169,7 @@ namespace psm::instance::session
             });
         };
 
-        using namespace boost::asio::experimental::awaitable_operators;
+        using boost::asio::experimental::awaitable_operators::operator||;
         auto variant = co_await (do_recognize() || deadline_expired());
 
         recognition::recognize_result result;

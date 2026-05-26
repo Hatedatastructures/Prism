@@ -8,15 +8,17 @@
  */
 #pragma once
 
+#include <prism/memory/container.hpp>
+#include <prism/protocol/common/address.hpp>
+#include <prism/protocol/common/form.hpp>
+#include <prism/protocol/trojan/constants.hpp>
+
 #include <array>
 
-#include <prism/protocol/trojan/constants.hpp>
-#include <prism/protocol/common/form.hpp>
-#include <prism/protocol/common/address.hpp>
-#include <prism/memory/container.hpp>
 
 namespace psm::protocol::trojan
 {
+
     // 引用共享地址类型
     using protocol::common::address;
     using protocol::common::domain_address;
@@ -34,7 +36,7 @@ namespace psm::protocol::trojan
     struct request
     {
         command cmd;                                            // 命令类型
-        uint16_t port;                                          // 目标端口，网络字节序
+        std::uint16_t port;                                          // 目标端口，网络字节序
         address destination_address;                            // 目标地址
         std::array<char, 56> credential;                        // 用户凭据，56 字节 SHA224 哈希
         psm::protocol::form transport = psm::protocol::form::stream; // 传输形式，由命令类型决定
@@ -51,6 +53,6 @@ namespace psm::protocol::trojan
     [[nodiscard]] inline auto to_string(const address &addr, memory::resource_pointer mr = memory::current_resource())
         -> memory::string
     {
-        return protocol::common::address_to_string(addr, mr);
+        return protocol::common::addr_to_str(addr, mr);
     }
 }

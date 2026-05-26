@@ -15,20 +15,23 @@
  */
 #pragma once
 
+#include <prism/memory/container.hpp>
+#include <prism/multiplex/config.hpp>
+#include <prism/multiplex/core.hpp>
+#include <prism/multiplex/parcel.hpp>
+#include <prism/multiplex/yamux/frame.hpp>
+
+#include <boost/asio/experimental/concurrent_channel.hpp>
+
 #include <array>
 #include <atomic>
 #include <cstdint>
 #include <memory>
 
-#include <boost/asio/experimental/concurrent_channel.hpp>
-
-#include <prism/multiplex/core.hpp>
-#include <prism/multiplex/config.hpp>
-#include <prism/multiplex/yamux/frame.hpp>
-#include <prism/memory/container.hpp>
 
 namespace psm::multiplex::yamux
 {
+
     namespace net = boost::asio;
 
     /**
@@ -52,12 +55,12 @@ namespace psm::multiplex::yamux
      * @brief 流窗口状态，用于流量控制
      * @details 跟踪单个流的发送和接收窗口，使用原子变量确保线程安全。
      * duct::target_readloop 和 frame_loop 可能并发访问 send_window，
-     * dispatch_data 和 update_recv_window 可能并发访问 recv_consumed。
+     * dispatch_data 和 update_recv_win 可能并发访问 recv_consumed。
      * window_signal 用于在窗口不足时等待 WindowUpdate 帧唤醒发送方。
      */
     struct stream_window
     {
-        std::atomic<std::uint32_t> send_window{initial_stream_window}; // 发送窗口（对端允许发送的数据量）
+        std::atomic<std::uint32_t> send_window{default_window}; // 发送窗口（对端允许发送的数据量）
         std::atomic<std::uint32_t> recv_consumed{0};                   // 已消费的接收数据量（阈值触发 WindowUpdate）
         std::shared_ptr<net::steady_timer> window_signal;              // 窗口更新信号定时器
 
@@ -91,6 +94,21 @@ namespace psm::multiplex::yamux
     }; // struct frame_data
 
     /**
+     * @struct activate_opts
+     * @brief activate_udp/activate_tcp 参数聚合
+     * @details 将流激活所需的流标识、目标地址、模式和剩余数据聚合为单一结构，
+     * 避免 activate_udp/activate_tcp 参数超过 3 个。
+     */
+    struct activate_opts
+    {
+        std::uint32_t stream_id{0};               ///< 流标识符
+        memory::string host;                      ///< 目标主机
+        std::uint16_t port{0};                    ///< 目标端口
+        addr_mode addr{addr_mode::length_prefixed}; ///< 地址编码模式（UDP 专用）
+        memory::vector<std::byte> remaining;      ///< 地址之后的剩余数据
+    }; // struct activate_opts
+
+    /**
      * @class craft
      * @brief yamux 多路复用会话服务端
      * @details 继承 core，实现 yamux 协议服务端逻辑，包括帧读写、窗口管理、
@@ -104,15 +122,11 @@ namespace psm::multiplex::yamux
          * @brief 构造 yamux 会话
          * @details 初始化传输层、配置和发送通道，会话处于未启动状态，
          * 调用 start() 后才会进入协议主循环
-         * @param transport 已建立的传输层连接（通常是 Trojan 隧道）
-         * @param router 路由器引用，用于解析地址并连接目标
-         * @param cfg 多路复用配置参数（含 yamux 子配置）
-         * @param mr PMR 内存资源，为空时使用默认资源
+         * @param opts 构造参数聚合，包含传输层连接、路由器、配置和内存资源
          */
-        craft(transport::shared_transmission transport, connect::router &router,
-              const multiplex::config &cfg, memory::resource_pointer mr = {});
+        explicit craft(core_options opts);
 
-        ~craft() override;
+        ~craft() noexcept override;
 
         /**
          * @brief 发送 Data 帧到客户端
@@ -139,7 +153,7 @@ namespace psm::multiplex::yamux
          * @return net::any_io_executor transport 的执行器
          * @note 用于 duct/parcel 协程调度和 co_spawn
          */
-        [[nodiscard]] net::any_io_executor executor() const override;
+        [[nodiscard]] auto executor() const -> net::any_io_executor override;
 
         /**
          * @brief 移除 TCP 管道并清理窗口状态
@@ -175,9 +189,9 @@ namespace psm::multiplex::yamux
         /**
          * @brief 帧循环主协程
          * @details 循环读取帧头（12 字节）+ 载荷（Data 帧才有），按消息类型分发：
-         * Data 由 handle_data 根据 flags 分发，WindowUpdate 由 handle_window_update
+         * Data 由 handle_data 根据 flags 分发，WindowUpdate 由 handle_winupd
          * 处理流创建或窗口更新，Ping 由 handle_ping 回复 ACK，
-         * GoAway 由 handle_go_away 关闭会话。读取失败或无效帧时退出循环。
+         * GoAway 由 handle_goaway 关闭会话。读取失败或无效帧时退出循环。
          */
         auto frame_loop()
             -> net::awaitable<void>;
@@ -246,7 +260,7 @@ namespace psm::multiplex::yamux
          * （回复 ACK），SYN+ACK 为确认服务端发起的流（本实现不支持服务端发起），
          * 普通帧增加 send_window
          */
-        auto handle_window_update(const frame_header &hdr)
+        auto handle_winupd(const frame_header &hdr)
             -> net::awaitable<void>;
 
         /**
@@ -263,13 +277,13 @@ namespace psm::multiplex::yamux
          * @param hdr 帧头（length 字段为终止原因码）
          * @details 收到 GoAway 后调用 close() 关闭整个会话。
          */
-        auto handle_go_away(const frame_header &hdr)
+        auto handle_goaway(const frame_header &hdr)
             -> net::awaitable<void>;
 
         /**
          * @brief 从 pending 解析地址、连接目标、创建 duct/parcel
          * @param stream_id 流标识符
-         * @details 解析 SOCKS5 格式目标地址（复用 smux::parse_mux_address），区分 TCP/UDP：
+         * @details 解析 SOCKS5 格式目标地址（复用 smux::parse_address），区分 TCP/UDP：
          * UDP 发送 0x00 成功状态后创建 parcel 并转发剩余数据，
          * TCP 通过 router 连接目标后发送 0x00 成功状态并创建 duct 转发剩余数据。
          * 地址解析失败时发送 0x01 错误状态并 FIN。
@@ -278,19 +292,40 @@ namespace psm::multiplex::yamux
             -> net::awaitable<void>;
 
         /**
+         * @brief 发送地址解析错误状态并关闭流
+         * @param stream_id 流标识符
+         */
+        auto send_addr_err(std::uint32_t stream_id)
+            -> net::awaitable<void>;
+
+        /**
+         * @brief 激活 UDP 流，创建 parcel
+         * @param opts 激活参数（流标识、目标地址、模式、剩余数据）
+         */
+        auto activate_udp(activate_opts opts)
+            -> net::awaitable<void>;
+
+        /**
+         * @brief 激活 TCP 流，连接目标并创建 duct
+         * @param opts 激活参数（流标识、目标地址、剩余数据；packet_addr 未使用）
+         */
+        auto activate_tcp(activate_opts opts)
+            -> net::awaitable<void>;
+
+        /**
          * @brief 为 pending 流设置超时定时器
          * @param stream_id 流标识符
-         * @details 当 stream_open_timeout > 0 时创建定时器，超时后检查流是否仍在 pending 中，
+         * @details 当 open_timeout > 0 时创建定时器，超时后检查流是否仍在 pending 中，
          * 若是则清理并发送 RST。activate_stream 成功后应取消定时器。
          */
-        void start_pending_timeout(std::uint32_t stream_id);
+        void start_pending(std::uint32_t stream_id);
 
         /**
          * @brief pending 流超时处理协程
          * @param stream_id 流标识符
          * @param timer 超时定时器共享指针
          * @details 等待定时器到期，若流仍在 pending_ 中则清理状态并发送 RST 帧。
-         * 由 start_pending_timeout 通过 co_spawn 启动，对象存活由调用方保证。
+         * 由 start_pending 通过 co_spawn 启动，对象存活由调用方保证。
          */
         auto pending_timeout(std::uint32_t stream_id, std::shared_ptr<net::steady_timer> timer)
             -> net::awaitable<void>;
@@ -302,7 +337,7 @@ namespace psm::multiplex::yamux
          * @param stream_id 流标识符
          * @return stream_window* 流窗口指针，永不返回 nullptr
          */
-        [[nodiscard]] stream_window *get_or_create_window(std::uint32_t stream_id);
+        [[nodiscard]] auto ensure_window(std::uint32_t stream_id) -> stream_window *;
 
         /**
          * @brief 获取流窗口（不创建）
@@ -310,16 +345,16 @@ namespace psm::multiplex::yamux
          * @param stream_id 流标识符
          * @return stream_window* 流窗口指针，不存在时返回 nullptr
          */
-        [[nodiscard]] stream_window *get_window(std::uint32_t stream_id) const;
+        [[nodiscard]] auto get_window(std::uint32_t stream_id) const -> stream_window *;
 
         /**
          * @brief 检查并更新接收窗口，必要时发送 WindowUpdate
          * @param stream_id 流标识符
          * @param consumed 本次消费的数据量
-         * @details 累积 recv_consumed，当达到 initial_stream_window/2 阈值时，
+         * @details 累积 recv_consumed，当达到 default_window/2 阈值时，
          * 发送 WindowUpdate(none) 帧，将 delta 设为累积消费量。
          */
-        auto update_recv_window(std::uint32_t stream_id, std::uint32_t consumed)
+        auto update_recv_win(std::uint32_t stream_id, std::uint32_t consumed)
             -> net::awaitable<void>;
 
         /**

@@ -5,27 +5,32 @@
  */
 #pragma once
 
+#include <prism/memory/container.hpp>
+
 #include <openssl/sha.h>
-#include <string>
-#include <string_view>
+
 #include <array>
 #include <cctype>
 #include <cstdint>
+#include <string>
+#include <string_view>
+
 
 namespace psm::crypto
 {
+
     /**
      * @brief 计算字符串的 SHA224 哈希值
      * @param input 输入字符串
      * @return 56 字节的十六进制哈希字符串
      */
     [[nodiscard]] inline auto sha224(const std::string_view input)
-        -> std::string
+        -> memory::string
     {
         std::array<std::uint8_t, SHA224_DIGEST_LENGTH> hash{};
         SHA224(reinterpret_cast<const std::uint8_t *>(input.data()), input.size(), hash.data());
 
-        std::string result;
+        memory::string result{memory::current_resource()};
         result.reserve(56);
         for (const auto byte : hash)
         {
@@ -41,7 +46,7 @@ namespace psm::crypto
      * @param str 输入字符串
      * @return 如果字符串只包含十六进制字符则返回 true
      */
-    [[nodiscard]] inline auto is_hex_string(const std::string_view str)
+    [[nodiscard]] inline auto is_hex(const std::string_view str)
         -> bool
     {
         for (const auto c : str)
@@ -62,11 +67,11 @@ namespace psm::crypto
      * 否则计算其 SHA224 哈希值。
      */
     [[nodiscard]] inline auto normalize_credential(const std::string_view credential)
-        -> std::string
+        -> memory::string
     {
-        if (credential.size() == 56 && is_hex_string(credential))
+        if (credential.size() == 56 && is_hex(credential))
         {
-            return std::string(credential);
+            return memory::string{credential, memory::current_resource()};
         }
         return sha224(credential);
     }

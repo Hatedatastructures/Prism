@@ -2,8 +2,8 @@
 #include <prism/multiplex/h2mux/craft.hpp>
 #include <prism/multiplex/smux/craft.hpp>
 #include <prism/multiplex/yamux/craft.hpp>
-#include <prism/transport/transmission.hpp>
 #include <prism/trace.hpp>
+#include <prism/transport/transmission.hpp>
 
 constexpr std::string_view tag = "[Mux.Bootstrap]";
 
@@ -11,6 +11,7 @@ using transmission = psm::transport::transmission;
 
 namespace psm::multiplex
 {
+
     namespace
     {
         // 执行 sing-mux 协议协商
@@ -59,12 +60,20 @@ namespace psm::multiplex
                     const auto padding_n = co_await transport::async_read(transport, padding, ec);
                     if (ec || padding_n < padding_len)
                     {
-                        co_return std::make_pair(ec ? ec : std::make_error_code(std::errc::connection_reset), protocol_type::smux);
+                        std::error_code result_ec = std::make_error_code(std::errc::connection_reset);
+                        if (ec)
+                            result_ec = ec;
+                        co_return std::make_pair(result_ec, protocol_type::smux);
                     }
                 }
             }
 
-            trace::debug("{} sing-mux handshake completed, protocol={}", tag, protocol == protocol_type::yamux ? "yamux" : "smux");
+            const auto *proto_name = "smux";
+            if (protocol == protocol_type::yamux)
+            {
+                proto_name = "yamux";
+            }
+            trace::debug("{} sing-mux handshake completed, protocol={}", tag, proto_name);
             co_return std::make_pair(std::error_code{}, protocol);
         }
     } // namespace
@@ -88,7 +97,8 @@ namespace psm::multiplex
             case protocol_type::yamux:
                 trace::info("{} constructing yamux session", tag);
                 {
-                    std::shared_ptr<core> session = std::make_shared<yamux::craft>(std::move(ctx.transport), ctx.router, ctx.cfg, ctx.mr);
+                    std::shared_ptr<core> session = std::make_shared<yamux::craft>(
+                        core_options{std::move(ctx.transport), ctx.router, ctx.cfg, ctx.mr});
                     session->set_traffic(ctx.traffic, ctx.proto);
                     trace::info("{} yamux session constructed", tag);
                     co_return session;
@@ -98,15 +108,14 @@ namespace psm::multiplex
                 trace::info("{} constructing h2mux session", tag);
                 {
                     // h2mux bootstrap 路径：sing-mux resolver（等待 StreamRequest）
-                    auto singmux_resolver = [](int32_t, const h2mux::h2_headers &) -> h2mux::h2_stream_info
+                    auto singmux_resolver = [](std::int32_t, const h2mux::h2_headers &) -> h2mux::stream_info
                     {
                         // sing-mux 模式：地址在 DATA 帧的 StreamRequest 中，HEADERS 无地址
                         return {};
                     };
                     std::shared_ptr<core> session = std::make_shared<h2mux::craft>(
-                        std::move(ctx.transport),
-                        h2mux::craft_init{ctx.router, ctx.cfg, singmux_resolver},
-                        ctx.mr);
+                        core_options{std::move(ctx.transport), ctx.router, ctx.cfg, ctx.mr},
+                        h2mux::craft_init{ctx.router, ctx.cfg, singmux_resolver});
                     session->set_traffic(ctx.traffic, ctx.proto);
                     trace::info("{} h2mux session constructed", tag);
                     co_return session;
@@ -116,7 +125,8 @@ namespace psm::multiplex
             default:
                 trace::info("{} constructing smux session", tag);
                 {
-                    std::shared_ptr<core> session = std::make_shared<smux::craft>(std::move(ctx.transport), ctx.router, ctx.cfg, ctx.mr);
+                    std::shared_ptr<core> session = std::make_shared<smux::craft>(
+                        core_options{std::move(ctx.transport), ctx.router, ctx.cfg, ctx.mr});
                     session->set_traffic(ctx.traffic, ctx.proto);
                     trace::info("{} smux session constructed", tag);
                     co_return session;

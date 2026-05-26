@@ -9,8 +9,10 @@
 
 #include <cstdint>
 
+
 namespace psm::multiplex::yamux
 {
+
     /**
      * @struct config
      * @brief yamux 协议配置
@@ -26,10 +28,10 @@ namespace psm::multiplex::yamux
         std::uint32_t initial_window = 256 * 1024;     // 初始流窗口大小（字节），控制单流发送量
         bool enable_ping = true;                       // 是否启用心跳
         std::uint32_t ping_interval = 30000;        // 心跳间隔（毫秒）
-        std::uint32_t stream_open_timeout = 30000;  // 流打开超时（毫秒）
-        std::uint32_t stream_close_timeout = 30000; // 流关闭超时（毫秒）
-        std::uint32_t udp_idle_timeout = 60000;     // UDP 管道空闲超时（毫秒），超时自动关闭
-        std::uint32_t udp_max_dgram = 65535;        // UDP 数据报最大长度（字节）
+        std::uint32_t open_timeout = 30000;  // 流打开超时（毫秒）
+        std::uint32_t close_timeout = 30000; // 流关闭超时（毫秒）
+        std::uint32_t udp_idle = 60000;     // UDP 管道空闲超时（毫秒），超时自动关闭
+        std::uint32_t max_dgram = 65535;        // UDP 数据报最大长度（字节）
     }; // struct config
 
 } // namespace psm::multiplex::yamux

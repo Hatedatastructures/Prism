@@ -63,7 +63,7 @@ namespace srv
             // 解析请求
             const auto raw = std::string_view(buf.data(), used);
             psm::protocol::http::proxy_request req;
-            if (psm::fault::failed(psm::protocol::http::parse_proxy_req(raw, req)))
+            if (psm::fault::failed(psm::protocol::http::parse_req(raw, req)))
             {
                 psm::trace::error("parse request failed");
                 co_return;

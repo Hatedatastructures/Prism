@@ -3,9 +3,9 @@
 
 #include <algorithm>
 #include <limits>
-
 namespace psm::instance::front
 {
+
     balancer::balancer(memory::vector<worker_binding> bindings, const distribute_config &config,
                        const memory::resource_pointer mr)
         : bindings_(std::move(bindings), mr), overload_state_(mr), config_(config), mr_(mr)
@@ -13,6 +13,7 @@ namespace psm::instance::front
         // 每个 worker 一个过载标记，0=正常，1=过载
         overload_state_.resize(bindings_.size(), 0U);
     }
+
 
     // splitmix64 哈希函数——将亲和性值（客户端 IP 哈希）均匀打散。
     // 目的：即使客户端 IP 集中在某个子网，分配到 worker 的分布也要尽量均匀。
@@ -26,6 +27,7 @@ namespace psm::instance::front
         return value;
     }
 
+
     // 计算单个 worker 的负载评分（0.0 = 空闲，越高越忙）。
     // 三个维度加权求和：活跃会话数（权重最大）、待处理移交数、事件循环延迟。
     // 用比率而非绝对值，这样不同容量的 worker 可以公平比较。
@@ -34,16 +36,17 @@ namespace psm::instance::front
     {
         const auto session_capacity = std::max(1U, config_.session_capacity);
         const auto pending_capacity = std::max(1U, config_.pending_capacity);
-        const auto lag_capacity = std::max(std::uint64_t{1}, config_.lag_cap_us);
+        const auto lag_capacity = std::max(std::uint64_t{1}, config_.lag_cap);
 
         const double session_ratio = static_cast<double>(snapshot.active_sessions) / session_capacity;
         const double pending_ratio = static_cast<double>(snapshot.pending_handoffs) / pending_capacity;
-        const double lag_ratio = static_cast<double>(snapshot.loop_lag_us) / lag_capacity;
+        const double lag_ratio = static_cast<double>(snapshot.lag_us) / lag_capacity;
 
         return session_ratio * config_.weight_session +
                pending_ratio * config_.weight_pending +
                lag_ratio * config_.weight_lag;
     }
+
 
     // 过载状态更新——采用迟滞（hysteresis）机制：
     // 进入过载阈值（如 90%）和退出过载阈值（如 80%）不同，
@@ -61,6 +64,7 @@ namespace psm::instance::front
             overload_state_[worker_index] = 0U;
         }
     }
+
 
     // 核心选择算法：为新连接选一个 worker。
     //
@@ -128,16 +132,24 @@ namespace psm::instance::front
 
         // primary 过载时，看 secondary 是否更空闲
         const bool primary_overloaded = overload_state_[primary] != 0U;
-        std::size_t selected = primary;
-        if (primary_overloaded && workers_count > 1U)
-        {
-            selected = secondary_score < primary_score ? secondary : primary;
-        }
+            std::size_t selected = primary;
+            if (primary_overloaded && workers_count > 1U)
+            {
+                if (secondary_score < primary_score)
+                {
+                    selected = secondary;
+                }
+                else
+                {
+                    selected = primary;
+                }
+            }
 
         // 全局背压：所有 worker 都过载 或 全局最低评分已经很高
         const bool backpressure = overloaded_count == workers_count || min_score >= config_.backpressure_thresh;
         return {selected, primary_overloaded, backpressure};
     }
+
 
     // 将 socket 实际移交给选中的 worker。
     // 越界时回退到 worker 0 作为安全兜底。
@@ -154,9 +166,11 @@ namespace psm::instance::front
         bindings_[worker_index].dispatch(std::move(socket));
     }
 
+
     auto balancer::size() const noexcept
         -> std::size_t
     {
         return bindings_.size();
     }
+
 } // namespace psm::instance::front

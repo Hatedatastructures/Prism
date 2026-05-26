@@ -146,7 +146,7 @@ struct h2_headers {
 ```
 struct h2_pending_entry {
     h2_headers headers;       // 收集的请求头
-    h2_stream_info info;      // resolver 返回的地址信息
+    stream_info info;      // resolver 返回的地址信息
     bool connecting = false;  // 是否已发起连接（防止重复）
 };
 ```
@@ -166,7 +166,7 @@ struct outbound_data {
 address_resolver 是一个 `std::function`，由外部注入，决定如何从 CONNECT 请求提取目标地址：
 
 ```cpp
-using address_resolver = std::function<h2_stream_info(
+using address_resolver = std::function<stream_info(
     int32_t stream_id, const h2_headers &headers)>;
 ```
 
@@ -324,7 +324,7 @@ CONNECT 请求到达
     ├── on_begin_headers → 创建 h2_pending_[id]
     ├── on_header × N → 收集请求头
     ├── on_frame_recv → handle_connect()
-    │     ├── resolver_() → h2_stream_info
+    │     ├── resolver_() → stream_info
     │     │
     │     ├── 首个 CONNECT:
     │     │     └── wait_first_connect 通知（等待外部认证）

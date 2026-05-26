@@ -4,6 +4,7 @@
 
 namespace psm::multiplex::yamux
 {
+
     auto build_header(const frame_header &hdr) noexcept
         -> std::array<std::byte, frame_hdrsize>
     {
@@ -80,7 +81,7 @@ namespace psm::multiplex::yamux
         return hdr;
     }
 
-    auto build_window_update_frame(const flags f, const std::uint32_t stream_id, const std::uint32_t delta) noexcept
+    auto build_winupd(const flags f, const std::uint32_t stream_id, const std::uint32_t delta) noexcept
         -> std::array<std::byte, frame_hdrsize>
     {
         frame_header hdr{};
@@ -91,7 +92,7 @@ namespace psm::multiplex::yamux
         return build_header(hdr);
     }
 
-    auto build_ping_frame(const flags f, const std::uint32_t ping_id) noexcept
+    auto build_ping(const flags f, const std::uint32_t ping_id) noexcept
         -> std::array<std::byte, frame_hdrsize>
     {
         frame_header hdr{};
@@ -102,7 +103,7 @@ namespace psm::multiplex::yamux
         return build_header(hdr);
     }
 
-    auto build_go_away_frame(const go_away_code code) noexcept
+    auto build_goaway(const away_code code) noexcept
         -> std::array<std::byte, frame_hdrsize>
     {
         frame_header hdr{};
@@ -113,7 +114,7 @@ namespace psm::multiplex::yamux
         return build_header(hdr);
     }
 
-    auto make_data_frame(const flags f, const std::uint32_t stream_id, const std::span<const std::byte> payload) noexcept
+    auto build_data(const flags f, const std::uint32_t stream_id, const std::span<const std::byte> payload) noexcept
         -> data_frame
     {
         frame_header hdr{};
@@ -121,16 +122,16 @@ namespace psm::multiplex::yamux
         hdr.flag = f;
         hdr.stream_id = stream_id;
         hdr.length = static_cast<std::uint32_t>(payload.size());
-        return {build_header(hdr), std::vector<std::byte>(payload.begin(), payload.end())};
+        return {build_header(hdr), memory::vector<std::byte>(payload.begin(), payload.end())};
     }
 
-    auto make_syn_frame(const std::uint32_t stream_id, const std::span<const std::byte> payload) noexcept
+    auto build_syn(const std::uint32_t stream_id, const std::span<const std::byte> payload) noexcept
         -> data_frame
     {
-        return make_data_frame(flags::syn, stream_id, payload);
+        return build_data(flags::syn, stream_id, payload);
     }
 
-    auto make_fin_frame(const std::uint32_t stream_id) noexcept
+    auto build_fin(const std::uint32_t stream_id) noexcept
         -> std::array<std::byte, frame_hdrsize>
     {
         frame_header hdr{};

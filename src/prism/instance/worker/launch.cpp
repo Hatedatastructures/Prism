@@ -1,10 +1,11 @@
 #include <prism/instance/worker/launch.hpp>
-#include <prism/instance/session/session.hpp>
+
 #include <prism/account/directory.hpp>
-#include <prism/transport/reliable.hpp>
-#include <prism/trace.hpp>
-#include <prism/context/context.hpp>
 #include <prism/config.hpp>
+#include <prism/context/context.hpp>
+#include <prism/instance/session/session.hpp>
+#include <prism/trace.hpp>
+#include <prism/transport/reliable.hpp>
 
 #ifndef _WIN32
 #include <unistd.h>
@@ -12,6 +13,7 @@
 
 namespace psm::instance::worker::launch
 {
+
     void prime(tcp::socket &socket, std::uint32_t buffer_size) noexcept
     {
         boost::system::error_code ec;
@@ -24,12 +26,15 @@ namespace psm::instance::worker::launch
         socket.set_option(net::socket_base::send_buffer_size(buffer_size), ec);
     }
 
+
     [[nodiscard]] std::optional<tcp::socket> migrate_executor(tcp::socket &sock, net::io_context &target_ioc) noexcept
     {
         // release 前 query 本地地址，判断 IPv4/IPv6
         boost::system::error_code ec;
         auto local_ep = sock.local_endpoint(ec);
-        const auto protocol = ec ? tcp::v4() : (local_ep.address().is_v6() ? tcp::v6() : tcp::v4());
+        auto protocol = tcp::v4();
+        if (!ec && local_ep.address().is_v6())
+            protocol = tcp::v6();
 
         // 剥离原生句柄，sock 变为空壳
         auto native_handle = sock.release();
@@ -51,6 +56,7 @@ namespace psm::instance::worker::launch
 
         return migrated;
     }
+
 
     void start(launch_params params)
     {
@@ -85,7 +91,12 @@ namespace psm::instance::worker::launch
             auto account_store = server.account_store;
 
             // 设置账户目录，认证禁用时传入 nullptr
-            shared_session->set_account_directory(auth_enabled ? account_store.get() : nullptr);
+            account::directory *dir = nullptr;
+            if (auth_enabled)
+            {
+                dir = account_store.get();
+            }
+            shared_session->set_account_directory(dir);
 
             auto credential_function = [auth_enabled, account_store, traffic = worker.traffic]
                 (const std::string_view credential)
@@ -106,7 +117,14 @@ namespace psm::instance::worker::launch
                 const auto result = psm::account::contains(*account_store, credential);
                 if (traffic)
                 {
-                    result ? traffic->on_auth_success() : traffic->on_auth_failure();
+                    if (result)
+                    {
+                        traffic->on_auth_success();
+                    }
+                    else
+                    {
+                        traffic->on_auth_failure();
+                    }
                 }
                 return result;
             };
@@ -129,6 +147,7 @@ namespace psm::instance::worker::launch
             throw;
         }
     }
+
 
     void dispatch(launch_params params)
     {
@@ -165,4 +184,5 @@ namespace psm::instance::worker::launch
         };
         net::post(worker.io_context, std::move(start_session));
     }
+
 } // namespace psm::instance::worker::launch

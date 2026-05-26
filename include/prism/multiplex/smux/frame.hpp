@@ -8,12 +8,13 @@
  */
 #pragma once
 
+#include <prism/multiplex/parcel.hpp>
+
 #include <cstddef>
 #include <cstdint>
 #include <optional>
 #include <span>
 
-#include <prism/memory/container.hpp>
 
 namespace psm::multiplex::smux
 {
@@ -33,7 +34,7 @@ namespace psm::multiplex::smux
         /** @brief 数据推送 */
         push = 2,
         /** @brief 心跳（不回复） */
-        nop = 3,
+        nop = 3
     };
 
     // 协议版本号
@@ -74,7 +75,7 @@ namespace psm::multiplex::smux
         std::uint16_t port = 0;   // 目标端口
         std::size_t offset = 0;   // 地址结束位置，相对于原始 buffer
         bool is_udp = false;      // 是否为 UDP 流（Flags bit0）
-        bool packet_addr = false; // 是否为 PacketAddr 模式（Flags bit1）- 数据成员，非函数参数
+        addr_mode addr = addr_mode::length_prefixed; // 地址编码模式（Flags bit1）
     };
 
     /**
@@ -96,7 +97,7 @@ namespace psm::multiplex::smux
      * @details sing-mux 无 PacketAddr 模式格式：[Length 2B BE][Payload]
      * 目标地址在 SYN 时已确定，不包含在数据帧中。
      */
-    struct udp_length_prefixed
+    struct udp_prefixed
     {
         std::span<const std::byte> payload; // 数据部分
         std::size_t consumed = 0;           // 解析消耗的总字节数
@@ -108,7 +109,7 @@ namespace psm::multiplex::smux
      * @param mr 内存资源
      * @return 解析结果，nullopt 表示数据不足或格式错误
      */
-    [[nodiscard]] auto parse_udp_dgram(std::span<const std::byte> data, memory::resource_pointer mr)
+    [[nodiscard]] auto parse_dgram(std::span<const std::byte> data, memory::resource_pointer mr)
         -> std::optional<udp_dgram>;
 
     /**
@@ -116,8 +117,8 @@ namespace psm::multiplex::smux
      * @param data 包含 [Length 2B BE][Payload] 的字节序列
      * @return 解析结果，nullopt 表示数据不足或格式错误
      */
-    [[nodiscard]] auto parse_udp_length_prefixed(std::span<const std::byte> data)
-        -> std::optional<udp_length_prefixed>;
+    [[nodiscard]] auto parse_prefixed(std::span<const std::byte> data)
+        -> std::optional<udp_prefixed>;
 
     /**
      * @struct datagram_params
@@ -137,7 +138,7 @@ namespace psm::multiplex::smux
      * @param mr 内存资源
      * @return 编码后的完整 UDP 数据报
      */
-    [[nodiscard]] auto build_udp_dgram(datagram_params params, memory::resource_pointer mr)
+    [[nodiscard]] auto build_dgram(datagram_params params, memory::resource_pointer mr)
         -> memory::vector<std::byte>;
 
     /**
@@ -146,7 +147,7 @@ namespace psm::multiplex::smux
      * @param mr 内存资源
      * @return 编码后的 [Length 2B BE][Payload]
      */
-    [[nodiscard]] auto build_udp_length_prefixed(std::span<const std::byte> payload, memory::resource_pointer mr)
+    [[nodiscard]] auto build_prefixed(std::span<const std::byte> payload, memory::resource_pointer mr)
         -> memory::vector<std::byte>;
 
     /**
@@ -155,7 +156,7 @@ namespace psm::multiplex::smux
      * @param mr 内存资源
      * @return 解析结果，nullopt 表示数据不足或格式错误
      */
-    [[nodiscard]] auto parse_mux_address(std::span<const std::byte> data, memory::resource_pointer mr)
+    [[nodiscard]] auto parse_address(std::span<const std::byte> data, memory::resource_pointer mr)
         -> std::optional<parsed_address>;
 
     /**

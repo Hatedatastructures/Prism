@@ -14,31 +14,33 @@
 
 #pragma once
 
+#include <prism/account/directory.hpp>
+#include <prism/account/entry.hpp>
+#include <prism/crypto/sha224.hpp>
+#include <prism/fault/handling.hpp>
+#include <prism/memory/container.hpp>
+#include <prism/protocol/common/form.hpp>
+#include <prism/protocol/socks5/config.hpp>
+#include <prism/protocol/socks5/constants.hpp>
+#include <prism/protocol/socks5/framing.hpp>
+#include <prism/protocol/socks5/packet.hpp>
+#include <prism/protocol/types.hpp>
+#include <prism/transport/transmission.hpp>
+
+#include <boost/asio.hpp>
+#include <boost/asio/experimental/awaitable_operators.hpp>
+
 #include <array>
 #include <atomic>
 #include <charconv>
 #include <functional>
 
-#include <boost/asio.hpp>
-#include <boost/asio/experimental/awaitable_operators.hpp>
-
-#include <prism/fault/handling.hpp>
-#include <prism/memory/container.hpp>
-#include <prism/transport/transmission.hpp>
-#include <prism/protocol/common/form.hpp>
-#include <prism/protocol/types.hpp>
-#include <prism/protocol/socks5/constants.hpp>
-#include <prism/protocol/socks5/packet.hpp>
-#include <prism/protocol/socks5/framing.hpp>
-#include <prism/protocol/socks5/config.hpp>
-#include <prism/account/entry.hpp>
-#include <prism/account/directory.hpp>
-#include <prism/crypto/sha224.hpp>
 
 namespace psm::stats::traffic { class traffic_state; }
 
 namespace psm::protocol::socks5
 {
+
     namespace net = boost::asio;
     using shared_transmission = psm::transport::shared_transmission;
 
@@ -102,7 +104,7 @@ namespace psm::protocol::socks5
          * @return executor_type 执行器
          * @details 返回底层传输层的执行器，用于协程调度和异步操作。
          */
-        [[nodiscard]] executor_type executor() const override
+        [[nodiscard]] auto executor() const -> executor_type override
         {
             return next_layer_->executor();
         }
@@ -221,12 +223,12 @@ namespace psm::protocol::socks5
          * @brief 获取内层传输指针（装饰器链导航）
          * @return transmission* 内层传输指针
          */
-        [[nodiscard]] psm::transport::transmission *next_layer() noexcept override
+        [[nodiscard]] auto next_layer() noexcept -> psm::transport::transmission * override
         {
             return next_layer_.get();
         }
 
-        [[nodiscard]] const psm::transport::transmission *next_layer() const noexcept override
+        [[nodiscard]] auto next_layer() const noexcept -> const psm::transport::transmission * override
         {
             return next_layer_.get();
         }
@@ -236,7 +238,7 @@ namespace psm::protocol::socks5
          * @return transport::transmission& 底层传输层引用
          * @warning 调用前应确保 is_valid() 返回 true
          */
-        [[nodiscard]] psm::transport::transmission &underlying() noexcept
+        [[nodiscard]] auto underlying() noexcept -> psm::transport::transmission &
         {
             return *next_layer_;
         }
@@ -246,7 +248,7 @@ namespace psm::protocol::socks5
          * @return const transport::transmission& 底层传输层常量引用
          * @warning 调用前应确保 is_valid() 返回 true
          */
-        [[nodiscard]] const psm::transport::transmission &underlying() const noexcept
+        [[nodiscard]] auto underlying() const noexcept -> const psm::transport::transmission &
         {
             return *next_layer_;
         }
@@ -257,7 +259,7 @@ namespace psm::protocol::socks5
          * @details 检查 next_layer_ 指针是否有效，用于判断是否可以
          * 安全调用读写方法。
          */
-        [[nodiscard]] bool is_valid() const noexcept
+        [[nodiscard]] auto is_valid() const noexcept -> bool
         {
             return next_layer_ != nullptr;
         }
@@ -269,7 +271,7 @@ namespace psm::protocol::socks5
          * 返回 false，不应再调用读写方法。用于将底层连接转移给
          * 其他组件管理。
          */
-        [[nodiscard]] shared_transmission release()
+        [[nodiscard]] auto release() -> shared_transmission
         {
             return std::move(next_layer_);
         }
@@ -291,7 +293,7 @@ namespace psm::protocol::socks5
          * @return net::awaitable<std::pair<fault::code, net::ip::udp::socket>>
          * 错误码与已绑定 socket
          * @details 使用当前执行器创建会话级 UDP socket，并绑定到
-         * udp_bind_port 指定的端口。若 udp_bind_port 为 0，由系统
+         * bind_port 指定的端口。若 bind_port 为 0，由系统
          * 自动分配端口。socket 绑定成功后可用于接收 UDP 数据报。
          */
         [[nodiscard]] auto bind_datagram_port() const
@@ -305,7 +307,7 @@ namespace psm::protocol::socks5
          * @details 将本地 UDP 绑定地址写入 SOCKS5 响应的 BND.ADDR 和
          * BND.PORT 字段，供客户端后续向该地址发送 UDP 数据报。
          */
-        [[nodiscard]] auto send_associate_ok(const request &request_info, const net::ip::udp::endpoint &local_endpoint) const
+        [[nodiscard]] auto send_assoc_ok(const request &request_info, const net::ip::udp::endpoint &local_endpoint) const
             -> net::awaitable<fault::code>;
 
         /**
@@ -355,7 +357,7 @@ namespace psm::protocol::socks5
          * @details 根据 IP 地址版本自动选择 IPv4 或 IPv6 地址类型，
          * 将端点地址转换为 SOCKS5 地址格式。
          */
-        [[nodiscard]] static auto endpoint_to_address(const net::ip::udp::endpoint &endpoint)
+        [[nodiscard]] static auto ep_to_addr(const net::ip::udp::endpoint &endpoint)
             -> address
         {
             if (endpoint.address().is_v4())
@@ -385,7 +387,7 @@ namespace psm::protocol::socks5
          * SHA224 对密码进行哈希，通过 account::directory 验证凭证
          * 并获取连接租约。认证失败时不暴露具体原因，仅返回失败状态。
          */
-        [[nodiscard]] auto perform_password_auth()
+        [[nodiscard]] auto password_auth()
             -> net::awaitable<std::pair<fault::code, bool>>;
 
         /**
@@ -396,7 +398,7 @@ namespace psm::protocol::socks5
          * 并解析为结构化的头部信息。头部包含命令类型和地址类型，
          * 用于后续的地址读取和命令处理。
          */
-        [[nodiscard]] auto read_req_header() const
+        [[nodiscard]] auto read_req_hdr() const
             -> net::awaitable<std::pair<fault::code, wire::header_parse>>;
 
         /**
@@ -409,28 +411,28 @@ namespace psm::protocol::socks5
          * @details 读取指定长度的 IP 地址数据和 2 字节端口，使用
          * 提供的解码器解析地址。适用于 IPv4 和 IPv6 地址类型。
          */
-        template <size_t N, typename Decoder>
+        template <std::size_t N, typename Decoder>
         [[nodiscard]] auto read_address(Decoder &&decoder)
-            -> net::awaitable<std::tuple<fault::code, address, uint16_t>>
+            -> net::awaitable<std::tuple<fault::code, address, std::uint16_t>>
         {
             std::array<std::uint8_t, N + 2> buffer{};
             std::error_code io_ec;
             co_await recv_impl(std::span(reinterpret_cast<std::byte *>(buffer.data()), N + 2), io_ec);
             if (io_ec)
             {
-                co_return std::tuple<fault::code, address, uint16_t>{fault::code::io_error, address{}, 0};
+                co_return std::tuple<fault::code, address, std::uint16_t>{fault::code::io_error, address{}, 0};
             }
 
             auto [decode_ec, ip] = decoder(std::span<const std::uint8_t>(buffer.data(), N));
             if (fault::failed(decode_ec))
             {
-                co_return std::tuple<fault::code, address, uint16_t>{decode_ec, address{}, 0};
+                co_return std::tuple<fault::code, address, std::uint16_t>{decode_ec, address{}, 0};
             }
 
             auto [ec_port, port] = wire::decode_port(std::span<const std::uint8_t>(buffer.data() + N, 2));
             if (fault::failed(ec_port))
             {
-                co_return std::tuple<fault::code, address, uint16_t>{ec_port, address{}, 0};
+                co_return std::tuple<fault::code, address, std::uint16_t>{ec_port, address{}, 0};
             }
 
             co_return std::tuple{fault::code::success, address{ip}, port};
@@ -443,8 +445,30 @@ namespace psm::protocol::socks5
          * @details 读取域名长度字节、域名内容和端口。域名格式为
          * 1 字节长度前缀后跟域名字符串，端口为 2 字节大端序整数。
          */
-        [[nodiscard]] auto read_domain_addr() const
-            -> net::awaitable<std::tuple<fault::code, address, uint16_t>>;
+        [[nodiscard]] auto read_domain() const
+            -> net::awaitable<std::tuple<fault::code, address, std::uint16_t>>;
+
+        /**
+         * @brief 解析命令并检查是否允许
+         * @param deadline 握手超时定时器
+         * @param cmd SOCKS5 命令
+         * @param req 请求结构体，成功时填充 transport 字段
+         * @return fault::code 错误码
+         * @details 验证命令是否被配置允许，不允许时发送错误响应。
+         */
+        [[nodiscard]] auto resolve_command(net::steady_timer &deadline, command cmd, request &req) const
+            -> net::awaitable<fault::code>;
+
+        /**
+         * @brief 解析目标地址
+         * @param deadline 握手超时定时器
+         * @param atyp 地址类型
+         * @param req 请求结构体，成功时填充地址和端口
+         * @return fault::code 错误码
+         * @details 根据 atyp 读取并解析目标地址，填充到 req 中。
+         */
+        [[nodiscard]] auto resolve_address(net::steady_timer &deadline, address_type atyp, request &req)
+            -> net::awaitable<fault::code>;
 
         /**
          * @brief 构建 SOCKS5 成功响应
@@ -455,7 +479,7 @@ namespace psm::protocol::socks5
          * VER(1) + REP(1) + RSV(1) + ATYP(1) + BND.ADDR(变长) + BND.PORT(2)。
          * 根据地址类型写入不同格式的地址数据。
          */
-        [[nodiscard]] static auto build_ok_response(const request &req, std::span<std::uint8_t> buffer)
+        [[nodiscard]] static auto build_ok_resp(const request &req, std::span<std::uint8_t> buffer)
             -> std::size_t;
 
         /**

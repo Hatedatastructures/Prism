@@ -9,8 +9,10 @@
 
 #include <cstdint>
 
+
 namespace psm::multiplex::smux
 {
+
     /**
      * @struct config
      * @brief smux 协议配置
@@ -24,8 +26,8 @@ namespace psm::multiplex::smux
         std::uint32_t max_streams = 32;              // 单个 mux 会话最大并发流数
         std::uint32_t buffer_size = 4096;            // 每流读取缓冲区大小（字节），实际限制为 min(buffer_size, 65535)
         std::uint32_t keepalive_interval = 30000; // 心跳间隔（毫秒），0 表示禁用心跳
-        std::uint32_t udp_idle_timeout = 60000;   // UDP 管道空闲超时（毫秒），超时自动关闭
-        std::uint32_t udp_max_dgram = 65535;      // UDP 数据报最大长度（字节）
+        std::uint32_t idle_timeout = 60000;   // UDP 管道空闲超时（毫秒），超时自动关闭
+        std::uint32_t max_dgram = 65535;      // UDP 数据报最大长度（字节）
     }; // struct config
 
 } // namespace psm::multiplex::smux

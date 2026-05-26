@@ -9,17 +9,20 @@
 
 #pragma once
 
+#include <prism/crypto/x25519.hpp>
+#include <prism/fault/code.hpp>
+#include <prism/protocol/tls/types.hpp>
+#include <prism/stealth/reality/config.hpp>
+
 #include <array>
 #include <cstdint>
 #include <span>
 #include <utility>
-#include <prism/crypto/x25519.hpp>
-#include <prism/fault/code.hpp>
-#include <prism/stealth/reality/config.hpp>
-#include <prism/protocol/tls/types.hpp>
+
 
 namespace psm::stealth::reality
 {
+
     using hello_features = psm::protocol::tls::hello_features;
     using psm::protocol::tls::REALITY_KEY_LEN;
     /**
@@ -53,7 +56,7 @@ namespace psm::stealth::reality
      * @param server_names 配置中允许的 SNI 列表
      * @return bool 匹配返回 true
      */
-    [[nodiscard]] auto match_server_name(std::string_view sni, const memory::vector<memory::string> &server_names)
+    [[nodiscard]] auto match_sni(std::string_view sni, const memory::vector<memory::string> &server_names)
         -> bool;
 
     /**
@@ -64,7 +67,7 @@ namespace psm::stealth::reality
      * @param allowed_short_ids 配置中允许的 short_id 列表（hex 编码）
      * @return bool 匹配返回 true
      */
-    [[nodiscard]] auto match_short_id(std::span<const std::uint8_t> short_id, const memory::vector<memory::string> &allowed_short_ids)
+    [[nodiscard]] auto match_shortid(std::span<const std::uint8_t> short_id, const memory::vector<memory::string> &allowed_short_ids)
         -> bool;
 
     /**
@@ -73,7 +76,7 @@ namespace psm::stealth::reality
      * @param hex 十六进制字符串
      * @return 解码后的字节向量
      */
-    [[nodiscard]] auto hex_to_bytes(std::string_view hex)
+    [[nodiscard]] auto hex_decode(std::string_view hex)
         -> memory::vector<std::uint8_t>;
 
     /**

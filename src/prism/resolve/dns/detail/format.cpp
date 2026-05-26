@@ -1,4 +1,5 @@
 #include <prism/resolve/dns/detail/format.hpp>
+
 #include <prism/memory/container.hpp>
 #include <prism/trace.hpp>
 
@@ -82,7 +83,7 @@ namespace psm::resolve::dns::detail
         //   "com"              -> 未命中，登记偏移
         // 全部未命中则按标签逐段写入；若某后缀命中则写入压缩指针。
         [[nodiscard]] auto encode_name(const std::string_view domain, memory::vector<std::uint8_t> &buf,
-                                       std::size_t pos, std::unordered_map<std::string_view, std::uint16_t> &compression)
+                                       std::size_t pos, memory::unordered_map<std::string_view, std::uint16_t> &compression)
             -> std::size_t
         {
             // 逐段写入域名标签，逐标签检查压缩机会
@@ -95,7 +96,15 @@ namespace psm::resolve::dns::detail
             while (p < domain.size())
             {
                 const auto dot = domain.find('.', p);
-                const std::string_view label = (dot == std::string_view::npos) ? domain.substr(p) : domain.substr(p, dot - p);
+                std::string_view label;
+                if (dot == std::string_view::npos)
+                {
+                    label = domain.substr(p);
+                }
+                else
+                {
+                    label = domain.substr(p, dot - p);
+                }
 
                 // 检查从当前位置开始的后缀是否已在压缩表中
                 const auto suffix_from_here = domain.substr(p);
@@ -283,8 +292,12 @@ namespace psm::resolve::dns::detail
     }
 
     message::message(const memory::resource_pointer mr)
-        : questions(mr), answers(mr), authority(mr), additional(mr), mr_(mr ? mr : memory::current_resource())
+        : questions(mr), answers(mr), authority(mr), additional(mr), mr_(memory::current_resource())
     {
+        if (mr)
+        {
+            mr_ = mr;
+        }
     }
 
     auto message::pack() const
@@ -297,18 +310,20 @@ namespace psm::resolve::dns::detail
         buf.resize(12);
 
         // 构建压缩表（使用 string_view 键，指向 message 内的 name 字符串）
-        std::unordered_map<std::string_view, std::uint16_t> compression;
+        memory::unordered_map<std::string_view, std::uint16_t> compression(memory::current_resource());
 
         // 位移布局：ID(0-1) FLAGS(2-3) QD(4-5) AN(6-7) NS(8-9) AR(10-11)
         write_u16_be(buf, 0, id);
 
         // FLAGS: QR(1bit) OPCODE(4bit) AA(1bit) TC(1bit) RD(1bit) RA(1bit) Z(3bit) RCODE(4bit)
-        const auto flags = static_cast<std::uint16_t>(
-            (qr ? 0x8000u : 0u) |
-            ((static_cast<std::uint16_t>(opcode) & 0x0Fu) << 11) |
-            (aa ? 0x0400u : 0u) | (tc ? 0x0200u : 0u) |
-            (rd ? 0x0100u : 0u) | (ra ? 0x0080u : 0u) |
-            (static_cast<std::uint16_t>(rcode) & 0x0Fu));
+        std::uint16_t flags = 0;
+        if (qr) flags |= 0x8000u;
+        flags |= (static_cast<std::uint16_t>(opcode) & 0x0Fu) << 11;
+        if (aa) flags |= 0x0400u;
+        if (tc) flags |= 0x0200u;
+        if (rd) flags |= 0x0100u;
+        if (ra) flags |= 0x0080u;
+        flags |= static_cast<std::uint16_t>(rcode) & 0x0Fu;
 
         write_u16_be(buf, 2, flags);
         write_u16_be(buf, 4, static_cast<std::uint16_t>(questions.size()));
@@ -370,7 +385,16 @@ namespace psm::resolve::dns::detail
             return std::nullopt;
         }
 
-        message msg(mr ? mr : memory::current_resource());
+        memory::resource_pointer effective_mr;
+        if (mr)
+        {
+            effective_mr = mr;
+        }
+        else
+        {
+            effective_mr = memory::current_resource();
+        }
+        message msg(effective_mr);
 
         msg.id = read_u16_be(data, 0);
         const auto flags = read_u16_be(data, 2);
@@ -475,7 +499,16 @@ namespace psm::resolve::dns::detail
     auto message::make_query(const std::string_view domain, const qtype qt, const memory::resource_pointer mr)
         -> message
     {
-        message msg(mr ? mr : memory::current_resource());
+        memory::resource_pointer effective_mr;
+        if (mr)
+        {
+            effective_mr = mr;
+        }
+        else
+        {
+            effective_mr = memory::current_resource();
+        }
+        message msg(effective_mr);
 
         msg.id = 0;
         msg.rd = true;
@@ -546,7 +579,16 @@ namespace psm::resolve::dns::detail
         check(authority);
         check(additional);
 
-        return found ? result : 0;
+        std::uint32_t min_ttl;
+        if (found)
+        {
+            min_ttl = result;
+        }
+        else
+        {
+            min_ttl = 0;
+        }
+        return min_ttl;
     }
 
     auto unpack_tcp(const std::span<const std::uint8_t> data, const memory::resource_pointer mr)

@@ -6,12 +6,13 @@
 #pragma once
 
 #include <prism/resolve/dns/config.hpp>
-#include <prism/resolve/dns/dns.hpp>
-#include <prism/resolve/dns/upstream.hpp>
-
 #include <prism/resolve/dns/detail/cache.hpp>
 #include <prism/resolve/dns/detail/coalescer.hpp>
 #include <prism/resolve/dns/detail/format.hpp>
 #include <prism/resolve/dns/detail/rules.hpp>
 #include <prism/resolve/dns/detail/transparent.hpp>
 #include <prism/resolve/dns/detail/utility.hpp>
+#include <prism/resolve/dns/dns.hpp>
+#include <prism/resolve/dns/upstream.hpp>
+
+

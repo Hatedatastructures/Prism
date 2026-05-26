@@ -64,7 +64,7 @@ void TestX25519Keygen()
 {
     runner.LogInfo("=== TestX25519Keygen ===");
 
-    auto keypair = psm::crypto::generate_x25519_keypair();
+    auto keypair = psm::crypto::generate_keypair();
 
     if (is_all_zero(keypair.private_key))
     {
@@ -87,15 +87,15 @@ void TestX25519Keygen()
 
 /**
  * @brief 测试从私钥推导公钥的一致性
- * @details 验证 derive_x25519_public_key() 的输出与 keypair 中的公钥一致。
+ * @details 验证 derive_pubkey() 的输出与 keypair 中的公钥一致。
  */
 void TestX25519DerivePublic()
 {
     runner.LogInfo("=== TestX25519DerivePublic ===");
 
-    auto keypair = psm::crypto::generate_x25519_keypair();
+    auto keypair = psm::crypto::generate_keypair();
 
-    auto derived = psm::crypto::derive_x25519_public_key(keypair.private_key);
+    auto derived = psm::crypto::derive_pubkey(keypair.private_key);
 
     if (is_all_zero(derived))
     {
@@ -129,8 +129,8 @@ void TestX25519KeyExchange()
 {
     runner.LogInfo("=== TestX25519KeyExchange ===");
 
-    auto alice = psm::crypto::generate_x25519_keypair();
-    auto bob = psm::crypto::generate_x25519_keypair();
+    auto alice = psm::crypto::generate_keypair();
+    auto bob = psm::crypto::generate_keypair();
 
     auto alice_side = psm::crypto::x25519(alice.private_key, bob.public_key);
     if (alice_side.first != psm::fault::code::success)
@@ -163,16 +163,16 @@ void TestX25519KeyExchange()
 
 /**
  * @brief 测试 X25519 内部一致性
- * @details 验证 derive_x25519_public_key + x25519 的组合操作
- * 与 generate_x25519_keypair 的行为一致。
+ * @details 验证 derive_pubkey + x25519 的组合操作
+ * 与 generate_keypair 的行为一致。
  */
 void TestX25519Rfc7748()
 {
     runner.LogInfo("=== TestX25519Rfc7748 ===");
 
     // 使用 keypair 生成的私钥推导公钥
-    auto keypair = psm::crypto::generate_x25519_keypair();
-    auto derived = psm::crypto::derive_x25519_public_key(keypair.private_key);
+    auto keypair = psm::crypto::generate_keypair();
+    auto derived = psm::crypto::derive_pubkey(keypair.private_key);
 
     if (derived != keypair.public_key)
     {
@@ -214,7 +214,7 @@ void TestX25519Rfc7748()
  */
 int main()
 {
-    psm::memory::system::enable_global_pooling();
+    psm::memory::system::enable_pooling();
     psm::trace::init({});
 
     runner.LogInfo("Starting X25519 tests...");

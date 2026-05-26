@@ -253,20 +253,20 @@ static void BM_Ss2022AeadThroughput(benchmark::State &state)
         nonce[11] = static_cast<std::uint8_t>(counter & 0xFF);
         nonce[10] = static_cast<std::uint8_t>((counter >> 8) & 0xFF);
 
-        auto seal_ec = client_ctx.seal(
+        auto seal_ec = client_ctx.seal(psm::crypto::seal_input{
             std::span<std::uint8_t>(encrypted.data(), encrypted_size),
             std::span<const std::uint8_t>(payload.data(), payload_size),
             std::span<const std::uint8_t>(nonce.data(), 12),
-            {});
+            {}});
         if (fault::failed(seal_ec))
             state.SkipWithError("AEAD seal failed");
 
         // 服务端解密
-        auto open_ec = server_ctx.open(
+        auto open_ec = server_ctx.open(psm::crypto::open_input{
             std::span<std::uint8_t>(decrypted.data(), payload_size),
             std::span<const std::uint8_t>(encrypted.data(), encrypted_size),
             std::span<const std::uint8_t>(nonce.data(), 12),
-            {});
+            {}});
         if (fault::failed(open_ec))
             state.SkipWithError("AEAD open failed");
 

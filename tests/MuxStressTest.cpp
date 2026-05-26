@@ -120,7 +120,7 @@ void build_yamux_stream_frames(std::uint32_t stream_id, std::span<const std::byt
                                std::vector<std::byte> &out)
 {
     // Data(SYN) 帧（12 字节帧头）
-    auto syn = yamux::make_syn_frame(stream_id, {});
+    auto syn = yamux::build_syn(stream_id, {});
     out.insert(out.end(), syn.header.begin(), syn.header.end());
 
     // Data 帧分块（yamux Data 最大载荷取决于窗口，这里用 32KB 分块）
@@ -131,14 +131,14 @@ void build_yamux_stream_frames(std::uint32_t stream_id, std::span<const std::byt
         const auto remaining = payload.size() - offset;
         const auto len = std::min(chunk_size, remaining);
         auto chunk_span = payload.subspan(offset, len);
-        auto data_frame = yamux::make_data_frame(yamux::flags::none, stream_id, chunk_span);
+        auto data_frame = yamux::build_data(yamux::flags::none, stream_id, chunk_span);
         out.insert(out.end(), data_frame.header.begin(), data_frame.header.end());
         out.insert(out.end(), data_frame.payload.begin(), data_frame.payload.end());
         offset += len;
     }
 
     // Data(FIN) 帧（12 字节帧头，无载荷）
-    auto fin = yamux::make_fin_frame(stream_id);
+    auto fin = yamux::build_fin(stream_id);
     out.insert(out.end(), fin.begin(), fin.end());
 }
 
@@ -387,14 +387,14 @@ void TestYamuxConcurrent32Streams()
     // 交错：所有流先 SYN
     for (std::uint32_t i = 1; i <= num_streams; ++i)
     {
-        auto syn = yamux::make_syn_frame(i, {});
+        auto syn = yamux::build_syn(i, {});
         buffer.insert(buffer.end(), syn.header.begin(), syn.header.end());
     }
 
     // 所有流同时发 Data
     for (std::uint32_t i = 1; i <= num_streams; ++i)
     {
-        auto frame = yamux::make_data_frame(yamux::flags::none, i, payload);
+        auto frame = yamux::build_data(yamux::flags::none, i, payload);
         buffer.insert(buffer.end(), frame.header.begin(), frame.header.end());
         buffer.insert(buffer.end(), frame.payload.begin(), frame.payload.end());
     }
@@ -402,7 +402,7 @@ void TestYamuxConcurrent32Streams()
     // 所有流同时 FIN
     for (std::uint32_t i = 1; i <= num_streams; ++i)
     {
-        auto fin = yamux::make_fin_frame(i);
+        auto fin = yamux::build_fin(i);
         buffer.insert(buffer.end(), fin.begin(), fin.end());
     }
 
@@ -529,7 +529,7 @@ void TestYamuxLargeTransfer100MB()
     std::uint64_t bytes_encoded = 0;
 
     // SYN 帧
-    auto syn = yamux::make_syn_frame(1, {});
+    auto syn = yamux::build_syn(1, {});
     auto syn_hdr = yamux::parse_header(std::span<const std::byte>(syn.header.data(), syn.header.size()));
     if (!syn_hdr || !yamux::has_flag(syn_hdr->flag, yamux::flags::syn))
     {
@@ -541,7 +541,7 @@ void TestYamuxLargeTransfer100MB()
     // Data 帧（64KB 分块，但 yamux length 是 uint32，可以承载 64KB）
     for (std::uint64_t chunk = 0; chunk < total_chunks; ++chunk)
     {
-        auto frame = yamux::make_data_frame(yamux::flags::none, 1, pattern);
+        auto frame = yamux::build_data(yamux::flags::none, 1, pattern);
         auto hdr = yamux::parse_header(std::span<const std::byte>(frame.header.data(), frame.header.size()));
         if (!hdr || hdr->type != yamux::message_type::data || hdr->length != chunk_size)
         {
@@ -553,7 +553,7 @@ void TestYamuxLargeTransfer100MB()
     }
 
     // FIN 帧
-    auto fin = yamux::make_fin_frame(1);
+    auto fin = yamux::build_fin(1);
     auto fin_hdr = yamux::parse_header(std::span<const std::byte>(fin.data(), fin.size()));
     if (!fin_hdr || !yamux::has_flag(fin_hdr->flag, yamux::flags::fin))
     {
@@ -618,12 +618,12 @@ void TestMixedProtocolStress()
 
         // yamux 流（偶数 stream_id，用 i + mixed_streams 避免 ID 冲突）
         {
-            auto syn = yamux::make_syn_frame(i + mixed_streams, {});
+            auto syn = yamux::build_syn(i + mixed_streams, {});
             buffer.insert(buffer.end(), syn.header.begin(), syn.header.end());
-            auto data = yamux::make_data_frame(yamux::flags::none, i + mixed_streams, payload);
+            auto data = yamux::build_data(yamux::flags::none, i + mixed_streams, payload);
             buffer.insert(buffer.end(), data.header.begin(), data.header.end());
             buffer.insert(buffer.end(), data.payload.begin(), data.payload.end());
-            auto fin = yamux::make_fin_frame(i + mixed_streams);
+            auto fin = yamux::build_fin(i + mixed_streams);
             buffer.insert(buffer.end(), fin.begin(), fin.end());
             expected_yamux_frames += 3;
         }
@@ -763,7 +763,7 @@ void TestYamuxPayloadIntegrity()
         }
 
         // 编码为 Data 帧
-        auto frame = yamux::make_data_frame(yamux::flags::none, i, original);
+        auto frame = yamux::build_data(yamux::flags::none, i, original);
 
         // 解析帧头
         auto hdr = yamux::parse_header(
@@ -802,7 +802,7 @@ void TestYamuxPayloadIntegrity()
  */
 int main()
 {
-    psm::memory::system::enable_global_pooling();
+    psm::memory::system::enable_pooling();
     psm::trace::init({});
 
     runner.LogInfo("========== MuxStressTest ==========");

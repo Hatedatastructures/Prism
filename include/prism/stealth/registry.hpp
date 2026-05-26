@@ -2,27 +2,30 @@
  * @file registry.hpp
  * @brief 伪装方案注册表
  * @details 单例模式，管理所有 stealth_scheme 的注册和查询。
- * 启动阶段通过 register_all_schemes() 手动注册所有方案，
+ * 启动阶段通过 register_schemes() 手动注册所有方案，
  * 运行时只读，无需同步。
  */
 
 #pragma once
 
-#include <vector>
-#include <string_view>
 #include <prism/stealth/scheme.hpp>
+
+#include <string_view>
+#include <vector>
+
 
 namespace psm::stealth
 {
+
     /**
      * @class scheme_registry
      * @brief 伪装方案注册表（单例）
      * @details 管理所有 stealth_scheme 的注册和查询。
-     * 启动时通过 register_all_schemes() 注册所有方案，
+     * 启动时通过 register_schemes() 注册所有方案，
      * 运行时由 recognition 模块查询和使用。
      *
-     * **使用流程**：
-     * 1. 启动阶段调用 register_all_schemes()
+     * 使用流程：
+     * 1. 启动阶段调用 register_schemes()
      * 2. recognition 调用 scheme_registry::instance().all() 获取所有方案
      * 3. 对每个方案调用 detect() 获取候选列表
      * 4. 通过 scheme_executor 执行候选方案
@@ -68,6 +71,6 @@ namespace psm::stealth
      * @details 在 main() 或启动阶段调用，注册 reality/shadowtls/restls/native。
      * 新增方案只需在此函数中添加一行。
      */
-    void register_all_schemes();
+    void register_schemes();
 
 } // namespace psm::stealth

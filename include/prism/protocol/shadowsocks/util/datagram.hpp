@@ -7,16 +7,18 @@
  */
 #pragma once
 
-#include <prism/protocol/shadowsocks/constants.hpp>
-#include <prism/protocol/shadowsocks/config.hpp>
-#include <prism/protocol/shadowsocks/packet.hpp>
-#include <prism/protocol/shadowsocks/framing.hpp>
-#include <prism/protocol/shadowsocks/util/tracker.hpp>
 #include <prism/crypto/aead.hpp>
-#include <prism/memory.hpp>
-#include <prism/trace.hpp>
 #include <prism/fault/code.hpp>
+#include <prism/memory.hpp>
+#include <prism/protocol/shadowsocks/config.hpp>
+#include <prism/protocol/shadowsocks/constants.hpp>
+#include <prism/protocol/shadowsocks/framing.hpp>
+#include <prism/protocol/shadowsocks/packet.hpp>
+#include <prism/protocol/shadowsocks/util/tracker.hpp>
+#include <prism/trace.hpp>
+
 #include <boost/asio.hpp>
+
 #include <array>
 #include <cstdint>
 #include <memory>
@@ -24,8 +26,10 @@
 #include <utility>
 #include <vector>
 
+
 namespace psm::protocol::shadowsocks
 {
+
     namespace net = boost::asio;
 
     /**
@@ -60,12 +64,12 @@ namespace psm::protocol::shadowsocks
          * @param sessions UDP 会话跟踪器
          */
         explicit udp_relay(const config &cfg, std::shared_ptr<session_tracker> sessions)
-            : config_(cfg), sess_tracker_(std::move(sessions))
+            : config_(cfg), sess_tracker_(std::move(sessions)), psk_(memory::current_resource())
         {
             const auto [ec, psk_bytes] = format::decode_psk(config_.psk);
             if (ec == fault::code::success)
             {
-                psk_ = psk_bytes;
+                psk_.assign(psk_bytes.begin(), psk_bytes.end());
             }
             else
             {
@@ -92,7 +96,7 @@ namespace psm::protocol::shadowsocks
          * @return 错误码和密文数据包
          */
         [[nodiscard]] auto encrypt_out(std::span<const std::byte> payload, const std::array<std::uint8_t, session_id_len> &session_id, const std::shared_ptr<udp_session> &entry)
-            -> std::pair<fault::code, std::vector<std::byte>>;
+            -> std::pair<fault::code, memory::vector<std::byte>>;
 
         /**
          * @brief 获取加密方法
@@ -103,7 +107,7 @@ namespace psm::protocol::shadowsocks
 
     private:
         config config_;                                    // SS2022 协议配置
-        std::vector<std::uint8_t> psk_;                    // 解码后的 PSK
+        memory::vector<std::uint8_t> psk_;                    // 解码后的 PSK
         cipher_method method_{cipher_method::aes_128_gcm}; // 加密方法
         std::shared_ptr<session_tracker> sess_tracker_; // UDP 会话跟踪器
         bool valid_{true};                                 // PSK 解码是否成功
@@ -125,7 +129,7 @@ namespace psm::protocol::shadowsocks
          * @return 错误码和密文数据包
          */
         [[nodiscard]] auto send_aes_gcm(std::span<const std::byte> payload, const std::array<std::uint8_t, session_id_len> &session_id, const std::shared_ptr<udp_session> &entry)
-            -> std::pair<fault::code, std::vector<std::byte>>;
+            -> std::pair<fault::code, memory::vector<std::byte>>;
 
         /**
          * @brief ChaCha20 变体解密
@@ -144,7 +148,7 @@ namespace psm::protocol::shadowsocks
          * @return 错误码和密文数据包
          */
         [[nodiscard]] auto send_chacha(std::span<const std::byte> payload, const std::array<std::uint8_t, session_id_len> &session_id, const std::shared_ptr<udp_session> &entry)
-            -> std::pair<fault::code, std::vector<std::byte>>;
+            -> std::pair<fault::code, memory::vector<std::byte>>;
 
         /**
          * @brief 构造 AES-GCM 12 字节 nonce

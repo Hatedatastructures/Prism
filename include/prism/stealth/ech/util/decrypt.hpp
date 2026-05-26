@@ -6,13 +6,16 @@
  */
 #pragma once
 
+#include <prism/fault/code.hpp>
 #include <prism/memory/container.hpp>
 #include <prism/protocol/tls/types.hpp>
-#include <prism/fault/code.hpp>
+
 #include <span>
+
 
 namespace psm::stealth::ech
 {
+
     using hello_features = protocol::tls::hello_features;
     /**
      * @struct decrypt_result
@@ -37,11 +40,11 @@ namespace psm::stealth::ech
      * 3. 使用 AEAD 解密 payload，获取 inner ClientHello
      * 4. 解析 inner ClientHello，提取真实 SNI
      *
-     * **ECH outer 格式**：
-     * - version: 2 bytes (0xfe 0x0d for TLS 1.3)
-     * - config_id: 1 byte
-     * - enc: variable (KEM encapsulated key)
-     * - payload: variable (encrypted inner)
+     * ECH outer 格式：
+     * version: 2 bytes (0xfe 0x0d for TLS 1.3)
+     * config_id: 1 byte
+     * enc: variable (KEM encapsulated key)
+     * payload: variable (encrypted inner)
      */
     [[nodiscard]] auto decrypt_ech_payload(std::span<const std::byte> outer_payload, std::string_view ech_key)
         -> decrypt_result;

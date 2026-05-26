@@ -185,7 +185,7 @@ void TestBuildWindowUpdateFrame()
     namespace yamux = psm::multiplex::yamux;
 
     // 构造 WindowUpdate 帧：ACK 标志、流 ID=42、窗口增量=32768
-    auto encoded = yamux::build_window_update_frame(yamux::flags::ack, 42, 32768);
+    auto encoded = yamux::build_winupd(yamux::flags::ack, 42, 32768);
     auto result = yamux::parse_header(encoded);
 
     if (!result)
@@ -224,7 +224,7 @@ void TestBuildPingFrame()
     namespace yamux = psm::multiplex::yamux;
 
     // 构造 Ping 帧：SYN 标志、ping ID=99（存入 length 字段）
-    auto encoded = yamux::build_ping_frame(yamux::flags::syn, 99);
+    auto encoded = yamux::build_ping(yamux::flags::syn, 99);
     auto result = yamux::parse_header(encoded);
 
     if (!result)
@@ -257,7 +257,7 @@ void TestBuildGoAwayFrame()
     namespace yamux = psm::multiplex::yamux;
 
     // 构造 GoAway 帧：错误码 protocol_error
-    auto encoded = yamux::build_go_away_frame(yamux::go_away_code::protocol_error);
+    auto encoded = yamux::build_goaway(yamux::away_code::protocol_error);
     auto result = yamux::parse_header(encoded);
 
     if (!result)
@@ -433,7 +433,7 @@ void TestWindowUpdateRoundTrip()
     const std::uint32_t sid = 7;
 
     // 构建 WindowUpdate 帧并解析，验证增量值不丢失
-    auto encoded = yamux::build_window_update_frame(yamux::flags::syn, sid, delta);
+    auto encoded = yamux::build_winupd(yamux::flags::syn, sid, delta);
     auto result = yamux::parse_header(encoded);
 
     if (!result)
@@ -473,7 +473,7 @@ void TestPingRoundTrip()
     const std::uint32_t ping_id = 12345;
 
     // 构建 Ping 帧并解析，验证 ping ID 往返一致
-    auto encoded = yamux::build_ping_frame(yamux::flags::syn, ping_id);
+    auto encoded = yamux::build_ping(yamux::flags::syn, ping_id);
     auto result = yamux::parse_header(encoded);
 
     if (!result)
@@ -504,7 +504,7 @@ void TestPingRoundTrip()
 int main()
 {
     // 初始化 PMR 全局内存池和日志系统
-    psm::memory::system::enable_global_pooling();
+    psm::memory::system::enable_pooling();
     psm::trace::init({});
 
     LogInfo("Starting yamux tests...");

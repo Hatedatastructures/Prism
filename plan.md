@@ -1,15 +1,18 @@
-# Prism 代理服务器 — 开发计划（第五版）
+# Prism 代理服务器 — 开发计划（第六版）
 
 > **编制日期**: 2026/05/01
-> **修订日期**: 2026/05/24
-> **时间跨度**: 2026/05/24 — 2026/08/07 (共 10 周)
+> **修订日期**: 2026/05/25
+> **时间跨度**: 2026/05/25 — 2026/08/15 (共 12 周)
 >
-> **修订说明** (2026/05/24 第五轮):
-> - 基于第五轮全项目 220+ 文件逐行深度审计（14 个并行 agent）
-> - CRITICAL bug 从 9 个激增至 17 个，新增 8 个：BLAKE3 初始化、smux/yamux SYN collision、config.json 明文凭据、HTTP EOF 忙循环、Trojan overconsume、AnyTLS close() null 解引用、AnyTLS preread 双发、TrustTunnel send_pending 并发、Restls write blocking 无界缓冲、worker unregister use-after-free
-> - HIGH 问题从 24 个增至 32 个：新增 write_strand 未使用、deadline timer 未取消、detected=tls 误判、MAX_CONCURRENT_STREAMS 缺失、200 OK 时序错误、register_instance CAS 缺失等
-> - 总问题从 84 项增至 123 项
-> - Phase A 扩展至 13 个任务，需要扩展至 3 周
+> **修订说明** (2026/05/25 第七轮):
+> - 基于第七轮全项目深度审计（5 个并行 agent 覆盖所有模块）
+> - 新增 19 个问题：1 CRITICAL、3 HIGH、9 MEDIUM、6 LOW
+> - 总问题从 165 项增至 184 项
+> - **关键发现 O1**: Executor pipeline 误判 TrustTunnel/AnyTLS 成功为"未匹配"，导致两个协议生产环境完全不工作
+> - **关键发现 O4**: DNS query_via moved-from 读取导致 UDP 截断回退完全失效
+> - **关键发现 O2**: SOCKS5 所有定长字段读取不保证完整性
+> - 新增 Phase A 任务 A.17-A.20，Phase A 扩展至 4 周
+> - 协议完整性评估更新：TrustTunnel 从 75% 降至 60%（pipeline 阻断），AnyTLS 从 80% 降至 65%（pipeline 阻断）
 
 ---
 
@@ -74,7 +77,7 @@
 | 1 | `src/prism/stealth/ech/util/decrypt.cpp:39` | ECH HPKE 解密返回 `not_supported` | MEDIUM |
 | 2 | `src/prism/multiplex/h2mux/craft.cpp:478` | sing-mux DATA 帧 StreamRequest 解析 | HIGH |
 
-### 1.4 CRITICAL 已知 Bug（需立即修复，17 个）
+### 1.4 CRITICAL 已知 Bug（需立即修复，20 个）
 
 | # | 文件位置 | 问题描述 |
 |---|---------|---------|
@@ -101,6 +104,7 @@
 |---|---------|---------|
 | 18 | `src/prism/multiplex/h2mux/craft.cpp` | send_pending() 并发帧交错 |
 | 19 | `src/prism/stats/traffic.cpp:110-140` | worker 从未 unregister → use-after-free |
+| 20 | `src/prism/stealth/executor.cpp:89-123` | pipeline 误判 TrustTunnel/AnyTLS 成功 → 协议完全不工作 |
 
 ### 1.5 测试覆盖现状
 
@@ -122,7 +126,7 @@
 
 **零覆盖模块**: `loader/`、`outbound/`、`transport/encrypted`、`instance/worker`、`instance/listener`
 
-### 1.6 安全性评估（6.5/10，较第四轮 7.5/10 下降）
+### 1.6 安全性评估（6/10，较第六轮 6.5/10 下降）
 
 | 方面 | 现状 | 改善 |
 |------|------|------|
@@ -139,7 +143,11 @@
 | mux 流劫持 | SYN stream_id 无冲突检测 | ❌ 新发现 |
 | config 凭据 | `configuration.json` 含明文密码 | ❌ 新发现 |
 | AnyTLS close | null 解引用 crash | ❌ 新发现 |
-| TrustTunnel 并发 | send_pending 帧交错 | ❌ 新发现 |
+| TrustTunnel ALPN | SSL_CTX 变异 | ❌ 新发现 |
+| 密钥材料清零 | 析构不清零，残留敏感数据 | ❌ 新发现 |
+| Reality 空 SNI | 无 SNI 的 ClientHello 绕过白名单 | ❌ 新发现 |
+| DNS TC 回退 | moved-from 读取致截断回退失效 | ❌ 新发现 |
+| Pipeline 误判 | TrustTunnel/AnyTLS 成功被当作"未匹配" | ❌ 新发现 |
 
 ### 1.7 协议完整性
 
@@ -151,8 +159,8 @@
 | VLESS | 85% | XTLS/Vision |
 | SS2022 | 90% | EIH、多 PSK |
 | **Restls** | **90%** | **transport 层死代码需修复**、write blocking 无界缓冲、无超时、递归读 |
-| **AnyTLS** | **80%** | **close() crash**、**preread 双发**、write_strand 未使用、padding 非CSPRNG |
-| **TrustTunnel** | **75%** | **SSL_CTX ALPN 变异**、**send_pending 并发**、先200后连接、无MAX_CONCURRENT_STREAMS |
+| **AnyTLS** | **65%** | **pipeline 阻断不工作**、**close() crash**、**preread 双发**、write_strand 未使用、padding 非CSPRNG |
+| **TrustTunnel** | **60%** | **pipeline 阻断不工作**、**SSL_CTX ALPN 变异**、**send_pending 并发**、先200后连接、无MAX_CONCURRENT_STREAMS |
 | WebSocket | 0% | 完全未实现 |
 | gRPC | 0% | 未计划 |
 
@@ -175,11 +183,11 @@
 
 ---
 
-## 三、Phase A (第 1-3 周): CRITICAL Bug 修复
+## 三、Phase A (第 1-4 周): CRITICAL Bug 修复
 
-> **目标**: 修复 17+ 个 CRITICAL bug，消除生产阻塞项。
+> **目标**: 修复 20 个 CRITICAL bug，消除生产阻塞项。
 > **原则**: 这些问题影响核心功能正确性，必须优先于所有其他工作。
-> **注意**: Phase A 从 2 周扩展至 3 周，因 CRITICAL 数量翻倍。
+> **注意**: Phase A 从 3 周扩展至 4 周，因新增 pipeline 阻断等关键问题。
 
 ### 任务 A.1: 修复 Restls transport 死代码
 
@@ -397,7 +405,56 @@ SSL_set_alpn_protos(ssl_handle, reinterpret_cast<const uint8_t *>("\x2h2"), 3);
 
 ---
 
-## 四、Phase B (第 4-5 周): 安全加固 + 性能修复
+### 任务 A.17: 修复 Executor Pipeline 误判 TrustTunnel/AnyTLS（最高优先级）
+
+**文件**: `src/prism/stealth/executor.cpp:89-123`
+
+**问题**: TrustTunnel 和 AnyTLS 握手成功后返回 `detected = protocol_type::tls`，pipeline 将其解释为"未匹配"并继续尝试下一个方案，导致已建立的连接被错误拆除。**影响：TrustTunnel 和 AnyTLS 在生产环境中完全不工作。**
+
+**步骤**:
+1. 在 `protocol_type` 枚举中添加 `consumed` 值，或为 `handshake_result` 添加 `bool consumed` 字段
+2. 修改 TrustTunnel `scheme.cpp:259` 和 AnyTLS `scheme.cpp:384` 返回时设置 `consumed = true`
+3. 修改 `executor.cpp` pipeline：当 `consumed == true` 时立即返回成功，不执行 `try_rewind`/`pass_through`
+4. 补充集成测试验证 TrustTunnel/AnyTLS 端到端握手 + 数据传输
+
+---
+
+### 任务 A.18: 修复 SOCKS5 定长字段读取不完整
+
+**文件**: `src/prism/protocol/socks5/conn.cpp:470-474`
+
+**问题**: 所有 SOCKS5 定长协议字段读取使用 `async_read_some`，后者可能只返回部分字节。网络分片/TLS 记录边界场景下解析使用不完整数据。
+
+**步骤**:
+1. 将 `recv_impl` 改为循环读取直到缓冲区填满
+2. 或改用 `transport::async_read` 组合操作保证精确字节数
+3. 补充边界测试：分片读取、TLS 记录边界、单字节逐读
+
+---
+
+### 任务 A.19: 修复 DNS query_via moved-from 读取致 TC 截断回退失效
+
+**文件**: `src/prism/resolve/dns/upstream.cpp:734-740`
+
+**问题**: `tr.result = std::move(result)` 后读取 `result.response`（moved-from），获得空 message。`tc` 永远为 false，UDP 截断永不触发 TCP 重试。
+
+**步骤**:
+1. 交换顺序：先 `tr.response = result.response`（拷贝），再 `tr.result = std::move(result)`
+2. 补充 DNS 大响应截断回退测试
+
+---
+
+### 任务 A.20: 密钥材料安全清零 + Reality 空 SNI 绕过修复
+
+**文件**: `include/prism/crypto/x25519.hpp`、`reality/util/keygen.hpp`、`reality/util/auth.cpp:58-64`
+
+**密钥清零**: 为 `x25519_keypair`、`ed25519_keypair`、`key_material` 添加析构函数调用 `OPENSSL_cleanse` 清零敏感字段。
+
+**空 SNI**: 当 `cfg.server_names` 非空时，要求客户端必须提供 SNI 且匹配白名单，不发送 SNI 的 ClientHello 应被拒绝。
+
+---
+
+## 四、Phase B (第 5-6 周): 安全加固 + 性能修复
 
 > **目标**: 消除安全漏洞，修复性能瓶颈，补全配置校验。
 
@@ -472,7 +529,41 @@ SSL_set_alpn_protos(ssl_handle, reinterpret_cast<const uint8_t *>("\x2h2"), 3);
 
 ---
 
-## 五、Phase C (第 6-7 周): 性能优化 + 功能补全
+### 任务 B.7: 修复 yamux activate_stream 缓冲区交换丢数据
+
+**文件**: `src/prism/multiplex/yamux/craft.cpp:538-587`
+
+`activate_stream` swap `entry.buffer` 到局部变量后 `co_await`，期间新到达的 PSH 追加到已清空的 buffer，最终被 `erase` 销毁。改为直接从 `entry.buffer` 提取剩余数据（同 smux 模式）。
+
+---
+
+### 任务 B.8: 修复 h2mux on_stream_close 资源泄漏
+
+**文件**: `src/prism/multiplex/h2mux/craft.cpp:544-565`
+
+`on_stream_close` 只调用 `on_fin()`（半关闭）不移除 duct，导致长连接目标下 duct 和连接无限期打开。改为调用 `close()` 或显式 `remove_duct()`。
+
+---
+
+### 任务 B.9: DNS 负缓存 LRU 淘汰 + DoH Content-Length 上限 + 记录数限制
+
+**文件**: `src/prism/resolve/dns/detail/cache.cpp:157-197`、`upstream.cpp:557-585`、`format.cpp:402-405`
+
+1. `put_negative()` 添加与 `put()` 相同的 LRU 淘汰代码
+2. DoH Content-Length 添加 `> 65535` 上限校验
+3. `unpack()` 添加总记录数限制（如 1024）
+
+---
+
+### 任务 B.10: RAND_bytes 返回值检查
+
+**文件**: `src/prism/crypto/x25519.cpp:17`、`reality/util/response.cpp:84`
+
+检查 `RAND_bytes` 返回值，失败时返回错误码。
+
+---
+
+## 五、Phase C (第 7-8 周): 性能优化 + 功能补全
 
 > **目标**: 完成性能优化目标，实现正向代理和 h2mux sing-mux。
 
@@ -525,7 +616,7 @@ SSL_set_alpn_protos(ssl_handle, reinterpret_cast<const uint8_t *>("\x2h2"), 3);
 
 ---
 
-## 六、Phase D (第 8-9 周): 测试补全 + 质量提升
+## 六、Phase D (第 9-10 周): 测试补全 + 质量提升
 
 > **目标**: 补全关键模块测试，消除代码重复，添加 CI 保护。
 
@@ -533,11 +624,14 @@ SSL_set_alpn_protos(ssl_handle, reinterpret_cast<const uint8_t *>("\x2h2"), 3);
 
 | 文件 | 测试内容 | 优先级 |
 |------|---------|--------|
+| `tests/PipelineExecutor.cpp` | TrustTunnel/AnyTLS pipeline consumed 标志验证 | P0 |
 | `tests/RestlsTransport.cpp` | Restls 传输层（验证死代码修复） | P0 |
 | `tests/Loader.cpp` | 配置加载 + 语义校验 | P0 |
 | `tests/AeadBoundary.cpp` | AEAD nonce 溢出、open_output_size 边界 | P0 |
 | `tests/Blake3Keyed.cpp` | BLAKE3 keyed hash key 长度校验 | P0 |
 | `tests/MuxSynCollision.cpp` | smux/yamux stream_id 冲突拒绝 | P0 |
+| `tests/DnsTruncation.cpp` | UDP 截断→TCP 回退、moved-from 修复验证 | P0 |
+| `tests/Socks5Partial.cpp` | SOCKS5 分片读取、定长字段完整性 | P1 |
 | `tests/HttpEof.cpp` | HTTP EOF 处理、Trojan overconsume | P1 |
 | `tests/TrustTunnelScheme.cpp` | TrustTunnel 握手 + ALPN 隔离 | P1 |
 | `tests/AnyTlsSession.cpp` | AnyTLS 会话泄漏、多 stream、preread | P1 |
@@ -546,8 +640,9 @@ SSL_set_alpn_protos(ssl_handle, reinterpret_cast<const uint8_t *>("\x2h2"), 3);
 | `tests/Socks5Auth.cpp` | 密码认证边界、过读修复验证 | P1 |
 | `tests/HttpForward.cpp` | Proxy-Auth 过滤、端口校验 | P1 |
 | `tests/EyeballRacer.cpp` | 单/多端点竞态、超时 | P2 |
+| `tests/KeyZeroize.cpp` | 密钥材料析构清零验证 | P2 |
 
-**目标**: 测试文件 57 → 70+。
+**目标**: 测试文件 57 → 74+。
 
 ---
 
@@ -577,7 +672,7 @@ SSL_set_alpn_protos(ssl_handle, reinterpret_cast<const uint8_t *>("\x2h2"), 3);
 
 ---
 
-## 七、Phase E (第 10 周): 生产加固 + 运维完善
+## 七、Phase E (第 11-12 周): 生产加固 + 运维完善
 
 > **目标**: 完善运维工具链，实现剩余功能。
 
@@ -623,7 +718,7 @@ per-IP 令牌桶 + 全局 `max_total_connections` 硬限制。
 ## 八、依赖关系图
 
 ```
-Phase A (第 1-3 周): CRITICAL Bug 修复
+Phase A (第 1-4 周): CRITICAL Bug 修复
   ├─ A.1 Restls transport 死代码 ──────────────┐
   ├─ A.2 AEAD open_output_size + nonce 时机 ────┤
   ├─ A.3 TrustTunnel SSL_CTX ALPN ──────────────┤
@@ -639,18 +734,26 @@ Phase A (第 1-3 周): CRITICAL Bug 修复
   ├─ A.13 h2mux 并发 send + worker unregister ─┤
   ├─ A.14 Restls write blocking + 递归读 ──────┤
   ├─ A.15 移除 git 跟踪凭据 ───────────────────┤
-  └─ A.16 Yamux CAS 审查（已确认为误报）───────┘
+  ├─ A.16 Yamux CAS 审查（已确认为误报）───────┤
+  ├─ A.17 Executor Pipeline 误判修复（最高优先级）├─ 阻塞 TrustTunnel/AnyTLS
+  ├─ A.18 SOCKS5 定长字段读取修复 ─────────────┤
+  ├─ A.19 DNS TC 截断回退修复 ─────────────────┤
+  └─ A.20 密钥清零 + Reality 空 SNI 修复 ──────┘
 
-Phase B (第 4-5 周): 安全加固 + 性能修复
+Phase B (第 5-6 周): 安全加固 + 性能修复
   ├─ B.1 安全加固 (证书/时序/悬挂) ─────────────┐
   ├─ B.2 detached 协程悬挂引用（与 A.7 合并）──┤ 可并行
   ├─ B.2.1 Worker 优雅关机 ────────────────────┤
   ├─ B.3 隧道缓冲区修复 ────────────────────────┤
   ├─ B.4 移除 -O1 编译选项 ─────────────────────┤
   ├─ B.5 配置语义校验 ──────────────────────────┤
-  └─ B.6 smux pending buffer 上限 ──────────────┘
+  ├─ B.6 smux pending buffer 上限 ──────────────┤
+  ├─ B.7 yamux activate_stream 缓冲区修复 ─────┤
+  ├─ B.8 h2mux on_stream_close 资源泄漏修复 ───┤
+  ├─ B.9 DNS 负缓存 LRU + DoH 上限 + 记录限制 ─┤
+  └─ B.10 RAND_bytes 返回值检查 ────────────────┘
 
-Phase C (第 6-7 周): 性能优化 + 功能补全
+Phase C (第 7-8 周): 性能优化 + 功能补全
   ├─ C.1 内存池分片化 ──────────────────────────┐
   ├─ C.2 SS2022 热路径优化 ─────────────────────┤ 可并行
   ├─ C.3 正向代理模式 ──────────────────────────┤
@@ -658,8 +761,8 @@ Phase C (第 6-7 周): 性能优化 + 功能补全
   ├─ C.5 P99 尾延迟优化 ────────────────────────┤
   └─ C.6 smux/yamux buffer 提升 ────────────────┘
 
-Phase D (第 8-9 周): 测试补全 + 质量提升
-  ├─ D.1 补全缺失测试 (10 个新测试) ────────────┐
+Phase D (第 9-10 周): 测试补全 + 质量提升
+  ├─ D.1 补全缺失测试 (17 个新测试) ────────────┐
   ├─ D.2 CI 增强 (警告/Sanitizer/性能回归) ─────┤ 可并行
   ├─ D.3 协议处理器去重 ────────────────────────┤
   └─ D.4 消除 dynamic_cast ─────────────────────┘
@@ -689,7 +792,14 @@ Phase E (第 10 周): 生产加固 + 运维完善
 | A.12 AnyTLS close/preread | 高 | close 时序敏感，修复可能引入新竞态 | 使用 strand 保护，详细测试 |
 | A.13 h2mux 并发 | 高 | nghttp2 线程安全需仔细处理 | strand 序列化 + 压力测试 |
 | A.14 Restls write blocking | 中 | 需确保 flush 逻辑不丢数据 | 循环 flush 直到清空 |
+| **A.17 Pipeline consumed** | **高** | **新增 protocol_type 值需更新所有 switch/case** | **搜索所有 switch(protocol_type) 确保覆盖** |
+| A.18 SOCKS5 定长读取 | 中 | recv_impl 改动影响所有 SOCKS5 路径 | 回归测试覆盖所有认证/命令模式 |
+| A.19 DNS TC 回退 | 低 | 简单顺序交换 | 单元测试验证截断回退 |
+| A.20 密钥清零 | 低 | 析构函数清零需确保不引入性能回归 | 基准测试 |
 | B.2.1 Worker 优雅关机 | 中 | 需设计 drain 期限 | 参考信号处理模式 |
+| B.7 yamux 缓冲区 | 中 | 修改 activate_stream 影响流建立流程 | smux 对比验证 |
+| B.8 h2mux on_stream_close | 中 | duct close 时机可能影响数据完整性 | 确保 on_fin 后数据已发完 |
+| B.9 DNS 多项修复 | 中 | 三处修改需分别验证 | 逐项测试 |
 | C.1 内存池分片 | 低 | 分片间碎片化 | 分片数 8-16，fallback 到 synchronized_pool |
 | C.3 正向代理 | 中 | HTTP CONNECT 解析可复用 HTTP parser | 提取通用 HTTP 响应解析 |
 | C.4 h2mux sing-mux | 中 | StreamRequest 格式需从客户端规范获取 | 参考sing-box实现 |
@@ -702,27 +812,28 @@ Phase E (第 10 周): 生产加固 + 运维完善
 
 | 维度 | 当前 | 目标 |
 |------|------|------|
-| CRITICAL Bug | 17+ 个 | 0 个 |
-| HIGH 问题 | 32 个 | <5 个 |
+| CRITICAL Bug | 20 个 | 0 个 |
+| HIGH 问题 | 44 个 | <5 个 |
 | 活跃 TODO | 2 个 | 0 个 |
 | `dynamic_cast` | 4 处 (connect/util.hpp + transmission.hpp) | 0 处 |
 | Prism 编译优化 | -O1 | -O3 |
 | 优雅关闭 | ✅ | ✅ |
 | 监控指标 | 内部统计 | Prometheus 导出 |
-| 测试文件 | 57 个 | 70+ 个 |
+| 测试文件 | 57 个 | 74+ 个 |
 | CI | 基础构建 | 警告+Sanitizer+性能回归 |
 | 正向代理 | 死代码 | HTTP CONNECT 实现 |
 | h2mux sing-mux | 丢帧 | 完整实现 |
 | WebSocket | 0% | 完整实现 |
 | 速率限制 | 缺失 | per-IP + 全局上限 |
 | Dockerfile | 缺失 | 多阶段构建 |
-| 安全评分 | 6.5/10 | 9/10 |
+| 安全评分 | 6/10 | 9/10 |
+| TrustTunnel/AnyTLS | **pipeline 阻断不工作** | 完全工作 |
 
 ---
 
 ## 十一、与上层架构计划的关系
 
-本 10 周计划聚焦于 **CRITICAL Bug 修复 + 安全加固 + 性能优化 + 功能补全**，不涉及以下更大规模的架构变更：
+本 12 周计划聚焦于 **CRITICAL Bug 修复 + 安全加固 + 性能优化 + 功能补全**，不涉及以下更大规模的架构变更：
 
 | 上层功能 | 与本计划关系 |
 |----------|-------------|
@@ -736,4 +847,4 @@ Phase E (第 10 周): 生产加固 + 运维完善
 | ECH HPKE | 低优先级，可延后 |
 | VLESS XTLS/Vision | 独立 |
 
-本计划完成后的状态：CRITICAL Bug 清零、性能达标、安全加固、核心功能补全，为后续大规模架构变更奠定坚实基础。
+本计划完成后的状态：CRITICAL Bug 清零、性能达标、安全加固、核心功能补全（TrustTunnel/AnyTLS 完全工作），为后续大规模架构变更奠定坚实基础。

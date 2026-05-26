@@ -9,16 +9,18 @@
 
 #pragma once
 
-#include <cstring>
-#include <cstdint>
-#include <utility>
-#include <span>
-
 #include <prism/fault/code.hpp>
 #include <prism/protocol/common/address.hpp>
 
+#include <cstdint>
+#include <cstring>
+#include <span>
+#include <utility>
+
+
 namespace psm::protocol::common::framing
 {
+
     /**
      * @brief 解析 IPv4 地址
      * @param buffer 包含 IPv4 地址的缓冲区，至少 4 字节
@@ -66,7 +68,7 @@ namespace psm::protocol::common::framing
             return {fault::code::bad_message, {}};
         }
         const std::uint8_t len = buffer[0];
-        if (buffer.size() < static_cast<size_t>(1 + len))
+        if (buffer.size() < static_cast<std::size_t>(1 + len))
         {
             return {fault::code::bad_message, {}};
         }
@@ -86,13 +88,13 @@ namespace psm::protocol::common::framing
      * @return 错误码和端口号
      */
     [[nodiscard]] inline auto parse_port(const std::span<const std::uint8_t> buffer)
-        -> std::pair<fault::code, uint16_t>
+        -> std::pair<fault::code, std::uint16_t>
     {
         if (buffer.size() < 2)
         {
             return {fault::code::bad_message, 0};
         }
-        uint16_t port = static_cast<uint16_t>(buffer[0]) << 8 | static_cast<uint16_t>(buffer[1]);
+        std::uint16_t port = static_cast<std::uint16_t>(buffer[0]) << 8 | static_cast<std::uint16_t>(buffer[1]);
         return {fault::code::success, port};
     }
 } // namespace psm::protocol::common::framing

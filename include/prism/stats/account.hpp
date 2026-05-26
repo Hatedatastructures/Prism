@@ -6,14 +6,16 @@
  */
 #pragma once
 
+#include <prism/account/directory.hpp>
+#include <prism/account/entry.hpp>
+#include <prism/memory/container.hpp>
+
 #include <cstdint>
 
-#include <prism/account/entry.hpp>
-#include <prism/account/directory.hpp>
-#include <prism/memory/container.hpp>
 
 namespace psm::stats::account
 {
+
     /**
      * @struct account_snapshot
      * @brief 单个账户的统计快照
@@ -40,7 +42,7 @@ namespace psm::stats::account
         -> memory::vector<account_snapshot>
     {
         memory::vector<account_snapshot> result(mr);
-        // TODO: 需要在 account::directory 中添加 for_each 遍历接口
+        // TODO: 需要在 account::directory 中添加 for_each 遍历接口(#account)
         return result;
     }
 } // namespace psm::stats::account

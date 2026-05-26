@@ -9,16 +9,18 @@
 
 #pragma once
 
-#include <optional>
-
-#include <boost/asio.hpp>
-
 #include <prism/context/context.hpp>
 #include <prism/stats/runtime.hpp>
 #include <prism/stats/traffic.hpp>
 
+#include <boost/asio.hpp>
+
+#include <optional>
+
+
 namespace psm::instance::worker::launch
 {
+
     namespace net = boost::asio;
     using tcp = boost::asio::ip::tcp;
 
@@ -33,7 +35,7 @@ namespace psm::instance::worker::launch
      * 将绑定到它
      * @return 迁移后的新 socket，失败时为空
      */
-    [[nodiscard]] std::optional<tcp::socket> migrate_executor(tcp::socket &sock, net::io_context &target_ioc) noexcept;
+    [[nodiscard]] auto migrate_executor(tcp::socket &sock, net::io_context &target_ioc) noexcept -> std::optional<tcp::socket>;
 
     /**
      * @brief 预配置 TCP socket 参数

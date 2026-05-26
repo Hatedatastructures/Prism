@@ -9,18 +9,20 @@
 
 #pragma once
 
+#include <prism/account/entry.hpp>
+#include <prism/memory/container.hpp>
+#include <prism/memory/pool.hpp>
+
 #include <atomic>
 #include <cstddef>
 #include <memory>
 #include <string_view>
 #include <utility>
 
-#include <prism/account/entry.hpp>
-#include <prism/memory/container.hpp>
-#include <prism/memory/pool.hpp>
 
 namespace psm::account
 {
+
     /**
      * @class directory
      * @brief 账户目录
@@ -88,10 +90,10 @@ namespace psm::account
         /**
          * @brief 构造账户目录
          * @param resource 内存池资源指针，默认使用线程局部池
-         * @note 默认使用 thread_local_pool 以避免多线程竞争，
+         * @note 默认使用 local_pool 以避免多线程竞争，
          * 账户目录通常在单线程中构建和使用
          */
-        explicit directory(memory::resource_pointer resource = memory::system::thread_local_pool());
+        explicit directory(memory::resource_pointer resource = memory::system::local_pool());
 
         /**
          * @brief 预留账户条目容量
@@ -185,7 +187,7 @@ namespace psm::account
         auto entry_ptr = accounts.find(credential);
         if (!entry_ptr)
         {
-            return {};
+            return lease{};
         }
 
         if (entry_ptr->max_connections == 0)
@@ -199,7 +201,7 @@ namespace psm::account
         {
             if (current >= entry_ptr->max_connections)
             {
-                return {};
+                return lease{};
             }
 
             if (entry_ptr->active_connections.compare_exchange_weak(

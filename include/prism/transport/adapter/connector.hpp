@@ -10,14 +10,18 @@
 
 #pragma once
 
+#include <prism/memory/container.hpp>
+#include <prism/transport/transmission.hpp>
+
 #include <boost/asio.hpp>
+
 #include <span>
 #include <utility>
-#include <prism/transport/transmission.hpp>
-#include <prism/memory/container.hpp>
+
 
 namespace psm::transport
 {
+
     namespace net = boost::asio;
 
     /**
@@ -32,7 +36,7 @@ namespace psm::transport
      * @warning 预读数据注入时机不当可能导致协议解析失败。
      * @throws std::bad_alloc 如果内存分配失败
      */
-    class connector
+    class connector final
     {
     public:
         using executor_type = net::any_io_executor;
@@ -76,7 +80,8 @@ namespace psm::transport
          * @param other 要移动的适配器对象
          * @return connector& 当前对象的引用
          */
-        connector &operator=(connector &&other) noexcept
+        auto operator=(connector &&other) noexcept
+            -> connector &
         {
             if (this != &other)
             {
@@ -94,7 +99,8 @@ namespace psm::transport
          * AsyncStream 概念要求。
          * @return executor_type 执行器对象
          */
-        [[nodiscard]] executor_type get_executor()
+        [[nodiscard]] auto get_executor()
+            -> executor_type
         {
             return trans_->executor();
         }
@@ -104,7 +110,8 @@ namespace psm::transport
          * @details 委托给 get_executor()，提供便捷的执行器访问。
          * @return executor_type 执行器对象
          */
-        [[nodiscard]] executor_type executor()
+        [[nodiscard]] auto executor()
+            -> executor_type
         {
             return get_executor();
         }
@@ -213,7 +220,8 @@ namespace psm::transport
          * lowest_layer 访问要求。
          * @return lowest_layer_type& 当前对象的引用
          */
-        [[nodiscard]] lowest_layer_type &lowest_layer()
+        [[nodiscard]] auto lowest_layer()
+            -> lowest_layer_type &
         {
             return *this;
         }
@@ -224,7 +232,8 @@ namespace psm::transport
          * lowest_layer 常量访问要求。
          * @return const lowest_layer_type& 当前对象的常量引用
          */
-        [[nodiscard]] const lowest_layer_type &lowest_layer() const
+        [[nodiscard]] auto lowest_layer() const
+            -> const lowest_layer_type &
         {
             return *this;
         }
@@ -234,7 +243,7 @@ namespace psm::transport
          * @details 返回内部持有的传输层对象的引用，用于直接操作传输层。
          * @return transmission& 传输层对象的引用
          */
-        [[nodiscard]] auto &transmission() const
+        [[nodiscard]] auto transmission() const -> transmission &
         {
             return *trans_;
         }
@@ -244,7 +253,8 @@ namespace psm::transport
          * @details 将内部持有的传输层指针移动返回，调用后对象不再持有传输层。
          * @return transmission_ptr 传输层对象指针
          */
-        [[nodiscard]] transmission_ptr release()
+        [[nodiscard]] auto release()
+            -> transmission_ptr
         {
             return std::move(trans_);
         }

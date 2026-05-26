@@ -9,8 +9,10 @@
 #include <cstddef>
 #include <cstdint>
 
+
 namespace psm::stealth::shadowtls
 {
+
     // TLS 记录层常量
     constexpr std::size_t tls_hdrsize = 5;               // TLS 记录头长度
     constexpr std::size_t tls_rndsize = 32;              // TLS Random 长度

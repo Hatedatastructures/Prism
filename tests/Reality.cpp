@@ -105,12 +105,12 @@ void TestRealityCertificateParsesAsEd25519()
 
     protocol::tls::hello_features client_hello;
     client_hello.session_id = {0x01, 0x02, 0x03, 0x04};
-    client_hello.raw_hs_msg = {
+    client_hello.raw_msg = {
         0x01, 0x00, 0x00, 0x05,
         0x03, 0x03, 0x00, 0x00, 0x00
     };
 
-    auto eph = crypto::generate_x25519_keypair();
+    auto eph = crypto::generate_keypair();
 
     key_material keys{};
     for (std::size_t i = 0; i < keys.server_finkey.size(); ++i)
@@ -138,7 +138,7 @@ void TestRealityCertificateParsesAsEd25519()
             std::span<const std::uint8_t>(eph.public_key.data(), eph.public_key.size()),
             keys,
             {},
-            std::span<const std::uint8_t>(client_hello.raw_hs_msg.data(), client_hello.raw_hs_msg.size()),
+            std::span<const std::uint8_t>(client_hello.raw_msg.data(), client_hello.raw_msg.size()),
             std::span<const std::uint8_t>(auth_key.data(), auth_key.size())});
 
     if (fault::failed(ec))

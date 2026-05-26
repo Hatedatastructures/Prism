@@ -9,30 +9,33 @@
 
 #pragma once
 
-#include <memory>
-#include <utility>
-#include <functional>
-#include <string_view>
+#include <prism/context/context.hpp>
+#include <prism/memory/pool.hpp>
+#include <prism/transport/transmission.hpp>
 
 #include <boost/asio.hpp>
 
-#include <prism/context/context.hpp>
-#include <prism/transport/transmission.hpp>
-#include <prism/memory/pool.hpp>
 #include <atomic>
+#include <functional>
+#include <memory>
+#include <string_view>
+#include <utility>
+
 
 namespace psm::instance::session
 {
+
     namespace net = boost::asio;
     using shared_transmission = psm::transport::shared_transmission;
 
     namespace detail
     {
+
         // 全局会话 ID 计数器，使用原子操作保证线程安全
         inline std::atomic<std::uint64_t> sid_counter{0};
 
         // 生成新的会话 ID，性能优化：单次原子递增
-        [[nodiscard]] inline std::uint64_t next_sid() noexcept
+        [[nodiscard]] inline auto next_sid() noexcept -> std::uint64_t
         {
             return ++sid_counter;
         }
@@ -115,7 +118,7 @@ namespace psm::instance::session
          * @warning 析构函数不抛出异常（noexcept 隐含）。
          * @warning 不要在析构期间调用其他会话方法。
          */
-        ~session();
+        ~session() noexcept;
 
         /**
          * @brief 启动会话异步处理流程
@@ -210,7 +213,7 @@ namespace psm::instance::session
          * @details 会话 ID 是全局唯一的 64 位整数，从 1 开始递增。
          * 用于日志追踪和问题定位。
          */
-        [[nodiscard]] std::uint64_t id() const noexcept
+        [[nodiscard]] auto id() const noexcept -> std::uint64_t
         {
             return id_;
         }
@@ -266,6 +269,6 @@ namespace psm::instance::session
      * @warning 调用者必须确保传入的 io_context 在会话生命周期
      * 内保持运行。
      */
-    [[nodiscard]] std::shared_ptr<session> make_session(session_params &&params);
+    [[nodiscard]] auto make_session(session_params &&params) -> std::shared_ptr<session>;
 
 } // namespace psm::instance::session

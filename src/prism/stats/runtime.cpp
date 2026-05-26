@@ -1,8 +1,10 @@
 #include <prism/stats/runtime.hpp>
+
 #include <prism/trace.hpp>
 
 namespace psm::stats::runtime
 {
+
     // --- worker_load ---
 
     worker_load::worker_load()
@@ -10,25 +12,30 @@ namespace psm::stats::runtime
     {
     }
 
+
     void worker_load::session_open() noexcept
     {
         active_sessions_->fetch_add(1U, std::memory_order_relaxed);
     }
+
 
     void worker_load::session_close() noexcept
     {
         active_sessions_->fetch_sub(1U, std::memory_order_relaxed);
     }
 
+
     void worker_load::handoff_push() noexcept
     {
         pending_handoffs_.fetch_add(1U, std::memory_order_relaxed);
     }
 
+
     void worker_load::handoff_pop() noexcept
     {
         pending_handoffs_.fetch_sub(1U, std::memory_order_relaxed);
     }
+
 
     auto worker_load::session_counter() const noexcept
         -> const std::shared_ptr<std::atomic<std::uint32_t>> &
@@ -36,14 +43,16 @@ namespace psm::stats::runtime
         return active_sessions_;
     }
 
+
     auto worker_load::snapshot() const noexcept
         -> worker_snapshot
     {
         return {
             active_sessions_->load(std::memory_order_relaxed),
             pending_handoffs_.load(std::memory_order_relaxed),
-            loop_lag_us_.load(std::memory_order_relaxed)};
+            lag_us_.load(std::memory_order_relaxed)};
     }
+
 
     // 算法流程：
     // 1. 每 250ms 设置定时器并等待
@@ -79,21 +88,51 @@ namespace psm::stats::runtime
             const auto current_time = std::chrono::steady_clock::now();
             const auto difference =
                 std::chrono::duration_cast<std::chrono::microseconds>(current_time - expected_time).count();
-            const auto lag_time = current_time > expected_time ? difference : 0;
-            const auto raw_lag_us = lag_time > 0 ? static_cast<std::uint64_t>(lag_time) : 0ULL;
-            const auto capped_lag_us = raw_lag_us > 20000ULL ? 20000ULL : raw_lag_us;
+            std::int64_t lag_time;
+            if (current_time > expected_time)
+            {
+                lag_time = difference;
+            }
+            else
+            {
+                lag_time = 0;
+            }
+            std::uint64_t raw_lag_us;
+            if (lag_time > 0)
+            {
+                raw_lag_us = static_cast<std::uint64_t>(lag_time);
+            }
+            else
+            {
+                raw_lag_us = 0ULL;
+            }
+            std::uint64_t capped_lag_us;
+            if (raw_lag_us > 20000ULL)
+            {
+                capped_lag_us = 20000ULL;
+            }
+            else
+            {
+                capped_lag_us = raw_lag_us;
+            }
 
             if (warmup_samples < 16U)
             {
                 jitter_baseline_us = (jitter_baseline_us * warmup_samples + capped_lag_us) / (warmup_samples + 1U);
                 ++warmup_samples;
-                loop_lag_us_.store(0ULL, std::memory_order_relaxed);
+                lag_us_.store(0ULL, std::memory_order_relaxed);
                 continue;
             }
 
-            auto effective_lag_us = capped_lag_us > jitter_baseline_us
-                ? capped_lag_us - jitter_baseline_us
-                : 0ULL;
+            std::uint64_t effective_lag_us;
+            if (capped_lag_us > jitter_baseline_us)
+            {
+                effective_lag_us = capped_lag_us - jitter_baseline_us;
+            }
+            else
+            {
+                effective_lag_us = 0ULL;
+            }
 
             if (effective_lag_us <= 1000ULL)
             {
@@ -101,9 +140,10 @@ namespace psm::stats::runtime
             }
 
             smoothed_lag_us = (smoothed_lag_us * 7ULL + effective_lag_us) / 8ULL;
-            loop_lag_us_.store(smoothed_lag_us, std::memory_order_relaxed);
+            lag_us_.store(smoothed_lag_us, std::memory_order_relaxed);
         }
     }
+
 
     // --- system_state ---
 
@@ -114,6 +154,7 @@ namespace psm::stats::runtime
         return inst;
     }
 
+
     void system_state::mark_started(std::uint32_t worker_count) noexcept
     {
         if (started_.exchange(true, std::memory_order_relaxed))
@@ -123,6 +164,7 @@ namespace psm::stats::runtime
         start_time_ = std::chrono::steady_clock::now();
         worker_count_ = worker_count;
     }
+
 
     auto system_state::snapshot() const noexcept
         -> runtime_snapshot
@@ -135,4 +177,5 @@ namespace psm::stats::runtime
         const auto uptime = std::chrono::duration_cast<std::chrono::seconds>(now - start_time_).count();
         return {static_cast<std::uint64_t>(uptime), worker_count_};
     }
+
 } // namespace psm::stats::runtime

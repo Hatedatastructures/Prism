@@ -5,5 +5,7 @@
  */
 #pragma once
 
-#include <prism/outbound/proxy.hpp>
 #include <prism/outbound/direct.hpp>
+#include <prism/outbound/proxy.hpp>
+
+

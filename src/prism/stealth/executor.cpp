@@ -1,13 +1,16 @@
 #include <prism/stealth/executor.hpp>
+
+#include <prism/connect/util.hpp>
 #include <prism/context/context.hpp>
+#include <prism/trace.hpp>
 #include <prism/transport/preview.hpp>
 #include <prism/transport/snapshot.hpp>
-#include <prism/connect/util.hpp>
-#include <prism/trace.hpp>
+
 #include <algorithm>
 
 namespace psm::stealth
 {
+
     scheme_executor::scheme_executor(const scheme_registry &registry)
         : schemes_(registry.all().begin(), registry.all().end())
     {
@@ -20,7 +23,9 @@ namespace psm::stealth
         if (!res.preread.empty() && ctx.inbound)
         {
             auto preread_span = std::span(res.preread.data(), res.preread.size());
-            auto *mr = ctx.session ? ctx.session->frame_arena.get() : nullptr;
+            memory::resource_pointer mr = nullptr;
+            if (ctx.session)
+                mr = ctx.session->frame_arena.get();
             ctx.inbound = std::make_shared<transport::preview>(ctx.inbound, preread_span, mr);
         }
     }
@@ -34,10 +39,10 @@ namespace psm::stealth
         ctx.inbound = transport::make_snapshot(std::move(ctx.inbound));
     }
 
-    auto scheme_executor::try_rewind(handshake_context &ctx, bool polluted)
+    auto scheme_executor::try_rewind(handshake_context &ctx, rewind_mode mode)
         -> bool
     {
-        if (polluted)
+        if (mode == rewind_mode::polluted)
             return false;
         if (!ctx.inbound)
             return false;
@@ -76,14 +81,12 @@ namespace psm::stealth
                 continue;
             }
 
-            // 包装 snapshot，使失败时可以 rewind
             ensure_snapshot(ctx);
 
             trace::debug("[SchemeExecutor] Executing scheme '{}'", name);
 
             auto exec_result = co_await execute_single(scheme, handshake_context{ctx});
 
-            // 成功：内层协议已识别
             if (exec_result.detected != protocol::protocol_type::tls &&
                 exec_result.detected != protocol::protocol_type::unknown &&
                 exec_result.transport && !fault::failed(exec_result.error))
@@ -93,19 +96,35 @@ namespace psm::stealth
                 co_return exec_result;
             }
 
-            // 返回 TLS 表示"不是我"，尝试 rewind 后继续下一个
             if (exec_result.detected == protocol::protocol_type::tls)
             {
                 trace::debug("[SchemeExecutor] Scheme '{}' returned TLS, continuing to next", name);
-                if (!try_rewind(ctx, exec_result.polluted))
+                rewind_mode rw_mode;
+                if (exec_result.polluted)
+                {
+                    rw_mode = rewind_mode::polluted;
+                }
+                else
+                {
+                    rw_mode = rewind_mode::clean;
+                }
+                if (!try_rewind(ctx, rw_mode))
                     pass_through(ctx, exec_result);
                 continue;
             }
 
-            // 其他错误，尝试 rewind 后继续，不能 rewind 则终止
             if (fault::failed(exec_result.error))
             {
-                if (try_rewind(ctx, exec_result.polluted))
+                rewind_mode rw_mode;
+                if (exec_result.polluted)
+                {
+                    rw_mode = rewind_mode::polluted;
+                }
+                else
+                {
+                    rw_mode = rewind_mode::clean;
+                }
+                if (try_rewind(ctx, rw_mode))
                 {
                     trace::debug("[SchemeExecutor] Scheme '{}' failed but snapshot rewound, trying next", name);
                     continue;
@@ -115,7 +134,6 @@ namespace psm::stealth
                 co_return exec_result;
             }
 
-            // detected == unknown：尝试 rewind
             if (!try_rewind(ctx))
                 pass_through(ctx, exec_result);
         }
@@ -127,7 +145,6 @@ namespace psm::stealth
     auto scheme_executor::execute_by_analysis(const recognition::analysis_result &analysis, handshake_context ctx) const
         -> net::awaitable<handshake_result>
     {
-        // 候选为空时按注册顺序执行
         if (analysis.candidates.empty())
         {
             trace::debug("[SchemeExecutor] No candidates from analysis, executing by default priority");
@@ -136,11 +153,9 @@ namespace psm::stealth
             for (const auto &scheme : schemes_)
                 default_order.emplace_back(scheme->name());
 
-            // 保留 ctx 副本用于 native 兜底（execute_pipeline 会 move ctx）
             auto native_ctx = handshake_context{ctx};
             auto result = co_await execute_pipeline(default_order, std::move(ctx));
 
-            // 全部失败则 native 兜底
             if (fault::failed(result.error) && !result.transport)
             {
                 trace::debug("[SchemeExecutor] All candidates failed, executing native fallback");
@@ -151,7 +166,6 @@ namespace psm::stealth
             co_return result;
         }
 
-        // 按分析结果顺序执行
         co_return co_await execute_pipeline(analysis.candidates, std::move(ctx));
     }
 

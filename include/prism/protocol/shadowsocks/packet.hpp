@@ -7,12 +7,14 @@
  */
 #pragma once
 
-#include <prism/protocol/shadowsocks/constants.hpp>
-#include <prism/protocol/common/address.hpp>
 #include <prism/memory/container.hpp>
+#include <prism/protocol/common/address.hpp>
+#include <prism/protocol/shadowsocks/constants.hpp>
+
 
 namespace psm::protocol::shadowsocks
 {
+
     // 引用共享地址类型
     using protocol::common::address;
     using protocol::common::domain_address;

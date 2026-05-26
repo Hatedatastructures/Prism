@@ -7,12 +7,14 @@
  */
 #pragma once
 
+#include <prism/memory/container.hpp>
+
 #include <cstdint>
 
-#include <prism/memory/container.hpp>
 
 namespace psm::memory
 {
+
     /**
      * @struct policy
      * @brief 内存策略配置
@@ -26,7 +28,7 @@ namespace psm::memory
         static constexpr std::size_t max_blocks = 256;
 
         // 最大池化阈值，16KB 足以覆盖 HTTP Header 等典型对象
-        static constexpr std::size_t max_pool_size = 16384;
+        static constexpr std::size_t max_size = 16384;
     }; // struct policy
 
     /**
@@ -46,12 +48,12 @@ namespace psm::memory
          * 不确定的长期对象。使用 new 分配，确保在静态
          * 析构阶段后仍可用。
          */
-        [[nodiscard]] static synchronized_pool *global_pool()
+        [[nodiscard]] static auto global_pool() -> synchronized_pool *
         {
             static auto *pool = []()
             {
                 std::pmr::pool_options opts;
-                opts.largest_required_pool_block = policy::max_pool_size;
+                opts.largest_required_pool_block = policy::max_size;
                 opts.max_blocks_per_chunk = policy::max_blocks;
 
                 // new 出来的资源随进程销毁，避免静态析构顺序问题
@@ -67,13 +69,13 @@ namespace psm::memory
          * 计算和单线程处理逻辑。使用 thread_local 存储，
          * 每个线程独立实例。
          */
-        [[nodiscard]] static unsynchronized_pool *thread_local_pool()
+        [[nodiscard]] static auto local_pool() -> unsynchronized_pool *
         {
             // thread_local 保证每个线程一份
             thread_local auto *pool = []()
             {
                 std::pmr::pool_options opts;
-                opts.largest_required_pool_block = policy::max_pool_size;
+                opts.largest_required_pool_block = policy::max_size;
                 opts.max_blocks_per_chunk = policy::max_blocks;
 
                 return new unsynchronized_pool(opts, std::pmr::new_delete_resource());
@@ -83,14 +85,14 @@ namespace psm::memory
 
         /**
          * @brief 获取热路径内存池
-         * @return 线程局部池指针，与 thread_local_pool() 相同
-         * @details 热路径专用的内存池，是 thread_local_pool()
+         * @return 线程局部池指针，与 local_pool() 相同
+         * @details 热路径专用的内存池，是 local_pool()
          * 的语义化别名。分配的对象生命周期必须与当前线程
          * 绑定，禁止跨线程传递。
          */
-        [[nodiscard]] static unsynchronized_pool *hot_path_pool()
+        [[nodiscard]] static auto hot_pool() -> unsynchronized_pool *
         {
-            return thread_local_pool();
+            return local_pool();
         }
 
         /**
@@ -99,7 +101,7 @@ namespace psm::memory
          * 所有未指定显式内存资源的 PMR 容器将自动使用
          * global_pool()。应在程序启动早期调用。
          */
-        static void enable_global_pooling()
+        static void enable_pooling()
         {
             std::pmr::set_default_resource(global_pool());
         }
@@ -113,7 +115,7 @@ namespace psm::memory
     enum class pool_type : std::uint8_t
     {
         global, ///< 全局线程安全池，适用于跨线程传递对象
-        local,  ///< 线程局部无锁池，适用于单线程热路径对象
+        local   ///< 线程局部无锁池，适用于单线程热路径对象
     }; // enum class pool_type
 
     /**
@@ -124,7 +126,7 @@ namespace psm::memory
      * @details 通过重载 operator new/delete 使继承类
      * 自动使用内存池分配。小对象使用指定池，
      * 大对象直通系统堆。
-     * @note 默认改用 thread_local_pool 以消除多线程竞争，
+     * @note 默认改用 local_pool 以消除多线程竞争，
      * 若对象需跨线程传递请显式指定 pool_type::global
      */
     template <typename T, pool_type Type = pool_type::local>
@@ -135,13 +137,13 @@ namespace psm::memory
          * @brief 获取目标内存池
          * @return 根据池类型返回对应的内存池指针
          */
-        [[nodiscard]] static resource_pointer get_target_pool()
+        [[nodiscard]] static auto target_pool() -> resource_pointer
         {
             if (Type == pool_type::global)
             {
                 return system::global_pool();
             }
-            return system::thread_local_pool();
+            return system::local_pool();
         }
 
         /**
@@ -152,9 +154,9 @@ namespace psm::memory
          */
         void *operator new(const std::size_t count)
         {
-            if (count <= policy::max_pool_size)
+            if (count <= policy::max_size)
             {
-                return pooled_object::get_target_pool()->allocate(count);
+                return pooled_object::target_pool()->allocate(count);
             }
             // 大对象直接走系统堆
             return ::operator new(count);
@@ -168,9 +170,9 @@ namespace psm::memory
          */
         void operator delete(void *ptr, const std::size_t count)
         {
-            if (count <= policy::max_pool_size)
+            if (count <= policy::max_size)
             {
-                pooled_object::get_target_pool()->deallocate(ptr, count);
+                pooled_object::target_pool()->deallocate(ptr, count);
             }
             else
             {
@@ -185,9 +187,9 @@ namespace psm::memory
          */
         void *operator new[](const std::size_t count)
         {
-            if (count <= policy::max_pool_size)
+            if (count <= policy::max_size)
             {
-                return pooled_object::get_target_pool()->allocate(count);
+                return pooled_object::target_pool()->allocate(count);
             }
             return ::operator new[](count);
         }
@@ -199,9 +201,9 @@ namespace psm::memory
          */
         void operator delete[](void *ptr, std::size_t count)
         {
-            if (count <= policy::max_pool_size)
+            if (count <= policy::max_size)
             {
-                pooled_object::get_target_pool()->deallocate(ptr, count);
+                pooled_object::target_pool()->deallocate(ptr, count);
             }
             else
             {
@@ -220,31 +222,22 @@ namespace psm::memory
      */
     class frame_arena
     {
-        // 内部缓冲覆盖典型 mux 地址头，避免解析时穿透到上游池
-        std::byte buffer_[512];
-        monotonic_buffer resource_;
-
     public:
         /**
          * @brief 构造帧分配器
          * @details 使用栈缓冲区和线程局部池作为上游资源，
          * 实现无锁性能最大化。
          */
-        frame_arena()
-            : resource_(buffer_, sizeof(buffer_), system::thread_local_pool())
+        explicit frame_arena()
+            : resource_(buffer_, sizeof(buffer_), system::local_pool())
         {
         }
-
-        // 禁止拷贝，确保 resource_ 指针有效性
-        frame_arena(const frame_arena &) = delete;
-        // 禁止赋值，确保 resource_ 指针有效性
-        frame_arena &operator=(const frame_arena &) = delete;
 
         /**
          * @brief 获取内存资源指针
          * @return 内存资源指针，可用于创建 PMR 容器
          */
-        [[nodiscard]] resource_pointer get() { return &resource_; }
+        [[nodiscard]] auto get() -> resource_pointer { return &resource_; }
 
         /**
          * @brief 重置分配器
@@ -252,6 +245,16 @@ namespace psm::memory
          * 调用后之前分配的所有内存均失效。
          */
         void reset() { resource_.release(); }
+
+    private:
+        // 内部缓冲覆盖典型 mux 地址头，避免解析时穿透到上游池
+        std::byte buffer_[512];
+        monotonic_buffer resource_;
+
+        // 禁止拷贝，确保 resource_ 指针有效性
+        frame_arena(const frame_arena &) = delete;
+        // 禁止赋值，确保 resource_ 指针有效性
+        auto operator=(const frame_arena &) -> frame_arena & = delete;
     }; // class frame_arena
 
 } // namespace psm::memory

@@ -9,15 +9,29 @@
 
 #pragma once
 
-#include <vector>
-#include <boost/asio.hpp>
-#include <prism/stealth/scheme.hpp>
-#include <prism/stealth/registry.hpp>
 #include <prism/recognition/result.hpp>
+#include <prism/stealth/registry.hpp>
+#include <prism/stealth/scheme.hpp>
+
+#include <boost/asio.hpp>
+
+#include <vector>
+
 
 namespace psm::stealth
 {
+
     namespace net = boost::asio;
+
+    /**
+     * @brief 传输层回绕模式
+     * @details 控制方案执行失败后是否可以回绕传输层到握手前状态
+     */
+    enum class rewind_mode : std::uint8_t
+    {
+        clean,     ///< 传输层未被污染，可以安全回绕
+        polluted   ///< 传输层已被写入数据，不可回绕
+    };
 
     /**
      * @class scheme_executor
@@ -67,7 +81,7 @@ namespace psm::stealth
 
         static void ensure_snapshot(handshake_context &ctx);
 
-        [[nodiscard]] static auto try_rewind(handshake_context &ctx, bool polluted = false)
+        [[nodiscard]] static auto try_rewind(handshake_context &ctx, rewind_mode mode = rewind_mode::clean)
             -> bool;
 
         [[nodiscard]] auto execute_pipeline(const memory::vector<memory::string> &order, handshake_context ctx) const

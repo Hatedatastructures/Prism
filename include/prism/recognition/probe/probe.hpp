@@ -7,20 +7,24 @@
 
 #pragma once
 
+#include <prism/fault/code.hpp>
+#include <prism/fault/handling.hpp>
+#include <prism/memory/container.hpp>
+#include <prism/protocol/types.hpp>
+#include <prism/recognition/probe/analyzer.hpp>
+#include <prism/transport/transmission.hpp>
+
+#include <boost/asio.hpp>
+
 #include <array>
 #include <cstddef>
 #include <span>
 #include <string_view>
-#include <boost/asio.hpp>
-#include <prism/fault/code.hpp>
-#include <prism/fault/handling.hpp>
-#include <prism/protocol/types.hpp>
-#include <prism/transport/transmission.hpp>
-#include <prism/memory/container.hpp>
-#include <prism/recognition/probe/analyzer.hpp>
+
 
 namespace psm::recognition::probe
 {
+
     namespace net = boost::asio;
 
     /**

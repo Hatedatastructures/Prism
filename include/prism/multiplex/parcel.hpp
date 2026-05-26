@@ -16,22 +16,25 @@
  */
 #pragma once
 
+#include <prism/memory/container.hpp>
+
+#include <boost/asio.hpp>
+
 #include <cstdint>
 #include <memory>
 #include <span>
 
-#include <boost/asio.hpp>
-
-#include <prism/memory/container.hpp>
 
 // 前向声明
 namespace psm::connect
 {
+
     class router;
 }
 
 namespace psm::multiplex
 {
+
     class core;
 
     namespace net = boost::asio;
@@ -54,8 +57,8 @@ namespace psm::multiplex
     struct parcel_config
     {
         std::uint32_t stream_id = 0;                         ///< 流标识符，由 mux 协议在 SYN 帧中分配
-        std::uint32_t udp_idle_timeout = 30000;           ///< UDP 管道空闲超时（毫秒），超时自动关闭
-        std::uint32_t udp_max_dgram = 4096;               ///< UDP 数据报最大长度（字节）
+        std::uint32_t idle_timeout = 30000;           ///< UDP 管道空闲超时（毫秒），超时自动关闭
+        std::uint32_t max_dgram = 4096;               ///< UDP 数据报最大长度（字节）
         memory::resource_pointer mr;                         ///< PMR 内存资源，用于分配缓冲区和编码数据
         addr_mode mode = addr_mode::length_prefixed;         ///< 地址编码模式
     };
@@ -94,15 +97,15 @@ namespace psm::multiplex
          * length-prefixed 格式（目标地址使用 SYN 时解析的地址）。
          * @note 方法定义在 parcel.cpp 中
          */
-        parcel(const parcel_config& config, const std::shared_ptr<core>& owner,
+        explicit parcel(const parcel_config& config, const std::shared_ptr<core>& owner,
                connect::router &router);
 
-        ~parcel();
+        ~parcel() noexcept;
 
         /**
          * @brief 启动空闲超时监控
          * @details 通过 co_spawn 启动 uplink_loop 协程，监控 parcel 数据活动。
-         * 空闲超时由 config::udp_idle_timeout 控制，超时后自动 close()。
+         * 空闲超时由 config::idle_timeout 控制，超时后自动 close()。
          * uplink_loop 通过 shared_from_this 持有 self 保活。
          * @note 方法定义在 parcel.cpp 中
          */
@@ -117,7 +120,7 @@ namespace psm::multiplex
          * 每次调用重置空闲计时器。数据格式错误时静默丢弃。
          * @note 方法定义在 parcel.cpp 中
          */
-        auto on_mux_data(std::span<const std::byte> data)
+        auto on_data(std::span<const std::byte> data)
             -> net::awaitable<void>;
 
         /**
@@ -135,7 +138,7 @@ namespace psm::multiplex
          * @details 返回 mux 协议在 SYN 帧中分配的流标识符
          * @return std::uint32_t mux 协议分配的流标识符
          */
-        [[nodiscard]] std::uint32_t stream_id() const noexcept
+        [[nodiscard]] auto stream_id() const noexcept -> std::uint32_t
         {
             return id_;
         }
@@ -156,7 +159,7 @@ namespace psm::multiplex
     private:
         /**
          * @brief 空闲超时监控循环
-         * @details 启动 idle_timer_ 定时器，每次 touch_idle_timer 重置超时。
+         * @details 启动 idle_timer_ 定时器，每次 touch_timer 重置超时。
          * 超时后调用 close() 关闭管道。通过 shared_from_this 持有 self 保活，
          * 防止 parcel 在等待期间被析构。
          * @note 方法定义在 parcel.cpp 中
@@ -199,11 +202,11 @@ namespace psm::multiplex
 
         /**
          * @brief 重置空闲计时器
-         * @details 将 idle_timer_ 的超时时间重新设置为 config_.udp_idle_timeout，
+         * @details 将 idle_timer_ 的超时时间重新设置为 config_.idle_timeout，
          * 延迟管道的空闲关闭。每次 on_mux_data 调用时触发。
          * @note 方法定义在 parcel.cpp 中
          */
-        void touch_idle_timer();
+        void touch_timer();
 
         /**
          * @brief 确保 UDP socket 可用
@@ -217,12 +220,17 @@ namespace psm::multiplex
         [[nodiscard]] auto ensure_socket(net::ip::udp::endpoint::protocol_type protocol)
             -> net::awaitable<bool>;
 
+        /**
+         * @brief uplink_loop 完成回调
+         */
+        void on_uplink_done(const std::exception_ptr &ep);
+
         std::uint32_t id_;                   // 流标识符，由 mux SYN 帧分配
         std::weak_ptr<core> owner_;          // 所属 core 的弱引用，不构成循环引用
         connect::router &router_;            // 路由器引用，用于 DNS 解析目标主机名
         net::any_io_executor executor_;      // 缓存的 executor，core 销毁后仍可用
-        std::uint32_t udp_idle_timeout_;  // UDP 管道空闲超时（毫秒）
-        std::uint32_t udp_max_dgram_;     // UDP 数据报最大长度（字节）
+        std::uint32_t idle_timeout_;  // UDP 管道空闲超时（毫秒）
+        std::uint32_t max_dgram_;     // UDP 数据报最大长度（字节）
         memory::resource_pointer mr_;        // PMR 内存资源，用于缓冲区分配
         bool closed_ = false;                // 关闭标志，close() 幂等性保证
         addr_mode addr_mode_ = addr_mode::length_prefixed; // 地址编码模式

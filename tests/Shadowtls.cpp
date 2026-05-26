@@ -105,7 +105,7 @@ void TestFrameHMACVerification()
     // compute_write_hmac 使用 "S" 标签（服务端→客户端方向）
     // verify_frame_hmac 使用 "C" 标签（客户端→服务端方向）
     // 两者标签不同，write_hmac 不应该通过 verify
-    Check(!verify_frame_hmac(password, server_random, payload, write_hmac),
+    Check(!verify_frame_hmac(verify_input{password, server_random, payload, write_hmac}),
           "Write HMAC ('S' tag) should fail against verify ('C' tag)");
 
     // 手动构建含 "C" 标签的客户端 HMAC（参照 sing-shadowtls hmacVerify）
@@ -124,7 +124,7 @@ void TestFrameHMACVerification()
     std::array<std::uint8_t, 4> read_hmac{};
     std::memcpy(read_hmac.data(), md.data(), 4);
 
-    Check(verify_frame_hmac(password, server_random, payload, read_hmac),
+    Check(verify_frame_hmac(verify_input{password, server_random, payload, read_hmac}),
           "Frame HMAC verification with correct client HMAC ('C' tag)");
 }
 
@@ -149,7 +149,7 @@ int main()
 #ifdef _WIN32
     SetConsoleOutputCP(CP_UTF8);
 #endif
-    psm::memory::system::enable_global_pooling();
+    psm::memory::system::enable_pooling();
     psm::trace::init({});
 
     TestHMACComputation();

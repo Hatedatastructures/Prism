@@ -1,71 +1,74 @@
 #include <prism/crypto/x25519.hpp>
-#include <openssl/rand.h>
-#include <openssl/curve25519.h>
-#include <cstring>
 #include <prism/trace.hpp>
+
+#include <openssl/curve25519.h>
+#include <openssl/rand.h>
+
+#include <cstring>
 
 namespace psm::crypto
 {
-    constexpr std::string_view X25519_TAG = "[Crypto.X25519]";
 
-    auto generate_x25519_keypair()
+    namespace
+    {
+        constexpr std::string_view tag = "[Crypto.X25519]";
+    } // namespace
+
+    auto generate_keypair()
         -> x25519_keypair
     {
         x25519_keypair keypair;
 
-        // 生成 32 字节随机私钥
-        RAND_bytes(keypair.private_key.data(), static_cast<int>(X25519_KEY_LEN));
+        RAND_bytes(keypair.private_key.data(), static_cast<int>(x25519_klen));
 
-        // 从私钥推导公钥
-        keypair.public_key = derive_x25519_public_key(keypair.private_key);
+        keypair.public_key = derive_pubkey(keypair.private_key);
         return keypair;
     }
 
-    auto derive_x25519_public_key(const std::span<const std::uint8_t> private_key)
-        -> std::array<std::uint8_t, X25519_KEY_LEN>
-    {
-        std::array<std::uint8_t, X25519_KEY_LEN> public_key{};
 
-        if (private_key.size() != X25519_KEY_LEN)
+    auto derive_pubkey(const std::span<const std::uint8_t> private_key)
+        -> std::array<std::uint8_t, x25519_klen>
+    {
+        std::array<std::uint8_t, x25519_klen> public_key{};
+
+        if (private_key.size() != x25519_klen)
         {
-            trace::error("{} invalid private key length: {}", X25519_TAG, private_key.size());
+            trace::error("{} 私钥长度无效: {}", tag, private_key.size());
             return public_key;
         }
 
-        // 使用 BoringSSL 底层 X25519_public_from_private 函数
-        // 比 EVP_PKEY API 快 5-7 倍（从 35μs 降至 5-10μs）
         X25519_public_from_private(public_key.data(), private_key.data());
 
         return public_key;
     }
 
-    auto x25519(const std::span<const std::uint8_t> private_key, const std::span<const std::uint8_t> peer_public_key)
-        -> std::pair<fault::code, std::array<std::uint8_t, X25519_SHARED_LEN>>
+
+    auto x25519(const std::span<const std::uint8_t> private_key, const std::span<const std::uint8_t> peer_pubkey)
+        -> std::pair<fault::code, std::array<std::uint8_t, x25519_slen>>
     {
-        std::array<std::uint8_t, X25519_SHARED_LEN> shared_secret{};
+        std::array<std::uint8_t, x25519_slen> shared_secret{};
 
-        if (private_key.size() != X25519_KEY_LEN)
+        if (private_key.size() != x25519_klen)
         {
-            trace::error("{} invalid private key length: {}", X25519_TAG, private_key.size());
+            trace::error("{} 私钥长度无效: {}", tag, private_key.size());
             return {fault::code::invalid_argument, shared_secret};
         }
 
-        if (peer_public_key.size() != X25519_KEY_LEN)
+        if (peer_pubkey.size() != x25519_klen)
         {
-            trace::error("{} invalid peer public key length: {}", X25519_TAG, peer_public_key.size());
+            trace::error("{} 对端公钥长度无效: {}", tag, peer_pubkey.size());
             return {fault::code::invalid_argument, shared_secret};
         }
 
-        // 使用 BoringSSL 底层 X25519() 函数
-        // 比 EVP_PKEY API 快 5-7 倍（从 35μs 降至 5-10μs）
-        // 返回 1 表示成功，0 表示失败（如无效公钥）
-        if (X25519(shared_secret.data(), private_key.data(), peer_public_key.data()) != 1)
+        if (X25519(shared_secret.data(), private_key.data(), peer_pubkey.data()) != 1)
         {
-            trace::error("{} X25519 key exchange failed", X25519_TAG);
+            trace::error("{} X25519 密钥交换失败", tag);
             shared_secret.fill(0);
-            return {fault::code::reality_kexfail, shared_secret};
+            return {fault::code::kexfail, shared_secret};
         }
 
         return {fault::code::success, shared_secret};
     }
+
+
 } // namespace psm::crypto

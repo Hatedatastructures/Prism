@@ -12,22 +12,27 @@
  */
 #pragma once
 
+#include <prism/account/directory.hpp>
+#include <prism/account/entry.hpp>
+#include <prism/fault/code.hpp>
+#include <prism/memory/container.hpp>
+
 #include <cstddef>
 #include <string_view>
-#include <prism/fault/code.hpp>
-#include <prism/account/entry.hpp>
-#include <prism/account/directory.hpp>
-#include <prism/memory/container.hpp>
+
 
 namespace psm
 {
+
     namespace account
     {
+
         class directory;
     }
 
     namespace protocol::http
     {
+
         /**
          * @struct proxy_request
          * @brief HTTP 代理请求解析结果
@@ -49,7 +54,7 @@ namespace psm
             // HTTP 版本字符串，如 "HTTP/1.1"
             std::string_view version;
             // 请求行末尾 \r\n 之后的偏移量（header 区域起始）
-            std::size_t req_line_end{0};
+            std::size_t line_end{0};
             // 完整头部 \r\n\r\n 之后的偏移量（body 区域起始）
             std::size_t hdr_end{0};
         };
@@ -63,7 +68,7 @@ namespace psm
          * 头字段。解析过程不分配内存，所有 string_view 直接指向输入缓冲区。
          * 请求行格式为 "METHOD TARGET HTTP/version\r\n"，头字段以 "\r\n\r\n" 结束。
          */
-        [[nodiscard]] auto parse_proxy_req(std::string_view raw_data, proxy_request &out)
+        [[nodiscard]] auto parse_req(std::string_view raw_data, proxy_request &out)
             -> fault::code;
 
         /**
@@ -74,7 +79,7 @@ namespace psm
          * @details 将代理场景中的绝对 URI（如 "http://example.com/path?q=1"）
          * 转换为源站所需的相对路径（如 "/path?q=1"），用于正向代理转发。
          */
-        [[nodiscard]] auto extract_rel_path(std::string_view target)
+        [[nodiscard]] auto rel_path(std::string_view target)
             -> std::string_view;
 
         /**
@@ -115,7 +120,7 @@ namespace psm
          * 相对路径（如 "/path?q=1"），拼接方法、路径和版本号构成新的请求行。
          * 仅用于普通 HTTP 请求转发，CONNECT 方法无需调用此函数。
          */
-        [[nodiscard]] auto build_fwd_line(const proxy_request &req, std::pmr::memory_resource *mr)
+        [[nodiscard]] auto build_fwd(const proxy_request &req, std::pmr::memory_resource *mr)
             -> memory::string;
 
     } // namespace protocol::http

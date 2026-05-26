@@ -13,17 +13,19 @@
 
 #pragma once
 
+#include <prism/memory/container.hpp>
+#include <prism/transport/transmission.hpp>
+
+#include <boost/asio.hpp>
+
 #include <cstring>
 #include <span>
 #include <system_error>
 
-#include <boost/asio.hpp>
-
-#include <prism/transport/transmission.hpp>
-#include <prism/memory/container.hpp>
 
 namespace psm::transport
 {
+
     namespace net = boost::asio;
 
     /**
@@ -54,7 +56,9 @@ namespace psm::transport
         [[nodiscard]] auto transport_type() const noexcept
             -> type override
         {
-            return inner_ ? inner_->transport_type() : type::tcp;
+            if (inner_)
+                return inner_->transport_type();
+            return type::tcp;
         }
 
         /**
@@ -76,7 +80,7 @@ namespace psm::transport
          * @return 委托给内层传输
          * @throws std::runtime_error 如果内层传输为空
          */
-        [[nodiscard]] executor_type executor() const override
+        [[nodiscard]] auto executor() const -> executor_type override
         {
             if (!inner_)
                 throw std::runtime_error("snapshot::executor() called on null inner");
@@ -177,7 +181,8 @@ namespace psm::transport
          * @details 仅在未发生写入时可回滚。一旦写入过，transport 状态不可恢复。
          * @return true 如果可以回滚（未写入过数据）
          */
-        [[nodiscard]] bool can_rewind() const noexcept
+        [[nodiscard]] auto can_rewind() const noexcept
+            -> bool
         {
             return !wrote_;
         }

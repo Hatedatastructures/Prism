@@ -7,22 +7,37 @@
  */
 #pragma once
 
+#include <prism/connect/pool/pool.hpp>
+#include <prism/fault/code.hpp>
+#include <prism/memory/container.hpp>
+#include <prism/resolve/dns/dns.hpp>
+
+#include <boost/asio.hpp>
+
 #include <memory>
 #include <optional>
 #include <string_view>
 #include <utility>
 
-#include <boost/asio.hpp>
-
-#include <prism/resolve/dns/dns.hpp>
-#include <prism/connect/pool/pool.hpp>
-#include <prism/fault/code.hpp>
-#include <prism/memory/container.hpp>
 
 namespace psm::connect
 {
+
     namespace net = boost::asio;
     using tcp = boost::asio::ip::tcp;
+
+    /**
+     * @struct router_options
+     * @brief 路由器构造选项
+     * @details 封装路由器构造所需的全部参数，将构造函数参数收敛到结构体。
+     */
+    struct router_options
+    {
+        connection_pool &pool;                     ///< 共享 TCP 传输源，用于获取连接
+        net::io_context &ioc;                      ///< IO 上下文，用于创建执行器和定时器
+        resolve::dns::config dns_cfg;              ///< DNS 解析器配置
+        memory::resource_pointer mr = memory::current_resource(); ///< 内存资源，用于内部存储分配
+    };
 
     /**
      * @class router
@@ -106,13 +121,9 @@ namespace psm::connect
         /**
          * @brief 构造分发路由器
          * @details 初始化 DNS 解析器、反向路由表和连接池。
-         * @param pool 共享 TCP 传输源，用于获取连接
-         * @param ioc IO 上下文，用于创建执行器和定时器
-         * @param dns_cfg DNS 解析器配置
-         * @param mr 内存资源，用于内部存储分配
+         * @param opts 路由器构造选项（连接池、IO 上下文、DNS 配置、内存资源）
          */
-        explicit router(connection_pool &pool, net::io_context &ioc, resolve::dns::config dns_cfg,
-                        memory::resource_pointer mr = memory::current_resource());
+        explicit router(router_options opts);
 
         /**
          * @brief 设置正向代理的默认上游端点
@@ -120,7 +131,7 @@ namespace psm::connect
          * @param host 上游服务器主机名
          * @param port 上游服务器端口
          */
-        void set_positive_endpoint(std::string_view host, std::uint16_t port);
+        void set_endpoint(std::string_view host, std::uint16_t port);
 
         /**
          * @brief 添加反向代理路由规则
@@ -128,7 +139,7 @@ namespace psm::connect
          * @param host 匹配的主机名
          * @param ep 目标 TCP 端点
          */
-        void add_reverse_route(std::string_view host, const tcp::endpoint &ep);
+        void add_route(std::string_view host, const tcp::endpoint &ep);
 
         /**
          * @brief 异步路由反向代理请求

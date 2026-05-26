@@ -8,27 +8,30 @@
  */
 #pragma once
 
-#include <memory>
+#include <prism/config.hpp>
+#include <prism/connect/dial/router.hpp>
+#include <prism/connect/pool/pool.hpp>
+#include <prism/context/context.hpp>
+#include <prism/instance/front/balancer.hpp>
+#include <prism/instance/worker/tls.hpp>
+#include <prism/outbound/direct.hpp>
+#include <prism/stats/runtime.hpp>
+#include <prism/stats/traffic.hpp>
 
 #include <boost/asio.hpp>
 
-#include <prism/instance/front/balancer.hpp>
-#include <prism/connect/dial/router.hpp>
-#include <prism/context/context.hpp>
-#include <prism/config.hpp>
-#include <prism/stats/runtime.hpp>
-#include <prism/stats/traffic.hpp>
-#include <prism/instance/worker/tls.hpp>
-#include <prism/connect/pool/pool.hpp>
-#include <prism/outbound/direct.hpp>
+#include <memory>
+
 
 namespace psm::account
 {
+
     class directory;
 } // namespace psm::account
 
 namespace psm::instance::worker
 {
+
     namespace net = boost::asio;
     namespace ssl = net::ssl;
     using tcp = boost::asio::ip::tcp;

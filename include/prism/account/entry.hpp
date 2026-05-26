@@ -10,11 +10,13 @@
 #pragma once
 
 #include <atomic>
-#include <memory>
 #include <cstdint>
+#include <memory>
+
 
 namespace psm::account
 {
+
     /**
      * @struct entry
      * @brief 账户运行时状态
@@ -47,7 +49,7 @@ namespace psm::account
     class lease
     {
     public:
-        lease() = default;
+        explicit lease() = default;
 
         /**
          * @brief 从账户条目构造租约
@@ -98,7 +100,7 @@ namespace psm::account
          * @brief 析构租约并释放连接计数
          * @details 调用 release() 递减活跃连接数并释放状态指针。
          */
-        ~lease()
+        ~lease() noexcept
         {
             release();
         }

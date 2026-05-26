@@ -7,27 +7,38 @@
  */
 #pragma once
 
+#include <prism/fault/code.hpp>
+#include <prism/memory/container.hpp>
+#include <prism/stealth/anytls/mux/frame.hpp>
+#include <prism/stealth/anytls/padding.hpp>
+#include <prism/transport/transmission.hpp>
+
+#include <boost/asio.hpp>
+#include <boost/asio/experimental/concurrent_channel.hpp>
+
 #include <array>
 #include <cstdint>
 #include <functional>
 #include <memory>
 #include <span>
 #include <system_error>
-#include <unordered_map>
-#include <unordered_set>
 
-#include <boost/asio.hpp>
-#include <boost/asio/experimental/concurrent_channel.hpp>
-
-#include <prism/transport/transmission.hpp>
-#include <prism/memory/container.hpp>
-#include <prism/stealth/anytls/mux/frame.hpp>
-#include <prism/stealth/anytls/padding.hpp>
-#include <prism/fault/code.hpp>
 
 namespace psm::stealth::anytls
 {
+
     namespace net = boost::asio;
+
+    /**
+     * @brief write_frame 参数收敛结构体
+     */
+    struct frame_input
+    {
+        command cmd = command::waste;
+        std::uint32_t stream_id = 0;
+        std::span<const std::byte> data;
+        std::error_code &ec;
+    };
 
     /**
      * @class anytls_session
@@ -40,7 +51,7 @@ namespace psm::stealth::anytls
     {
     public:
         using channel_type = net::experimental::concurrent_channel<
-            void(boost::system::error_code, std::vector<std::uint8_t>)>;
+            void(boost::system::error_code, memory::vector<std::uint8_t>)>;
 
         /**
          * @brief 新 stream 回调
@@ -51,7 +62,7 @@ namespace psm::stealth::anytls
         using stream_callback = std::function<void(
             std::uint32_t stream_id,
             std::shared_ptr<transport::transmission> stream_transport,
-            std::vector<std::uint8_t> preread_data)>;
+            memory::vector<std::uint8_t> preread_data)>;
 
         /**
          * @brief 构造 anytls_session
@@ -75,7 +86,7 @@ namespace psm::stealth::anytls
          */
         [[nodiscard]] auto wait_first_stream()
             -> net::awaitable<std::pair<fault::code,
-                std::tuple<std::uint32_t, std::vector<std::uint8_t>>>>;
+                std::tuple<std::uint32_t, memory::vector<std::uint8_t>>>>;
 
         /**
          * @brief 写 PSH 帧到指定 stream
@@ -106,12 +117,12 @@ namespace psm::stealth::anytls
 
     private:
         auto recv_loop() -> net::awaitable<void>;
-        auto on_settings(std::vector<std::uint8_t> payload) -> net::awaitable<void>;
+        auto dispatch_frame(const frame_header &hdr, memory::vector<std::uint8_t> payload) -> net::awaitable<void>;
+        auto on_settings(memory::vector<std::uint8_t> payload) -> net::awaitable<void>;
         auto on_syn(std::uint32_t stream_id) -> net::awaitable<void>;
-        auto on_psh(std::uint32_t stream_id, std::vector<std::uint8_t> payload) -> net::awaitable<void>;
+        auto on_psh(std::uint32_t stream_id, memory::vector<std::uint8_t> payload) -> net::awaitable<void>;
         auto on_fin(std::uint32_t stream_id) -> net::awaitable<void>;
-        auto write_frame(command cmd, std::uint32_t stream_id,
-                         std::span<const std::byte> data, std::error_code &ec) -> net::awaitable<void>;
+        auto write_frame(struct frame_input input) -> net::awaitable<void>;
         auto send_waste_frame(std::uint32_t pkt_num, std::error_code &ec) -> net::awaitable<void>;
         [[nodiscard]] auto read_exact(std::span<std::byte> buf) -> net::awaitable<bool>;
 
@@ -119,10 +130,10 @@ namespace psm::stealth::anytls
         stream_callback on_new_stream_;
 
         // 每个 stream 的数据 channel
-        std::unordered_map<std::uint32_t, std::shared_ptr<channel_type>> streams_;
+        memory::unordered_map<std::uint32_t, std::shared_ptr<channel_type>> streams_;
 
         // 后续 stream 等待第一个 PSH（携带 SOCKS 地址）
-        std::unordered_set<std::uint32_t> pending_syn_streams_;
+        memory::unordered_set<std::uint32_t> pending_syns_;
 
         // 写入串行化（避免多个协程同时写帧）
         net::strand<net::any_io_executor> write_strand_;
@@ -134,10 +145,10 @@ namespace psm::stealth::anytls
         bool closed_{false};
 
         // 等待第一个 stream 的 promise
-        bool first_stream_resolved_{false};
-        fault::code first_stream_error_{fault::code::success};
-        std::uint32_t first_stream_id_{0};
-        std::vector<std::uint8_t> first_stream_preread_;
-        net::steady_timer first_stream_waiter_;
+        bool init_resolved_{false};
+        fault::code init_error_{fault::code::success};
+        std::uint32_t init_id_{0};
+        memory::vector<std::uint8_t> init_preread_;
+        net::steady_timer init_waiter_;
     };
 } // namespace psm::stealth::anytls

@@ -10,8 +10,10 @@
 
 #include <cstdint>
 
+
 namespace psm::protocol::vless
 {
+
     // 协议版本号，固定为 0x00
     constexpr std::uint8_t version = 0x00;
 

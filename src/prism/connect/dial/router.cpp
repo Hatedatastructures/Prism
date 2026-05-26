@@ -1,20 +1,22 @@
 #include <prism/connect/dial/router.hpp>
+
 #include <prism/resolve/dns/detail/utility.hpp>
 #include <prism/trace.hpp>
 
 namespace psm::connect
 {
-    router::router(connection_pool &pool, net::io_context &ioc, resolve::dns::config dns_cfg,
-                   const memory::resource_pointer mr)
-        : pool_(pool),
-          mr_(mr ? mr : memory::current_resource()),
-          dns_(resolve::dns::make_resolver(ioc, std::move(dns_cfg), mr_)),
+
+    router::router(router_options opts)
+        : pool_(opts.pool),
+          mr_(memory::effective_mr(opts.mr)),
+          dns_(resolve::dns::make_resolver(opts.ioc, std::move(opts.dns_cfg), mr_)),
           reverse_map_(mr_),
-          executor_(ioc.get_executor())
+          executor_(opts.ioc.get_executor())
     {
     }
 
-    void router::set_positive_endpoint(const std::string_view host, const std::uint16_t port)
+
+    void router::set_endpoint(const std::string_view host, const std::uint16_t port)
     {
         if (host.empty() || port == 0)
         {
@@ -29,12 +31,14 @@ namespace psm::connect
         positive_port_ = port;
     }
 
-    void router::add_reverse_route(const std::string_view host, const tcp::endpoint &ep)
+
+    void router::add_route(const std::string_view host, const tcp::endpoint &ep)
     {
         memory::string host_key(mr_);
         host_key.assign(host);
         reverse_map_.insert_or_assign(std::move(host_key), ep);
     }
+
 
     auto router::async_reverse(const std::string_view host) const
         -> net::awaitable<std::pair<fault::code, pooled_connection>>

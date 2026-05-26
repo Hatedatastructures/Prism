@@ -7,13 +7,15 @@
  */
 #pragma once
 
+#include <prism/stats/snapshot.hpp>
+
 #include <atomic>
 #include <cstdint>
 
-#include <prism/stats/snapshot.hpp>
 
 namespace psm::stats
 {
+
     /**
      * @class alignas(64) memory_tracker
      * @brief 全局内存分配统计追踪器
@@ -22,7 +24,7 @@ namespace psm::stats
      * 日志输出，开销约 2-3ns/次操作。
      * @note 所有操作均为原子操作，线程安全
      */
-    class alignas(64) memory_tracker
+    class alignas(64) memory_tracker final
     {
     public:
         /**
@@ -71,7 +73,7 @@ namespace psm::stats
                 .total_allocated = total_allocated_.load(std::memory_order_relaxed),
                 .total_deallocated = total_deallocated_.load(std::memory_order_relaxed),
                 .current_usage = current_usage_.load(std::memory_order_relaxed),
-                .allocation_count = allocation_count_.load(std::memory_order_relaxed),
+                .allocation_count = allocation_count_.load(std::memory_order_relaxed)
             };
         }
 

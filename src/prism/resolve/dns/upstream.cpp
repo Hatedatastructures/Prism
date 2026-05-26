@@ -1,5 +1,8 @@
 #include <prism/resolve/dns/upstream.hpp>
+
 #include <prism/trace.hpp>
+
+#include <openssl/ssl.h>
 
 #include <algorithm>
 #include <atomic>
@@ -10,32 +13,45 @@
 #include <span>
 #include <string>
 
-#include <openssl/ssl.h>
-
 namespace psm::resolve::dns
 {
-    // SNI 回调：设置 TLS ClientHello 中的 server_name 扩展
-    static int sni_callback(SSL *ssl, int *, void *arg)
-    {
-        SSL_set_tlsext_host_name(ssl, static_cast<const char *>(arg));
-        return SSL_TLSEXT_ERR_OK;
-    }
 
-    // 检查是否为超时错误（timer 回调取消 socket 导致的 operation_aborted）
-    static bool is_timeout(const boost::system::error_code &ec)
+    namespace
     {
-        return ec == net::error::operation_aborted;
-    }
+        int sni_callback(SSL *ssl, int *, void *arg)
+        {
+            SSL_set_tlsext_host_name(ssl, static_cast<const char *>(arg));
+            return SSL_TLSEXT_ERR_OK;
+        }
+
+        auto is_timeout(const boost::system::error_code &ec) -> bool
+        {
+            return ec == net::error::operation_aborted;
+        }
+    } // namespace
 
     upstream::upstream(net::io_context &ioc, memory::resource_pointer mr)
-        : ioc_(ioc), mr_(mr ? mr : memory::current_resource()), servers_(mr_), ssl_cache_(mr_)
+        : ioc_(ioc), mr_(memory::current_resource()), servers_(mr_), ssl_cache_(mr_)
     {
+        if (mr)
+        {
+            mr_ = mr;
+        }
     }
 
     auto upstream::get_ssl_ctx(const dns_remote &server)
         -> std::shared_ptr<ssl::context>
     {
-        const auto hostname = server.hostname.empty() ? server.address : server.hostname;
+        memory::string hostname_str;
+        if (server.hostname.empty())
+        {
+            hostname_str = memory::string(server.address, mr_);
+        }
+        else
+        {
+            hostname_str = memory::string(server.hostname, mr_);
+        }
+        const auto hostname = std::string_view(hostname_str);
         const bool verify_peer = !server.skip_cert_check;
         ssl_key key{memory::string(hostname, mr_), verify_peer};
 
@@ -46,7 +62,12 @@ namespace psm::resolve::dns
 
         auto ctx = std::make_shared<ssl::context>(ssl::context::tls);
         ctx->set_default_verify_paths();
-        ctx->set_verify_mode(verify_peer ? ssl::verify_peer : ssl::verify_none);
+        auto verify_mode = ssl::verify_none;
+        if (verify_peer)
+        {
+            verify_mode = ssl::verify_peer;
+        }
+        ctx->set_verify_mode(verify_mode);
 
         if (!hostname.empty())
         {
@@ -74,7 +95,7 @@ namespace psm::resolve::dns
         mode_ = mode;
     }
 
-    void upstream::set_timeout(const uint32_t ms)
+    void upstream::set_timeout(const std::uint32_t ms)
     {
         timeout_ms_ = ms;
     }
@@ -94,10 +115,31 @@ namespace psm::resolve::dns
         struct transport_context
         {
             net::steady_timer timer;
-            uint32_t timeout_ms;
+            std::uint32_t timeout_ms;
 
-            explicit transport_context(net::io_context &ioc, uint32_t timeout)
+            explicit transport_context(net::io_context &ioc, std::uint32_t timeout)
                 : timer(ioc), timeout_ms(timeout) {}
+        };
+
+        /// TCP 连接目标：聚合 io_context 和远端端点
+        struct dial_target
+        {
+            net::io_context &ioc;
+            net::ip::tcp::endpoint endpoint;
+        };
+
+        /// TLS 握手材料：聚合 socket 和 SSL 上下文
+        struct tls_material
+        {
+            std::shared_ptr<net::ip::tcp::socket> sock;
+            std::shared_ptr<ssl::context> ssl_ctx;
+        };
+
+        /// DNS 帧读取上下文：聚合内存资源和错误码
+        struct frame_context
+        {
+            memory::resource_pointer mr;
+            boost::system::error_code &ec;
         };
 
         // 为 TCP socket 装配超时回调
@@ -125,27 +167,27 @@ namespace psm::resolve::dns
         }
 
         // 共享逻辑：建立 TCP 连接（被 TCP、TLS、DoH 复用）
-        auto tcp_connect(net::io_context &ioc, const net::ip::tcp::endpoint &target,
-                         transport_context &ctx, boost::system::error_code &ec)
+        auto tcp_connect(const dial_target &target, transport_context &ctx,
+                         boost::system::error_code &ec)
             -> net::awaitable<std::shared_ptr<net::ip::tcp::socket>>
         {
-            auto sock = std::make_shared<net::ip::tcp::socket>(ioc);
+            auto sock = std::make_shared<net::ip::tcp::socket>(target.ioc);
             auto token = net::redirect_error(net::use_awaitable, ec);
 
             arm_tcp(ctx, sock);
-            co_await sock->async_connect(target, token);
+            co_await sock->async_connect(target.endpoint, token);
             ctx.timer.cancel();
 
             co_return sock;
         }
 
         // 共享逻辑：TLS 握手（被 TLS、DoH 复用）
-        auto tls_handshake(std::shared_ptr<net::ip::tcp::socket> sock, std::shared_ptr<ssl::context> ssl_ctx,
-                           transport_context &ctx, boost::system::error_code &ec)
+        auto tls_handshake(const tls_material &mat, transport_context &ctx,
+                           boost::system::error_code &ec)
             -> net::awaitable<std::shared_ptr<ssl::stream<net::ip::tcp::socket>>>
         {
             auto ssl_sock = std::make_shared<ssl::stream<net::ip::tcp::socket>>(
-                std::move(*sock), *ssl_ctx);
+                std::move(*mat.sock), *mat.ssl_ctx);
             auto token = net::redirect_error(net::use_awaitable, ec);
 
             arm_ssl_stream(ctx, ssl_sock);
@@ -156,32 +198,32 @@ namespace psm::resolve::dns
         }
 
         // 共享逻辑：读取 2 字节长度前缀帧（被 TCP、TLS 复用）
-        auto read_dns_frame(auto &stream, memory::resource_pointer mr,
-                            transport_context &ctx, boost::system::error_code &ec)
-            -> net::awaitable<memory::vector<uint8_t>>
+        auto read_dns_frame(auto &stream, const frame_context &fctx,
+                            transport_context &ctx)
+            -> net::awaitable<memory::vector<std::uint8_t>>
         {
-            auto token = net::redirect_error(net::use_awaitable, ec);
+            auto token = net::redirect_error(net::use_awaitable, fctx.ec);
 
             // 读取 2 字节长度前缀
-            uint8_t recv_len[2]{};
+            std::uint8_t recv_len[2]{};
             co_await net::async_read(stream, net::buffer(recv_len, 2), token);
             ctx.timer.cancel();
-            if (ec)
+            if (fctx.ec)
             {
-                co_return memory::vector<uint8_t>(mr);
+                co_return memory::vector<std::uint8_t>(fctx.mr);
             }
 
             const auto resp_len = static_cast<std::size_t>(
-                (static_cast<uint16_t>(recv_len[0]) << 8) | recv_len[1]);
+                (static_cast<std::uint16_t>(recv_len[0]) << 8) | recv_len[1]);
 
             if (resp_len == 0 || resp_len > 65535) [[unlikely]]
             {
-                ec = boost::system::errc::make_error_code(boost::system::errc::bad_message);
-                co_return memory::vector<uint8_t>(mr);
+                fctx.ec = boost::system::errc::make_error_code(boost::system::errc::bad_message);
+                co_return memory::vector<std::uint8_t>(fctx.mr);
             }
 
             // 读取响应体
-            memory::vector<uint8_t> body(mr);
+            memory::vector<std::uint8_t> body(fctx.mr);
             body.resize(resp_len);
 
             co_await net::async_read(stream, net::buffer(body), token);
@@ -210,7 +252,12 @@ namespace psm::resolve::dns
                     co_return;
                 }
                 target = net::ip::udp::endpoint(addr, server.port);
-                sock->open(addr.is_v6() ? net::ip::udp::v6() : net::ip::udp::v4(), sock_ec);
+                auto protocol = net::ip::udp::v4();
+                if (addr.is_v6())
+                {
+                    protocol = net::ip::udp::v6();
+                }
+                sock->open(protocol, sock_ec);
                 if (sock_ec) [[unlikely]]
                 {
                     ec = sock_ec;
@@ -219,7 +266,7 @@ namespace psm::resolve::dns
                 co_return;
             }
 
-            auto send(const memory::vector<uint8_t> &payload, transport_context &ctx, boost::system::error_code &ec)
+            auto send(const memory::vector<std::uint8_t> &payload, transport_context &ctx, boost::system::error_code &ec)
                 -> net::awaitable<void>
             {
                 auto token = net::redirect_error(net::use_awaitable, ec);
@@ -235,10 +282,10 @@ namespace psm::resolve::dns
             }
 
             auto recv(memory::resource_pointer mr, transport_context &ctx, boost::system::error_code &ec)
-                -> net::awaitable<memory::vector<uint8_t>>
+                -> net::awaitable<memory::vector<std::uint8_t>>
             {
                 auto token = net::redirect_error(net::use_awaitable, ec);
-                memory::vector<uint8_t> buf(mr);
+                memory::vector<std::uint8_t> buf(mr);
                 buf.resize(4096);
 
                 ctx.timer.expires_after(std::chrono::milliseconds(ctx.timeout_ms));
@@ -284,17 +331,17 @@ namespace psm::resolve::dns
                     ec = addr_ec;
                     co_return;
                 }
-                sock = co_await tcp_connect(ioc, net::ip::tcp::endpoint(addr, server.port), ctx, ec);
+                sock = co_await tcp_connect(dial_target{ioc, net::ip::tcp::endpoint(addr, server.port)}, ctx, ec);
             }
 
-            auto send(const memory::vector<uint8_t> &payload, transport_context &ctx, boost::system::error_code &ec)
+            auto send(const memory::vector<std::uint8_t> &payload, transport_context &ctx, boost::system::error_code &ec)
                 -> net::awaitable<void>
             {
                 auto token = net::redirect_error(net::use_awaitable, ec);
-                const uint16_t payload_len = static_cast<uint16_t>(payload.size());
-                uint8_t frame_header[2];
-                frame_header[0] = static_cast<uint8_t>(payload_len >> 8);
-                frame_header[1] = static_cast<uint8_t>(payload_len & 0xFF);
+                const std::uint16_t payload_len = static_cast<std::uint16_t>(payload.size());
+                std::uint8_t frame_header[2];
+                frame_header[0] = static_cast<std::uint8_t>(payload_len >> 8);
+                frame_header[1] = static_cast<std::uint8_t>(payload_len & 0xFF);
 
                 std::array<net::const_buffer, 2> write_bufs = {
                     net::buffer(frame_header), net::buffer(payload)};
@@ -309,11 +356,11 @@ namespace psm::resolve::dns
             }
 
             auto recv(memory::resource_pointer mr, transport_context &ctx, boost::system::error_code &ec)
-                -> net::awaitable<memory::vector<uint8_t>>
+                -> net::awaitable<memory::vector<std::uint8_t>>
             {
                 auto token = net::redirect_error(net::use_awaitable, ec);
                 arm_tcp(ctx, sock);
-                auto body = co_await read_dns_frame(*sock, mr, ctx, ec);
+                auto body = co_await read_dns_frame(*sock, frame_context{mr, ec}, ctx);
                 if (!ec)
                 {
                     sock->close();
@@ -349,27 +396,27 @@ namespace psm::resolve::dns
                     co_return;
                 }
                 auto raw_sock = co_await tcp_connect(
-                    ioc, net::ip::tcp::endpoint(addr, server.port), ctx, ec);
+                    dial_target{ioc, net::ip::tcp::endpoint(addr, server.port)}, ctx, ec);
                 if (ec)
                 {
                     co_return;
                 }
 
-                ssl_sock = co_await tls_handshake(std::move(raw_sock), ssl_ctx, ctx, ec);
+                ssl_sock = co_await tls_handshake(tls_material{std::move(raw_sock), ssl_ctx}, ctx, ec);
                 if (!ec)
                 {
                     handshake_ok = true;
                 }
             }
 
-            auto send(const memory::vector<uint8_t> &payload, transport_context &ctx, boost::system::error_code &ec)
+            auto send(const memory::vector<std::uint8_t> &payload, transport_context &ctx, boost::system::error_code &ec)
                 -> net::awaitable<void>
             {
                 auto token = net::redirect_error(net::use_awaitable, ec);
-                const uint16_t payload_len = static_cast<uint16_t>(payload.size());
-                uint8_t frame_header[2];
-                frame_header[0] = static_cast<uint8_t>(payload_len >> 8);
-                frame_header[1] = static_cast<uint8_t>(payload_len & 0xFF);
+                const std::uint16_t payload_len = static_cast<std::uint16_t>(payload.size());
+                std::uint8_t frame_header[2];
+                frame_header[0] = static_cast<std::uint8_t>(payload_len >> 8);
+                frame_header[1] = static_cast<std::uint8_t>(payload_len & 0xFF);
 
                 std::array<net::const_buffer, 2> write_bufs = {
                     net::buffer(frame_header), net::buffer(payload)};
@@ -384,11 +431,11 @@ namespace psm::resolve::dns
             }
 
             auto recv(memory::resource_pointer mr, transport_context &ctx, boost::system::error_code &ec)
-                -> net::awaitable<memory::vector<uint8_t>>
+                -> net::awaitable<memory::vector<std::uint8_t>>
             {
                 auto token = net::redirect_error(net::use_awaitable, ec);
                 arm_ssl_stream(ctx, ssl_sock);
-                auto body = co_await read_dns_frame(*ssl_sock, mr, ctx, ec);
+                auto body = co_await read_dns_frame(*ssl_sock, frame_context{mr, ec}, ctx);
                 if (!ec)
                 {
                     ssl_sock->lowest_layer().close();
@@ -426,20 +473,20 @@ namespace psm::resolve::dns
                     co_return;
                 }
                 auto raw_sock = co_await tcp_connect(
-                    ioc, net::ip::tcp::endpoint(addr, server.port), ctx, ec);
+                    dial_target{ioc, net::ip::tcp::endpoint(addr, server.port)}, ctx, ec);
                 if (ec)
                 {
                     co_return;
                 }
 
-                ssl_sock = co_await tls_handshake(std::move(raw_sock), ssl_ctx, ctx, ec);
+                ssl_sock = co_await tls_handshake(tls_material{std::move(raw_sock), ssl_ctx}, ctx, ec);
                 if (!ec)
                 {
                     handshake_ok = true;
                 }
             }
 
-            auto send(const memory::vector<uint8_t> &payload, transport_context &ctx, boost::system::error_code &ec)
+            auto send(const memory::vector<std::uint8_t> &payload, transport_context &ctx, boost::system::error_code &ec)
                 -> net::awaitable<void>
             {
                 auto token = net::redirect_error(net::use_awaitable, ec);
@@ -474,13 +521,13 @@ namespace psm::resolve::dns
             }
 
             auto recv(memory::resource_pointer mr, transport_context &ctx, boost::system::error_code &ec)
-                -> net::awaitable<memory::vector<uint8_t>>
+                -> net::awaitable<memory::vector<std::uint8_t>>
             {
                 auto token = net::redirect_error(net::use_awaitable, ec);
 
                 // 读取 HTTP 响应头，循环直到找到 "\r\n\r\n"
                 arm_ssl_stream(ctx, ssl_sock);
-                memory::vector<uint8_t> recv_buf(mr);
+                memory::vector<std::uint8_t> recv_buf(mr);
                 recv_buf.resize(4096);
                 memory::string header_data(mr);
                 std::size_t content_length = 0;
@@ -504,7 +551,7 @@ namespace psm::resolve::dns
 
                 if (ec)
                 {
-                    co_return memory::vector<uint8_t>(mr);
+                    co_return memory::vector<std::uint8_t>(mr);
                 }
 
                 // 解析 HTTP 响应头
@@ -512,7 +559,7 @@ namespace psm::resolve::dns
                 if (header_end == memory::string::npos) [[unlikely]]
                 {
                     ec = boost::system::errc::make_error_code(boost::system::errc::bad_message);
-                    co_return memory::vector<uint8_t>(mr);
+                    co_return memory::vector<std::uint8_t>(mr);
                 }
 
                 const auto header_view = std::string_view(header_data).substr(0, header_end);
@@ -521,7 +568,7 @@ namespace psm::resolve::dns
                 if (!header_view.starts_with("HTTP/1.1 200") && !header_view.starts_with("HTTP/1.0 200"))
                 {
                     ec = boost::system::errc::make_error_code(boost::system::errc::bad_message);
-                    co_return memory::vector<uint8_t>(mr);
+                    co_return memory::vector<std::uint8_t>(mr);
                 }
 
                 // 提取 Content-Length 头部
@@ -550,7 +597,7 @@ namespace psm::resolve::dns
                 }
 
                 // 收集响应体，先处理响应头中已包含的部分
-                memory::vector<uint8_t> body_buf(mr);
+                memory::vector<std::uint8_t> body_buf(mr);
                 const auto body_start = header_end + 4;
                 if (body_start < header_data.size())
                 {
@@ -591,7 +638,7 @@ namespace psm::resolve::dns
         {
             const dns_remote &server;                  ///< 目标上游服务器配置
             const message &query;                      ///< DNS 查询报文
-            uint32_t default_timeout;                  ///< 默认超时（毫秒）
+            std::uint32_t default_timeout;                  ///< 默认超时（毫秒）
             memory::resource_pointer mr;               ///< PMR 内存资源
         };
 
@@ -604,7 +651,15 @@ namespace psm::resolve::dns
             auto result = query_result(qctx.mr);
             transport_result tr;
 
-            const auto effective_timeout = qctx.server.timeout_ms > 0 ? qctx.server.timeout_ms : qctx.default_timeout;
+            std::uint32_t effective_timeout;
+            if (qctx.server.timeout_ms > 0)
+            {
+                effective_timeout = qctx.server.timeout_ms;
+            }
+            else
+            {
+                effective_timeout = qctx.default_timeout;
+            }
             transport_context ctx(ioc, effective_timeout);
             boost::system::error_code ec;
 
@@ -632,7 +687,16 @@ namespace psm::resolve::dns
             if (ec) [[unlikely]]
             {
                 trace::warn("[Resolve] write to {} failed: {}", qctx.server.address, ec.message());
-                result.error = is_timeout(ec) ? fault::code::timeout : fault::code::io_error;
+                fault::code send_ec;
+                if (is_timeout(ec))
+                {
+                    send_ec = fault::code::timeout;
+                }
+                else
+                {
+                    send_ec = fault::code::io_error;
+                }
+                result.error = send_ec;
                 tr.result = std::move(result);
                 co_return tr;
             }
@@ -647,7 +711,7 @@ namespace psm::resolve::dns
             const auto rtt = std::chrono::duration_cast<std::chrono::milliseconds>(
                                  std::chrono::steady_clock::now() - start)
                                  .count();
-            result.rtt_ms = static_cast<uint64_t>(rtt);
+            result.rtt_ms = static_cast<std::uint64_t>(rtt);
             result.server_addr = memory::string(qctx.server.address, qctx.mr);
 
             if (ec) [[unlikely]]
@@ -676,7 +740,7 @@ namespace psm::resolve::dns
             }
 
             auto resp = message::unpack(
-                std::span<const uint8_t>(response_buf.data(), response_buf.size()), qctx.mr);
+                std::span<const std::uint8_t>(response_buf.data(), response_buf.size()), qctx.mr);
             if (!resp || resp->id != qctx.query.id) [[unlikely]]
             {
                 trace::warn("[Resolve] bad response from {}", qctx.server.address);
@@ -705,6 +769,25 @@ namespace psm::resolve::dns
         }
 
     } // anonymous namespace
+
+    // ─── 协议分发 ────────────────────────────────────────────
+
+    auto upstream::query_server(const dns_remote &server, const message &query)
+        -> net::awaitable<query_result>
+    {
+        switch (server.protocol)
+        {
+        case dns_protocol::udp:
+            co_return co_await query_udp(server, query);
+        case dns_protocol::tcp:
+            co_return co_await query_tcp(server, query);
+        case dns_protocol::tls:
+            co_return co_await query_tls(server, query);
+        case dns_protocol::https:
+            co_return co_await query_https(server, query);
+        }
+        co_return co_await query_udp(server, query);
+    }
 
     // ─── 查询方法（薄包装） ─────────────────────────────────────
 
@@ -744,7 +827,15 @@ namespace psm::resolve::dns
         -> net::awaitable<query_result>
     {
         auto ssl_ctx = get_ssl_ctx(server);
-        const auto host_header = server.hostname.empty() ? server.address : server.hostname;
+        memory::string host_header;
+        if (server.hostname.empty())
+        {
+            host_header = memory::string(server.address, mr_);
+        }
+        else
+        {
+            host_header = memory::string(server.hostname, mr_);
+        }
         auto [result, resp] = co_await query_via(
             https_transport{
                 nullptr, ssl_ctx,
@@ -756,66 +847,34 @@ namespace psm::resolve::dns
 
     // ─── 解析编排 ────────────────────────────────────────────
 
-    auto upstream::resolve(std::string_view domain, qtype qt)
+    auto upstream::resolve_fallback(std::string_view domain, const message &query_msg)
         -> net::awaitable<query_result>
     {
-        // 构造 DNS 查询报文
-        auto query_msg = message::make_query(domain, qt, mr_);
-
-        // 生成半随机 ID：域名哈希 XOR 时间戳低位，降低冲突概率
-        const auto domain_hash = std::hash<std::string_view>{}(domain);
-        const auto timestamp = static_cast<uint64_t>(std::chrono::steady_clock::now().time_since_epoch().count());
-        query_msg.id = static_cast<uint16_t>(domain_hash ^ timestamp);
-
-        // 无上游服务器时直接返回失败
-        if (servers_.empty()) [[unlikely]]
+        for (const auto &server : servers_)
         {
-            trace::warn("[Resolve] upstream list is empty, domain={}", domain);
-            auto fallback = query_result(mr_);
-            fallback.error = fault::code::dns_failed;
-            co_return fallback;
-        }
+            auto result = co_await query_server(server, query_msg);
 
-        // fallback 模式：顺序尝试上游服务器
-        if (mode_ == resolve_mode::fallback)
-        {
-            for (const auto &server : servers_)
+            trace::debug("[Resolve] query to {} completed: code={}, ips={}, rtt={}ms", server.address,
+                         fault::describe(result.error), result.ips.size(), result.rtt_ms);
+
+            // 成功获取结果即返回
+            if (succeeded(result.error) && !result.ips.empty())
             {
-                auto result = query_result(mr_);
-                // 根据协议类型选择查询方法
-                switch (server.protocol)
-                {
-                case dns_protocol::udp:
-                    result = co_await query_udp(server, query_msg);
-                    break;
-                case dns_protocol::tcp:
-                    result = co_await query_tcp(server, query_msg);
-                    break;
-                case dns_protocol::tls:
-                    result = co_await query_tls(server, query_msg);
-                    break;
-                case dns_protocol::https:
-                    result = co_await query_https(server, query_msg);
-                    break;
-                }
-
-                trace::debug("[Resolve] query to {} completed: code={}, ips={}, rtt={}ms", server.address,
-                             fault::describe(result.error), result.ips.size(), result.rtt_ms);
-
-                // 成功获取结果即返回
-                if (succeeded(result.error) && !result.ips.empty())
-                {
-                    co_return result;
-                }
+                co_return result;
             }
-            auto fallback = query_result(mr_);
-            fallback.error = fault::code::dns_failed;
-            co_return fallback;
         }
 
-        // first / fastest 模式：并发查询所有上游
+        trace::warn("[Resolve] all upstream failed in fallback mode, domain={}", domain);
+        auto fallback = query_result(mr_);
+        fallback.error = fault::code::dns_failed;
+        co_return fallback;
+    }
+
+    auto upstream::resolve_concurrent(const message &query_msg)
+        -> net::awaitable<query_result>
+    {
         // 使用 shared_ptr 延长生命周期，确保 detached 任务安全访问
-        auto query_shared = std::make_shared<message>(std::move(query_msg));
+        auto query_shared = std::make_shared<message>(query_msg);
         auto results_shared = std::make_shared<memory::vector<query_result>>(mr_);
         results_shared->resize(servers_.size());
         for (auto &r : *results_shared)
@@ -838,21 +897,7 @@ namespace psm::resolve::dns
                          completion_signal, completed_count]() -> net::awaitable<void>
             {
                 auto &result = (*results_shared)[i];
-                switch (server.protocol)
-                {
-                case dns_protocol::udp:
-                    result = co_await query_udp(server, *query_shared);
-                    break;
-                case dns_protocol::tcp:
-                    result = co_await query_tcp(server, *query_shared);
-                    break;
-                case dns_protocol::tls:
-                    result = co_await query_tls(server, *query_shared);
-                    break;
-                case dns_protocol::https:
-                    result = co_await query_https(server, *query_shared);
-                    break;
-                }
+                result = co_await query_server(server, *query_shared);
 
                 trace::debug("[Resolve] query to {} completed: code={}, ips={}, rtt={}ms", server.address,
                              fault::describe(result.error), result.ips.size(), result.rtt_ms);
@@ -902,9 +947,15 @@ namespace psm::resolve::dns
             }
         }
 
+        co_return select_best_result(*results_shared);
+    }
+
+    auto upstream::select_best_result(memory::vector<query_result> &results)
+        -> query_result
+    {
         // fastest 模式：选择 RTT 最低的成功响应
         query_result *best = nullptr;
-        for (auto &r : *results_shared)
+        for (auto &r : results)
         {
             if (succeeded(r.error) && !r.ips.empty())
             {
@@ -916,18 +967,48 @@ namespace psm::resolve::dns
         }
         if (best)
         {
-            co_return std::move(*best);
+            return std::move(*best);
         }
 
         // 所有查询都失败，返回第一个结果
-        if (!results_shared->empty())
+        if (!results.empty())
         {
-            co_return std::move(results_shared->front());
+            return std::move(results.front());
         }
 
         auto fallback = query_result(mr_);
         fallback.error = fault::code::dns_failed;
-        co_return fallback;
+        return fallback;
+    }
+
+    auto upstream::resolve(std::string_view domain, qtype qt)
+        -> net::awaitable<query_result>
+    {
+        // 构造 DNS 查询报文
+        auto query_msg = message::make_query(domain, qt, mr_);
+
+        // 生成半随机 ID：域名哈希 XOR 时间戳低位，降低冲突概率
+        const auto domain_hash = std::hash<std::string_view>{}(domain);
+        const auto timestamp = static_cast<std::uint64_t>(std::chrono::steady_clock::now().time_since_epoch().count());
+        query_msg.id = static_cast<std::uint16_t>(domain_hash ^ timestamp);
+
+        // 无上游服务器时直接返回失败
+        if (servers_.empty()) [[unlikely]]
+        {
+            trace::warn("[Resolve] upstream list is empty, domain={}", domain);
+            auto fallback = query_result(mr_);
+            fallback.error = fault::code::dns_failed;
+            co_return fallback;
+        }
+
+        // fallback 模式：顺序尝试上游服务器
+        if (mode_ == resolve_mode::fallback)
+        {
+            co_return co_await resolve_fallback(domain, query_msg);
+        }
+
+        // first / fastest 模式：并发查询所有上游
+        co_return co_await resolve_concurrent(query_msg);
     }
 
 } // namespace psm::resolve::dns

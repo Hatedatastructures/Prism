@@ -1,16 +1,20 @@
-#include <ranges>
-#include <cstdint>
-#include <memory>
-#include <boost/asio/experimental/awaitable_operators.hpp>
 #include <prism/connect/pool/pool.hpp>
+
 #include <prism/connect/pool/health.hpp>
 #include <prism/trace.hpp>
 
+#include <boost/asio/experimental/awaitable_operators.hpp>
+
+#include <cstdint>
+#include <memory>
+#include <ranges>
+
 namespace psm::connect
 {
+
     // ── pooled_connection ───────────────────────────────────────────────
 
-    pooled_connection::~pooled_connection()
+    pooled_connection::~pooled_connection() noexcept
     {
         reset();
     }
@@ -58,7 +62,7 @@ namespace psm::connect
 
     // ── endpoint_key / endpoint_hash ────────────────────────────────────
 
-    auto make_endpoint_key(const tcp::endpoint &endpoint) noexcept
+    auto to_key(const tcp::endpoint &endpoint) noexcept
         -> endpoint_key
     {
         endpoint_key key;
@@ -122,34 +126,19 @@ namespace psm::connect
         }
     }
 
-    auto connection_pool::async_acquire(tcp::endpoint endpoint)
+    auto connection_pool::try_reuse(reuse_opts opts)
         -> net::awaitable<std::pair<fault::code, pooled_connection>>
     {
-        stat_acquires_ += 1;
-
-        // 检查连接池是否已启动，未启动时后台清理功能禁用
-        if (!started_)
-        {
-            trace::debug("[Pool] start() not called, background cleanup is disabled");
-        }
-
-        const auto key = make_endpoint_key(endpoint);
-        const auto now = std::chrono::steady_clock::now();
-        const auto idle_timeout = std::chrono::seconds(config_.max_idle_sec);
-
-        // 尝试从缓存中复用已有的空闲连接
-        if (const auto it = cache_.find(key); it != cache_.end())
+        if (const auto it = cache_.find(opts.key); it != cache_.end())
         {
             auto &stack = it->second;
 
-            // LIFO 弹出：后归还的连接最先被复用，热点数据更可能在缓存中
             while (!stack.empty())
             {
                 auto [socket, last_used] = stack.back();
                 stack.pop_back();
 
-                // 检查连接是否已超过空闲超时时间
-                if (now - last_used > idle_timeout)
+                if (opts.now - last_used > opts.idle_timeout)
                 {
                     delete_socket(socket);
                     stat_evictions_ += 1;
@@ -157,23 +146,20 @@ namespace psm::connect
                     continue;
                 }
 
-                // 快速健康检测：验证 socket 可安全复用
                 if (healthy_fast(*socket))
                 {
                     stat_idle_ -= 1;
                     stat_hits_ += 1;
-                    trace::debug("[Pool] reused {}:{} (idle {}ms)", endpoint.address().to_string(), endpoint.port(),
-                                 std::chrono::duration_cast<std::chrono::milliseconds>(now - last_used).count());
-                    co_return std::make_pair(fault::code::success, pooled_connection(this, socket, endpoint));
+                    trace::debug("[Pool] reused {}:{} (idle {}ms)", opts.endpoint.address().to_string(), opts.endpoint.port(),
+                                 std::chrono::duration_cast<std::chrono::milliseconds>(opts.now - last_used).count());
+                    co_return std::make_pair(fault::code::success, pooled_connection(this, socket, opts.endpoint));
                 }
 
-                // 健康检测失败，丢弃连接
                 delete_socket(socket);
                 stat_evictions_ += 1;
                 stat_idle_ -= 1;
             }
 
-            // 栈已清空，移除该端点的缓存条目
             if (stack.empty())
             {
                 cache_.erase(it);
@@ -181,9 +167,71 @@ namespace psm::connect
             }
         }
 
-        // 缓存未命中，创建新连接
-        // 使用 awaitable_operators 实现连接超时控制
-        using namespace net::experimental::awaitable_operators;
+        co_return std::make_pair(fault::code::generic_error, pooled_connection{});
+    }
+
+    void connection_pool::apply_opts(tcp::socket &sock) const
+    {
+        boost::system::error_code opt_ec;
+        if (config_.tcp_nodelay)
+        {
+            sock.set_option(tcp::no_delay(true), opt_ec);
+            if (opt_ec)
+            {
+                trace::warn("[Pool] failed to set TCP_NODELAY: {}", opt_ec.message());
+                opt_ec.clear();
+            }
+        }
+        if (config_.keep_alive)
+        {
+            sock.set_option(tcp::socket::keep_alive(true), opt_ec);
+            if (opt_ec)
+            {
+                trace::warn("[Pool] failed to set SO_KEEPALIVE: {}", opt_ec.message());
+                opt_ec.clear();
+            }
+        }
+        if (config_.recv_bufsz > 0)
+        {
+            sock.set_option(net::socket_base::receive_buffer_size(config_.recv_bufsz), opt_ec);
+            if (opt_ec)
+            {
+                trace::warn("[Pool] failed to set SO_RCVBUF: {}", opt_ec.message());
+                opt_ec.clear();
+            }
+        }
+        if (config_.send_bufsz > 0)
+        {
+            sock.set_option(net::socket_base::send_buffer_size(config_.send_bufsz), opt_ec);
+            if (opt_ec)
+            {
+                trace::warn("[Pool] failed to set SO_SNDBUF: {}", opt_ec.message());
+                opt_ec.clear();
+            }
+        }
+    }
+
+    auto connection_pool::async_acquire(tcp::endpoint endpoint)
+        -> net::awaitable<std::pair<fault::code, pooled_connection>>
+    {
+        stat_acquires_ += 1;
+
+        if (!started_)
+        {
+            trace::debug("[Pool] start() not called, background cleanup is disabled");
+        }
+
+        const auto key = to_key(endpoint);
+        const auto now = std::chrono::steady_clock::now();
+        const auto idle_timeout = std::chrono::seconds(config_.idle_sec);
+
+        auto [reuse_ec, reused] = co_await try_reuse(reuse_opts{key, endpoint, now, idle_timeout});
+        if (reuse_ec == fault::code::success)
+        {
+            co_return std::make_pair(fault::code::success, std::move(reused));
+        }
+
+        using net::experimental::awaitable_operators::operator||;
 
         const auto connect_timeout = std::chrono::milliseconds(config_.conn_timeout);
 
@@ -196,13 +244,9 @@ namespace psm::connect
         auto connect_token = net::redirect_error(net::use_awaitable, connect_ec);
         auto timer_token = net::redirect_error(net::use_awaitable, timer_ec);
 
-        // 并发启动连接操作和超时定时器
         auto connect_op = sock->async_connect(endpoint, connect_token);
         auto timer_op = timer.async_wait(timer_token);
 
-        // 竞速等待：连接成功或超时
-        // awaitable_operators::operator|| 保证两个操作都完成后才返回
-        // （先完成的正常返回，后完成的被 cancel 并等待取消完成）
         const auto result = co_await (std::move(connect_op) || std::move(timer_op));
         if (result.index() == 1)
         {
@@ -211,7 +255,6 @@ namespace psm::connect
             co_return std::make_pair(fault::code::timeout, pooled_connection{});
         }
 
-        // 连接失败分支
         if (connect_ec)
         {
             delete_socket(sock);
@@ -219,50 +262,7 @@ namespace psm::connect
             co_return std::make_pair(fault::code::bad_gateway, pooled_connection{});
         }
 
-        // 连接成功，设置 socket 选项优化性能
-        {
-            boost::system::error_code opt_ec;
-            // 禁用 Nagle 算法，减少小包延迟
-            if (config_.tcp_nodelay)
-            {
-                sock->set_option(tcp::no_delay(true), opt_ec);
-                if (opt_ec)
-                {
-                    trace::warn("[Pool] failed to set TCP_NODELAY: {}", opt_ec.message());
-                    opt_ec.clear();
-                }
-            }
-            // 启用 TCP keepalive，检测死连接
-            if (config_.keep_alive)
-            {
-                sock->set_option(tcp::socket::keep_alive(true), opt_ec);
-                if (opt_ec)
-                {
-                    trace::warn("[Pool] failed to set SO_KEEPALIVE: {}", opt_ec.message());
-                    opt_ec.clear();
-                }
-            }
-            // 设置接收缓冲区大小
-            if (config_.recv_bufsz > 0)
-            {
-                sock->set_option(net::socket_base::receive_buffer_size(config_.recv_bufsz), opt_ec);
-                if (opt_ec)
-                {
-                    trace::warn("[Pool] failed to set SO_RCVBUF: {}", opt_ec.message());
-                    opt_ec.clear();
-                }
-            }
-            // 设置发送缓冲区大小
-            if (config_.send_bufsz > 0)
-            {
-                sock->set_option(net::socket_base::send_buffer_size(config_.send_bufsz), opt_ec);
-                if (opt_ec)
-                {
-                    trace::warn("[Pool] failed to set SO_SNDBUF: {}", opt_ec.message());
-                    opt_ec.clear();
-                }
-            }
-        }
+        apply_opts(*sock);
 
         stat_creates_ += 1;
 
@@ -299,14 +299,14 @@ namespace psm::connect
         }
 
         // 检查缓存容量，超过单端点上限则丢弃
-        const auto key = make_endpoint_key(endpoint);
+        const auto key = to_key(endpoint);
         auto [it, inserted] = cache_.try_emplace(key);
         auto &stack = it->second;
         if (inserted)
         {
             stat_endpoints_ += 1;
         }
-        if (stack.size() >= config_.max_cache_peraddr)
+        if (stack.size() >= config_.cache_peraddr)
         {
             delete_socket(s);
             stat_evictions_ += 1;
@@ -364,7 +364,7 @@ namespace psm::connect
     void connection_pool::cleanup()
     {
         const auto now = std::chrono::steady_clock::now();
-        const auto idle_timeout = std::chrono::seconds(config_.max_idle_sec);
+        const auto idle_timeout = std::chrono::seconds(config_.idle_sec);
 
         // 遍历所有端点的连接缓存
         for (auto it = cache_.begin(); it != cache_.end();)

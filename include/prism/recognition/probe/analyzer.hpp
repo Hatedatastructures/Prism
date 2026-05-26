@@ -13,13 +13,16 @@
 
 #pragma once
 
+#include <prism/protocol/types.hpp>
+
 #include <array>
 #include <cstdint>
 #include <string_view>
-#include <prism/protocol/types.hpp>
+
 
 namespace psm::recognition::probe
 {
+
     /**
      * @brief 从预读数据检测外层协议类型
      * @param peek_data 预读数据（通常是前 24 字节）
@@ -65,7 +68,7 @@ namespace psm::recognition::probe
      * @note 数据不足 60 字节且不匹配 HTTP/VLESS 时返回 protocol_type::unknown。
      *       60+ 字节且不匹配任何已知协议也返回 unknown，不自动 fallback。
      */
-    inline auto detect_tls(std::string_view peek_data)
+    [[nodiscard]] inline auto detect_tls(std::string_view peek_data)
         -> protocol::protocol_type
     {
         // 阶段 1：HTTP 检测（最少 4 字节）

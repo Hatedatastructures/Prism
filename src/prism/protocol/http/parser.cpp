@@ -1,13 +1,15 @@
 #include <prism/protocol/http/parser.hpp>
 #include <prism/account/directory.hpp>
-#include <prism/crypto/sha224.hpp>
 #include <prism/crypto/base64.hpp>
+#include <prism/crypto/sha224.hpp>
+
 #include <cctype>
 #include <cstdint>
 #include <cstring>
 
 namespace psm::protocol::http
 {
+
     namespace
     {
         // 字符转小写
@@ -88,7 +90,10 @@ namespace psm::protocol::http
         // 验证 Basic 认证方案前缀（大小写不敏感）
         if (!iequals_prefix(authorization, basic_prefix))
         {
-            return {.authenticated = false, .error_response = resp407, .lease = {}};
+            auth_result result;
+            result.authenticated = false;
+            result.error_response = resp407;
+            return result;
         }
 
         // Base64 解码凭据
@@ -100,23 +105,32 @@ namespace psm::protocol::http
             // 提取密码并计算 SHA224 哈希
             const auto password = std::string_view(decoded).substr(colon_pos + 1);
             const auto credential = crypto::sha224(password);
-            auto lease = account::try_acquire(directory, credential);
+            auto acquired = account::try_acquire(directory, credential);
 
-            if (lease)
+            if (acquired)
             {
-                return {.authenticated = true, .error_response = {}, .lease = std::move(lease)};
+                auth_result ok;
+                ok.authenticated = true;
+                ok.lease = std::move(acquired);
+                return ok;
             }
 
-            return {.authenticated = false, .error_response = resp403, .lease = {}};
+            auth_result denied;
+            denied.authenticated = false;
+            denied.error_response = resp403;
+            return denied;
         }
 
-        return {.authenticated = false, .error_response = resp403, .lease = {}};
+        auth_result bad;
+        bad.authenticated = false;
+        bad.error_response = resp403;
+        return bad;
     }
 
-    auto build_fwd_line(const proxy_request &req, std::pmr::memory_resource *mr)
+    auto build_fwd(const proxy_request &req, std::pmr::memory_resource *mr)
         -> memory::string
     {
-        const auto relative = extract_rel_path(req.target);
+        const auto relative = rel_path(req.target);
 
         memory::string new_line(mr);
         new_line.reserve(req.method.size() + 1 + relative.size() + 1 + req.version.size() + 2);
@@ -130,7 +144,7 @@ namespace psm::protocol::http
         return new_line;
     }
 
-    auto parse_proxy_req(const std::string_view raw_data, proxy_request &out)
+    auto parse_req(const std::string_view raw_data, proxy_request &out)
         -> fault::code
     {
         // 定位请求行末尾
@@ -156,7 +170,7 @@ namespace psm::protocol::http
         out.method = raw_data.substr(0, first_space);
         out.target = raw_data.substr(first_space + 1, second_space - first_space - 1);
         out.version = raw_data.substr(second_space + 1, line_end - second_space - 1);
-        out.req_line_end = line_end + 2;
+        out.line_end = line_end + 2;
 
         // 定位头部结束标记 \r\n\r\n
         const auto headers_end = raw_data.find("\r\n\r\n", line_end);
@@ -171,8 +185,17 @@ namespace psm::protocol::http
         while (!block.empty())
         {
             const auto next = block.find("\r\n");
-            const auto line = (next == std::string_view::npos) ? block : block.substr(0, next);
-            block = (next == std::string_view::npos) ? std::string_view{} : block.substr(next + 2);
+            std::string_view line;
+            if (next == std::string_view::npos)
+            {
+                line = block;
+                block = {};
+            }
+            else
+            {
+                line = block.substr(0, next);
+                block = block.substr(next + 2);
+            }
 
             if (line.empty())
             {
@@ -201,7 +224,7 @@ namespace psm::protocol::http
         return fault::code::success;
     }
 
-    auto extract_rel_path(const std::string_view target)
+    auto rel_path(const std::string_view target)
         -> std::string_view
     {
         // 跳过 scheme

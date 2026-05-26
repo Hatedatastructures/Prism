@@ -9,17 +9,21 @@
  * @warning 配置文件加载失败将抛出异常
  */
 #pragma once
-#include <string>
-#include <fstream>
-#include <prism/config.hpp>
-#include <prism/exception.hpp>
-#include <prism/transformer.hpp>
-#include <prism/trace.hpp>
+
 #include <prism/account/directory.hpp>
+#include <prism/config.hpp>
 #include <prism/crypto/sha224.hpp>
+#include <prism/exception.hpp>
+#include <prism/trace.hpp>
+#include <prism/transformer.hpp>
+
+#include <fstream>
+#include <string>
+
 
 namespace psm::loader
 {
+
     /**
      * @brief 加载外部配置
      * @param path 配置文件路径，支持相对路径和绝对路径
@@ -75,7 +79,7 @@ namespace psm::loader
     [[nodiscard]] inline auto build_dir(const instance::authentication &auth)
         -> std::shared_ptr<account::directory>
     {
-        const auto dir = std::make_shared<account::directory>(memory::system::thread_local_pool());
+        const auto dir = std::make_shared<account::directory>(memory::system::local_pool());
 
         // 预估总条目数：每个用户可能的 password 和 uuid
         std::size_t entry_count = 0;

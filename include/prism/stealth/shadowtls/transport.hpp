@@ -8,17 +8,21 @@
 
 #pragma once
 
-#include <prism/transport/transmission.hpp>
 #include <prism/memory/container.hpp>
+#include <prism/transport/transmission.hpp>
+
 #include <boost/asio.hpp>
 #include <openssl/hmac.h>
+
 #include <array>
 #include <memory>
 #include <span>
 #include <string_view>
 
+
 namespace psm::stealth::shadowtls
 {
+
     namespace net = boost::asio;
 
     /**
@@ -60,7 +64,7 @@ namespace psm::stealth::shadowtls
         explicit shadowtls_transport(net::ip::tcp::socket socket,
                                      shadowtls_handover handover);
 
-        ~shadowtls_transport() override;
+        ~shadowtls_transport() noexcept override;
 
         [[nodiscard]] auto transport_type() const noexcept
             -> type override
@@ -68,17 +72,17 @@ namespace psm::stealth::shadowtls
             return type::tcp;
         }
 
-        [[nodiscard]] transmission *next_layer() noexcept override
+        [[nodiscard]] auto next_layer() noexcept -> transmission * override
         {
             return nullptr;
         }
 
-        [[nodiscard]] const transmission *next_layer() const noexcept override
+        [[nodiscard]] auto next_layer() const noexcept -> const transmission * override
         {
             return nullptr;
         }
 
-        [[nodiscard]] executor_type executor() const override
+        [[nodiscard]] auto executor() const -> executor_type override
         {
             // socket_ 是 mutable，因为 get_executor() 是非 const 的
             return const_cast<net::ip::tcp::socket &>(socket_).get_executor();

@@ -6,8 +6,9 @@
  */
 
 #include <prism/memory.hpp>
-#include <prism/trace/spdlog.hpp>
+#include <prism/multiplex/parcel.hpp>
 #include <prism/multiplex/smux/frame.hpp>
+#include <prism/trace/spdlog.hpp>
 
 #include "common/TestRunner.hpp"
 
@@ -261,7 +262,7 @@ void TestDeserializeEndianness()
     runner.LogPass("deserialize endianness");
 }
 
-// ---------- parse_mux_address ----------
+// ---------- parse_address ----------
 
 /**
  * @brief 测试 IPv4 地址解析
@@ -281,7 +282,7 @@ void TestParseAddressIPv4()
     buf.push_back(std::byte{0x1F}); // port high
     buf.push_back(std::byte{0x90}); // port low -> 8080
 
-    auto result = parse_mux_address(buf, psm::memory::current_resource());
+    auto result = parse_address(buf, psm::memory::current_resource());
     if (!result)
     {
         runner.LogFail("IPv4 address parse returned nullopt");
@@ -302,7 +303,7 @@ void TestParseAddressIPv4()
         runner.LogFail("is_udp should be true");
         return;
     }
-    if (result->packet_addr)
+    if (result->addr == psm::multiplex::addr_mode::packet_addr)
     {
         runner.LogFail("packet_addr should be false");
         return;
@@ -331,7 +332,7 @@ void TestParseAddressDomain()
     buf.push_back(std::byte{0x00}); // port high
     buf.push_back(std::byte{0x50}); // port low -> 80
 
-    auto result = parse_mux_address(buf, psm::memory::current_resource());
+    auto result = parse_address(buf, psm::memory::current_resource());
     if (!result)
     {
         runner.LogFail("domain address parse returned nullopt");
@@ -375,7 +376,7 @@ void TestParseAddressIPv6()
     buf.push_back(std::byte{0x00}); // port high
     buf.push_back(std::byte{0x50}); // port low -> 80
 
-    auto result = parse_mux_address(buf, psm::memory::current_resource());
+    auto result = parse_address(buf, psm::memory::current_resource());
     if (!result)
     {
         runner.LogFail("IPv6 address parse returned nullopt");
@@ -391,7 +392,7 @@ void TestParseAddressIPv6()
         runner.LogFail("IPv6 port mismatch");
         return;
     }
-    if (!result->packet_addr)
+    if (result->addr != psm::multiplex::addr_mode::packet_addr)
     {
         runner.LogFail("packet_addr should be true");
         return;
@@ -412,7 +413,7 @@ void TestParseAddressTruncated()
     buf.push_back(std::byte{0x00});
     buf.push_back(std::byte{0x01}); // ATYP IPv4 but no address bytes
 
-    auto result = parse_mux_address(buf, psm::memory::current_resource());
+    auto result = parse_address(buf, psm::memory::current_resource());
     if (result.has_value())
     {
         runner.LogFail("truncated address should return nullopt");
@@ -434,7 +435,7 @@ void TestParseAddressBadAtyp()
     buf.push_back(std::byte{0x00});
     buf.push_back(std::byte{0xFF}); // invalid ATYP
 
-    auto result = parse_mux_address(buf, psm::memory::current_resource());
+    auto result = parse_address(buf, psm::memory::current_resource());
     if (result.has_value())
     {
         runner.LogFail("bad ATYP should return nullopt");
@@ -454,8 +455,8 @@ void TestUdpDatagramRoundtripIPv4()
     runner.LogInfo("=== TestUdpDatagramRoundtripIPv4 ===");
 
     const std::byte payload[] = {std::byte{0xAA}, std::byte{0xBB}, std::byte{0xCC}};
-    auto encoded = build_udp_dgram({"127.0.0.1", 9090, payload}, psm::memory::current_resource());
-    auto result = parse_udp_dgram(encoded, psm::memory::current_resource());
+    auto encoded = build_dgram({"127.0.0.1", 9090, payload}, psm::memory::current_resource());
+    auto result = parse_dgram(encoded, psm::memory::current_resource());
 
     if (!result)
     {
@@ -494,8 +495,8 @@ void TestUdpDatagramRoundtripDomain()
     runner.LogInfo("=== TestUdpDatagramRoundtripDomain ===");
 
     const std::byte payload[] = {std::byte{0x01}, std::byte{0x02}};
-    auto encoded = build_udp_dgram({"example.com", 443, payload}, psm::memory::current_resource());
-    auto result = parse_udp_dgram(encoded, psm::memory::current_resource());
+    auto encoded = build_dgram({"example.com", 443, payload}, psm::memory::current_resource());
+    auto result = parse_dgram(encoded, psm::memory::current_resource());
 
     if (!result)
     {
@@ -529,7 +530,7 @@ void TestUdpDatagramEmpty()
     runner.LogInfo("=== TestUdpDatagramEmpty ===");
 
     psm::memory::vector<std::byte> empty_buf;
-    auto result = parse_udp_dgram(empty_buf, psm::memory::current_resource());
+    auto result = parse_dgram(empty_buf, psm::memory::current_resource());
     if (result.has_value())
     {
         runner.LogFail("empty UDP datagram should return nullopt");
@@ -549,8 +550,8 @@ void TestUdpLengthPrefixedRoundtrip()
     runner.LogInfo("=== TestUdpLengthPrefixedRoundtrip ===");
 
     const std::byte payload[] = {std::byte{0xDE}, std::byte{0xAD}, std::byte{0xBE}, std::byte{0xEF}};
-    auto encoded = build_udp_length_prefixed(payload, psm::memory::current_resource());
-    auto result = parse_udp_length_prefixed(encoded);
+    auto encoded = build_prefixed(payload, psm::memory::current_resource());
+    auto result = parse_prefixed(encoded);
 
     if (!result)
     {
@@ -581,7 +582,7 @@ void TestUdpLengthPrefixedTruncated()
     psm::memory::vector<std::byte> short_data;
     short_data.push_back(std::byte{0x00});
 
-    auto result = parse_udp_length_prefixed(short_data);
+    auto result = parse_prefixed(short_data);
     if (result.has_value())
     {
         runner.LogFail("truncated length-prefixed should return nullopt");
@@ -593,7 +594,7 @@ void TestUdpLengthPrefixedTruncated()
     mismatch_data.push_back(std::byte{0x10}); // length = 16
     mismatch_data.push_back(std::byte{0xAA}); // only 1 byte of payload
 
-    auto result2 = parse_udp_length_prefixed(mismatch_data);
+    auto result2 = parse_prefixed(mismatch_data);
     if (result2.has_value())
     {
         runner.LogFail("length-prefixed with oversized length should return nullopt");
@@ -605,7 +606,7 @@ void TestUdpLengthPrefixedTruncated()
 
 int main()
 {
-    psm::memory::system::enable_global_pooling();
+    psm::memory::system::enable_pooling();
     psm::trace::init({});
 
     runner.LogInfo("========== Smux Frame Tests ==========");

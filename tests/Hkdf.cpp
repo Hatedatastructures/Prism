@@ -306,7 +306,7 @@ void TestHkdfExpandLabel()
     constexpr std::string_view label = "key";
     constexpr std::size_t out_len = 32;
 
-    auto [err, output] = psm::crypto::hkdf_expand_label(
+    auto [err, output] = psm::crypto::expand_label(
         {secret, label, {}, out_len}
     );
 
@@ -324,7 +324,7 @@ void TestHkdfExpandLabel()
     }
 
     // 第二次调用应产生相同结果（确定性）
-    auto [err2, output2] = psm::crypto::hkdf_expand_label(
+    auto [err2, output2] = psm::crypto::expand_label(
         {secret, label, {}, out_len}
     );
 
@@ -464,7 +464,7 @@ void TestSha256Span()
 int main()
 {
     // 初始化全局 PMR 内存池
-    psm::memory::system::enable_global_pooling();
+    psm::memory::system::enable_pooling();
     // 初始化日志系统
     psm::trace::init({});
 

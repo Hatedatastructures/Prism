@@ -76,7 +76,7 @@ static void BM_HttpParseProxyRequest_Get(benchmark::State &state)
     protocol::http::proxy_request req;
     for (auto _ : state)
     {
-        fault::code ec = protocol::http::parse_proxy_req(http_get_request, req);
+        fault::code ec = protocol::http::parse_req(http_get_request, req);
         if (fault::failed(ec))
         {
             state.SkipWithError("HTTP Parsing failed");
@@ -91,7 +91,7 @@ static void BM_HttpParseProxyRequest_Connect(benchmark::State &state)
     protocol::http::proxy_request req;
     for (auto _ : state)
     {
-        const fault::code ec = protocol::http::parse_proxy_req(http_connect_request, req);
+        const fault::code ec = protocol::http::parse_req(http_connect_request, req);
         if (fault::failed(ec))
         {
             state.SkipWithError("HTTP Parsing failed");
@@ -107,7 +107,7 @@ static void BM_HttpParseProxyRequest_PostBody(benchmark::State &state)
     protocol::http::proxy_request req;
     for (auto _ : state)
     {
-        fault::code ec = protocol::http::parse_proxy_req(payload, req);
+        fault::code ec = protocol::http::parse_req(payload, req);
         if (fault::failed(ec))
         {
             state.SkipWithError("HTTP Parsing failed");
@@ -121,7 +121,7 @@ static void BM_HttpExtractRelativePath(benchmark::State &state)
 {
     for (auto _ : state)
     {
-        auto result = protocol::http::extract_rel_path("http://www.example.com/path/to/resource?q=1#frag");
+        auto result = protocol::http::rel_path("http://www.example.com/path/to/resource?q=1#frag");
         benchmark::DoNotOptimize(result);
     }
 }

@@ -1,14 +1,15 @@
 #include <prism/stealth/anytls/padding.hpp>
 
+#include <openssl/evp.h>
+
 #include <cstdlib>
 #include <cstdint>
 #include <cstring>
 #include <random>
 
-#include <openssl/evp.h>
-
 namespace psm::stealth::anytls
 {
+
     namespace
     {
         // 解析 "min-max" 为密码学安全随机整数 [min, max]
@@ -119,9 +120,9 @@ namespace psm::stealth::anytls
     }
 
     auto padding_factory::generate_sizes(const std::uint32_t pkt) const
-        -> std::vector<std::int32_t>
+        -> memory::vector<std::int32_t>
     {
-        std::vector<std::int32_t> sizes;
+        memory::vector<std::int32_t> sizes(memory::current_resource());
 
         if (pkt >= static_cast<std::int32_t>(stop))
         {

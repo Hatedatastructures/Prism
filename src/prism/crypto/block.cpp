@@ -1,10 +1,13 @@
 #include <prism/crypto/block.hpp>
+
 #include <openssl/evp.h>
+
 #include <cstring>
 
 namespace psm::crypto
 {
-    auto aes_ecb_encrypt(const std::span<const std::uint8_t, 16> input, const std::span<const std::uint8_t> key)
+
+    auto ecb_encrypt(const std::span<const std::uint8_t, 16> input, const std::span<const std::uint8_t> key)
         -> std::array<std::uint8_t, 16>
     {
         std::array<std::uint8_t, 16> out{};
@@ -34,13 +37,13 @@ namespace psm::crypto
         // 禁用填充（输入已是完整块）
         EVP_CIPHER_CTX_set_padding(ctx, 0);
 
-        int out_len = 0;
+        int out_len = 0; // EVP API 要求 int*
         if (EVP_EncryptUpdate(ctx, out.data(), &out_len, input.data(), 16) != 1)
         {
             EVP_CIPHER_CTX_free(ctx);
             return out;
         }
-        int final_len = 0;
+        int final_len = 0; // EVP API 要求 int*
         if (EVP_EncryptFinal_ex(ctx, out.data() + out_len, &final_len) != 1)
         {
             EVP_CIPHER_CTX_free(ctx);
@@ -51,7 +54,8 @@ namespace psm::crypto
         return out;
     }
 
-    auto aes_ecb_decrypt(const std::span<const std::uint8_t, 16> input, const std::span<const std::uint8_t> key)
+
+    auto ecb_decrypt(const std::span<const std::uint8_t, 16> input, const std::span<const std::uint8_t> key)
         -> std::array<std::uint8_t, 16>
     {
         std::array<std::uint8_t, 16> out{};
@@ -81,13 +85,13 @@ namespace psm::crypto
         // 禁用填充
         EVP_CIPHER_CTX_set_padding(ctx, 0);
 
-        int out_len = 0;
+        int out_len = 0; // EVP API 要求 int*
         if (EVP_DecryptUpdate(ctx, out.data(), &out_len, input.data(), 16) != 1)
         {
             EVP_CIPHER_CTX_free(ctx);
             return out;
         }
-        int final_len = 0;
+        int final_len = 0; // EVP API 要求 int*
         if (EVP_DecryptFinal_ex(ctx, out.data() + out_len, &final_len) != 1)
         {
             EVP_CIPHER_CTX_free(ctx);
@@ -97,4 +101,6 @@ namespace psm::crypto
         EVP_CIPHER_CTX_free(ctx);
         return out;
     }
+
+
 } // namespace psm::crypto

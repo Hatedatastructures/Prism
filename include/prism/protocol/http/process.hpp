@@ -5,14 +5,16 @@
  */
 #pragma once
 
-#include <span>
+#include <prism/context/context.hpp>
 
 #include <boost/asio.hpp>
 
-#include <prism/context/context.hpp>
+#include <span>
+
 
 namespace psm::protocol::http
 {
+
     namespace net = boost::asio;
 
     /**

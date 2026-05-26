@@ -10,18 +10,20 @@
 
 #pragma once
 
-#include <cstring>
-#include <utility>
-#include <span>
-#include <fault.hpp>
-
+#include <prism/fault/code.hpp>
+#include <prism/memory/container.hpp>
 #include <prism/protocol/common/framing.hpp>
 #include <prism/protocol/socks5/constants.hpp>
 #include <prism/protocol/socks5/packet.hpp>
-#include <prism/memory/container.hpp>
+
+#include <cstring>
+#include <span>
+#include <utility>
+
 
 namespace psm::protocol::socks5::wire
 {
+
     /**
      * @brief 认证结果
      * @details 表示认证验证的最终结果。
@@ -49,7 +51,7 @@ namespace psm::protocol::socks5::wire
      * @deprecated 使用 parse_port 替代
      */
     [[nodiscard]] inline auto decode_port(const std::span<const std::uint8_t> buffer)
-        -> std::pair<fault::code, uint16_t>
+        -> std::pair<fault::code, std::uint16_t>
     {
         return parse_port(buffer);
     }
@@ -84,7 +86,7 @@ namespace psm::protocol::socks5::wire
      * 头部格式为 VER(1) + CMD(1) + RSV(1) + ATYP(1)。缓冲区长度
      * 不足或版本错误时返回相应错误码。
      */
-    inline auto parse_header(std::span<const std::uint8_t> buffer)
+    [[nodiscard]] inline auto parse_header(std::span<const std::uint8_t> buffer)
         -> std::pair<fault::code, header_parse>
     {
         if (buffer.size() < 4)
@@ -127,7 +129,7 @@ namespace psm::protocol::socks5::wire
      * @details 存储解析后的 UDP 报头信息和头部大小。头部大小用于
      * 计算数据载荷的起始偏移，便于后续数据处理。
      */
-    struct udp_hdr_parse
+    struct hdr_parse
     {
         // UDP 报头信息
         udp_header header;
@@ -145,7 +147,7 @@ namespace psm::protocol::socks5::wire
      * 编码格式为 RSV(2) + FRAG(1) + ATYP(1) + DST.ADDR(变长) +
      * DST.PORT(2)。地址根据类型写入不同格式的数据。
      */
-    inline auto encode_udp_hdr(const udp_header &header, memory::vector<std::uint8_t> &out)
+    [[nodiscard]] inline auto encode_hdr(const udp_header &header, memory::vector<std::uint8_t> &out)
         -> fault::code
     {
         // 预分配：RSV(2) + FRAG(1) + ATYP(1) + max(域名255+1, IPv4 4, IPv6 16) + PORT(2) = 最大 262
@@ -186,14 +188,14 @@ namespace psm::protocol::socks5::wire
     /**
      * @brief 解码 SOCKS5 UDP 报头
      * @param buffer UDP 数据报缓冲区
-     * @return std::pair<fault::code, udp_hdr_parse> 解码结果
+     * @return std::pair<fault::code, hdr_parse> 解码结果
      * @details 解析 UDP 报头，返回报头信息和 DATA 起始偏移。首先
      * 验证 RSV 字段是否为 0x0000，然后检查 FRAG 字段是否为 0。
      * FRAG != 0 时返回 not_supported 错误，符合 SOCKS5 规范要求。
      * 地址解析支持 IPv4、IPv6 和域名三种类型。
      */
-    inline auto decode_udp_hdr(std::span<const std::uint8_t> buffer)
-        -> std::pair<fault::code, udp_hdr_parse>
+    [[nodiscard]] inline auto decode_hdr(std::span<const std::uint8_t> buffer)
+        -> std::pair<fault::code, hdr_parse>
     {
         if (buffer.size() < 10)
         {
@@ -279,7 +281,7 @@ namespace psm::protocol::socks5::wire
             return {port_ec, {}};
         }
 
-        udp_hdr_parse result;
+        hdr_parse result;
         result.header.destination_address = dest_addr;
         result.header.destination_port = port;
         result.header.frag = frag;
@@ -295,13 +297,13 @@ namespace psm::protocol::socks5::wire
      * @param out 输出缓冲区
      * @return fault::code 编码结果
      * @details 将 UDP 报头和用户数据编码为完整的 SOCKS5 UDP 数据报。
-     * 首先调用 encode_udp_hdr 编码头部，然后追加用户数据。
+     * 首先调用 encode_hdr 编码头部，然后追加用户数据。
      * 输出缓冲区将包含完整的可发送数据报。
      */
-    inline auto encode_udp_dgram(const udp_header &header, std::span<const std::uint8_t> data, memory::vector<std::uint8_t> &out)
+    [[nodiscard]] inline auto encode_dgram(const udp_header &header, std::span<const std::uint8_t> data, memory::vector<std::uint8_t> &out)
         -> fault::code
     {
-        if (fault::failed(encode_udp_hdr(header, out)))
+        if (fault::failed(encode_hdr(header, out)))
         {
             return fault::code::bad_message;
         }
@@ -379,6 +381,11 @@ namespace psm::protocol::socks5::wire
     [[nodiscard]] inline auto build_pw_auth_response(auth_result result)
         -> std::array<std::uint8_t, 2>
     {
-        return {0x01, static_cast<std::uint8_t>(result == auth_result::success ? 0x00 : 0x01)};
+        std::uint8_t status;
+        if (result == auth_result::success)
+            status = 0x00;
+        else
+            status = 0x01;
+        return {0x01, status};
     }
 }

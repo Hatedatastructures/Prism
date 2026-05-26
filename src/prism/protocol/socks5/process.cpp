@@ -1,18 +1,20 @@
 #include <prism/protocol/socks5/process.hpp>
-#include <prism/protocol/socks5/conn.hpp>
-#include <prism/protocol/common/target.hpp>
-#include <prism/trace.hpp>
+#include <prism/config.hpp>
 #include <prism/connect/dial/dial.hpp>
 #include <prism/connect/tunnel/tunnel.hpp>
-#include <prism/transport/preview.hpp>
 #include <prism/outbound/proxy.hpp>
-#include <prism/config.hpp>
+#include <prism/protocol/common/target.hpp>
+#include <prism/protocol/socks5/conn.hpp>
+#include <prism/trace.hpp>
+#include <prism/transport/preview.hpp>
+
 #include <charconv>
 
 constexpr std::string_view Socks5Str = "[Protocol.Socks5]";
 
 namespace psm::protocol::socks5
 {
+
     auto handle(context::session &ctx, std::span<const std::byte> data)
         -> net::awaitable<void>
     {
@@ -53,11 +55,19 @@ namespace psm::protocol::socks5
             trace::info("{} CONNECT -> {}:{}", Socks5Str, target.host, target.port);
 
             // 先拨号上游 — 失败时返回 SOCKS5 错误码（RFC 1928 语义）
-            const auto [dial_ec, outbound] = ctx.outbound_proxy
-                ? co_await psm::connect::dial(
-                      *ctx.outbound_proxy, target, ctx.worker_ctx.io_context.get_executor())
-                : co_await psm::connect::dial(
-                      ctx.worker_ctx.router, "SOCKS5", target);
+            std::pair<fault::code, psm::connect::shared_transmission> dial_result;
+            if (ctx.outbound_proxy)
+            {
+                dial_result = co_await psm::connect::dial(
+                    *ctx.outbound_proxy, target, ctx.worker_ctx.io_context.get_executor());
+            }
+            else
+            {
+                dial_result = co_await psm::connect::dial(
+                    ctx.worker_ctx.router, {"SOCKS5", target});
+            }
+            const auto dial_ec = dial_result.first;
+            const auto outbound = dial_result.second;
             if (fault::failed(dial_ec) || !outbound)
             {
                 if (dial_ec == fault::code::ipv6_disabled)
@@ -93,9 +103,15 @@ namespace psm::protocol::socks5
             trace::info("{} UDP_ASSOCIATE -> {}:{}", Socks5Str, target_host, target_port);
 
             // 启动 UDP 关联处理
-            auto datagram_router = ctx.outbound_proxy
-                ? ctx.outbound_proxy->make_dgram_router()
-                : psm::connect::make_dgram_router(ctx.worker_ctx.router);
+            psm::outbound::router_fn datagram_router;
+            if (ctx.outbound_proxy)
+            {
+                datagram_router = ctx.outbound_proxy->make_router();
+            }
+            else
+            {
+                datagram_router = psm::connect::make_router(ctx.worker_ctx.router);
+            }
             const auto associate_ec = co_await agent->async_associate(request, std::move(datagram_router));
             if (fault::failed(associate_ec))
             {
@@ -110,4 +126,5 @@ namespace psm::protocol::socks5
             break;
         }
     }
+
 } // namespace psm::protocol::socks5

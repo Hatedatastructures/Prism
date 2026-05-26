@@ -7,22 +7,27 @@
 
 #pragma once
 
-#include <cstdint>
-#include <span>
 #include <prism/context/context.hpp>
-#include <prism/transport/transmission.hpp>
 #include <prism/fault/code.hpp>
 #include <prism/memory/container.hpp>
 #include <prism/stealth/scheme.hpp>
+#include <prism/transport/transmission.hpp>
+
 #include <boost/asio.hpp>
+
+#include <cstdint>
+#include <span>
+
 
 namespace psm::connect
 {
+
     class router;
 } // namespace psm::connect
 
 namespace psm::stealth::reality
 {
+
     namespace net = boost::asio;
 
     /**

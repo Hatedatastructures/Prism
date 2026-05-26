@@ -2,9 +2,9 @@
 #include <prism/trace.hpp>
 
 #include <array>
-
 namespace psm::instance::front
 {
+
     // 构造 Listener：解析监听地址，打开 acceptor 并绑定端口。
     // ioc_(1) 表示独立线程的事件循环，不和其他 Worker 共享。
     // backpressure_delay_ 默认 2ms，全局背压时用这个延迟暂停接受。
@@ -44,6 +44,7 @@ namespace psm::instance::front
         acceptor_.listen();
     }
 
+
     // 启动监听：派生 accept 循环协程，然后阻塞在 io_context::run()。
     // 和 Worker 一样，Listener 的事件循环也是阻塞式的。
     void listener::listen()
@@ -52,12 +53,14 @@ namespace psm::instance::front
         ioc_.run();
     }
 
+
     void listener::stop()
     {
         boost::system::error_code ec;
         acceptor_.close(ec);
         ioc_.stop();
     }
+
 
     // 从客户端 IP 地址计算亲和性值，用于 Balancer 的会话亲和性调度。
     // 同一个客户端 IP 总是得到相同的亲和性值，这样 Balancer 会倾向于
@@ -83,6 +86,7 @@ namespace psm::instance::front
         }
         return high ^ low;
     }
+
 
     // 接受连接的主循环。每轮迭代：
     // 1. 异步等待新连接（accept）
@@ -134,7 +138,15 @@ namespace psm::instance::front
             // 获取客户端地址用于亲和性计算
             boost::system::error_code remote_excode;
             const tcp::endpoint remote_endpoint = socket.remote_endpoint(remote_excode);
-            const std::uint64_t affinity = remote_excode ? 0ULL : make_affinity(remote_endpoint);
+            std::uint64_t affinity;
+            if (remote_excode)
+            {
+                affinity = 0ULL;
+            }
+            else
+            {
+                affinity = make_affinity(remote_endpoint);
+            }
 
             // 让 Balancer 选择目标 Worker
             const balancer::select_result decision = dispatcher_.select(affinity);
@@ -150,4 +162,5 @@ namespace psm::instance::front
             dispatcher_.dispatch(decision.worker_index, std::move(socket));
         }
     }
+
 } // namespace psm::instance::front

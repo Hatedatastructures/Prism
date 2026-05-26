@@ -1,19 +1,23 @@
 #include <prism/stealth/shadowtls/transport.hpp>
+
 #include <prism/stealth/common.hpp>
 #include <prism/trace.hpp>
+
+#include <openssl/crypto.h>
 #include <openssl/hmac.h>
 #include <openssl/sha.h>
-#include <openssl/crypto.h>
+
+#include <algorithm>
 #include <cstdint>
 #include <cstring>
-#include <algorithm>
-
-constexpr std::string_view tag = "[ShadowTLS.Transport]";
 
 namespace psm::stealth::shadowtls
 {
+
     namespace
     {
+        constexpr std::string_view tag = "[ShadowTLS.Transport]";
+
         // 计算 XOR 密钥：SHA256(password + serverRandom)
         [[nodiscard]] auto compute_write_key(std::string_view password, std::span<const std::byte> server_random)
             -> memory::vector<std::uint8_t>
@@ -38,19 +42,29 @@ namespace psm::stealth::shadowtls
         , hmac_write_ctx_(std::move(handover.hmac_write_ctx))
         , hmac_read_ctx_(std::move(handover.hmac_read_ctx))
     {
-        // 存储 server_random
+        // 存储 server_random — WHY: HMAC 上下文在后续 read/write 中持续使用
         std::memcpy(server_random_.data(), handover.server_random.data(), handover.server_random.size());
 
+        const auto *hw_str = "no";
+        if (hmac_write_ctx_)
+        {
+            hw_str = "yes";
+        }
+        const auto *hr_str = "no";
+        if (hmac_read_ctx_)
+        {
+            hr_str = "yes";
+        }
         trace::debug("{} created, initial_data_size={}, hmac_write_ctx={}, hmac_read_ctx={}",
                     tag, handover.initial_data.size(),
-                    hmac_write_ctx_ ? "yes" : "no",
-                    hmac_read_ctx_ ? "yes" : "no");
+                    hw_str, hr_str);
+
     }
 
-    shadowtls_transport::~shadowtls_transport()
+    shadowtls_transport::~shadowtls_transport() noexcept
 {
-    // HMAC 上下文由 shared_ptr 自动管理，不需要手动释放
 }
+
 
     auto shadowtls_transport::async_read_some(std::span<std::byte> buffer, std::error_code &ec)
         -> net::awaitable<std::size_t>
@@ -60,7 +74,6 @@ namespace psm::stealth::shadowtls
         trace::debug("{} async_read_some: buf={}, init_off={}, init_sz={}, pend_off={}, pend_sz={}",
                     tag, buffer.size(), initial_offset_, initial_buffer_.size(), pending_offset_, pending_buffer_.size());
 
-        // 优先返回初始数据
         if (initial_offset_ < initial_buffer_.size())
         {
             const auto available = initial_buffer_.size() - initial_offset_;
@@ -71,7 +84,6 @@ namespace psm::stealth::shadowtls
             co_return n;
         }
 
-        // 返回 pending buffer 中的剩余数据
         if (pending_offset_ < pending_buffer_.size())
         {
             const auto available = pending_buffer_.size() - pending_offset_;
@@ -116,15 +128,14 @@ namespace psm::stealth::shadowtls
         co_return n;
     }
 
+
     auto shadowtls_transport::read_tls_frame(std::error_code &ec)
         -> net::awaitable<std::optional<memory::vector<std::byte>>>
     {
         trace::debug("{} read_tls_frame: starting to read TLS header", tag);
 
-        // 使用 boost::system::error_code 用于 redirect_error
         boost::system::error_code boost_ec;
 
-        // 读取 TLS header(5)
         std::array<std::byte, tls_hdrsize> header{};
         auto header_n = co_await net::async_read(
             socket_, net::buffer(header.data(), tls_hdrsize),
@@ -158,7 +169,6 @@ namespace psm::stealth::shadowtls
             co_return std::nullopt;
         }
 
-        // 检查是否为 Application Data
         if (raw[0] != content_appdata)
         {
             trace::warn("{} unexpected TLS record type: 0x{:02x}", tag, raw[0]);
@@ -166,7 +176,6 @@ namespace psm::stealth::shadowtls
             co_return std::nullopt;
         }
 
-        // payload 格式：HMAC(4) + actual_data(N)
         if (payload.size() < hmac_size)
         {
             trace::warn("{} payload too small for HMAC: {}", tag, payload.size());
@@ -174,19 +183,14 @@ namespace psm::stealth::shadowtls
             co_return std::nullopt;
         }
 
-        // 提取客户端 HMAC
         std::array<std::uint8_t, hmac_size> client_hmac{};
         std::memcpy(client_hmac.data(), payload.data(), hmac_size);
 
-        // actual_data = HMAC 之后的数据
         auto actual_data = std::span<const std::byte>(
             payload.data() + hmac_size, payload.size() - hmac_size);
 
         // 参照 sing-shadowtls verifyApplicationData:
-        // 1. 将 actual_data 写入累积 HMAC
-        // 2. 计算当前 HMAC[:4]
-        // 3. 验证匹配
-        // 4. 验证成功后，将 HMAC[:4] 也加入累积状态
+        // 写入 actual_data -> 计算 HMAC[:4] -> 验证 -> 将 HMAC[:4] 加入累积状态
         if (!hmac_read_ctx_)
         {
             trace::warn("{} hmac_read_ctx is null, cannot verify HMAC", tag);
@@ -194,13 +198,12 @@ namespace psm::stealth::shadowtls
             co_return std::nullopt;
         }
 
-        // 累积 HMAC：写入 actual_data
         // safe: SSL HMAC API requires uint8_t*, byte span data is read-only
         HMAC_Update(hmac_read_ctx_.get(),
                    reinterpret_cast<const std::uint8_t *>(actual_data.data()),
                    actual_data.size());
 
-        // 计算当前 HMAC[:4]（使用 copy 避免改变状态）
+        // 使用 copy 避免改变累积状态
         std::array<std::uint8_t, EVP_MAX_MD_SIZE> md{};
         std::uint32_t md_len = 0;
         {
@@ -213,7 +216,6 @@ namespace psm::stealth::shadowtls
         std::array<std::uint8_t, hmac_size> expected_hmac{};
         std::memcpy(expected_hmac.data(), md.data(), hmac_size);
 
-        // 验证 HMAC
         if (CRYPTO_memcmp(client_hmac.data(), expected_hmac.data(), hmac_size) != 0)
         {
             trace::warn("{} HMAC mismatch in transport read_tls_frame", tag);
@@ -221,7 +223,7 @@ namespace psm::stealth::shadowtls
             co_return std::nullopt;
         }
 
-        // 验证成功，将 HMAC[:4] 也加入累积状态（参照 sing-shadowtls verifyApplicationData update=true）
+        // 参照 sing-shadowtls verifyApplicationData update=true
         HMAC_Update(hmac_read_ctx_.get(), client_hmac.data(), hmac_size);
 
         trace::debug("{} TLS frame verified (cumulative HMAC), payload_size={}, added HMAC to cumulative state",
@@ -232,12 +234,14 @@ namespace psm::stealth::shadowtls
         co_return result;
     }
 
+
     auto shadowtls_transport::async_write_some(std::span<const std::byte> buffer, std::error_code &ec)
         -> net::awaitable<std::size_t>
     {
         trace::debug("{} async_write_some: buffer_size={}, calling write_tls_frame", tag, buffer.size());
         return write_tls_frame(buffer, ec);
     }
+
 
     auto shadowtls_transport::async_write(std::span<const std::byte> data, std::error_code &ec)
         -> net::awaitable<std::size_t>
@@ -247,28 +251,19 @@ namespace psm::stealth::shadowtls
         return write_tls_frame(data, ec);
     }
 
+
     auto shadowtls_transport::write_tls_frame(std::span<const std::byte> payload, std::error_code &ec)
         -> net::awaitable<std::size_t>
     {
         ec.clear();
         trace::debug("{} write_tls_frame: payload_size={}", tag, payload.size());
 
-        // 参照 sing-shadowtls verifiedConn.write:
-        // 1. 累积 HMAC 写入 plain payload（不 XOR）
-        // 2. 计算 HMAC[:4]
-        // 3. 将 HMAC[:4] 也加入累积状态
-        // 4. 发送 plain payload + HMAC[:4]
-        // 注意：XOR 加密只在握手阶段使用，传输阶段发送 plain payload
-
-        // 累积 HMAC：写入 plain payload
         // safe: SSL HMAC API requires uint8_t*, byte span data is read-only
         HMAC_Update(hmac_write_ctx_.get(),
                    reinterpret_cast<const std::uint8_t *>(payload.data()),
                    payload.size());
 
-        // 计算当前 HMAC（使用 copy 避免改变累积状态）
-        // 参照 sing-shadowtls verifiedConn.write: hmacHash := c.hmacAdd.Sum(nil)[:hmacSize]
-        // Sum 不改变状态，用 HMAC_CTX_copy 实现
+        // 使用 copy 避免改变累积状态（参照 sing-shadowtls verifiedConn.write: hmacHash := c.hmacAdd.Sum(nil)[:hmacSize]）
         HMAC_CTX *hmac_copy = HMAC_CTX_new();
         HMAC_CTX_copy(hmac_copy, hmac_write_ctx_.get());
         std::array<std::uint8_t, EVP_MAX_MD_SIZE> md{};
@@ -280,33 +275,26 @@ namespace psm::stealth::shadowtls
         std::memcpy(hmac_tag.data(), md.data(), hmac_size);
 
         // 参照 sing-shadowtls verifiedConn.write: c.hmacAdd.Write(hmacHash)
-        // 将 HMAC[:4] 也加入累积状态！
         HMAC_Update(hmac_write_ctx_.get(), hmac_tag.data(), hmac_size);
 
         trace::debug("{} write_tls_frame: HMAC computed for frame", tag);
 
-        // 构建 TLS frame：header(5) + HMAC(4) + plain payload
-        // 参照 sing-shadowtls verifiedConn.write: 发送 plain payload，不 XOR
+        // 参照 sing-shadowtls verifiedConn.write: plain payload，不 XOR
         const std::uint16_t tls_payload_len = static_cast<std::uint16_t>(hmac_size + payload.size());
         memory::vector<std::byte> frame(tls_hdrsize + tls_payload_len);
-        // safe: casting mutable byte vector to uint8_t for in-place TLS frame header construction
+        // safe: casting mutable byte vector to uint8_t for in-place TLS frame construction
         auto *raw = reinterpret_cast<std::uint8_t *>(frame.data());
 
         // TLS header
         raw[0] = content_appdata;
-        raw[1] = 3; // TLS 1.2 legacy version
+        raw[1] = 3;
         raw[2] = 3;
         raw[3] = static_cast<std::uint8_t>(tls_payload_len >> 8);
         raw[4] = static_cast<std::uint8_t>(tls_payload_len & 0xFF);
 
-        // HMAC 标签
         std::memcpy(raw + tls_hdrsize, hmac_tag.data(), hmac_size);
-
-        // Plain payload（不 XOR 加密！传输阶段用 plain payload）
-        // 参照 sing-shadowtls verifiedConn.write 发送 plain payload
         std::memcpy(raw + tls_hdrsize + hmac_size, payload.data(), payload.size());
 
-        // 使用 boost::system::error_code 用于 redirect_error
         boost::system::error_code boost_ec;
         auto written = co_await net::async_write(
             socket_, net::buffer(frame.data(), frame.size()),
@@ -323,11 +311,13 @@ namespace psm::stealth::shadowtls
         co_return payload.size();
     }
 
+
     void shadowtls_transport::close()
     {
         boost::system::error_code ec;
         socket_.close(ec);
     }
+
 
     void shadowtls_transport::cancel()
     {

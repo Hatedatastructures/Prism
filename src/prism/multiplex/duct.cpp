@@ -1,37 +1,43 @@
 #include <prism/multiplex/duct.hpp>
-#include <prism/multiplex/core.hpp>
 #include <prism/fault/handling.hpp>
+#include <prism/multiplex/core.hpp>
 #include <prism/trace.hpp>
-#include <prism/transport/transmission.hpp>
 #include <prism/transport/reliable.hpp>
-#include <atomic>
-#include <span>
+#include <prism/transport/transmission.hpp>
 
 #include <boost/asio/co_spawn.hpp>
 
-constexpr std::string_view tag = "[Mux.Duct]";
+#include <atomic>
+#include <span>
+
+namespace
+{
+    constexpr std::string_view tag = "[Mux.Duct]";
+} // namespace
 
 namespace psm::multiplex
 {
+
     namespace net = boost::asio;
 
     // 帧载荷最大长度（uint16_t 最大值，所有 mux 协议通用上限）
     constexpr std::size_t max_frame_payload = 65535;
 
-    duct::duct(const std::uint32_t stream_id, const std::shared_ptr<core>& owner,
-               transport::shared_transmission target, stream_options opts)
-        : id_(stream_id), owner_(owner), mr_(opts.mr),
-          target_(std::move(target)),
+    duct::duct(duct_options opts)
+        : id_(opts.stream_id), owner_(std::move(opts.owner)), mr_(opts.opts.mr),
+          target_(std::move(opts.target)),
           write_channel_(target_->executor(), 32)
     {
         // 限制读取大小不超过帧载荷上限，防止 send_data 时 uint16_t 溢出
-        read_size_ = std::min(opts.buffer_size, static_cast<std::uint32_t>(max_frame_payload));
+        read_size_ = std::min(opts.opts.buffer_size, static_cast<std::uint32_t>(max_frame_payload));
     }
 
-    duct::~duct()
+
+    duct::~duct() noexcept
     {
         close();
     }
+
 
     void duct::start()
     {
@@ -39,51 +45,64 @@ namespace psm::multiplex
 
         // target 读循环：target → mux → 客户端（客户端下载方向）
         // 退出时关闭整个管道
-        auto read_done = [self](const std::exception_ptr &ep)
-        {
-            if (ep)
+        net::co_spawn(target_->executor(), target_readloop(),
+            [self](const std::exception_ptr &ep)
             {
-                try
-                {
-                    std::rethrow_exception(ep);
-                }
-                catch (const std::exception &e)
-                {
-                    trace::debug("{} stream {} target read loop error: {}", tag, self->id_, e.what());
-                }
-                catch (...)
-                {
-                    trace::error("{} stream {} target read loop unknown error", tag, self->id_);
-                }
-            }
-            self->close();
-        };
-        net::co_spawn(target_->executor(), target_readloop(), std::move(read_done));
+                self->on_read_done(ep);
+            });
 
         // target 写循环：客户端 → mux → write_channel_ → target（客户端上传方向）
         // 不触发 close，由 target_readloop 退出或自身写错误触发
-        auto write_done = [self](const std::exception_ptr &ep)
-        {
-            if (ep)
+        net::co_spawn(target_->executor(), target_writeloop(),
+            [self](const std::exception_ptr &ep)
             {
-                try
-                {
-                    std::rethrow_exception(ep);
-                }
-                catch (const std::exception &e)
-                {
-                    trace::debug("{} stream {} target write loop error: {}", tag, self->id_, e.what());
-                }
-                catch (...)
-                {
-                    trace::error("{} stream {} target write loop unknown error", tag, self->id_);
-                }
-            }
-        };
-        net::co_spawn(target_->executor(), target_writeloop(), std::move(write_done));
+                self->on_write_done(ep);
+            });
     }
 
-    auto duct::on_mux_data(memory::vector<std::byte> data)
+
+    void duct::on_read_done(const std::exception_ptr &ep)
+    {
+        if (ep)
+        {
+            try
+            {
+                std::rethrow_exception(ep);
+            }
+            catch (const std::exception &e)
+            {
+                trace::debug("{} stream {} target read loop error: {}", tag, id_, e.what());
+            }
+            catch (...)
+            {
+                trace::error("{} stream {} target read loop unknown error", tag, id_);
+            }
+        }
+        close();
+    }
+
+
+    void duct::on_write_done(const std::exception_ptr &ep)
+    {
+        if (ep)
+        {
+            try
+            {
+                std::rethrow_exception(ep);
+            }
+            catch (const std::exception &e)
+            {
+                trace::debug("{} stream {} target write loop error: {}", tag, id_, e.what());
+            }
+            catch (...)
+            {
+                trace::error("{} stream {} target write loop unknown error", tag, id_);
+            }
+        }
+    }
+
+
+    auto duct::on_data(memory::vector<std::byte> data)
         -> net::awaitable<void>
     {
         if (closed_)
@@ -101,7 +120,8 @@ namespace psm::multiplex
         }
     }
 
-    void duct::on_mux_fin()
+
+    void duct::on_fin()
     {
         // mux 端半关闭，shutdown target 发送方向
         mux_closed_.store(true, std::memory_order_release);
@@ -121,6 +141,7 @@ namespace psm::multiplex
             close();
         }
     }
+
 
     void duct::close()
     {
@@ -159,6 +180,7 @@ namespace psm::multiplex
 
         trace::debug("{} stream {} closed", tag, id_);
     }
+
 
     // target 读循环（客户端下行/下载方向）
     // 从 target 读取数据，通过 owner_->send_data 发回 mux 客户端。
@@ -217,6 +239,7 @@ namespace psm::multiplex
             }
         }
     }
+
 
     // target 写循环（客户端上行/上传方向）
     // 从 write_channel_ 取数据写入 target。

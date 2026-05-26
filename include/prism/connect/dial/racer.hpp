@@ -9,15 +9,17 @@
  */
 #pragma once
 
-#include <chrono>
-#include <span>
+#include <prism/connect/pool/pool.hpp>
 
 #include <boost/asio.hpp>
 
-#include <prism/connect/pool/pool.hpp>
+#include <chrono>
+#include <span>
+
 
 namespace psm::connect
 {
+
     namespace net = boost::asio;
     using tcp = boost::asio::ip::tcp;
 

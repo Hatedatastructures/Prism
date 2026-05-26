@@ -1,10 +1,12 @@
 #include <prism/protocol/shadowsocks/framing.hpp>
-#include <prism/protocol/common/framing.hpp>
 #include <prism/crypto/base64.hpp>
+#include <prism/protocol/common/framing.hpp>
+
 #include <cstring>
 
 namespace psm::protocol::shadowsocks::format
 {
+
     auto parse_addr_port(const std::span<const std::uint8_t> buffer)
         -> std::pair<fault::code, addr_parse_result>
     {
@@ -82,8 +84,9 @@ namespace psm::protocol::shadowsocks::format
         return {fault::code::success, result};
     }
 
+
     auto decode_psk(const std::string_view base64_psk)
-        -> std::pair<fault::code, std::vector<std::uint8_t>>
+        -> std::pair<fault::code, memory::vector<std::uint8_t>>
     {
         if (base64_psk.empty())
         {
@@ -96,10 +99,11 @@ namespace psm::protocol::shadowsocks::format
             return {fault::code::invalid_psk, {}};
         }
 
-        std::vector<std::uint8_t> psk(decoded.size());
+        memory::vector<std::uint8_t> psk(decoded.size(), memory::current_resource());
         std::memcpy(psk.data(), decoded.data(), decoded.size());
         return {fault::code::success, std::move(psk)};
     }
+
 
     auto resolve_method(const std::string_view method_str, const std::size_t psk_len) noexcept
         -> cipher_method
@@ -121,6 +125,9 @@ namespace psm::protocol::shadowsocks::format
         }
 
         // 自动推断：16B → aes-128, 32B → aes-256
-        return psk_len == 16 ? cipher_method::aes_128_gcm : cipher_method::aes_256_gcm;
+        if (psk_len == 16)
+            return cipher_method::aes_128_gcm;
+        return cipher_method::aes_256_gcm;
     }
+
 } // namespace psm::protocol::shadowsocks::format

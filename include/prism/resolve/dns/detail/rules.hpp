@@ -15,17 +15,19 @@
  */
 #pragma once
 
+#include <prism/memory/container.hpp>
+
+#include <boost/asio.hpp>
+
 #include <any>
 #include <memory>
 #include <optional>
 #include <string_view>
 
-#include <boost/asio.hpp>
-
-#include <prism/memory/container.hpp>
 
 namespace psm::resolve::dns::detail
 {
+
     namespace net = boost::asio;
 
     /**

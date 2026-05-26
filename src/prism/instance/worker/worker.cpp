@@ -1,21 +1,22 @@
 #include <prism/instance/worker/worker.hpp>
-#include <prism/instance/worker/launch.hpp>
 #include <prism/account/directory.hpp>
+#include <prism/instance/worker/launch.hpp>
 #include <prism/trace.hpp>
 
 namespace psm::instance::worker
 {
+
     // 构造 Worker：初始化所有子系统的单例资源。
     // ioc_(1) 表示这个 io_context 只跑在一个线程上（hint=1），
     // 这是实现"每线程一个事件循环"的关键——不需要锁。
     worker::worker(const psm::config &cfg, std::shared_ptr<account::directory> account_store)
         : ioc_(1),
-          pool_(ioc_, memory::system::thread_local_pool(), cfg.pool),
-          router_(pool_, ioc_, cfg.dns, memory::system::thread_local_pool()),
+          pool_(ioc_, memory::system::local_pool(), cfg.pool),
+          router_({pool_, ioc_, cfg.dns, memory::system::local_pool()}),
           ssl_ctx_(tls::make(cfg.instance)),
           outbound_direct_(std::make_unique<outbound::direct>(router_)),
           server_ctx_{std::atomic<std::shared_ptr<const psm::config>>{std::make_shared<const psm::config>(cfg)}, ssl_ctx_, std::move(account_store)},
-          worker_ctx_{ioc_, router_, memory::system::thread_local_pool(), outbound_direct_.get(), &traffic_}
+          worker_ctx_{ioc_, router_, memory::system::local_pool(), outbound_direct_.get(), &traffic_}
     {
         // 注册反向代理路由：将虚拟域名映射到实际后端地址。
         // 反向代理模式下，客户端连接代理的 443 端口，代理根据 SNI
@@ -26,7 +27,7 @@ namespace psm::instance::worker
             const auto addr = net::ip::make_address(endpoint_config.host, ec);
             if (!ec && endpoint_config.port != 0)
             {
-                router_.add_reverse_route(host, tcp::endpoint(addr, endpoint_config.port));
+                router_.add_route(host, tcp::endpoint(addr, endpoint_config.port));
             }
             else
             {
@@ -38,7 +39,7 @@ namespace psm::instance::worker
         // 所有出站流量都通过这个上游代理转发（级联代理）。
         if (!server_ctx_.config().instance.positive.host.empty() && server_ctx_.config().instance.positive.port != 0)
         {
-            router_.set_positive_endpoint(
+            router_.set_endpoint(
                 std::string_view(server_ctx_.config().instance.positive.host.data(), server_ctx_.config().instance.positive.host.size()),
                 server_ctx_.config().instance.positive.port);
         }
@@ -46,6 +47,7 @@ namespace psm::instance::worker
         // 注册流量统计实例，供全局聚合查询
         stats::traffic::traffic_state::register_instance(&traffic_);
     }
+
 
     // 启动 Worker 事件循环。此方法会阻塞调用线程。
     // 1. 启动连接池（开始池化连接的生命周期管理）
@@ -58,6 +60,7 @@ namespace psm::instance::worker
         ioc_.run();
     }
 
+
     // 停止 Worker 事件循环，实现优雅停机。
     // 停止 io_context，使阻塞在 run() 的线程正常退出。
     // 连接池会在 worker 析构时自动清理所有缓存连接。
@@ -65,6 +68,7 @@ namespace psm::instance::worker
     {
         ioc_.stop();
     }
+
 
     // 接收来自 Listener 的新连接，投递到本 Worker 的 io_context。
     // 由 Balancer 调用——当 Listener 收到新连接后，Balancer 根据
@@ -75,6 +79,7 @@ namespace psm::instance::worker
         launch::dispatch(launch::launch_params{server_ctx_, worker_ctx_, metrics_, std::move(socket)});
     }
 
+
     // 采集当前 Worker 的负载快照，供 Balancer 做调度决策。
     // 返回的快照包含：活跃会话数、待处理连接数、事件循环延迟。
     // 这些指标是 Balancer 判断是否过载、是否需要全局背压的依据。
@@ -83,4 +88,5 @@ namespace psm::instance::worker
     {
         return metrics_.snapshot();
     }
+
 } // namespace psm::instance::worker

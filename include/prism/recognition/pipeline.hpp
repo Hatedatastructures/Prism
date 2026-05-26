@@ -13,21 +13,23 @@
 #include <prism/protocol/tls/types.hpp>
 #include <prism/recognition/tls/features.hpp>
 #include <prism/stealth/scheme.hpp>
+
 #include <cstdint>
 #include <span>
 #include <vector>
 
+
 namespace psm
 {
+
     struct config;
 }
 
 namespace psm::recognition
 {
+
     using hello_features = protocol::tls::hello_features;
-    // ═══════════════════════════════════════════════════════════════════════
     // 候选条目
-    // ═══════════════════════════════════════════════════════════════════════
 
     /**
      * @struct candidate_entry
@@ -49,9 +51,7 @@ namespace psm::recognition
         bool is_deterministic{false};
     };
 
-    // ═══════════════════════════════════════════════════════════════════════
     // 管道检测结果
-    // ═══════════════════════════════════════════════════════════════════════
 
     /**
      * @struct pipeline_result
@@ -73,9 +73,7 @@ namespace psm::recognition
         memory::string reason;
     };
 
-    // ═══════════════════════════════════════════════════════════════════════
     // 检测输入聚合
-    // ═══════════════════════════════════════════════════════════════════════
 
     /**
      * @struct detect_input
@@ -99,9 +97,7 @@ namespace psm::recognition
         const psm::config &cfg;
     }; // struct detect_input
 
-    // ═══════════════════════════════════════════════════════════════════════
     // 分层检测管道
-    // ═══════════════════════════════════════════════════════════════════════
 
     /**
      * @class layered_detection_pipeline
@@ -111,7 +107,7 @@ namespace psm::recognition
      * - Tier 1: 有成本验证（如 ShadowTLS HMAC）
      * - Tier 2: 模糊匹配（依赖 SNI 路由）
      *
-     * **执行顺序**：
+     * 执行顺序：
      * 1. 先执行 Tier 0，检查独占特征
      * 2. 如果独占命中，直接返回单一候选
      * 3. 否则执行 Tier 1，检查 HMAC 等有成本验证

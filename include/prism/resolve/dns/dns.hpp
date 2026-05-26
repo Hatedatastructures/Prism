@@ -11,19 +11,21 @@
 
 #pragma once
 
+#include <prism/fault/code.hpp>
+#include <prism/memory/container.hpp>
+#include <prism/resolve/dns/config.hpp>
+#include <prism/resolve/dns/upstream.hpp>
+
+#include <boost/asio.hpp>
+
 #include <memory>
 #include <string_view>
 #include <utility>
 
-#include <boost/asio.hpp>
-
-#include <prism/resolve/dns/config.hpp>
-#include <prism/resolve/dns/upstream.hpp>
-#include <prism/fault/code.hpp>
-#include <prism/memory/container.hpp>
 
 namespace psm::resolve::dns
 {
+
     namespace net = boost::asio;
     using tcp = net::ip::tcp;
 
@@ -39,7 +41,7 @@ namespace psm::resolve::dns
     class resolver
     {
     public:
-        virtual ~resolver() = default;
+        virtual ~resolver() noexcept = default;
 
         /**
          * @brief 异步解析域名到 IP 地址列表

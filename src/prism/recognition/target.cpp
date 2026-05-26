@@ -1,8 +1,10 @@
 #include <prism/recognition/target.hpp>
+
 #include <array>
 
 namespace psm::recognition
 {
+
     namespace
     {
         // HTTP 方法列表，用于协议检测（最短 4 字节 "GET "）
@@ -14,7 +16,9 @@ namespace psm::recognition
         [[nodiscard]] auto resolve_mr(const memory::resource_pointer mr) noexcept
             -> memory::resource_pointer
         {
-            return mr ? mr : memory::current_resource();
+            if (mr)
+                return mr;
+            return memory::current_resource();
         }
 
         // 解析绝对 URI，支持 HTTP 和 HTTPS 协议
@@ -40,8 +44,24 @@ namespace psm::recognition
             }
 
             const auto slash_pos = working.find('/');
-            const std::string_view authority = (slash_pos == std::string_view::npos) ? working : working.substr(0, slash_pos);
-            const std::string_view path_part = (slash_pos == std::string_view::npos) ? std::string_view("/") : working.substr(slash_pos);
+            std::string_view authority;
+            if (slash_pos == std::string_view::npos)
+            {
+                authority = working;
+            }
+            else
+            {
+                authority = working.substr(0, slash_pos);
+            }
+            std::string_view path_part;
+            if (slash_pos == std::string_view::npos)
+            {
+                path_part = std::string_view("/");
+            }
+            else
+            {
+                path_part = working.substr(slash_pos);
+            }
 
             if (scheme == "https")
             {
@@ -79,10 +99,16 @@ namespace psm::recognition
             parse(raw, t.host, t.port);
 
             // CONNECT 通常用于 HTTPS 隧道，无显式端口时默认 443
-            const bool has_explicit_port = (raw[0] == '[')
-                                               ? (raw.find("]:") != std::string_view::npos)  // IPv6: [addr]:port
-                                               : (raw.find(':') != std::string_view::npos && // IPv4/hostname: 有且仅有一个冒号
-                                                  raw.find(':') == raw.rfind(':'));
+            bool has_explicit_port = false;
+            if (raw[0] == '[')
+            {
+                has_explicit_port = raw.find("]:") != std::string_view::npos;
+            }
+            else
+            {
+                has_explicit_port = raw.find(':') != std::string_view::npos &&
+                                    raw.find(':') == raw.rfind(':');
+            }
             if (!has_explicit_port)
             {
                 t.port.assign("443");
@@ -109,7 +135,16 @@ namespace psm::recognition
     auto resolve(const std::string_view host_port, const memory::resource_pointer mr)
         -> protocol::target
     {
-        protocol::target t(mr ? mr : memory::current_resource());
+        memory::resource_pointer effective_mr;
+        if (mr)
+        {
+            effective_mr = mr;
+        }
+        else
+        {
+            effective_mr = memory::current_resource();
+        }
+        protocol::target t(effective_mr);
         t.positive = true;
         parse(host_port, t.host, t.port);
         return t;

@@ -1,9 +1,11 @@
 #include <prism/stealth/common.hpp>
+
 #include <cstring>
 
 namespace psm::stealth::common
 {
-    auto read_raw_tls_frame(net::ip::tcp::socket &sock, std::error_code &ec_out,
+
+    auto read_tls_frame(net::ip::tcp::socket &sock, std::error_code &ec_out,
                             net::steady_timer *deadline)
         -> net::awaitable<std::optional<memory::vector<std::byte>>>
     {

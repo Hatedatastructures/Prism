@@ -8,8 +8,10 @@
 
 #include <cstdint>
 
+
 namespace psm::recognition
 {
+
     /**
      * @enum confidence
      * @brief 检测置信度级别

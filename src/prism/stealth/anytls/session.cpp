@@ -1,12 +1,14 @@
 #include <prism/stealth/anytls/mux/session.hpp>
+
+#include <prism/fault/handling.hpp>
 #include <prism/stealth/anytls/mux/transport.hpp>
 #include <prism/trace.hpp>
-#include <prism/fault/handling.hpp>
 
 #include <cstring>
 
 namespace psm::stealth::anytls
 {
+
     namespace
     {
         constexpr std::string_view tag = "[AnyTLS.Session]";
@@ -20,10 +22,10 @@ namespace psm::stealth::anytls
         , on_new_stream_(std::move(on_new_stream))
         , write_strand_(transport_->get_executor())
         , padding_(std::move(padding))
-        , first_stream_waiter_(transport_->get_executor())
+        , init_waiter_(transport_->get_executor())
     {
         // 定时器立即过期，用于等待第一个 stream
-        first_stream_waiter_.expires_after(std::chrono::hours(24));
+        init_waiter_.expires_after(std::chrono::hours(24));
     }
 
     void anytls_session::start()
@@ -39,21 +41,21 @@ namespace psm::stealth::anytls
 
     auto anytls_session::wait_first_stream()
         -> net::awaitable<std::pair<fault::code,
-            std::tuple<std::uint32_t, std::vector<std::uint8_t>>>>
+            std::tuple<std::uint32_t, memory::vector<std::uint8_t>>>>
     {
-        if (first_stream_resolved_)
+        if (init_resolved_)
         {
-            auto result = std::make_pair(first_stream_error_,
-                std::make_tuple(first_stream_id_, std::move(first_stream_preread_)));
+            auto result = std::make_pair(init_error_,
+                std::make_tuple(init_id_, std::move(init_preread_)));
             co_return result;
         }
 
         // 等待 recv_loop 通知
         boost::system::error_code ec;
-        co_await first_stream_waiter_.async_wait(net::redirect_error(net::use_awaitable, ec));
+        co_await init_waiter_.async_wait(net::redirect_error(net::use_awaitable, ec));
 
-        auto result = std::make_pair(first_stream_error_,
-            std::make_tuple(first_stream_id_, std::move(first_stream_preread_)));
+        auto result = std::make_pair(init_error_,
+            std::make_tuple(init_id_, std::move(init_preread_)));
         co_return result;
     }
 
@@ -65,7 +67,6 @@ namespace psm::stealth::anytls
 
         while (!closed_)
         {
-            // 读取帧头
             if (!co_await read_exact(header_buf))
             {
                 trace::debug("{} connection closed during header read", tag);
@@ -84,8 +85,7 @@ namespace psm::stealth::anytls
                 break;
             }
 
-            // 读取 payload
-            std::vector<std::uint8_t> payload(header->length);
+            memory::vector<std::uint8_t> payload(header->length);
             if (header->length > 0)
             {
                 // safe: casting uint8_t vector to mutable byte span for async read
@@ -99,7 +99,6 @@ namespace psm::stealth::anytls
                 }
             }
 
-            // 发送 padding 帧（如果配置了）
             if (padding_ && padding_->enabled())
             {
                 std::error_code pad_ec;
@@ -111,73 +110,22 @@ namespace psm::stealth::anytls
                 ++pkt_counter_;
             }
 
-            // 处理命令
-            switch (header->cmd)
-            {
-            case command::settings:
-                co_await on_settings(std::move(payload));
-                break;
-            case command::syn:
-                co_await on_syn(header->stream_id);
-                break;
-            case command::psh:
-                co_await on_psh(header->stream_id, std::move(payload));
-                break;
-            case command::fin:
-                co_await on_fin(header->stream_id);
-                break;
-            case command::alert:
-            {
-                auto stream_id = header->stream_id;
-                auto it = streams_.find(stream_id);
-                if (it != streams_.end())
-                {
-                    it->second->try_send(
-                        boost::system::errc::make_error_code(boost::system::errc::connection_reset),
-                        std::vector<std::uint8_t>{});
-                    streams_.erase(it);
-                }
-                trace::debug("{} ALERT stream_id={}", tag, stream_id);
-                break;
-            }
-            case command::heart_req:
-            {
-                std::error_code heart_ec;
-                co_await write_frame(command::heart_resp, 0, {}, heart_ec);
-                if (heart_ec)
-                {
-                    trace::warn("{} heartbeat response failed: {}", tag, heart_ec.message());
-                }
-                else
-                {
-                    trace::debug("{} heartbeat response sent", tag);
-                }
-                break;
-            }
-            case command::waste:
-                // 丢弃
-                break;
-            default:
-                trace::debug("{} unhandled command: {}", tag, static_cast<int>(header->cmd));
-                break;
-            }
+            co_await dispatch_frame(*header, std::move(payload));
         }
 
-        // 关闭所有 stream
         for (auto &[id, ch] : streams_)
         {
             ch->try_send(
                 boost::system::errc::make_error_code(boost::system::errc::connection_reset),
-                std::vector<std::uint8_t>{});
+                memory::vector<std::uint8_t>{});
         }
         streams_.clear();
 
-        // 如果第一个 stream 还没解析，通知错误
-        if (!first_stream_resolved_)
+        if (!init_resolved_)
         {
-            first_stream_error_ = fault::code::eof;
-            first_stream_resolved_ = true;
-            first_stream_waiter_.cancel();
+            init_error_ = fault::code::eof;
+            init_resolved_ = true;
+            init_waiter_.cancel();
         }
 
         trace::debug("{} recv_loop ended", tag);
@@ -189,7 +137,60 @@ namespace psm::stealth::anytls
         }
     }
 
-    auto anytls_session::on_settings(std::vector<std::uint8_t> payload) -> net::awaitable<void>
+    auto anytls_session::dispatch_frame(const frame_header &hdr, memory::vector<std::uint8_t> payload)
+        -> net::awaitable<void>
+    {
+        switch (hdr.cmd)
+        {
+        case command::settings:
+            co_await on_settings(std::move(payload));
+            break;
+        case command::syn:
+            co_await on_syn(hdr.stream_id);
+            break;
+        case command::psh:
+            co_await on_psh(hdr.stream_id, std::move(payload));
+            break;
+        case command::fin:
+            co_await on_fin(hdr.stream_id);
+            break;
+        case command::alert:
+        {
+            auto stream_id = hdr.stream_id;
+            auto it = streams_.find(stream_id);
+            if (it != streams_.end())
+            {
+                it->second->try_send(
+                    boost::system::errc::make_error_code(boost::system::errc::connection_reset),
+                    memory::vector<std::uint8_t>{});
+                streams_.erase(it);
+            }
+            trace::debug("{} ALERT stream_id={}", tag, stream_id);
+            break;
+        }
+        case command::heart_req:
+        {
+            std::error_code heart_ec;
+            co_await write_frame(frame_input{command::heart_resp, 0, {}, heart_ec});
+            if (heart_ec)
+            {
+                trace::warn("{} heartbeat response failed: {}", tag, heart_ec.message());
+            }
+            else
+            {
+                trace::debug("{} heartbeat response sent", tag);
+            }
+            break;
+        }
+        case command::waste:
+            break;
+        default:
+            trace::debug("{} unhandled command: {}", tag, static_cast<int>(hdr.cmd));
+            break;
+        }
+    }
+
+    auto anytls_session::on_settings(memory::vector<std::uint8_t> payload) -> net::awaitable<void>
     {
         received_settings_ = true;
 
@@ -202,7 +203,10 @@ namespace psm::stealth::anytls
         if (v_pos != std::string_view::npos)
         {
             auto v_end = text.find('\n', v_pos);
-            auto v_str = text.substr(v_pos + 2, v_end == std::string_view::npos ? v_end : v_end - v_pos - 2);
+            std::size_t v_len = std::string_view::npos;
+            if (v_end != std::string_view::npos)
+                v_len = v_end - v_pos - 2;
+            auto v_str = text.substr(v_pos + 2, v_len);
             peer_version_ = static_cast<std::uint32_t>(std::atoi(std::string(v_str).c_str()));
         }
 
@@ -214,18 +218,20 @@ namespace psm::stealth::anytls
             {
                 auto md5_start = md5_pos + 12;
                 auto md5_end = text.find('\n', md5_start);
-                auto client_md5 = text.substr(md5_start,
-                    md5_end == std::string_view::npos ? md5_end : md5_end - md5_start);
+                std::size_t md5_len = std::string_view::npos;
+                if (md5_end != std::string_view::npos)
+                    md5_len = md5_end - md5_start;
+                auto client_md5 = text.substr(md5_start, md5_len);
 
                 if (client_md5 != std::string_view(padding_->md5.data(), padding_->md5.size()))
                 {
                     trace::debug("{} client padding-md5 mismatch, sending update", tag);
                     std::error_code up_ec;
-                    co_await write_frame(command::update_padding, 0,
+                    co_await write_frame(frame_input{command::update_padding, 0,
                         // safe: casting string data to byte span for frame transmission
                         std::span<const std::byte>(
                             reinterpret_cast<const std::byte *>(padding_->raw_scheme_.data()),
-                            padding_->raw_scheme_.size()), up_ec);
+                            padding_->raw_scheme_.size()), up_ec});
                 }
             }
         }
@@ -235,11 +241,11 @@ namespace psm::stealth::anytls
         {
             auto settings_text = std::string("v=2\nserver=prism\n");
             std::error_code wr_ec;
-            co_await write_frame(command::server_settings, 0,
+            co_await write_frame(frame_input{command::server_settings, 0,
                 // safe: casting string data to byte span for frame transmission
                 std::span<const std::byte>(
                     reinterpret_cast<const std::byte *>(settings_text.data()),
-                    settings_text.size()), wr_ec);
+                    settings_text.size()), wr_ec});
             if (wr_ec)
             {
                 trace::warn("{} failed to send server settings: {}", tag, wr_ec.message());
@@ -273,26 +279,26 @@ namespace psm::stealth::anytls
         // 这里先不发送 SYNACK，等 scheme.cpp 的 on_new_stream 处理完再发
 
         // 记录第一个 stream 的 ID
-        if (first_stream_id_ == 0)
+        if (init_id_ == 0)
         {
-            first_stream_id_ = stream_id;
+            init_id_ = stream_id;
         }
         else
         {
             // 后续 stream：记录等待第一个 PSH（携带 SOCKS 地址）
-            pending_syn_streams_.insert(stream_id);
+            pending_syns_.insert(stream_id);
         }
 
         trace::debug("{} SYN stream_id={}", tag, stream_id);
     }
 
-    auto anytls_session::on_psh(std::uint32_t stream_id, std::vector<std::uint8_t> payload) -> net::awaitable<void>
+    auto anytls_session::on_psh(std::uint32_t stream_id, memory::vector<std::uint8_t> payload) -> net::awaitable<void>
     {
         // 第一个 stream 的第一个 PSH：保存 preread 数据
-        if (!first_stream_resolved_ && stream_id == first_stream_id_ && stream_id != 0)
+        if (!init_resolved_ && stream_id == init_id_ && stream_id != 0)
         {
-            first_stream_preread_ = payload;
-            first_stream_resolved_ = true;
+            init_preread_ = payload;
+            init_resolved_ = true;
 
             // 同时发送到 channel 供 stream_transport 读取
             auto it = streams_.find(stream_id);
@@ -301,21 +307,21 @@ namespace psm::stealth::anytls
                 it->second->try_send(boost::system::error_code{}, std::move(payload));
             }
 
-            first_stream_waiter_.cancel();
+            init_waiter_.cancel();
             co_return;
         }
 
         // 后续 stream 的 PSH
-        if (first_stream_id_ != 0 && stream_id != first_stream_id_)
+        if (init_id_ != 0 && stream_id != init_id_)
         {
             auto it = streams_.find(stream_id);
             if (it != streams_.end())
             {
                 // 检查是否是后续 stream 的第一个 PSH（携带 SOCKS 地址）
-                auto syn_it = pending_syn_streams_.find(stream_id);
-                if (syn_it != pending_syn_streams_.end())
+                auto syn_it = pending_syns_.find(stream_id);
+                if (syn_it != pending_syns_.end())
                 {
-                    pending_syn_streams_.erase(syn_it);
+                    pending_syns_.erase(syn_it);
 
                     // 触发 on_new_stream（携带 SOCKS 地址数据）
                     if (on_new_stream_)
@@ -363,7 +369,7 @@ namespace psm::stealth::anytls
         {
             it->second->try_send(
                 boost::system::errc::make_error_code(boost::system::errc::connection_reset),
-                std::vector<std::uint8_t>{});
+                memory::vector<std::uint8_t>{});
             streams_.erase(it);
         }
         trace::debug("{} FIN stream_id={}", tag, stream_id);
@@ -386,13 +392,12 @@ namespace psm::stealth::anytls
         co_return true;
     }
 
-    auto anytls_session::write_frame(command cmd, std::uint32_t stream_id,
-                                      std::span<const std::byte> data, std::error_code &ec) -> net::awaitable<void>
+    auto anytls_session::write_frame(frame_input input) -> net::awaitable<void>
     {
         frame_header hdr;
-        hdr.cmd = cmd;
-        hdr.stream_id = stream_id;
-        hdr.length = static_cast<std::uint16_t>(data.size());
+        hdr.cmd = input.cmd;
+        hdr.stream_id = input.stream_id;
+        hdr.length = static_cast<std::uint16_t>(input.data.size());
 
         auto serialized = hdr.serialize();
 
@@ -402,21 +407,21 @@ namespace psm::stealth::anytls
             std::span<const std::byte>(
                 reinterpret_cast<const std::byte *>(serialized.data()),
                 serialized.size()),
-            ec);
+            input.ec);
 
-        if (ec)
+        if (input.ec)
         {
-            trace::warn("{} write_frame header failed: {}", tag, ec.message());
+            trace::warn("{} write_frame header failed: {}", tag, input.ec.message());
             co_return;
         }
 
         // 写入 payload
-        if (!data.empty())
+        if (!input.data.empty())
         {
-            co_await transport::async_write(*transport_, data, ec);
-            if (ec)
+            co_await transport::async_write(*transport_, input.data, input.ec);
+            if (input.ec)
             {
-                trace::warn("{} write_frame payload failed: {}", tag, ec.message());
+                trace::warn("{} write_frame payload failed: {}", tag, input.ec.message());
             }
         }
     }
@@ -436,12 +441,12 @@ namespace psm::stealth::anytls
                 continue;
             }
 
-            std::vector<std::uint8_t> waste_data(size, 0);
-            co_await write_frame(command::waste, 0,
+            memory::vector<std::uint8_t> waste_data(size, 0);
+            co_await write_frame(frame_input{command::waste, 0,
                 // safe: casting uint8_t vector to byte span for waste frame transmission
                 std::span<const std::byte>(
                     reinterpret_cast<const std::byte *>(waste_data.data()),
-                    waste_data.size()), ec);
+                    waste_data.size()), ec});
             if (ec)
             {
                 co_return;
@@ -452,7 +457,7 @@ namespace psm::stealth::anytls
     auto anytls_session::write_psh(std::uint32_t stream_id, std::span<const std::byte> data,
                                     std::error_code &ec) -> net::awaitable<std::size_t>
     {
-        co_await write_frame(command::psh, stream_id, data, ec);
+        co_await write_frame(frame_input{command::psh, stream_id, data, ec});
         if (ec)
         {
             co_return 0;
@@ -462,12 +467,12 @@ namespace psm::stealth::anytls
 
     auto anytls_session::write_fin(std::uint32_t stream_id, std::error_code &ec) -> net::awaitable<void>
     {
-        co_await write_frame(command::fin, stream_id, {}, ec);
+        co_await write_frame(frame_input{command::fin, stream_id, {}, ec});
     }
 
     auto anytls_session::write_synack(std::uint32_t stream_id, std::error_code &ec) -> net::awaitable<void>
     {
-        co_await write_frame(command::synack, stream_id, {}, ec);
+        co_await write_frame(frame_input{command::synack, stream_id, {}, ec});
     }
 
     [[nodiscard]] auto anytls_session::get_stream_channel(std::uint32_t stream_id) const
@@ -490,11 +495,11 @@ namespace psm::stealth::anytls
         }
 
         // 通知 wait_first_stream（如果还在等待）
-        if (!first_stream_resolved_)
+        if (!init_resolved_)
         {
-            first_stream_error_ = fault::code::eof;
-            first_stream_resolved_ = true;
-            first_stream_waiter_.cancel();
+            init_error_ = fault::code::eof;
+            init_resolved_ = true;
+            init_waiter_.cancel();
         }
     }
 } // namespace psm::stealth::anytls

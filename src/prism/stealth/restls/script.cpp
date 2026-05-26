@@ -1,4 +1,5 @@
 #include <prism/stealth/restls/script.hpp>
+
 #include <prism/stealth/restls/crypto.hpp>
 
 #include <cstdlib>
@@ -6,6 +7,7 @@
 
 namespace psm::stealth::restls
 {
+
     namespace
     {
         // 解析单条 script 规则为 script_line
@@ -42,7 +44,10 @@ namespace psm::stealth::restls
                     if (modifier == '?')
                     {
                         // 一次性随机：解析时 resolve
-                        line.target_base = base + (range > 0 ? std::rand() % range : 0);
+                        if (range > 0)
+                            line.target_base = base + std::rand() % range;
+                        else
+                            line.target_base = base;
                         line.target_random = 0;
                         line.random_is_fixed = true;
                     }
@@ -67,7 +72,9 @@ namespace psm::stealth::restls
                     ++pos;
                 }
                 line.cmd = command_type::response;
-                line.response_count = count > 0 ? count : 1;
+                line.response_count = count;
+                if (count == 0)
+                    line.response_count = 1;
             }
 
             return line;
@@ -112,7 +119,10 @@ namespace psm::stealth::restls
 
     script_engine::script_engine(const std::string_view script)
     {
-        const auto effective = script.empty() ? default_script : script;
+        std::string_view effective = default_script;
+        if (!script.empty())
+            effective = script;
+        // NOLINTNEXTLINE: script 为空时使用默认值，无需 PMR
         const auto tokens = split_script(effective);
         lines_.reserve(tokens.size());
         for (const auto &token : tokens)

@@ -9,17 +9,19 @@
 
 #pragma once
 
+#include <prism/memory/container.hpp>
+#include <prism/resolve/dns/detail/transparent.hpp>
+
+#include <boost/asio.hpp>
+
 #include <chrono>
 #include <cstddef>
 #include <string_view>
 
-#include <boost/asio.hpp>
-
-#include <prism/resolve/dns/detail/transparent.hpp>
-#include <prism/memory/container.hpp>
 
 namespace psm::resolve::dns::detail
 {
+
     namespace net = boost::asio;
 
     /**

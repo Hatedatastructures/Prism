@@ -1,16 +1,20 @@
 
 #include <prism/stealth/shadowtls/util/auth.hpp>
+
 #include <prism/stealth/shadowtls/util/constants.hpp>
 #include <prism/trace.hpp>
+
+#include <openssl/crypto.h>
 #include <openssl/hmac.h>
 #include <openssl/sha.h>
-#include <openssl/crypto.h>
+
 #include <cstdint>
 #include <cstring>
 #include <vector>
 
 namespace psm::stealth::shadowtls
 {
+
     auto compute_hmac(const std::string_view key, const std::byte *data, const std::size_t data_len)
         -> std::array<std::uint8_t, 4>
     {
@@ -28,6 +32,7 @@ namespace psm::stealth::shadowtls
         return result;
     }
 
+
     auto verify_client_hello(std::span<const std::byte> client_hello, const std::string_view password)
         -> bool
     {
@@ -42,29 +47,23 @@ namespace psm::stealth::shadowtls
         // safe: casting byte buffer to uint8_t for ClientHello field parsing
         const auto *raw = reinterpret_cast<const std::uint8_t *>(client_hello.data());
 
-        // TLS 记录类型必须是 Handshake (0x16)
         if (raw[0] != content_handshake)
         {
             return false;
         }
 
-        // 握手类型必须是 ClientHello (0x01)
-        // TLS Header(5) 之后是 Handshake Header，第 1 字节是 handshake type
         if (raw[5] != hs_type_clienthello)
         {
             return false;
         }
 
-        // SessionID 长度必须是 32
         if (raw[session_id_len_idx] != tls_session_id_sz)
         {
             return false;
         }
 
-        // 构建用于 HMAC 计算的数据：
-        // ClientHello 去掉 TLS header，SessionID 中 HMAC 位置填 0
         const std::size_t data_size = client_hello.size() - tls_hdrsize;
-        std::vector<std::uint8_t> hmac_data(data_size);
+        memory::vector<std::uint8_t> hmac_data(data_size, memory::current_resource());
         for (std::size_t i = 0; i < data_size; ++i)
         {
             hmac_data[i] = static_cast<std::uint8_t>(client_hello[tls_hdrsize + i]);
@@ -74,11 +73,9 @@ namespace psm::stealth::shadowtls
         constexpr std::size_t hmac_offset_in_data = session_id_len_idx + 1 + tls_session_id_sz - hmac_size - tls_hdrsize;
         std::memset(hmac_data.data() + hmac_offset_in_data, 0, hmac_size);
 
-        // 计算 HMAC-SHA1
         // safe: casting uint8_t HMAC data array to byte pointer for compute_hmac function
         const auto expected = compute_hmac(password, reinterpret_cast<const std::byte *>(hmac_data.data()), hmac_data.size());
 
-        // 提取客户端 SessionID 中的 HMAC 标签
         constexpr std::size_t client_hmac_offset = session_id_len_idx + 1 + tls_session_id_sz - hmac_size;
         std::array<std::uint8_t, 4> client_tag{};
         std::memcpy(client_tag.data(), raw + client_hmac_offset, hmac_size);
@@ -87,14 +84,16 @@ namespace psm::stealth::shadowtls
         trace::debug("[ShadowTLS] verify_client_hello: data_size={}, hmac_offset={}, ch_size={}",
             data_size, hmac_offset_in_data, client_hello.size());
 
-        // 恒定时间比较
         return CRYPTO_memcmp(expected.data(), client_tag.data(), hmac_size) == 0;
     }
 
-    auto verify_frame_hmac(const std::string_view password,const std::span<const std::byte> server_random,
-                           const std::span<const std::byte> payload,
-                           const std::span<const std::uint8_t, 4> client_hmac) -> bool
+
+    auto verify_frame_hmac(const verify_input &in) -> bool
     {
+        const auto &password = in.password;
+        const auto &server_random = in.server_random;
+        const auto &payload = in.payload;
+        const auto &client_hmac = in.client_hmac;
         // HMAC-SHA1(password, serverRandom + "C" + payload)[:4]
         // 参照 sing-shadowtls hmacVerify（含 "C" 标签）
         HMAC_CTX *ctx = HMAC_CTX_new();
@@ -120,6 +119,7 @@ namespace psm::stealth::shadowtls
 
         return CRYPTO_memcmp(md.data(), client_hmac.data(), hmac_size) == 0;
     }
+
 
     auto compute_write_hmac(const std::string_view password, const std::span<const std::byte> server_random, const std::span<const std::byte> payload)
         -> std::array<std::uint8_t, 4>
@@ -152,8 +152,9 @@ namespace psm::stealth::shadowtls
         return result;
     }
 
+
     auto compute_write_key(const std::string_view password,const std::span<const std::byte> server_random)
-        -> std::vector<std::uint8_t>
+        -> memory::vector<std::uint8_t>
     {
         // SHA256(password + serverRandom)
         SHA256_CTX sha_ctx;
@@ -161,7 +162,7 @@ namespace psm::stealth::shadowtls
         SHA256_Update(&sha_ctx, password.data(), password.size());
         SHA256_Update(&sha_ctx, server_random.data(),server_random.size());
 
-        std::vector<std::uint8_t> key(SHA256_DIGEST_LENGTH);
+        memory::vector<std::uint8_t> key(SHA256_DIGEST_LENGTH, memory::current_resource());
         SHA256_Final(key.data(), &sha_ctx);
         return key;
     }

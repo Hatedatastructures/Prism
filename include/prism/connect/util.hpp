@@ -5,18 +5,20 @@
  */
 #pragma once
 
+#include <prism/transport/preview.hpp>
+#include <prism/transport/reliable.hpp>
+#include <prism/transport/snapshot.hpp>
+#include <prism/transport/transmission.hpp>
+
 #include <cstddef>
 #include <cstdint>
 #include <memory>
 #include <string_view>
 
-#include <prism/transport/transmission.hpp>
-#include <prism/transport/preview.hpp>
-#include <prism/transport/snapshot.hpp>
-#include <prism/transport/reliable.hpp>
 
 namespace psm::connect
 {
+
     using shared_transmission = transport::shared_transmission;
 
     /**
@@ -71,7 +73,7 @@ namespace psm::connect
      * @param trans 传输层智能指针（可能被 snapshot/preview 包装）
      * @return 解包后的 shared_ptr，穿透所有装饰层
      */
-    [[nodiscard]] inline auto peel_to_raw(shared_transmission trans)
+    [[nodiscard]] inline auto peel(shared_transmission trans)
         -> shared_transmission
     {
         while (trans)
@@ -98,7 +100,7 @@ namespace psm::connect
      * @return T* 目标类型指针，转型失败返回 nullptr
      */
     template <typename T>
-    [[nodiscard]] T *as(shared_transmission &t)
+    [[nodiscard]] auto as(shared_transmission &t) -> T *
     {
         return dynamic_cast<T *>(t.get());
     }
@@ -110,7 +112,7 @@ namespace psm::connect
      * @return 若目标地址为 mux 标记地址且 mux 已启用则返回 true
      * @details 检测目标主机名是否以 ".mux.sing-box.arpa" 结尾。
      */
-    [[nodiscard]] inline auto is_mux_target(std::string_view host, mux_switch mux) noexcept
+    [[nodiscard]] inline auto is_mux(std::string_view host, mux_switch mux) noexcept
         -> bool
     {
         if (mux != mux_switch::on)

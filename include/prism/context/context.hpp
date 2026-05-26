@@ -7,64 +7,68 @@
  */
 #pragma once
 
+#include <prism/account/entry.hpp>
+#include <prism/protocol/types.hpp>
+#include <prism/transport/transmission.hpp>
+
+#include <boost/asio.hpp>
+#include <boost/asio/ssl.hpp>
+
 #include <atomic>
 #include <cstdint>
 #include <functional>
 #include <memory>
 #include <string_view>
 
-#include <boost/asio.hpp>
-#include <boost/asio/ssl.hpp>
 
-#include <prism/transport/transmission.hpp>
-#include <prism/account/entry.hpp>
-#include <prism/protocol/types.hpp>
-
-// ═══════════════════════════════════════════════════════════════════
 // 前向声明（零实现模块依赖）
-// ═══════════════════════════════════════════════════════════════════
 
 namespace psm
 {
+
     struct config;
 }
 
 namespace psm::connect
 {
+
     class router;
 }
 
 namespace psm::account
 {
+
     class directory;
     class lease;
 }
 
 namespace psm::outbound
 {
+
     class proxy;
 }
 
 namespace psm::stats::traffic
 {
+
     class traffic_state;
 }
 
 namespace psm::memory
 {
+
     class frame_arena;
     using resource_pointer = std::pmr::memory_resource *;
 }
 
 namespace psm::context
 {
+
     namespace net = boost::asio;
     namespace ssl = net::ssl;
     using shared_transmission = transport::shared_transmission;
 
-    // ═══════════════════════════════════════════════════════════════════
     // server — 服务器全局资源（线程共享）
-    // ═══════════════════════════════════════════════════════════════════
 
     /**
      * @struct server
@@ -100,9 +104,7 @@ namespace psm::context
         }
     };
 
-    // ═══════════════════════════════════════════════════════════════════
     // worker — 工作线程资源（每线程一个）
-    // ═══════════════════════════════════════════════════════════════════
 
     /**
      * @struct worker
@@ -121,9 +123,24 @@ namespace psm::context
         stats::traffic::traffic_state *traffic{nullptr}; // 流量统计状态指针
     };
 
-    // ═══════════════════════════════════════════════════════════════════
     // session — 会话状态（每连接一个）
-    // ═══════════════════════════════════════════════════════════════════
+
+    /**
+     * @struct session_opts
+     * @brief 会话构造参数
+     * @details 收敛 session 构造函数的参数，
+     * 避免过长的参数列表。
+     */
+    struct session_opts
+    {
+        std::uint64_t session_id = 0;                                  ///< 会话唯一标识符
+        server &server_ctx;                                            ///< 服务器上下文引用
+        worker &worker_ctx;                                            ///< 工作线程上下文引用
+        memory::frame_arena &arena;                                    ///< 帧内存池引用
+        std::function<bool(std::string_view)> verifier;                ///< 凭据验证函数
+        std::uint32_t buffer_size = 0;                                 ///< 数据传输缓冲区大小（字节）
+        shared_transmission inbound;                                   ///< 入站传输对象
+    };
 
     /**
      * @struct session
@@ -137,17 +154,14 @@ namespace psm::context
     struct session
     {
         session(const session &) = delete;
-        session &operator=(const session &) = delete;
+        auto operator=(const session &) -> session & = delete;
         session(session &&) = default;
-        session &operator=(session &&) = delete;
+        auto operator=(session &&) -> session & = delete;
 
-        session(std::uint64_t sid, server &srv, worker &wrk,
-                memory::frame_arena &arena,
-                std::function<bool(std::string_view)> verifier,
-                const std::uint32_t buf_size, shared_transmission in)
-            : session_id(sid), server_ctx(srv), worker_ctx(wrk), frame_arena(arena),
-              credential_verifier(std::move(verifier)),
-              buffer_size(buf_size), inbound(std::move(in)) {}
+        explicit session(session_opts opts)
+            : session_id(opts.session_id), server_ctx(opts.server_ctx), worker_ctx(opts.worker_ctx),
+              frame_arena(opts.arena), credential_verifier(std::move(opts.verifier)),
+              buffer_size(opts.buffer_size), inbound(std::move(opts.inbound)) {}
 
         std::uint64_t session_id{0};                                    // 会话唯一标识符
         server &server_ctx;                                             // 服务器上下文引用

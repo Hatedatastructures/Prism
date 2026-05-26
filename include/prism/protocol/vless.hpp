@@ -8,7 +8,10 @@
  */
 #pragma once
 
-#include <prism/protocol/vless/constants.hpp>
-#include <prism/protocol/vless/packet.hpp>
-#include <prism/protocol/vless/framing.hpp>
+#include <prism/protocol/vless/config.hpp>
 #include <prism/protocol/vless/conn.hpp>
+#include <prism/protocol/vless/constants.hpp>
+#include <prism/protocol/vless/framing.hpp>
+#include <prism/protocol/vless/packet.hpp>
+
+

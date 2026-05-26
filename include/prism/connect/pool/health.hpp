@@ -20,10 +20,13 @@
 #pragma once
 
 #include <boost/asio.hpp>
+
 #include <cstdint>
+
 
 namespace psm::connect
 {
+
     namespace net = boost::asio;
 
     /**
@@ -51,7 +54,8 @@ namespace psm::connect
      * @details 依次检查 SO_ERROR、available、peek 三个维度，
      * 综合判断 socket 是否可安全复用。
      */
-    [[nodiscard]] socket_state health(const net::ip::tcp::socket &s);
+    [[nodiscard]] auto health(const net::ip::tcp::socket &s)
+        -> socket_state;
 
     /**
      * @brief 快速 socket 健康检测
@@ -61,5 +65,6 @@ namespace psm::connect
      * 当 available == 0 时，通过非阻塞 recv(MSG_PEEK) 检测对端是否已发 FIN，
      * 避免将已关闭的连接放入连接池。
      */
-    [[nodiscard]] bool healthy_fast(const net::ip::tcp::socket &s);
+    [[nodiscard]] auto healthy_fast(const net::ip::tcp::socket &s)
+        -> bool;
 } // namespace psm::connect

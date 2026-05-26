@@ -1,21 +1,23 @@
+#include <prism/trace/spdlog.hpp>
+
+#include <spdlog/async.h>
+#include <spdlog/mdc.h>
+#include <spdlog/sinks/rotating_file_sink.h>
+#include <spdlog/sinks/stdout_color_sinks.h>
+
 #include <algorithm>
+#include <atomic>
 #include <cctype>
 #include <cstdint>
 #include <filesystem>
 #include <mutex>
 #include <shared_mutex>
-#include <atomic>
 #include <vector>
-
-#include <prism/trace/spdlog.hpp>
-#include <spdlog/async.h>
-#include <spdlog/sinks/rotating_file_sink.h>
-#include <spdlog/sinks/stdout_color_sinks.h>
-#include <spdlog/mdc.h>
 
 
 namespace psm::trace
 {
+
     namespace
     {
         std::shared_mutex trace_mutex;
@@ -145,13 +147,29 @@ namespace psm::trace
         config effective_cfg = cfg;
         if (effective_cfg.enable_file && effective_cfg.file_name.empty())
         {
-            effective_cfg.file_name = effective_cfg.trace_name.empty() ? "forward_engine.log" : (effective_cfg.trace_name + ".log");
+            if (effective_cfg.trace_name.empty())
+            {
+                effective_cfg.file_name = "forward_engine.log";
+            }
+            else
+            {
+                effective_cfg.file_name = effective_cfg.trace_name + ".log";
+            }
         }
 
         const auto log_path = build_log_path(effective_cfg);
 
         std::vector<spdlog::sink_ptr> sinks;
-        sinks.reserve((effective_cfg.enable_file ? 1U : 0U) + (effective_cfg.enable_console ? 1U : 0U));
+        std::size_t sink_count = 0U;
+        if (effective_cfg.enable_file)
+        {
+            sink_count += 1U;
+        }
+        if (effective_cfg.enable_console)
+        {
+            sink_count += 1U;
+        }
+        sinks.reserve(sink_count);
 
         if (effective_cfg.enable_file)
         {
@@ -173,7 +191,15 @@ namespace psm::trace
         }
 
         // 创建异步 logger
-        const std::string logger_name = effective_cfg.trace_name.empty() ? "forward_engine" : std::string(effective_cfg.trace_name.c_str());
+        std::string logger_name;
+        if (effective_cfg.trace_name.empty())
+        {
+            logger_name = "forward_engine";
+        }
+        else
+        {
+            logger_name = std::string(effective_cfg.trace_name.c_str());
+        }
         auto logger = std::make_shared<spdlog::async_logger>(
             logger_name,
             sinks.begin(),

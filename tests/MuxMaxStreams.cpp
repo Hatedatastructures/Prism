@@ -103,7 +103,7 @@ struct mux_test_context
 
     explicit mux_test_context(const std::uint32_t max_streams = 32)
         : pool(ioc),
-          router(pool, ioc, psm::resolve::dns::config{})
+          router({pool, ioc, psm::resolve::dns::config{}})
     {
         mux_config.smux.max_streams = max_streams;
         mux_config.yamux.max_streams = max_streams;
@@ -111,7 +111,7 @@ struct mux_test_context
         mux_config.smux.keepalive_interval = 0;
         mux_config.yamux.enable_ping = false;
         mux_config.yamux.ping_interval = 0;
-        mux_config.yamux.stream_open_timeout = 0;
+        mux_config.yamux.open_timeout = 0;
     }
 
     /**
@@ -155,7 +155,7 @@ void TestSmuxMaxStreamsReject()
 
     auto [client_socket, server_socket] = make_socket_pair(ctx->ioc);
     auto server_transport = psm::transport::make_reliable(std::move(server_socket));
-    auto session = std::make_shared<smux::craft>(std::move(server_transport), ctx->router, ctx->mux_config);
+    auto session = std::make_shared<smux::craft>(core_options{std::move(server_transport), ctx->router, ctx->mux_config});
     session->start();
 
     // 发送 sing-mux 协商头：Version=0, Protocol=0(smux)
@@ -206,7 +206,7 @@ void TestSmuxMaxStreamsOne()
 
     auto [client_socket, server_socket] = make_socket_pair(ctx->ioc);
     auto server_transport = psm::transport::make_reliable(std::move(server_socket));
-    auto session = std::make_shared<smux::craft>(std::move(server_transport), ctx->router, ctx->mux_config);
+    auto session = std::make_shared<smux::craft>(core_options{std::move(server_transport), ctx->router, ctx->mux_config});
     session->start();
 
     boost::system::error_code write_ec;
@@ -242,7 +242,7 @@ void TestSmuxMaxStreamsDefault()
 
     auto [client_socket, server_socket] = make_socket_pair(ctx->ioc);
     auto server_transport = psm::transport::make_reliable(std::move(server_socket));
-    auto session = std::make_shared<smux::craft>(std::move(server_transport), ctx->router, ctx->mux_config);
+    auto session = std::make_shared<smux::craft>(core_options{std::move(server_transport), ctx->router, ctx->mux_config});
     session->start();
 
     boost::system::error_code write_ec;
@@ -283,7 +283,7 @@ void TestYamuxMaxStreamsReject()
 
     auto [client_socket, server_socket] = make_socket_pair(ctx->ioc);
     auto server_transport = psm::transport::make_reliable(std::move(server_socket));
-    auto session = std::make_shared<yamux::craft>(std::move(server_transport), ctx->router, ctx->mux_config);
+    auto session = std::make_shared<yamux::craft>(core_options{std::move(server_transport), ctx->router, ctx->mux_config});
     session->start();
 
     // 发送 sing-mux 协商头：Version=0, Protocol=1(yamux)
@@ -296,7 +296,7 @@ void TestYamuxMaxStreamsReject()
     for (std::uint32_t i = 1; i <= 3; ++i)
     {
         auto wu_syn = build_yamux_header(yamux::message_type::window_update, yamux::flags::syn,
-                                         i, yamux::initial_stream_window);
+                                         i, yamux::default_window);
         all_data.insert(all_data.end(), wu_syn.begin(), wu_syn.end());
     }
     net::write(client_socket, net::buffer(all_data.data(), all_data.size()), write_ec);
@@ -370,7 +370,7 @@ void TestYamuxDataSynMaxStreamsReject()
 
     auto [client_socket, server_socket] = make_socket_pair(ctx->ioc);
     auto server_transport = psm::transport::make_reliable(std::move(server_socket));
-    auto session = std::make_shared<yamux::craft>(std::move(server_transport), ctx->router, ctx->mux_config);
+    auto session = std::make_shared<yamux::craft>(core_options{std::move(server_transport), ctx->router, ctx->mux_config});
     session->start();
 
     boost::system::error_code write_ec;
@@ -381,7 +381,7 @@ void TestYamuxDataSynMaxStreamsReject()
     std::vector<std::byte> all_data;
     for (std::uint32_t i = 1; i <= 3; ++i)
     {
-        auto data_syn = yamux::make_syn_frame(i, {});
+        auto data_syn = yamux::build_syn(i, {});
         all_data.insert(all_data.end(), data_syn.header.begin(), data_syn.header.end());
         // payload 为空，不追加
     }
@@ -450,7 +450,7 @@ void TestYamuxMaxStreamsExact()
 
     auto [client_socket, server_socket] = make_socket_pair(ctx->ioc);
     auto server_transport = psm::transport::make_reliable(std::move(server_socket));
-    auto session = std::make_shared<yamux::craft>(std::move(server_transport), ctx->router, ctx->mux_config);
+    auto session = std::make_shared<yamux::craft>(core_options{std::move(server_transport), ctx->router, ctx->mux_config});
     session->start();
 
     boost::system::error_code write_ec;
@@ -462,7 +462,7 @@ void TestYamuxMaxStreamsExact()
     for (std::uint32_t i = 1; i <= 4; ++i)
     {
         auto wu_syn = build_yamux_header(yamux::message_type::window_update, yamux::flags::syn,
-                                         i, yamux::initial_stream_window);
+                                         i, yamux::default_window);
         all_data.insert(all_data.end(), wu_syn.begin(), wu_syn.end());
     }
     net::write(client_socket, net::buffer(all_data.data(), all_data.size()), write_ec);
@@ -565,7 +565,7 @@ int main()
 #ifdef _WIN32
     SetConsoleOutputCP(CP_UTF8);
 #endif
-    psm::memory::system::enable_global_pooling();
+    psm::memory::system::enable_pooling();
     psm::trace::init({});
 
     runner.LogInfo("========== MuxMaxStreams Tests ==========");

@@ -78,7 +78,7 @@ namespace
 
         std::vector<std::uint8_t> plaintext(chunk_size, 0x42);
         std::vector<std::uint8_t> ciphertext(
-            psm::crypto::aead_context::seal_output_size(chunk_size));
+            psm::crypto::aead_context::seal_size(chunk_size));
 
         // 预热：执行一次加密确保上下文初始化完成
         (void)ctx.seal(ciphertext, plaintext);
@@ -118,8 +118,8 @@ namespace
         constexpr std::size_t iterations = 1000;
 
         // 预生成固定密钥对，避免密钥生成开销影响测量
-        auto alice = psm::crypto::generate_x25519_keypair();
-        auto bob = psm::crypto::generate_x25519_keypair();
+        auto alice = psm::crypto::generate_keypair();
+        auto bob = psm::crypto::generate_keypair();
 
         std::vector<std::int64_t> latencies;
         latencies.reserve(iterations);
@@ -334,7 +334,7 @@ namespace
 auto main() -> int
 {
     // 初始化全局 PMR 内存池
-    psm::memory::system::enable_global_pooling();
+    psm::memory::system::enable_pooling();
     // 初始化日志系统（使用默认配置，仅控制台输出）
     psm::trace::init({});
 

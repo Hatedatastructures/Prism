@@ -110,7 +110,7 @@ void TestSha224OutputLength()
 }
 
 /**
- * @brief 测试 is_hex_string 函数
+ * @brief 测试 is_hex 函数
  */
 void TestIsHexString()
 {
@@ -118,7 +118,7 @@ void TestIsHexString()
 
     // 合法十六进制字符（含大小写）
     {
-        if (!psm::crypto::is_hex_string("0123456789abcdefABCDEF"))
+        if (!psm::crypto::is_hex("0123456789abcdefABCDEF"))
         {
             runner.LogFail("'0123456789abcdefABCDEF' should be hex");
             return;
@@ -127,7 +127,7 @@ void TestIsHexString()
 
     // 含非十六进制字符 'xyz'
     {
-        if (psm::crypto::is_hex_string("xyz"))
+        if (psm::crypto::is_hex("xyz"))
         {
             runner.LogFail("'xyz' should not be hex");
             return;
@@ -136,7 +136,7 @@ void TestIsHexString()
 
     // 空串视为合法（vacuously true）
     {
-        if (!psm::crypto::is_hex_string(""))
+        if (!psm::crypto::is_hex(""))
         {
             runner.LogFail("empty string should be hex (trivially)");
             return;
@@ -145,7 +145,7 @@ void TestIsHexString()
 
     // 'g' 超出十六进制范围
     {
-        if (psm::crypto::is_hex_string("0g"))
+        if (psm::crypto::is_hex("0g"))
         {
             runner.LogFail("'0g' should not be hex");
             return;
@@ -182,7 +182,7 @@ void TestNormalizeCredential()
         // 已是 56 位十六进制的凭据应原样返回
         const std::string hex56 = "d14a028c2a3a2bc9476102bb288234c415a2b01f828ea62ac5b3e42f";
         auto result = psm::crypto::normalize_credential(hex56);
-        if (result != hex56)
+        if (result != psm::memory::string(hex56))
         {
             runner.LogFail("56-char hex string should be returned as-is");
             return;
@@ -433,7 +433,7 @@ void TestBase64DecodeLongInput()
     // 编码后解码，验证往返一致性
     auto decoded = psm::crypto::base64_decode(encoded);
 
-    if (decoded != long_input)
+    if (decoded != psm::memory::string(long_input))
     {
         runner.LogFail("long input roundtrip encode/decode mismatch");
         return;
@@ -458,7 +458,7 @@ void TestBase64DecodeLongInput()
 int main()
 {
     // 初始化全局 PMR 内存池
-    psm::memory::system::enable_global_pooling();
+    psm::memory::system::enable_pooling();
     // 初始化日志系统
     psm::trace::init({});
 

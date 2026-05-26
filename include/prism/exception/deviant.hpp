@@ -12,18 +12,21 @@
  */
 #pragma once
 
-#include <stdexcept>
-#include <string>
-#include <string_view>
-#include <source_location>
-#include <format>
-#include <filesystem>
-#include <system_error>
 #include <prism/fault/code.hpp>
 #include <prism/fault/compatible.hpp>
 
+#include <filesystem>
+#include <format>
+#include <source_location>
+#include <stdexcept>
+#include <string>
+#include <string_view>
+#include <system_error>
+
+
 namespace psm::exception
 {
+
     /**
      * @class deviant
      * @brief 项目异常基类
@@ -84,19 +87,19 @@ namespace psm::exception
          * @brief 获取异常的错误码
          * @return 错误码引用
          */
-        [[nodiscard]] const std::error_code &error_code() const noexcept { return ec_; }
+        [[nodiscard]] auto error_code() const noexcept -> const std::error_code & { return ec_; }
 
         /**
          * @brief 获取异常抛出时的位置信息
          * @return 包含文件名、行号、列号等位置信息
          */
-        [[nodiscard]] const std::source_location &location() const noexcept { return location_; }
+        [[nodiscard]] auto location() const noexcept -> const std::source_location & { return location_; }
 
         /**
          * @brief 获取异常抛出时的文件名
          * @return 文件名，不包含路径
          */
-        [[nodiscard]] std::string filename() const
+        [[nodiscard]] auto filename() const -> std::string
         {
             return std::filesystem::path(location_.file_name()).filename().string();
         }
@@ -108,7 +111,7 @@ namespace psm::exception
          * 和错误描述的详细字符串。输出格式为
          * [filename:line] [TYPE:value] description。
          */
-        [[nodiscard]] virtual std::string dump() const
+        [[nodiscard]] virtual auto dump() const -> std::string
         {
             return std::format("[{}:{}] [{}:{}] {}", filename(), location_.line(),
                                type_name(), ec_.value(), std::runtime_error::what());
@@ -121,7 +124,7 @@ namespace psm::exception
          * @details 子类必须实现此方法，返回自己的类型名称，
          * 如 SECURITY、NETWORK。
          */
-        [[nodiscard]] virtual std::string_view type_name() const noexcept = 0;
+        [[nodiscard]] virtual auto type_name() const noexcept -> std::string_view = 0;
 
     private:
         /**
@@ -130,7 +133,7 @@ namespace psm::exception
          * @param desc 额外描述
          * @return 组合后的错误消息
          */
-        [[nodiscard]] static std::string create_what(const std::error_code &ec, std::string_view desc)
+        [[nodiscard]] static auto create_what(const std::error_code &ec, std::string_view desc) -> std::string
         {
             if (desc.empty())
             {

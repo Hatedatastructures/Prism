@@ -20,9 +20,9 @@
 
 #include <blake3.h>
 
+
 namespace psm::crypto
 {
-    // ── derive_key 模式 ──
 
     /**
      * @brief BLAKE3 密钥派生
@@ -47,8 +47,6 @@ namespace psm::crypto
     [[nodiscard]] auto derive_key(std::string_view context, std::span<const std::uint8_t> material, std::size_t out_len)
         -> std::vector<std::uint8_t>;
 
-    // ── keyed mode（密钥化哈希 / MAC） ──
-
     /**
      * @brief 初始化 BLAKE3 keyed hasher
      * @details 使用 BLAKE3 的 keyed mode（blake3_hasher_init_keyed），
@@ -71,8 +69,6 @@ namespace psm::crypto
      */
     [[nodiscard]] auto keyed_hash(std::span<const std::uint8_t> key, std::span<const std::uint8_t> data)
         -> std::array<std::uint8_t, 32>;
-
-    // ── hash 模式（普通哈希） ──
 
     /**
      * @brief BLAKE3 普通哈希

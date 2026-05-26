@@ -10,20 +10,21 @@
  */
 #pragma once
 
+#include <prism/trace/config.hpp>
+
+#include <spdlog/fmt/fmt.h>
+#include <spdlog/mdc.h>
+#include <spdlog/spdlog.h>
+
 #include <memory>
 #include <string>
 #include <string_view>
 #include <utility>
 
-#include <spdlog/fmt/fmt.h>
-#include <spdlog/spdlog.h>
-
-#include <prism/trace/config.hpp>
-
-#include <spdlog/mdc.h>
 
 namespace psm::trace
 {
+
     /**
      * @brief 设置 MDC 键值对
      * @param key MDC 键
@@ -80,7 +81,7 @@ namespace psm::trace
      * @details 提供对底层 spdlog 日志器的直接访问，
      * 用于高级场景如自定义 sink、手动刷盘等。
      */
-    [[nodiscard]] std::shared_ptr<spdlog::logger> recorder() noexcept;
+    [[nodiscard]] auto recorder() noexcept -> std::shared_ptr<spdlog::logger>;
 
     /**
      * @brief 记录调试日志

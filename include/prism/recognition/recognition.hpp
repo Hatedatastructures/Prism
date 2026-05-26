@@ -7,50 +7,49 @@
 
 #pragma once
 
-#include <span>
-#include <boost/asio.hpp>
-#include <prism/recognition/confidence.hpp>
-#include <prism/recognition/result.hpp>
-#include <prism/transport/transmission.hpp>
-#include <prism/memory/pool.hpp>
-#include <prism/memory/container.hpp>
-#include <prism/protocol/types.hpp>
-#include <prism/protocol/common/target.hpp>
 #include <prism/fault/code.hpp>
-
-// 外层协议探测子模块
-#include <prism/recognition/probe/probe.hpp>
-#include <prism/recognition/probe/analyzer.hpp>
-
-// SNI 路由表
-#include <prism/recognition/routes.hpp>
-
-// 分层检测管道
+#include <prism/memory/container.hpp>
+#include <prism/memory/pool.hpp>
+#include <prism/protocol/common/target.hpp>
+#include <prism/protocol/types.hpp>
+#include <prism/recognition/confidence.hpp>
 #include <prism/recognition/pipeline.hpp>
+#include <prism/recognition/probe/analyzer.hpp>
+#include <prism/recognition/probe/probe.hpp>
+#include <prism/recognition/result.hpp>
+#include <prism/recognition/routes.hpp>
+#include <prism/transport/transmission.hpp>
+
+#include <boost/asio.hpp>
+
+#include <span>
+
 
 // 前置声明
 namespace psm
 {
+
     struct config;
 }
 
 namespace psm::connect
 {
+
     class router;
 }
 
 namespace psm::context
 {
+
     struct session;
 }
 
 namespace psm::recognition
 {
+
     namespace net = boost::asio;
 
-    // ═══════════════════════════════════════════════════════════════════════
     // 统一入口：recognize()（完整识别流程）
-    // ═══════════════════════════════════════════════════════════════════════
 
     /**
      * @struct recognize_context
@@ -107,21 +106,19 @@ namespace psm::recognition
      * @return 识别结果
      * @details 封装外层探测 + TLS 伪装方案识别的完整流程：
      *
-     * **Phase 1: Probe（外层探测）**
-     * - 预读 24 字节
-     * - 检测 HTTP/SOCKS5/TLS/Shadowsocks
+     * Phase 1: Probe（外层探测）
+     * 预读 24 字节
+     * 检测 HTTP/SOCKS5/TLS/Shadowsocks
      *
-     * **Phase 2: Identify（仅当 TLS）**
-     * - 读取完整 ClientHello
-     * - 特征分析
-     * - 方案执行
+     * Phase 2: Identify（仅当 TLS）
+     * 读取完整 ClientHello
+     * 特征分析
+     * 方案执行
      */
     [[nodiscard]] auto recognize(recognize_context ctx)
         -> net::awaitable<recognize_result>;
 
-    // ═══════════════════════════════════════════════════════════════════════
     // 伪装方案识别：identify()（仅 TLS）
-    // ═══════════════════════════════════════════════════════════════════════
 
     /**
      * @struct identify_context
@@ -181,22 +178,22 @@ namespace psm::recognition
      * @return 识别结果
      * @details 封装完整的识别流程：
      *
-     * **Phase 1: Read（读取）**
-     * - 从传输层读取完整 TLS ClientHello
-     * - 处理已预读的 24 字节
+     * Phase 1: Read（读取）
+     * 从传输层读取完整 TLS ClientHello
+     * 处理已预读的 24 字节
      *
-     * **Phase 2: Parse（解析）**
-     * - 解析 ClientHello 结构
-     * - 提取 SNI、session_id、key_share 等特征
+     * Phase 2: Parse（解析）
+     * 解析 ClientHello 结构
+     * 提取 SNI、session_id、key_share 等特征
      *
-     * **Phase 3: Detect（检测）**
-     * - 遍历所有 scheme 的 detect()
-     * - 收集候选方案列表
+     * Phase 3: Detect（检测）
+     * 遍历所有 scheme 的 detect()
+     * 收集候选方案列表
      *
-     * **Phase 4: Execute（执行）**
-     * - 按候选顺序执行 scheme
-     * - 成功则返回结果
-     * - 失败则继续下一个或 fallback
+     * Phase 4: Execute（执行）
+     * 按候选顺序执行 scheme
+     * 成功则返回结果
+     * 失败则继续下一个或 fallback
      */
     [[nodiscard]] auto identify(identify_context ctx)
         -> net::awaitable<identify_result>;

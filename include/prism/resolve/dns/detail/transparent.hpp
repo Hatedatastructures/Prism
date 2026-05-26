@@ -8,14 +8,16 @@
 
 #pragma once
 
+#include <prism/memory/container.hpp>
+
 #include <cstddef>
 #include <cstdint>
 #include <string_view>
 
-#include <prism/memory/container.hpp>
 
 namespace psm::resolve::dns::detail
 {
+
     /**
      * @struct transparent_hash
      * @brief 透明字符串哈希函数对象

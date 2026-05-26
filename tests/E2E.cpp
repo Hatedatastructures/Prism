@@ -698,7 +698,7 @@ int main()
 {
     try
     {
-        psm::memory::system::enable_global_pooling();
+        psm::memory::system::enable_pooling();
         psm::trace::init({});
 
         const auto ioc_ptr = std::make_unique<net::io_context>();
@@ -706,7 +706,7 @@ int main()
 
         const auto pool = std::make_unique<psm::connect::connection_pool>(ioc);
         psm::resolve::dns::config dns_cfg;
-        auto dist = std::make_unique<psm::connect::router>(*pool, ioc, std::move(dns_cfg));
+        auto dist = std::make_unique<psm::connect::router>(psm::connect::router_options{*pool, ioc, std::move(dns_cfg)});
 
         auto ssl_ctx = std::make_shared<ssl::context>(ssl::context::tlsv12);
         ssl_ctx->set_verify_mode(ssl::verify_none);
@@ -734,7 +734,7 @@ int main()
             std::atomic<std::shared_ptr<const psm::config>>{std::make_shared<const psm::config>(auth_cfg)},
             ssl_ctx, account_dir};
 
-        auto mr = psm::memory::system::thread_local_pool();
+        auto mr = psm::memory::system::local_pool();
         psm::context::worker worker_ctx{ioc, *dist, mr};
 
         std::exception_ptr test_error;

@@ -11,20 +11,26 @@
  */
 #pragma once
 
-#include <boost/asio.hpp>
-#include <prism/transport/transmission.hpp>
-#include <prism/protocol/vless/packet.hpp>
-#include <prism/protocol/vless/config.hpp>
-#include <prism/protocol/types.hpp>
 #include <prism/fault/code.hpp>
+#include <prism/protocol/vless/config.hpp>
+#include <prism/protocol/vless/packet.hpp>
+#include <prism/protocol/types.hpp>
+#include <prism/transport/transmission.hpp>
+
+#include <boost/asio.hpp>
+
+#include <array>
+#include <functional>
 #include <memory>
 #include <span>
-#include <functional>
+#include <tuple>
+
 
 namespace psm::stats::traffic { class traffic_state; }
 
 namespace psm::protocol::vless
 {
+
     namespace net = boost::asio;
     using shared_transmission = psm::transport::shared_transmission;
 
@@ -55,7 +61,7 @@ namespace psm::protocol::vless
          * @brief 获取关联的执行器
          * @return executor_type 执行器
          */
-        [[nodiscard]] executor_type executor() const override;
+        [[nodiscard]] auto executor() const -> executor_type override;
 
         /**
          * @brief 异步读取数据
@@ -131,12 +137,12 @@ namespace psm::protocol::vless
          * @brief 获取内层传输指针（装饰器链导航）
          * @return transmission* 内层传输指针
          */
-        [[nodiscard]] psm::transport::transmission *next_layer() noexcept override
+        [[nodiscard]] auto next_layer() noexcept -> psm::transport::transmission * override
         {
             return next_layer_.get();
         }
 
-        [[nodiscard]] const psm::transport::transmission *next_layer() const noexcept override
+        [[nodiscard]] auto next_layer() const noexcept -> const psm::transport::transmission * override
         {
             return next_layer_.get();
         }
@@ -145,13 +151,13 @@ namespace psm::protocol::vless
          * @brief 获取底层传输层引用
          * @return transport::transmission& 底层传输层引用
          */
-        [[nodiscard]] psm::transport::transmission &underlying() noexcept;
+        [[nodiscard]] auto underlying() noexcept -> psm::transport::transmission &;
 
         /**
          * @brief 获取底层传输层常量引用
          * @return const transport::transmission& 底层传输层常量引用
          */
-        [[nodiscard]] const psm::transport::transmission &underlying() const noexcept;
+        [[nodiscard]] auto underlying() const noexcept -> const psm::transport::transmission &;
 
         /**
          * @brief 释放底层传输层所有权
@@ -159,14 +165,55 @@ namespace psm::protocol::vless
          * 适用于需要将底层传输层转移给其他组件的场景
          * @return transport::shared_transmission 底层传输层指针
          */
-        [[nodiscard]] shared_transmission release();
+        [[nodiscard]] auto release() -> shared_transmission;
 
     private:
+        /**
+         * @brief process_target 参数收敛结构体
+         * @details 将解析目标地址所需的 5 个参数收敛为单一结构体，
+         * 遵循 Rule 1 (函数参数不超过 3 个)
+         */
+        struct target_opts
+        {
+            std::array<std::uint8_t, 320> &buffer;
+            std::span<std::byte> byte_span;
+            address_type atyp;
+            std::size_t initial_total;
+            net::steady_timer &deadline;
+        };
+
         shared_transmission next_layer_;                 // 底层传输层
         config config_;                                  // VLESS 协议配置
         std::function<bool(std::string_view)> verifier_; // UUID 验证回调
         stats::traffic::traffic_state *traffic_{nullptr};
         protocol::protocol_type proto_{protocol::protocol_type::unknown};
+
+        /**
+         * @brief 解析 VLESS 请求固定头部
+         * @param buffer 原始字节缓冲区
+         * @param byte_span 可写的 byte span
+         * @param deadline 握手超时定时器
+         * @return 错误码、UUID、命令、端口、地址类型、已读字节数
+         */
+        [[nodiscard]] auto parse_header(std::array<std::uint8_t, 320> &buffer, std::span<std::byte> byte_span, net::steady_timer &deadline)
+            -> net::awaitable<std::tuple<fault::code, std::array<std::uint8_t, 16>, command, std::uint16_t, address_type, std::size_t>>;
+
+        /**
+         * @brief 解析目标地址
+         * @param opts 目标地址解析参数
+         * @return 错误码、地址、新 total
+         */
+        [[nodiscard]] auto process_target(target_opts opts)
+            -> net::awaitable<std::tuple<fault::code, address, std::size_t>>;
+
+        /**
+         * @brief 验证 UUID 并发送响应
+         * @param uuid 客户端 UUID
+         * @param deadline 握手超时定时器
+         * @return 错误码
+         */
+        [[nodiscard]] auto send_response(const std::array<std::uint8_t, 16> &uuid, net::steady_timer &deadline)
+            -> net::awaitable<fault::code>;
     };
 
     using shared_conn = std::shared_ptr<conn>;

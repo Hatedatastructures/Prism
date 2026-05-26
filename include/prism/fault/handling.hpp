@@ -12,16 +12,19 @@
  */
 #pragma once
 
-#include <system_error>
-#include <string_view>
-#include <type_traits>
-
-#include <boost/asio/error.hpp>
 #include <prism/fault/code.hpp>
 #include <prism/fault/compatible.hpp>
 
+#include <boost/asio/error.hpp>
+
+#include <string_view>
+#include <system_error>
+#include <type_traits>
+
+
 namespace psm::fault
 {
+
     /**
      * @brief 检查错误码是否表示成功
      * @tparam ErrorCode 错误码类型，支持 fault::code、
@@ -33,7 +36,8 @@ namespace psm::fault
      * static_assert 编译错误。
      */
     template <typename ErrorCode>
-    [[nodiscard]] constexpr bool succeeded(const ErrorCode &ec) noexcept
+    [[nodiscard]] constexpr auto succeeded(const ErrorCode &ec) noexcept
+        -> bool
     {
         if constexpr (std::is_same_v<ErrorCode, code>)
         {
@@ -63,7 +67,8 @@ namespace psm::fault
      * !succeeded(ec)。
      */
     template <typename ErrorCode>
-    [[nodiscard]] constexpr bool failed(const ErrorCode &ec) noexcept
+    [[nodiscard]] constexpr auto failed(const ErrorCode &ec) noexcept
+        -> bool
     {
         return !succeeded(ec);
     }
@@ -77,7 +82,8 @@ namespace psm::fault
      * @warning 未映射的 Boost 错误将返回 io_error，
      * 可能丢失原始错误信息。
      */
-    [[nodiscard]] inline code to_code(const boost::system::error_code &ec) noexcept
+    [[nodiscard]] inline auto to_code(const boost::system::error_code &ec) noexcept
+        -> code
     {
         if (!ec)
         {
@@ -87,7 +93,7 @@ namespace psm::fault
         if (std::string_view(ec.category().name()) == "psm::fault")
         {
             const auto value = ec.value();
-            if (value >= 0 && value < static_cast<int>(code::_count))
+            if (value >= 0 && value < static_cast<std::int32_t>(code::_count))
             {
                 return static_cast<code>(value);
             }
@@ -120,11 +126,11 @@ namespace psm::fault
         }
         if (ec == boost::asio::error::host_unreachable)
         {
-            return code::host_unreachable;
+            return code::host_noreply;
         }
         if (ec == boost::asio::error::network_unreachable)
         {
-            return code::network_unreachable;
+            return code::net_noreply;
         }
         if (ec == boost::asio::error::no_buffer_space)
         {
@@ -142,7 +148,8 @@ namespace psm::fault
      * fault 错误码，未映射的错误返回 io_error。
      * @warning 未映射的标准错误将返回 io_error。
      */
-    [[nodiscard]] inline code to_code(const std::error_code &ec) noexcept
+    [[nodiscard]] inline auto to_code(const std::error_code &ec) noexcept
+        -> code
     {
         if (!ec)
         {
@@ -152,7 +159,7 @@ namespace psm::fault
         if (&ec.category() == &psm::fault::category())
         {
             const auto value = ec.value();
-            if (value >= 0 && value < static_cast<int>(code::_count))
+            if (value >= 0 && value < static_cast<std::int32_t>(code::_count))
             {
                 return static_cast<code>(value);
             }
@@ -160,39 +167,39 @@ namespace psm::fault
         }
 
         // 预构造错误码对象，避免每次比较都调用 std::make_error_code
-        static const auto ec_conn_refused = std::make_error_code(std::errc::connection_refused);
-        static const auto ec_conn_reset = std::make_error_code(std::errc::connection_reset);
-        static const auto ec_conn_aborted = std::make_error_code(std::errc::connection_aborted);
-        static const auto ec_timed_out = std::make_error_code(std::errc::timed_out);
-        static const auto ec_host_unreach = std::make_error_code(std::errc::host_unreachable);
-        static const auto ec_net_unreach = std::make_error_code(std::errc::network_unreachable);
-        static const auto ec_canceled = std::make_error_code(std::errc::operation_canceled);
+        static const auto ec_refused = std::make_error_code(std::errc::connection_refused);
+        static const auto ec_reset = std::make_error_code(std::errc::connection_reset);
+        static const auto ec_aborted = std::make_error_code(std::errc::connection_aborted);
+        static const auto ec_timeout = std::make_error_code(std::errc::timed_out);
+        static const auto ec_host = std::make_error_code(std::errc::host_unreachable);
+        static const auto ec_net = std::make_error_code(std::errc::network_unreachable);
+        static const auto ec_cancel = std::make_error_code(std::errc::operation_canceled);
 
-        if (ec == ec_conn_refused)
+        if (ec == ec_refused)
         {
             return code::connection_refused;
         }
-        if (ec == ec_conn_reset)
+        if (ec == ec_reset)
         {
             return code::connection_reset;
         }
-        if (ec == ec_conn_aborted)
+        if (ec == ec_aborted)
         {
             return code::connection_aborted;
         }
-        if (ec == ec_timed_out)
+        if (ec == ec_timeout)
         {
             return code::timeout;
         }
-        if (ec == ec_host_unreach)
+        if (ec == ec_host)
         {
-            return code::host_unreachable;
+            return code::host_noreply;
         }
-        if (ec == ec_net_unreach)
+        if (ec == ec_net)
         {
-            return code::network_unreachable;
+            return code::net_noreply;
         }
-        if (ec == ec_canceled)
+        if (ec == ec_cancel)
         {
             return code::canceled;
         }

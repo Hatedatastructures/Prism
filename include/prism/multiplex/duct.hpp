@@ -6,7 +6,7 @@
  * 透明双向转发。构造时即持有 target，不存在空管道阶段。
  * target_readloop（target 读到 mux 发送，客户端下载方向）由独立协程
  * 循环读取 target 数据并通过 core::send_data 发送到 mux 客户端；
- * on_mux_data 将 mux 推来的数据推入有界写通道，由独立的
+ * on_data 将 mux 推来的数据推入有界写通道，由独立的
  * target_writeloop 写入 target（客户端上传方向），解耦帧循环与
  * target 写入速度差异，消除队头阻塞。方法实现位于 duct.cpp 中。
  * @note 设计原则：duct 是协议无关的，通过 core 虚函数接口发送帧，不依赖具体协议
@@ -17,17 +17,19 @@
  */
 #pragma once
 
-#include <cstdint>
-#include <memory>
+#include <prism/memory/container.hpp>
+#include <prism/transport/transmission.hpp>
 
 #include <boost/asio.hpp>
 #include <boost/asio/experimental/concurrent_channel.hpp>
 
-#include <prism/transport/transmission.hpp>
-#include <prism/memory/container.hpp>
+#include <cstdint>
+#include <memory>
+
 
 namespace psm::multiplex
 {
+
     class core;
 
     namespace net = boost::asio;
@@ -45,14 +47,28 @@ namespace psm::multiplex
     };
 
     /**
+     * @struct duct_options
+     * @brief duct 构造参数聚合
+     * @details 将 duct 构造函数的流标识符、所属 core、目标传输层和流选项
+     * 聚合为单一结构体，将构造函数参数降至 1 个。
+     */
+    struct duct_options
+    {
+        std::uint32_t stream_id = 0;                      ///< 流标识符，由 mux 协议在 SYN 帧中分配
+        std::shared_ptr<core> owner;                      ///< 所属 core 的共享指针
+        transport::shared_transmission target;            ///< 已连接的目标传输层
+        stream_options opts;                              ///< 流选项，包含缓冲区大小和 PMR 内存资源
+    };
+
+    /**
      * @class duct
      * @brief 多路复用 TCP 流管道，属于 core 管理的活跃 TCP 流，在 core 的下层
      * @details duct 管理单条 TCP 流的完整生命周期，从 activate_stream 创建 target
      * 连接成功后开始，到任一端关闭或 mux 会话结束时终止。双向数据转发：
      * target_readloop 独立协程读 target 数据，通过 owner_->send_data 发送到 mux
-     * （客户端下载方向）；on_mux_data 接收 mux 帧数据，推入 write_channel_，
+     * （客户端下载方向）；on_data 接收 mux 帧数据，推入 write_channel_，
      * 由 target_writeloop 独立协程写入 target（客户端上传方向）。
-     * 半关闭语义：mux 端收到 FIN 时调用 on_mux_fin，标记 mux_closed_ 并关闭
+     * 半关闭语义：mux 端收到 FIN 时调用 on_fin，标记 mux_closed_ 并关闭
      * write_channel_ 通知 target_writeloop 退出；target 端读到 EOF 时标记
      * target_closed_ 并调用 owner_->send_fin 通知 mux 端。两端均关闭后 duct
      * 自行析构。write_channel_ 有界容量提供反压，防止快生产者淹没慢 target。
@@ -63,24 +79,20 @@ namespace psm::multiplex
      */
     class duct : public std::enable_shared_from_this<duct>
     {
-        using write_channel_type = net::experimental::concurrent_channel<void(boost::system::error_code, memory::vector<std::byte>)>;
+        using channel_type = net::experimental::concurrent_channel<void(boost::system::error_code, memory::vector<std::byte>)>;
 
     public:
         /**
          * @brief 构造 duct
-         * @param stream_id 流标识符，由 mux 协议在 SYN 帧中分配
-         * @param owner 所属 core 的共享指针，用于调用 send_data/send_fin 发送 mux 帧
-         * @param target 已连接的目标传输层，生命周期转移给 duct
-         * @param opts 流选项，包含缓冲区大小和 PMR 内存资源
+         * @param opts 构造参数聚合，包含流标识符、所属 core、目标传输层和流选项
          * @details 构造后 duct 处于就绪状态，需调用 start() 启动双向转发协程。
          * read_size_ 根据 buffer_size 和 max_frame_payload 取较小值，
          * 确保 target 读取的单次数据量不超过 mux 帧最大载荷。
          * @note 方法定义在 duct.cpp 中
          */
-        duct(std::uint32_t stream_id, const std::shared_ptr<core>& owner,
-             transport::shared_transmission target, stream_options opts);
+        explicit duct(duct_options opts);
 
-        ~duct();
+        ~duct() noexcept;
 
         /**
          * @brief 启动 target 读循环和写循环
@@ -102,7 +114,7 @@ namespace psm::multiplex
          * 非阻塞调用，不阻塞帧循环。
          * @note 方法定义在 duct.cpp 中
          */
-        auto on_mux_data(memory::vector<std::byte> data)
+        auto on_data(memory::vector<std::byte> data)
             -> net::awaitable<void>;
 
         /**
@@ -113,13 +125,13 @@ namespace psm::multiplex
          * 完成全双工关闭。由 craft::handle_fin 调用。
          * @note 方法定义在 duct.cpp 中
          */
-        void on_mux_fin();
+        void on_fin();
 
         /**
          * @brief 关闭管道（幂等）
          * @details 首次调用时：标记 closed_ 为 true，关闭并释放 target 传输层，
          * 调用 owner_->remove_duct 从 core 的 ducts_ 映射中移除自身。
-         * 多次调用无副作用。由协程退出回调、core::close() 或 on_mux_fin 触发。
+         * 多次调用无副作用。由协程退出回调、core::close() 或 on_fin 触发。
          * @note 方法定义在 duct.cpp 中
          */
         void close();
@@ -129,7 +141,7 @@ namespace psm::multiplex
          * @details 返回 mux 协议在 SYN 帧中分配的流标识符
          * @return std::uint32_t mux 协议分配的流标识符
          */
-        [[nodiscard]] std::uint32_t stream_id() const noexcept
+        [[nodiscard]] auto stream_id() const noexcept -> std::uint32_t
         {
             return id_;
         }
@@ -149,12 +161,22 @@ namespace psm::multiplex
         /**
          * @brief target 写循环：从写通道取数据写入 target（客户端上传方向）
          * @details 循环从 write_channel_ 取出数据并写入 target 传输层。
-         * write_channel_ 关闭时（on_mux_fin 或 close 触发）退出循环。
+         * write_channel_ 关闭时（on_fin 或 close 触发）退出循环。
          * 写入失败时调用 close() 关闭整个管道。
          * @note 方法定义在 duct.cpp 中
          */
         auto target_writeloop()
             -> net::awaitable<void>;
+
+        /**
+         * @brief target_readloop 完成回调
+         */
+        void on_read_done(const std::exception_ptr &ep);
+
+        /**
+         * @brief target_writeloop 完成回调
+         */
+        void on_write_done(const std::exception_ptr &ep);
 
         std::uint32_t id_;                               // 流标识符，由 mux SYN 帧分配
         std::weak_ptr<core> owner_;                      // 所属 core 的弱引用，不构成循环引用
@@ -162,28 +184,24 @@ namespace psm::multiplex
         transport::shared_transmission target_; // 已连接的目标传输层
         bool closed_ = false;                            // 关闭标志，close() 幂等性保证
         std::size_t read_size_ = 0;                      // 单次从 target 读取上限，不超过 mux 帧最大载荷
-        std::atomic<bool> mux_closed_{false};            // mux 端已半关闭，on_mux_fin 设为 true
+        std::atomic<bool> mux_closed_{false};            // mux 端已半关闭，on_fin 设为 true
         std::atomic<bool> target_closed_{false};         // target 端已半关闭，target EOF 后设为 true
 
         std::atomic<std::uint64_t> read_bytes_{0};       // target 读循环累计字节数（客户端下行）
         std::atomic<std::uint64_t> written_bytes_{0};    // target 写循环累计字节数（客户端上行）
 
-        write_channel_type write_channel_; // 客户端上传方向写通道（mux → target），有界容量提供反压
+        channel_type write_channel_; // 客户端上传方向写通道（mux → target），有界容量提供反压
     }; // class duct
 
     /**
      * @brief 创建 duct 共享指针
-     * @param stream_id 流标识符
-     * @param owner 所属 core 的共享指针
-     * @param target 已连接的目标传输层
-     * @param opts 流选项，包含缓冲区大小和 PMR 内存资源
+     * @param opts 构造参数聚合
      * @return duct 的共享指针
      */
-    [[nodiscard]] inline auto make_duct(std::uint32_t stream_id, const std::shared_ptr<core>& owner,
-                                        transport::shared_transmission target, stream_options opts)
+    [[nodiscard]] inline auto make_duct(duct_options opts)
         -> std::shared_ptr<duct>
     {
-        return std::make_shared<duct>(stream_id, owner, std::move(target), opts);
+        return std::make_shared<duct>(std::move(opts));
     }
 
 } // namespace psm::multiplex

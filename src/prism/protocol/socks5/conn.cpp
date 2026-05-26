@@ -1,8 +1,106 @@
 #include <prism/protocol/socks5/conn.hpp>
 #include <prism/stats/traffic.hpp>
-
 namespace psm::protocol::socks5
 {
+
+    auto conn::resolve_address(net::steady_timer &deadline, const address_type atyp, request &req)
+        -> net::awaitable<fault::code>
+    {
+        switch (atyp)
+        {
+        case address_type::ipv4:
+        {
+            auto [ec, addr, port] = co_await read_address<4>(wire::parse_ipv4);
+            if (fault::failed(ec))
+            {
+                deadline.cancel();
+                if (ec == fault::code::canceled || ec == fault::code::io_error)
+                {
+                    co_return fault::code::timeout;
+                }
+                co_return ec;
+            }
+            req.destination_address = addr;
+            req.destination_port = port;
+            break;
+        }
+        case address_type::ipv6:
+        {
+            auto [ec, addr, port] = co_await read_address<16>(wire::parse_ipv6);
+            if (fault::failed(ec))
+            {
+                deadline.cancel();
+                if (ec == fault::code::canceled || ec == fault::code::io_error)
+                {
+                    co_return fault::code::timeout;
+                }
+                co_return ec;
+            }
+            req.destination_address = addr;
+            req.destination_port = port;
+            break;
+        }
+        case address_type::domain:
+        {
+            auto [ec, addr, port] = co_await read_domain();
+            if (fault::failed(ec))
+            {
+                deadline.cancel();
+                if (ec == fault::code::canceled || ec == fault::code::io_error)
+                {
+                    co_return fault::code::timeout;
+                }
+                co_return ec;
+            }
+            req.destination_address = addr;
+            req.destination_port = port;
+            break;
+        }
+        default:
+            deadline.cancel();
+            co_return fault::code::unsupported_address;
+        }
+        co_return fault::code::success;
+    }
+
+    auto conn::resolve_command(net::steady_timer &deadline, const command cmd, request &req) const
+        -> net::awaitable<fault::code>
+    {
+        switch (cmd)
+        {
+        case command::connect:
+            if (!config_.enable_tcp)
+            {
+                deadline.cancel();
+                co_await send_error(reply_code::connect_denied);
+                co_return fault::code::not_supported;
+            }
+            req.transport = psm::protocol::form::stream;
+            co_return fault::code::success;
+        case command::udp_associate:
+            if (!config_.enable_udp)
+            {
+                deadline.cancel();
+                co_await send_error(reply_code::connect_denied);
+                co_return fault::code::not_supported;
+            }
+            req.transport = psm::protocol::form::datagram;
+            co_return fault::code::success;
+        case command::bind:
+            if (!config_.enable_bind)
+            {
+                deadline.cancel();
+                co_await send_error(reply_code::cmd_unsupported);
+                co_return fault::code::unsupported_command;
+            }
+            req.transport = psm::protocol::form::stream;
+            co_return fault::code::success;
+        default:
+            deadline.cancel();
+            co_await send_error(reply_code::cmd_unsupported);
+            co_return fault::code::unsupported_command;
+        }
+    }
 
     auto conn::handshake()
         -> net::awaitable<std::pair<fault::code, request>>
@@ -29,7 +127,7 @@ namespace psm::protocol::socks5
             co_return std::pair{negotiation_ec, request{}};
         }
 
-        auto [read_ec, header] = co_await read_req_header();
+        auto [read_ec, header] = co_await read_req_hdr();
         if (fault::failed(read_ec))
         {
             deadline.cancel();
@@ -43,94 +141,16 @@ namespace psm::protocol::socks5
         request req{};
         req.cmd = header.cmd;
 
-        switch (req.cmd)
+        const auto cmd_ec = co_await resolve_command(deadline, header.cmd, req);
+        if (fault::failed(cmd_ec))
         {
-        case command::connect:
-            if (!config_.enable_tcp)
-            {
-                deadline.cancel();
-                co_await send_error(reply_code::connect_denied);
-                co_return std::pair{fault::code::not_supported, request{}};
-            }
-            req.transport = psm::protocol::form::stream;
-            break;
-        case command::udp_associate:
-            if (!config_.enable_udp)
-            {
-                deadline.cancel();
-                co_await send_error(reply_code::connect_denied);
-                co_return std::pair{fault::code::not_supported, request{}};
-            }
-            req.transport = psm::protocol::form::datagram;
-            break;
-        case command::bind:
-            if (!config_.enable_bind)
-            {
-                deadline.cancel();
-                co_await send_error(reply_code::cmd_unsupported);
-                co_return std::pair{fault::code::unsupported_command, request{}};
-            }
-            req.transport = psm::protocol::form::stream;
-            break;
-        default:
-            deadline.cancel();
-            co_await send_error(reply_code::cmd_unsupported);
-            co_return std::pair{fault::code::unsupported_command, request{}};
+            co_return std::pair{cmd_ec, request{}};
         }
 
-        switch (header.atyp)
+        const auto addr_ec = co_await resolve_address(deadline, header.atyp, req);
+        if (fault::failed(addr_ec))
         {
-        case address_type::ipv4:
-        {
-            auto [ec, addr, port] = co_await read_address<4>(wire::parse_ipv4);
-            if (fault::failed(ec))
-            {
-                deadline.cancel();
-                if (ec == fault::code::canceled || ec == fault::code::io_error)
-                {
-                    co_return std::pair{fault::code::timeout, request{}};
-                }
-                co_return std::pair{ec, request{}};
-            }
-            req.destination_address = addr;
-            req.destination_port = port;
-            break;
-        }
-        case address_type::ipv6:
-        {
-            auto [ec, addr, port] = co_await read_address<16>(wire::parse_ipv6);
-            if (fault::failed(ec))
-            {
-                deadline.cancel();
-                if (ec == fault::code::canceled || ec == fault::code::io_error)
-                {
-                    co_return std::pair{fault::code::timeout, request{}};
-                }
-                co_return std::pair{ec, request{}};
-            }
-            req.destination_address = addr;
-            req.destination_port = port;
-            break;
-        }
-        case address_type::domain:
-        {
-            auto [ec, addr, port] = co_await read_domain_addr();
-            if (fault::failed(ec))
-            {
-                deadline.cancel();
-                if (ec == fault::code::canceled || ec == fault::code::io_error)
-                {
-                    co_return std::pair{fault::code::timeout, request{}};
-                }
-                co_return std::pair{ec, request{}};
-            }
-            req.destination_address = addr;
-            req.destination_port = port;
-            break;
-        }
-        default:
-            deadline.cancel();
-            co_return std::pair{fault::code::unsupported_address, request{}};
+            co_return std::pair{addr_ec, request{}};
         }
 
         deadline.cancel();
@@ -190,7 +210,7 @@ namespace psm::protocol::socks5
                 co_return std::pair{fault::to_code(ec), auth_method::no_acceptable};
             }
 
-            auto [auth_ec, success] = co_await perform_password_auth();
+            auto [auth_ec, success] = co_await password_auth();
             if (fault::failed(auth_ec) || !success)
             {
                 co_return std::pair{auth_ec, auth_method::no_acceptable};
@@ -222,7 +242,7 @@ namespace psm::protocol::socks5
         co_return std::pair{fault::code::not_supported, auth_method::no_acceptable};
     }
 
-    auto conn::perform_password_auth()
+    auto conn::password_auth()
         -> net::awaitable<std::pair<fault::code, bool>>
     {
         // RFC 1929 最大请求长度: VER(1) + ULEN(1) + UNAME(255) + PLEN(1) + PASSWD(255) = 513
@@ -300,7 +320,7 @@ namespace psm::protocol::socks5
         // safe: casting byte span to uint8_t span for SOCKS5 UDP header decoding
         const auto ingress_bytes = std::span<const std::uint8_t>(
             reinterpret_cast<const std::uint8_t *>(ingress_packet.data()), ingress_packet.size());
-        const auto [decode_ec, parsed] = wire::decode_udp_hdr(ingress_bytes);
+        const auto [decode_ec, parsed] = wire::decode_hdr(ingress_bytes);
         if (fault::failed(decode_ec))
         {
             co_return;
@@ -352,7 +372,7 @@ namespace psm::protocol::socks5
         }
 
         wire::udp_header response_header{};
-        response_header.destination_address = endpoint_to_address(sender_endpoint);
+        response_header.destination_address = ep_to_addr(sender_endpoint);
         response_header.destination_port = sender_endpoint.port();
         response_header.frag = 0;
 
@@ -361,7 +381,7 @@ namespace psm::protocol::socks5
         // safe: casting byte buffer to uint8_t span for UDP datagram payload encoding
         const auto target_payload = std::span<const std::uint8_t>(
             reinterpret_cast<const std::uint8_t *>(ctx.target_buf.data()), target_n);
-        if (fault::failed(wire::encode_udp_dgram(response_header, target_payload, response_datagram)))
+        if (fault::failed(wire::encode_dgram(response_header, target_payload, response_datagram)))
         {
             co_return;
         }
@@ -377,17 +397,17 @@ namespace psm::protocol::socks5
     auto conn::associate_loop(net::ip::udp::socket &ingress_socket, route_callback &route_callback, net::steady_timer &idle_timer) const
         -> net::awaitable<void>
     {
-        memory::vector<std::byte> ingress_buffer(config_.udp_max_dgram, memory::current_resource());
-        memory::vector<std::byte> target_buffer(config_.udp_max_dgram, memory::current_resource());
+        memory::vector<std::byte> ingress_buffer(config_.max_dgram, memory::current_resource());
+        memory::vector<std::byte> target_buffer(config_.max_dgram, memory::current_resource());
         net::ip::udp::socket egress_socket(executor());
         while (true)
         {
-            idle_timer.expires_after(std::chrono::seconds(config_.udp_idle_timeout));
+            idle_timer.expires_after(std::chrono::seconds(config_.idle_timeout));
             boost::system::error_code read_ec;
             auto token = net::redirect_error(net::use_awaitable, read_ec);
             net::ip::udp::endpoint client_endpoint;
 
-            using namespace boost::asio::experimental::awaitable_operators;
+            using boost::asio::experimental::awaitable_operators::operator||;
             auto buf = net::buffer(ingress_buffer.data(), ingress_buffer.size());
             auto result = co_await (ingress_socket.async_receive_from(buf, client_endpoint, token) || idle_timer.async_wait(net::use_awaitable));
 
@@ -437,18 +457,18 @@ namespace psm::protocol::socks5
             co_return fault::to_code(endpoint_ec);
         }
 
-        if (fault::failed(co_await send_associate_ok(request_info, local_endpoint)))
+        if (fault::failed(co_await send_assoc_ok(request_info, local_endpoint)))
         {
             boost::system::error_code ignore_ec;
             ingress_socket.close(ignore_ec);
             co_return fault::code::io_error;
         }
 
-        // 空闲超时：客户端在 udp_idle_timeout 秒内不发送 UDP 数据，主动关闭关联
+        // 空闲超时：客户端在 idle_timeout 秒内不发送 UDP 数据，主动关闭关联
         net::steady_timer idle_timer(ingress_socket.get_executor());
-        idle_timer.expires_after(std::chrono::seconds(config_.udp_idle_timeout));
+        idle_timer.expires_after(std::chrono::seconds(config_.idle_timeout));
 
-        using namespace boost::asio::experimental::awaitable_operators;
+        using boost::asio::experimental::awaitable_operators::operator||;
         co_await (associate_loop(ingress_socket, route_callback, idle_timer) || wait_ctrl_close(ingress_socket));
 
         if (traffic_)
@@ -461,7 +481,7 @@ namespace psm::protocol::socks5
         co_return fault::code::success;
     }
 
-    auto conn::read_req_header() const
+    auto conn::read_req_hdr() const
         -> net::awaitable<std::pair<fault::code, wire::header_parse>>
     {
         std::array<std::uint8_t, 4> request_header{};
@@ -482,8 +502,8 @@ namespace psm::protocol::socks5
         co_return std::pair{fault::code::success, header};
     }
 
-    auto conn::read_domain_addr() const
-        -> net::awaitable<std::tuple<fault::code, address, uint16_t>>
+    auto conn::read_domain() const
+        -> net::awaitable<std::tuple<fault::code, address, std::uint16_t>>
     {
         std::uint8_t len = 0;
         std::error_code io_ec;
@@ -491,7 +511,7 @@ namespace psm::protocol::socks5
         co_await recv_impl(std::span(reinterpret_cast<std::byte *>(&len), 1), io_ec);
         if (io_ec)
         {
-            co_return std::tuple<fault::code, address, uint16_t>{fault::code::io_error, address{}, 0};
+            co_return std::tuple<fault::code, address, std::uint16_t>{fault::code::io_error, address{}, 0};
         }
 
         std::array<std::uint8_t, 258> buffer{};
@@ -501,25 +521,25 @@ namespace psm::protocol::socks5
         co_await recv_impl(std::span(reinterpret_cast<std::byte *>(buffer.data() + 1), len + 2), io_ec);
         if (io_ec)
         {
-            co_return std::tuple<fault::code, address, uint16_t>{fault::code::io_error, address{}, 0};
+            co_return std::tuple<fault::code, address, std::uint16_t>{fault::code::io_error, address{}, 0};
         }
 
         auto [ec_domain, domain] = wire::parse_domain(std::span<const std::uint8_t>(buffer.data(), len + 1));
         if (fault::failed(ec_domain))
         {
-            co_return std::tuple<fault::code, address, uint16_t>{ec_domain, address{}, 0};
+            co_return std::tuple<fault::code, address, std::uint16_t>{ec_domain, address{}, 0};
         }
 
         auto [ec_port, port] = wire::decode_port(std::span<const std::uint8_t>(buffer.data() + 1 + len, 2));
         if (fault::failed(ec_port))
         {
-            co_return std::tuple<fault::code, address, uint16_t>{ec_port, address{}, 0};
+            co_return std::tuple<fault::code, address, std::uint16_t>{ec_port, address{}, 0};
         }
 
         co_return std::tuple{fault::code::success, address{domain}, port};
     }
 
-    auto conn::build_ok_response(const request &req, std::span<std::uint8_t> buffer)
+    auto conn::build_ok_resp(const request &req, std::span<std::uint8_t> buffer)
         -> std::size_t
     {
         std::size_t offset = 0;
@@ -582,7 +602,7 @@ namespace psm::protocol::socks5
             co_return std::pair{fault::to_code(ec), net::ip::udp::socket(executor())};
         }
 
-        ingress_socket.bind(net::ip::udp::endpoint(net::ip::udp::v4(), config_.udp_bind_port), ec);
+        ingress_socket.bind(net::ip::udp::endpoint(net::ip::udp::v4(), config_.bind_port), ec);
         if (ec)
         {
             co_return std::pair{fault::to_code(ec), net::ip::udp::socket(executor())};
@@ -591,11 +611,11 @@ namespace psm::protocol::socks5
         co_return std::pair{fault::code::success, std::move(ingress_socket)};
     }
 
-    auto conn::send_associate_ok(const request &request_info, const net::ip::udp::endpoint &local_endpoint) const
+    auto conn::send_assoc_ok(const request &request_info, const net::ip::udp::endpoint &local_endpoint) const
         -> net::awaitable<fault::code>
     {
         request response_info = request_info;
-        response_info.destination_address = endpoint_to_address(local_endpoint);
+        response_info.destination_address = ep_to_addr(local_endpoint);
         response_info.destination_port = local_endpoint.port();
         co_return co_await send_success(response_info);
     }
@@ -615,7 +635,7 @@ namespace psm::protocol::socks5
         -> net::awaitable<fault::code>
     {
         std::array<std::uint8_t, 262> buffer{};
-        const std::size_t len = build_ok_response(info, buffer);
+        const std::size_t len = build_ok_resp(info, buffer);
         std::error_code ec;
         // safe: casting uint8_t array to byte span for SOCKS5 success response write
         co_await send_impl(std::span(reinterpret_cast<const std::byte *>(buffer.data()), len), ec);
@@ -626,7 +646,7 @@ namespace psm::protocol::socks5
         -> net::awaitable<fault::code>
     {
         const std::array<std::uint8_t, 10> response = {
-            0x05, static_cast<uint8_t>(code), 0x00, 0x01,
+            0x05, static_cast<std::uint8_t>(code), 0x00, 0x01,
             0x00, 0x00, 0x00, 0x00,
             0x00, 0x00};
         std::error_code ec;

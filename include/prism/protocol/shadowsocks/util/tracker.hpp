@@ -6,21 +6,24 @@
  */
 #pragma once
 
-#include <prism/protocol/shadowsocks/constants.hpp>
-#include <prism/protocol/shadowsocks/util/replay.hpp>
-#include <prism/protocol/shadowsocks/framing.hpp>
 #include <prism/crypto/aead.hpp>
 #include <prism/crypto/blake3.hpp>
+#include <prism/memory/container.hpp>
+#include <prism/protocol/shadowsocks/constants.hpp>
+#include <prism/protocol/shadowsocks/framing.hpp>
+#include <prism/protocol/shadowsocks/util/replay.hpp>
+
 #include <boost/asio.hpp>
+
 #include <array>
 #include <chrono>
 #include <cstdint>
 #include <memory>
-#include <unordered_map>
-#include <vector>
+
 
 namespace psm::protocol::shadowsocks
 {
+
     namespace net = boost::asio;
 
     /**
@@ -36,6 +39,20 @@ namespace psm::protocol::shadowsocks
         std::unique_ptr<crypto::aead_context> chacha20_ctx; // 缓存的 XChaCha20 AEAD 上下文（避免逐包创建）
         replay_window packet_ids; // PacketID 滑动窗口重放过滤器
         std::uint64_t srv_pkt_id{0}; // 服务端 PacketID 计数器
+    };
+
+    /**
+     * @struct session_create_opts
+     * @brief get_or_create 参数聚合
+     * @details 将 get_or_create 的 4 个参数收敛到单结构体，
+     * 符合 Rule 1（函数参数不超过 3 个）。
+     */
+    struct session_create_opts
+    {
+        const std::array<std::uint8_t, session_id_len> &session_id; ///< 8 字节 SessionID
+        const net::ip::udp::endpoint &endpoint;                     ///< 客户端端点
+        const memory::vector<std::uint8_t> &psk;                    ///< PSK 字节
+        cipher_method method;                                        ///< 加密方法
     };
 
     /**
@@ -78,16 +95,10 @@ namespace psm::protocol::shadowsocks
          * @brief 查找或创建会话
          * @details 如果会话已存在则更新端点和活跃时间并返回，
          * 否则创建新会话。AES-GCM 变体需要派生会话子密钥
-         * @param session_id 8 字节 SessionID
-         * @param endpoint 客户端端点
-         * @param psk PSK 字节
-         * @param method 加密方法
+         * @param opts 创建选项（session_id + endpoint + psk + method）
          * @return 会话条目共享指针
          */
-        [[nodiscard]] auto get_or_create(const std::array<std::uint8_t, session_id_len> &session_id,
-                           const net::ip::udp::endpoint &endpoint,
-                           const std::vector<std::uint8_t> &psk,
-                           cipher_method method)
+        [[nodiscard]] auto get_or_create(const session_create_opts &opts)
             -> std::shared_ptr<udp_session>
         {
             // 分摊清理：仅当距上次清理超过 1 秒时才执行
@@ -98,24 +109,24 @@ namespace psm::protocol::shadowsocks
                 last_cleanup_ = now;
             }
 
-            if (const auto it = sessions_.find(session_id); it != sessions_.end())
+            if (const auto it = sessions_.find(opts.session_id); it != sessions_.end())
             {
-                it->second->client_endpoint = endpoint;
+                it->second->client_endpoint = opts.endpoint;
                 it->second->last_seen = now;
                 return it->second;
             }
 
             auto entry = std::make_shared<udp_session>();
-            entry->client_endpoint = endpoint;
+            entry->client_endpoint = opts.endpoint;
             entry->last_seen = now;
 
             // AES-GCM 变体需要派生会话子密钥
-            if (method != cipher_method::chacha20_poly1305)
+            if (opts.method != cipher_method::chacha20_poly1305)
             {
-                entry->aead_ctx = derive_sess_aead(session_id, psk, method);
+                entry->aead_ctx = derive_aead(opts.session_id, opts.psk, opts.method);
             }
 
-            sessions_.emplace(session_id, entry);
+            sessions_.emplace(opts.session_id, entry);
             return entry;
         }
 
@@ -163,7 +174,7 @@ namespace psm::protocol::shadowsocks
          * @param method 加密方法
          * @return AEAD 上下文智能指针
          */
-        [[nodiscard]] static auto derive_sess_aead(const std::array<std::uint8_t, session_id_len> &session_id, const std::vector<std::uint8_t> &psk, cipher_method method)
+        [[nodiscard]] static auto derive_aead(const std::array<std::uint8_t, session_id_len> &session_id, const memory::vector<std::uint8_t> &psk, cipher_method method)
             -> std::unique_ptr<crypto::aead_context>
         {
             // 密钥材料：PSK + SessionID（栈分配避免堆分配）
@@ -177,14 +188,20 @@ namespace psm::protocol::shadowsocks
             const auto key = crypto::derive_key(
                 ctx_str, std::span<const std::uint8_t>(material.data(), total), key_len);
 
-            const auto cipher = method == cipher_method::aes_128_gcm
-                                    ? crypto::aead_cipher::aes_128_gcm
-                                    : crypto::aead_cipher::aes_256_gcm;
+            crypto::aead_cipher cipher;
+            if (method == cipher_method::aes_128_gcm)
+            {
+                cipher = crypto::aead_cipher::aes_128_gcm;
+            }
+            else
+            {
+                cipher = crypto::aead_cipher::aes_256_gcm;
+            }
 
             return std::make_unique<crypto::aead_context>(cipher, std::span(key));
         }
 
-        std::unordered_map<sess_key, std::shared_ptr<udp_session>,
+        memory::unordered_map<sess_key, std::shared_ptr<udp_session>,
                            sess_hash>
             sessions_; // 会话映射表
         std::chrono::seconds ttl_; // 会话 TTL

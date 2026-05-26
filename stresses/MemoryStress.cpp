@@ -90,7 +90,7 @@ namespace
     void WorkerThread(const std::size_t thread_id, const StressContext &context,
                       std::latch &start_latch, const std::atomic<bool> &stop_flag, ThreadStats &stats)
     {
-        memory::resource_pointer upstream = memory::system::thread_local_pool();
+        memory::resource_pointer upstream = memory::system::local_pool();
         psm::stress::counting_resource counter(upstream);
 
         start_latch.arrive_and_wait();

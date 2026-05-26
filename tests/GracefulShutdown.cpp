@@ -129,7 +129,7 @@ void TestSessionCloseIdempotent(psm::testing::TestRunner &runner)
         psm::resolve::dns::config dns_cfg;
         auto pool = std::make_unique<psm::connect::connection_pool>(ioc);
         auto router = std::make_unique<psm::connect::router>(
-            *pool, ioc, std::move(dns_cfg));
+            psm::connect::router_options{*pool, ioc, std::move(dns_cfg)});
 
         // 创建 SSL 上下文
         auto ssl_ctx = std::make_shared<ssl::context>(ssl::context::tlsv12);
@@ -147,7 +147,7 @@ void TestSessionCloseIdempotent(psm::testing::TestRunner &runner)
             account_store};
 
         // 构造 worker 上下文
-        auto mr = psm::memory::system::thread_local_pool();
+        auto mr = psm::memory::system::local_pool();
         psm::context::worker worker_ctx{ioc, *router, mr};
 
         // 创建一对已连接的 socket，模拟入站传输
@@ -198,7 +198,7 @@ int main()
 #ifdef _WIN32
     SetConsoleOutputCP(CP_UTF8);
 #endif
-    psm::memory::system::enable_global_pooling();
+    psm::memory::system::enable_pooling();
     psm::trace::init({});
 
     psm::testing::TestRunner runner("GracefulShutdown");

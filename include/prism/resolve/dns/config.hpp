@@ -15,15 +15,17 @@
  */
 #pragma once
 
-#include <chrono>
-#include <cstddef>
+#include <prism/memory/container.hpp>
 
 #include <boost/asio.hpp>
 
-#include <prism/memory/container.hpp>
+#include <chrono>
+#include <cstddef>
+
 
 namespace psm::resolve::dns
 {
+
     namespace net = boost::asio;
 
     /**
@@ -178,7 +180,7 @@ namespace psm::resolve::dns
          * @details 使用指定内存资源初始化所有 PMR 容器成员。
          * @param mr 内存资源，用于内部 PMR 容器分配
          */
-        config(memory::resource_pointer mr = memory::current_resource())
+        explicit config(memory::resource_pointer mr = memory::current_resource())
             : servers(mr),
               address_rules(mr), cname_rules(mr),
               blacklist_v4(mr), blacklist_v6(mr)

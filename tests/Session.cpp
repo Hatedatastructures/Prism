@@ -617,7 +617,7 @@ int main()
     try
     {
         // 开启全局 PMR 内存池，为所有 PMR 容器提供底层分配
-        psm::memory::system::enable_global_pooling();
+        psm::memory::system::enable_pooling();
         // 初始化日志系统，使用默认配置
         psm::trace::init({});
         // handler_table 为编译期常量数组，无需运行时注册
@@ -630,7 +630,7 @@ int main()
         const auto pool = std::make_unique<psm::connect::connection_pool>(ioc);
         // 使用空 DNS 配置创建路由器（测试中使用直连，无需上游 DNS）
         psm::resolve::dns::config dns_cfg;
-        auto dist = std::make_unique<psm::connect::router>(*pool, ioc, std::move(dns_cfg));
+        auto dist = std::make_unique<psm::connect::router>(psm::connect::router_options{*pool, ioc, std::move(dns_cfg)});
 
         // 创建 SSL 上下文，测试中跳过证书验证
         auto ssl_ctx = std::make_shared<ssl::context>(ssl::context::tlsv12);
@@ -642,7 +642,7 @@ int main()
         psm::context::server server_ctx{std::atomic<std::shared_ptr<const psm::config>>{std::make_shared<const psm::config>(cfg)}, ssl_ctx, account_store};
 
         // 构造工作线程上下文：io_context、DNS 路由、线程本地内存池
-        auto mr = psm::memory::system::thread_local_pool();
+        auto mr = psm::memory::system::local_pool();
         psm::context::worker worker_ctx{ioc, *dist, mr};
 
         // 预分配帧竞技场（测试中未使用，但 worker_context 可能需要）

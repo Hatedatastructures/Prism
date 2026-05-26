@@ -9,8 +9,10 @@
 #include <atomic>
 #include <cstdint>
 
+
 namespace psm::stats
 {
+
     /**
      * @class alignas(64) counter
      * @brief 独占缓存行的原子计数器
@@ -18,14 +20,14 @@ namespace psm::stats
      * increment/decrement 是单条 fetch_add/fetch_sub 指令，
      * 开销约 1ns（同核）到 6ns（跨核）。
      */
-    class alignas(64) counter
+    class alignas(64) counter final
     {
     public:
         /**
          * @brief 构造函数
          * @details 初始化计数器为零值。对齐到 64 字节缓存行边界。
          */
-        counter() = default;
+        explicit counter() = default;
 
         /**
          * @brief 原子递增

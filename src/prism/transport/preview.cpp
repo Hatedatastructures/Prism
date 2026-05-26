@@ -1,12 +1,16 @@
 #include <prism/transport/preview.hpp>
+#include <prism/memory/container.hpp>
 #include <prism/trace.hpp>
-#include <cstring>
+
 #include <boost/asio/any_completion_handler.hpp>
+
+#include <cstring>
 
 namespace psm::transport
 {
+
     preview::preview(shared_transmission inner, std::span<const std::byte> preread, memory::resource_pointer mr)
-        : inner_(std::move(inner)), preread_buffer_(preread.begin(), preread.end(), mr ? mr : memory::current_resource())
+        : inner_(std::move(inner)), preread_buffer_(preread.begin(), preread.end(), memory::effective_mr(mr))
     {
     }
 
@@ -73,8 +77,7 @@ namespace psm::transport
         }
     }
 
-    void preview::async_read_some(std::span<std::byte> buffer,
-        net::any_completion_handler<void(boost::system::error_code, std::size_t)> handler)
+    void preview::async_read_some(std::span<std::byte> buffer, net::any_completion_handler<void(boost::system::error_code, std::size_t)> handler)
     {
         if (offset_ < preread_buffer_.size())
         {
@@ -100,8 +103,7 @@ namespace psm::transport
         inner_->async_read_some(buffer, std::move(handler));
     }
 
-    void preview::async_write_some(std::span<const std::byte> buffer,
-        net::any_completion_handler<void(boost::system::error_code, std::size_t)> handler)
+    void preview::async_write_some(std::span<const std::byte> buffer, net::any_completion_handler<void(boost::system::error_code, std::size_t)> handler)
     {
         if (!inner_)
         {

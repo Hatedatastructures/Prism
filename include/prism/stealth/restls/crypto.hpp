@@ -18,17 +18,18 @@
  */
 #pragma once
 
+#include <prism/crypto/blake3.hpp>
+
 #include <array>
 #include <cstdint>
 #include <cstring>
 #include <span>
 #include <string_view>
 
-#include <prism/crypto/blake3.hpp>
 
 namespace psm::stealth::restls
 {
-    // ── 常量 ──
+
 
     constexpr std::size_t tls_hdrsize = 5;
     constexpr std::size_t tls_rndsize = 32;
@@ -65,7 +66,6 @@ namespace psm::stealth::restls
     // magic 字符串用于随机响应帧
     constexpr std::string_view randresp_magic = "restls-random-response";
 
-    // ── 密钥派生 ──
 
     /**
      * @brief 从密码派生 RestlsSecret
@@ -84,7 +84,6 @@ namespace psm::stealth::restls
         return secret;
     }
 
-    // ── server_mask（握手阶段） ──
 
     /**
      * @brief 计算服务端认证掩码
@@ -107,7 +106,6 @@ namespace psm::stealth::restls
         return mask;
     }
 
-    // ── 输入结构体 ──
 
     /**
      * @brief compute_auth_mac 的输入参数集
@@ -139,7 +137,6 @@ namespace psm::stealth::restls
         std::span<const std::uint8_t> plaintext_sample;    ///< 明文数据样本（从 appdata_offset 开始，最多 32 字节）
     };
 
-    // ── auth_mac（应用数据阶段，每记录） ──
 
     /**
      * @brief 计算应用数据认证 MAC
@@ -166,7 +163,15 @@ namespace psm::stealth::restls
         blake3_hasher_update(&hasher, input.server_random.data(), input.server_random.size());
 
         // 2. direction string
-        const auto dir = input.direction == flow_direction::to_client ? dir_toclient : dir_toserver;
+        std::string_view dir;
+        if (input.direction == flow_direction::to_client)
+        {
+            dir = dir_toclient;
+        }
+        else
+        {
+            dir = dir_toserver;
+        }
         blake3_hasher_update(&hasher, reinterpret_cast<const std::uint8_t *>(dir.data()), dir.size());
 
         // 3. counter (big-endian 64-bit)
@@ -194,7 +199,6 @@ namespace psm::stealth::restls
         return mac;
     }
 
-    // ── mask（应用数据阶段，每记录） ──
 
     /**
      * @brief 计算数据掩码
@@ -221,7 +225,15 @@ namespace psm::stealth::restls
         blake3_hasher_update(&hasher, input.server_random.data(), input.server_random.size());
 
         // 2. direction string
-        const auto dir = input.direction == flow_direction::to_client ? dir_toclient : dir_toserver;
+        std::string_view dir;
+        if (input.direction == flow_direction::to_client)
+        {
+            dir = dir_toclient;
+        }
+        else
+        {
+            dir = dir_toserver;
+        }
         blake3_hasher_update(&hasher, reinterpret_cast<const std::uint8_t *>(dir.data()), dir.size());
 
         // 3. counter (big-endian 64-bit)
@@ -244,7 +256,6 @@ namespace psm::stealth::restls
         return mask;
     }
 
-    // ── XOR 辅助 ──
 
     /**
      * @brief 用掩码对数据进行就地 XOR

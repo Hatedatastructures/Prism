@@ -1,41 +1,53 @@
 #include <prism/multiplex/h2mux/craft.hpp>
+#include <prism/connect/dial/dial.hpp>
+#include <prism/connect/dial/router.hpp>
 #include <prism/multiplex/duct.hpp>
 #include <prism/multiplex/parcel.hpp>
+#include <prism/trace.hpp>
 #include <prism/transport/reliable.hpp>
 #include <prism/transport/transmission.hpp>
-#include <prism/connect/dial/router.hpp>
-#include <prism/connect/dial/dial.hpp>
-#include <prism/trace.hpp>
-
-#include <algorithm>
-#include <cstring>
-#include <charconv>
 
 #include <boost/asio/co_spawn.hpp>
 
+#include <algorithm>
+#include <charconv>
+#include <cstring>
+
 namespace psm::multiplex::h2mux
 {
+
     namespace
     {
         constexpr std::string_view tag = "[H2mux.Craft]";
+
+        void log_spawn_error(const std::exception_ptr &ep, std::string_view label)
+        {
+            try
+            {
+                std::rethrow_exception(ep);
+            }
+            catch (const std::exception &e)
+            {
+                trace::debug("{} {} error: {}", tag, label, e.what());
+            }
+            catch (...)
+            {
+            }
+        }
     } // namespace
 
-    // ═══════════════════════════════════════════════════════════
-    // 构造 / 析构
-    // ═══════════════════════════════════════════════════════════
 
-    craft::craft(transport::shared_transmission transport, craft_init init,
-                 const memory::resource_pointer mr)
-        : core(std::move(transport), init.router, init.cfg, mr),
+    craft::craft(core_options opts, craft_init init)
+        : core(core_options{std::move(opts.transport), init.router, init.cfg, opts.mr}),
           resolver_(std::move(init.resolver)),
           h2_pending_(mr_),
           send_channel_(transport_->executor(), init.cfg.h2mux.max_streams),
-          first_connect_waiter_(transport_->executor())
+          connect_waiter_(transport_->executor())
     {
-        first_connect_waiter_.expires_after(std::chrono::hours(24));
+        connect_waiter_.expires_after(std::chrono::hours(24));
     }
 
-    craft::~craft()
+    craft::~craft() noexcept
     {
         if (session_)
         {
@@ -44,9 +56,6 @@ namespace psm::multiplex::h2mux
         }
     }
 
-    // ═══════════════════════════════════════════════════════════
-    // nghttp2 初始化
-    // ═══════════════════════════════════════════════════════════
 
     auto craft::init_nghttp2() -> std::int32_t
     {
@@ -72,7 +81,6 @@ namespace psm::multiplex::h2mux
             return -1;
         }
 
-        // 发送 HTTP/2 服务端 connection preface (SETTINGS)
         if (nghttp2_submit_settings(session_, NGHTTP2_FLAG_NONE, nullptr, 0) != 0)
         {
             trace::error("{} failed to submit settings", tag);
@@ -83,9 +91,6 @@ namespace psm::multiplex::h2mux
         return 0;
     }
 
-    // ═══════════════════════════════════════════════════════════
-    // run / frame_loop
-    // ═══════════════════════════════════════════════════════════
 
     auto craft::run() -> net::awaitable<void>
     {
@@ -95,17 +100,14 @@ namespace psm::multiplex::h2mux
             co_return;
         }
 
-        // 发送初始 SETTINGS
         co_await send_pending();
 
         const auto self = std::static_pointer_cast<craft>(shared_from_this());
 
-        // 启动发送循环
         net::co_spawn(executor(),
             [self]() -> net::awaitable<void> { co_await self->send_loop(); },
             net::detached);
 
-        // 进入帧循环
         co_await frame_loop();
 
         send_channel_.cancel();
@@ -135,38 +137,34 @@ namespace psm::multiplex::h2mux
             // safe: nghttp2 API requires uint8_t*, recv_buf data is read-only input
             const auto recv_len = nghttp2_session_mem_recv(
                 session_,
-                reinterpret_cast<const uint8_t *>(recv_buf.data()),
+                reinterpret_cast<const std::uint8_t *>(recv_buf.data()),
                 n);
 
             if (recv_len < 0)
             {
                 trace::error("{} nghttp2 recv error: {}",
-                             tag, nghttp2_strerror(static_cast<int>(recv_len)));
+                             tag, nghttp2_strerror(static_cast<std::int32_t>(recv_len)));
                 break;
             }
 
             co_await send_pending();
         }
 
-        // 通知所有等待者
-        if (!first_connect_resolved_)
+        if (!connect_resolved_)
         {
-            first_connect_resolved_ = true;
-            first_connect_waiter_.cancel();
+            connect_resolved_ = true;
+            connect_waiter_.cancel();
         }
 
         trace::debug("{} frame loop ended", tag);
     }
 
-    // ═══════════════════════════════════════════════════════════
-    // send_pending
-    // ═══════════════════════════════════════════════════════════
 
     auto craft::send_pending() -> net::awaitable<void>
     {
         while (true)
         {
-            const uint8_t *data = nullptr;
+            const std::uint8_t *data = nullptr;
             const auto len = nghttp2_session_mem_send(session_, &data);
             if (len <= 0)
             {
@@ -188,11 +186,8 @@ namespace psm::multiplex::h2mux
         }
     }
 
-    // ═══════════════════════════════════════════════════════════
-    // CONNECT 处理
-    // ═══════════════════════════════════════════════════════════
 
-    void craft::handle_connect(const int32_t stream_id)
+    void craft::handle_connect(const std::int32_t stream_id)
     {
         auto it = h2_pending_.find(static_cast<std::uint32_t>(stream_id));
         if (it == h2_pending_.end())
@@ -202,22 +197,18 @@ namespace psm::multiplex::h2mux
 
         auto &entry = it->second;
 
-        // 调用 address_resolver 解析地址
         entry.info = resolver_(stream_id, entry.headers);
 
-        // TrustTunnel 模式：resolver 直接返回完整地址
         if (entry.info.valid)
         {
-            // 第一个 CONNECT：通知 wait_first_connect
-            if (!first_connect_resolved_)
+            if (!connect_resolved_)
             {
                 first_connect_ = entry.headers;
-                first_connect_resolved_ = true;
-                first_connect_waiter_.cancel();
+                connect_resolved_ = true;
+                connect_waiter_.cancel();
                 return;
             }
 
-            // 后续 CONNECT：直接 activate
             entry.connecting = true;
             auto self = std::static_pointer_cast<craft>(shared_from_this());
             const auto id = static_cast<std::uint32_t>(stream_id);
@@ -225,26 +216,11 @@ namespace psm::multiplex::h2mux
                 [self, id]() -> net::awaitable<void> { co_await self->activate_stream(id); },
                 [](const std::exception_ptr &ep)
                 {
-                    if (ep)
-                    {
-                        try
-                        {
-                            std::rethrow_exception(ep);
-                        }
-                        catch (const std::exception &e)
-                        {
-                            trace::debug("{} activate_stream error: {}", tag, e.what());
-                        }
-                        catch (...) {}
-                    }
+                    if (ep) log_spawn_error(ep, "activate_stream");
                 });
         }
-        // sing-mux 模式：valid=false，等待首个 DATA 帧的 StreamRequest
     }
 
-    // ═══════════════════════════════════════════════════════════
-    // activate_stream
-    // ═══════════════════════════════════════════════════════════
 
     auto craft::activate_stream(const std::uint32_t stream_id) -> net::awaitable<void>
     {
@@ -261,12 +237,11 @@ namespace psm::multiplex::h2mux
         {
         case stream_type::check:
         {
-            // 健康检查：回复 200 后关闭
-            respond_connect(static_cast<int32_t>(stream_id), 200);
+            respond_connect(static_cast<std::int32_t>(stream_id), 200);
             std::error_code ec;
             co_await send_pending();
             nghttp2_submit_rst_stream(session_, NGHTTP2_FLAG_NONE,
-                                      static_cast<int32_t>(stream_id), NGHTTP2_NO_ERROR);
+                                      static_cast<std::int32_t>(stream_id), NGHTTP2_NO_ERROR);
             co_await send_pending();
             trace::debug("{} stream {} health check completed", tag, stream_id);
             co_return;
@@ -276,17 +251,15 @@ namespace psm::multiplex::h2mux
         {
             trace::debug("{} stream {} creating UDP parcel -> {}:{}", tag, stream_id, info.host, info.port);
 
-            // 回复 200 OK
-            respond_connect(static_cast<int32_t>(stream_id), 200);
+            respond_connect(static_cast<std::int32_t>(stream_id), 200);
             std::error_code ec;
             co_await send_pending();
 
-            // 创建 UDP parcel
             auto dp = make_parcel(
                 parcel_config{
                     .stream_id = stream_id,
-                    .udp_idle_timeout = config_.h2mux.udp_idle_timeout,
-                    .udp_max_dgram = config_.h2mux.udp_max_dgram,
+                    .idle_timeout = config_.h2mux.udp_idle,
+                    .max_dgram = config_.h2mux.max_dgram,
                     .mr = mr_,
                 },
                 shared_from_this(), router_);
@@ -310,7 +283,6 @@ namespace psm::multiplex::h2mux
 
         case stream_type::icmp:
         {
-            // ICMP：后续迭代实现，暂按 TCP 处理
             trace::warn("{} stream {} ICMP not yet implemented, treating as TCP", tag, stream_id);
             [[fallthrough]];
         }
@@ -331,20 +303,18 @@ namespace psm::multiplex::h2mux
             {
                 trace::warn("{} stream {} connect to {}:{} failed", tag, stream_id, info.host, info.port);
                 nghttp2_submit_rst_stream(session_, NGHTTP2_FLAG_NONE,
-                                          static_cast<int32_t>(stream_id), NGHTTP2_INTERNAL_ERROR);
+                                          static_cast<std::int32_t>(stream_id), NGHTTP2_INTERNAL_ERROR);
                 co_await send_pending();
                 co_return;
             }
 
-            // 回复 200 OK
-            respond_connect(static_cast<int32_t>(stream_id), 200);
+            respond_connect(static_cast<std::int32_t>(stream_id), 200);
             std::error_code send_ec;
             co_await send_pending();
 
-            // 创建 TCP duct
             auto target = transport::make_reliable(std::move(conn));
-            const auto p = make_duct(stream_id, shared_from_this(), std::move(target),
-                                     {config_.h2mux.buffer_size, mr_});
+            const auto p = make_duct(duct_options{stream_id, shared_from_this(), std::move(target),
+                                                   {config_.h2mux.buffer_size, mr_}});
             ducts_[stream_id] = p;
             p->start();
 
@@ -353,9 +323,6 @@ namespace psm::multiplex::h2mux
         }
     }
 
-    // ═══════════════════════════════════════════════════════════
-    // nghttp2 回调
-    // ═══════════════════════════════════════════════════════════
 
     auto craft::on_begin_headers(nghttp2_session *, const nghttp2_frame *frame, void *user_data) -> int
     {
@@ -364,7 +331,6 @@ namespace psm::multiplex::h2mux
         if (frame->hd.type == NGHTTP2_HEADERS &&
             frame->headers.cat == NGHTTP2_HCAT_REQUEST)
         {
-            // 检查 :method 是否为 CONNECT
             const auto &nv = frame->headers.nva;
             bool is_connect = false;
             for (std::size_t i = 0; i < frame->headers.nvlen; ++i)
@@ -452,7 +418,6 @@ namespace psm::multiplex::h2mux
             return 0;
         }
 
-        // HEADERS 帧完成，调用 handle_connect
         self->handle_connect(stream_id);
 
         return 0;
@@ -464,17 +429,13 @@ namespace psm::multiplex::h2mux
         auto *self = static_cast<craft *>(user_data);
         const auto id = static_cast<std::uint32_t>(stream_id);
 
-        // 三路分发
-        // 1. h2_pending_ 中存在：sing-mux 模式首帧或 TrustTunnel 首个 CONNECT 已处理
         if (const auto pit = self->h2_pending_.find(id); pit != self->h2_pending_.end())
         {
             auto &entry = pit->second;
-            // sing-mux 模式：首个 DATA 帧携带 StreamRequest
-            // TODO: 实现 StreamRequest 解析
+            // TODO: 实现 StreamRequest 解析(#h2mux)
             return 0;
         }
 
-        // 2. 已连接的 TCP duct
         if (const auto dit = self->ducts_.find(id); dit != self->ducts_.end() && dit->second)
         {
             auto dp = dit->second;
@@ -485,27 +446,18 @@ namespace psm::multiplex::h2mux
 
             net::co_spawn(self->executor(),
                 [dp, p = std::move(payload)]() mutable -> net::awaitable<void>
-                { co_await dp->on_mux_data(std::move(p)); },
+                { co_await dp->on_data(std::move(p)); },
                 [dp](const std::exception_ptr &ep)
                 {
                     if (ep)
                     {
-                        try
-                        {
-                            std::rethrow_exception(ep);
-                        }
-                        catch (const std::exception &e)
-                        {
-                            trace::debug("{} dispatch duct data error: {}", tag, e.what());
-                        }
-                        catch (...) {}
+                        log_spawn_error(ep, "dispatch duct data");
                         dp->close();
                     }
                 });
             return 0;
         }
 
-        // 3. 活跃 UDP parcel
         if (const auto uit = self->parcels_.find(id); uit != self->parcels_.end() && uit->second)
         {
             auto dp = uit->second;
@@ -516,27 +468,18 @@ namespace psm::multiplex::h2mux
 
             net::co_spawn(self->executor(),
                 [dp, p = std::move(payload)]() mutable -> net::awaitable<void>
-                { co_await dp->on_mux_data(std::move(p)); },
+                { co_await dp->on_data(std::move(p)); },
                 [dp](const std::exception_ptr &ep)
                 {
                     if (ep)
                     {
-                        try
-                        {
-                            std::rethrow_exception(ep);
-                        }
-                        catch (const std::exception &e)
-                        {
-                            trace::debug("{} dispatch parcel data error: {}", tag, e.what());
-                        }
-                        catch (...) {}
+                        log_spawn_error(ep, "dispatch parcel data");
                         dp->close();
                     }
                 });
             return 0;
         }
 
-        // 4. 不存在：RST_STREAM
         nghttp2_submit_rst_stream(self->session_, NGHTTP2_FLAG_NONE, stream_id, NGHTTP2_PROTOCOL_ERROR);
         return 0;
     }
@@ -547,16 +490,13 @@ namespace psm::multiplex::h2mux
         auto *self = static_cast<craft *>(user_data);
         const auto id = static_cast<std::uint32_t>(stream_id);
 
-        // 从 h2_pending_ 移除
         self->h2_pending_.erase(id);
 
-        // 从 ducts_ 移除并通知半关闭
         if (const auto it = self->ducts_.find(id); it != self->ducts_.end() && it->second)
         {
-            it->second->on_mux_fin();
+            it->second->on_fin();
         }
 
-        // 从 parcels_ 移除并关闭
         if (const auto it = self->parcels_.find(id); it != self->parcels_.end() && it->second)
         {
             it->second->close();
@@ -565,9 +505,6 @@ namespace psm::multiplex::h2mux
         return 0;
     }
 
-    // ═══════════════════════════════════════════════════════════
-    // send_data / send_fin / send_loop
-    // ═══════════════════════════════════════════════════════════
 
     auto craft::send_data(const std::uint32_t stream_id, memory::vector<std::byte> payload) const
         -> net::awaitable<void>
@@ -620,21 +557,18 @@ namespace psm::multiplex::h2mux
 
                 if (item.is_fin)
                 {
-                    // RST_STREAM
                     nghttp2_submit_rst_stream(session_, NGHTTP2_FLAG_NONE,
-                                              static_cast<int32_t>(item.stream_id), NGHTTP2_NO_ERROR);
+                                              static_cast<std::int32_t>(item.stream_id), NGHTTP2_NO_ERROR);
                     std::error_code pending_ec;
                     co_await send_pending();
                     continue;
                 }
 
-                // nghttp2_submit_data + send_pending
                 if (item.payload.empty())
                 {
                     continue;
                 }
 
-                // 拷贝 payload 到 shared buffer，确保 read_callback 期间有效
                 auto payload = std::make_shared<memory::vector<std::byte>>(std::move(item.payload));
 
                 struct data_source
@@ -673,14 +607,13 @@ namespace psm::multiplex::h2mux
                 };
 
                 const std::int32_t rv = nghttp2_submit_data(session_, NGHTTP2_FLAG_NONE,
-                                                    static_cast<int32_t>(item.stream_id), &dp);
+                                                    static_cast<std::int32_t>(item.stream_id), &dp);
                 if (rv != 0)
                 {
                     trace::warn("{} nghttp2_submit_data failed: {}", tag, nghttp2_strerror(rv));
                     continue;
                 }
 
-                // send_pending 同步调用 read_callback，完成后 src 不再被引用
                 co_await send_pending();
                 src.reset();
             }
@@ -697,9 +630,6 @@ namespace psm::multiplex::h2mux
         trace::debug("{} send loop ended", tag);
     }
 
-    // ═══════════════════════════════════════════════════════════
-    // 公共接口
-    // ═══════════════════════════════════════════════════════════
 
     auto craft::executor() const -> net::any_io_executor
     {
@@ -709,7 +639,7 @@ namespace psm::multiplex::h2mux
     auto craft::wait_first_connect()
         -> net::awaitable<std::optional<h2_headers>>
     {
-        if (first_connect_resolved_)
+        if (connect_resolved_)
         {
             if (first_connect_.authority.empty())
             {
@@ -719,7 +649,7 @@ namespace psm::multiplex::h2mux
         }
 
         boost::system::error_code ec;
-        co_await first_connect_waiter_.async_wait(
+        co_await connect_waiter_.async_wait(
             net::redirect_error(net::use_awaitable, ec));
 
         if (first_connect_.authority.empty())
@@ -729,13 +659,15 @@ namespace psm::multiplex::h2mux
         co_return std::move(first_connect_);
     }
 
-    auto craft::respond_connect(const int32_t stream_id, const std::uint32_t status) -> std::int32_t
+    auto craft::respond_connect(const std::int32_t stream_id, const std::uint32_t status) -> std::int32_t
     {
-        const auto status_str = (status == 200) ? "200" : "407";
+        const char *status_str = "407";
+        if (status == 200)
+            status_str = "200";
         // safe: nghttp2 requires mutable uint8_t* for nv pairs, string literals are cast to non-const for API compat
         nghttp2_nv hdrs[] = {
-            {const_cast<uint8_t *>(reinterpret_cast<const uint8_t *>(":status")),
-             const_cast<uint8_t *>(reinterpret_cast<const uint8_t *>(status_str)),
+            {const_cast<std::uint8_t *>(reinterpret_cast<const std::uint8_t *>(":status")),
+             const_cast<std::uint8_t *>(reinterpret_cast<const std::uint8_t *>(status_str)),
              7, 3, NGHTTP2_NV_FLAG_NONE}};
 
         return nghttp2_submit_headers(session_, NGHTTP2_FLAG_NONE,

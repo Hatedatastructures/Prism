@@ -58,16 +58,16 @@ void TestAeadSealOpenRoundtripAes128()
     // 使用显式 nonce 避免自增导致 seal/open nonce 不匹配
     const std::array<std::uint8_t, 12> nonce{};
 
-    std::vector<std::uint8_t> ciphertext(psm::crypto::aead_context::seal_output_size(pt_span.size()));
-    auto ec = ctx.seal(ciphertext, pt_span, nonce, {});
+    std::vector<std::uint8_t> ciphertext(psm::crypto::aead_context::seal_size(pt_span.size()));
+    auto ec = ctx.seal(psm::crypto::seal_input{ciphertext, pt_span, nonce, {}});
     if (psm::fault::failed(ec))
     {
         LogFail("seal failed");
         return;
     }
 
-    std::vector<std::uint8_t> decrypted(psm::crypto::aead_context::open_output_size(ciphertext.size()));
-    ec = ctx.open(decrypted, ciphertext, nonce, {});
+    std::vector<std::uint8_t> decrypted(psm::crypto::aead_context::open_size(ciphertext.size()));
+    ec = ctx.open(psm::crypto::open_input{decrypted, ciphertext, nonce, {}});
     if (psm::fault::failed(ec))
     {
         LogFail("open failed");
@@ -99,16 +99,16 @@ void TestAeadSealOpenRoundtripAes256()
     // 使用显式 nonce 避免自增导致 seal/open nonce 不匹配
     const std::array<std::uint8_t, 12> nonce{};
 
-    std::vector<std::uint8_t> ciphertext(psm::crypto::aead_context::seal_output_size(pt_span.size()));
-    auto ec = ctx.seal(ciphertext, pt_span, nonce, {});
+    std::vector<std::uint8_t> ciphertext(psm::crypto::aead_context::seal_size(pt_span.size()));
+    auto ec = ctx.seal(psm::crypto::seal_input{ciphertext, pt_span, nonce, {}});
     if (psm::fault::failed(ec))
     {
         LogFail("seal failed");
         return;
     }
 
-    std::vector<std::uint8_t> decrypted(psm::crypto::aead_context::open_output_size(ciphertext.size()));
-    ec = ctx.open(decrypted, ciphertext, nonce, {});
+    std::vector<std::uint8_t> decrypted(psm::crypto::aead_context::open_size(ciphertext.size()));
+    ec = ctx.open(psm::crypto::open_input{decrypted, ciphertext, nonce, {}});
     if (psm::fault::failed(ec))
     {
         LogFail("open failed");
@@ -140,12 +140,12 @@ void TestAeadWrongKey()
     const std::string plaintext = "secret data";
     const auto pt_span = std::span<const std::uint8_t>(reinterpret_cast<const std::uint8_t *>(plaintext.data()), plaintext.size());
 
-    std::vector<std::uint8_t> ciphertext(psm::crypto::aead_context::seal_output_size(pt_span.size()));
+    std::vector<std::uint8_t> ciphertext(psm::crypto::aead_context::seal_size(pt_span.size()));
     ctx_a.seal(ciphertext, pt_span);
 
     // 使用不同密钥解密
     psm::crypto::aead_context ctx_b(psm::crypto::aead_cipher::aes_128_gcm, key_b);
-    std::vector<std::uint8_t> decrypted(psm::crypto::aead_context::open_output_size(ciphertext.size()));
+    std::vector<std::uint8_t> decrypted(psm::crypto::aead_context::open_size(ciphertext.size()));
     auto ec = ctx_b.open(decrypted, ciphertext);
 
     if (psm::fault::succeeded(ec))
@@ -170,13 +170,13 @@ void TestAeadTamperedCiphertext()
     const std::string plaintext = "tamper test data here";
     const auto pt_span = std::span<const std::uint8_t>(reinterpret_cast<const std::uint8_t *>(plaintext.data()), plaintext.size());
 
-    std::vector<std::uint8_t> ciphertext(psm::crypto::aead_context::seal_output_size(pt_span.size()));
+    std::vector<std::uint8_t> ciphertext(psm::crypto::aead_context::seal_size(pt_span.size()));
     ctx.seal(ciphertext, pt_span);
 
     // 篡改密文中的一个字节（跳过最后 16 字节的 tag，修改密文区域）
     ciphertext[0] ^= 0xFF;
 
-    std::vector<std::uint8_t> decrypted(psm::crypto::aead_context::open_output_size(ciphertext.size()));
+    std::vector<std::uint8_t> decrypted(psm::crypto::aead_context::open_size(ciphertext.size()));
     auto ec = ctx.open(decrypted, ciphertext);
 
     if (psm::fault::succeeded(ec))
@@ -202,11 +202,11 @@ void TestAeadMissingAd()
     const auto pt_span = std::span<const std::uint8_t>(reinterpret_cast<const std::uint8_t *>(plaintext.data()), plaintext.size());
     const std::array<std::uint8_t, 4> ad = {1, 2, 3, 4};
 
-    std::vector<std::uint8_t> ciphertext(psm::crypto::aead_context::seal_output_size(pt_span.size()));
+    std::vector<std::uint8_t> ciphertext(psm::crypto::aead_context::seal_size(pt_span.size()));
     ctx.seal(ciphertext, pt_span, ad);
 
     // 不带 AD 解密
-    std::vector<std::uint8_t> decrypted(psm::crypto::aead_context::open_output_size(ciphertext.size()));
+    std::vector<std::uint8_t> decrypted(psm::crypto::aead_context::open_size(ciphertext.size()));
     auto ec = ctx.open(decrypted, ciphertext);
 
     if (psm::fault::succeeded(ec))
@@ -230,8 +230,8 @@ void TestAeadNonceAutoIncrement()
 
     const std::array<std::uint8_t, 4> plaintext = {0x01, 0x02, 0x03, 0x04};
 
-    std::vector<std::uint8_t> ciphertext(psm::crypto::aead_context::seal_output_size(plaintext.size()));
-    std::vector<std::uint8_t> dummy(psm::crypto::aead_context::open_output_size(ciphertext.size()));
+    std::vector<std::uint8_t> ciphertext(psm::crypto::aead_context::seal_size(plaintext.size()));
+    std::vector<std::uint8_t> dummy(psm::crypto::aead_context::open_size(ciphertext.size()));
 
     // 验证 seal 自动递增 nonce
     auto nonce0 = ctx.nonce();
@@ -249,10 +249,10 @@ void TestAeadNonceAutoIncrement()
     std::array<std::uint8_t, 12> seal_nonce;
     std::memcpy(seal_nonce.data(), nonce1.data(), 12);
 
-    std::vector<std::uint8_t> ct2(psm::crypto::aead_context::seal_output_size(plaintext.size()));
-    std::vector<std::uint8_t> dec2(psm::crypto::aead_context::open_output_size(ct2.size()));
+    std::vector<std::uint8_t> ct2(psm::crypto::aead_context::seal_size(plaintext.size()));
+    std::vector<std::uint8_t> dec2(psm::crypto::aead_context::open_size(ct2.size()));
 
-    ctx.seal(ct2, plaintext, seal_nonce, {});
+    ctx.seal(psm::crypto::seal_input{ct2, plaintext, seal_nonce, {}});
     ctx.open(dec2, ct2);
     auto nonce2 = ctx.nonce();
 
@@ -278,8 +278,8 @@ void TestAeadEmptyPlaintext()
     const std::span<const std::uint8_t> empty_pt;
     const std::array<std::uint8_t, 12> nonce{};
 
-    std::vector<std::uint8_t> ciphertext(psm::crypto::aead_context::seal_output_size(0));
-    auto ec = ctx.seal(ciphertext, empty_pt, nonce, {});
+    std::vector<std::uint8_t> ciphertext(psm::crypto::aead_context::seal_size(0));
+    auto ec = ctx.seal(psm::crypto::seal_input{ciphertext, empty_pt, nonce, {}});
     if (psm::fault::failed(ec))
     {
         LogFail("seal empty plaintext failed");
@@ -293,8 +293,8 @@ void TestAeadEmptyPlaintext()
         return;
     }
 
-    std::vector<std::uint8_t> decrypted(psm::crypto::aead_context::open_output_size(ciphertext.size()));
-    ec = ctx.open(decrypted, ciphertext, nonce, {});
+    std::vector<std::uint8_t> decrypted(psm::crypto::aead_context::open_size(ciphertext.size()));
+    ec = ctx.open(psm::crypto::open_input{decrypted, ciphertext, nonce, {}});
     if (psm::fault::failed(ec))
     {
         LogFail("open empty ciphertext failed");
@@ -329,16 +329,16 @@ void TestAeadLargePayload()
 
     const std::array<std::uint8_t, 12> nonce{};
 
-    std::vector<std::uint8_t> ciphertext(psm::crypto::aead_context::seal_output_size(plaintext.size()));
-    auto ec = ctx.seal(ciphertext, plaintext, nonce, {});
+    std::vector<std::uint8_t> ciphertext(psm::crypto::aead_context::seal_size(plaintext.size()));
+    auto ec = ctx.seal(psm::crypto::seal_input{ciphertext, plaintext, nonce, {}});
     if (psm::fault::failed(ec))
     {
         LogFail("seal large payload failed");
         return;
     }
 
-    std::vector<std::uint8_t> decrypted(psm::crypto::aead_context::open_output_size(ciphertext.size()));
-    ec = ctx.open(decrypted, ciphertext, nonce, {});
+    std::vector<std::uint8_t> decrypted(psm::crypto::aead_context::open_size(ciphertext.size()));
+    ec = ctx.open(psm::crypto::open_input{decrypted, ciphertext, nonce, {}});
     if (psm::fault::failed(ec))
     {
         LogFail("open large payload failed");
@@ -372,16 +372,16 @@ void TestAeadMoveSemantics()
     psm::crypto::aead_context ctx2(std::move(*ctx1));
     ctx1.reset();
 
-    std::vector<std::uint8_t> ciphertext(psm::crypto::aead_context::seal_output_size(pt_span.size()));
-    auto ec = ctx2.seal(ciphertext, pt_span, nonce, {});
+    std::vector<std::uint8_t> ciphertext(psm::crypto::aead_context::seal_size(pt_span.size()));
+    auto ec = ctx2.seal(psm::crypto::seal_input{ciphertext, pt_span, nonce, {}});
     if (psm::fault::failed(ec))
     {
         LogFail("seal after move-construct failed");
         return;
     }
 
-    std::vector<std::uint8_t> decrypted(psm::crypto::aead_context::open_output_size(ciphertext.size()));
-    ec = ctx2.open(decrypted, ciphertext, nonce, {});
+    std::vector<std::uint8_t> decrypted(psm::crypto::aead_context::open_size(ciphertext.size()));
+    ec = ctx2.open(psm::crypto::open_input{decrypted, ciphertext, nonce, {}});
     if (psm::fault::failed(ec))
     {
         LogFail("open after move-construct failed");
@@ -397,8 +397,8 @@ void TestAeadMoveSemantics()
     // ctx3 应该继承 ctx2 的密钥，继续正常工作
     std::array<std::uint8_t, 12> nonce2{};
     nonce2[11] = 1;
-    std::vector<std::uint8_t> ct2(psm::crypto::aead_context::seal_output_size(pt_span.size()));
-    ec = ctx3.seal(ct2, pt_span, nonce2, {});
+    std::vector<std::uint8_t> ct2(psm::crypto::aead_context::seal_size(pt_span.size()));
+    ec = ctx3.seal(psm::crypto::seal_input{ct2, pt_span, nonce2, {}});
     if (psm::fault::failed(ec))
     {
         LogFail("seal after move-assign failed");
@@ -415,17 +415,17 @@ void TestAeadOutputSizeValidation()
 {
     LogInfo("=== TestAeadOutputSizeValidation ===");
 
-    // seal_output_size(n) = n + 16
-    if (psm::crypto::aead_context::seal_output_size(100) != 116)
+    // seal_size(n) = n + 16
+    if (psm::crypto::aead_context::seal_size(100) != 116)
     {
-        LogFail("seal_output_size(100) should be 116");
+        LogFail("seal_size(100) should be 116");
         return;
     }
 
-    // open_output_size(n + 16) = n
-    if (psm::crypto::aead_context::open_output_size(116) != 100)
+    // open_size(n + 16) = n
+    if (psm::crypto::aead_context::open_size(116) != 100)
     {
-        LogFail("open_output_size(116) should be 100");
+        LogFail("open_size(116) should be 100");
         return;
     }
 
@@ -457,7 +457,7 @@ int main()
 #ifdef _WIN32
     SetConsoleOutputCP(CP_UTF8);
 #endif
-    psm::memory::system::enable_global_pooling();
+    psm::memory::system::enable_pooling();
     psm::trace::init({});
 
     LogInfo("Starting AEAD tests...");

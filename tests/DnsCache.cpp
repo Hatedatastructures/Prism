@@ -17,7 +17,10 @@
 #endif
 
 using psm::resolve::dns::detail::cache;
+using psm::resolve::dns::detail::cache_options;
+using psm::resolve::dns::detail::put_input;
 using psm::resolve::dns::detail::qtype;
+using psm::resolve::dns::detail::stale_policy;
 
 namespace net = boost::asio;
 
@@ -42,7 +45,7 @@ void TestBasicPutGet(psm::testing::TestRunner &runner)
 {
     runner.LogInfo("=== TestBasicPutGet ===");
 
-    cache c(psm::memory::current_resource(), std::chrono::seconds(300), 100, psm::resolve::dns::detail::cache::stale_policy::discard);
+    cache c(cache_options{psm::memory::current_resource(), std::chrono::seconds(300), 100, stale_policy::discard});
 
     // 缓存未命中
     auto miss = c.get("example.com", qtype::a);
@@ -50,7 +53,7 @@ void TestBasicPutGet(psm::testing::TestRunner &runner)
 
     // 存入并命中
     auto ips = MakeIps({"1.2.3.4"});
-    c.put("example.com", qtype::a, ips, 300);
+    c.put({"example.com", qtype::a, ips, 300});
     auto hit = c.get("example.com", qtype::a);
     runner.Check(hit.has_value() && hit->size() == 1, "basic: hit returns 1 IP");
     if (hit && !hit->empty())
@@ -71,12 +74,12 @@ void TestLruEviction(psm::testing::TestRunner &runner)
     runner.LogInfo("=== TestLruEviction ===");
 
     // max_entries = 3
-    cache c(psm::memory::current_resource(), std::chrono::seconds(300), 3, psm::resolve::dns::detail::cache::stale_policy::discard);
+    cache c(cache_options{psm::memory::current_resource(), std::chrono::seconds(300), 3, stale_policy::discard});
 
     auto ips = MakeIps({"1.1.1.1"});
-    c.put("a.com", qtype::a, ips, 300);
-    c.put("b.com", qtype::a, ips, 300);
-    c.put("c.com", qtype::a, ips, 300);
+    c.put({"a.com", qtype::a, ips, 300});
+    c.put({"b.com", qtype::a, ips, 300});
+    c.put({"c.com", qtype::a, ips, 300});
 
     // 全部存在
     runner.Check(c.get("a.com", qtype::a).has_value(), "lru: a.com exists");
@@ -84,7 +87,7 @@ void TestLruEviction(psm::testing::TestRunner &runner)
     runner.Check(c.get("c.com", qtype::a).has_value(), "lru: c.com exists");
 
     // 插入第 4 个，应淘汰 LRU（a.com 最久未被访问）
-    c.put("d.com", qtype::a, ips, 300);
+    c.put({"d.com", qtype::a, ips, 300});
     runner.Check(!c.get("a.com", qtype::a).has_value(), "lru: a.com evicted");
     runner.Check(c.get("d.com", qtype::a).has_value(), "lru: d.com exists");
 }
@@ -97,10 +100,10 @@ void TestTtlExpiry(psm::testing::TestRunner &runner)
     runner.LogInfo("=== TestTtlExpiry ===");
 
     // TTL 1 秒
-    cache c(psm::memory::current_resource(), std::chrono::seconds(300), 100, psm::resolve::dns::detail::cache::stale_policy::discard);
+    cache c(cache_options{psm::memory::current_resource(), std::chrono::seconds(300), 100, stale_policy::discard});
 
     auto ips = MakeIps({"9.9.9.9"});
-    c.put("short.com", qtype::a, ips, 1);
+    c.put({"short.com", qtype::a, ips, 1});
 
     // 立即读取应命中
     runner.Check(c.get("short.com", qtype::a).has_value(), "ttl: immediate hit");
@@ -119,10 +122,10 @@ void TestServeStale(psm::testing::TestRunner &runner)
     runner.LogInfo("=== TestServeStale ===");
 
     // serve_stale=true
-    cache c(psm::memory::current_resource(), std::chrono::seconds(300), 100, psm::resolve::dns::detail::cache::stale_policy::serve);
+    cache c(cache_options{psm::memory::current_resource(), std::chrono::seconds(300), 100, stale_policy::serve});
 
     auto ips = MakeIps({"10.0.0.1"});
-    c.put("stale.com", qtype::a, ips, 1);
+    c.put({"stale.com", qtype::a, ips, 1});
 
     // 立即读取
     runner.Check(c.get("stale.com", qtype::a).has_value(), "stale: immediate hit");
@@ -140,7 +143,7 @@ void TestNegativeCache(psm::testing::TestRunner &runner)
 {
     runner.LogInfo("=== TestNegativeCache ===");
 
-    cache c(psm::memory::current_resource(), std::chrono::seconds(300), 100, psm::resolve::dns::detail::cache::stale_policy::discard);
+    cache c(cache_options{psm::memory::current_resource(), std::chrono::seconds(300), 100, stale_policy::discard});
 
     // 存入负向缓存
     c.put_negative("nx.com", qtype::a, std::chrono::seconds(60));
@@ -158,10 +161,10 @@ void TestEvictExpired(psm::testing::TestRunner &runner)
 {
     runner.LogInfo("=== TestEvictExpired ===");
 
-    cache c(psm::memory::current_resource(), std::chrono::seconds(300), 100, psm::resolve::dns::detail::cache::stale_policy::discard);
+    cache c(cache_options{psm::memory::current_resource(), std::chrono::seconds(300), 100, stale_policy::discard});
 
     auto ips = MakeIps({"1.0.0.1"});
-    c.put("expire.com", qtype::a, ips, 1);
+    c.put({"expire.com", qtype::a, ips, 1});
 
     std::this_thread::sleep_for(std::chrono::milliseconds(1100));
     c.evict_expired();
@@ -176,7 +179,7 @@ int main()
 #ifdef _WIN32
     SetConsoleOutputCP(CP_UTF8);
 #endif
-    psm::memory::system::enable_global_pooling();
+    psm::memory::system::enable_pooling();
     psm::trace::init({});
 
     psm::testing::TestRunner runner("DnsCache");

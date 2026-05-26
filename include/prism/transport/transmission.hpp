@@ -12,8 +12,11 @@
  */
 #pragma once
 
+#include <prism/fault/compatible.hpp>
+
 #include <boost/asio.hpp>
 #include <boost/asio/any_completion_handler.hpp>
+
 #include <cstddef>
 #include <cstdint>
 #include <memory>
@@ -21,15 +24,16 @@
 #include <system_error>
 #include <utility>
 
-#include <prism/fault/compatible.hpp>
 
 namespace psm::transport
 {
+
     namespace net = boost::asio;
 
     namespace detail
     {
-        inline auto to_boost_ec(const std::error_code &ec)
+
+        [[nodiscard]] inline auto to_ec(const std::error_code &ec)
             -> boost::system::error_code
         {
             if (!ec)
@@ -66,7 +70,7 @@ namespace psm::transport
             udp  ///< 不可靠数据报传输（UDP）
         };
 
-        virtual ~transmission() = default;
+        virtual ~transmission() noexcept = default;
 
         /**
          * @brief 获取传输层类型
@@ -77,7 +81,9 @@ namespace psm::transport
             -> type
         {
             auto *n = next_layer();
-            return n ? n->transport_type() : type::tcp;
+            if (n)
+                return n->transport_type();
+            return type::tcp;
         }
 
         /**
@@ -90,7 +96,8 @@ namespace psm::transport
          * @brief 获取关联的执行器（兼容 Asio Concept）
          * @return executor_type 执行器
          */
-        [[nodiscard]] executor_type get_executor() const
+        [[nodiscard]] auto get_executor() const
+            -> executor_type
         {
             return executor();
         }
@@ -125,8 +132,7 @@ namespace psm::transport
          * @param buffer 目标缓冲区
          * @param handler 完成处理器
          */
-        virtual void async_read_some(std::span<std::byte> buffer,
-            net::any_completion_handler<void(boost::system::error_code, std::size_t)> handler)
+        virtual void async_read_some(std::span<std::byte> buffer, net::any_completion_handler<void(boost::system::error_code, std::size_t)> handler)
         {
             auto ex = executor();
             net::co_spawn(ex,
@@ -134,7 +140,7 @@ namespace psm::transport
                 {
                     std::error_code ec;
                     const auto n = co_await async_read_some(buffer, ec);
-                    std::move(h)(detail::to_boost_ec(ec), n);
+                    std::move(h)(detail::to_ec(ec), n);
                 },
                 net::detached);
         }
@@ -145,8 +151,7 @@ namespace psm::transport
          * @param buffer 源数据缓冲区
          * @param handler 完成处理器
          */
-        virtual void async_write_some(std::span<const std::byte> buffer,
-            net::any_completion_handler<void(boost::system::error_code, std::size_t)> handler)
+        virtual void async_write_some(std::span<const std::byte> buffer, net::any_completion_handler<void(boost::system::error_code, std::size_t)> handler)
         {
             auto ex = executor();
             net::co_spawn(ex,
@@ -154,7 +159,7 @@ namespace psm::transport
                 {
                     std::error_code ec;
                     const auto n = co_await async_write_some(buffer, ec);
-                    std::move(h)(detail::to_boost_ec(ec), n);
+                    std::move(h)(detail::to_ec(ec), n);
                 },
                 net::detached);
         }
@@ -202,11 +207,14 @@ namespace psm::transport
          * @return T* 目标类型指针，找不到返回 nullptr
          */
         template <typename T>
-        [[nodiscard]] T *lowest_layer() noexcept
+        [[nodiscard]] auto lowest_layer() noexcept
+            -> T *
         {
             auto *current = this;
             while (auto *n = current->next_layer())
+            {
                 current = n;
+            }
             return dynamic_cast<T *>(current);
         }
 
@@ -216,11 +224,14 @@ namespace psm::transport
          * @return const T* 目标类型指针，找不到返回 nullptr
          */
         template <typename T>
-        [[nodiscard]] const T *lowest_layer() const noexcept
+        [[nodiscard]] auto lowest_layer() const noexcept
+            -> const T *
         {
             const auto *current = this;
             while (const auto *n = current->next_layer())
+            {
                 current = n;
+            }
             return dynamic_cast<const T *>(current);
         }
 
@@ -231,7 +242,6 @@ namespace psm::transport
      */
     using shared_transmission = std::shared_ptr<transmission>;
 
-    // ── 组合操作自由函数 ──
 
     /**
      * @brief 完整写入操作（自由函数）

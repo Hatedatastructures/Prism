@@ -6,11 +6,13 @@
  */
 #pragma once
 
-#include <prism/stealth/scheme.hpp>
 #include <prism/config.hpp>
+#include <prism/stealth/scheme.hpp>
+
 
 namespace psm::stealth::shadowtls
 {
+
     class scheme final : public stealth_scheme
     {
     public:

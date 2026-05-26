@@ -8,14 +8,15 @@
  */
 #pragma once
 
-#include <prism/instance/config.hpp>
 #include <prism/connect/pool/pool.hpp>
+#include <prism/instance/config.hpp>
 #include <prism/multiplex/config.hpp>
 #include <prism/resolve/dns/config.hpp>
 #include <prism/trace/config.hpp>
 
 namespace psm
 {
+
     /**
      * @struct config
      * @brief 全局配置聚合结构体
@@ -37,10 +38,11 @@ namespace psm
 
 } // namespace psm
 
-#include <prism/stealth/serialize.hpp>
-#include <prism/resolve/dns/serialize.hpp>
-#include <prism/instance/serialize.hpp>
 #include <glaze/glaze.hpp>
+#include <prism/instance/serialize.hpp>
+#include <prism/resolve/dns/serialize.hpp>
+#include <prism/stealth/serialize.hpp>
+
 
 // ============================================================================
 // connect::config (pool)
@@ -51,9 +53,9 @@ struct glz::meta<psm::connect::config>
 {
     using T = psm::connect::config;
     static constexpr auto value = glz::object(
-        "max_cache_per_endpoint", &T::max_cache_peraddr,
+        "max_cache_per_endpoint", &T::cache_peraddr,
         "connect_timeout_ms",     &T::conn_timeout,
-        "max_idle_seconds",       &T::max_idle_sec,
+        "max_idle_seconds",       &T::idle_sec,
         "cleanup_interval_sec",   &T::clean_interval,
         "recv_buffer_size",       &T::recv_bufsz,
         "send_buffer_size",       &T::send_bufsz,

@@ -9,22 +9,27 @@
 
 #pragma once
 
+#include <prism/fault/code.hpp>
+#include <prism/memory/container.hpp>
+#include <prism/protocol/tls/types.hpp>
+#include <prism/transport/transmission.hpp>
+
+#include <boost/asio.hpp>
+
 #include <cstdint>
 #include <span>
 #include <utility>
-#include <prism/protocol/tls/types.hpp>
-#include <prism/memory/container.hpp>
-#include <prism/fault/code.hpp>
-#include <prism/transport/transmission.hpp>
-#include <boost/asio.hpp>
+
 
 namespace psm::transport
 {
+
     class transmission;
 } // namespace psm::transport
 
 namespace psm::recognition::tls
 {
+
     namespace net = boost::asio;
     using hello_features = protocol::tls::hello_features;
 

@@ -6,8 +6,10 @@
  */
 #pragma once
 
-#include <prism/protocol/socks5/constants.hpp>
-#include <prism/protocol/socks5/packet.hpp>
-#include <prism/protocol/socks5/framing.hpp>
 #include <prism/protocol/socks5/config.hpp>
 #include <prism/protocol/socks5/conn.hpp>
+#include <prism/protocol/socks5/constants.hpp>
+#include <prism/protocol/socks5/framing.hpp>
+#include <prism/protocol/socks5/packet.hpp>
+
+

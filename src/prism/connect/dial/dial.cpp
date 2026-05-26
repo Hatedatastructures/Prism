@@ -1,15 +1,17 @@
 #include <prism/connect/dial/dial.hpp>
-#include <prism/connect/dial/router.hpp>
+
 #include <prism/connect/dial/racer.hpp>
-#include <prism/transport/reliable.hpp>
+#include <prism/connect/dial/router.hpp>
 #include <prism/outbound/proxy.hpp>
 #include <prism/resolve/dns/detail/utility.hpp>
 #include <prism/trace.hpp>
+#include <prism/transport/reliable.hpp>
 
 constexpr std::string_view DialStr = "[Connect.Dial]";
 
 namespace psm::connect
 {
+
     using resolve::dns::detail::parse_port;
 
     auto retry_connect(router &rt, const std::span<const tcp::endpoint> endpoints)
@@ -47,7 +49,7 @@ namespace psm::connect
                 if (addr.is_v6() && rt.ipv6_disabled())
                 {
                     trace::debug("[Connect.Dial] IPv6 disabled, rejected literal: {}", host);
-                    co_return std::make_pair(fault::code::host_unreachable, pooled_connection{});
+                    co_return std::make_pair(fault::code::host_noreply, pooled_connection{});
                 }
                 const auto port_num = parse_port(port).value_or(0);
                 const tcp::endpoint ep(addr, port_num);
@@ -65,7 +67,7 @@ namespace psm::connect
         if (fault::failed(resolve_ec) || endpoints.empty())
         {
             trace::warn("[Connect.Dial] DNS resolve {}:{} failed", host, port);
-            co_return std::make_pair(fault::code::host_unreachable, pooled_connection{});
+            co_return std::make_pair(fault::code::host_noreply, pooled_connection{});
         }
 
         auto conn = co_await retry_connect(rt, endpoints);
@@ -88,7 +90,7 @@ namespace psm::connect
             {
                 if (addr.is_v6() && rt.ipv6_disabled())
                 {
-                    co_return std::pair{fault::code::host_unreachable, net::ip::udp::socket{rt.executor()}};
+                    co_return std::pair{fault::code::host_noreply, net::ip::udp::socket{rt.executor()}};
                 }
                 const auto port_num = parse_port(port).value_or(0);
                 target = net::ip::udp::endpoint(addr, port_num);
@@ -117,7 +119,7 @@ namespace psm::connect
             {
                 if (addr.is_v6() && rt.ipv6_disabled())
                 {
-                    co_return std::make_pair(fault::code::host_unreachable, net::ip::udp::endpoint{});
+                    co_return std::make_pair(fault::code::host_noreply, net::ip::udp::endpoint{});
                 }
                 const auto port_num = parse_port(port).value_or(0);
                 co_return std::make_pair(fault::code::success, net::ip::udp::endpoint(addr, port_num));
@@ -126,10 +128,12 @@ namespace psm::connect
         co_return co_await rt.dns().resolve_udp(host, port);
     }
 
-    auto dial(router &rt, std::string_view label,
-              const protocol::target &target, dial_options opts)
+    auto dial(router &rt, dial_options opts)
         -> net::awaitable<std::pair<fault::code, shared_transmission>>
     {
+        const auto &label = opts.label;
+        const auto &target = opts.target;
+
         if (rt.ipv6_disabled() && is_ipv6(target.host))
         {
             trace::debug("{} {} rejecting IPv6 literal: {}:{}", DialStr, label, target.host, target.port);
@@ -138,7 +142,9 @@ namespace psm::connect
 
         fault::code ec;
         pooled_connection conn;
-        if (opts.allow_reverse && !target.positive)
+        const auto allow_reverse = opts.routing != dial_options::flag::no_reverse
+            && opts.routing != dial_options::flag::neither;
+        if (allow_reverse && !target.positive)
         {
             auto result = co_await rt.async_reverse(target.host);
             ec = result.first;
@@ -158,7 +164,9 @@ namespace psm::connect
             co_return std::make_pair(ec, nullptr);
         }
 
-        if (opts.require_open && !conn.valid())
+        const auto require_open = opts.routing != dial_options::flag::no_open
+            && opts.routing != dial_options::flag::neither;
+        if (require_open && !conn.valid())
         {
             trace::warn("{} {} socket not open, target: {}:{}", DialStr, label, target.host, target.port);
             co_return std::make_pair(fault::code::connection_refused, nullptr);

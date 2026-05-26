@@ -7,14 +7,16 @@
  */
 #pragma once
 
-#include <cstdint>
-
 #include <prism/multiplex/h2mux/config.hpp>
 #include <prism/multiplex/smux/config.hpp>
 #include <prism/multiplex/yamux/config.hpp>
 
+#include <cstdint>
+
+
 namespace psm::multiplex
 {
+
     /**
      * @enum protocol_type
      * @brief 多路复用协议类型

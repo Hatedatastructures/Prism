@@ -80,7 +80,7 @@ net::awaitable<void> DoConnectServer(tcp::acceptor &acceptor)
         }
 
         // 发送 200 响应
-        co_await nego->send_connect_ok();
+        co_await nego->send_ok();
 
         // 释放传输层进行 echo
         auto trans = nego->release();
@@ -361,7 +361,7 @@ int main()
 #ifdef _WIN32
     SetConsoleOutputCP(CP_UTF8);
 #endif
-    psm::memory::system::enable_global_pooling();
+    psm::memory::system::enable_pooling();
     psm::trace::init({});
 
     LogInfo("Starting HTTP relay tests...");

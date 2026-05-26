@@ -1,10 +1,11 @@
 #include <prism/recognition/recognition.hpp>
-#include <prism/recognition/routes.hpp>
+
 #include <prism/recognition/pipeline.hpp>
-#include <prism/stealth.hpp>
-#include <prism/stealth/registry.hpp>
-#include <prism/stealth/executor.hpp>
+#include <prism/recognition/routes.hpp>
 #include <prism/recognition/tls/signal.hpp>
+#include <prism/stealth.hpp>
+#include <prism/stealth/executor.hpp>
+#include <prism/stealth/registry.hpp>
 #include <prism/trace.hpp>
 #include <prism/transport/preview.hpp>
 
@@ -12,6 +13,7 @@
 
 namespace psm::recognition
 {
+
     auto identify(identify_context ctx)
         -> net::awaitable<identify_result>
     {
@@ -40,7 +42,7 @@ namespace psm::recognition
         }
 
         // Phase 3: SNI 路由（新增）
-        auto route_table = scheme_route_table::build(*ctx.cfg);
+        auto route_table = route_table::build(*ctx.cfg);
         auto matched_scheme_names = route_table.lookup(features.server_name);
         trace::debug("[Recognition] SNI '{}' matched {} schemes",
                      features.server_name, matched_scheme_names.size());
@@ -59,7 +61,7 @@ namespace psm::recognition
         // safe: casting uint8_t record data to byte span for TLS pipeline analysis
         auto raw_ch_span = std::span<const std::byte>(
             reinterpret_cast<const std::byte *>(raw_record.data()), raw_record.size());
-        auto bitmap = recognition::tls::build_feature_bitmap(features);
+        auto bitmap = recognition::tls::build_bitmap(features);
 
         // 使用分层检测管道
         auto pipeline = layered_detection_pipeline(registry.all());
@@ -70,12 +72,16 @@ namespace psm::recognition
         // Phase 5: 构建 preview transport
         // safe: casting uint8_t record data to byte span for preview transport replay
         auto preread_span = std::span(reinterpret_cast<const std::byte *>(raw_record.data()), raw_record.size());
+        auto arena_mr = memory::current_resource();
+        if (ctx.frame_arena)
+        {
+            arena_mr = ctx.frame_arena->get();
+        }
         auto preview_transport = std::make_shared<transport::preview>(
-            ctx.transport, preread_span, ctx.frame_arena ? ctx.frame_arena->get() : memory::current_resource());
+            ctx.transport, preread_span, arena_mr);
 
         // Phase 6: 按候选顺序执行 scheme
-        memory::vector<std::byte> preread_bytes(raw_record.size(),
-                                                ctx.frame_arena ? ctx.frame_arena->get() : memory::current_resource());
+        memory::vector<std::byte> preread_bytes(raw_record.size(), arena_mr);
         std::transform(raw_record.begin(), raw_record.end(), preread_bytes.begin(),
                        [](std::uint8_t b)
                        { return static_cast<std::byte>(b); });

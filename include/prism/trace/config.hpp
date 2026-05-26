@@ -11,8 +11,10 @@
 
 #include <prism/memory/container.hpp>
 
+
 namespace psm::trace
 {
+
     /**
      * @struct config
      * @brief 日志配置参数

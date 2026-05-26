@@ -6,21 +6,21 @@
 #else
 #include <arpa/inet.h>
 #endif
-
 constexpr std::string_view frame_tag = "[Smux.Frame]";
 
 namespace psm::multiplex::smux
 {
+
     namespace
     {
 
         // 手写 IPv4 格式化，避免 printf 开销
         void format_ipv4(const std::byte *data, char *buf)
         {
-            const auto a = static_cast<uint8_t>(data[0]);
-            const auto b = static_cast<uint8_t>(data[1]);
-            const auto c = static_cast<uint8_t>(data[2]);
-            const auto d = static_cast<uint8_t>(data[3]);
+            const auto a = static_cast<std::uint8_t>(data[0]);
+            const auto b = static_cast<std::uint8_t>(data[1]);
+            const auto c = static_cast<std::uint8_t>(data[2]);
+            const auto d = static_cast<std::uint8_t>(data[3]);
 
             auto p = buf;
             // 第一段
@@ -99,7 +99,7 @@ namespace psm::multiplex::smux
         return hdr;
     }
 
-    auto parse_mux_address(std::span<const std::byte> data, const memory::resource_pointer mr)
+    auto parse_address(std::span<const std::byte> data, const memory::resource_pointer mr)
         -> std::optional<parsed_address>
     {
         if (data.size() < 3)
@@ -173,16 +173,22 @@ namespace psm::multiplex::smux
         // 端口大端序
         const std::uint16_t port = static_cast<std::uint16_t>(data[offset]) << 8 | static_cast<std::uint16_t>(data[offset + 1]);
 
+        auto addr = addr_mode::length_prefixed;
+        if (packet_addr)
+        {
+            addr = addr_mode::packet_addr;
+        }
+
         return parsed_address{
             .host = std::move(host),
             .port = port,
             .offset = offset + 2,
             .is_udp = is_udp,
-            .packet_addr = packet_addr,
+            .addr = addr,
         };
     }
 
-    auto parse_udp_dgram(std::span<const std::byte> data, const memory::resource_pointer mr)
+    auto parse_dgram(std::span<const std::byte> data, const memory::resource_pointer mr)
         -> std::optional<udp_dgram>
     {
         if (data.empty())
@@ -276,8 +282,8 @@ namespace psm::multiplex::smux
         };
     }
 
-    auto parse_udp_length_prefixed(std::span<const std::byte> data)
-        -> std::optional<udp_length_prefixed>
+    auto parse_prefixed(std::span<const std::byte> data)
+        -> std::optional<udp_prefixed>
     {
         if (data.size() < 2)
         {
@@ -293,13 +299,13 @@ namespace psm::multiplex::smux
             return std::nullopt;
         }
 
-        return udp_length_prefixed{
+        return udp_prefixed{
             .payload = data.subspan(2, length),
             .consumed = static_cast<std::size_t>(2) + length,
         };
     }
 
-    auto build_udp_dgram(const datagram_params params, const memory::resource_pointer mr)
+    auto build_dgram(const datagram_params params, const memory::resource_pointer mr)
         -> memory::vector<std::byte>
     {
         const auto &host = params.host;
@@ -308,7 +314,7 @@ namespace psm::multiplex::smux
         memory::vector<std::byte> buffer(mr);
 
         // IPv4 - sing-mux PacketAddr: [ATYP][addr][port][Length 2B BE][Payload]
-        std::array<uint8_t, 4> v4buf{};
+        std::array<std::uint8_t, 4> v4buf{};
         if (inet_pton(AF_INET, host.data(), v4buf.data()) == 1)
         {
             buffer.resize(1 + 4 + 2 + 2 + payload.size());
@@ -328,7 +334,7 @@ namespace psm::multiplex::smux
         }
 
         // IPv6 - sing-mux PacketAddr: [ATYP][addr][port][Length 2B BE][Payload]
-        std::array<uint8_t, 16> v6buf{};
+        std::array<std::uint8_t, 16> v6buf{};
         if (inet_pton(AF_INET6, host.data(), v6buf.data()) == 1)
         {
             buffer.resize(1 + 16 + 2 + 2 + payload.size());
@@ -367,7 +373,7 @@ namespace psm::multiplex::smux
         return buffer;
     }
 
-    auto build_udp_length_prefixed(const std::span<const std::byte> payload, const memory::resource_pointer mr)
+    auto build_prefixed(const std::span<const std::byte> payload, const memory::resource_pointer mr)
         -> memory::vector<std::byte>
     {
         memory::vector<std::byte> buffer(mr);

@@ -342,7 +342,7 @@ int main()
     SetConsoleOutputCP(CP_UTF8);
 #endif
     // 初始化全局 PMR 内存池，供热路径容器使用
-    psm::memory::system::enable_global_pooling();
+    psm::memory::system::enable_pooling();
     // 初始化 spdlog 日志系统
     psm::trace::init({});
 

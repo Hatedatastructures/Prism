@@ -215,7 +215,7 @@ net::awaitable<void> TestPoolRecycling(net::io_context &ioc, unsigned short echo
 int main()
 {
     // 初始化 PMR 全局内存池和日志系统
-    psm::memory::system::enable_global_pooling();
+    psm::memory::system::enable_pooling();
     psm::trace::init({});
 
     try

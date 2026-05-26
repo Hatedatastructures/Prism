@@ -8,15 +8,17 @@
  */
 #pragma once
 
+#include <prism/memory/container.hpp>
+#include <prism/protocol/common/address.hpp>
+#include <prism/protocol/common/form.hpp>
+#include <prism/protocol/vless/constants.hpp>
+
 #include <array>
 
-#include <prism/protocol/vless/constants.hpp>
-#include <prism/protocol/common/form.hpp>
-#include <prism/protocol/common/address.hpp>
-#include <prism/memory/container.hpp>
 
 namespace psm::protocol::vless
 {
+
     // 引用共享地址类型
     using protocol::common::address;
     using protocol::common::domain_address;
@@ -31,9 +33,9 @@ namespace psm::protocol::vless
      */
     struct request
     {
-        std::array<uint8_t, 16> uuid;                           // 用户 UUID（16 字节原始数据）
+        std::array<std::uint8_t, 16> uuid;                           // 用户 UUID（16 字节原始数据）
         command cmd;                                            // 命令类型
-        uint16_t port;                                          // 目标端口，主机字节序
+        std::uint16_t port;                                          // 目标端口，主机字节序
         address destination_address;                            // 目标地址
         psm::protocol::form transport = psm::protocol::form::stream; // 传输形式，由命令类型决定
     };
@@ -48,6 +50,6 @@ namespace psm::protocol::vless
     [[nodiscard]] inline auto to_string(const address &addr, memory::resource_pointer mr = memory::current_resource())
         -> memory::string
     {
-        return protocol::common::address_to_string(addr, mr);
+        return protocol::common::addr_to_str(addr, mr);
     }
 }

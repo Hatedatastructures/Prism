@@ -1,16 +1,18 @@
 #include <prism/protocol/shadowsocks/util/datagram.hpp>
+#include <prism/crypto/block.hpp>
 #include <prism/protocol/shadowsocks/util/cast.hpp>
 #include <prism/trace/spdlog.hpp>
-#include <prism/crypto/block.hpp>
-#include <cstring>
+
+#include <chrono>
 #include <cstdint>
 #include <cstdlib>
-#include <chrono>
+#include <cstring>
 
 constexpr std::string_view tag = "[SS2022.UDP]";
 
 namespace psm::protocol::shadowsocks
 {
+
     namespace
     {
         using util::as_u8;
@@ -100,7 +102,7 @@ namespace psm::protocol::shadowsocks
 
     auto udp_relay::encrypt_out(std::span<const std::byte> payload, const std::array<std::uint8_t, session_id_len> &session_id,
                                      const std::shared_ptr<udp_session> &entry)
-        -> std::pair<fault::code, std::vector<std::byte>>
+        -> std::pair<fault::code, memory::vector<std::byte>>
     {
         if (!valid_)
         {
@@ -131,7 +133,7 @@ namespace psm::protocol::shadowsocks
         std::memcpy(separate_header.data(), packet.data(), separate_hdr_len);
 
         const auto key_span = std::span<const std::uint8_t>(psk_.data(), psk_.size());
-        const auto header_plain = crypto::aes_ecb_decrypt(
+        const auto header_plain = crypto::ecb_decrypt(
             std::span<const std::uint8_t, 16>{separate_header.data(), 16}, key_span);
 
         std::array<std::uint8_t, session_id_len> session_id{};
@@ -143,7 +145,7 @@ namespace psm::protocol::shadowsocks
         const auto packet_id_val = read_u64_be(packet_id.data());
 
         // 查找或创建会话 → 获取缓存的 AEAD 上下文
-        auto entry = sess_tracker_->get_or_create(session_id, sender, psk_, method_);
+        auto entry = sess_tracker_->get_or_create({session_id, sender, psk_, method_});
         if (!entry || !entry->aead_ctx)
         {
             trace::warn("{} failed to get/create session", tag);
@@ -188,7 +190,7 @@ namespace psm::protocol::shadowsocks
 
     auto udp_relay::send_aes_gcm(std::span<const std::byte> payload, const std::array<std::uint8_t, session_id_len> &session_id,
                                     const std::shared_ptr<udp_session> &entry)
-        -> std::pair<fault::code, std::vector<std::byte>>
+        -> std::pair<fault::code, memory::vector<std::byte>>
     {
         if (!entry || !entry->aead_ctx)
         {
@@ -226,7 +228,7 @@ namespace psm::protocol::shadowsocks
         const auto nonce_span = std::span<const std::uint8_t>(nonce.data(), nonce.size());
 
         // AEAD 加密 body，直接写入输出缓冲区的 body 区间
-        const auto body_enc_len = crypto::aead_context::seal_output_size(plain_len);
+        const auto body_enc_len = crypto::aead_context::seal_size(plain_len);
 
         // AES-ECB 加密 SeparateHeader：SessionID + PacketID
         std::array<std::uint8_t, separate_hdr_len> separate_plain{};
@@ -234,11 +236,11 @@ namespace psm::protocol::shadowsocks
         std::memcpy(separate_plain.data() + session_id_len, packet_id.data(), packet_id_len);
 
         const auto key_span = std::span<const std::uint8_t>(psk_.data(), psk_.size());
-        const auto header_enc = crypto::aes_ecb_encrypt(
+        const auto header_enc = crypto::ecb_encrypt(
             std::span<const std::uint8_t, 16>{separate_plain.data(), 16}, key_span);
 
         // 直接在输出缓冲区中构造，消除中间 body_enc vector
-        std::vector<std::byte> result(separate_hdr_len + body_enc_len);
+        memory::vector<std::byte> result(separate_hdr_len + body_enc_len, memory::current_resource());
         std::memcpy(result.data(), header_enc.data(), separate_hdr_len);
 
         // 将 body 密文直接写入 result 的 body 区间
@@ -284,7 +286,7 @@ namespace psm::protocol::shadowsocks
         // 剩余 8 字节已由 zero-initialization 填充
 
         // 获取或创建会话条目（ChaCha20 需要缓存 AEAD context）
-        auto entry = sess_tracker_->get_or_create(session_id, sender, psk_, method_);
+        auto entry = sess_tracker_->get_or_create({session_id, sender, psk_, method_});
 
         // 延迟初始化 ChaCha20 上下文（首次使用时创建并缓存到 entry）
         if (!entry->chacha20_ctx)
@@ -331,7 +333,7 @@ namespace psm::protocol::shadowsocks
     auto udp_relay::send_chacha(std::span<const std::byte> payload,
                                      const std::array<std::uint8_t, session_id_len> &session_id,
                                      const std::shared_ptr<udp_session> &entry)
-        -> std::pair<fault::code, std::vector<std::byte>>
+        -> std::pair<fault::code, memory::vector<std::byte>>
     {
         if (!entry)
         {
@@ -377,11 +379,11 @@ namespace psm::protocol::shadowsocks
         }
         auto &ctx = *entry->chacha20_ctx;
 
-        const auto body_enc_len = crypto::aead_context::seal_output_size(plain_len);
+        const auto body_enc_len = crypto::aead_context::seal_size(plain_len);
         const auto nonce_span = std::span<const std::uint8_t>(nonce.data(), nonce.size());
 
         // 直接在输出缓冲区中构造，消除中间 body_enc vector
-        std::vector<std::byte> result(session_id_len + packet_id_len + body_enc_len);
+        memory::vector<std::byte> result(session_id_len + packet_id_len + body_enc_len, memory::current_resource());
         std::memcpy(result.data(), session_id.data(), session_id_len);
         std::memcpy(result.data() + session_id_len, packet_id.data(), packet_id_len);
 

@@ -8,17 +8,20 @@
 
 #pragma once
 
+#include <prism/fault/code.hpp>
+#include <prism/memory/container.hpp>
+#include <prism/protocol/tls/types.hpp>
+
 #include <array>
 #include <cstddef>
 #include <cstdint>
 #include <span>
 #include <utility>
-#include <prism/fault/code.hpp>
-#include <prism/memory/container.hpp>
-#include <prism/protocol/tls/types.hpp>
+
 
 namespace psm::stealth::reality
 {
+
     using hello_features = protocol::tls::hello_features;
     // psm::protocol 命名空间中的类型已使用完整限定名，无需 using 声明
 
@@ -33,7 +36,7 @@ namespace psm::stealth::reality
     struct hello_request
     {
         const hello_features &client_hello;            ///< 解析后的 ClientHello 信息
-        std::span<const std::uint8_t> server_eph_pub; ///< 服务端临时 X25519 公钥
+        std::span<const std::uint8_t> eph_pub; ///< 服务端临时 X25519 公钥
         const key_material &handshake_keys;            ///< 握手阶段密钥材料
         std::span<const std::uint8_t> dest_certificate; ///< 目标网站的 DER 格式证书
         std::span<const std::uint8_t> chello_msg;      ///< 完整的 ClientHello 消息字节

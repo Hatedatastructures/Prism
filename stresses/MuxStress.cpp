@@ -157,7 +157,7 @@ namespace
     {
         std::cout << std::format("\n--- 场景 1: 帧解码风暴 (单线程, {} 轮) ---\n", config.iterations);
 
-        memory::system::enable_global_pooling();
+        memory::system::enable_pooling();
         memory::frame_arena arena;
         auto mr = arena.get();
 
@@ -222,7 +222,7 @@ namespace
             if (iter % 10 == 0)
             {
                 auto ipv4_data = MakeMuxAddrIPv4(443, mr);
-                auto addr = multiplex::smux::parse_mux_address(
+                auto addr = multiplex::smux::parse_address(
                     std::span<const std::byte>(ipv4_data.data(), ipv4_data.size()), mr);
                 if (!addr)
                     errors++;
@@ -247,7 +247,7 @@ namespace
                            std::latch &start_latch, const std::atomic<bool> &stop_flag,
                            ThreadStats &stats)
     {
-        memory::resource_pointer upstream = memory::system::thread_local_pool();
+        memory::resource_pointer upstream = memory::system::local_pool();
         stress::counting_resource counter(upstream);
         memory::frame_arena arena;
         auto mr = arena.get();
@@ -282,7 +282,7 @@ namespace
             if (rng() % 3 == 0)
             {
                 auto addr_data = MakeMuxAddrIPv4(static_cast<std::uint16_t>(rng() % 65536), mr);
-                auto addr = multiplex::smux::parse_mux_address(
+                auto addr = multiplex::smux::parse_address(
                     std::span<const std::byte>(addr_data.data(), addr_data.size()), mr);
                 if (addr)
                     stats.ops++;
@@ -295,11 +295,11 @@ namespace
             {
                 const auto payload_size = rng() % config.max_payload;
                 auto payload = MakeRandomPayload(payload_size, rng, mr);
-                auto built = multiplex::smux::build_udp_dgram(
+                auto built = multiplex::smux::build_dgram(
                     {"127.0.0.1", 53, std::span<const std::byte>(payload.data(), payload.size())}, mr);
 
                 // 反向解析验证
-                auto parsed = multiplex::smux::parse_udp_dgram(
+                auto parsed = multiplex::smux::parse_dgram(
                     std::span<const std::byte>(built.data(), built.size()), mr);
                 if (!parsed || parsed->host != "127.0.0.1" || parsed->port != 53)
                     stats.errors++;
@@ -368,7 +368,7 @@ namespace
     {
         std::cout << std::format("\n--- 场景 3: 地址解析覆盖 ({} 轮) ---\n", config.iterations);
 
-        memory::system::enable_global_pooling();
+        memory::system::enable_pooling();
         memory::frame_arena arena;
         auto mr = arena.get();
 
@@ -384,7 +384,7 @@ namespace
             // IPv4
             {
                 auto data = MakeMuxAddrIPv4(static_cast<std::uint16_t>(iter % 65536), mr);
-                auto addr = multiplex::smux::parse_mux_address(
+                auto addr = multiplex::smux::parse_address(
                     std::span<const std::byte>(data.data(), data.size()), mr);
                 if (!addr || addr->host != "127.0.0.1" || addr->port != static_cast<std::uint16_t>(iter % 65536))
                     errors++;
@@ -394,7 +394,7 @@ namespace
             // 域名（短）
             {
                 auto data = MakeMuxAddrDomain("example.com", 443, mr);
-                auto addr = multiplex::smux::parse_mux_address(
+                auto addr = multiplex::smux::parse_address(
                     std::span<const std::byte>(data.data(), data.size()), mr);
                 if (!addr || addr->host != "example.com" || addr->port != 443)
                     errors++;
@@ -407,7 +407,7 @@ namespace
                 std::string long_domain(200, 'a');
                 long_domain += ".com";
                 auto data = MakeMuxAddrDomain(long_domain, 8080, mr);
-                auto addr = multiplex::smux::parse_mux_address(
+                auto addr = multiplex::smux::parse_address(
                     std::span<const std::byte>(data.data(), data.size()), mr);
                 if (!addr || addr->port != 8080)
                     errors++;
@@ -418,7 +418,7 @@ namespace
             if (iter % 10 == 0)
             {
                 auto data = MakeMuxAddrIPv6(8443, mr);
-                auto addr = multiplex::smux::parse_mux_address(
+                auto addr = multiplex::smux::parse_address(
                     std::span<const std::byte>(data.data(), data.size()), mr);
                 if (!addr || addr->port != 8443)
                     errors++;
@@ -441,7 +441,7 @@ namespace
     {
         std::cout << std::format("\n--- 场景 4: UDP 数据报往返验证 ({} 轮) ---\n", config.iterations);
 
-        memory::system::enable_global_pooling();
+        memory::system::enable_pooling();
         memory::frame_arena arena;
         auto mr = arena.get();
 
@@ -459,9 +459,9 @@ namespace
 
             // IPv4 往返
             {
-                auto built = multiplex::smux::build_udp_dgram(
+                auto built = multiplex::smux::build_dgram(
                     {"192.168.1.1", 53, std::span<const std::byte>(payload.data(), payload.size())}, mr);
-                auto parsed = multiplex::smux::parse_udp_dgram(
+                auto parsed = multiplex::smux::parse_dgram(
                     std::span<const std::byte>(built.data(), built.size()), mr);
                 if (!parsed || parsed->host != "192.168.1.1" || parsed->port != 53)
                     errors++;
@@ -473,9 +473,9 @@ namespace
 
             // 域名往返
             {
-                auto built = multiplex::smux::build_udp_dgram(
+                auto built = multiplex::smux::build_dgram(
                     {"test.example.org", 8443, std::span<const std::byte>(payload.data(), payload.size())}, mr);
-                auto parsed = multiplex::smux::parse_udp_dgram(
+                auto parsed = multiplex::smux::parse_dgram(
                     std::span<const std::byte>(built.data(), built.size()), mr);
                 if (!parsed || parsed->host != "test.example.org" || parsed->port != 8443)
                     errors++;
@@ -487,9 +487,9 @@ namespace
 
             // Length-prefixed 往返
             {
-                auto built = multiplex::smux::build_udp_length_prefixed(
+                auto built = multiplex::smux::build_prefixed(
                     std::span<const std::byte>(payload.data(), payload.size()), mr);
-                auto parsed = multiplex::smux::parse_udp_length_prefixed(
+                auto parsed = multiplex::smux::parse_prefixed(
                     std::span<const std::byte>(built.data(), built.size()));
                 if (!parsed)
                     errors++;
@@ -522,7 +522,7 @@ int main(const int argc, char **argv)
     SetConsoleOutputCP(CP_UTF8);
 #endif
 
-    memory::system::enable_global_pooling();
+    memory::system::enable_pooling();
 
     StressConfig config;
     config.threads = 4;

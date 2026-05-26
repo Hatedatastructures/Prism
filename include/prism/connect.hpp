@@ -5,12 +5,14 @@
  */
 #pragma once
 
+#include <prism/connect/dial/dial.hpp>
+#include <prism/connect/dial/racer.hpp>
+#include <prism/connect/dial/router.hpp>
 #include <prism/connect/pool/config.hpp>
 #include <prism/connect/pool/health.hpp>
 #include <prism/connect/pool/pool.hpp>
-#include <prism/connect/dial/router.hpp>
-#include <prism/connect/dial/racer.hpp>
-#include <prism/connect/dial/dial.hpp>
-#include <prism/connect/tunnel/tunnel.hpp>
 #include <prism/connect/tunnel/forward.hpp>
+#include <prism/connect/tunnel/tunnel.hpp>
 #include <prism/connect/util.hpp>
+
+

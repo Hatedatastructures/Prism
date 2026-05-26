@@ -11,14 +11,18 @@
  */
 #pragma once
 
-#include <boost/asio.hpp>
-#include <prism/transport/transmission.hpp>
 #include <prism/fault/handling.hpp>
+#include <prism/transport/transmission.hpp>
+
+#include <boost/asio.hpp>
+
 #include <memory>
 #include <optional>
 
+
 namespace psm::transport
 {
+
     namespace net = boost::asio;
 
     /**
@@ -34,7 +38,7 @@ namespace psm::transport
      * @note UDP 是不可靠传输，不保证数据送达、顺序或去重。
      * @warning 如果未设置远程端点，写入操作将返回错误。
      */
-    class unreliable : public transmission, public std::enable_shared_from_this<unreliable>
+    class unreliable final : public transmission, public std::enable_shared_from_this<unreliable>
     {
     public:
         using socket_type = net::ip::udp::socket;
@@ -79,12 +83,12 @@ namespace psm::transport
          * @brief 获取内层传输
          * @return nullptr unreliable 是叶子节点，没有内层
          */
-        [[nodiscard]] transmission *next_layer() noexcept override
+        [[nodiscard]] auto next_layer() noexcept -> transmission * override
         {
             return nullptr;
         }
 
-        [[nodiscard]] const transmission *next_layer() const noexcept override
+        [[nodiscard]] auto next_layer() const noexcept -> const transmission * override
         {
             return nullptr;
         }
@@ -94,7 +98,7 @@ namespace psm::transport
          * @details 返回底层 socket 关联的执行器，用于调度异步操作。
          * @return executor_type 执行器
          */
-        [[nodiscard]] executor_type executor() const override
+        [[nodiscard]] auto executor() const -> executor_type override
         {
             return const_cast<socket_type &>(socket_).get_executor();
         }
@@ -105,7 +109,7 @@ namespace psm::transport
          * 接收操作验证来源是否匹配该端点，不匹配则丢弃。
          * @param endpoint 远程端点
          */
-        void set_remote_endpoint(const endpoint_type &endpoint)
+        void set_remote(const endpoint_type &endpoint)
         {
             remote_endpoint_ = endpoint;
         }
@@ -115,7 +119,8 @@ namespace psm::transport
          * @details 返回当前设置的远程端点。如果未设置则返回空。
          * @return std::optional<endpoint_type> 远程端点（如果已设置）
          */
-        [[nodiscard]] std::optional<endpoint_type> remote_endpoint() const noexcept
+        [[nodiscard]] auto remote_endpoint() const noexcept
+            -> std::optional<endpoint_type>
         {
             return remote_endpoint_;
         }
@@ -210,7 +215,8 @@ namespace psm::transport
          * @details 返回底层 UDP socket 的引用，用于直接操作 socket。
          * @return socket_type& socket 引用
          */
-        [[nodiscard]] socket_type &native_socket() noexcept
+        [[nodiscard]] auto native_socket() noexcept
+            -> socket_type &
         {
             return socket_;
         }
@@ -220,7 +226,8 @@ namespace psm::transport
          * @details 返回底层 UDP socket 的常量引用，用于只读访问。
          * @return const socket_type& socket 常量引用
          */
-        [[nodiscard]] const socket_type &native_socket() const noexcept
+        [[nodiscard]] auto native_socket() const noexcept
+            -> const socket_type &
         {
             return socket_;
         }
@@ -258,4 +265,4 @@ namespace psm::transport
     {
         return std::make_shared<unreliable>(std::move(socket), std::move(remote_endpoint));
     }
-}
+} // namespace psm::transport

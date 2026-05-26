@@ -7,19 +7,22 @@
  */
 #pragma once
 
+#include <prism/memory/container.hpp>
+#include <prism/stealth/anytls/mux/session.hpp>
+#include <prism/transport/transmission.hpp>
+
+#include <boost/asio.hpp>
+#include <boost/asio/experimental/concurrent_channel.hpp>
+
 #include <cstdint>
 #include <memory>
 #include <span>
 #include <vector>
 
-#include <boost/asio.hpp>
-#include <boost/asio/experimental/concurrent_channel.hpp>
-
-#include <prism/transport/transmission.hpp>
-#include <prism/stealth/anytls/mux/session.hpp>
 
 namespace psm::stealth::anytls
 {
+
     namespace net = boost::asio;
 
     /**
@@ -48,10 +51,10 @@ namespace psm::stealth::anytls
             return type::tcp;
         }
 
-        [[nodiscard]] transmission *next_layer() noexcept override { return nullptr; }
-        [[nodiscard]] const transmission *next_layer() const noexcept override { return nullptr; }
+        [[nodiscard]] auto next_layer() noexcept -> transmission * override { return nullptr; }
+        [[nodiscard]] auto next_layer() const noexcept -> const transmission * override { return nullptr; }
 
-        [[nodiscard]] executor_type executor() const override
+        [[nodiscard]] auto executor() const -> executor_type override
         {
             return channel_->get_executor();
         }
@@ -115,7 +118,7 @@ namespace psm::stealth::anytls
             {
                 channel_->try_send(
                     boost::system::errc::make_error_code(boost::system::errc::connection_reset),
-                    std::vector<std::uint8_t>{});
+                    memory::vector<std::uint8_t>{});
                 channel_.reset();
             }
             // 发送 FIN
@@ -136,7 +139,7 @@ namespace psm::stealth::anytls
         std::shared_ptr<anytls_session> session_;
         std::uint32_t stream_id_;
         std::shared_ptr<channel_type> channel_;
-        std::vector<std::uint8_t> pending_buffer_;
+        memory::vector<std::uint8_t> pending_buffer_;
         std::size_t pending_offset_{0};
     };
 } // namespace psm::stealth::anytls

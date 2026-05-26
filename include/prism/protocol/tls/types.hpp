@@ -9,15 +9,16 @@
 
 #pragma once
 
+#include <prism/memory/container.hpp>
+
 #include <array>
 #include <cstdint>
-#include <prism/memory/container.hpp>
+
 
 namespace psm::protocol::tls
 {
-    // ═══════════════════════════════════════════════════════════════════════
+
     // TLS 记录层常量
-    // ═══════════════════════════════════════════════════════════════════════
 
     /** @brief TLS 记录头长度（字节）：ContentType(1) + Version(2) + Length(2) */
     constexpr std::size_t RECORD_HDR_LEN = 5;
@@ -25,18 +26,14 @@ namespace psm::protocol::tls
     /** @brief TLS 记录最大载荷长度 */
     constexpr std::size_t MAX_RECORD_PAYLOAD = 16384;
 
-    // ═══════════════════════════════════════════════════════════════════════
     // Content Type
-    // ═══════════════════════════════════════════════════════════════════════
 
     constexpr std::uint8_t CT_CHANGE_CIPHER_SPEC = 0x14;
     constexpr std::uint8_t CT_ALERT = 0x15;
     constexpr std::uint8_t CT_HANDSHAKE = 0x16;
     constexpr std::uint8_t CT_APPLICATION_DATA = 0x17;
 
-    // ═══════════════════════════════════════════════════════════════════════
     // Handshake Type
-    // ═══════════════════════════════════════════════════════════════════════
 
     constexpr std::uint8_t HS_CLIENT_HELLO = 0x01;
     constexpr std::uint8_t HS_SERVER_HELLO = 0x02;
@@ -45,9 +42,7 @@ namespace psm::protocol::tls
     constexpr std::uint8_t HS_CERTIFICATE_VERIFY = 0x0F;
     constexpr std::uint8_t HS_FINISHED = 0x14;
 
-    // ═══════════════════════════════════════════════════════════════════════
     // Extension Type
-    // ═══════════════════════════════════════════════════════════════════════
 
     constexpr std::uint16_t EXT_SERVER_NAME = 0x0000;
     constexpr std::uint16_t EXT_SIGNATURE_ALGORITHMS = 0x000D;
@@ -59,35 +54,25 @@ namespace psm::protocol::tls
     constexpr std::uint16_t EXT_ENCRYPTED_CLIENT_HELLO = 0xFE0D;
     constexpr std::uint16_t EXT_ESNI = 0xFFCE;
 
-    // ═══════════════════════════════════════════════════════════════════════
     // Named Groups
-    // ═══════════════════════════════════════════════════════════════════════
 
     constexpr std::uint16_t GROUP_X25519 = 0x001D;
     constexpr std::uint16_t GROUP_X25519_MLKEM768 = 0x11EC;
 
-    // ═══════════════════════════════════════════════════════════════════════
     // TLS Version
-    // ═══════════════════════════════════════════════════════════════════════
 
     constexpr std::uint16_t VERSION_TLS12 = 0x0303;
     constexpr std::uint16_t VERSION_TLS13 = 0x0304;
 
-    // ═══════════════════════════════════════════════════════════════════════
     // Cipher Suite (TLS 1.3)
-    // ═══════════════════════════════════════════════════════════════════════
 
     constexpr std::uint16_t CIPHER_AES_128_GCM_SHA256 = 0x1301;
 
-    // ═══════════════════════════════════════════════════════════════════════
     // Server Name Type
-    // ═══════════════════════════════════════════════════════════════════════
 
     constexpr std::uint8_t SNAME_TYPE_HOSTNAME = 0x00;
 
-    // ═══════════════════════════════════════════════════════════════════════
     // 密钥与认证常量
-    // ═══════════════════════════════════════════════════════════════════════
 
     /** @brief X25519 密钥/公钥长度 */
     constexpr std::size_t REALITY_KEY_LEN = 32;
@@ -104,16 +89,12 @@ namespace psm::protocol::tls
     /** @brief AES-128-GCM 密钥长度 */
     constexpr std::size_t AES_128_KEY_LEN = 16;
 
-    // ═══════════════════════════════════════════════════════════════════════
     // Signature Scheme (TLS 1.3)
-    // ═══════════════════════════════════════════════════════════════════════
 
     /** @brief Ed25519 签名算法 */
     constexpr std::uint16_t SIG_ED25519 = 0x0807;
 
-    // ═══════════════════════════════════════════════════════════════════════
     // TLS 记录层写入工具
-    // ═══════════════════════════════════════════════════════════════════════
 
     inline void write_u8(memory::vector<std::uint8_t> &buf, std::uint8_t val)
     {
@@ -133,9 +114,7 @@ namespace psm::protocol::tls
         buf.push_back(static_cast<std::uint8_t>(val & 0xFF));
     }
 
-    // ═══════════════════════════════════════════════════════════════════════
     // ClientHello 特征结构
-    // ═══════════════════════════════════════════════════════════════════════
 
     /**
      * @struct hello_features
@@ -192,7 +171,7 @@ namespace psm::protocol::tls
         bool early_data{false};
 
         /** @brief 原始握手消息（不含 TLS record header） */
-        memory::vector<std::uint8_t> raw_hs_msg;
+        memory::vector<std::uint8_t> raw_msg;
 
         /** @brief 原始 ClientHello 记录（含 TLS record header） */
         memory::vector<std::byte> raw_record;
