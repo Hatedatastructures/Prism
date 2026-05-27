@@ -31,12 +31,11 @@ namespace psm::stealth::anytls
     void anytls_session::start()
     {
         auto self = shared_from_this();
-        net::co_spawn(transport_->get_executor(),
-            [self]() -> net::awaitable<void>
-            {
-                co_await self->recv_loop();
-            },
-            net::detached);
+        auto recv_task = [self]() -> net::awaitable<void>
+        {
+            co_await self->recv_loop();
+        };
+        net::co_spawn(transport_->get_executor(), std::move(recv_task), net::detached);
     }
 
     auto anytls_session::wait_first_stream()
@@ -45,8 +44,8 @@ namespace psm::stealth::anytls
     {
         if (init_resolved_)
         {
-            auto result = std::make_pair(init_error_,
-                std::make_tuple(init_id_, std::move(init_preread_)));
+            auto result = std::pair{init_error_,
+                std::tuple{init_id_, std::move(init_preread_)}};
             co_return result;
         }
 
@@ -54,9 +53,9 @@ namespace psm::stealth::anytls
         boost::system::error_code ec;
         co_await init_waiter_.async_wait(net::redirect_error(net::use_awaitable, ec));
 
-        auto result = std::make_pair(init_error_,
-            std::make_tuple(init_id_, std::move(init_preread_)));
-        co_return result;
+        auto result2 = std::pair{init_error_,
+            std::tuple{init_id_, std::move(init_preread_)}};
+        co_return result2;
     }
 
     auto anytls_session::recv_loop() -> net::awaitable<void>
@@ -373,6 +372,7 @@ namespace psm::stealth::anytls
             streams_.erase(it);
         }
         trace::debug("{} FIN stream_id={}", tag, stream_id);
+        co_return;
     }
 
     auto anytls_session::read_exact(std::span<std::byte> buf) -> net::awaitable<bool>

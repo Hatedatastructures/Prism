@@ -218,11 +218,11 @@ namespace psm::multiplex::smux
             {
                 entry.connecting = true;
                 auto self = std::static_pointer_cast<craft>(shared_from_this());
-                net::co_spawn(transport_->executor(), self->activate_stream(stream_id),
-                    [stream_id](const std::exception_ptr &ep)
-                    {
-                        if (ep) log_spawn_error(ep, stream_id, "activate_stream");
-                    });
+                auto on_error = [stream_id](const std::exception_ptr &ep)
+                {
+                    if (ep) log_spawn_error(ep, stream_id, "activate_stream");
+                };
+                net::co_spawn(transport_->executor(), self->activate_stream(stream_id), std::move(on_error));
             }
             return;
         }
@@ -363,7 +363,8 @@ namespace psm::multiplex::smux
 
         char port_buf[8];
         const auto [port_end, port_ec] = std::to_chars(port_buf, port_buf + sizeof(port_buf), opts.port);
-        auto [code, conn] = co_await connect::async_forward(router_, opts.host, std::string_view(port_buf, std::distance(port_buf, port_end)));
+        auto port_str = std::string_view(port_buf, std::distance(port_buf, port_end));
+        auto [code, conn] = co_await connect::async_forward(router_, opts.host, port_str);
 
         if (code != fault::code::success || !conn.valid())
         {
@@ -383,7 +384,10 @@ namespace psm::multiplex::smux
         pending_.erase(opts.stream_id);
 
         auto target = transport::make_reliable(std::move(conn));
-        const auto p = make_duct(duct_options{opts.stream_id, shared_from_this(), std::move(target), {config_.smux.buffer_size, mr_}});
+        const duct_options dopts{
+            opts.stream_id, shared_from_this(), std::move(target),
+            {config_.smux.buffer_size, mr_}};
+        const auto p = make_duct(dopts);
         ducts_[opts.stream_id] = p;
 
         p->start();
@@ -419,7 +423,7 @@ namespace psm::multiplex::smux
             co_return;
         }
 
-        const auto host = std::move(addr->host);
+        auto host = std::move(addr->host);
         const auto port = addr->port;
         const auto offset = addr->offset;
         const bool is_udp = addr->is_udp;
@@ -434,11 +438,22 @@ namespace psm::multiplex::smux
 
         if (is_udp)
         {
-            co_await activate_udp(activate_opts{.stream_id = stream_id, .host = std::move(host), .port = port, .addr = addr_type, .remaining = std::move(remaining_data)});
+            activate_opts udp_opts{
+                .stream_id = stream_id,
+                .host = std::move(host),
+                .port = port,
+                .addr = addr_type,
+                .remaining = std::move(remaining_data)};
+            co_await activate_udp(std::move(udp_opts));
         }
         else
         {
-            co_await activate_tcp(activate_opts{.stream_id = stream_id, .host = std::move(host), .port = port, .remaining = std::move(remaining_data)});
+            activate_opts tcp_opts;
+            tcp_opts.stream_id = stream_id;
+            tcp_opts.host = std::move(host);
+            tcp_opts.port = port;
+            tcp_opts.remaining = std::move(remaining_data);
+            co_await activate_tcp(std::move(tcp_opts));
         }
     }
 

@@ -129,7 +129,8 @@ net::awaitable<void> DoSocks5Server(tcp::acceptor &acceptor)
             write_ec);
         if (psm::fault::failed(psm::fault::to_code(write_ec)))
         {
-            LogFail(std::format("Data write back failed: {}", std::string_view(psm::fault::describe(psm::fault::to_code(write_ec)))));
+            auto err_desc = psm::fault::describe(psm::fault::to_code(write_ec));
+            LogFail(std::format("Data write back failed: {}", std::string_view(err_desc)));
             co_return;
         }
 

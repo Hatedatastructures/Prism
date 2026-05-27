@@ -244,7 +244,9 @@ namespace psm::transformer::json
 
         if constexpr (std::is_same_v<read_result, glz::error_ctx>)
         {
-            if constexpr (std::is_constructible_v<StructureObject, memory::resource_pointer> && std::is_move_assignable_v<StructureObject>)
+            constexpr bool has_pmr_ctor = std::is_constructible_v<StructureObject, memory::resource_pointer>;
+            constexpr bool is_move_assign = std::is_move_assignable_v<StructureObject>;
+            if constexpr (has_pmr_ctor && is_move_assign)
             {
                 StructureObject temp(mr);
                 local_ec = glz::read_json(temp, json_data);
@@ -266,7 +268,9 @@ namespace psm::transformer::json
         }
         else
         {
-            if constexpr (std::is_constructible_v<StructureObject, memory::resource_pointer> && std::is_move_assignable_v<StructureObject>)
+            constexpr bool has_pmr_ctor = std::is_constructible_v<StructureObject, memory::resource_pointer>;
+            constexpr bool is_move_assign = std::is_move_assignable_v<StructureObject>;
+            if constexpr (has_pmr_ctor && is_move_assign)
             {
                 StructureObject temp(mr);
                 glz::read_json(temp, json_data);

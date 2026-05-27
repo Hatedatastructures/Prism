@@ -77,7 +77,8 @@ namespace psm::protocol::socks5
                 }
                 else
                 {
-                    trace::warn("{} dial failed: {}, target: {}:{}", Socks5Str, fault::describe(dial_ec), target.host, target.port);
+                    auto err_desc = fault::describe(dial_ec);
+                    trace::warn("{} dial failed: {}, target: {}:{}", Socks5Str, err_desc, target.host, target.port);
                     co_await agent->send_error(reply_code::host_unreachable);
                 }
                 co_return;

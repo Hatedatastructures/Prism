@@ -200,11 +200,16 @@ namespace psm::multiplex::yamux
             it->second.buffer.insert(it->second.buffer.end(), payload.begin(), payload.end());
         }
 
-        ensure_window(stream_id);
+        auto *window = ensure_window(stream_id);
+        if (!window)
+        {
+            trace::warn("{} ensure_window failed for stream {}", tag, stream_id);
+        }
 
         start_pending(stream_id);
 
-        co_await push_frame({message_type::window_update, flags::ack, stream_id, config_.yamux.initial_window, {}});
+        frame_data winupd{message_type::window_update, flags::ack, stream_id, config_.yamux.initial_window, {}};
+        co_await push_frame(std::move(winupd));
 
         try_activate_pending(stream_id);
     }
@@ -432,7 +437,8 @@ namespace psm::multiplex::yamux
             }
             window->send_window.store(client_window, std::memory_order_release);
 
-            co_await push_frame({message_type::window_update, flags::ack, stream_id, config_.yamux.initial_window, {}});
+            frame_data winack{message_type::window_update, flags::ack, stream_id, config_.yamux.initial_window, {}};
+            co_await push_frame(std::move(winack));
 
             start_pending(stream_id);
 
@@ -566,7 +572,8 @@ namespace psm::multiplex::yamux
 
         char port_buf[8];
         const auto [port_end, port_ec] = std::to_chars(port_buf, port_buf + sizeof(port_buf), opts.port);
-        auto [code, conn] = co_await connect::async_forward(router_, opts.host, std::string_view(port_buf, std::distance(port_buf, port_end)));
+        auto port_str = std::string_view(port_buf, std::distance(port_buf, port_end));
+        auto [code, conn] = co_await connect::async_forward(router_, opts.host, port_str);
 
         if (code != fault::code::success || !conn.valid())
         {
@@ -586,7 +593,10 @@ namespace psm::multiplex::yamux
         pending_.erase(opts.stream_id);
 
         auto target = transport::make_reliable(std::move(conn));
-        const auto p = make_duct(duct_options{opts.stream_id, shared_from_this(), std::move(target), {config_.yamux.buffer_size, mr_}});
+        const duct_options dopts{
+            opts.stream_id, shared_from_this(), std::move(target),
+            {config_.yamux.buffer_size, mr_}};
+        const auto p = make_duct(dopts);
         ducts_[opts.stream_id] = p;
 
         p->start();
@@ -647,11 +657,22 @@ namespace psm::multiplex::yamux
 
         if (is_udp)
         {
-            co_await activate_udp(activate_opts{.stream_id = stream_id, .host = std::move(host), .port = port, .addr = addr_type, .remaining = std::move(remaining_data)});
+            activate_opts udp_opts{
+                .stream_id = stream_id,
+                .host = std::move(host),
+                .port = port,
+                .addr = addr_type,
+                .remaining = std::move(remaining_data)};
+            co_await activate_udp(std::move(udp_opts));
         }
         else
         {
-            co_await activate_tcp(activate_opts{.stream_id = stream_id, .host = std::move(host), .port = port, .remaining = std::move(remaining_data)});
+            activate_opts tcp_opts;
+            tcp_opts.stream_id = stream_id;
+            tcp_opts.host = std::move(host);
+            tcp_opts.port = port;
+            tcp_opts.remaining = std::move(remaining_data);
+            co_await activate_tcp(std::move(tcp_opts));
         }
     }
 
@@ -668,11 +689,11 @@ namespace psm::multiplex::yamux
         pending_timers_[stream_id] = timer;
 
         auto self = std::static_pointer_cast<craft>(shared_from_this());
-        net::co_spawn(
-            executor(),
-            [self, stream_id, timer = std::move(timer)]() -> net::awaitable<void>
-            { co_return co_await self->pending_timeout(stream_id, std::move(timer)); },
-            net::detached);
+        auto timeout_task = [self, stream_id, timer = std::move(timer)]() -> net::awaitable<void>
+        {
+            co_return co_await self->pending_timeout(stream_id, std::move(timer));
+        };
+        net::co_spawn(executor(), std::move(timeout_task), net::detached);
     }
 
 
@@ -703,7 +724,8 @@ namespace psm::multiplex::yamux
             return it->second.get();
         }
 
-        auto [new_it, inserted] = windows_.emplace(stream_id, std::make_unique<stream_window>(transport_->executor()));
+        auto win = std::make_unique<stream_window>(transport_->executor());
+        auto [new_it, inserted] = windows_.emplace(stream_id, std::move(win));
         return new_it->second.get();
     }
 

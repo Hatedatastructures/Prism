@@ -347,10 +347,12 @@ namespace psm::connect
                     break;
                 if (stat_acquires_ != 0)
                 {
-                    trace::debug("[Pool] total acquires: {}, total hits: {}, total creates: {}, total evictions: {}, total recycles: {}, total idle: {}",
-                             stat_acquires_, stat_hits_,
-                             stat_creates_, stat_evictions_,
-                             stat_recycles_, stat_idle_);
+                    trace::debug("[Pool] total acquires: {}, total hits: {}, "
+                                 "total creates: {}, total evictions: {}, "
+                                 "total recycles: {}, total idle: {}",
+                                 stat_acquires_, stat_hits_,
+                                 stat_creates_, stat_evictions_,
+                                 stat_recycles_, stat_idle_);
                 }
                 cleanup();
             }

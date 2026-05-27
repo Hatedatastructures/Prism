@@ -191,7 +191,9 @@ namespace psm::stealth::shadowtls
                     auto hmac_verify = std::shared_ptr<HMAC_CTX>(HMAC_CTX_new(), HMAC_CTX_free);
                     if (hmac_verify)
                     {
-                        HMAC_Init_ex(hmac_verify.get(), args.password.data(), static_cast<int>(args.password.size()), EVP_sha1(), nullptr);
+                        auto pwd_data = args.password.data();
+                        auto pwd_len = static_cast<int>(args.password.size());
+                        HMAC_Init_ex(hmac_verify.get(), pwd_data, pwd_len, EVP_sha1(), nullptr);
                         HMAC_Update(hmac_verify.get(), sr_data, args.server_random.size());
                         HMAC_Update(hmac_verify.get(), &tag_c, 1);
                         HMAC_Update(hmac_verify.get(),
@@ -563,8 +565,10 @@ namespace psm::stealth::shadowtls
         trace::debug("[ShadowTLS] started backend relay coroutine");
 
         std::shared_ptr<HMAC_CTX> hmac_verify_ctx;
-        auto first_frame_opt = co_await read_hmac_match(
-            hmac_read_args{args.client_sock, args.backend_sock, args.password, server_random_span, hmac_verify_ctx});
+        hmac_read_args read_args{
+            args.client_sock, args.backend_sock, args.password,
+            server_random_span, hmac_verify_ctx};
+        auto first_frame_opt = co_await read_hmac_match(read_args);
 
         {
             boost::system::error_code close_ec;
@@ -671,7 +675,9 @@ namespace psm::stealth::shadowtls
         auto hmac_write_transport = std::shared_ptr<HMAC_CTX>(HMAC_CTX_new(), HMAC_CTX_free);
         if (hmac_write_transport)
         {
-            HMAC_Init_ex(hmac_write_transport.get(), auth->password.data(), static_cast<int>(auth->password.size()), EVP_sha1(), nullptr);
+            auto pwd_data = auth->password.data();
+            auto pwd_len = static_cast<int>(auth->password.size());
+            HMAC_Init_ex(hmac_write_transport.get(), pwd_data, pwd_len, EVP_sha1(), nullptr);
             HMAC_Update(hmac_write_transport.get(), sr_data, detail.server_random.size());
             HMAC_Update(hmac_write_transport.get(), &tag_s, 1);
             trace::debug("[ShadowTLS] initialized hmac_write_ctx for transport: password + SR + 'S'");

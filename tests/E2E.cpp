@@ -660,8 +660,8 @@ net::awaitable<void> E2EConcurrency(psm::context::server &server_ctx, psm::conte
         for (int i = 0; i < conn_count; ++i)
         {
             auto payload = std::format("client_{}", i);
-            net::co_spawn(ioc, [proxy_ep, echo_ep, payload = std::move(payload), completed, succeeded, all_done, i]() -> net::awaitable<void>
-                          {
+            auto client_task = [proxy_ep, echo_ep, payload = std::move(payload), completed, succeeded, all_done, i]() -> net::awaitable<void>
+            {
                               try
                               {
                                   co_await RawSocks5ClientEcho(
@@ -676,7 +676,9 @@ net::awaitable<void> E2EConcurrency(psm::context::server &server_ctx, psm::conte
                               if (completed->fetch_add(1) + 1 == conn_count)
                               {
                                   all_done->store(true);
-                              } }, net::detached);
+                              }
+                          };
+            net::co_spawn(ioc, std::move(client_task), net::detached);
         }
 
         co_await WaitUntilTrue(all_done, std::chrono::milliseconds(5000));

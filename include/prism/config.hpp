@@ -40,9 +40,32 @@ namespace psm
 
 #include <glaze/glaze.hpp>
 #include <prism/instance/serialize.hpp>
+#include <prism/multiplex/serialize.hpp>
 #include <prism/resolve/dns/serialize.hpp>
 #include <prism/stealth/serialize.hpp>
 
+
+// ============================================================================
+// trace::config
+// ============================================================================
+
+template <>
+struct glz::meta<psm::trace::config>
+{
+    using T = psm::trace::config;
+    static constexpr auto value = glz::object(
+        "file_name",      &T::file_name,
+        "path_name",      &T::path_name,
+        "max_size",       &T::max_size,
+        "max_files",      &T::max_files,
+        "queue_size",     &T::queue_size,
+        "thread_count",   &T::thread_count,
+        "enable_console", &T::enable_console,
+        "enable_file",    &T::enable_file,
+        "log_level",      &T::log_level,
+        "pattern",        &T::pattern,
+        "trace_name",     &T::trace_name);
+};
 
 // ============================================================================
 // connect::config (pool)

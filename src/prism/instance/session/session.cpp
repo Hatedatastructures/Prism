@@ -26,7 +26,8 @@ namespace psm::instance::session
 
     session::session(session_params params)
         : id_(detail::next_sid()),
-          ctx_{context::session_opts{id_, params.server, params.worker, frame_arena_, {}, params.server.config().buffer.size, std::move(params.inbound)}}
+          ctx_{context::session_opts{id_, params.server, params.worker, frame_arena_, {},
+              params.server.config().buffer.size, std::move(params.inbound)}}
     {
     }
 

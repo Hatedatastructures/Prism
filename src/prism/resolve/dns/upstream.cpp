@@ -146,24 +146,28 @@ namespace psm::resolve::dns
         void arm_tcp(transport_context &ctx, const std::shared_ptr<net::ip::tcp::socket> &sock)
         {
             ctx.timer.expires_after(std::chrono::milliseconds(ctx.timeout_ms));
-            ctx.timer.async_wait([sock](boost::system::error_code e)
-                                 {
-                    if (e != net::error::operation_aborted)
-                    {
-                        sock->cancel();
-                    } });
+            auto on_timeout = [sock](boost::system::error_code e)
+            {
+                if (e != net::error::operation_aborted)
+                {
+                    sock->cancel();
+                }
+            };
+            ctx.timer.async_wait(std::move(on_timeout));
         }
 
         // 为 SSL stream 装配超时回调
         void arm_ssl_stream(transport_context &ctx, const std::shared_ptr<ssl::stream<net::ip::tcp::socket>> &ssl_sock)
         {
             ctx.timer.expires_after(std::chrono::milliseconds(ctx.timeout_ms));
-            ctx.timer.async_wait([ssl_sock](boost::system::error_code e)
-                                 {
-                    if (e != net::error::operation_aborted)
-                    {
-                        ssl_sock->lowest_layer().cancel();
-                    } });
+            auto on_timeout = [ssl_sock](boost::system::error_code e)
+            {
+                if (e != net::error::operation_aborted)
+                {
+                    ssl_sock->lowest_layer().cancel();
+                }
+            };
+            ctx.timer.async_wait(std::move(on_timeout));
         }
 
         // 共享逻辑：建立 TCP 连接（被 TCP、TLS、DoH 复用）
@@ -271,12 +275,14 @@ namespace psm::resolve::dns
             {
                 auto token = net::redirect_error(net::use_awaitable, ec);
                 ctx.timer.expires_after(std::chrono::milliseconds(ctx.timeout_ms));
-                ctx.timer.async_wait([s = sock](boost::system::error_code e)
-                                     {
+                auto on_timeout = [s = sock](boost::system::error_code e)
+                {
                     if (e != net::error::operation_aborted)
                     {
                         s->cancel();
-                    } });
+                    }
+                };
+                ctx.timer.async_wait(std::move(on_timeout));
                 co_await sock->async_send_to(net::buffer(payload), target, token);
                 ctx.timer.cancel();
             }
@@ -289,12 +295,14 @@ namespace psm::resolve::dns
                 buf.resize(4096);
 
                 ctx.timer.expires_after(std::chrono::milliseconds(ctx.timeout_ms));
-                ctx.timer.async_wait([s = sock](boost::system::error_code e)
-                                     {
+                auto on_timeout = [s = sock](boost::system::error_code e)
+                {
                     if (e != net::error::operation_aborted)
                     {
                         s->cancel();
-                    } });
+                    }
+                };
+                ctx.timer.async_wait(std::move(on_timeout));
                 net::ip::udp::endpoint sender;
                 const auto n = co_await sock->async_receive_from(net::buffer(buf), sender, token);
                 ctx.timer.cancel();

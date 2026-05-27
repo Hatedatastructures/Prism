@@ -92,7 +92,7 @@ Session::diversion()
   --> TLS 建立后，读取 TLS 后数据
   --> detect_tls() 确定内层协议
         (Trojan 与 HTTPS 与 VLESS)
-  --> 分派到 pipeline::trojan
+  --> 分派到 protocol::trojan::handle
 ```
 
 ### 2.3 Trojan 握手二进制格式
@@ -328,13 +328,12 @@ protocol_type::tls --> 伪装方案管道
 |  |  2. 如果 TLS: 伪装管道                                      |  |
 |  |       Reality --> ShadowTLS --> 原生 TLS                    |  |
 |  |  3. detect_tls() -- 内层协议检测                             |  |
-|  |  4. dispatch::dispatch(ctx, type, span)                     |  |
+|  |  4. session::diversion() switch (type)                       |  |
 |  +-------------------------------------------------------------+  |
 |                              |                                     |
 |                              v                                     |
 |  +-------------------------------------------------------------+  |
-|  |  dispatch::handler_table[protocol_type::trojan]              |  |
-|  |       --> pipeline::trojan(ctx, data)                        |  |
+|  |  session::diversion() switch -> protocol::trojan::handle      |  |
 |  +-------------------------------------------------------------+  |
 +------------------------------------------------------------------+
                               |
@@ -343,8 +342,8 @@ protocol_type::tls --> 伪装方案管道
 |                       管道层                                      |
 |                                                                   |
 |  +-------------------------------------------------------------+  |
-|  |  pipeline::trojan(ctx, data)                                  |  |
-|  |  [src/prism/pipeline/protocols/trojan.cpp]                   |  |
+|  |  protocol::trojan::handle(ctx, data)                           |  |
+|  |  [src/prism/protocol/trojan/process.cpp]                   |  |
 |  |                                                              |  |
 |  |  1. wrap_with_preview(ctx, data, true) -- 重放预读数据（use_global_mr）|  |
 |  |  2. 创建凭据验证器 lambda                                    |  |
@@ -363,7 +362,7 @@ protocol_type::tls --> 伪装方案管道
 |                                                                   |
 |  +-------------------------------------------------------------+  |
 |  |  relay::handshake()                                           |  |
-|  |  [src/prism/protocol/trojan/relay.cpp]                       |  |
+|  |  [src/prism/protocol/trojan/conn.cpp]                        |  |
 |  |                                                              |  |
 |  |  1. read_at_least(*next_layer, buffer, 68) -- 批量读取       |  |
 |  |  2. parse_credential(buffer[0..55]) -- 十六进制验证          |  |
@@ -381,7 +380,7 @@ protocol_type::tls --> 伪装方案管道
 |                                                                   |
 |  +-------------------------------------------------------------+  |
 |  |  relay::async_associate()                                     |  |
-|  |  [src/prism/protocol/trojan/relay.cpp]                       |  |
+|  |  [src/prism/protocol/trojan/conn.cpp]                        |  |
 |  |                                                              |  |
 |  |  1. 创建带有 config_.udp_idle_timeout 的 idle_timer           |  |
 |  |  2. 进入 udp_frame_loop()                                    |  |
@@ -419,16 +418,16 @@ Trojan 实现跨越四个架构层：
 
 ```
 层 1: Agent（会话 + 分派）
-  - session.cpp: diversion() 编排检测 + 分派
-  - table.hpp: 编译期 handler_table 映射 trojan --> pipeline::trojan
+  - session.cpp: diversion() 编排检测 + 分派（switch/case 分发）
+  - process.cpp: Trojan 协议处理入口
 
 层 2: Pipeline（协议处理器）
-  - trojan.cpp: 高级会话生命周期
+  - process.cpp: 高级会话生命周期
   - primitives.hpp: preview、forward、tunnel、wrap_with_preview
 
 层 3: Protocol（Trojan 状态机）
-  - relay.hpp/cpp: relay 类、handshake()、async_associate()、udp_frame_loop()
-  - format.hpp/cpp: 底层二进制解析
+  - conn.hpp/cpp: relay 类、handshake()、async_associate()、udp_frame_loop()
+  - framing.hpp/cpp: 底层二进制解析
   - constants.hpp: command、address_type 枚举
   - message.hpp: request 结构体
   - config.hpp: 能力开关
@@ -493,11 +492,9 @@ listener::accept_connection()
                                       |           +-- 是 --> protocol_type::trojan
                                       |           +-- 否  --> protocol_type::shadowsocks
                                       |
-                                      +-> dispatch::dispatch(ctx, protocol_type::trojan, span)
+                                      +-> session::diversion() switch(ctx, protocol_type::trojan, span)
                                             |
-                                            +-> handler_table[idx](ctx, span)
-                                                  |
-                                                  +-> pipeline::trojan(ctx, span)
+                                            +-> protocol::trojan::handle(ctx, span)
                                                         |
                                                         +-> wrap_with_preview(ctx, data, true)
                                                         |     +-> 用预读数据创建 preview 包装器
@@ -514,17 +511,17 @@ listener::accept_connection()
                                                         |     +-> read_at_least(*next_layer, buffer, 68)
                                                         |     |     +-> async_read_some(至少 68 字节)
                                                         |     |
-                                                        |     +-> format::parse_credential(buffer[0..55])
+                                                        |     +-> framing::parse_credential(buffer[0..55])
                                                         |     |     +-> 验证每个字节为十六进制数字
                                                         |     |
                                                         |     +-> verifier_(credential_view)
                                                         |     |     +-> 账户目录查找
                                                         |     |     +-> 连接数限制检查
                                                         |     |
-                                                        |     +-> format::parse_crlf(buffer[56..57])
+                                                        |     +-> framing::parse_crlf(buffer[56..57])
                                                         |     |     +-> 验证 "\r\n"
                                                         |     |
-                                                        |     +-> format::parse_cmd_atyp(buffer[58..59])
+                                                        |     +-> framing::parse_cmd_atyp(buffer[58..59])
                                                         |     |     +-> 解码 CMD 字节
                                                         |     |     +-> 解码 ATYP 字节
                                                         |     |
@@ -537,12 +534,12 @@ listener::accept_connection()
                                                         |     |     +-> 如果初始读取不足则补读
                                                         |     |
                                                         |     +-> parse_address_from_buffer(offset, atyp)
-                                                        |     |     +-> format::parse_ipv4() / parse_domain() / parse_ipv6()
+                                                        |     |     +-> framing::parse_ipv4() / parse_domain() / parse_ipv6()
                                                         |     |
-                                                        |     +-> format::parse_port(port_bytes)
+                                                        |     +-> framing::parse_port(port_bytes)
                                                         |     |     +-> 大端序 uint16 解码
                                                         |     |
-                                                        |     +-> format::parse_crlf(final_crlf_bytes)
+                                                        |     +-> framing::parse_crlf(final_crlf_bytes)
                                                         |     |     +-> 验证 "\r\n"
                                                         |     |
                                                         |     +-> validate_command(cmd, config)
@@ -583,11 +580,11 @@ listener::accept_connection()
                                                               |                             +-> co_await (do_read() || timer.async_wait())
                                                               |                             +-- 超时: co_return
                                                               |                             +-- 读取 0: co_return
-                                                              |                             +-> format::parse_udp_packet(buffer)
+                                                              |                             +-> framing::parse_udp_packet(buffer)
                                                               |                             +-> route_cb(host, port)
                                                               |                             +-> protocol::common::relay_udp_packet()
                                                               |                             +-> send_udp_response()
-                                                              |                                   +-> format::build_udp_packet()
+                                                              |                                   +-> framing::build_udp_packet()
                                                               |                                   +-> transport.async_write()
                                                               |
                                                               +-> case MUX (0x7F)
@@ -602,38 +599,33 @@ listener::accept_connection()
 
 ### 4.2 处理器分派
 
-分派机制使用**编译期函数表**而非虚函数或运行时工厂模式：
+分派机制通过 session::diversion() 中的 **switch/case 直接调用**，而非虚函数或运行时工厂模式：
 
 ```cpp
-// include/prism/agent/dispatch/table.hpp
-inline constexpr std::array<handler_func *, 7> handler_table{
-    /* 未知 (0)        */ handle_unknown,
-    /* http (1)        */ pipeline::http,
-    /* socks5 (2)      */ pipeline::socks5,
-    /* trojan (3)      */ pipeline::trojan,
-    /* vless (4)       */ pipeline::vless,
-    /* shadowsocks (5) */ pipeline::shadowsocks,
-    /* tls (6)         */ handle_unknown,  // 不应到达此处
-};
+// src/prism/instance/session/session.cpp (diversion switch)
+// 协议类型到处理函数的映射
+case psm::protocol::protocol_type::trojan:
+    co_await psm::protocol::trojan::handle(ctx, preread_span);
+    break;
 ```
 
-数组索引直接对应 `protocol_type` 枚举值。此设计实现：
-- **零虚函数开销**：直接函数指针调用。
-- **零动态分配**：`constexpr` 数组，编译期初始化。
+此设计实现：
+- **零虚函数开销**：直接函数调用。
+- **编译期类型安全**：每个协议有独立的处理函数签名。
 - **内联机会**：编译器可以内联分派。
 
 ### 4.3 协议检测管道
 
 ```
 +---------------+     +----------------+     +-------------------+     +------------------+
-|   probe()     |     |  伪装方案      |     |   detect_tls()    |    | dispatch::dispatch|
-|  (24 字节)    |---->| Reality /      |---->| (TLS 后数据)      |---->| handler_table    |
-|               |     | ShadowTLS /    |     |                   |     | [type](ctx, data)|
-| tls? socks5?  |     | 原生 TLS       |     | trojan? vless?    |     |                  |
+|   probe()     |     |  伪装方案      |     |   detect_tls()    |    | session::diversion|
+|  (24 字节)    |---->| Reality /      |---->| (TLS 后数据)      |---->| switch/case      |
+|               |     | ShadowTLS /    |     |                   |     | protocol_type::  |
+| tls? socks5?  |     | 原生 TLS       |     | trojan? vless?    |     | trojan -> handle |
 | http? ss?     |     |                |     | http? ss?         |     |                  |
 +---------------+     +----------------+     +-------------------+     +------------------+
        |                      |                       |                        |
-       | 检测到 TLS           | TLS 握手              | 检测到 Trojan          | pipeline::trojan
+       | 检测到 TLS           | TLS 握手              | 检测到 Trojan          | trojan::handle
        v                      v                       v                        v
   probe_result.type      入站 = TLS 流       peek_data[0..55]        relay::handshake()
   = protocol_type::tls   （解密通道）          全部为十六进制数字？      --> 解析凭据
@@ -1034,7 +1026,7 @@ struct config
 **重要说明：**
 
 - 配置中的 `password` 字段必须是实际密码的 **SHA224 十六进制摘要**，而不是明文密码。客户端计算相同的哈希并将其作为 56 字节凭据发送。
-- 配置在启动时读取一次并存储在 `agent::config` 中。`protocol.trojan` 子结构体传递给 `relay` 构造函数，在中继器对象的整个生命周期中不可变。
+- 配置在启动时读取一次并存储在 `psm::config` 中。`protocol.trojan` 子结构体传递给 `conn` 构造函数，在连接对象的整个生命周期中不可变。
 - 修改配置需要重启服务——没有热重载机制。
 
 ---
@@ -1066,7 +1058,7 @@ Trojan 处理期间可能返回以下错误码：
 
 **每个解析步骤的缓冲区大小验证：**
 
-`format.cpp` 中的每个解析函数在访问数据之前都验证缓冲区大小：
+`framing.cpp` 中的每个解析函数在访问数据之前都验证缓冲区大小：
 
 ```cpp
 // parse_credential: 至少需要 56 字节
@@ -1168,7 +1160,7 @@ if (n == 0) {  // 读取错误或 EOF
 单个 UDP 帧中的解析错误**不是致命的**——循环继续处理下一帧：
 
 ```cpp
-auto [parse_ec, parsed] = format::parse_udp_packet({buf.recv.data(), n});
+auto [parse_ec, parsed] = framing::parse_udp_packet({buf.recv.data(), n});
 if (fault::failed(parse_ec)) {
     trace::warn("{} 数据包解析失败", udp_tag);
     continue;  // 跳过错误数据包，继续循环

@@ -99,7 +99,11 @@ namespace psm::protocol::socks5::wire
             return {fault::code::protocol_error, {}};
         }
 
-        return {fault::code::success, {buffer[0], static_cast<command>(buffer[1]), buffer[2], static_cast<address_type>(buffer[3])}};
+        const auto ver = buffer[0];
+        const auto cmd = static_cast<command>(buffer[1]);
+        const auto rsv = buffer[2];
+        const auto atyp = static_cast<address_type>(buffer[3]);
+        return {fault::code::success, {ver, cmd, rsv, atyp}};
     }
 
     /**

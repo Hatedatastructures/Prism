@@ -107,14 +107,11 @@ namespace psm::protocol::socks5
     {
         // 握手超时保护：30 秒内必须完成
         net::steady_timer deadline(next_layer_->executor(), std::chrono::seconds(30));
-        deadline.async_wait(
-            [this](const boost::system::error_code &ec)
-            {
-                if (!ec)
-                {
-                    next_layer_->cancel();
-                }
-            });
+        auto on_deadline = [this](const boost::system::error_code &ec)
+        {
+            if (!ec) next_layer_->cancel();
+        };
+        deadline.async_wait(std::move(on_deadline));
 
         const auto [negotiation_ec, method] = co_await negotiated_authentication();
         if (fault::failed(negotiation_ec))
@@ -386,7 +383,8 @@ namespace psm::protocol::socks5
             co_return;
         }
 
-        co_await ctx.ingress.async_send_to(net::buffer(response_datagram.data(), response_datagram.size()), client_endpoint, token);
+        auto resp_buf = net::buffer(response_datagram.data(), response_datagram.size());
+        co_await ctx.ingress.async_send_to(resp_buf, client_endpoint, token);
 
         if (!io_ec)
         {
@@ -409,7 +407,9 @@ namespace psm::protocol::socks5
 
             using boost::asio::experimental::awaitable_operators::operator||;
             auto buf = net::buffer(ingress_buffer.data(), ingress_buffer.size());
-            auto result = co_await (ingress_socket.async_receive_from(buf, client_endpoint, token) || idle_timer.async_wait(net::use_awaitable));
+            auto result = co_await (
+                ingress_socket.async_receive_from(buf, client_endpoint, token)
+                || idle_timer.async_wait(net::use_awaitable));
 
             if (result.index() == 1)
             {

@@ -1,20 +1,39 @@
 # Pipeline 模块 — 协议管道原语
 
+> **注意**：Pipeline 模块的文件已分散到 `connect/tunnel/`（隧道转发）、`transport/preview.hpp`（预读回放）、`connect/dial/`（拨号）等模块。本文档描述的概念仍然有效，但文件路径已变更。
+
 ## 1. 模块概述
 
-Pipeline 模块是 Prism 的协议管道基础设施，提供通用的底层原语组件，包括上游拨号、预读回放、TLS 握手和双向隧道转发。这些原语为 HTTP、SOCKS5、Trojan、VLESS、Shadowsocks 等具体协议处理提供一致的底层支撑。
+Pipeline 原语为 HTTP、SOCKS5、Trojan、VLESS、Shadowsocks 等具体协议处理提供一致的底层支撑，包括上游拨号、预读回放、TLS 握手和双向隧道转发。
 
-### 文件结构
+### 实际文件分布
 
 ```
-include/prism/pipeline/
-├── primitives.hpp              # 管道原语定义（header-only）
-└── protocols/
-    ├── http.hpp/cpp            # HTTP 协议处理
-    ├── socks5.hpp/cpp          # SOCKS5 协议处理
-    ├── trojan.hpp/cpp          # Trojan 协议处理
-    ├── vless.hpp/cpp           # VLESS 协议处理
-    └── shadowsocks.hpp/cpp     # Shadowsocks 2022 协议处理
+include/prism/transport/
+├── preview.hpp                 # 预读数据回放
+
+include/prism/connect/
+├── dial/
+│   ├── dial.hpp                # 上游拨号
+│   ├── racer.hpp               # Happy Eyeballs 竞速
+│   └── router.hpp              # 拨号路由
+├── tunnel/
+│   ├── tunnel.hpp              # 双向隧道转发
+│   └── forward.hpp             # 组合拨号 + 隧道
+
+include/prism/protocol/         # 各协议处理器
+├── http/conn.hpp · process.hpp
+├── socks5/conn.hpp · process.hpp · framing.hpp
+├── trojan/conn.hpp · process.hpp · framing.hpp
+├── vless/conn.hpp · process.hpp · framing.hpp
+└── shadowsocks/conn.hpp · process.hpp · framing.hpp · util/
+
+src/prism/protocol/             # 协议处理器实现
+├── http/conn.cpp · process.cpp · parser.cpp
+├── socks5/conn.cpp · process.cpp
+├── trojan/conn.cpp · process.cpp · framing.cpp
+├── vless/conn.cpp · process.cpp · framing.cpp
+└── shadowsocks/conn.cpp · process.cpp · framing.cpp · util/datagram.cpp
 ```
 
 ---
@@ -25,8 +44,8 @@ include/prism/pipeline/
 
 | 项目 | 详情 |
 |------|------|
-| 头文件 | `include/prism/pipeline/primitives.hpp` |
-| 命名空间 | `psm::pipeline::primitives` |
+| 头文件 | `include/prism/transport/preview.hpp` |
+| 命名空间 | `psm::transport` |
 
 ```
 class preview final : public transmission
@@ -156,31 +175,31 @@ make_datagram_router(ctx) : function // 创建 UDP 路由回调
 
 ## 3. 协议处理器
 
-各协议处理器位于 `src/prism/pipeline/protocols/`，实现具体协议的完整处理流程：
+各协议处理器位于 `src/prism/protocol/`，每个协议一个子目录：
 
-| 协议 | 文件 | 说明 |
+| 协议 | 目录 | 说明 |
 |------|------|------|
-| HTTP | `http.cpp` | 解析请求 → 认证 → dial → tunnel |
-| SOCKS5 | `socks5.cpp` | 方法协商 → 认证 → 命令处理 → tunnel |
-| Trojan | `trojan.cpp` | SHA224 认证 → 目标解析 → tunnel/mux |
-| VLESS | `vless.cpp` | UUID 认证 → 目标解析 → tunnel/mux |
-| SS2022 | `shadowsocks.cpp` | AEAD 解密 → 目标解析 → tunnel |
+| HTTP | `protocol/http/` | 解析请求 → 认证 → dial → tunnel |
+| SOCKS5 | `protocol/socks5/` | 方法协商 → 认证 → 命令处理 → tunnel |
+| Trojan | `protocol/trojan/` | SHA224 认证 → 目标解析 → tunnel/mux |
+| VLESS | `protocol/vless/` | UUID 认证 → 目标解析 → tunnel/mux |
+| SS2022 | `protocol/shadowsocks/` | AEAD 解密 → 目标解析 → tunnel |
 
 ---
 
 ## 4. 与其他模块的关系
 
 ```
-pipeline 模块
+pipeline 原语
 ├── 依赖
-│   ├── channel::transport::transmission (传输抽象)
-│   ├── channel::adapter::connector (Socket 适配器)
-│   ├── resolve::router (DNS 路由)
+│   ├── transport::transmission (传输抽象)
+│   ├── transport::adapter::connector (Socket 适配器)
+│   ├── connect::dial::router (拨号路由)
 │   ├── outbound::proxy (出站代理接口)
 │   ├── memory (PMR 容器)
 │   └── fault::code (错误码)
 │
 └── 被依赖
-    └── agent::dispatch (协议处理器注册)
+    └── instance::dispatch (协议处理器注册)
     └── stealth::scheme (Reality 等伪装方案)
 ```

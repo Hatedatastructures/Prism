@@ -566,8 +566,8 @@ yamux 模块
 ├── multiplex::core (抽象基类)
 ├── multiplex::duct / parcel (流管道)
 ├── multiplex::smux::frame (复用 parse_mux_address 地址解析)
-├── channel::transport (传输层接口)
-├── resolve::router (地址解析)
+├── transport::transmission (传输层接口)
+├── connect::dial::router (地址解析)
 ├── memory (PMR 分配器)
 ├── trace (日志)
 └── boost::asio::experimental::concurrent_channel (发送通道)
@@ -577,7 +577,7 @@ yamux 模块
 
 ```
 multiplex::bootstrap ──► yamux::craft (Protocol=0x01 时创建)
-pipeline::primitives ──► multiplex::core (通过 bootstrap 接入)
+instance::session ──────────► multiplex::core (通过 bootstrap 接入)
 ```
 
 ---

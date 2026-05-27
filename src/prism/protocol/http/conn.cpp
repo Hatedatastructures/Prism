@@ -78,7 +78,8 @@ namespace psm::protocol::http
         // 写入新请求行到上游
         std::error_code ec;
         // safe: casting string data to byte span for wire transmission
-        co_await transport::async_write(*outbound, std::span(reinterpret_cast<const std::byte *>(new_line.data()), new_line.size()), ec);
+        auto line_span = std::span(reinterpret_cast<const std::byte *>(new_line.data()), new_line.size());
+        co_await transport::async_write(*outbound, line_span, ec);
         if (ec)
         {
             co_return;

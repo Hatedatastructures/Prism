@@ -159,12 +159,14 @@ namespace psm::stealth::restls
         {
             // target 包含 auth_header (12 bytes)
             const auto effective_target = target - static_cast<std::int16_t>(auth_hdrlen);
-            if (counter < lines_.size() && effective_target > 0 && data_available >= static_cast<std::size_t>(effective_target))
+            const bool valid_counter = counter < lines_.size();
+            const bool data_fits = data_available >= static_cast<std::size_t>(effective_target);
+            if (valid_counter && effective_target > 0 && data_fits)
             {
                 alloc.data_len = effective_target;
                 alloc.padding_len = 0;
             }
-            else if (counter < lines_.size() && effective_target > 0 && data_available < static_cast<std::size_t>(effective_target))
+            else if (valid_counter && effective_target > 0 && !data_fits)
             {
                 alloc.data_len = static_cast<std::int16_t>(data_available);
                 alloc.padding_len = effective_target - alloc.data_len;

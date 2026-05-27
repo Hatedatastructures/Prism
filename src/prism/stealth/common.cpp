@@ -15,15 +15,15 @@ namespace psm::stealth::common
         if (deadline)
         {
             deadline->expires_after(std::chrono::seconds(30));
-            deadline->async_wait(
-                [&sock](const boost::system::error_code &timer_ec)
+            auto on_timeout = [&sock](const boost::system::error_code &timer_ec)
+            {
+                if (!timer_ec)
                 {
-                    if (!timer_ec)
-                    {
-                        boost::system::error_code ignored;
-                        sock.cancel(ignored);
-                    }
-                });
+                    boost::system::error_code ignored;
+                    sock.cancel(ignored);
+                }
+            };
+            deadline->async_wait(std::move(on_timeout));
         }
 
         // 读取 5 字节 TLS 记录头

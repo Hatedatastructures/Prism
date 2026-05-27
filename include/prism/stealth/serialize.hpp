@@ -13,12 +13,28 @@
 #include <prism/stealth/anytls/config.hpp>
 #include <prism/stealth/ech/config.hpp>
 #include <prism/stealth/native/config.hpp>
+#include <prism/stealth/reality/config.hpp>
 #include <prism/stealth/restls/config.hpp>
 #include <prism/stealth/shadowtls/config.hpp>
 #include <prism/stealth/trusttunnel/config.hpp>
 
 #include <glaze/glaze.hpp>
 
+
+// ============================================================================
+// reality
+// ============================================================================
+
+template <>
+struct glz::meta<psm::stealth::reality::config>
+{
+    using T = psm::stealth::reality::config;
+    static constexpr auto value = glz::object(
+        "dest",         &T::dest,
+        "server_names", &T::server_names,
+        "private_key",  &T::private_key,
+        "short_ids",    &T::short_ids);
+};
 
 // ============================================================================
 // shadowtls

@@ -275,10 +275,10 @@ Shadowsocks 2022 是**无正特征协议**——其首字节是随机化的 salt
 ```
 
 **关键代码路径**：
-1. `src/prism/agent/launch.cpp` —— 创建 session 并启动协议检测
-2. `src/prism/agent/session.cpp` —— session 生命周期管理，预读 24 字节
-3. `include/prism/protocol/analysis.hpp` —— 协议分析器，逐个调用 detect_* 函数
-4. `src/prism/pipeline/protocols/shadowsocks.cpp` —— SS2022 pipeline 实现
+1. `src/prism/instance/worker/launch.cpp` —— 创建 session 并启动协议检测
+2. `src/prism/instance/session/session.cpp` —— session 生命周期管理，预读 24 字节
+3. `include/prism/recognition/probe/analyzer.hpp` —— 协议分析器，detect/detect_tls 函数
+4. `src/prism/protocol/shadowsocks/process.cpp` —— SS2022 处理流程实现
 
 ### 3.3 Prism 架构中的位置
 
@@ -301,11 +301,11 @@ Shadowsocks 2022 是**无正特征协议**——其首字节是随机化的 salt
        |
        v
   Pipeline Layer
-  shadowsocks.cpp:
+  process.cpp:
     1. wrap_with_preview (重放预读数据)
     2. make_relay (创建 SS2022 加解密层)
-    3. agent->handshake() (解密请求、验证时间戳、解析地址)
-    4. agent->acknowledge() (发送响应)
+    3. relay->handshake() (解密请求、验证时间戳、解析地址)
+    4. relay->acknowledge() (发送响应)
     5. primitives::forward (隧道转发，relay 作为 inbound)
        |
        v
@@ -338,16 +338,13 @@ thread_local auto worker_salt_pool = std::make_shared<salt_pool>(ttl);
 session::run()
   |
   +-- session::sniff_protocol()
-  |     +-- protocol::analysis::detect_http()
-  |     +-- protocol::analysis::detect_socks5()
-  |     +-- protocol::analysis::detect_trojan()
-  |     +-- protocol::analysis::detect_vless()
-  |     +-- protocol::analysis::detect_tls()
+  |     +-- recognition::probe::detect() -> fallback socks5/tls/http
+  |     +-- recognition::probe::detect_tls() -> fallback trojan/vless
   |     +-- fallback -> protocol_type::shadowsocks
   |
-  +-- registry::global().create(protocol_type::shadowsocks)
+  +-- session::diversion() switch -> protocol::shadowsocks::handle
   |
-  +-- pipeline::shadowsocks(ctx, preview_data)
+  +-- protocol::shadowsocks::handle(ctx, preview_data)
         |
         +-- primitives::wrap_with_preview(ctx, data, true)
         |     +-- 返回 preview 对象，包含预读的 24 字节
@@ -374,7 +371,7 @@ session::run()
         |     |     +-- async_read_some(var_header_len + 16)
         |     |     +-- aead_open(...)
         |     |     |     +-- 解密出 ATYP + Address + Port + Padding
-        |     |     +-- format::parse_address_port(buffer)
+        |     |     +-- framing::parse_address_port(buffer)
         |     |     |     +-- 解析 SOCKS5 风格地址
         |     |     +-- 填充 req.method, req.port, req.destination_address
         |     |
@@ -677,7 +674,7 @@ SS2022 使用 BLAKE3 作为 HKDF 的基础，派生会话密钥：
 
 ```
 情况: 变长头中地址格式非法
-条件: format::parse_address_port() 返回错误
+条件: framing::parse_address_port() 返回错误
 处理: 返回 fault::code::invalid_address，关闭连接
 ```
 
@@ -685,7 +682,7 @@ SS2022 使用 BLAKE3 作为 HKDF 的基础，派生会话密钥：
 
 ```
 情况: 解码后的 PSK 长度既不是 16 也不是 32
-条件: format::decode_psk() 验证失败
+条件: framing::decode_psk() 验证失败
 处理: 启动时配置加载阶段拒绝，不进入运行态
 ```
 

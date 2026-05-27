@@ -15,9 +15,10 @@ namespace psm::instance::worker
           router_({pool_, ioc_, cfg.dns, memory::system::local_pool()}),
           ssl_ctx_(tls::make(cfg.instance)),
           outbound_direct_(std::make_unique<outbound::direct>(router_)),
-          server_ctx_{std::atomic<std::shared_ptr<const psm::config>>{std::make_shared<const psm::config>(cfg)}, ssl_ctx_, std::move(account_store)},
+          server_ctx_{std::atomic<std::shared_ptr<const psm::config>>{}, ssl_ctx_, std::move(account_store)},
           worker_ctx_{ioc_, router_, memory::system::local_pool(), outbound_direct_.get(), &traffic_}
     {
+        server_ctx_.cfg.store(std::make_shared<const psm::config>(cfg));
         // 注册反向代理路由：将虚拟域名映射到实际后端地址。
         // 反向代理模式下，客户端连接代理的 443 端口，代理根据 SNI
         // 将流量透明转发到配置的后端服务。
@@ -37,11 +38,11 @@ namespace psm::instance::worker
 
         // 设置正向代理上游（positive）：如果配置了上游代理服务器，
         // 所有出站流量都通过这个上游代理转发（级联代理）。
-        if (!server_ctx_.config().instance.positive.host.empty() && server_ctx_.config().instance.positive.port != 0)
+        const auto &positive = server_ctx_.config().instance.positive;
+        if (!positive.host.empty() && positive.port != 0)
         {
-            router_.set_endpoint(
-                std::string_view(server_ctx_.config().instance.positive.host.data(), server_ctx_.config().instance.positive.host.size()),
-                server_ctx_.config().instance.positive.port);
+            auto positive_host = std::string_view(positive.host.data(), positive.host.size());
+            router_.set_endpoint(positive_host, positive.port);
         }
 
         // 注册流量统计实例，供全局聚合查询

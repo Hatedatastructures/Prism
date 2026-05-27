@@ -109,6 +109,18 @@ struct glz::meta<psm::protocol::vless::config>
 };
 
 template <>
+struct glz::meta<psm::protocol::shadowsocks::config>
+{
+    using T = psm::protocol::shadowsocks::config;
+    static constexpr auto value = glz::object(
+        "psk",               &T::psk,
+        "method",            &T::method,
+        "enable_tcp",        &T::enable_tcp,
+        "enable_udp",        &T::enable_udp,
+        "udp_idle_timeout",  &T::idle_timeout);
+};
+
+template <>
 struct glz::meta<psm::instance::stealth::config>
 {
     using T = psm::instance::stealth::config;

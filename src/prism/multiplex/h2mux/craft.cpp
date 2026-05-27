@@ -104,9 +104,11 @@ namespace psm::multiplex::h2mux
 
         const auto self = std::static_pointer_cast<craft>(shared_from_this());
 
-        net::co_spawn(executor(),
-            [self]() -> net::awaitable<void> { co_await self->send_loop(); },
-            net::detached);
+        auto send_task = [self]() -> net::awaitable<void>
+        {
+            co_await self->send_loop();
+        };
+        net::co_spawn(executor(), std::move(send_task), net::detached);
 
         co_await frame_loop();
 
@@ -212,12 +214,15 @@ namespace psm::multiplex::h2mux
             entry.connecting = true;
             auto self = std::static_pointer_cast<craft>(shared_from_this());
             const auto id = static_cast<std::uint32_t>(stream_id);
-            net::co_spawn(executor(),
-                [self, id]() -> net::awaitable<void> { co_await self->activate_stream(id); },
-                [](const std::exception_ptr &ep)
-                {
-                    if (ep) log_spawn_error(ep, "activate_stream");
-                });
+            auto activate_task = [self, id]() -> net::awaitable<void>
+            {
+                co_await self->activate_stream(id);
+            };
+            auto on_error = [](const std::exception_ptr &ep)
+            {
+                if (ep) log_spawn_error(ep, "activate_stream");
+            };
+            net::co_spawn(executor(), std::move(activate_task), std::move(on_error));
         }
     }
 
@@ -237,7 +242,11 @@ namespace psm::multiplex::h2mux
         {
         case stream_type::check:
         {
-            respond_connect(static_cast<std::int32_t>(stream_id), 200);
+            const auto rc = respond_connect(static_cast<std::int32_t>(stream_id), 200);
+            if (rc != 0)
+            {
+                trace::warn("{} respond_connect for health check stream {} failed: nghttp2 rc={}", tag, stream_id, rc);
+            }
             std::error_code ec;
             co_await send_pending();
             nghttp2_submit_rst_stream(session_, NGHTTP2_FLAG_NONE,
@@ -251,7 +260,11 @@ namespace psm::multiplex::h2mux
         {
             trace::debug("{} stream {} creating UDP parcel -> {}:{}", tag, stream_id, info.host, info.port);
 
-            respond_connect(static_cast<std::int32_t>(stream_id), 200);
+            const auto rc = respond_connect(static_cast<std::int32_t>(stream_id), 200);
+            if (rc != 0)
+            {
+                trace::warn("{} respond_connect for UDP stream {} failed: nghttp2 rc={}", tag, stream_id, rc);
+            }
             std::error_code ec;
             co_await send_pending();
 
@@ -294,10 +307,9 @@ namespace psm::multiplex::h2mux
 
             char port_buf[8];
             const auto [port_end, port_ec] = std::to_chars(port_buf, port_buf + sizeof(port_buf), info.port);
-            auto [code, conn] = co_await connect::async_forward(
-                router_,
-                std::string_view(info.host.data(), info.host.size()),
-                std::string_view(port_buf, std::distance(port_buf, port_end)));
+            auto port_str = std::string_view(port_buf, std::distance(port_buf, port_end));
+            auto host_str = std::string_view(info.host.data(), info.host.size());
+            auto [code, conn] = co_await connect::async_forward(router_, host_str, port_str);
 
             if (code != fault::code::success || !conn.valid())
             {
@@ -308,13 +320,19 @@ namespace psm::multiplex::h2mux
                 co_return;
             }
 
-            respond_connect(static_cast<std::int32_t>(stream_id), 200);
+            const auto rc = respond_connect(static_cast<std::int32_t>(stream_id), 200);
+            if (rc != 0)
+            {
+                trace::warn("{} respond_connect for TCP stream {} failed: nghttp2 rc={}", tag, stream_id, rc);
+            }
             std::error_code send_ec;
             co_await send_pending();
 
             auto target = transport::make_reliable(std::move(conn));
-            const auto p = make_duct(duct_options{stream_id, shared_from_this(), std::move(target),
-                                                   {config_.h2mux.buffer_size, mr_}});
+            const duct_options dopts{
+                stream_id, shared_from_this(), std::move(target),
+                {config_.h2mux.buffer_size, mr_}};
+            const auto p = make_duct(dopts);
             ducts_[stream_id] = p;
             p->start();
 
@@ -444,17 +462,19 @@ namespace psm::multiplex::h2mux
                 reinterpret_cast<const std::byte *>(data),
                 reinterpret_cast<const std::byte *>(data) + len);
 
-            net::co_spawn(self->executor(),
-                [dp, p = std::move(payload)]() mutable -> net::awaitable<void>
-                { co_await dp->on_data(std::move(p)); },
-                [dp](const std::exception_ptr &ep)
+            auto dispatch_data = [dp, p = std::move(payload)]() mutable -> net::awaitable<void>
+            {
+                co_await dp->on_data(std::move(p));
+            };
+            auto on_duct_error = [dp](const std::exception_ptr &ep)
+            {
+                if (ep)
                 {
-                    if (ep)
-                    {
-                        log_spawn_error(ep, "dispatch duct data");
-                        dp->close();
-                    }
-                });
+                    log_spawn_error(ep, "dispatch duct data");
+                    dp->close();
+                }
+            };
+            net::co_spawn(self->executor(), std::move(dispatch_data), std::move(on_duct_error));
             return 0;
         }
 
@@ -466,17 +486,19 @@ namespace psm::multiplex::h2mux
                 reinterpret_cast<const std::byte *>(data),
                 reinterpret_cast<const std::byte *>(data) + len);
 
-            net::co_spawn(self->executor(),
-                [dp, p = std::move(payload)]() mutable -> net::awaitable<void>
-                { co_await dp->on_data(std::move(p)); },
-                [dp](const std::exception_ptr &ep)
+            auto dispatch_parcel = [dp, p = std::move(payload)]() mutable -> net::awaitable<void>
+            {
+                co_await dp->on_data(std::move(p));
+            };
+            auto on_parcel_error = [dp](const std::exception_ptr &ep)
+            {
+                if (ep)
                 {
-                    if (ep)
-                    {
-                        log_spawn_error(ep, "dispatch parcel data");
-                        dp->close();
-                    }
-                });
+                    log_spawn_error(ep, "dispatch parcel data");
+                    dp->close();
+                }
+            };
+            net::co_spawn(self->executor(), std::move(dispatch_parcel), std::move(on_parcel_error));
             return 0;
         }
 
@@ -665,10 +687,10 @@ namespace psm::multiplex::h2mux
         if (status == 200)
             status_str = "200";
         // safe: nghttp2 requires mutable uint8_t* for nv pairs, string literals are cast to non-const for API compat
+        auto status_name = const_cast<std::uint8_t *>(reinterpret_cast<const std::uint8_t *>(":status"));
+        auto status_val = const_cast<std::uint8_t *>(reinterpret_cast<const std::uint8_t *>(status_str));
         nghttp2_nv hdrs[] = {
-            {const_cast<std::uint8_t *>(reinterpret_cast<const std::uint8_t *>(":status")),
-             const_cast<std::uint8_t *>(reinterpret_cast<const std::uint8_t *>(status_str)),
-             7, 3, NGHTTP2_NV_FLAG_NONE}};
+            {status_name, status_val, 7, 3, NGHTTP2_NV_FLAG_NONE}};
 
         return nghttp2_submit_headers(session_, NGHTTP2_FLAG_NONE,
                                       stream_id, nullptr, hdrs, 1, nullptr);

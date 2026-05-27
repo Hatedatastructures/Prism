@@ -182,8 +182,9 @@ namespace psm::stealth::shadowtls
                 result.transport = shadowtls_trans;
                 result.scheme = "shadowtls";
 
+                auto protocol_name = protocol::to_string_view(result.detected);
                 trace::debug("[ShadowTlsScheme] Authenticated (user: {}), inner protocol: {}, shadowtls_transport created (HMAC inherited)",
-                             detail.matched_user, protocol::to_string_view(result.detected));
+                             detail.matched_user, protocol_name);
             }
             else
             {

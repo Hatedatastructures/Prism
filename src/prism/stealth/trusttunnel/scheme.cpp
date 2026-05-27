@@ -216,13 +216,12 @@ namespace psm::stealth::trusttunnel
         auto encrypted_trans = std::make_shared<transport::encrypted>(ssl_stream);
 
         auto mux_cfg = ctx.cfg->mux;
-        auto craft = std::make_shared<multiplex::h2mux::craft>(
-            multiplex::core_options{encrypted_trans, ctx.session->worker_ctx.router, mux_cfg},
-            multiplex::h2mux::craft_init{
-                ctx.session->worker_ctx.router,
-                mux_cfg,
-                resolve_stream_target
-            });
+        multiplex::core_options core_opts{encrypted_trans, ctx.session->worker_ctx.router, mux_cfg};
+        multiplex::h2mux::craft_init craft_init_args{
+            ctx.session->worker_ctx.router,
+            mux_cfg,
+            resolve_stream_target};
+        auto craft = std::make_shared<multiplex::h2mux::craft>(core_opts, craft_init_args);
 
         craft->start();
 

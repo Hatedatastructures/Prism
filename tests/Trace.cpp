@@ -208,7 +208,9 @@ void TestLogLevelStrings()
         return c;
     }();
 
-    const char *levels[] = {"trace", "debug", "info", "warn", "warning", "error", "err", "critical", "fatal", "off", "INFO", "DeBuG", "UNKNOWN_LEVEL"};
+    const char *levels[] = {
+        "trace", "debug", "info", "warn", "warning", "error", "err",
+        "critical", "fatal", "off", "INFO", "DeBuG", "UNKNOWN_LEVEL"};
 
     for (const auto *level : levels)
     {

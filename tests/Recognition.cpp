@@ -279,12 +279,13 @@ void TestFeatureBitmapCombined(psm::testing::TestRunner &runner)
     auto bitmap = psm::recognition::tls::build_bitmap(features);
 
     // 测试组合特征
-    auto combined = psm::recognition::tls::feature_bit::has_sni | psm::recognition::tls::feature_bit::has_x25519 | psm::recognition::tls::feature_bit::full_session;
+    using fb = psm::recognition::tls::feature_bit;
+    auto combined = fb::has_sni | fb::has_x25519 | fb::full_session;
     runner.Check(psm::recognition::tls::has_all(bitmap, combined),
                  "Should have all three features");
 
     // 测试部分匹配
-    auto partial = psm::recognition::tls::feature_bit::has_sni | psm::recognition::tls::feature_bit::has_ech;
+    auto partial = fb::has_sni | fb::has_ech;
     runner.Check(!psm::recognition::tls::has_all(bitmap, partial),
                  "Should not have ECH");
 }

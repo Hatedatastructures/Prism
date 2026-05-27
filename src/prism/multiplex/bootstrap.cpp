@@ -52,7 +52,9 @@ namespace psm::multiplex
                     co_return std::make_pair(std::make_error_code(std::errc::connection_reset), protocol_type::smux);
                 }
 
-                const auto padding_len = static_cast<std::uint16_t>(padding_len_buf[0]) << 8 | static_cast<std::uint16_t>(padding_len_buf[1]);
+                const auto hi = static_cast<std::uint16_t>(padding_len_buf[0]) << 8;
+                const auto lo = static_cast<std::uint16_t>(padding_len_buf[1]);
+                const auto padding_len = static_cast<std::uint16_t>(hi | lo);
                 if (padding_len > 0)
                 {
                     memory::vector<std::byte> padding(mr);

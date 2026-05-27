@@ -8,10 +8,10 @@ Resolve 模块是 Prism 的 DNS 解析门面，提供完整的七阶段查询管
 
 ```
 include/prism/resolve/
-├── router.hpp                # 分发层路由器（顶层门面）
 ├── dns/
 │   ├── dns.hpp               # DNS 解析器抽象接口 + 工厂函数
 │   ├── config.hpp            # DNS 配置（servers、mode、cache、rules）
+│   ├── serialize.hpp         # DNS 序列化支持
 │   ├── upstream.hpp          # 底层 DNS 查询客户端（UDP/TCP/DoT/DoH）
 │   └── detail/               # 内部实现（不对外暴露）
 │       ├── cache.hpp         # DNS 缓存（正向/负向、serve-stale、LRU）
@@ -22,7 +22,6 @@ include/prism/resolve/
 │       └── utility.hpp       # 工具函数（parse_port 等）
 
 src/prism/resolve/
-├── router.cpp                # 路由器实现
 └── dns/
     ├── resolver.cpp          # resolver 实现（make_resolver）
     ├── upstream.cpp          # 上游查询客户端实现
@@ -31,6 +30,8 @@ src/prism/resolve/
         ├── format.cpp        # 报文编解码实现
         └── rules.cpp         # 规则引擎实现
 ```
+
+> **注意**：DNS 路由器（router）位于 `include/prism/connect/dial/router.hpp`，不在 resolve 模块内。resolve 模块提供 DNS 解析能力，connect::dial::router 整合 DNS + 连接池 + Happy Eyeballs。
 
 ### 七阶段查询管道
 
@@ -80,9 +81,9 @@ src/prism/resolve/
 
 | 项目 | 详情 |
 |------|------|
-| 头文件 | `include/prism/resolve/router.hpp` |
-| 实现文件 | `src/prism/resolve/router.cpp` |
-| 命名空间 | `psm::resolve` |
+| 头文件 | `include/prism/connect/dial/router.hpp` |
+| 实现文件 | `src/prism/connect/dial/router.cpp` |
+| 命名空间 | `psm::connect` |
 
 ```
 class router
@@ -552,16 +553,16 @@ query_udp(server, query):
 resolve 模块
 ├── memory (PMR 分配器, container, pool)
 ├── fault::code (错误码体系)
-├── channel::connection_pool (TCP 连接池，用于 router)
+├── connect::pool (TCP 连接池，用于 router)
 └── boost::asio (网络异步原语, SSL)
 ```
 
 ### 6.2 外部模块对 Resolve 的依赖
 
 ```
-agent::worker ───────────────► router (构造时传入)
-agent::session ──────────────► 通过 session_context.worker.router 访问
-pipeline::primitives ────────► router (通过 ctx.worker.router)
+instance::worker ──────────────► router (构造时传入)
+instance::session ─────────────► 通过 context::session.worker_ctx.router 访问
+connect::dial::racer ─────────► connection_pool (通过 router)
 multiplex::bootstrap ────────► router (地址解析)
 multiplex::duct/parcel ──────► 通过 core::router_ 访问
 ```

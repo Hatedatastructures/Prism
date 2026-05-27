@@ -399,8 +399,8 @@ void TestTrojanRelayHandshake()
     // 启动服务端协程：接受连接并进行 Trojan 握手及回显
     net::co_spawn(ioc, DoTrojanServer(acceptor, test_user_credential), net::detached);
     // 启动客户端协程：连接服务端并执行完整的 Trojan 握手 + Echo 测试
-    net::co_spawn(ioc, [endpoint = bound_endpoint, &test_user_credential, &test_host, test_port, &test_message, client_ok]() -> net::awaitable<void>
-                  {
+    auto client_task = [endpoint = bound_endpoint, &test_user_credential, &test_host, test_port, &test_message, client_ok]() -> net::awaitable<void>
+    {
                       try
                       {
                           co_await DoTrojanClient(endpoint, test_user_credential, test_host, test_port, test_message);
@@ -409,7 +409,9 @@ void TestTrojanRelayHandshake()
                       catch (const std::exception &e)
                       {
                           LogFail(std::format("Client wrapper exception: {}", e.what()));
-                      } }, [&](const std::exception_ptr &)
+                      }
+                  };
+    net::co_spawn(ioc, std::move(client_task), [&](const std::exception_ptr &)
                   { ioc.stop(); });
 
     // 阻塞运行事件循环，直到所有异步操作完成

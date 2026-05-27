@@ -232,11 +232,12 @@ static void BM_StdVectorPush(benchmark::State &state)
         }
         benchmark::DoNotOptimize(values);
     }
-    state.SetBytesProcessed(static_cast<std::int64_t>(state.iterations()) * static_cast<std::int64_t>(count * sizeof(std::uint64_t)));
+    const auto iter_bytes = static_cast<std::int64_t>(count * sizeof(std::uint64_t));
+    state.SetBytesProcessed(static_cast<std::int64_t>(state.iterations()) * iter_bytes);
 }
 
 // ============================================================
-// PMR vector 分配测试
+// PMR vector 分配测试 — NewDelete
 // 测试 memory::vector 使用不同内存资源的 push_back 性能：
 // - new_delete_resource、全局池、线程本地池、默认资源、帧竞技场
 // ============================================================
@@ -256,7 +257,8 @@ static void BM_PmrVectorPush_NewDeleteResource(benchmark::State &state)
         }
         benchmark::DoNotOptimize(values);
     }
-    state.SetBytesProcessed(static_cast<std::int64_t>(state.iterations()) * static_cast<std::int64_t>(count * sizeof(std::uint64_t)));
+    const auto iter_bytes = static_cast<std::int64_t>(count * sizeof(std::uint64_t));
+    state.SetBytesProcessed(static_cast<std::int64_t>(state.iterations()) * iter_bytes);
 }
 
 static void BM_PmrVectorPush_GlobalPool(benchmark::State &state)
@@ -274,7 +276,8 @@ static void BM_PmrVectorPush_GlobalPool(benchmark::State &state)
         }
         benchmark::DoNotOptimize(values);
     }
-    state.SetBytesProcessed(static_cast<std::int64_t>(state.iterations()) * static_cast<std::int64_t>(count * sizeof(std::uint64_t)));
+    const auto iter_bytes = static_cast<std::int64_t>(count * sizeof(std::uint64_t));
+    state.SetBytesProcessed(static_cast<std::int64_t>(state.iterations()) * iter_bytes);
 }
 
 static void BM_PmrVectorPush_ThreadLocalPool(benchmark::State &state)
@@ -292,7 +295,8 @@ static void BM_PmrVectorPush_ThreadLocalPool(benchmark::State &state)
         }
         benchmark::DoNotOptimize(values);
     }
-    state.SetBytesProcessed(static_cast<std::int64_t>(state.iterations()) * static_cast<std::int64_t>(count * sizeof(std::uint64_t)));
+    const auto iter_bytes = static_cast<std::int64_t>(count * sizeof(std::uint64_t));
+    state.SetBytesProcessed(static_cast<std::int64_t>(state.iterations()) * iter_bytes);
 }
 
 static void BM_PmrVectorPush_DefaultResource(benchmark::State &state)
@@ -309,7 +313,8 @@ static void BM_PmrVectorPush_DefaultResource(benchmark::State &state)
         }
         benchmark::DoNotOptimize(values);
     }
-    state.SetBytesProcessed(static_cast<std::int64_t>(state.iterations()) * static_cast<std::int64_t>(count * sizeof(std::uint64_t)));
+    const auto iter_bytes = static_cast<std::int64_t>(count * sizeof(std::uint64_t));
+    state.SetBytesProcessed(static_cast<std::int64_t>(state.iterations()) * iter_bytes);
 }
 
 static void BM_PmrVectorPush_FrameArena(benchmark::State &state)
@@ -329,7 +334,8 @@ static void BM_PmrVectorPush_FrameArena(benchmark::State &state)
         }
         benchmark::DoNotOptimize(values);
     }
-    state.SetBytesProcessed(static_cast<std::int64_t>(state.iterations()) * static_cast<std::int64_t>(count * sizeof(std::uint64_t)));
+    const auto iter_bytes = static_cast<std::int64_t>(count * sizeof(std::uint64_t));
+    state.SetBytesProcessed(static_cast<std::int64_t>(state.iterations()) * iter_bytes);
 }
 
 // ============================================================

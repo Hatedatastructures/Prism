@@ -446,7 +446,8 @@ private:
                     while (val_start < raw.size() && raw[val_start] == ' ')
                         ++val_start;
                     auto val_end = raw.find("\r\n", val_start);
-                    auto len_str = raw.substr(val_start, val_end == std::string_view::npos ? std::string_view::npos : val_end - val_start);
+                    auto len_end = val_end == std::string_view::npos ? std::string_view::npos : val_end - val_start;
+                    auto len_str = raw.substr(val_start, len_end);
                     for (char c : len_str)
                     {
                         if (c >= '0' && c <= '9')
@@ -569,7 +570,8 @@ private:
                     while (val_start < headers.size() && headers[val_start] == ' ')
                         ++val_start;
                     auto val_end = headers.find("\r\n", val_start);
-                    auto len_str = headers.substr(val_start, val_end == std::string_view::npos ? std::string_view::npos : val_end - val_start);
+                    auto len_end = val_end == std::string_view::npos ? std::string_view::npos : val_end - val_start;
+                    auto len_str = headers.substr(val_start, len_end);
                     for (char c : len_str)
                     {
                         if (c >= '0' && c <= '9')

@@ -2,58 +2,63 @@
 
 ## 1. 模块概述
 
-Recognition 模块是 Prism 的协议智能识别层，负责从传输层检测客户端协议类型并识别 TLS 伪装方案。它位于 Session 层和 Dispatch 层之间，采用三阶段流水线架构：外层探测 → 特征分析 → 方案执行。
+Recognition 模块是 Prism 的协议智能识别层，负责从传输层检测客户端协议类型并识别 TLS 伪装方案。它位于 Session 层和 Protocol 层之间，采用两阶段架构：外层探测（Probe）→ TLS 伪装识别（Identify）。
 
 ### 文件结构
 
 ```
 include/prism/recognition/
-├── recognition.hpp             # 模块聚合头文件 + 统一入口 recognize()
+├── recognition.hpp             # 模块聚合头文件 + 统一入口 recognize() / identify()
 ├── confidence.hpp              # 置信度枚举（high/medium/low/none）
-├── feature.hpp                 # ClientHello 特征结构
 ├── result.hpp                  # analysis_result 分析结果
+├── routes.hpp                  # SNI 路由表（route_table）
+├── target.hpp                  # 目标地址解析
+├── pipeline.hpp                # 分层检测管道（layered_detection_pipeline）
 ├── probe/
 │   ├── probe.hpp               # 外层协议探测（24 字节预读 + 协程）
 │   └── analyzer.hpp            # detect() 纯函数检测
-├── arrival/
-│   ├── feature.hpp             # feature 虚基类
-│   ├── registry.hpp            # 注册表（单例，插件架构）
-│   ├── reality.hpp             # Reality 方案 feature
-│   ├── ech.hpp                 # ECH feature（预留）
-│   └── anytls.hpp              # AnyTLS feature（预留）
-└── handshake/
-    ├── executor.hpp            # 方案执行器
-    └── priority.hpp            # 执行优先级配置
+└── tls/
+    ├── signal.hpp              # ClientHello 解析（read_tls_record / parse_client_hello）
+    └── features.hpp            # 特征位图（feature_bit + build_bitmap）
 
 src/prism/recognition/
 ├── recognition.cpp             # recognize() / identify() 实现
+├── pipeline.cpp                # 分层检测管道实现
+├── routes.cpp                  # SNI 路由表实现
+├── target.cpp                  # 目标地址解析实现
 ├── probe/
 │   └── analyzer.cpp            # detect() 实现
-├── arrival/
-│   ├── registry.cpp            # 注册表实现
-│   └── reality.cpp             # Reality feature 实现
-└── handshake/
-    ├── executor.cpp            # 执行器实现
-    └── priority.cpp            # 优先级配置
+└── tls/
+    └── signal.cpp              # ClientHello 解析实现
 ```
 
-### 三阶段流水线
+### 两阶段架构
 
 ```
-probe::probe(transport, 24)     → probe_result{protocol_type}
-       │ (仅当 TLS)
-       ▼
-identify():
-  read_arrival()            → raw_arrival
-       │
-       ▼
-  parse_arrival()           → arrival_features
-       │
-       ▼
-  registry::analyze()       → analysis_result{candidates, confidence}
-       │
-       ▼
-  scheme_executor::execute() → scheme_result{transport, detected}
+Phase 1: recognize()
+  probe::probe(transport, 24)   → probe_result{protocol_type}
+         │
+         ├─ 非 TLS → 返回 {transport, detected, preread}
+         │
+         └─ TLS ↓
+
+Phase 2: identify()
+  tls::read_tls_record()        → raw_record
+         │
+         ▼
+  tls::parse_client_hello()     → hello_features
+         │
+         ▼
+  route_table::lookup(sni)      → matched_schemes
+         │
+         ▼
+  tls::build_bitmap(features)   → bitmap
+         │
+         ▼
+  layered_detection_pipeline     → pipeline_result{candidates}
+         │
+         ▼
+  stealth::scheme_executor      → handshake_result{transport, detected}
 ```
 
 ---
@@ -71,8 +76,8 @@ identify():
 struct recognize_context              // 识别输入
 ├── transport              : shared_transmission   // 传输层
 ├── cfg                    : const config*         // 全局配置
-├── router                 : router*               // DNS 路由器
-├── session                : session_context*      // 会话上下文
+├── router                 : connect::router*      // 路由器（fallback 用）
+├── session                : context::session*     // 会话上下文
 └── frame_arena            : frame_arena*          // 帧内存池
 
 struct recognize_result               // 识别输出
@@ -105,84 +110,139 @@ detect(peek_data) → protocol_type
 ```
 identify(ctx)
    │
-   ├─ read_arrival()    → raw_arrival
-   ├─ parse_arrival()   → arrival_features
-   ├─ registry::analyze(features) → analysis_result
-   └─ executor::execute_by_analysis() → scheme_result
+   ├─ tls::read_tls_record()        → raw_record
+   ├─ tls::parse_client_hello()     → hello_features
+   ├─ route_table::lookup(sni)      → matched_schemes
+   ├─ tls::build_bitmap(features)   → bitmap
+   ├─ layered_detection_pipeline     → pipeline_result
+   └─ scheme_executor::execute()    → handshake_result
 ```
 
 ### 2.2 置信度枚举 confidence
 
 ```
-enum class confidence : uint8_t
+enum class confidence : uint8
 ├── high     // 特征完全匹配，可直接执行
 ├── medium   // 特征部分匹配，需完整验证
 ├── low      // 特征部分匹配但不确定
 └── none     // 无特征，Native 兜底
 ```
 
-### 2.3 ClientHello 特征结构
+### 2.3 ClientHello 特征结构 hello_features
+
+| 项目 | 详情 |
+|------|------|
+| 头文件 | `include/prism/protocol/tls/types.hpp` |
+| 命名空间 | `psm::protocol::tls` |
 
 ```
-struct arrival_features          // 从 ClientHello 提取的特征
+struct hello_features                // 从 ClientHello 提取的特征
 ├── server_name           : string           // SNI
-├── session_id_len        : uint8            // session_id 长度（0-32）
-├── has_x25519_key_share  : bool             // 是否存在 X25519 key_share
-├── x25519_public_key     : optional<array<byte,32>>
-├── supported_versions    : vector<uint16>   // TLS 版本列表
-├── has_ech_extension     : bool             // 是否存在 ECH 扩展
-├── ech_config_id         : optional<array<byte,8>>
-├── alpn_protocols        : vector<string>   // ALPN 协议列表
-├── random                : array<byte,32>   // 客户端随机数
 ├── session_id            : vector<uint8>    // session_id 数据
-├── raw_arrival           : vector<byte>     // 原始 ClientHello 记录
-└── raw_handshake_message : vector<uint8>    // 原始握手消息
+├── session_id_len        : uint8            // session_id 长度（0-32）
+├── has_x25519            : bool             // 是否存在 X25519 key_share
+├── x25519_key            : array<uint8,32>  // X25519 公钥
+├── versions              : vector<uint16>   // TLS 版本列表
+├── random                : array<uint8,32>  // 客户端随机数
+├── has_alpn              : bool             // ALPN 扩展存在
+├── has_psk               : bool             // PSK 扩展存在
+├── has_ech               : bool             // ECH 扩展存在
+├── has_esni              : bool             // ESNI 扩展存在
+├── greased_extensions    : bool             // GREASE 扩展存在
+├── has_sig_algos         : bool             // signature_algorithms 存在
+├── keyshare_multi        : bool             // key_share 含多个条目
+├── early_data            : bool             // early_data 扩展存在
+├── raw_msg               : vector<uint8>    // 原始握手消息（不含 record header）
+└── raw_record            : vector<byte>     // 原始 ClientHello 记录（含 record header）
 ```
 
-### 2.4 特征分析器 feature
+### 2.4 特征位图 feature_bit
 
 | 项目 | 详情 |
 |------|------|
-| 头文件 | `include/prism/recognition/arrival/feature.hpp` |
-| 命名空间 | `psm::recognition::arrival` |
+| 头文件 | `include/prism/recognition/tls/features.hpp` |
+| 命名空间 | `psm::recognition::tls` |
 
 ```
-class feature                        // 虚基类
-├── name()               : string_view        // 方案名称
-├── analyze(features, cfg): confidence        // 分析置信度
-└── is_enabled(cfg)      : bool               // 方案是否启用
+enum class feature_bit : uint32
+├── has_sni           = 1 << 0   // SNI 存在
+├── sni_matched       = 1 << 1   // SNI 匹配配置
+├── has_x25519        = 1 << 2   // X25519 key_share 存在
+├── full_session      = 1 << 3   // session_id 长度 == 32
+├── reality_marker    = 1 << 4   // session_id[0:3] == [0x01, 0x08, 0x02]
+├── hmac_valid        = 1 << 5
+├── nonstd_session    = 1 << 6   // session_id 长度非 0 且非 32
+├── has_ech           = 1 << 7
+├── has_esni          = 1 << 8
+├── greased_extensions= 1 << 9
+├── has_versions      = 1 << 10
+├── has_alpn          = 1 << 11
+├── has_psk           = 1 << 12
+├── has_sigalgs       = 1 << 13
+├── keyshare_multi    = 1 << 14
+└── early_data        = 1 << 15
 
-// Reality feature 示例
-class reality final : feature
-├── name()               → "reality"
-├── analyze(features, cfg)
-│   ├─ SNI 匹配 server_names → 继续
-│   ├─ session_id_len == 32 + x25519 → high
-│   ├─ x25519 → medium
-│   └─ SNI 匹配但无 x25519 → low
-│   └─ SNI 不匹配 → none
-└── is_enabled(cfg)      → cfg.stealth.reality.enabled()
+build_bitmap(features) → uint32  // 构建特征位图
+has_feature(bitmap, bit) → bool  // 检查单个特征
+has_all(bitmap, bits) → bool     // 检查多个特征
 ```
 
-### 2.5 注册表 registry
+### 2.5 SNI 路由表 route_table
 
 | 项目 | 详情 |
 |------|------|
-| 头文件 | `include/prism/recognition/arrival/registry.hpp` |
-| 命名空间 | `psm::recognition::arrival` |
+| 头文件 | `include/prism/recognition/routes.hpp` |
+| 实现文件 | `src/prism/recognition/routes.cpp` |
+| 命名空间 | `psm::recognition` |
 
 ```
-class registry               // 单例，运行时只读
-├── instance()            : registry&         // 获取单例
-├── add(f)                : void              // 注册 feature
-├── analyze(features, cfg): analysis_result   // 执行所有 feature，按置信度排序
-└── features()            : vector<shared_feature>  // 获取所有已注册
-
-// 注册宏
-REGISTER_ARRIVAL(reality)  // 文件末尾一行注册
+class route_table                     // SNI → 方案名称映射
+├── build(cfg)            : route_table     // 从配置构建
+├── lookup(sni)           : vector<string>  // 查找匹配方案
+├── matches_any(sni)      : bool            // 是否匹配任意方案
+├── registered_snis()     : vector<string>  // 获取所有已注册 SNI
+└── empty()               : bool            // 是否为空
 ```
 
-### 2.6 分析结果 analysis_result
+### 2.6 分层检测管道 layered_detection_pipeline
+
+| 项目 | 详情 |
+|------|------|
+| 头文件 | `include/prism/recognition/pipeline.hpp` |
+| 实现文件 | `src/prism/recognition/pipeline.cpp` |
+| 命名空间 | `psm::recognition` |
+
+```
+struct candidate_entry                // 检测候选条目
+├── name                  : string   // 方案名称
+├── score                 : uint16   // 评分（0-1000）
+├── tier                  : uint8    // 检测层级（0-2）
+└── is_deterministic      : bool     // 是否确定性命中
+
+struct pipeline_result                // 管道检测结果
+├── deterministic_hit     : bool     // 是否确定性命中
+├── exclusive_scheme      : string   // 独占命中的方案名
+├── candidates            : vector   // 候选列表（按评分排序）
+└── reason                : string   // 检测原因
+
+struct detect_input                   // 检测输入聚合
+├── bitmap                : uint32           // 特征位图
+├── features              : hello_features&  // ClientHello 特征
+├── raw                   : span<byte>       // 原始字节
+└── cfg                   : config&          // 全局配置
+
+class layered_detection_pipeline
+├── tier0_schemes_        : vector<shared_scheme>  // Tier 0 方案（有独占特征）
+├── tier1_schemes_        : vector<shared_scheme>  // Tier 1 方案（需要 HMAC/解密）
+├── tier2_schemes_        : vector<shared_scheme>  // Tier 2 方案（模糊匹配）
+├── native_scheme_        : shared_scheme           // Native 兜底
+├── detect(input, matched_schemes) : pipeline_result
+├── detect_tier0(bitmap, features, cfg) : pipeline_result
+├── detect_tier1(features, raw, cfg)    : pipeline_result
+└── detect_tier2(cfg, matched_schemes)  : pipeline_result
+```
+
+### 2.7 分析结果 analysis_result
 
 | 项目 | 详情 |
 |------|------|
@@ -190,103 +250,107 @@ REGISTER_ARRIVAL(reality)  // 文件末尾一行注册
 
 ```
 struct analysis_result
-├── candidates       : vector<string>   // 候选方案名，按置信度排序（high 在前）
-├── confidence       : confidence       // 最高置信度
-├── features         : arrival_features // 原始特征
-└── error            : fault::code      // 错误码
+├── candidates       : vector<string>    // 候选方案名（按置信度排序）
+├── score            : confidence        // 最高置信度（字段名 score，类型 confidence）
+├── features         : hello_features    // 原始特征
+└── error            : fault::code       // 错误码
 ```
 
-### 2.7 方案执行器 scheme_executor
+### 2.8 伪装方案执行器 scheme_executor
 
 | 项目 | 详情 |
 |------|------|
-| 头文件 | `include/prism/recognition/handshake/executor.hpp` |
-| 命名空间 | `psm::recognition::handshake` |
+| 头文件 | `include/prism/stealth/executor.hpp` |
+| 命名空间 | `psm::stealth` |
 
 ```
-class scheme_executor
-├── execute_by_analysis(analysis, ctx): awaitable<scheme_result>
-├── execute_by_priority(priority, ctx): awaitable<scheme_result>
-├── register_scheme(scheme): void
-├── create_default()      : unique_ptr<executor>
-└── find_scheme(name)     : shared_scheme
-
-// 核心管道
-execute_pipeline(names[], ctx)
-   │
-   ├─ for name in names:
-   │   ├─ find_scheme(name)
-   │   ├─ is_enabled() → false 则跳过
-   │   ├─ execute() → 成功则返回
-   │   ├─ detected == tls → "不是我"，更新 ctx 继续下一个
-   │   └─ 其他错误 → 终止执行
-   └─ 全部失败 → not_supported
+class scheme_executor                 // 伪装方案执行器
+├── schemes_              : vector<shared_scheme>  // 从 registry 构建
+├── execute_by_analysis(analysis, ctx) : awaitable<handshake_result>
+├── execute(candidates, ctx)          : awaitable<handshake_result>
+├── find_scheme(name)                 : shared_scheme
+├── execute_single(scheme, ctx)       : awaitable<handshake_result>
+├── pass_through(ctx, result)         : void
+├── ensure_snapshot(ctx)              : void
+├── try_rewind(ctx, mode)             : bool
+└── execute_pipeline(order, ctx)      : awaitable<handshake_result>
 ```
 
 ---
 
 ## 3. 架构与组件交互
 
-### 3.1 插件架构
+### 3.1 伪装方案接入流程
 
 ```
 // 新伪装方案接入流程
-1. 实现 feature 子类
-   ├─ name() → 方案名称
-   ├─ analyze() → 置信度判断
-   └─ is_enabled() → 配置检查
+1. 实现 stealth_scheme 子类
+   ├─ name()   → 方案名称
+   ├─ tier()   → 检测层级（0/1/2）
+   ├─ unique() → 是否有独占特征
+   ├─ active(cfg) → 配置是否启用
+   ├─ snis(cfg)  → SNI 白名单
+   ├─ sniff(bitmap, features) → sniff_result   (Tier 0)
+   ├─ verify(features, raw, cfg) → verify_result (Tier 1)
+   ├─ guess(cfg) → verify_result                 (Tier 2)
+   └─ handshake(ctx) → handshake_result
 
-2. 在实现文件末尾注册
-   REGISTER_ARRIVAL(ech)
+2. 在 register_schemes() 中注册
+   registry.add(make_shared<stealth::new_scheme>())
 
-3. 实现 stealth::scheme 执行逻辑
-   (stealth/ech/scheme.hpp)
-
-4. 注册到执行器
-   schemes.push_back(make_shared<stealth::ech::scheme>())
+3. pipeline 自动按 tier() 分类到 tier0/tier1/tier2
 ```
 
-### 3.2 置信度驱动执行
+### 3.2 分层检测流程
 
 ```
-// 分析结果按置信度排序
-analysis_result
-├── candidates = ["reality", "shadowtls"]  // high > medium > low
-├── confidence = high
-└── features = {...}
-
-// 执行器按候选顺序尝试
-execute_by_analysis()
-   → reality.execute() → 成功 → 返回
-   → shadowtls.execute() → （不会执行，reality 已成功）
+// Tier 0: 零成本字节比较（如 Reality session_id 标记）
+layered_detection_pipeline.detect(input, matched)
+   │
+   ├─ Tier 0: sniff() → hit + solo → 确定性命中
+   │   └─ 命中则直接返回，不再检测其他方案
+   │
+   ├─ Tier 1: verify() → score + solo_flag → 详细验证
+   │   └─ 独占命中则直接返回
+   │
+   └─ Tier 2: guess() → score → 模糊匹配
+       └─ 无独占特征，依赖 SNI 路由
 ```
 
 ### 3.3 级联重试机制
 
 ```
 // 方案返回 tls 类型表示"不是我"
-scheme.execute()
+scheme.handshake()
    │
    ├─ 成功 → detected = vless/trojan/...
-   │         返回 scheme_result{transport, detected}
+   │         返回 handshake_result{transport, detected}
    │
    ├─ "不是我" → detected = tls
-   │              更新 ctx.inbound（pass_through）
+   │              pass_through() 传递 transport/preread
+   │              try_rewind() 尝试回绕传输层
    │              继续下一个候选
    │
    └─ 错误 → 其他错误码
              终止执行，返回失败
 ```
 
-### 3.4 executor 内部结构
+### 3.4 scheme_registry（stealth 模块）
 
 ```
-scheme_executor
-├── schemes_       : vector<shared_scheme>   // 注册的所有方案
-├── create_default()                        // reality → shadowtls → restls → native
-├── execute_pipeline()                      // 核心：遍历执行
-├── execute_single()                        // 单个方案执行 + 写入 name
-└── pass_through()                          // transport/preread 传递
+scheme_registry                       // 伪装方案注册表（单例）
+├── instance()            : registry&         // 获取单例
+├── add(scheme)           : void              // 注册方案
+├── all()                 : vector<shared_scheme>  // 所有已注册方案
+└── find(name)            : shared_scheme     // 按名称查找
+
+register_schemes()                    // main() 启动时调用
+   ├─ add(reality)
+   ├─ add(shadowtls)
+   ├─ add(restls)
+   ├─ add(anytls)
+   ├─ add(trusttunnel)
+   └─ add(native)
 ```
 
 ---
@@ -296,13 +360,13 @@ scheme_executor
 ### 4.1 Session 调用 recognize()
 
 ```
-session::async_forward()
+session::diversion()
    │
    ▼
 recognition::recognize({
     .transport = ctx_.inbound,
-    .cfg = &ctx_.server.config(),
-    .router = &ctx_.worker.router,
+    .cfg = &ctx_.server_ctx.config(),
+    .router = &ctx_.worker_ctx.router,
     .session = &ctx_,
     .frame_arena = &ctx_.frame_arena
 })
@@ -313,63 +377,66 @@ recognition::recognize({
    │   └─ 非 TLS → 返回 {success=true, detected=type}
    │
    ├─ Phase 2: identify() (仅 TLS)
-   │   ├─ read_arrival() → raw
-   │   ├─ parse_arrival() → features
-   │   ├─ registry::analyze(features, cfg)
-   │   │   ├─ reality::analyze() → confidence
-   │   │   ├─ ech::analyze() → confidence
-   │   │   └─ 按置信度排序 → candidates
-   │   ├─ scheme_executor::execute_by_analysis()
-   │   │   ├─ reality::scheme::execute() → result
-   │   │   ├─ shadowtls::scheme::execute() → result
-   │   │   └─ native::scheme::execute() → 兜底
+   │   ├─ tls::read_tls_record(transport, preread) → raw_record
+   │   ├─ tls::parse_client_hello(record) → hello_features
+   │   ├─ route_table::build(cfg) → table
+   │   │   └─ table.lookup(sni) → matched_schemes
+   │   ├─ tls::build_bitmap(features) → bitmap
+   │   ├─ layered_detection_pipeline.detect(input, matched)
+   │   │   ├─ Tier 0: sniff() → 确定性命中?
+   │   │   ├─ Tier 1: verify() → 详细验证?
+   │   │   └─ Tier 2: guess() → 模糊匹配?
+   │   ├─ scheme_executor.execute_by_analysis()
+   │   │   ├─ reality::handshake() → result
+   │   │   ├─ shadowtls::handshake() → result
+   │   │   └─ native::handshake() → 兜底
    │   └─ 返回 {transport, detected, executed_scheme}
    │
    ▼
-dispatch::dispatch(ctx, result.detected, result.preread)
+session::diversion() switch (detected)
+   → protocol::{name}::handle(ctx, preread_span)
 ```
 
 ---
 
 ## 5. 设计原则
 
-### 5.1 零成本预识别
+### 5.1 分层检测零成本
 
 ```
-// 特征分析器仅解析 ClientHello 字节特征
-feature::analyze()
-   ├─ 无协程、无异步 I/O
+// Tier 0 仅做字节比较，无协程无异步 I/O
+sniff(bitmap, features) → sniff_result
    ├─ 纯内存操作
-   ├─ 判断成本约 1-2 次字符串比较
-   └─ 返回置信度而非执行结果
+   ├─ 判断成本约 1-2 次字节比较
+   └─ 独占命中则跳过所有其他方案
 ```
 
 ### 5.2 分析与执行分离
 
 ```
-// 分析器负责决策（不执行）
-feature::analyze() → confidence
+// 检测管道负责决策（不执行）
+layered_detection_pipeline.detect() → pipeline_result
 
-// 执行器负责执行（调用 stealth::scheme）
-scheme_executor::execute_pipeline() → scheme_result
+// 执行器负责执行（调用 stealth_scheme::handshake）
+scheme_executor::execute_pipeline() → handshake_result
 
 // 分离的好处
-├─ 分析器可快速判断，无副作用
+├─ 检测管道可快速判断，无副作用
 ├─ 执行器可灵活调整顺序
-├─ 支持配置驱动和分析驱动两种模式
-└─ pass_through() 保证数据在方案间无损传递
+├─ pass_through() 保证数据在方案间无损传递
+└─ try_rewind() 支持传输层回绕
 ```
 
 ### 5.3 注册表只读
 
 ```
-// 注册仅在静态初始化阶段
-REGISTER_ARRIVAL(reality)
-   └→ registry::instance().add()  // 单线程，无锁
+// 注册仅在启动阶段
+register_schemes()
+   └→ registry.add()  // 单线程，无锁
 
-// 运行时 analyze() 只读遍历
-registry::analyze()
-   └→ for f in features_ { ... }  // 无锁，只读
+// 运行时只读遍历
+registry.all()
+   └→ for s in schemes_ { ... }  // 无锁，只读
 ```
 
 ---
@@ -380,9 +447,12 @@ registry::analyze()
 
 ```
 recognition 模块
-├── channel::transport::transmission (传输层抽象)
-├── stealth::scheme (方案执行接口)
-├── stealth::reality (Reality ClientHello 解析)
+├── transport::transmission (传输层抽象)
+├── transport::preview (预读数据回放)
+├── stealth::stealth_scheme (伪装方案基类 — sniff/verify/guess/handshake)
+├── stealth::scheme_registry (方案注册表)
+├── stealth::scheme_executor (方案执行器)
+├── protocol::tls::hello_features (ClientHello 特征结构)
 ├── protocol::protocol_type (协议枚举)
 ├── fault::code (错误码)
 ├── memory (PMR 容器)
@@ -392,7 +462,7 @@ recognition 模块
 ### 6.2 外部模块对 Recognition 的依赖
 
 ```
-agent::session ──────────────► recognition::recognize()
-pipeline::primitives::preview ► 用于预读数据回放
-stealth::scheme ─────────────► 被 executor 调用
+instance::session ─────────────► recognition::recognize()
+transport::preview ────────────► 用于预读数据回放
+stealth::stealth_scheme ──────► 被 pipeline 检测 + executor 执行
 ```

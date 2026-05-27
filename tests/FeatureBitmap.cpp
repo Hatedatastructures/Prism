@@ -7,11 +7,14 @@
 #include <prism/protocol/tls/types.hpp>
 #include "common/TestRunner.hpp"
 
+using fb = psm::recognition::tls::feature_bit;
+
 void TestFeatureBitmapBuild()
 {
     psm::testing::TestRunner runner("FeatureBitmap::build_bitmap");
 
     // 测试空特征
+
     psm::protocol::tls::hello_features empty_features;
     auto bitmap = psm::recognition::tls::build_bitmap(empty_features);
     runner.Check(bitmap == 0, "Empty features should produce 0 bitmap");
@@ -20,27 +23,27 @@ void TestFeatureBitmapBuild()
     psm::protocol::tls::hello_features sni_features;
     sni_features.server_name = "example.com";
     bitmap = psm::recognition::tls::build_bitmap(sni_features);
-    runner.Check(psm::recognition::tls::has_feature(bitmap, psm::recognition::tls::feature_bit::has_sni), "Should have has_sni bit");
+    runner.Check(psm::recognition::tls::has_feature(bitmap, fb::has_sni), "Should have has_sni bit");
 
     // 测试有 X25519
     psm::protocol::tls::hello_features x25519_features;
     x25519_features.has_x25519 = true;
     bitmap = psm::recognition::tls::build_bitmap(x25519_features);
-    runner.Check(psm::recognition::tls::has_feature(bitmap, psm::recognition::tls::feature_bit::has_x25519), "Should have has_x25519 bit");
+    runner.Check(psm::recognition::tls::has_feature(bitmap, fb::has_x25519), "Should have has_x25519 bit");
 
     // 测试 session_id=32
     psm::protocol::tls::hello_features session_features;
     session_features.session_id_len = 32;
     session_features.session_id.resize(32);
     bitmap = psm::recognition::tls::build_bitmap(session_features);
-    runner.Check(psm::recognition::tls::has_feature(bitmap, psm::recognition::tls::feature_bit::full_session), "Should have has_full_session_id bit");
+    runner.Check(psm::recognition::tls::has_feature(bitmap, fb::full_session), "Should have has_full_session_id bit");
 
     // 测试非标准 session_id
     psm::protocol::tls::hello_features non_std_features;
     non_std_features.session_id_len = 16;
     non_std_features.session_id.resize(16);
     bitmap = psm::recognition::tls::build_bitmap(non_std_features);
-    runner.Check(psm::recognition::tls::has_feature(bitmap, psm::recognition::tls::feature_bit::nonstd_session), "Should have session_id_non_standard bit");
+    runner.Check(psm::recognition::tls::has_feature(bitmap, fb::nonstd_session), "Should have session_id_non_standard bit");
 
     runner.Summary();
 }
@@ -90,11 +93,11 @@ void TestFeatureBitmapHasAllFeatures()
     auto bitmap = psm::recognition::tls::build_bitmap(features);
 
     // 测试组合特征
-    auto combined = psm::recognition::tls::feature_bit::has_sni | psm::recognition::tls::feature_bit::has_x25519 | psm::recognition::tls::feature_bit::full_session;
+    auto combined = fb::has_sni | fb::has_x25519 | fb::full_session;
     runner.Check(psm::recognition::tls::has_all(bitmap, combined), "Should have all three features");
 
     // 测试部分匹配
-    auto partial = psm::recognition::tls::feature_bit::has_sni | psm::recognition::tls::feature_bit::has_ech;
+    auto partial = fb::has_sni | fb::has_ech;
     runner.Check(!psm::recognition::tls::has_all(bitmap, partial), "Should not have ECH");
 
     runner.Summary();

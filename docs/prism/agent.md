@@ -1,47 +1,43 @@
-# Agent 模块 — 代理服务核心
+# Instance 模块 — 代理服务核心
+
+> **注意**：代码中目录为 `include/prism/instance/`，命名空间为 `psm::instance`，本文档沿用旧标题 `Agent` 以保持文档链接兼容。
 
 ## 1. 模块概述
 
-Agent 模块是 Prism 代理服务器的核心调度引擎，负责从连接入站到会话分派的完整生命周期管理。它实现了前端连接监听、工作线程负载均衡、会话编排、协议分发和账户管理五大功能域。
+Instance 模块是 Prism 代理服务器的核心调度引擎，负责从连接入站到会话分派的完整生命周期管理。它实现了前端连接监听、工作线程负载均衡、会话编排、协议分发和账户管理五大功能域。
 
 ### 文件结构
 
 ```
-include/prism/agent/
-├── config.hpp                  # Agent 配置类型（limit、endpoint、certificate、authentication）
-├── context.hpp                 # 上下文结构体（server/worker/session_context）
+include/prism/instance/
+├── config.hpp                  # Instance 配置类型（limit、endpoint、certificate、authentication）
+├── serialize.hpp               # 序列化支持
 ├── front/
 │   ├── listener.hpp            # TCP 监听器 + 反压 + 亲和性哈希
 │   └── balancer.hpp            # 加权评分负载均衡器
 ├── worker/
 │   ├── worker.hpp              # 工作线程核心（io_context/连接池/路由器）
 │   ├── launch.hpp              # 会话启动（socket 投递、认证设置）
-│   ├── stats.hpp               # 统计指标采集（EMA 延迟、活跃计数）
 │   └── tls.hpp                 # TLS 上下文管理
-├── session/
-│   └── session.hpp             # 会话生命周期管理
-├── dispatch/
-│   ├── handler.hpp             # 处理器抽象基类（header-only）
-│   ├── registry.hpp            # 处理器注册表（header-only）
-│   └── table.hpp               # 编译期协议处理函数表（header-only）
-└── account/
-    ├── directory.hpp           # 写时复制账户存储 + 无锁读取
-    └── entry.hpp               # 账户条目 + 租约 RAII + 流量统计
+└── session/
+    └── session.hpp             # 会话生命周期管理
 
-src/prism/agent/
+include/prism/context/
+└── context.hpp                 # 上下文结构体（server/worker/session/session_opts）
+
+src/prism/instance/
 ├── front/
 │   ├── listener.cpp            # 监听器实现
 │   └── balancer.cpp            # 负载均衡器实现
 ├── worker/
 │   ├── worker.cpp              # 工作线程实现
 │   ├── launch.cpp              # 会话启动实现
-│   ├── stats.cpp               # 统计采集实现
 │   └── tls.cpp                 # TLS 证书加载实现
-├── session/
-│   └── session.cpp             # 会话实现
-└── account/
-    └── directory.cpp           # 账户目录实现（entry.hpp 是 header-only）
+└── session/
+    └── session.cpp             # 会话实现
 ```
+
+> **注意**：账户管理模块已独立为 `include/prism/account/`（directory.hpp、entry.hpp），不在 instance 目录内。
 
 ### 数据流概览
 
@@ -68,9 +64,9 @@ listener (接受连接)
 
 | 项目 | 详情 |
 |------|------|
-| 头文件 | `include/prism/agent/front/listener.hpp` |
-| 实现文件 | `src/prism/agent/front/listener.cpp` |
-| 命名空间 | `psm::agent::front` |
+| 头文件 | `include/prism/instance/front/listener.hpp` |
+| 实现文件 | `src/prism/instance/front/listener.cpp` |
+| 命名空间 | `psm::instance::front` |
 
 **核心成员:**
 
@@ -89,28 +85,28 @@ class listener
 
 | 项目 | 详情 |
 |------|------|
-| 头文件 | `include/prism/agent/front/balancer.hpp` |
-| 实现文件 | `src/prism/agent/front/balancer.cpp` |
-| 命名空间 | `psm::agent::front` |
+| 头文件 | `include/prism/instance/front/balancer.hpp` |
+| 实现文件 | `src/prism/instance/front/balancer.cpp` |
+| 命名空间 | `psm::instance::front` |
 
 **核心结构体:**
 
 ```
-struct worker_load_snapshot         // 工作线程负载快照
+struct worker_snapshot               // 工作线程负载快照 (stats::worker_snapshot)
 ├── active_sessions       : uint32  // 当前活跃会话数
 ├── pending_handoffs      : uint32  // 等待处理的移交任务数
-└── event_loop_lag_us     : uint64  // 事件循环延迟（微秒）
+└── lag_us                : uint64  // 事件循环延迟（微秒，EMA 平滑后）
 
 struct distribute_config            // 分发策略配置
 ├── enter_overload        : double (0.90)  // 进入过载阈值
 ├── exit_overload         : double (0.80)  // 退出过载阈值
-├── global_backpressure_threshold : double (0.95)
+├── backpressure_thresh   : double (0.95)  // 全局反压触发阈值
 ├── weight_session        : double (0.60)  // 会话数权重
 ├── weight_pending        : double (0.10)  // 待处理数权重
 ├── weight_lag            : double (0.30)  // 延迟权重
 ├── session_capacity      : uint32 (1024)  // 会话容量基准
 ├── pending_capacity      : uint32 (256)   // 待处理容量基准
-└── lag_capacity_us       : uint64 (5000)  // 延迟容量基准
+└── lag_cap               : uint64 (5000)  // 延迟容量基准（微秒）
 
 struct select_result                // 选择结果
 ├── worker_index          : size_t  // 选中线程索引
@@ -132,15 +128,15 @@ class balancer
 
 | 项目 | 详情 |
 |------|------|
-| 头文件 | `include/prism/agent/worker/worker.hpp` |
-| 实现文件 | `src/prism/agent/worker/worker.cpp` |
-| 命名空间 | `psm::agent::worker` |
+| 头文件 | `include/prism/instance/worker/worker.hpp` |
+| 实现文件 | `src/prism/instance/worker/worker.cpp` |
+| 命名空间 | `psm::instance::worker` |
 
 ```
 class worker
 ├── ioc_                  : net::io_context          // 单线程事件循环
 ├── pool_                 : connection_pool          // TCP 连接池
-├── router_               : resolve::router          // DNS 路由器
+├── router_               : connect::dial::router    // DNS + 拨号路由器
 ├── ssl_ctx_              : shared_ptr<ssl::context> // TLS 上下文
 ├── outbound_direct_      : unique_ptr<outbound::direct>
 ├── metrics_              : stats::state             // 统计状态
@@ -155,9 +151,9 @@ class worker
 
 | 项目 | 详情 |
 |------|------|
-| 头文件 | `include/prism/agent/session/session.hpp` |
-| 实现文件 | `src/prism/agent/session/session.cpp` |
-| 命名空间 | `psm::agent::session` |
+| 头文件 | `include/prism/instance/session/session.hpp` |
+| 实现文件 | `src/prism/instance/session/session.cpp` |
+| 命名空间 | `psm::instance::session` |
 
 ```
 class session : enable_shared_from_this<session>
@@ -174,36 +170,46 @@ class session : enable_shared_from_this<session>
 └── set_*()               : 各类回调设置器
 ```
 
-### 2.5 dispatch::handler_table (协议处理函数表)
+### 2.5 协议分发机制
 
 | 项目 | 详情 |
 |------|------|
-| 头文件 | `include/prism/agent/dispatch/table.hpp` |
-| 命名空间 | `psm::agent::dispatch` |
+| 头文件 | `include/prism/instance/session/session.hpp` |
+| 实现文件 | `src/prism/instance/session/session.cpp` |
+| 方法 | `session::diversion()` |
 
 ```
-using handler_func = awaitable<void>(session_context&, span<const byte>);
-
-inline constexpr array<handler_func*, N> handler_table {
-    handle_unknown,       // unknown     → 原始 TCP 透传
-    pipeline::http,       // http        → HTTP 代理管道
-    pipeline::socks5,     // socks5      → SOCKS5 代理管道
-    pipeline::trojan,     // trojan      → Trojan 协议管道
-    pipeline::vless,      // vless       → VLESS 协议管道
-    pipeline::shadowsocks,// shadowsocks → SS2022 协议管道
-    handle_unknown,       // tls         → 由 stage chain 处理
-};
-
-dispatch(ctx, type, data) → awaitable<void>  // 按类型索引分派
+// session::diversion() 中直接 switch 分发
+switch (result.detected)
+{
+case protocol_type::http:
+    co_await protocol::http::handle(ctx_, preread_span);
+    break;
+case protocol_type::socks5:
+    co_await protocol::socks5::handle(ctx_, preread_span);
+    break;
+case protocol_type::trojan:
+    co_await protocol::trojan::handle(ctx_, preread_span);
+    break;
+case protocol_type::vless:
+    co_await protocol::vless::handle(ctx_, preread_span);
+    break;
+case protocol_type::shadowsocks:
+    co_await protocol::shadowsocks::handle(ctx_, preread_span);
+    break;
+default:
+    // unknown/tls → connect::tunnel 双向透传
+    break;
+}
 ```
 
 ### 2.6 account::directory + entry + lease
 
 | 项目 | 详情 |
 |------|------|
-| 头文件 | `include/prism/agent/account/directory.hpp`, `entry.hpp` |
-| 实现文件 | `src/prism/agent/account/directory.cpp`, `entry.cpp` |
-| 命名空间 | `psm::agent::account` |
+| 头文件 | `include/prism/account/directory.hpp`, `entry.hpp` |
+| 实现文件 | `src/prism/account/directory.cpp`（entry.hpp 是 header-only） |
+| 命名空间 | `psm::account` |
 
 ```
 struct entry                        // 账户运行时状态
@@ -237,35 +243,48 @@ contains(directory, cred)  → bool     // 检查账户是否存在
 
 | 项目 | 详情 |
 |------|------|
-| 头文件 | `include/prism/agent/context.hpp` |
-| 命名空间 | `psm::agent` |
+| 头文件 | `include/prism/context/context.hpp` |
+| 命名空间 | `psm::context` |
 
 ```
-struct server_context             // 服务器全局（所有 worker 共享）
+struct server                     // 服务器全局（所有 worker 共享）
 ├── cfg                   : atomic<shared_ptr<const config>>  // 可热加载
 ├── ssl_ctx               : shared_ptr<ssl::context>
-└── account_store         : shared_ptr<account::directory>
+├── account_store         : shared_ptr<account::directory>
+├── config()              : const config&              // 无锁读取
+└── swap_config(new_cfg)  : void                       // 原子交换
 
-struct worker_context             // 每工作线程独立
+struct worker                     // 每工作线程独立
 ├── io_context            : net::io_context&
-├── router                : resolve::router&
+├── router                : connect::router&
 ├── memory_pool           : memory::resource_pointer
-└── outbound              : outbound::proxy*
+├── outbound              : outbound::proxy*
+└── traffic               : stats::traffic::traffic_state*
 
-struct session_context            // 每会话独立（不可拷贝，仅移动）
+struct session_opts               // 会话构造参数
 ├── session_id            : uint64
-├── server                : const server_context&
-├── worker                : worker_context&
-├── frame_arena           : memory::frame_arena&
+├── server_ctx            : server&
+├── worker_ctx            : worker&
+├── arena                 : frame_arena&
+├── verifier              : function<bool(string_view)>
+├── buffer_size           : uint32
+└── inbound               : shared_transmission
+
+struct session                    // 每会话独立（不可拷贝，仅移动）
+├── session_id            : uint64
+├── server_ctx            : server&
+├── worker_ctx            : worker&
+├── frame_arena           : frame_arena&
 ├── credential_verifier   : function<bool(string_view)>
-├── account_directory_ptr : account::directory*
+├── account_directory     : account::directory*
 ├── buffer_size           : uint32
 ├── inbound               : shared_transmission
 ├── outbound              : shared_transmission
 ├── outbound_proxy        : outbound::proxy*
+├── detected_protocol     : protocol_type
 ├── account_lease         : account::lease
-├── active_stream_cancel  : function<void()>
-└── active_stream_close   : function<void()>
+├── stream_cancel         : function<void()>
+└── stream_close          : function<void()>
 ```
 
 ---
@@ -285,18 +304,18 @@ Worker Layer:
    worker
       io_context (per thread)
       pool (connection reuse)
-      router (DNS facade)
+      router (connect::dial::router)
       ssl_ctx (optional)
    → dispatch_socket()
 
 Session Layer:
    session (lifecycle + shared_ptr)
-      → recognition::recognize() (probe + arrival + handshake)
-      → dispatch::table (compile-time handler array)
+      → recognition::recognize() (probe + tls signal + pipeline)
+      → diversion() switch (protocol_type)
 
-Pipeline Layer:
-   pipeline::http / pipeline::socks5 / pipeline::trojan
-   pipeline::vless / pipeline::shadowsocks
+Protocol Layer:
+   protocol::http::handle / protocol::socks5::handle / protocol::trojan::handle
+   protocol::vless::handle / protocol::shadowsocks::handle
 ```
 
 ### 3.2 组件交互矩阵
@@ -305,12 +324,11 @@ Pipeline Layer:
 |------|------|--------|
 | listener | balancer, config | 无（入口点） |
 | balancer | memory::container | listener, worker |
-| worker | connection_pool, router, ssl::context, account::directory | balancer, launch |
-| session | server_context, worker_context, transmission, dispatch::table | launch |
-| dispatch::table | protocol::protocol_type, pipeline | session |
+| worker | connect::pool, connect::dial::router, ssl::context, account::directory | balancer, launch |
+| session | context::server, context::worker, transmission, protocol handlers | launch |
 | directory | memory::pool, entry | worker, session, account::lease |
 | entry | 无（纯数据） | directory, lease |
-| lease | entry | session_context |
+| lease | entry | context::session |
 
 ### 3.3 线程模型
 
@@ -356,9 +374,8 @@ balancer → worker: dispatch(idx, socket)
 worker: post(ioc_) → launch → prime(sock) → make_session
 worker → session: start()
 session: diversion()
-   → pread(24B) → detect_protocol
-   → dispatch(ctx, type, data) → handler_table[type](ctx, data)
-   → co_await handler
+   → pread(24B) → recognize(ctx) → detect_protocol
+   → switch (detected) → co_await protocol::{name}::handle(ctx, preread)
 
 Client ◄── 数据转发 ──► session
 Client → session: EOF
@@ -373,9 +390,9 @@ affinity_value → mix_hash(affinity)  // MurmurHash3 混合
    candidate = hash % N              // N = worker 数量
 
 收集所有 worker 的 load_snapshot()
-   score = w_session * (sessions / C)
-         + w_pending * (pending / P)
-         + w_lag     * (lag / L)
+   score = w_session * (active_sessions / C)
+         + w_pending * (pending_handoffs / P)
+         + w_lag     * (lag_us / L)
    // C=1024, P=256, L=5000us
 
 refresh_state(idx, score)
@@ -385,7 +402,7 @@ refresh_state(idx, score)
 
 选择最低评分的健康 worker
    若全部过载 → 选最低评分 + overflowed=true
-   若所有 > global_backpressure (0.95) → backpressure=true
+   若所有 > backpressure_thresh (0.95) → backpressure=true
 
 → select_result { worker_index, overflowed, backpressure }
 ```
@@ -395,7 +412,7 @@ refresh_state(idx, score)
 ```
 // 会话协议检测
 session.start()
-   → async_forward()
+   → 协程启动
        1. recognition::recognize(ctx)
             ├─ probe::probe(inbound, 24)
             │    → detect(data)
@@ -405,26 +422,21 @@ session.start()
             │         SS?      → protocol_type::shadowsocks
             │         else     → protocol_type::unknown
             ├─ (仅当 TLS)
-            │    → identify(ctx)
-            │         ├─ read_arrival()
-            │         ├─ parse_arrival() → features
-            │         ├─ registry::analyze(features, cfg)
-            │         │    → analysis_result{candidates, confidence}
-            │         └─ scheme_executor::execute_by_analysis()
-            │              → stealth::scheme::execute()
-            │              → scheme_result{transport, detected}
+            │    → tls::signal 解析 ClientHello
+            │    → stealth::scheme 执行伪装方案
+            │    → 返回 {transport, detected}
             └─ 返回 recognize_result{transport, detected, preread}
-       2. dispatch::dispatch(ctx, detected, preread)
-            → handler_table[detected](ctx, preread)
+       2. session::diversion() switch 分发
+            → protocol::{name}::handle(ctx, preread_span)
        3. co_await handler
 
 handler 执行:
-   HTTP:     解析请求 → router.async_forward → tunnel
+   HTTP:     解析请求 → dial → tunnel
    SOCKS5:   认证协商 → 解析目标 → tunnel
-   Trojan:   认证 → 解析目标 → tunnel (可触发 smux)
-   VLESS:    UUID 验证 → 解析目标 → tunnel
+   Trojan:   认证 → 解析目标 → tunnel (可触发 mux)
+   VLESS:    UUID 验证 → 解析目标 → tunnel (可触发 mux)
    SS2022:   解密 → 解析目标 → tunnel
-   Unknown:  原始 TCP 双向透传
+   Unknown:  connect::tunnel 双向透传
 ```
 
 ### 4.4 账户租约生命周期
@@ -543,28 +555,26 @@ try_acquire(directory, credential) → lease:
 
 ## 6. 依赖关系
 
-### 6.1 Agent 模块向外依赖
+### 6.1 Instance 模块向外依赖
 
 ```
-agent 模块
+instance 模块
 ├── memory (PMR 分配器, frame_arena, container)
-├── resolve::router (DNS 解析门面)
-├── channel::connection_pool (TCP 连接池)
+├── connect::dial::router (DNS + 拨号路由)
+├── connect::pool (TCP 连接池)
 ├── protocol::protocol_type (协议枚举)
-├── pipeline (协议处理函数)
 ├── config (全局配置)
 ├── fault::code (错误码)
 ├── trace (日志)
 └── outbound::proxy (出站代理接口)
 ```
 
-### 6.2 外部模块对 Agent 的依赖
+### 6.2 外部模块对 Instance 的依赖
 
 ```
 main() ──────────────────────► listener, worker
-pipeline ────────────────────► session_context (通过 ctx 访问资源)
-multiplex::bootstrap ────────► resolve::router (经由 worker)
-protocol handlers ───────────► session_context, dispatch::table
+protocol handlers ───────────► session_context (通过 ctx 访问资源)
+multiplex::bootstrap ────────► connect::dial::router (经由 worker)
 ```
 
 ---
@@ -601,10 +611,10 @@ protocol handlers ───────────► session_context, dispatch
 |------|--------|------|
 | `enter_overload` | 0.90 | 进入过载状态的负载阈值 |
 | `exit_overload` | 0.80 | 退出过载状态的负载阈值 |
-| `global_backpressure_threshold` | 0.95 | 全局反压触发阈值 |
+| `backpressure_thresh` | 0.95 | 全局反压触发阈值 |
 | `weight_session` | 0.60 | 活跃会话数权重 |
 | `weight_pending` | 0.10 | 待处理移交数权重 |
 | `weight_lag` | 0.30 | 事件循环延迟权重 |
 | `session_capacity` | 1024 | 会话容量基准值（归一化分母） |
 | `pending_capacity` | 256 | 待处理容量基准值 |
-| `lag_capacity_us` | 5000 | 延迟容量基准值（微秒） |
+| `lag_cap` | 5000 | 延迟容量基准值（微秒） |

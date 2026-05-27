@@ -48,6 +48,7 @@ namespace psm::protocol::vless
 
     using protocol::common::read_min;
     using protocol::common::read_remaining;
+    using protocol::common::remaining_opts;
 
     conn::conn(transport::shared_transmission next_layer, const config &cfg,
                  std::function<bool(std::string_view)> verifier)
@@ -101,16 +102,34 @@ namespace psm::protocol::vless
             deadline.cancel();
             if (read_ec == fault::code::canceled)
             {
-                co_return std::tuple{fault::code::timeout, std::array<std::uint8_t, 16>{}, command{}, std::uint16_t{0}, address_type{}, std::size_t{0}};
+                co_return std::tuple{
+                    fault::code::timeout,
+                    std::array<std::uint8_t, 16>{},
+                    command{},
+                    std::uint16_t{0},
+                    address_type{},
+                    std::size_t{0}};
             }
-            co_return std::tuple{read_ec, std::array<std::uint8_t, 16>{}, command{}, std::uint16_t{0}, address_type{}, std::size_t{0}};
+            co_return std::tuple{
+                read_ec,
+                std::array<std::uint8_t, 16>{},
+                command{},
+                std::uint16_t{0},
+                address_type{},
+                std::size_t{0}};
         }
 
         // 校验版本号
         if (buffer[0] != version)
         {
             deadline.cancel();
-            co_return std::tuple{fault::code::bad_message, std::array<std::uint8_t, 16>{}, command{}, std::uint16_t{0}, address_type{}, std::size_t{0}};
+            co_return std::tuple{
+                fault::code::bad_message,
+                std::array<std::uint8_t, 16>{},
+                command{},
+                std::uint16_t{0},
+                address_type{},
+                std::size_t{0}};
         }
 
         // 解析 UUID (offset 1-16)
@@ -122,7 +141,13 @@ namespace psm::protocol::vless
         if (addnl_len != 0)
         {
             deadline.cancel();
-            co_return std::tuple{fault::code::bad_message, std::array<std::uint8_t, 16>{}, command{}, std::uint16_t{0}, address_type{}, std::size_t{0}};
+            co_return std::tuple{
+                fault::code::bad_message,
+                std::array<std::uint8_t, 16>{},
+                command{},
+                std::uint16_t{0},
+                address_type{},
+                std::size_t{0}};
         }
 
         // 解析命令 (offset 18)
@@ -135,7 +160,13 @@ namespace psm::protocol::vless
             break;
         default:
             deadline.cancel();
-            co_return std::tuple{fault::code::unsupported_command, std::array<std::uint8_t, 16>{}, command{}, std::uint16_t{0}, address_type{}, std::size_t{0}};
+            co_return std::tuple{
+                fault::code::unsupported_command,
+                std::array<std::uint8_t, 16>{},
+                command{},
+                std::uint16_t{0},
+                address_type{},
+                std::size_t{0}};
         }
 
         // 解析端口 (offset 19-20)
@@ -171,7 +202,8 @@ namespace psm::protocol::vless
         {
             if (total <= offset)
             {
-                auto [rem_ec, new_total] = co_await read_remaining({*next_layer_, byte_span.first(offset + 1), total, offset + 1});
+                remaining_opts read_opts{*next_layer_, byte_span.first(offset + 1), total, offset + 1};
+                auto [rem_ec, new_total] = co_await read_remaining(read_opts);
                 if (fault::failed(rem_ec))
                 {
                     deadline.cancel();
@@ -194,7 +226,8 @@ namespace psm::protocol::vless
 
         if (total < required_total)
         {
-            auto [rem_ec, new_total] = co_await read_remaining({*next_layer_, byte_span.first(required_total), total, required_total});
+            remaining_opts read_opts{*next_layer_, byte_span.first(required_total), total, required_total};
+            auto [rem_ec, new_total] = co_await read_remaining(read_opts);
             if (fault::failed(rem_ec))
             {
                 deadline.cancel();
@@ -277,14 +310,11 @@ namespace psm::protocol::vless
 
         // 握手超时保护：30 秒内必须完成
         net::steady_timer deadline(next_layer_->executor(), std::chrono::seconds(30));
-        deadline.async_wait(
-            [this](const boost::system::error_code &ec)
-            {
-                if (!ec)
-                {
-                    next_layer_->cancel();
-                }
-            });
+        auto on_deadline = [this](const boost::system::error_code &ec)
+        {
+            if (!ec) next_layer_->cancel();
+        };
+        deadline.async_wait(std::move(on_deadline));
 
         // 步骤 1: 解析固定头部
         auto [hdr_ec, uuid, cmd, port, atyp, total] = co_await parse_header(buffer, byte_span, deadline);

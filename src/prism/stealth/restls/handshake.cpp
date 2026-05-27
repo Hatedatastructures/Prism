@@ -412,8 +412,12 @@ namespace psm::stealth::restls
         memory::vector<std::byte> first_encrypted;
 
         duplex_relay_opts relay_args{
-            client_sock, backend_sock, info_opt->version,
-            info_opt->auth_mask, client_finished, first_encrypted};
+            .client_sock = client_sock,
+            .backend_sock = backend_sock,
+            .version = info_opt->version,
+            .auth_mask = info_opt->auth_mask,
+            .client_finished = client_finished,
+            .first_encrypted = first_encrypted};
         co_await run_duplex_relay(relay_args);
 
         if (client_finished.empty())

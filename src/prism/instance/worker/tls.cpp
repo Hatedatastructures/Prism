@@ -3,6 +3,7 @@
 #include <prism/trace.hpp>
 
 #include <cstdint>
+#include <cstring>
 
 namespace psm::instance::worker::tls
 {
@@ -37,14 +38,25 @@ namespace psm::instance::worker::tls
         // 根据客户端提供的 ALPN 列表选择协议，支持 h2 和 http/1.1
         // 注意：SSL_CTX_set_alpn_protos 是客户端 API，服务端应使用 SSL_CTX_set_alpn_select_cb
         SSL_CTX_set_alpn_select_cb(native,
-            [](SSL*, const unsigned char **out, unsigned char *outlen,
+            [](SSL *ssl, const unsigned char **out, unsigned char *outlen,
                const unsigned char *in, unsigned int inlen, void*) -> int {
-                // 服务端支持的协议列表：h2 + http/1.1
-                constexpr std::uint8_t server_protos[] = "\x02h2\x08http/1.1";
-                if (SSL_select_next_proto(const_cast<unsigned char**>(out), outlen,
-                        server_protos, sizeof(server_protos) - 1,
-                        in, inlen) == OPENSSL_NPN_NEGOTIATED)
-                    return SSL_TLSEXT_ERR_OK;
+                // BoringSSL 的 ALPN 流程：
+                // 1. 服务端回调选择协议 → 返回 SSL_TLSEXT_ERR_OK
+                // 2. 客户端收到 ServerHello 后验证协议是否在客户端列表中
+                //    (ssl_is_alpn_protocol_allowed)
+                // 3. 如果协议不在客户端列表且未设置 allow_unknown_alpn_protos，
+                //    客户端发送 no_application_protocol 致命告警
+                //
+                // 对于代理服务端：我们不是真正的客户端，不需要关心客户端验证。
+                // 问题在于：服务端回调选择一个"服务端支持但客户端未发送"的协议
+                // 时，BoringSSL 仍然会在 EncryptedExtensions 中发送它，
+                // 导致 BoringSSL 客户端校验失败。
+                //
+                // 解决方案：不使用 ALPN 回调，直接不协商 ALPN。
+                // BoringSSL 服务端不设置 alpn_select_cb 时，不会发送 ALPN 扩展。
+                // 但我们设了回调，所以需要返回 NOACK 让它不发送。
+                // BoringSSL ssl_negotiate_alpn 中 SSL_TLSEXT_ERR_NOACK 只是 break，
+                // 不会设置 alpn_selected（保持空），ServerHello 中就不发 ALPN。
                 return SSL_TLSEXT_ERR_NOACK;
             }, nullptr);
 

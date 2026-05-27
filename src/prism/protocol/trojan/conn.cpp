@@ -213,14 +213,11 @@ namespace psm::protocol::trojan
 
         // 握手超时保护：30 秒内必须完成
         net::steady_timer deadline(next_layer_->executor(), std::chrono::seconds(30));
-        deadline.async_wait(
-            [this](const boost::system::error_code &ec)
-            {
-                if (!ec)
-                {
-                    next_layer_->cancel();
-                }
-            });
+        auto on_deadline = [this](const boost::system::error_code &ec)
+        {
+            if (!ec) next_layer_->cancel();
+        };
+        deadline.async_wait(std::move(on_deadline));
 
         // 最小请求长度：56(凭据) + 2(CRLF) + 1(CMD) + 1(ATYP) + 4(IPv4) + 2(PORT) + 2(CRLF) = 68 字节
         static constexpr std::size_t k_min_request_size = 68;

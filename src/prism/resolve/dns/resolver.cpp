@@ -93,7 +93,9 @@ namespace psm::resolve::dns
                 auto result4 = co_await query_pipeline(host, detail::qtype::a);
                 co_return std::move(result4);
             }
-            auto [result4, result6] = co_await (query_pipeline(host, detail::qtype::a) && query_pipeline(host, detail::qtype::aaaa));
+            auto query_a = query_pipeline(host, detail::qtype::a);
+            auto query_aaaa = query_pipeline(host, detail::qtype::aaaa);
+            auto [result4, result6] = co_await (std::move(query_a) && std::move(query_aaaa));
 
             memory::vector<net::ip::address> all_ips(mr_);
             all_ips.reserve(result4.second.size() + result6.second.size());

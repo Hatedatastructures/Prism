@@ -135,10 +135,17 @@ namespace psm::connect
         idle_timer->expires_after(idle_timeout);
         idle_timer->async_wait(idle_handler);
 
-        relay_options state{policy, total_bytes, idle_timer, idle_handler, idle_timeout, inbound, outbound, left, 0};
+        relay_options state{
+            policy, total_bytes,
+            idle_timer, idle_handler, idle_timeout,
+            inbound, outbound, left, 0};
 
         using boost::asio::experimental::awaitable_operators::operator||;
-        co_await (relay_loop(state) || relay_loop({policy, total_bytes, idle_timer, idle_handler, idle_timeout, outbound, inbound, right, 1}));
+        auto mirror = relay_options{
+            policy, total_bytes,
+            idle_timer, idle_handler, idle_timeout,
+            outbound, inbound, right, 1};
+        co_await (relay_loop(state) || relay_loop(std::move(mirror)));
 
         // 取消空闲超时定时器
         idle_timer->cancel();

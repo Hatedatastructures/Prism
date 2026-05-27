@@ -277,15 +277,15 @@ namespace psm::stealth::anytls
                                   std::shared_ptr<transport::transmission> inbound,
                                   memory::vector<std::uint8_t> preread_data)
             {
+                auto subsequent_task = [inbound = std::move(inbound),
+                                         preread = std::move(preread_data),
+                                         session_ptr]() -> net::awaitable<void>
+                {
+                    co_await handle_subsequent_stream(session_ptr,
+                        std::move(inbound), std::move(preread));
+                };
                 net::co_spawn(session_ptr->worker_ctx.io_context.get_executor(),
-                    [inbound = std::move(inbound),
-                     preread = std::move(preread_data),
-                     session_ptr]() -> net::awaitable<void>
-                    {
-                        co_await handle_subsequent_stream(session_ptr,
-                            std::move(inbound), std::move(preread));
-                    },
-                    net::detached);
+                    std::move(subsequent_task), net::detached);
             };
         }
 
@@ -330,14 +330,14 @@ namespace psm::stealth::anytls
             auto stream_transport = std::make_shared<anytls_stream_transport>(
                 anytls_sess, stream_id, channel);
 
+            auto forward_task = [session_ptr, target = std::move(target),
+                                  stream_transport = std::move(stream_transport)]() -> net::awaitable<void>
+            {
+                co_await psm::connect::forward(
+                    *session_ptr, {"AnyTLS", target, std::move(stream_transport)});
+            };
             net::co_spawn(session_ptr->worker_ctx.io_context.get_executor(),
-                [session_ptr, target = std::move(target),
-                 stream_transport = std::move(stream_transport)]() -> net::awaitable<void>
-                {
-                    co_await psm::connect::forward(
-                        *session_ptr, {"AnyTLS", target, std::move(stream_transport)});
-                },
-                net::detached);
+                std::move(forward_task), net::detached);
 
             co_return fault::code::success;
         }
@@ -441,8 +441,8 @@ namespace psm::stealth::anytls
             co_return result;
         }
 
-        auto padding = std::make_shared<padding_factory>(
-            std::string_view(cfg.padding_scheme.data(), cfg.padding_scheme.size()));
+        auto scheme_view = std::string_view(cfg.padding_scheme.data(), cfg.padding_scheme.size());
+        auto padding = std::make_shared<padding_factory>(scheme_view);
 
         auto on_new_stream = make_stream_callback(ctx.session);
 

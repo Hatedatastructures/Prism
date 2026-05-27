@@ -53,7 +53,8 @@ void TestAeadSealOpenRoundtripAes128()
     psm::crypto::aead_context ctx(psm::crypto::aead_cipher::aes_128_gcm, key);
 
     const std::string plaintext = "Hello AES-128-GCM!";
-    const auto pt_span = std::span<const std::uint8_t>(reinterpret_cast<const std::uint8_t *>(plaintext.data()), plaintext.size());
+    const auto pt_data = reinterpret_cast<const std::uint8_t *>(plaintext.data());
+    const auto pt_span = std::span<const std::uint8_t>(pt_data, plaintext.size());
 
     // 使用显式 nonce 避免自增导致 seal/open nonce 不匹配
     const std::array<std::uint8_t, 12> nonce{};
@@ -94,7 +95,8 @@ void TestAeadSealOpenRoundtripAes256()
     psm::crypto::aead_context ctx(psm::crypto::aead_cipher::aes_256_gcm, key);
 
     const std::string plaintext = "Hello AES-256-GCM!";
-    const auto pt_span = std::span<const std::uint8_t>(reinterpret_cast<const std::uint8_t *>(plaintext.data()), plaintext.size());
+    const auto pt_data = reinterpret_cast<const std::uint8_t *>(plaintext.data());
+    const auto pt_span = std::span<const std::uint8_t>(pt_data, plaintext.size());
 
     // 使用显式 nonce 避免自增导致 seal/open nonce 不匹配
     const std::array<std::uint8_t, 12> nonce{};
@@ -138,7 +140,8 @@ void TestAeadWrongKey()
     psm::crypto::aead_context ctx_a(psm::crypto::aead_cipher::aes_128_gcm, key_a);
 
     const std::string plaintext = "secret data";
-    const auto pt_span = std::span<const std::uint8_t>(reinterpret_cast<const std::uint8_t *>(plaintext.data()), plaintext.size());
+    const auto pt_data = reinterpret_cast<const std::uint8_t *>(plaintext.data());
+    const auto pt_span = std::span<const std::uint8_t>(pt_data, plaintext.size());
 
     std::vector<std::uint8_t> ciphertext(psm::crypto::aead_context::seal_size(pt_span.size()));
     ctx_a.seal(ciphertext, pt_span);
@@ -168,7 +171,8 @@ void TestAeadTamperedCiphertext()
     psm::crypto::aead_context ctx(psm::crypto::aead_cipher::aes_128_gcm, key);
 
     const std::string plaintext = "tamper test data here";
-    const auto pt_span = std::span<const std::uint8_t>(reinterpret_cast<const std::uint8_t *>(plaintext.data()), plaintext.size());
+    const auto pt_data = reinterpret_cast<const std::uint8_t *>(plaintext.data());
+    const auto pt_span = std::span<const std::uint8_t>(pt_data, plaintext.size());
 
     std::vector<std::uint8_t> ciphertext(psm::crypto::aead_context::seal_size(pt_span.size()));
     ctx.seal(ciphertext, pt_span);
@@ -199,7 +203,8 @@ void TestAeadMissingAd()
     psm::crypto::aead_context ctx(psm::crypto::aead_cipher::aes_128_gcm, key);
 
     const std::string plaintext = "test with AD";
-    const auto pt_span = std::span<const std::uint8_t>(reinterpret_cast<const std::uint8_t *>(plaintext.data()), plaintext.size());
+    const auto pt_data = reinterpret_cast<const std::uint8_t *>(plaintext.data());
+    const auto pt_span = std::span<const std::uint8_t>(pt_data, plaintext.size());
     const std::array<std::uint8_t, 4> ad = {1, 2, 3, 4};
 
     std::vector<std::uint8_t> ciphertext(psm::crypto::aead_context::seal_size(pt_span.size()));
@@ -365,7 +370,8 @@ void TestAeadMoveSemantics()
     auto ctx1 = std::make_unique<psm::crypto::aead_context>(psm::crypto::aead_cipher::aes_128_gcm, key);
 
     const std::string plaintext = "move test";
-    const auto pt_span = std::span<const std::uint8_t>(reinterpret_cast<const std::uint8_t *>(plaintext.data()), plaintext.size());
+    const auto pt_data = reinterpret_cast<const std::uint8_t *>(plaintext.data());
+    const auto pt_span = std::span<const std::uint8_t>(pt_data, plaintext.size());
     const std::array<std::uint8_t, 12> nonce{};
 
     // 移动构造

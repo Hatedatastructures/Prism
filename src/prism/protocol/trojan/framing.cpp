@@ -199,7 +199,9 @@ namespace psm::protocol::trojan::format
         {
             return {fault::code::bad_message, {}};
         }
-        const std::uint16_t payload_len = static_cast<std::uint16_t>(buffer[offset]) << 8 | static_cast<std::uint16_t>(buffer[offset + 1]);
+        const auto hi = static_cast<std::uint16_t>(buffer[offset]) << 8;
+        const auto lo = static_cast<std::uint16_t>(buffer[offset + 1]);
+        const std::uint16_t payload_len = static_cast<std::uint16_t>(hi | lo);
         offset += 2;
 
         // 验证 CRLF

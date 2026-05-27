@@ -197,7 +197,9 @@ namespace psm::resolve::dns::detail
                         jumped = true;
                     }
 
-                    const auto ptr = (static_cast<std::uint16_t>(data[pos] & 0x3F) << 8) | static_cast<std::uint16_t>(data[pos + 1]);
+                    const auto hi = static_cast<std::uint16_t>(data[pos] & 0x3F) << 8;
+                    const auto lo = static_cast<std::uint16_t>(data[pos + 1]);
+                    const auto ptr = static_cast<std::uint16_t>(hi | lo);
                     pos = ptr;
                 }
                 else if ((len & 0xC0) == 0)

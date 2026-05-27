@@ -51,7 +51,9 @@ namespace psm::stealth::reality
 
         // 有 X25519 + session_id 非标准 → medium confidence
         // Reality 客户端可能使用非标准 session_id
-        if (rec_tls::has_feature(bitmap, rec_tls::feature_bit::has_x25519) && rec_tls::has_feature(bitmap, rec_tls::feature_bit::nonstd_session))
+        const bool has_x25519 = rec_tls::has_feature(bitmap, rec_tls::feature_bit::has_x25519);
+        const bool has_nonstd_session = rec_tls::has_feature(bitmap, rec_tls::feature_bit::nonstd_session);
+        if (has_x25519 && has_nonstd_session)
         {
             trace::debug("[Reality] Sniff: has X25519 + non-standard session_id");
             return {

@@ -105,7 +105,8 @@ namespace psm::protocol::trojan
         {
             trace::info("{} UDP_ASSOCIATE started", TrojanStr);
 
-            using route_fn = std::function<net::awaitable<std::pair<fault::code, net::ip::udp::endpoint>>(std::string_view, std::string_view)>;
+            using dgram_result = std::pair<fault::code, net::ip::udp::endpoint>;
+            using route_fn = std::function<net::awaitable<dgram_result>(std::string_view, std::string_view)>;
             route_fn dgram_router;
             if (ctx.outbound_proxy)
             {

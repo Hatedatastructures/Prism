@@ -338,14 +338,11 @@ namespace psm::protocol::shadowsocks
 
         // 握手超时保护：30 秒内必须完成
         net::steady_timer deadline(next_layer_->executor(), std::chrono::seconds(30));
-        deadline.async_wait(
-            [this](const boost::system::error_code &ec)
-            {
-                if (!ec)
-                {
-                    next_layer_->cancel();
-                }
-            });
+        auto on_deadline = [this](const boost::system::error_code &ec)
+        {
+            if (!ec) next_layer_->cancel();
+        };
+        deadline.async_wait(std::move(on_deadline));
 
         std::error_code ec;
 
