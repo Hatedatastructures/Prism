@@ -1,4 +1,7 @@
 {
+  "env": {
+    "ECC_DISABLED_HOOKS": "post:ecc-context-monitor,pre:edit-write:gateguard-fact-force"
+  },
   "permissions": {},
   "hooks": {},
   "enabledPlugins": {

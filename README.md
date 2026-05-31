@@ -107,10 +107,10 @@ proxies:
 | 伪装 | 状态 |
 |------|------|
 | Reality | 已完成 — TLS 指纹伪装，可叠加任意内层协议 |
-| ShadowTLS v3 | 开发中 — 代码已实现，待连通性测试 |
-| RestLS | 开发中 — 代码已实现，待连通性测试 |
-| AnyTLS | 开发中 — 代码已实现，待连通性测试 |
-| TrustTunnel | 开发中 — 代码已实现，待连通性测试 |
+| ShadowTLS v3 | 已完成 — TLS 握手代理，可叠加 SS2022/任意内层协议 |
+| Restls | 已完成 — TLS 探测抵抗，可叠加 SS2022/任意内层协议 |
+| AnyTLS | 已完成 — 标准 TLS + 应用层认证 + 内部多路复用 |
+| TrustTunnel | 已完成 — HTTP/2 CONNECT 代理，Basic Auth 认证 |
 | Native | 已完成 — 原生 TLS 兜底 |
 
 ---
@@ -214,7 +214,7 @@ Prism/
 - [x] 连接池 + 健康检查
 - [x] 加权负载均衡 + 过载反压
 - [x] Reality TLS 伪装
-- [ ] ShadowTLS v3 / RestLS / AnyTLS / TrustTunnel（代码已实现，待连通性测试）
+- [x] ShadowTLS v3 / RestLS / AnyTLS / TrustTunnel
 - [ ] QUIC / Hysteria2
 - [ ] smux v2
 - [ ] WebSocket
