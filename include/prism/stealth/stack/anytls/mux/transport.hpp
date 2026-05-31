@@ -114,6 +114,9 @@ namespace psm::stealth::anytls
 
         void close() override
         {
+            // 先保存 executor，避免 reset 后 channel_ 为空导致空指针解引用
+            auto saved_executor = channel_ ? channel_->get_executor()
+                                           : session_->get_transport_executor();
             if (channel_)
             {
                 channel_->try_send(
@@ -124,7 +127,7 @@ namespace psm::stealth::anytls
             // 发送 FIN
             auto self = session_;
             auto sid = stream_id_;
-            net::co_spawn(executor(),
+            net::co_spawn(saved_executor,
                 [self, sid]() -> net::awaitable<void>
                 {
                     std::error_code ec;

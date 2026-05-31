@@ -54,10 +54,12 @@ if(MINGW)
     )
 endif()
 
-target_compile_options(${PROJECT_NAME} PRIVATE
-        -g1
-        -O1
-)
+if(CMAKE_BUILD_TYPE STREQUAL "Debug")
+    target_compile_options(${PROJECT_NAME} PRIVATE
+            -g1
+            -O1
+    )
+endif()
 
 if(MINGW)
     target_compile_options(${PROJECT_NAME} PRIVATE -fno-keep-inline-dllexport)

@@ -100,6 +100,12 @@ namespace psm::crypto
             return fault::code::crypto_error;
         }
 
+        if (is_nonce_exhausted())
+        {
+            trace::error("[Crypto.AEAD] seal nonce 溢出");
+            return fault::code::crypto_error;
+        }
+
         std::size_t out_len = 0;
         const auto result = EVP_AEAD_CTX_seal(
             ctx_.get(), out.data(), &out_len, out.size(),
@@ -112,11 +118,7 @@ namespace psm::crypto
             return fault::code::crypto_error;
         }
 
-        if (!increment_nonce())
-        {
-            trace::error("[Crypto.AEAD] seal nonce 溢出");
-            return fault::code::crypto_error;
-        }
+        increment_nonce();
         return fault::code::success;
     }
 
@@ -127,6 +129,12 @@ namespace psm::crypto
     {
         if (!ctx_)
         {
+            return fault::code::crypto_error;
+        }
+
+        if (is_nonce_exhausted())
+        {
+            trace::error("[Crypto.AEAD] open nonce 溢出");
             return fault::code::crypto_error;
         }
 
@@ -142,11 +150,7 @@ namespace psm::crypto
             return fault::code::crypto_error;
         }
 
-        if (!increment_nonce())
-        {
-            trace::error("[Crypto.AEAD] open nonce 溢出");
-            return fault::code::crypto_error;
-        }
+        increment_nonce();
         return fault::code::success;
     }
 
@@ -199,17 +203,30 @@ namespace psm::crypto
     }
 
 
-    auto aead_context::increment_nonce() -> bool
+    void aead_context::increment_nonce() noexcept
     {
         for (std::size_t i = 0; i < nonce_len_; ++i)
         {
             nonce_[i]++;
             if (nonce_[i] != 0)
             {
-                return true;
+                return;
             }
         }
-        return false;
+    }
+
+
+    auto aead_context::is_nonce_exhausted() const noexcept
+        -> bool
+    {
+        for (std::size_t i = 0; i < nonce_len_; ++i)
+        {
+            if (nonce_[i] != 0xFF)
+            {
+                return false;
+            }
+        }
+        return true;
     }
 
 } // namespace psm::crypto

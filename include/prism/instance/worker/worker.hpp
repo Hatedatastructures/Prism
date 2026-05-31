@@ -57,6 +57,10 @@ namespace psm::instance::worker
     class worker
     {
     public:
+        worker(const worker &) = delete;
+        auto operator=(const worker &) -> worker & = delete;
+        worker(worker &&) = delete;
+        auto operator=(worker &&) -> worker & = delete;
         /**
          * @brief 构造 worker 实例
          * @details 根据配置初始化 worker 的所有核心组件。首先创建
@@ -87,6 +91,12 @@ namespace psm::instance::worker
          * 优雅停机。
          */
         void stop();
+
+        /**
+         * @brief 析构 worker 实例
+         * @details 从全局统计 registry 注销 traffic_state，防止悬挂指针。
+         */
+        ~worker();
 
         /**
          * @brief 将 socket 分发到 worker 事件循环

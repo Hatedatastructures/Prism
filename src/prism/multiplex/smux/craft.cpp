@@ -199,6 +199,15 @@ namespace psm::multiplex::smux
         if (pending_.size() + ducts_.size() + parcels_.size() >= config_.smux.max_streams)
         {
             trace::warn("{} max streams reached, rejecting stream {}", tag, stream_id);
+            send_fin(stream_id);
+            co_return;
+        }
+
+        // 检查 stream_id 是否已存在（冲突拒绝）
+        if (pending_.contains(stream_id) || ducts_.contains(stream_id) || parcels_.contains(stream_id))
+        {
+            trace::warn("{} duplicate SYN for stream {}, rejecting", tag, stream_id);
+            send_fin(stream_id);
             co_return;
         }
 

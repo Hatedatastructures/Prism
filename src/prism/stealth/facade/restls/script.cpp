@@ -1,8 +1,7 @@
-#include <prism/stealth/restls/script.hpp>
+#include <prism/stealth/facade/restls/script.hpp>
 
-#include <prism/stealth/restls/crypto.hpp>
+#include <prism/stealth/facade/restls/crypto.hpp>
 
-#include <cstdlib>
 #include <random>
 
 namespace psm::stealth::restls
@@ -10,6 +9,21 @@ namespace psm::stealth::restls
 
     namespace
     {
+        // 线程安全随机数生成器
+        auto random_engine()
+            -> std::mt19937 &
+        {
+            thread_local std::mt19937 eng{std::random_device{}()};
+            return eng;
+        }
+
+        auto random_int(std::int16_t min_val, std::int16_t max_val)
+            -> std::int16_t
+        {
+            std::uniform_int_distribution<std::int16_t> dist(min_val, max_val);
+            return dist(random_engine());
+        }
+
         // 解析单条 script 规则为 script_line
         auto parse_line(std::string_view token)
             -> script_line
@@ -45,7 +59,7 @@ namespace psm::stealth::restls
                     {
                         // 一次性随机：解析时 resolve
                         if (range > 0)
-                            line.target_base = base + std::rand() % range;
+                            line.target_base = base + random_int(0, range - 1);
                         else
                             line.target_base = base;
                         line.target_random = 0;
@@ -112,7 +126,7 @@ namespace psm::stealth::restls
         {
             return target_base;
         }
-        return target_base + static_cast<std::int16_t>(std::rand() % target_random);
+        return target_base + random_int(0, target_random - 1);
     }
 
     // ── script_engine ──
@@ -153,7 +167,7 @@ namespace psm::stealth::restls
         {
             // 无用户数据时发送随机 padding
             alloc.data_len = 0;
-            alloc.padding_len = static_cast<std::int16_t>(19 + std::rand() % 100);
+            alloc.padding_len = static_cast<std::int16_t>(19 + random_int(0, 99));
         }
         else
         {

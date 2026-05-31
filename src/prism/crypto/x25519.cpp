@@ -19,7 +19,11 @@ namespace psm::crypto
     {
         x25519_keypair keypair;
 
-        RAND_bytes(keypair.private_key.data(), static_cast<int>(x25519_klen));
+        if (RAND_bytes(keypair.private_key.data(), static_cast<int>(x25519_klen)) != 1)
+        {
+            trace::error("{} RAND_bytes 失败", tag);
+            return keypair;
+        }
 
         keypair.public_key = derive_pubkey(keypair.private_key);
         return keypair;
@@ -63,6 +67,23 @@ namespace psm::crypto
         if (X25519(shared_secret.data(), private_key.data(), peer_pubkey.data()) != 1)
         {
             trace::error("{} X25519 密钥交换失败", tag);
+            shared_secret.fill(0);
+            return {fault::code::kexfail, shared_secret};
+        }
+
+        // 检查全零共享密钥（低阶点攻击）
+        bool all_zero = true;
+        for (const auto b : shared_secret)
+        {
+            if (b != 0)
+            {
+                all_zero = false;
+                break;
+            }
+        }
+        if (all_zero)
+        {
+            trace::error("{} X25519 共享密钥全零（可能遭遇低阶点攻击）", tag);
             shared_secret.fill(0);
             return {fault::code::kexfail, shared_secret};
         }

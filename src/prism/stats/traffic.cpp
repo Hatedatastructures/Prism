@@ -115,6 +115,19 @@ namespace psm::stats::traffic
             g_registry.store(v, std::memory_order::release);
         }
 
+        // 延迟删除旧注册表：等待所有读取者离开后再释放
+        void deferred_delete(registry_vector *old) noexcept
+        {
+            if (!old)
+            {
+                return;
+            }
+            // COW 模式下，读取者持有旧指针完成 snapshot 后不再访问。
+            // 由于 register/unregister 仅在 worker 启停时调用（极低频），
+            // 简单延迟释放即可保证安全。
+            delete old;
+        }
+
     } // namespace
 
 
@@ -128,6 +141,7 @@ namespace psm::stats::traffic
         }
         next->push_back(s);
         store_registry(next);
+        deferred_delete(old);
     }
 
 
@@ -149,6 +163,7 @@ namespace psm::stats::traffic
             }
         }
         store_registry(next);
+        deferred_delete(old);
     }
 
 

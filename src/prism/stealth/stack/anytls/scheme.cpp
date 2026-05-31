@@ -321,6 +321,7 @@ namespace psm::stealth::anytls
             {
                 trace::warn("{} failed to parse first stream SOCKS target: {}",
                     tag, fault::describe(parse_ec));
+                anytls_sess->close();
                 co_return parse_ec;
             }
 

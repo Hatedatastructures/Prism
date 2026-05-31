@@ -217,16 +217,24 @@ namespace psm::crypto
         [[nodiscard]] static constexpr auto open_size(std::size_t ciphertext_len) noexcept
             -> std::size_t
         {
-            return ciphertext_len - tag_length();
+            return ciphertext_len >= tag_length() ? ciphertext_len - tag_length() : 0;
         }
 
     private:
         /**
          * @brief 递增 nonce
          * @details 按 SS2022 规范要求，以小端序递增 nonce 值。
-         * @return true 递增成功，false nonce 溢出（所有字节均为 0xFF）
+         * 仅在 seal/open 加解密成功后调用。
          */
-        [[nodiscard]] auto increment_nonce() -> bool;
+        void increment_nonce() noexcept;
+
+        /**
+         * @brief 检测 nonce 是否耗尽
+         * @details 检查 nonce 是否已达到最大值（所有字节均为 0xFF）。
+         * 在加解密操作之前调用，防止 nonce 重用。
+         * @return true nonce 已耗尽，false 仍可使用
+         */
+        [[nodiscard]] auto is_nonce_exhausted() const noexcept -> bool;
 
         static void release_ctx(evp_aead_ctx_st *ctx) noexcept;
 

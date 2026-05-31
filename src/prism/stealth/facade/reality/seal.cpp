@@ -32,7 +32,7 @@ namespace psm::stealth::reality
         if (!transport_)
         {
             trace::error("{} executor called with null transport", tag);
-            return net::io_context{}.get_executor();
+            throw std::runtime_error("seal::executor() called with null transport");
         }
         return transport_->executor();
     }

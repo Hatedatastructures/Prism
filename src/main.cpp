@@ -12,6 +12,7 @@
 #include <prism/instance.hpp>
 #include <prism/account/directory.hpp>
 #include <prism/stats/stats.hpp>
+#include <prism/stats/runtime.hpp>
 #include <prism/instance/front/balancer.hpp>
 #include <prism/instance/front/listener.hpp>
 #include <prism/memory.hpp>
@@ -81,6 +82,9 @@ int main(int argc, char *argv[])
         {
             workers.emplace_back(std::make_unique<instance::worker::worker>(config_ref, account_store));
         }
+
+        // 标记系统启动，初始化运行时统计数据
+        psm::stats::runtime::system_state::instance().mark_started(workers_count);
 
         // 将 worker 绑定到负载均衡器，提供连接分发和负载快照回调
         psm::memory::vector<instance::front::balancer::worker_binding> bindings;

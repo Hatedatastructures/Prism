@@ -115,6 +115,14 @@ namespace psm::stealth::anytls
          */
         void close();
 
+        /**
+         * @brief 获取底层传输层的 executor
+         */
+        [[nodiscard]] auto get_transport_executor() const -> net::any_io_executor
+        {
+            return transport_->executor();
+        }
+
     private:
         auto recv_loop() -> net::awaitable<void>;
         auto dispatch_frame(const frame_header &hdr, memory::vector<std::uint8_t> payload) -> net::awaitable<void>;

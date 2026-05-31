@@ -394,6 +394,9 @@ namespace psm::stealth::anytls
 
     auto anytls_session::write_frame(frame_input input) -> net::awaitable<void>
     {
+        // 通过 write_strand_ 序列化写入，防止多 stream 并发写入帧交错
+        co_await net::dispatch(write_strand_, net::use_awaitable);
+
         frame_header hdr;
         hdr.cmd = input.cmd;
         hdr.stream_id = input.stream_id;

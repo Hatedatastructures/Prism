@@ -126,7 +126,7 @@ namespace psm::protocol::http
             // safe: casting char buffer region to mutable byte span for async read
             std::span span = std::span(reinterpret_cast<std::byte *>(buffer_.data() + used_), buffer_.size() - used_);
             const auto n = co_await transport_->async_read_some(span, ec);
-            if (ec)
+            if (ec || n == 0)
             {
                 co_return false;
             }

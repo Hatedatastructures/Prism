@@ -69,19 +69,21 @@ namespace psm::resolve::dns
         }
         ctx->set_verify_mode(verify_mode);
 
+        // 先插入缓存，确保 ssl_key 中的 hostname 持久存储可用
+        ssl_cache_[key] = ctx;
+
         if (!hostname.empty())
         {
-            // 注意：hostname 字符串必须比 context 长命
-            // 这里使用 server 引用（来自 servers_ 成员），生命周期由 resolver 管理
+            // hostname 持久存储在 ssl_key 中，生命周期与 ssl context 绑定
+            auto &stored_hostname = ssl_cache_.find(key)->first.hostname;
             SSL_CTX_set_tlsext_servername_arg(
                 ctx->native_handle(),
-                const_cast<char *>(server.hostname.c_str()));
+                const_cast<void *>(static_cast<const void *>(stored_hostname.data())));
             SSL_CTX_set_tlsext_servername_callback(
                 ctx->native_handle(),
                 sni_callback);
         }
 
-        ssl_cache_[key] = ctx;
         return ctx;
     }
 
@@ -309,6 +311,12 @@ namespace psm::resolve::dns
 
                 if (!ec)
                 {
+                    // 验证响应来源与目标一致，防止 DNS 劫持/伪造
+                    if (sender.address() != target.address() || sender.port() != target.port())
+                    {
+                        ec = net::error::connection_refused;
+                        co_return buf;
+                    }
                     buf.resize(n);
                 }
                 co_return buf;
@@ -369,7 +377,7 @@ namespace psm::resolve::dns
                 auto token = net::redirect_error(net::use_awaitable, ec);
                 arm_tcp(ctx, sock);
                 auto body = co_await read_dns_frame(*sock, frame_context{mr, ec}, ctx);
-                if (!ec)
+                if (ec)
                 {
                     sock->close();
                 }
@@ -444,7 +452,7 @@ namespace psm::resolve::dns
                 auto token = net::redirect_error(net::use_awaitable, ec);
                 arm_ssl_stream(ctx, ssl_sock);
                 auto body = co_await read_dns_frame(*ssl_sock, frame_context{mr, ec}, ctx);
-                if (!ec)
+                if (ec)
                 {
                     ssl_sock->lowest_layer().close();
                 }

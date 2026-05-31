@@ -234,7 +234,14 @@ namespace psm::protocol::shadowsocks
         if (offset + 2 <= var_header_plain.size())
         {
             const auto padding_len = static_cast<std::uint16_t>(var_header_plain[offset] << 8 | var_header_plain[offset + 1]);
-            offset += 2 + padding_len;
+            offset += 2;
+
+            if (offset + padding_len > var_header_plain.size())
+            {
+                trace::error("[SS2022] padding_len ({}) 超出剩余数据 ({})", padding_len, var_header_plain.size() - offset);
+                co_return fault::code::protocol_error;
+            }
+            offset += padding_len;
 
             if (offset < var_header_plain.size())
             {

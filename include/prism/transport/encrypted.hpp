@@ -135,12 +135,17 @@ namespace psm::transport
 
         /**
          * @brief 关闭传输层
-         * @details 跳过 SSL_shutdown，直接关闭底层 socket。
-         * 避免阻塞或等待对端响应，快速释放连接资源。
+         * @details 先发起 SSL_shutdown 优雅关闭 TLS 会话，
+         * 然后关闭底层 socket，忽略所有错误。
          */
         void close() override
         {
-            // 跳过 SSL_shutdown，直接关闭底层 socket，忽略错误
+            auto *ssl = ssl_stream_->native_handle();
+            if (ssl)
+            {
+                SSL_set_quiet_shutdown(ssl, 1);
+                SSL_shutdown(ssl);
+            }
             ssl_stream_->lowest_layer().transmission().close();
         }
 

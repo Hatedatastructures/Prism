@@ -104,8 +104,8 @@ namespace psm::instance::session
             return;
         state_ = state::closed;
 
-        // 通知流量统计连接断开
-        if (ctx_.worker_ctx.traffic && ctx_.detected_protocol != psm::protocol::protocol_type::unknown)
+        // 通知流量统计连接断开（包括识别失败的连接）
+        if (ctx_.worker_ctx.traffic)
         {
             ctx_.worker_ctx.traffic->on_disconnect(ctx_.detected_protocol);
         }

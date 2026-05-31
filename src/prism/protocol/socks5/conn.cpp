@@ -262,10 +262,18 @@ namespace psm::protocol::socks5
             co_return std::pair{fault::code::bad_message, false};
         }
 
-        // 读取用户名 + PLEN + 密码
-        const auto remaining = static_cast<std::size_t>(ulen + 1 + 255);
+        // 读取用户名 + PLEN
+        const auto uname_and_plen = static_cast<std::size_t>(ulen + 1);
         // safe: casting uint8_t array region to byte span for remaining auth fields read
-        co_await recv_impl(std::span(reinterpret_cast<std::byte *>(auth_buffer.data() + 2), remaining), ec);
+        co_await recv_impl(std::span(reinterpret_cast<std::byte *>(auth_buffer.data() + 2), uname_and_plen), ec);
+        if (ec)
+        {
+            co_return std::pair{fault::to_code(ec), false};
+        }
+
+        // 读取密码（长度由 PLEN 字段指定）
+        const auto plen = auth_buffer[2 + ulen];
+        co_await recv_impl(std::span(reinterpret_cast<std::byte *>(auth_buffer.data() + 2 + ulen + 1), plen), ec);
         if (ec)
         {
             co_return std::pair{fault::to_code(ec), false};

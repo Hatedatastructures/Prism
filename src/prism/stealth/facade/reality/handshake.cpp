@@ -226,7 +226,7 @@ namespace psm::stealth::reality
             stealth::handshake_result result;                   // 认证失败时填充错误信息
             memory::vector<std::uint8_t> raw_record;            // 原始 ClientHello TLS 记录
             tls::hello_features ch_features;                    // ClientHello 解析结果
-            std::span<const std::uint8_t> decoded_privkey;      // base64 解码后的服务端静态私钥
+            memory::vector<std::uint8_t> decoded_privkey;        // base64 解码后的服务端静态私钥
             auth_result auth_res;                               // 认证产出：auth_key + 临时密钥对
         };
 
@@ -254,7 +254,7 @@ namespace psm::stealth::reality
             // 读取一个完整的 TLS 记录（ClientHello）
             auto [read_ec, raw_record] = co_await recognition::tls::read_tls_record(inbound);
             if (fault::failed(read_ec))
-            {
+            {   // 读取失败，可能连接异常或对方不是 TLS 客户端，无法继续握手,取消定时器并返回错误
                 args.deadline.cancel();
                 trace::warn("{} failed to read TLS record: {}", tag, fault::describe(read_ec));
                 out.result.error = read_ec;
@@ -266,7 +266,7 @@ namespace psm::stealth::reality
             // 解析 ClientHello 提取 SNI、key_share、session_id 等特征
             auto [parse_ec, ch_features] = recognition::tls::parse_client_hello(raw_record);
             if (fault::failed(parse_ec))
-            {
+            {   // 解析失败，取消定时器并返回错误
                 args.deadline.cancel();
                 trace::warn("{} failed to parse ClientHello: {}", tag, fault::describe(parse_ec));
                 // ClientHello 格式异常，连解析都做不到，直接转发给真实网站兜底
@@ -308,9 +308,10 @@ namespace psm::stealth::reality
 
             out.raw_record = std::move(raw_record);
             out.ch_features = std::move(ch_features);
-            // safe: decoded_key_str is a local string, but we keep it alive via the decoded_key storage
-            out.decoded_privkey = std::span<const std::uint8_t>(
-                reinterpret_cast<const std::uint8_t *>(decoded_key_str.data()), decoded_key_str.size());
+            // safe: decoded_privkey 现在拥有数据所有权（memory::vector）
+            out.decoded_privkey.assign(
+                reinterpret_cast<const std::uint8_t *>(decoded_key_str.data()),
+                reinterpret_cast<const std::uint8_t *>(decoded_key_str.data() + decoded_key_str.size()));
 
             // 核心认证：X25519 密钥交换 → 派生 auth_key → AES-GCM 解密 session_id → 验证 short_id
             auto [auth_ec, auth_res] = authenticate(reality_cfg, out.ch_features, out.decoded_privkey);
@@ -673,12 +674,12 @@ namespace psm::stealth::reality
     // ══════════════════════════════════════════════════════════════════════
     // 主入口：Reality 握手四阶段流水线
     //
-    // ① authenticate_client  → 读取 ClientHello，认证 session_id
+    // 1. authenticate_client  → 读取 ClientHello，认证 session_id
     //     认证失败 → fallback_dest（转发给真实网站）或交给下一个伪装方案
     //     认证成功 → 继续
-    // ② negotiate_tls        → 本地完成 TLS 1.3 密钥协商（无网络 I/O）
-    // ③ complete_hello        → 发送 ServerHello + 接收客户端 Finished
-    // ④ 建立 seal 传输层      → 派生应用密钥，读取内层协议数据
+    // 2. negotiate_tls        → 本地完成 TLS 1.3 密钥协商（无网络 I/O）
+    // 3. complete_hello        → 发送 ServerHello + 接收客户端 Finished
+    // 4. 建立 seal 传输层      → 派生应用密钥，读取内层协议数据
     // ══════════════════════════════════════════════════════════════════════
     auto handshake(transport::shared_transmission inbound, const psm::config &cfg, psm::context::session &session)
         -> net::awaitable<stealth::handshake_result>
@@ -686,7 +687,8 @@ namespace psm::stealth::reality
         stealth::handshake_result result;
 
         if (!inbound)
-        {
+        {   // 传输层无效，无法继续握手
+            trace::warn("{} invalid inbound transmission", tag);
             result.error = fault::code::io_error;
             co_return result;
         }
@@ -699,19 +701,19 @@ namespace psm::stealth::reality
         };
         deadline.async_wait(std::move(on_deadline));
 
-        // 阶段 ①：读取 ClientHello，尝试 Reality 认证
+        // 阶段 1：读取 ClientHello，尝试 Reality 认证
         // authenticate 内部：X25519(静态私钥, 客户端公钥) → 派生 auth_key → AES-GCM 解密 session_id → 验证 short_id
         auto auth = co_await authenticate_client({inbound, cfg, session, deadline});
         if (!auth.done)
             co_return auth.result;
 
-        // 阶段 ②：本地完成 TLS 1.3 密钥协商
+        // 阶段 2：本地完成 TLS 1.3 密钥协商
         // X25519(临时私钥, 客户端公钥) → 构造 ServerHello + 伪造证书 → 派生握手密钥
         auto nego = negotiate_tls(auth.ch_features, auth.auth_res, deadline);
         if (!nego.done)
             co_return nego.result;
 
-        // 阶段 ③：发送握手记录给客户端，等待客户端 Finished 验证
+        // 阶段 3：发送握手记录给客户端，等待客户端 Finished 验证
         auto [hello_ec, hello_ok] = co_await complete_hello({*inbound, nego.keys, nego.sh_result, deadline});
         if (!hello_ok)
         {
@@ -721,7 +723,7 @@ namespace psm::stealth::reality
             co_return result;
         }
 
-        // 阶段 ④：派生应用流量密钥，建立 seal 加密传输层
+        // 阶段 4：派生应用流量密钥，建立 seal 加密传输层
 
         // 完整握手 transcript = ClientHello || ServerHello || 加密握手明文
         const auto full_transcript_hash = crypto::sha256(
@@ -733,7 +735,7 @@ namespace psm::stealth::reality
         const auto app_ec = derive_app_keys(nego.keys.master_secret,
                                                     {full_transcript_hash.data(), full_transcript_hash.size()}, nego.keys);
         if (fault::failed(app_ec))
-        {
+        {   // 派生应用密钥失败，无法建立加密隧道
             deadline.cancel();
             trace::warn("{} failed to derive application keys", tag);
             result.error = app_ec;

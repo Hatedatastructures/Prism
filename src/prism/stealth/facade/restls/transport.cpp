@@ -1,5 +1,6 @@
-#include <prism/stealth/restls/transport.hpp>
+#include <prism/stealth/facade/restls/transport.hpp>
 
+#include <prism/protocol/tls/record.hpp>
 #include <prism/stealth/common.hpp>
 #include <prism/trace.hpp>
 
@@ -38,45 +39,31 @@ namespace psm::stealth::restls
         auto read_tls_record(net::ip::tcp::socket &socket, std::error_code &ec)
             -> net::awaitable<std::optional<tls_record>>
         {
-            boost::system::error_code boost_ec;
-
-            std::array<std::byte, tls_hdrsize> header{};
-            auto header_n = co_await net::async_read(
-                socket, net::buffer(header.data(), tls_hdrsize),
-                net::redirect_error(net::use_awaitable, boost_ec));
-
-            if (boost_ec || header_n < tls_hdrsize)
+            auto [read_ec, rec] = co_await ::psm::tls::record::read(socket);
+            if (fault::failed(read_ec))
             {
                 ec = std::make_error_code(std::errc::connection_reset);
                 co_return std::nullopt;
             }
 
-            // safe: byte buffer 转 uint8_t 以解析 TLS record header
-            const auto *raw = reinterpret_cast<const std::uint8_t *>(header.data());
-            if (raw[0] != content_type_appdata)
+            if (rec.header().content_type != content_type_appdata)
             {
                 ec = std::make_error_code(std::errc::protocol_error);
                 co_return std::nullopt;
             }
 
-            const std::uint16_t record_length =
-                (static_cast<std::uint16_t>(raw[3]) << 8) | raw[4];
+            auto payload = rec.payload();
+            memory::vector<std::byte> payload_copy(payload.begin(), payload.end());
 
-            memory::vector<std::byte> payload(record_length);
-            auto payload_n = co_await net::async_read(
-                socket, net::buffer(payload.data(), record_length),
-                net::redirect_error(net::use_awaitable, boost_ec));
-
-            if (boost_ec || payload_n < record_length)
-            {
-                ec = std::make_error_code(std::errc::connection_reset);
-                co_return std::nullopt;
-            }
-
+            auto hdr = rec.header();
             std::array<std::uint8_t, tls_hdrsize> tls_hdr{};
-            std::memcpy(tls_hdr.data(), raw, tls_hdrsize);
+            tls_hdr[0] = hdr.content_type;
+            tls_hdr[1] = static_cast<std::uint8_t>((hdr.version >> 8) & 0xFF);
+            tls_hdr[2] = static_cast<std::uint8_t>(hdr.version & 0xFF);
+            tls_hdr[3] = static_cast<std::uint8_t>((hdr.length >> 8) & 0xFF);
+            tls_hdr[4] = static_cast<std::uint8_t>(hdr.length & 0xFF);
 
-            co_return tls_record{.header = tls_hdr, .payload = std::move(payload)};
+            co_return tls_record{.header = tls_hdr, .payload = std::move(payload_copy)};
         }
 
         auto decode_restls_payload(
@@ -200,6 +187,22 @@ namespace psm::stealth::restls
             co_return 0;
         }
 
+        // 收到响应帧后，立即 flush 待发送缓冲区（解除写阻塞）
+        if (write_pending_)
+        {
+            write_pending_ = false;
+            if (!send_buf_.empty())
+            {
+                auto flush_data = std::move(send_buf_);
+                send_buf_.clear();
+                co_await write_restls_frame(flush_data, ec);
+                if (ec)
+                {
+                    co_return 0;
+                }
+            }
+        }
+
         auto &frame = *frame_opt;
         const auto n = std::min(frame.size(), buffer.size());
         std::memcpy(buffer.data(), frame.data(), n);
@@ -208,17 +211,6 @@ namespace psm::stealth::restls
         {
             pending_buffer_.assign(frame.begin() + n, frame.end());
             pending_offset_ = 0;
-        }
-
-        if (write_pending_ && n > 0)
-        {
-            write_pending_ = false;
-            if (!send_buf_.empty())
-            {
-                auto flush_data = std::move(send_buf_);
-                send_buf_.clear();
-                co_await write_restls_frame(flush_data, ec);
-            }
         }
 
         co_return n;
@@ -300,7 +292,7 @@ namespace psm::stealth::restls
         if (write_pending_)
         {
             send_buf_.insert(send_buf_.end(), data.begin(), data.end());
-            co_return data.size();
+            co_return 0;
         }
 
         auto alloc = script_.allocate(write_counter_, data.size());
@@ -372,13 +364,16 @@ namespace psm::stealth::restls
         }
 
         const std::size_t frame_size = tls_hdrsize + total_payload;
-        memory::vector<std::byte> frame(frame_size);
-        std::memcpy(frame.data(), tls_hdr.data(), tls_hdrsize);
-        std::memcpy(frame.data() + tls_hdrsize, plaintext.data(), total_payload);
+        auto frame_rec = ::psm::tls::record::builder()
+                             .type(content_type_appdata)
+                             .version(0x0303)
+                             .payload_u8(std::span<const std::uint8_t>(plaintext.data(), total_payload))
+                             .build();
+        auto frame_bytes = frame_rec.serialize();
 
         boost::system::error_code boost_ec;
         co_await net::async_write(
-            socket_, net::buffer(frame.data(), frame.size()),
+            socket_, net::buffer(frame_bytes.data(), frame_bytes.size()),
             net::redirect_error(net::use_awaitable, boost_ec));
 
         if (boost_ec)
@@ -451,14 +446,16 @@ namespace psm::stealth::restls
 
             std::memcpy(plaintext.data(), mac.data(), appdata_maclen);
 
-            const std::size_t frame_size = tls_hdrsize + payload_len;
-            memory::vector<std::byte> frame(frame_size);
-            std::memcpy(frame.data(), tls_hdr.data(), tls_hdrsize);
-            std::memcpy(frame.data() + tls_hdrsize, plaintext.data(), payload_len);
+            auto frame_rec = ::psm::tls::record::builder()
+                                 .type(content_type_appdata)
+                                 .version(0x0303)
+                                 .payload_u8(std::span<const std::uint8_t>(plaintext.data(), payload_len))
+                                 .build();
+            auto frame_bytes = frame_rec.serialize();
 
             boost::system::error_code boost_ec;
             co_await net::async_write(
-                socket_, net::buffer(frame.data(), frame.size()),
+                socket_, net::buffer(frame_bytes.data(), frame_bytes.size()),
                 net::redirect_error(net::use_awaitable, boost_ec));
 
             if (boost_ec)

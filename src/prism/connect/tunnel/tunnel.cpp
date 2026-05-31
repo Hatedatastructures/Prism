@@ -83,7 +83,20 @@ namespace psm::connect
                 }
                 else
                 {
-                    written = co_await opts.to->async_write_some(data, ec);
+                    // partial write: 循环写入直到所有数据发送完毕
+                    auto remaining = data;
+                    while (!remaining.empty())
+                    {
+                        written = co_await opts.to->async_write_some(remaining, ec);
+                        if (ec)
+                        {
+                            trace::debug("{} forward[{}]: partial write failed, written={}",
+                                TunnelStr, dir, written);
+                            co_return;
+                        }
+                        remaining = remaining.subspan(written);
+                    }
+                    written = transferred;
                 }
 
                 if (ec || (opts.policy == write_policy::complete && written < transferred))

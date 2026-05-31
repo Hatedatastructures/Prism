@@ -282,17 +282,18 @@ namespace psm::stealth::restls
             auto relay_done = std::make_shared<std::atomic<bool>>(false);
             auto cancel_signal = std::make_shared<net::cancellation_signal>();
 
-            auto client_relay = [csock = &opts.client_sock,
-                                 bsock = &opts.backend_sock,
+            auto cf_out_ptr = std::make_shared<memory::vector<std::uint8_t>>();
+            auto client_relay = [csock_ptr = std::shared_ptr<net::ip::tcp::socket>(&opts.client_sock, [](auto *) {}),
+                                 bsock_ptr = std::shared_ptr<net::ip::tcp::socket>(&opts.backend_sock, [](auto *) {}),
                                  ver = opts.version,
-                                 &cf_out = opts.client_finished,
+                                 cf_out_ptr,
                                  relay_done]()
                 -> net::awaitable<void>
             {
                 memory::vector<std::uint8_t> cf;
                 co_await relay_client_to_backend(client_relay_opts{
-                    *csock, *bsock, ver, cf});
-                cf_out = std::move(cf);
+                    *csock_ptr, *bsock_ptr, ver, cf});
+                *cf_out_ptr = std::move(cf);
                 relay_done->store(true);
             };
 
@@ -323,6 +324,9 @@ namespace psm::stealth::restls
             {
                 trace::warn("[Restls] client relay did not exit within timeout");
             }
+
+            // 将 detached 协程产出的 client_finished 写回调用方
+            opts.client_finished = std::move(*cf_out_ptr);
         }
     } // namespace
 

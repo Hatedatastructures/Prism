@@ -548,13 +548,14 @@ namespace psm::stealth::shadowtls
 
         auto executor = args.client_sock.get_executor();
 
-        auto backend_relay = [relay_done, hmac_relay_ctx, &backend_sock = args.backend_sock,
-                              &client_sock = args.client_sock, password = args.password,
+        auto backend_relay = [relay_done, hmac_relay_ctx, backend_sock_ptr = std::shared_ptr<net::ip::tcp::socket>(&args.backend_sock, [](auto *) {}),
+                              client_sock_ptr = std::shared_ptr<net::ip::tcp::socket>(&args.client_sock, [](auto *) {}),
+                              password = args.password,
                               server_random_span]() -> net::awaitable<void>
         {
             std::shared_ptr<HMAC_CTX> hmac_out;
             co_await relay_modified(
-                backend_relay_args{backend_sock, client_sock, password, server_random_span, hmac_out});
+                backend_relay_args{*backend_sock_ptr, *client_sock_ptr, password, server_random_span, hmac_out});
             *hmac_relay_ctx = std::move(hmac_out);
             relay_done->store(true);
         };

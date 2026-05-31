@@ -181,9 +181,21 @@ namespace psm::stealth::trusttunnel
             co_return result;
         }
 
-        // safe: nghttp2 ALPN API requires uint8_t*, literal string is used read-only
-        SSL_CTX_set_alpn_protos(ctx.session->server_ctx.ssl_ctx->native_handle(),
-                                reinterpret_cast<const std::uint8_t *>("\x2h2"), 3);
+        // safe: 使用 SSL_CTX_set_alpn_select_cb 设置服务端 ALPN 选择回调，不影响共享 SSL_CTX
+        // 此回调仅在选择阶段生效，不会修改 SSL_CTX 的客户端 ALPN 配置
+        SSL_CTX_set_alpn_select_cb(ctx.session->server_ctx.ssl_ctx->native_handle(),
+            [](SSL *, const unsigned char **out, unsigned char *outlen,
+               const unsigned char *in, unsigned int inlen, void *) -> int
+            {
+                // 在客户端提供的 ALPN 列表中查找 h2
+                if (SSL_select_next_proto(const_cast<unsigned char **>(out), outlen,
+                    reinterpret_cast<const unsigned char *>("\x2h2"), 3,
+                    in, inlen) == OPENSSL_NPN_NEGOTIATED)
+                {
+                    return SSL_TLSEXT_ERR_OK;
+                }
+                return SSL_TLSEXT_ERR_NOACK;
+            }, nullptr);
 
         auto preread_span = std::span<const std::byte>(ctx.preread.data(), ctx.preread.size());
         auto clean_inbound = transport::wrap_with_preview(
@@ -249,9 +261,9 @@ namespace psm::stealth::trusttunnel
 
         trace::debug("[TrustTunnel] Authenticated, authority={}", first.authority);
 
+        co_await craft->activate_stream(first.stream_id);
         (void)craft->respond_connect(first.stream_id, 200);
         co_await craft->send_pending();
-        co_await craft->activate_stream(first.stream_id);
 
         result.detected = protocol::protocol_type::tls;
 

@@ -100,6 +100,9 @@ namespace psm::instance::front
     {
         auto executor = co_await net::this_coro::executor;
         net::steady_timer timer{executor};
+        static constexpr std::chrono::milliseconds min_delay{10};
+        static constexpr std::chrono::milliseconds max_delay{5120};
+        static thread_local std::chrono::milliseconds delay = min_delay;
         for (;;)
         {
             boost::system::error_code ec;
@@ -118,10 +121,6 @@ namespace psm::instance::front
                 if (ec == boost::system::errc::too_many_files_open ||
                     ec == boost::system::errc::not_enough_memory)
                 {
-                    static constexpr std::chrono::milliseconds min_delay{10};
-                    static constexpr std::chrono::milliseconds max_delay{5120};
-                    static thread_local std::chrono::milliseconds delay = min_delay;
-
                     timer.expires_after(delay);
                     co_await timer.async_wait(net::use_awaitable);
 
@@ -136,6 +135,8 @@ namespace psm::instance::front
             }
 
             // 获取客户端地址用于亲和性计算
+            // accept 成功，重置退避延迟
+            delay = min_delay;
             boost::system::error_code remote_excode;
             const tcp::endpoint remote_endpoint = socket.remote_endpoint(remote_excode);
             std::uint64_t affinity;

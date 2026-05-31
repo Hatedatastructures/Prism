@@ -70,6 +70,11 @@ namespace psm::instance::worker
         ioc_.stop();
     }
 
+    worker::~worker()
+    {
+        stats::traffic::traffic_state::unregister_instance(&traffic_);
+    }
+
 
     // 接收来自 Listener 的新连接，投递到本 Worker 的 io_context。
     // 由 Balancer 调用——当 Listener 收到新连接后，Balancer 根据
