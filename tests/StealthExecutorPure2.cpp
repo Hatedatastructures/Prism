@@ -1,0 +1,208 @@
+/**
+ * @file StealthExecutorPure2.cpp
+ * @brief scheme_executor 纯函数测试
+ * @details 通过 #include 源文件访问 anonymous namespace 函数：
+ *          secondary_probe。构造/registry 测试通过公开接口。
+ */
+
+#include <prism/memory.hpp>
+#include <prism/trace/spdlog.hpp>
+
+#ifdef _WIN32
+#include <windows.h>
+#endif
+
+#include "common/TestRunner.hpp"
+
+// 显式引入 scheme 子类（executor.cpp 不直接 include 它们）
+#include <prism/stealth/facade/native.hpp>
+#include <prism/stealth/facade/reality/scheme.hpp>
+
+#include "../src/prism/stealth/executor.cpp"
+
+using psm::testing::TestRunner;
+
+// secondary_probe 在 psm::stealth 的匿名命名空间中，
+// #include 源文件后可在该 TU 内通过 using 访问
+using psm::stealth::secondary_probe;
+
+namespace
+{
+    namespace stealth = psm::stealth;
+
+    // ─── secondary_probe（匿名命名空间）──────────────
+
+    void TestSecondaryProbeEmpty(TestRunner &runner)
+    {
+        psm::memory::vector<std::byte> preread;
+        auto result = secondary_probe(preread);
+        runner.Check(result == psm::protocol::protocol_type::unknown,
+                     "secondary_probe: empty preread -> unknown");
+    }
+
+    void TestSecondaryProbeHttp(TestRunner &runner)
+    {
+        psm::memory::vector<std::byte> preread;
+        const char *http = "GET / HTTP/1.1\r\n";
+        for (auto c : std::string_view(http))
+            preread.push_back(static_cast<std::byte>(c));
+
+        auto result = secondary_probe(preread);
+        runner.Check(result == psm::protocol::protocol_type::http,
+                     "secondary_probe: HTTP GET -> http");
+    }
+
+    void TestSecondaryProbeTls(TestRunner &runner)
+    {
+        psm::memory::vector<std::byte> preread;
+        preread.push_back(static_cast<std::byte>(0x16));
+        preread.push_back(static_cast<std::byte>(0x03));
+        preread.push_back(static_cast<std::byte>(0x01));
+        for (std::size_t i = 0; i < 20; ++i)
+            preread.push_back(std::byte{0});
+
+        auto result = secondary_probe(preread);
+        runner.Check(result == psm::protocol::protocol_type::tls ||
+                     result == psm::protocol::protocol_type::shadowsocks,
+                     "secondary_probe: TLS bytes -> tls or shadowsocks fallback");
+    }
+
+    void TestSecondaryProbeGarbageFallsToShadowsocks(TestRunner &runner)
+    {
+        psm::memory::vector<std::byte> preread;
+        preread.push_back(static_cast<std::byte>(0xAA));
+        preread.push_back(static_cast<std::byte>(0xBB));
+        preread.push_back(static_cast<std::byte>(0xCC));
+
+        auto result = secondary_probe(preread);
+        runner.Check(result == psm::protocol::protocol_type::shadowsocks,
+                     "secondary_probe: garbage -> shadowsocks fallback");
+    }
+
+    void TestSecondaryProbeConnect(TestRunner &runner)
+    {
+        psm::memory::vector<std::byte> preread;
+        const char *connect = "CONNECT example.com:443 HTTP/1.1\r\n";
+        for (auto c : std::string_view(connect))
+            preread.push_back(static_cast<std::byte>(c));
+
+        auto result = secondary_probe(preread);
+        runner.Check(result == psm::protocol::protocol_type::http,
+                     "secondary_probe: CONNECT -> http");
+    }
+
+    void TestSecondaryProbePost(TestRunner &runner)
+    {
+        psm::memory::vector<std::byte> preread;
+        const char *post = "POST /api HTTP/1.1\r\n";
+        for (auto c : std::string_view(post))
+            preread.push_back(static_cast<std::byte>(c));
+
+        auto result = secondary_probe(preread);
+        runner.Check(result == psm::protocol::protocol_type::http,
+                     "secondary_probe: POST -> http");
+    }
+
+    void TestSecondaryProbeSocks5(TestRunner &runner)
+    {
+        psm::memory::vector<std::byte> preread;
+        preread.push_back(static_cast<std::byte>(0x05));
+        preread.push_back(static_cast<std::byte>(0x01));
+        preread.push_back(static_cast<std::byte>(0x00));
+
+        auto result = secondary_probe(preread);
+        runner.Check(result == psm::protocol::protocol_type::socks5,
+                     "secondary_probe: socks5 bytes -> socks5");
+    }
+
+    void TestSecondaryProbeTls12(TestRunner &runner)
+    {
+        psm::memory::vector<std::byte> preread;
+        preread.push_back(static_cast<std::byte>(0x16));
+        preread.push_back(static_cast<std::byte>(0x03));
+        preread.push_back(static_cast<std::byte>(0x03));
+        for (std::size_t i = 0; i < 20; ++i)
+            preread.push_back(std::byte{0});
+
+        auto result = secondary_probe(preread);
+        runner.Check(result == psm::protocol::protocol_type::tls ||
+                     result == psm::protocol::protocol_type::shadowsocks,
+                     "secondary_probe: TLS 1.2 bytes -> tls or shadowsocks");
+    }
+
+    // ─── scheme_registry 公开接口 ──────────────────────
+
+    void TestRegistryEmpty(TestRunner &runner)
+    {
+        stealth::scheme_registry registry;
+        auto schemes = registry.all();
+        runner.Check(schemes.empty(), "registry: empty -> no schemes");
+    }
+
+    void TestRegistryAddAndFind(TestRunner &runner)
+    {
+        stealth::scheme_registry registry;
+        registry.add(std::make_shared<psm::stealth::native::native>());
+        auto schemes = registry.all();
+        runner.Check(schemes.size() == 1, "registry: add native -> size 1");
+        runner.Check(schemes[0]->name() == std::string_view("native"),
+                     "registry: scheme name is native");
+    }
+
+    void TestRegistryAddMultiple(TestRunner &runner)
+    {
+        stealth::scheme_registry registry;
+        registry.add(std::make_shared<psm::stealth::native::native>());
+        registry.add(std::make_shared<psm::stealth::reality::scheme>());
+        auto schemes = registry.all();
+        runner.Check(schemes.size() == 2, "registry: 2 schemes");
+    }
+
+    // ─── scheme_executor 构造 ──────────────────────────
+
+    void TestExecutorConstruction(TestRunner &runner)
+    {
+        stealth::scheme_registry registry;
+        stealth::scheme_executor executor(registry);
+        runner.Check(true, "executor: constructed with empty registry");
+    }
+
+    void TestExecutorWithSchemes(TestRunner &runner)
+    {
+        stealth::scheme_registry registry;
+        registry.add(std::make_shared<psm::stealth::native::native>());
+        registry.add(std::make_shared<psm::stealth::reality::scheme>());
+        stealth::scheme_executor executor(registry);
+        runner.Check(true, "executor: constructed with 2 schemes");
+    }
+
+} // namespace
+
+int main()
+{
+#ifdef _WIN32
+    SetConsoleOutputCP(CP_UTF8);
+#endif
+    psm::memory::system::enable_pooling();
+    psm::trace::init({});
+
+    TestRunner runner("StealthExecutorPure2");
+
+    TestSecondaryProbeEmpty(runner);
+    TestSecondaryProbeHttp(runner);
+    TestSecondaryProbeTls(runner);
+    TestSecondaryProbeGarbageFallsToShadowsocks(runner);
+    TestSecondaryProbeConnect(runner);
+    TestSecondaryProbePost(runner);
+    TestSecondaryProbeSocks5(runner);
+    TestSecondaryProbeTls12(runner);
+
+    TestRegistryEmpty(runner);
+    TestRegistryAddAndFind(runner);
+    TestRegistryAddMultiple(runner);
+
+    TestExecutorConstruction(runner);
+    TestExecutorWithSchemes(runner);
+
+    return runner.Summary();
+}
