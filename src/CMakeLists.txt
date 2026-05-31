@@ -47,10 +47,10 @@ add_executable(${PROJECT_NAME}
 set_target_properties(${PROJECT_NAME} PROPERTIES OUTPUT_NAME "Prism")
 
 if(MINGW)
+    # GCC 16.1.0 静态链接 libstdc++ 有未解析符号 (wctob/btowc)，使用动态链接
+    # 运行时需要 ucrt64/bin 在 PATH 中
     target_link_options(${PROJECT_NAME} PRIVATE
-            -static
             -static-libgcc
-            -static-libstdc++
     )
 endif()
 

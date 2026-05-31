@@ -8,7 +8,7 @@
 #pragma once
 
 #include <prism/stealth/scheme.hpp>
-#include <prism/stealth/trusttunnel/config.hpp>
+#include <prism/stealth/stack/trusttunnel/config.hpp>
 
 
 namespace psm::stealth::trusttunnel
@@ -36,6 +36,13 @@ namespace psm::stealth::trusttunnel
             -> std::uint8_t override { return 2; }
         [[nodiscard]] auto unique() const noexcept
             -> bool override { return false; }
+
+        // === 分类 ===
+        [[nodiscard]] auto category() const noexcept
+            -> scheme_category override
+        {
+            return scheme_category::stack;
+        }
 
         // === 配置检查 ===
         [[nodiscard]] auto active(const psm::config &cfg) const noexcept

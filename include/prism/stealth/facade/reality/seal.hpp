@@ -11,12 +11,11 @@
 #include <prism/crypto/aead.hpp>
 #include <prism/memory/container.hpp>
 #include <prism/protocol/tls/types.hpp>
-#include <prism/stealth/reality/util/keygen.hpp>
+#include <prism/stealth/facade/reality/util/keygen.hpp>
 #include <prism/transport/transmission.hpp>
 
 #include <boost/asio.hpp>
 
-#include <array>
 #include <cstddef>
 #include <cstdint>
 #include <memory>
@@ -151,10 +150,8 @@ namespace psm::stealth::reality
         memory::vector<std::byte> plainbuf_;    // 解密后的明文缓冲区
         std::size_t plain_off_ = 0;             // 明文缓冲区当前读取偏移
 
-        memory::vector<std::byte> recbody_buf_;          // TLS 记录体读取缓冲区
         memory::vector<std::uint8_t> dec_buf_;           // 解密输出缓冲区
         memory::vector<std::uint8_t> wr_plain_buf_;      // 写入明文拼接缓冲区
         memory::vector<std::uint8_t> wr_cipher_buf_;     // 写入密文缓冲区
-        memory::vector<std::byte> scatter_buf_;             // scatter-gather 拼接缓冲区
     };
 } // namespace psm::stealth::reality

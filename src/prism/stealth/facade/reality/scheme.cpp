@@ -1,8 +1,8 @@
-#include <prism/stealth/reality/scheme.hpp>
+#include <prism/stealth/facade/reality/scheme.hpp>
 
 #include <prism/config.hpp>
 #include <prism/recognition/tls/features.hpp>
-#include <prism/stealth/reality/handshake.hpp>
+#include <prism/stealth/facade/reality/handshake.hpp>
 #include <prism/trace.hpp>
 
 namespace psm::stealth::reality

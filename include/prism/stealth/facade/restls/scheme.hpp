@@ -6,7 +6,7 @@
  */
 #pragma once
 
-#include <prism/stealth/restls/config.hpp>
+#include <prism/stealth/facade/restls/config.hpp>
 #include <prism/stealth/scheme.hpp>
 
 

@@ -1,11 +1,13 @@
-#include <prism/stealth/reality/seal.hpp>
+#include <prism/stealth/facade/reality/seal.hpp>
 
+#include <prism/protocol/tls/record.hpp>
 #include <prism/stealth/common.hpp>
 #include <prism/trace.hpp>
 #include <prism/transport/transmission.hpp>
 
 #include <algorithm>
 #include <cstring>
+
 
 namespace psm::stealth::reality
 {
@@ -117,33 +119,16 @@ namespace psm::stealth::reality
     auto seal::recv_record(std::error_code &ec)
         -> net::awaitable<std::size_t>
     {
-        std::array<std::byte, tls::RECORD_HDR_LEN> header{};
-        std::size_t hdr_read = 0;
-        while (hdr_read < tls::RECORD_HDR_LEN)
+        auto [read_ec, rec] = co_await ::psm::tls::record::read(*transport_);
+        if (fault::failed(read_ec))
         {
-            const auto n = co_await transport_->async_read_some(
-                std::span<std::byte>(header.data() + hdr_read, tls::RECORD_HDR_LEN - hdr_read), ec);
-            if (ec || n == 0)
-                co_return 0;
-            hdr_read += n;
+            ec = std::make_error_code(std::errc::connection_reset);
+            co_return 0;
         }
 
-        // safe: casting byte array to uint8_t to parse TLS record header fields
-        const auto *raw = reinterpret_cast<const std::uint8_t *>(header.data());
-        const auto content_type = raw[0];
-        const auto record_len = (static_cast<std::size_t>(raw[3]) << 8) | static_cast<std::size_t>(raw[4]);
-
-        recbody_buf_.resize(record_len);
-        auto &record_body = recbody_buf_;
-        std::size_t body_n = 0;
-        while (body_n < record_len)
-        {
-            auto buf_span = std::span<std::byte>(record_body.data() + body_n, record_len - body_n);
-            const auto n = co_await transport_->async_read_some(buf_span, ec);
-            if (ec || n == 0)
-                co_return 0;
-            body_n += n;
-        }
+        const auto content_type = rec.header().content_type;
+        auto payload = rec.payload();
+        const auto record_len = static_cast<std::size_t>(rec.header().length);
 
         if (content_type == tls::CT_ALERT)
         {
@@ -178,17 +163,19 @@ namespace psm::stealth::reality
             read_seq_);
         ++read_seq_;
 
-        const auto ad = common::record_ad((static_cast<std::uint16_t>(raw[3]) << 8) | raw[4]);
-
-        // safe: casting byte vector to uint8_t span for AEAD ciphertext input
+        // 类型转换：byte 载荷视图转 uint8_t 供 AEAD 解密
         const auto ciphertext = std::span<const std::uint8_t>(
-            reinterpret_cast<const std::uint8_t *>(record_body.data()), record_len);
-        const auto plaintext_len = record_len - tls::AEAD_TAG_LEN;
+            reinterpret_cast<const std::uint8_t *>(payload.data()), payload.size());
+        const auto plaintext_len = payload.size() - tls::AEAD_TAG_LEN;
 
         dec_buf_.resize(plaintext_len);
         auto &decrypted = dec_buf_;
+
+        // AEAD AD 从 record 序列化中取前 5 字节
+        auto rec_bytes = rec.serialize();
+        const auto ad_span = std::span<const std::uint8_t>(
+            reinterpret_cast<const std::uint8_t *>(rec_bytes.data()), 5);
         const auto nonce_span = std::span<const std::uint8_t>{nonce.data(), nonce.size()};
-        const auto ad_span = std::span<const std::uint8_t>{ad.data(), ad.size()};
         const auto dec_ec = cli_decryptor_.open(crypto::open_input{decrypted, ciphertext, nonce_span, ad_span});
         if (!first_read_log_)
         {
@@ -206,15 +193,21 @@ namespace psm::stealth::reality
         // TLS 1.3 内部明文格式：去掉零填充和 content_type
         std::size_t data_end = decrypted.size();
         while (data_end > 0 && decrypted[data_end - 1] == 0x00)
+        {
             --data_end;
+        }
         if (data_end > 0)
+        {
             --data_end;
+        }
 
         plainbuf_.clear();
         plain_off_ = 0;
         plainbuf_.resize(data_end);
         if (data_end > 0)
+        {
             std::memcpy(plainbuf_.data(), decrypted.data(), data_end);
+        }
 
         co_return plainbuf_.size();
     }
@@ -249,13 +242,19 @@ namespace psm::stealth::reality
         ++write_seq_;
 
         const auto encrypted_len = static_cast<std::uint16_t>(inner.size() + tls::AEAD_TAG_LEN);
-        const auto ad = common::record_ad(encrypted_len);
 
         wr_cipher_buf_.resize(encrypted_len);
         auto &ciphertext = wr_cipher_buf_;
+
+        // 类型转换：byte 视图转 uint8_t 供 AEAD
+        const auto inner_span = std::span<const std::uint8_t>(
+            reinterpret_cast<const std::uint8_t *>(inner.data()), inner.size());
         const auto nonce_span = std::span<const std::uint8_t>{nonce.data(), nonce.size()};
+
+        // AEAD AD 使用 record_ad 生成
+        const auto ad = common::record_ad(encrypted_len);
         const auto ad_span = std::span<const std::uint8_t>{ad.data(), ad.size()};
-        const auto enc_ec = srv_encryptor_.seal(crypto::seal_input{ciphertext, inner, nonce_span, ad_span});
+        const auto enc_ec = srv_encryptor_.seal(crypto::seal_input{ciphertext, inner_span, nonce_span, ad_span});
         if (!first_write_log_)
         {
             first_write_log_ = true;
@@ -268,21 +267,19 @@ namespace psm::stealth::reality
             co_return 0;
         }
 
-        // 合并写入：rec_hdr + ciphertext
-        std::array<std::byte, tls::RECORD_HDR_LEN> rec_hdr{};
-        rec_hdr[0] = static_cast<std::byte>(tls::CT_APPLICATION_DATA);
-        rec_hdr[1] = static_cast<std::byte>(0x03);
-        rec_hdr[2] = static_cast<std::byte>(0x03);
-        rec_hdr[3] = static_cast<std::byte>((encrypted_len >> 8) & 0xFF);
-        rec_hdr[4] = static_cast<std::byte>(encrypted_len & 0xFF);
+        // 构造加密 TLS 记录并写入
+        auto sealed = ::psm::tls::record::builder()
+            .type(tls::CT_APPLICATION_DATA)
+            .version(0x0303)
+            .payload_u8(std::span<const std::uint8_t>(ciphertext.data(), ciphertext.size()))
+            .build();
 
-        const std::size_t scatter_total = tls::RECORD_HDR_LEN + ciphertext.size();
-        scatter_buf_.resize(scatter_total);
-        std::memcpy(scatter_buf_.data(), rec_hdr.data(), tls::RECORD_HDR_LEN);
-        std::memcpy(scatter_buf_.data() + tls::RECORD_HDR_LEN, ciphertext.data(), ciphertext.size());
-        co_await transport::async_write(*transport_, scatter_buf_, ec);
-        if (ec)
+        auto write_ec = co_await sealed.write(*transport_);
+        if (fault::failed(write_ec))
+        {
+            ec = std::make_error_code(std::errc::connection_reset);
             co_return 0;
+        }
 
         co_return data.size();
     }

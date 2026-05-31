@@ -8,7 +8,7 @@
 #pragma once
 
 #include <prism/memory/container.hpp>
-#include <prism/stealth/anytls/mux/session.hpp>
+#include <prism/stealth/stack/anytls/mux/session.hpp>
 #include <prism/transport/transmission.hpp>
 
 #include <boost/asio.hpp>

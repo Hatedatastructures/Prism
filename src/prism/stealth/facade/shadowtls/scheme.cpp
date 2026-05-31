@@ -1,12 +1,12 @@
-#include <prism/stealth/shadowtls/scheme.hpp>
+#include <prism/stealth/facade/shadowtls/scheme.hpp>
 
 #include <prism/connect/util.hpp>
 #include <prism/protocol/types.hpp>
 #include <prism/recognition/probe/analyzer.hpp>
 #include <prism/recognition/tls/features.hpp>
-#include <prism/stealth/shadowtls/handshake.hpp>
-#include <prism/stealth/shadowtls/transport.hpp>
-#include <prism/stealth/shadowtls/util/auth.hpp>
+#include <prism/stealth/facade/shadowtls/handshake.hpp>
+#include <prism/stealth/facade/shadowtls/transport.hpp>
+#include <prism/stealth/facade/shadowtls/util/auth.hpp>
 #include <prism/trace.hpp>
 #include <prism/transport/preview.hpp>
 #include <prism/transport/reliable.hpp>
@@ -147,16 +147,9 @@ namespace psm::stealth::shadowtls
                 // safe: casting uint8_t payload to string_view for inner protocol detection
                 auto inner_view = std::string_view(
                     reinterpret_cast<const char *>(payload.data()), payload.size());
-                result.detected = recognition::probe::detect_tls(inner_view);
-
-                // detect_tls() 不再自动 fallback 到 shadowsocks，
-                // 对于 ShadowTLS 场景，数据已足够多（payload 通常数百字节），
-                // 如果不是 HTTP/VLESS/Trojan，则排除法认为是 SS2022
-                if (result.detected == protocol::protocol_type::unknown)
-                {
-                    result.detected = protocol::protocol_type::shadowsocks;
-                    trace::debug("[ShadowTlsScheme] no known protocol matched, fallback to shadowsocks");
-                }
+                // executor 统一做二次探测，scheme 只存储 preread
+                result.preread.assign(payload.begin(), payload.end());
+                result.detected = protocol::protocol_type::unknown;
 
                 auto raw_socket_opt = rel->release_socket();
                 if (!raw_socket_opt)
@@ -174,7 +167,7 @@ namespace psm::stealth::shadowtls
                     shadowtls_handover{
                         detail.matched_password,
                         std::span<const std::byte>(detail.server_random.data(), detail.server_random.size()),
-                        payload,
+                        std::span<const std::byte>(),  // preread 已通过 result.preread 传递给 preview 层
                         std::move(detail.hmac_write_ctx),
                         std::move(detail.hmac_read_ctx)
                     });
@@ -182,9 +175,8 @@ namespace psm::stealth::shadowtls
                 result.transport = shadowtls_trans;
                 result.scheme = "shadowtls";
 
-                auto protocol_name = protocol::to_string_view(result.detected);
-                trace::debug("[ShadowTlsScheme] Authenticated (user: {}), inner protocol: {}, shadowtls_transport created (HMAC inherited)",
-                             detail.matched_user, protocol_name);
+                trace::debug("[ShadowTlsScheme] Authenticated (user: {}), shadowtls_transport created (HMAC inherited)",
+                             detail.matched_user);
             }
             else
             {

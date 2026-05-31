@@ -7,7 +7,7 @@
  */
 #pragma once
 
-#include <prism/stealth/anytls/config.hpp>
+#include <prism/stealth/stack/anytls/config.hpp>
 #include <prism/stealth/scheme.hpp>
 
 
@@ -40,6 +40,13 @@ namespace psm::stealth::anytls
             -> std::uint8_t override { return 2; }
         [[nodiscard]] auto unique() const noexcept
             -> bool override { return false; }
+
+        // === 分类 ===
+        [[nodiscard]] auto category() const noexcept
+            -> scheme_category override
+        {
+            return scheme_category::stack;
+        }
 
         // === 配置检查 ===
         [[nodiscard]] auto active(const psm::config &cfg) const noexcept

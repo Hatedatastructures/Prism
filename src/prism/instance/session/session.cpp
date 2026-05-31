@@ -214,6 +214,14 @@ namespace psm::instance::session
         // 2. 更新传输层
         ctx_.inbound = std::move(result.transport);
 
+        // Stack 方案内部已处理连接（无 transport）
+        if (!ctx_.inbound)
+        {
+            trace::debug("[Session] [{}] Connection handled by stack scheme '{}'",
+                         id_, result.executed_scheme);
+            co_return;
+        }
+
         auto preread_span = std::span<const std::byte>(
             result.preread.data(), result.preread.size());
 

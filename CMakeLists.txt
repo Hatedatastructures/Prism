@@ -28,6 +28,24 @@ endif()
 # === 所有依赖均通过 FetchContent 或本地查找自动解决 ===
 include(FetchContent)
 
+# 依赖缓存：复用已有构建的 _deps 目录，避免重复下载
+# 必须在 FetchContent_MakeAvailable 之前设置，否则缓存变量不生效
+option(PRISM_DEPS_CACHE "Reuse dependencies from another build's _deps directory" "")
+message(STATUS "PRISM_DEPS_CACHE=${PRISM_DEPS_CACHE}")
+
+if(PRISM_DEPS_CACHE)
+    cmake_path(ABSOLUTE_PATH PRISM_DEPS_CACHE BASE_DIRECTORY "${CMAKE_SOURCE_DIR}"
+               OUTPUT_VARIABLE _deps_cache_root)
+    set(_cache "${_deps_cache_root}/_deps")
+    set(FETCHCONTENT_SOURCE_DIR_SPDLOG      "${_cache}/spdlog-src"     CACHE PATH "" FORCE)
+    set(FETCHCONTENT_SOURCE_DIR_BOOST_SRC   "${_cache}/boost_src-src"  CACHE PATH "" FORCE)
+    set(FETCHCONTENT_SOURCE_DIR_GLAZE       "${_cache}/glaze-src"      CACHE PATH "" FORCE)
+    set(FETCHCONTENT_SOURCE_DIR_BORINGSSL   "${_cache}/boringssl-src"  CACHE PATH "" FORCE)
+    set(FETCHCONTENT_SOURCE_DIR_BLAKE3      "${_cache}/blake3-src"     CACHE PATH "" FORCE)
+    set(FETCHCONTENT_SOURCE_DIR_NGHTTP2     "${_cache}/nghttp2-src"    CACHE PATH "" FORCE)
+endif()
+
+
 # --- spdlog v1.17.0 ---
 # 日志库。含少量编译组件（rotating_file_sink、async_logger 等），
 # 但源码量很小，FetchContent 拉取编译只需十几秒。
@@ -265,7 +283,9 @@ FetchContent_Declare(
 FetchContent_MakeAvailable(nghttp2)
 
 # BoringSSL 的 bssl/decrepit 等目标无条件编译，排除出默认构建避免 MinGW 编译错误
-set_target_properties(bssl PROPERTIES EXCLUDE_FROM_ALL TRUE)
+if(TARGET bssl)
+    set_target_properties(bssl PROPERTIES EXCLUDE_FROM_ALL TRUE)
+endif()
 if(TARGET decrepit)
     set_target_properties(decrepit PROPERTIES EXCLUDE_FROM_ALL TRUE)
 endif()
@@ -278,6 +298,23 @@ message(STATUS "PRISM_ENABLE_BENCHMARK=${PRISM_ENABLE_BENCHMARK}")
 
 option(PRISM_ENABLE_STRESS "Enable forward stress tools" ON)
 message(STATUS "PRISM_ENABLE_STRESS=${PRISM_ENABLE_STRESS}")
+
+option(PRISM_ENABLE_COVERAGE "Enable code coverage instrumentation (gcc/clang --coverage)" OFF)
+message(STATUS "PRISM_ENABLE_COVERAGE=${PRISM_ENABLE_COVERAGE}")
+
+option(PRISM_ENABLE_ASAN "Enable AddressSanitizer for memory leak detection" OFF)
+message(STATUS "PRISM_ENABLE_ASAN=${PRISM_ENABLE_ASAN}")
+
+
+if(PRISM_ENABLE_COVERAGE)
+    add_compile_options(--coverage -O0 -g)
+    add_link_options(--coverage)
+endif()
+
+if(PRISM_ENABLE_ASAN)
+    add_compile_options(-fsanitize=address -fno-omit-frame-pointer -g)
+    add_link_options(-fsanitize=address)
+endif()
 
 add_subdirectory(src)
 add_subdirectory(tests)

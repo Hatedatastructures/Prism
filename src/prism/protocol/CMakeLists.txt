@@ -13,6 +13,8 @@ target_sources(${PROJECT_NAME}_static_library
         shadowsocks/framing.cpp
         shadowsocks/util/datagram.cpp
         shadowsocks/process.cpp
+        tls/record.cpp
+        tls/hello.cpp
 )
 
 target_sources(${PROJECT_NAME}_static_library
@@ -25,6 +27,8 @@ target_sources(${PROJECT_NAME}_static_library
             ${PROJECT_SOURCE_DIR}/include/prism/protocol/common/target.hpp
             ${PROJECT_SOURCE_DIR}/include/prism/protocol/common/mux.hpp
             ${PROJECT_SOURCE_DIR}/include/prism/protocol/tls/types.hpp
+            ${PROJECT_SOURCE_DIR}/include/prism/protocol/tls/record.hpp
+            ${PROJECT_SOURCE_DIR}/include/prism/protocol/tls/hello.hpp
             ${PROJECT_SOURCE_DIR}/include/prism/protocol/http.hpp
             ${PROJECT_SOURCE_DIR}/include/prism/protocol/socks5.hpp
             ${PROJECT_SOURCE_DIR}/include/prism/protocol/common/form.hpp

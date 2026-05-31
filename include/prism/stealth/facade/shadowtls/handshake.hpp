@@ -14,7 +14,7 @@
 
 #include <prism/memory/container.hpp>
 #include <prism/stealth/scheme.hpp>
-#include <prism/stealth/shadowtls/config.hpp>
+#include <prism/stealth/facade/shadowtls/config.hpp>
 
 #include <boost/asio.hpp>
 #include <openssl/hmac.h>

@@ -1,4 +1,4 @@
-#include <prism/stealth/reality/handshake.hpp>
+#include <prism/stealth/facade/reality/handshake.hpp>
 
 #include <prism/config.hpp>
 #include <prism/connect.hpp>
@@ -10,12 +10,13 @@
 #include <prism/crypto/hkdf.hpp>
 #include <prism/crypto/x25519.hpp>
 #include <prism/memory/container.hpp>
+#include <prism/protocol/tls/record.hpp>
 #include <prism/recognition/tls/signal.hpp>
-#include <prism/stealth/reality/config.hpp>
-#include <prism/stealth/reality/seal.hpp>
-#include <prism/stealth/reality/util/auth.hpp>
-#include <prism/stealth/reality/util/keygen.hpp>
-#include <prism/stealth/reality/util/response.hpp>
+#include <prism/stealth/facade/reality/config.hpp>
+#include <prism/stealth/facade/reality/seal.hpp>
+#include <prism/stealth/facade/reality/util/auth.hpp>
+#include <prism/stealth/facade/reality/util/keygen.hpp>
+#include <prism/stealth/facade/reality/util/response.hpp>
 #include <prism/trace.hpp>
 #include <prism/transport/reliable.hpp>
 #include <prism/transport/transmission.hpp>
@@ -41,24 +42,6 @@ namespace psm::stealth::reality
     namespace
     {
         constexpr std::string_view tag = "[Stealth.Handshake]";
-
-
-        // 从传输层精确读取 buf.size() 字节，不足则循环读取，EOF/错误返回 false
-        auto read_exact(transport::transmission &transport, std::span<std::byte> buf)
-            -> net::awaitable<bool>
-        {
-            std::size_t done = 0;
-            while (done < buf.size())
-            {
-                std::error_code ec;
-                const auto n = co_await transport.async_read_some(
-                    std::span<std::byte>(buf.data() + done, buf.size() - done), ec);
-                if (ec || n == 0)
-                    co_return false;
-                done += n;
-            }
-            co_return true;
-        }
 
 
         // 根据握手 transcript 重新计算并加密服务端 Finished 消息
@@ -130,29 +113,18 @@ namespace psm::stealth::reality
             bool consumed = false;
             while (!consumed)
             {
-                // 读取 TLS 记录头（5 字节：type(1) + version(2) + length(2)）
-                std::array<std::byte, tls::RECORD_HDR_LEN> rec_hdr{};
-                if (!co_await read_exact(inbound, rec_hdr))
+                auto [read_ec, rec] = co_await ::psm::tls::record::read(inbound);
+                if (fault::failed(read_ec))
                 {
-                    trace::warn("{} failed to read client record header", tag);
+                    trace::warn("{} failed to read client record", tag);
                     co_return fault::code::io_error;
                 }
 
-                // safe: casting byte array to uint8_t to parse TLS record header fields
-                const auto *hdr_raw = reinterpret_cast<const std::uint8_t *>(rec_hdr.data());
-                const auto rec_ctype = hdr_raw[0];
-                const auto rec_len = (static_cast<std::size_t>(hdr_raw[3]) << 8) |
-                                     static_cast<std::size_t>(hdr_raw[4]);
+                const auto rec_ctype = rec.header().content_type;
+                const auto rec_len = rec.header().length;
 
                 trace::debug("{} client rec: type=0x{:02x} len={}", tag,
                              static_cast<unsigned>(rec_ctype), rec_len);
-
-                memory::vector<std::byte> rec_body(rec_len);
-                if (rec_len > 0 && !co_await read_exact(inbound, rec_body))
-                {
-                    trace::warn("{} failed to read client record body", tag);
-                    co_return fault::code::io_error;
-                }
 
                 // TLS 1.3 中间件兼容性 CCS 记录，直接跳过
                 if (rec_ctype == tls::CT_CHANGE_CIPHER_SPEC)
@@ -167,18 +139,19 @@ namespace psm::stealth::reality
                     std::array<std::uint8_t, tls::AEAD_NONCE_LEN> client_nonce{};
                     std::memcpy(client_nonce.data(), keys.client_hsiv.data(), tls::AEAD_NONCE_LEN);
 
-                    // safe: casting byte array to uint8_t span for AEAD additional data
+                    // 构造 additional data（record header）
+                    memory::vector<std::byte> ad_buf = rec.serialize();
+                    ad_buf.resize(tls::RECORD_HDR_LEN);
                     const auto ad_span = std::span<const std::uint8_t>(
-                        reinterpret_cast<const std::uint8_t *>(rec_hdr.data()), rec_hdr.size());
-                    // safe: casting byte vector to uint8_t span for AEAD ciphertext input
+                        reinterpret_cast<const std::uint8_t *>(ad_buf.data()), ad_buf.size());
                     const auto ct_span = std::span<const std::uint8_t>(
-                        reinterpret_cast<const std::uint8_t *>(rec_body.data()), rec_body.size());
+                        reinterpret_cast<const std::uint8_t *>(rec.payload().data()), rec.payload().size());
 
                     crypto::aead_context client_aead(
                         crypto::aead_cipher::aes_128_gcm,
                         std::span<const std::uint8_t>(keys.client_hskey.data(), keys.client_hskey.size()));
 
-                    const auto pt_size = crypto::aead_context::open_size(rec_body.size());
+                    const auto pt_size = crypto::aead_context::open_size(rec.payload().size());
                     memory::vector<std::uint8_t> decrypted(pt_size);
                     const auto nonce_span = std::span<const std::uint8_t>(client_nonce.data(), client_nonce.size());
 
@@ -763,9 +736,8 @@ namespace psm::stealth::reality
             co_return result;
         }
 
-        // TODO: Reality 内层协议动态探测，支持 VLESS/Trojan/VMess 等多协议(#reality)
         result.transport = std::move(reality_session);
-        result.detected = protocol::protocol_type::vless;
+        result.detected = protocol::protocol_type::unknown;
         result.preread.assign(inner_buf.begin(), inner_buf.begin() + static_cast<std::ptrdiff_t>(inner_n));
         result.scheme = "reality";
         result.error = fault::code::success;

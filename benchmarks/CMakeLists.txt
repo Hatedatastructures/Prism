@@ -58,12 +58,54 @@ target_link_libraries(ResourceBench PRIVATE ${PROJECT_NAME}_static_library bench
 add_executable(LatencyBench LatencyBench.cpp)
 target_link_libraries(LatencyBench PRIVATE ${PROJECT_NAME}_static_library benchmark::benchmark)
 
+add_executable(RecognitionBench RecognitionBench.cpp)
+target_link_libraries(RecognitionBench PRIVATE ${PROJECT_NAME}_static_library benchmark::benchmark)
+
+add_executable(StealthBench StealthBench.cpp)
+target_link_libraries(StealthBench PRIVATE ${PROJECT_NAME}_static_library benchmark::benchmark)
+
+add_executable(InfraBench InfraBench.cpp)
+target_link_libraries(InfraBench PRIVATE ${PROJECT_NAME}_static_library benchmark::benchmark)
+
+add_executable(H2MuxBench H2MuxBench.cpp)
+target_link_libraries(H2MuxBench PRIVATE ${PROJECT_NAME}_static_library benchmark::benchmark)
+
 add_executable(RegressionBench RegressionBench.cpp)
 target_link_libraries(RegressionBench PRIVATE ${PROJECT_NAME}_static_library)
 target_include_directories(RegressionBench PRIVATE ${PROJECT_SOURCE_DIR}/tests)
 
+add_executable(RealityAuthBench RealityAuthBench.cpp)
+target_link_libraries(RealityAuthBench PRIVATE ${PROJECT_NAME}_static_library benchmark::benchmark)
+
+add_executable(ResolveBench ResolveBench.cpp)
+target_link_libraries(ResolveBench PRIVATE ${PROJECT_NAME}_static_library benchmark::benchmark)
+
+add_executable(AnyTLSFrameBench AnyTLSFrameBench.cpp)
+target_link_libraries(AnyTLSFrameBench PRIVATE ${PROJECT_NAME}_static_library benchmark::benchmark)
+
+add_executable(StealthExtBench StealthExtBench.cpp)
+target_link_libraries(StealthExtBench PRIVATE ${PROJECT_NAME}_static_library benchmark::benchmark)
+
+add_executable(SsAntiReplayBench SsAntiReplayBench.cpp)
+target_link_libraries(SsAntiReplayBench PRIVATE ${PROJECT_NAME}_static_library benchmark::benchmark)
+
+add_executable(TlsFrameBench TlsFrameBench.cpp)
+target_link_libraries(TlsFrameBench PRIVATE ${PROJECT_NAME}_static_library benchmark::benchmark)
+
+add_executable(Socks5FrameBench Socks5FrameBench.cpp)
+target_link_libraries(Socks5FrameBench PRIVATE ${PROJECT_NAME}_static_library benchmark::benchmark)
+
+add_executable(CryptoMiscBench CryptoMiscBench.cpp)
+target_link_libraries(CryptoMiscBench PRIVATE ${PROJECT_NAME}_static_library benchmark::benchmark)
+
+add_executable(RecognitionPipeBench RecognitionPipeBench.cpp)
+target_link_libraries(RecognitionPipeBench PRIVATE ${PROJECT_NAME}_static_library benchmark::benchmark)
+
+add_executable(ConnectPoolBench ConnectPoolBench.cpp)
+target_link_libraries(ConnectPoolBench PRIVATE ${PROJECT_NAME}_static_library benchmark::benchmark)
+
 if(MINGW)
-    foreach(target_name IN ITEMS CodecBench MemoryBench MuxBench CryptoBench ProtocolBench IOBench MuxConnBench SessionBench RealityBench ScaleBench ResourceBench LatencyBench RegressionBench)
+    foreach(target_name IN ITEMS CodecBench MemoryBench MuxBench CryptoBench ProtocolBench IOBench MuxConnBench SessionBench RealityBench ScaleBench ResourceBench LatencyBench RecognitionBench StealthBench InfraBench H2MuxBench RegressionBench RealityAuthBench ResolveBench AnyTLSFrameBench StealthExtBench SsAntiReplayBench TlsFrameBench Socks5FrameBench CryptoMiscBench RecognitionPipeBench ConnectPoolBench)
         if(TARGET ${target_name})
             target_compile_options(${target_name} PRIVATE -Wa,-mbig-obj)
         endif()

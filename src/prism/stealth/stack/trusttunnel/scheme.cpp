@@ -1,4 +1,4 @@
-#include <prism/stealth/trusttunnel/scheme.hpp>
+#include <prism/stealth/stack/trusttunnel/scheme.hpp>
 
 #include <prism/config.hpp>
 #include <prism/connect/util.hpp>
@@ -265,9 +265,8 @@ namespace psm::stealth::trusttunnel
         (void)craft->respond_connect(first.stream_id, 200);
         co_await craft->send_pending();
 
-        result.detected = protocol::protocol_type::tls;
-
-        trace::debug("[TrustTunnel] Handshake complete, craft managing all streams");
+        result.detected = protocol::protocol_type::unknown;
+        result.error = fault::code::success;
 
         co_return result;
     }

@@ -1,10 +1,11 @@
-#include <prism/stealth/reality/util/response.hpp>
+#include <prism/stealth/facade/reality/util/response.hpp>
 
 #include <prism/crypto/aead.hpp>
 #include <prism/crypto/hkdf.hpp>
 #include <prism/crypto/x25519.hpp>
+#include <prism/protocol/tls/record.hpp>
 #include <prism/stealth/common.hpp>
-#include <prism/stealth/reality/util/keygen.hpp>
+#include <prism/stealth/facade/reality/util/keygen.hpp>
 #include <prism/trace.hpp>
 
 #include <openssl/asn1.h>
@@ -252,13 +253,15 @@ namespace psm::stealth::reality
     auto make_record(const std::uint8_t content_type, const std::span<const std::uint8_t> payload)
         -> memory::vector<std::uint8_t>
     {
-        memory::vector<std::uint8_t> record;
-        record.reserve(tls::RECORD_HDR_LEN + payload.size());
-        record.push_back(content_type);
-        tls::write_u16(record, tls::VERSION_TLS12);
-        tls::write_u16(record, static_cast<std::uint16_t>(payload.size()));
-        record.insert(record.end(), payload.begin(), payload.end());
-        return record;
+        auto rec = ::psm::tls::record::builder()
+                       .type(content_type)
+                       .version(tls::VERSION_TLS12)
+                       .payload_u8(payload)
+                       .build();
+        auto serialized = rec.serialize();
+        memory::vector<std::uint8_t> result(serialized.size());
+        std::memcpy(result.data(), serialized.data(), serialized.size());
+        return result;
     }
 
 

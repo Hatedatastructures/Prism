@@ -2,19 +2,47 @@
 
 #include <prism/connect/util.hpp>
 #include <prism/context/context.hpp>
+#include <prism/recognition/probe/analyzer.hpp>
 #include <prism/trace.hpp>
 #include <prism/transport/preview.hpp>
 #include <prism/transport/snapshot.hpp>
 
 #include <algorithm>
 
+
 namespace psm::stealth
 {
+
+    namespace
+    {
+
+        [[nodiscard]] auto secondary_probe(const memory::vector<std::byte> &preread)
+            -> protocol::protocol_type
+        {
+            if (preread.empty())
+            {
+                return protocol::protocol_type::unknown;
+            }
+
+            auto view = std::string_view(
+                reinterpret_cast<const char *>(preread.data()),
+                preread.size());
+            auto detected = recognition::probe::detect_tls(view);
+            // SS2022 的 AEAD 加密载荷无特征，detect_tls() 无法识别，回退到 shadowsocks
+            if (detected == protocol::protocol_type::unknown)
+            {
+                return protocol::protocol_type::shadowsocks;
+            }
+            return detected;
+        }
+
+    } // namespace
 
     scheme_executor::scheme_executor(const scheme_registry &registry)
         : schemes_(registry.all().begin(), registry.all().end())
     {
     }
+
 
     void scheme_executor::pass_through(handshake_context &ctx, const handshake_result &res)
     {
@@ -30,6 +58,7 @@ namespace psm::stealth
         }
     }
 
+
     void scheme_executor::ensure_snapshot(handshake_context &ctx)
     {
         if (!ctx.inbound)
@@ -38,6 +67,7 @@ namespace psm::stealth
             return;
         ctx.inbound = transport::make_snapshot(std::move(ctx.inbound));
     }
+
 
     auto scheme_executor::try_rewind(handshake_context &ctx, rewind_mode mode)
         -> bool
@@ -53,6 +83,7 @@ namespace psm::stealth
         return true;
     }
 
+
     auto scheme_executor::execute_single(const shared_scheme scheme, handshake_context ctx)
         -> net::awaitable<handshake_result>
     {
@@ -60,6 +91,7 @@ namespace psm::stealth
         result.scheme = memory::string(scheme->name());
         co_return result;
     }
+
 
     auto scheme_executor::execute_pipeline(const memory::vector<memory::string> &order, handshake_context ctx) const
         -> net::awaitable<handshake_result>
@@ -87,18 +119,15 @@ namespace psm::stealth
 
             auto exec_result = co_await execute_single(scheme, handshake_context{ctx});
 
-            if (exec_result.detected != protocol::protocol_type::tls &&
-                exec_result.detected != protocol::protocol_type::unknown &&
-                exec_result.transport && !fault::failed(exec_result.error))
+            // Stack 方案：成功即终止，不传 transport
+            if (scheme->category() == scheme_category::stack)
             {
-                trace::debug("[SchemeExecutor] Scheme '{}' succeeded, protocol: {}",
-                             name, static_cast<int>(exec_result.detected));
-                co_return exec_result;
-            }
-
-            if (exec_result.detected == protocol::protocol_type::tls)
-            {
-                trace::debug("[SchemeExecutor] Scheme '{}' returned TLS, continuing to next", name);
+                if (!fault::failed(exec_result.error) && !exec_result.transport)
+                {
+                    trace::debug("[SchemeExecutor] Stack scheme '{}' handled connection", name);
+                    co_return exec_result;
+                }
+                // Stack 失败 → rewind 并尝试下一个
                 rewind_mode rw_mode;
                 if (exec_result.polluted)
                 {
@@ -109,8 +138,41 @@ namespace psm::stealth
                     rw_mode = rewind_mode::clean;
                 }
                 if (!try_rewind(ctx, rw_mode))
+                {
+                    pass_through(ctx, exec_result);
+                }
+                continue;
+            }
+
+            // Facade detected==tls → "不是我的"，尝试下一个（优先于成功判断）
+            if (exec_result.detected == protocol::protocol_type::tls)
+            {
+                trace::debug("[SchemeExecutor] Scheme '{}' returned TLS, continuing to next", name);
+                rewind_mode rw_mode2;
+                if (exec_result.polluted)
+                {
+                    rw_mode2 = rewind_mode::polluted;
+                }
+                else
+                {
+                    rw_mode2 = rewind_mode::clean;
+                }
+                if (!try_rewind(ctx, rw_mode2))
                     pass_through(ctx, exec_result);
                 continue;
+            }
+
+            // Facade 方案：transport 非空且无错误即成功
+            if (exec_result.transport && !fault::failed(exec_result.error))
+            {
+                // preread 非空时做二次探测覆盖 detected；preread 为空保留原值
+                if (!exec_result.preread.empty())
+                {
+                    exec_result.detected = secondary_probe(exec_result.preread);
+                }
+                trace::debug("[SchemeExecutor] Facade scheme '{}' succeeded, inner: {}",
+                             name, static_cast<std::int32_t>(exec_result.detected));
+                co_return exec_result;
             }
 
             if (fault::failed(exec_result.error))
@@ -142,6 +204,7 @@ namespace psm::stealth
         co_return result;
     }
 
+
     auto scheme_executor::execute_by_analysis(const recognition::analysis_result &analysis, handshake_context ctx) const
         -> net::awaitable<handshake_result>
     {
@@ -169,11 +232,13 @@ namespace psm::stealth
         co_return co_await execute_pipeline(analysis.candidates, std::move(ctx));
     }
 
+
     auto scheme_executor::execute(const memory::vector<memory::string> &candidates, handshake_context ctx) const
         -> net::awaitable<handshake_result>
     {
         co_return co_await execute_pipeline(candidates, std::move(ctx));
     }
+
 
     auto scheme_executor::find_scheme(const std::string_view name) const
         -> shared_scheme

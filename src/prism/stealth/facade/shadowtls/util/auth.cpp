@@ -1,7 +1,7 @@
 
-#include <prism/stealth/shadowtls/util/auth.hpp>
+#include <prism/stealth/facade/shadowtls/util/auth.hpp>
 
-#include <prism/stealth/shadowtls/util/constants.hpp>
+#include <prism/stealth/facade/shadowtls/util/constants.hpp>
 #include <prism/trace.hpp>
 
 #include <openssl/crypto.h>

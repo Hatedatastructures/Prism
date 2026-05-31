@@ -1,4 +1,4 @@
-#include <prism/stealth/reality/util/keygen.hpp>
+#include <prism/stealth/facade/reality/util/keygen.hpp>
 
 #include <prism/trace.hpp>
 

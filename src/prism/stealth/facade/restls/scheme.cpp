@@ -1,12 +1,12 @@
-#include <prism/stealth/restls/scheme.hpp>
+#include <prism/stealth/facade/restls/scheme.hpp>
 
 #include <prism/config.hpp>
 #include <prism/connect/util.hpp>
 #include <prism/fault/code.hpp>
 #include <prism/protocol/types.hpp>
 #include <prism/recognition/probe/analyzer.hpp>
-#include <prism/stealth/restls/handshake.hpp>
-#include <prism/stealth/restls/transport.hpp>
+#include <prism/stealth/facade/restls/handshake.hpp>
+#include <prism/stealth/facade/restls/transport.hpp>
 #include <prism/trace.hpp>
 #include <prism/transport/reliable.hpp>
 
@@ -109,8 +109,34 @@ namespace psm::stealth::restls
                 }()
             });
 
-        // 检测内层协议
-        result.detected = protocol::protocol_type::shadowsocks;
+        // 从 restls_transport 预读内层数据，供 executor 做二次探测
+        std::array<std::byte, 128> inner_buf{};
+        std::size_t inner_n = 0;
+        constexpr std::size_t min_probe = 32;
+
+        while (inner_n < min_probe)
+        {
+            std::error_code probe_ec;
+            auto buf_span = std::span<std::byte>(inner_buf.data() + inner_n, inner_buf.size() - inner_n);
+            const auto n = co_await restls_trans->async_read_some(buf_span, probe_ec);
+            if (probe_ec)
+            {
+                trace::warn("[Restls] Inner probe read failed: {}", probe_ec.message());
+                break;
+            }
+            inner_n += n;
+
+            auto inner_view = std::string_view(
+                reinterpret_cast<const char *>(inner_buf.data()), inner_n);
+            auto detected = recognition::probe::detect_tls(inner_view);
+            if (detected != protocol::protocol_type::unknown)
+            {
+                result.detected = detected;
+                break;
+            }
+        }
+
+        result.preread.assign(inner_buf.begin(), inner_buf.begin() + static_cast<std::ptrdiff_t>(inner_n));
         result.transport = restls_trans;
         result.scheme = "restls";
 

@@ -1,9 +1,9 @@
-#include <prism/stealth/restls/handshake.hpp>
+#include <prism/stealth/facade/restls/handshake.hpp>
 
 #include <prism/fault/code.hpp>
 #include <prism/stealth/common.hpp>
-#include <prism/stealth/restls/crypto.hpp>
-#include <prism/stealth/restls/transport.hpp>
+#include <prism/stealth/facade/restls/crypto.hpp>
+#include <prism/stealth/facade/restls/transport.hpp>
 #include <prism/trace.hpp>
 
 #include <boost/asio.hpp>

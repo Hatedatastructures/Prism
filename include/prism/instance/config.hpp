@@ -13,12 +13,12 @@
 #include <prism/protocol/socks5/config.hpp>
 #include <prism/protocol/trojan/config.hpp>
 #include <prism/protocol/vless/config.hpp>
-#include <prism/stealth/anytls/config.hpp>
-#include <prism/stealth/native/config.hpp>
-#include <prism/stealth/reality/config.hpp>
-#include <prism/stealth/restls/config.hpp>
-#include <prism/stealth/shadowtls/config.hpp>
-#include <prism/stealth/trusttunnel/config.hpp>
+#include <prism/stealth/stack/anytls/config.hpp>
+#include <prism/stealth/facade/native/config.hpp>
+#include <prism/stealth/facade/reality/config.hpp>
+#include <prism/stealth/facade/restls/config.hpp>
+#include <prism/stealth/facade/shadowtls/config.hpp>
+#include <prism/stealth/stack/trusttunnel/config.hpp>
 
 
 namespace psm::instance

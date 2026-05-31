@@ -1,6 +1,7 @@
 #include <prism/recognition/tls/signal.hpp>
 
 #include <prism/fault/handling.hpp>
+#include <prism/protocol/tls/record.hpp>
 #include <prism/trace.hpp>
 #include <prism/transport/transmission.hpp>
 
@@ -175,58 +176,23 @@ namespace psm::recognition::tls
     auto read_tls_record(transport::transmission &transport)
         -> net::awaitable<std::pair<fault::code, memory::vector<std::uint8_t>>>
     {
-        std::array<std::byte, tls_proto::RECORD_HDR_LEN> header{};
-        std::size_t header_read = 0;
-        while (header_read < tls_proto::RECORD_HDR_LEN)
+        auto [ec, rec] = co_await ::psm::tls::record::read(transport);
+        if (fault::failed(ec))
         {
-            std::error_code ec;
-            const auto buf_span = std::span(header.data() + header_read, tls_proto::RECORD_HDR_LEN - header_read);
-            const auto n = co_await transport.async_read_some(buf_span, ec);
-            if (ec || n == 0)
-            {
-                trace::error("{} read record header failed: {}", tag, ec.message());
-                co_return std::pair{fault::to_code(ec), memory::vector<std::uint8_t>{}};
-            }
-            header_read += n;
+            trace::error("{} read record failed", tag);
+            co_return std::pair{ec, memory::vector<std::uint8_t>{}};
         }
 
-        // safe: casting byte buffer to uint8_t to parse TLS record header fields
-        const auto *raw = reinterpret_cast<const std::uint8_t *>(header.data());
-        const auto content_type = raw[0];
-        const auto record_length = read_u16({raw, tls_proto::RECORD_HDR_LEN}, 3);
-
-        if (content_type != tls_proto::CT_HANDSHAKE)
+        if (rec.header().content_type != tls_proto::CT_HANDSHAKE)
         {
-            trace::error("{} unexpected content type: 0x{:02x}", tag, content_type);
+            trace::error("{} unexpected content type: 0x{:02x}", tag, rec.header().content_type);
             co_return std::pair{fault::code::recorderr, memory::vector<std::uint8_t>{}};
         }
 
-        if (record_length > tls_proto::MAX_RECORD_PAYLOAD)
-        {
-            trace::error("{} record too large: {}", tag, record_length);
-            co_return std::pair{fault::code::recorderr, memory::vector<std::uint8_t>{}};
-        }
-
-        const std::size_t total = tls_proto::RECORD_HDR_LEN + record_length;
-        memory::vector<std::uint8_t> record(total);
-        std::memcpy(record.data(), raw, tls_proto::RECORD_HDR_LEN);
-
-        std::size_t read_offset = tls_proto::RECORD_HDR_LEN;
-        while (read_offset < total)
-        {
-            std::error_code ec;
-            // safe: casting uint8_t vector region to mutable byte span for async read
-            const auto buf_span = std::span(reinterpret_cast<std::byte *>(record.data() + read_offset), total - read_offset);
-            const auto n = co_await transport.async_read_some(buf_span, ec);
-            if (ec || n == 0)
-            {
-                trace::error("{} read failed at offset {}: {}", tag, read_offset, ec.message());
-                co_return std::pair{fault::to_code(ec), memory::vector<std::uint8_t>{}};
-            }
-            read_offset += n;
-        }
-
-        co_return std::pair{fault::code::success, std::move(record)};
+        auto raw = rec.serialize();
+        memory::vector<std::uint8_t> result(raw.size());
+        std::memcpy(result.data(), raw.data(), raw.size());
+        co_return std::pair{fault::code::success, std::move(result)};
     }
 
 

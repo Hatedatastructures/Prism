@@ -54,6 +54,18 @@ namespace psm::stealth
     using shared_transmission = transport::shared_transmission;
     using hello_features = protocol::tls::hello_features;
 
+    /**
+     * @enum scheme_category
+     * @brief 方案执行分类
+     * @details facade 方案返回 transport + preread，executor 做二次探测；
+     * stack 方案内部管理流不返回 transport，executor 收到即终止。
+     */
+    enum class scheme_category : std::uint8_t
+    {
+        facade, ///< 返回 transport + preread，executor 做二次探测
+        stack   ///< 内部管理流，executor 收到即终止
+    };
+
     // 快速检测结果（Tier 0）
 
     /**
@@ -162,6 +174,13 @@ namespace psm::stealth
             -> bool
         {
             return false; // 默认无独占特征
+        }
+
+        /// 方案执行分类（facade 返回 transport，stack 内部管理流）
+        [[nodiscard]] virtual auto category() const noexcept
+            -> scheme_category
+        {
+            return scheme_category::facade;
         }
 
         // === 配置 ===

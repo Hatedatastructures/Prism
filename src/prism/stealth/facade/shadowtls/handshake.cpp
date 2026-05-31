@@ -1,9 +1,10 @@
-#include <prism/stealth/shadowtls/handshake.hpp>
+#include <prism/stealth/facade/shadowtls/handshake.hpp>
 
 #include <prism/fault/code.hpp>
+#include <prism/protocol/tls/record.hpp>
 #include <prism/stealth/common.hpp>
-#include <prism/stealth/shadowtls/util/auth.hpp>
-#include <prism/stealth/shadowtls/util/constants.hpp>
+#include <prism/stealth/facade/shadowtls/util/auth.hpp>
+#include <prism/stealth/facade/shadowtls/util/constants.hpp>
 #include <prism/trace.hpp>
 
 #include <boost/asio.hpp>
@@ -249,17 +250,19 @@ namespace psm::stealth::shadowtls
         std::memcpy(hmac_tag.data(), md.data(), hmac_size);
 
         const std::uint16_t new_payload_len = static_cast<std::uint16_t>(hmac_size + args.payload.size());
-        memory::vector<std::byte> new_frame(tls_hdrsize + new_payload_len);
-        new_frame[0] = std::byte{content_appdata};
-        new_frame[1] = std::byte{0x03};
-        new_frame[2] = std::byte{0x03};
-        new_frame[3] = static_cast<std::byte>(new_payload_len >> 8);
-        new_frame[4] = static_cast<std::byte>(new_payload_len & 0xFF);
-        std::memcpy(new_frame.data() + tls_hdrsize, hmac_tag.data(), hmac_size);
-        std::memcpy(new_frame.data() + tls_hmac_hdrsize, args.payload.data(), args.payload.size());
+        memory::vector<std::byte> hmac_payload(new_payload_len);
+        std::memcpy(hmac_payload.data(), hmac_tag.data(), hmac_size);
+        std::memcpy(hmac_payload.data() + hmac_size, args.payload.data(), args.payload.size());
+
+        auto frame = ::psm::tls::record::builder()
+                         .type(content_appdata)
+                         .version(0x0303)
+                         .payload(hmac_payload)
+                         .build();
+        auto frame_bytes = frame.serialize();
 
         boost::system::error_code write_ec;
-        co_await net::async_write(args.client_sock, net::buffer(new_frame.data(), new_frame.size()),
+        co_await net::async_write(args.client_sock, net::buffer(frame_bytes.data(), frame_bytes.size()),
             net::redirect_error(net::use_awaitable, write_ec));
         if (write_ec)
         {
@@ -267,7 +270,7 @@ namespace psm::stealth::shadowtls
             co_return false;
         }
 
-        trace::debug("[ShadowTLS.Relay] sent modified frame #{} to client, new_size={}", args.frame_idx, new_frame.size());
+        trace::debug("[ShadowTLS.Relay] sent modified frame #{} to client, new_size={}", args.frame_idx, frame_bytes.size());
         co_return true;
     }
 

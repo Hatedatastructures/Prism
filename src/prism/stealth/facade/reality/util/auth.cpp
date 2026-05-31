@@ -1,4 +1,4 @@
-#include <prism/stealth/reality/util/auth.hpp>
+#include <prism/stealth/facade/reality/util/auth.hpp>
 
 #include <prism/crypto/aead.hpp>
 #include <prism/crypto/hkdf.hpp>

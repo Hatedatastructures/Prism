@@ -1,5 +1,7 @@
 #include <prism/stealth/common.hpp>
 
+#include <prism/protocol/tls/record.hpp>
+
 #include <cstring>
 
 namespace psm::stealth::common
@@ -26,54 +28,19 @@ namespace psm::stealth::common
             deadline->async_wait(std::move(on_timeout));
         }
 
-        // 读取 5 字节 TLS 记录头
-        boost::system::error_code ec;
-        std::array<std::byte, 5> header{};
-        auto header_n = co_await net::async_read(
-            sock, net::buffer(header.data(), 5),
-            net::redirect_error(net::use_awaitable, ec));
-
-        if (ec)
-        {
-            if (deadline)
-            {
-                deadline->cancel();
-            }
-            ec_out = ec;
-            co_return std::nullopt;
-        }
-
-        // safe: casting byte buffer to uint8_t to parse TLS record header fields
-        const auto *raw = reinterpret_cast<const std::uint8_t *>(header.data());
-        const std::uint16_t record_length = (static_cast<std::uint16_t>(raw[3]) << 8) | raw[4];
-
-        // 分配 header + payload 完整帧
-        memory::vector<std::byte> frame(5 + record_length);
-        std::memcpy(frame.data(), header.data(), 5);
-
-        if (record_length > 0)
-        {
-            auto payload = std::span<std::byte>(frame.data() + 5, record_length);
-            auto payload_n = co_await net::async_read(
-                sock, net::buffer(payload.data(), payload.size()),
-                net::redirect_error(net::use_awaitable, ec));
-
-            if (ec)
-            {
-                if (deadline)
-                {
-                    deadline->cancel();
-                }
-                ec_out = ec;
-                co_return std::nullopt;
-            }
-        }
+        auto [read_ec, rec] = co_await tls::record::read(sock);
 
         if (deadline)
         {
             deadline->cancel();
         }
 
-        co_return frame;
+        if (fault::failed(read_ec))
+        {
+            ec_out = std::make_error_code(std::errc::connection_reset);
+            co_return std::nullopt;
+        }
+
+        co_return rec.serialize();
     }
 } // namespace psm::stealth::common

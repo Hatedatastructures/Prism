@@ -12,7 +12,7 @@
 #include <prism/crypto/x25519.hpp>
 #include <prism/fault/code.hpp>
 #include <prism/protocol/tls/types.hpp>
-#include <prism/stealth/reality/config.hpp>
+#include <prism/stealth/facade/reality/config.hpp>
 
 #include <array>
 #include <cstdint>

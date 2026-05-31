@@ -1,11 +1,11 @@
 #include <prism/stealth/registry.hpp>
 
-#include <prism/stealth/anytls/scheme.hpp>
-#include <prism/stealth/native.hpp>
-#include <prism/stealth/reality/scheme.hpp>
-#include <prism/stealth/restls/scheme.hpp>
-#include <prism/stealth/shadowtls/scheme.hpp>
-#include <prism/stealth/trusttunnel/scheme.hpp>
+#include <prism/stealth/stack/anytls/scheme.hpp>
+#include <prism/stealth/facade/native.hpp>
+#include <prism/stealth/facade/reality/scheme.hpp>
+#include <prism/stealth/facade/restls/scheme.hpp>
+#include <prism/stealth/facade/shadowtls/scheme.hpp>
+#include <prism/stealth/stack/trusttunnel/scheme.hpp>
 
 #include <algorithm>
 

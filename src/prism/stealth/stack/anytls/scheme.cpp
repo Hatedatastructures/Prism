@@ -1,4 +1,4 @@
-#include <prism/stealth/anytls/scheme.hpp>
+#include <prism/stealth/stack/anytls/scheme.hpp>
 
 #include <prism/config.hpp>
 #include <prism/connect.hpp>
@@ -11,9 +11,9 @@
 #include <prism/protocol/common/framing.hpp>
 #include <prism/protocol/common/target.hpp>
 #include <prism/protocol/types.hpp>
-#include <prism/stealth/anytls/mux/session.hpp>
-#include <prism/stealth/anytls/mux/transport.hpp>
-#include <prism/stealth/anytls/padding.hpp>
+#include <prism/stealth/stack/anytls/mux/session.hpp>
+#include <prism/stealth/stack/anytls/mux/transport.hpp>
+#include <prism/stealth/stack/anytls/padding.hpp>
 #include <prism/trace.hpp>
 #include <prism/transport/encrypted.hpp>
 #include <prism/transport/preview.hpp>
@@ -459,7 +459,8 @@ namespace psm::stealth::anytls
             co_return result;
         }
 
-        result.detected = protocol::protocol_type::tls;
+        result.detected = protocol::protocol_type::unknown;
+        result.error = fault::code::success;
 
         co_return result;
     }

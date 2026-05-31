@@ -4,26 +4,26 @@ target_sources(${PROJECT_NAME}_static_library
         common.cpp
         executor.cpp
 
-        reality/util/auth.cpp
-        reality/util/keygen.cpp
-        reality/util/response.cpp
-        reality/seal.cpp
-        reality/handshake.cpp
-        reality/scheme.cpp
-        shadowtls/util/auth.cpp
-        shadowtls/handshake.cpp
-        shadowtls/scheme.cpp
-        shadowtls/transport.cpp
-        restls/scheme.cpp
-        restls/script.cpp
-        restls/handshake.cpp
-        restls/transport.cpp
-        anytls/scheme.cpp
-        anytls/padding.cpp
-        anytls/session.cpp
-        trusttunnel/scheme.cpp
+        facade/native.cpp
+        facade/reality/util/auth.cpp
+        facade/reality/util/keygen.cpp
+        facade/reality/util/response.cpp
+        facade/reality/seal.cpp
+        facade/reality/handshake.cpp
+        facade/reality/scheme.cpp
+        facade/shadowtls/util/auth.cpp
+        facade/shadowtls/handshake.cpp
+        facade/shadowtls/scheme.cpp
+        facade/shadowtls/transport.cpp
+        facade/restls/scheme.cpp
+        facade/restls/script.cpp
+        facade/restls/handshake.cpp
+        facade/restls/transport.cpp
+        stack/anytls/scheme.cpp
+        stack/anytls/padding.cpp
+        stack/anytls/session.cpp
+        stack/trusttunnel/scheme.cpp
         ech/util/decrypt.cpp
-        native.cpp
 )
 
 target_sources(${PROJECT_NAME}_static_library
@@ -36,34 +36,36 @@ target_sources(${PROJECT_NAME}_static_library
             ${PROJECT_SOURCE_DIR}/include/prism/stealth/scheme.hpp
             ${PROJECT_SOURCE_DIR}/include/prism/stealth/registry.hpp
             ${PROJECT_SOURCE_DIR}/include/prism/stealth/executor.hpp
-            ${PROJECT_SOURCE_DIR}/include/prism/stealth/native.hpp
-            ${PROJECT_SOURCE_DIR}/include/prism/stealth/reality/config.hpp
-            ${PROJECT_SOURCE_DIR}/include/prism/stealth/reality/util/auth.hpp
-            ${PROJECT_SOURCE_DIR}/include/prism/stealth/reality/util/keygen.hpp
-            ${PROJECT_SOURCE_DIR}/include/prism/stealth/reality/util/response.hpp
-            ${PROJECT_SOURCE_DIR}/include/prism/stealth/reality/seal.hpp
-            ${PROJECT_SOURCE_DIR}/include/prism/stealth/reality/handshake.hpp
-            ${PROJECT_SOURCE_DIR}/include/prism/stealth/reality/scheme.hpp
-            ${PROJECT_SOURCE_DIR}/include/prism/stealth/shadowtls/config.hpp
-            ${PROJECT_SOURCE_DIR}/include/prism/stealth/shadowtls/util/constants.hpp
-            ${PROJECT_SOURCE_DIR}/include/prism/stealth/shadowtls/util/auth.hpp
-            ${PROJECT_SOURCE_DIR}/include/prism/stealth/shadowtls/handshake.hpp
-            ${PROJECT_SOURCE_DIR}/include/prism/stealth/shadowtls/scheme.hpp
-            ${PROJECT_SOURCE_DIR}/include/prism/stealth/shadowtls/transport.hpp
-            ${PROJECT_SOURCE_DIR}/include/prism/stealth/restls/config.hpp
-            ${PROJECT_SOURCE_DIR}/include/prism/stealth/restls/scheme.hpp
-            ${PROJECT_SOURCE_DIR}/include/prism/stealth/restls/crypto.hpp
-            ${PROJECT_SOURCE_DIR}/include/prism/stealth/restls/script.hpp
-            ${PROJECT_SOURCE_DIR}/include/prism/stealth/restls/handshake.hpp
-            ${PROJECT_SOURCE_DIR}/include/prism/stealth/restls/transport.hpp
-            ${PROJECT_SOURCE_DIR}/include/prism/stealth/anytls/config.hpp
-            ${PROJECT_SOURCE_DIR}/include/prism/stealth/anytls/scheme.hpp
-            ${PROJECT_SOURCE_DIR}/include/prism/stealth/anytls/padding.hpp
-            ${PROJECT_SOURCE_DIR}/include/prism/stealth/anytls/mux/frame.hpp
-            ${PROJECT_SOURCE_DIR}/include/prism/stealth/anytls/mux/session.hpp
-            ${PROJECT_SOURCE_DIR}/include/prism/stealth/anytls/mux/transport.hpp
-            ${PROJECT_SOURCE_DIR}/include/prism/stealth/trusttunnel/config.hpp
-            ${PROJECT_SOURCE_DIR}/include/prism/stealth/trusttunnel/scheme.hpp
+            ${PROJECT_SOURCE_DIR}/include/prism/stealth/seal/io.hpp
+            ${PROJECT_SOURCE_DIR}/include/prism/stealth/facade/native.hpp
+            ${PROJECT_SOURCE_DIR}/include/prism/stealth/facade/native/config.hpp
+            ${PROJECT_SOURCE_DIR}/include/prism/stealth/facade/reality/config.hpp
+            ${PROJECT_SOURCE_DIR}/include/prism/stealth/facade/reality/util/auth.hpp
+            ${PROJECT_SOURCE_DIR}/include/prism/stealth/facade/reality/util/keygen.hpp
+            ${PROJECT_SOURCE_DIR}/include/prism/stealth/facade/reality/util/response.hpp
+            ${PROJECT_SOURCE_DIR}/include/prism/stealth/facade/reality/seal.hpp
+            ${PROJECT_SOURCE_DIR}/include/prism/stealth/facade/reality/handshake.hpp
+            ${PROJECT_SOURCE_DIR}/include/prism/stealth/facade/reality/scheme.hpp
+            ${PROJECT_SOURCE_DIR}/include/prism/stealth/facade/shadowtls/config.hpp
+            ${PROJECT_SOURCE_DIR}/include/prism/stealth/facade/shadowtls/util/constants.hpp
+            ${PROJECT_SOURCE_DIR}/include/prism/stealth/facade/shadowtls/util/auth.hpp
+            ${PROJECT_SOURCE_DIR}/include/prism/stealth/facade/shadowtls/handshake.hpp
+            ${PROJECT_SOURCE_DIR}/include/prism/stealth/facade/shadowtls/scheme.hpp
+            ${PROJECT_SOURCE_DIR}/include/prism/stealth/facade/shadowtls/transport.hpp
+            ${PROJECT_SOURCE_DIR}/include/prism/stealth/facade/restls/config.hpp
+            ${PROJECT_SOURCE_DIR}/include/prism/stealth/facade/restls/scheme.hpp
+            ${PROJECT_SOURCE_DIR}/include/prism/stealth/facade/restls/crypto.hpp
+            ${PROJECT_SOURCE_DIR}/include/prism/stealth/facade/restls/script.hpp
+            ${PROJECT_SOURCE_DIR}/include/prism/stealth/facade/restls/handshake.hpp
+            ${PROJECT_SOURCE_DIR}/include/prism/stealth/facade/restls/transport.hpp
+            ${PROJECT_SOURCE_DIR}/include/prism/stealth/stack/anytls/config.hpp
+            ${PROJECT_SOURCE_DIR}/include/prism/stealth/stack/anytls/scheme.hpp
+            ${PROJECT_SOURCE_DIR}/include/prism/stealth/stack/anytls/padding.hpp
+            ${PROJECT_SOURCE_DIR}/include/prism/stealth/stack/anytls/mux/frame.hpp
+            ${PROJECT_SOURCE_DIR}/include/prism/stealth/stack/anytls/mux/session.hpp
+            ${PROJECT_SOURCE_DIR}/include/prism/stealth/stack/anytls/mux/transport.hpp
+            ${PROJECT_SOURCE_DIR}/include/prism/stealth/stack/trusttunnel/config.hpp
+            ${PROJECT_SOURCE_DIR}/include/prism/stealth/stack/trusttunnel/scheme.hpp
             ${PROJECT_SOURCE_DIR}/include/prism/stealth/ech/config.hpp
             ${PROJECT_SOURCE_DIR}/include/prism/stealth/ech/util/decrypt.hpp
             ${PROJECT_SOURCE_DIR}/include/prism/stealth/serialize.hpp

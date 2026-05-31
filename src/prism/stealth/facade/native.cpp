@@ -1,4 +1,4 @@
-#include <prism/stealth/native.hpp>
+#include <prism/stealth/facade/native.hpp>
 
 #include <prism/config.hpp>
 #include <prism/connect.hpp>
@@ -11,6 +11,7 @@
 #include <prism/transport/encrypted.hpp>
 #include <prism/transport/preview.hpp>
 
+
 namespace psm::stealth::native
 {
 
@@ -22,11 +23,13 @@ namespace psm::stealth::native
         return cfg.stealth.native_tls.enabled;
     }
 
+
     auto native::name() const noexcept
         -> std::string_view
     {
         return "native";
     }
+
 
     auto native::guess(const psm::config & /*cfg*/) const
         -> verify_result
@@ -36,6 +39,7 @@ namespace psm::stealth::native
             .solo_flag = 0,
             .note = "native TLS fallback"};
     }
+
 
     auto native::handshake(stealth::handshake_context ctx)
         -> net::awaitable<stealth::handshake_result>
@@ -121,7 +125,7 @@ namespace psm::stealth::native
             }
             inner_n += n;
 
-            // safe: casting uint8_t buffer to string_view for protocol detection probe
+            // 类型转换：uint8_t 缓冲转 string_view 供协议探测
             const auto inner_view = std::string_view(reinterpret_cast<const char *>(inner_buf.data()), inner_n);
             result.detected = recognition::probe::detect_tls(inner_view);
             if (result.detected != protocol::protocol_type::unknown)
@@ -130,12 +134,8 @@ namespace psm::stealth::native
             }
         }
 
-        // 60+ 字节仍无法识别，排除法 fallback 到 SS2022
-        if (result.detected == protocol::protocol_type::unknown)
-        {
-            result.detected = protocol::protocol_type::shadowsocks;
-            trace::debug("[Native] No known protocol matched, fallback to shadowsocks");
-        }
+        // 60+ 字节仍无法识别，由 executor 统一做二次探测
+        result.detected = protocol::protocol_type::unknown;
 
         trace::debug("[Native] Inner protocol: {}",
                     protocol::to_string_view(result.detected));

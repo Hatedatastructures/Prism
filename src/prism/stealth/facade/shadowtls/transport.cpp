@@ -1,5 +1,6 @@
-#include <prism/stealth/shadowtls/transport.hpp>
+#include <prism/stealth/facade/shadowtls/transport.hpp>
 
+#include <prism/protocol/tls/record.hpp>
 #include <prism/stealth/common.hpp>
 #include <prism/trace.hpp>
 
@@ -134,47 +135,22 @@ namespace psm::stealth::shadowtls
     {
         trace::debug("{} read_tls_frame: starting to read TLS header", tag);
 
-        boost::system::error_code boost_ec;
-
-        std::array<std::byte, tls_hdrsize> header{};
-        auto header_n = co_await net::async_read(
-            socket_, net::buffer(header.data(), tls_hdrsize),
-            net::redirect_error(net::use_awaitable, boost_ec));
-
-        trace::debug("{} read_tls_frame: header_n={}, boost_ec={}", tag, header_n, boost_ec.message());
-
-        if (boost_ec || header_n < tls_hdrsize)
+        auto [read_ec, rec] = co_await ::psm::tls::record::read(socket_);
+        if (fault::failed(read_ec))
         {
             ec = std::make_error_code(std::errc::connection_reset);
-            trace::warn("{} read TLS header failed: {} (header_n={})", tag, boost_ec.message(), header_n);
+            trace::warn("{} read TLS record failed", tag);
             co_return std::nullopt;
         }
 
-        // safe: casting byte buffer to uint8_t to parse TLS record header fields
-        const auto *raw = reinterpret_cast<const std::uint8_t *>(header.data());
-        const std::uint16_t record_length = (static_cast<std::uint16_t>(raw[3]) << 8) | raw[4];
-
-        trace::debug("{} read_tls_frame: TLS record type=0x{:02x}, length={}", tag, raw[0], record_length);
-
-        // 读取 TLS payload
-        memory::vector<std::byte> payload(record_length);
-        auto payload_n = co_await net::async_read(
-            socket_, net::buffer(payload.data(), record_length),
-            net::redirect_error(net::use_awaitable, boost_ec));
-
-        if (boost_ec || payload_n < record_length)
+        if (rec.header().content_type != content_appdata)
         {
-            ec = std::make_error_code(std::errc::connection_reset);
-            trace::warn("{} read TLS payload failed: {}", tag, boost_ec.message());
-            co_return std::nullopt;
-        }
-
-        if (raw[0] != content_appdata)
-        {
-            trace::warn("{} unexpected TLS record type: 0x{:02x}", tag, raw[0]);
+            trace::warn("{} unexpected TLS record type: 0x{:02x}", tag, rec.header().content_type);
             ec = std::make_error_code(std::errc::protocol_error);
             co_return std::nullopt;
         }
+
+        auto payload = rec.payload();
 
         if (payload.size() < hmac_size)
         {
@@ -280,24 +256,20 @@ namespace psm::stealth::shadowtls
         trace::debug("{} write_tls_frame: HMAC computed for frame", tag);
 
         // 参照 sing-shadowtls verifiedConn.write: plain payload，不 XOR
-        const std::uint16_t tls_payload_len = static_cast<std::uint16_t>(hmac_size + payload.size());
-        memory::vector<std::byte> frame(tls_hdrsize + tls_payload_len);
-        // safe: casting mutable byte vector to uint8_t for in-place TLS frame construction
-        auto *raw = reinterpret_cast<std::uint8_t *>(frame.data());
+        memory::vector<std::byte> tls_payload(hmac_size + payload.size());
+        std::memcpy(tls_payload.data(), hmac_tag.data(), hmac_size);
+        std::memcpy(tls_payload.data() + hmac_size, payload.data(), payload.size());
 
-        // TLS header
-        raw[0] = content_appdata;
-        raw[1] = 3;
-        raw[2] = 3;
-        raw[3] = static_cast<std::uint8_t>(tls_payload_len >> 8);
-        raw[4] = static_cast<std::uint8_t>(tls_payload_len & 0xFF);
-
-        std::memcpy(raw + tls_hdrsize, hmac_tag.data(), hmac_size);
-        std::memcpy(raw + tls_hdrsize + hmac_size, payload.data(), payload.size());
+        auto frame_rec = ::psm::tls::record::builder()
+                             .type(content_appdata)
+                             .version(0x0303)
+                             .payload(tls_payload)
+                             .build();
+        auto frame_bytes = frame_rec.serialize();
 
         boost::system::error_code boost_ec;
         auto written = co_await net::async_write(
-            socket_, net::buffer(frame.data(), frame.size()),
+            socket_, net::buffer(frame_bytes.data(), frame_bytes.size()),
             net::redirect_error(net::use_awaitable, boost_ec));
 
         if (boost_ec)
@@ -307,7 +279,7 @@ namespace psm::stealth::shadowtls
             co_return 0;
         }
 
-        trace::debug("{} wrote {} bytes (TLS frame size={})", tag, payload.size(), frame.size());
+        trace::debug("{} wrote {} bytes (TLS frame size={})", tag, payload.size(), frame_bytes.size());
         co_return payload.size();
     }
 

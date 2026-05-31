@@ -14,9 +14,9 @@
 #pragma once
 
 #include <prism/memory/container.hpp>
-#include <prism/stealth/restls/config.hpp>
-#include <prism/stealth/restls/script.hpp>
-#include <prism/stealth/restls/transport.hpp>
+#include <prism/stealth/facade/restls/config.hpp>
+#include <prism/stealth/facade/restls/script.hpp>
+#include <prism/stealth/facade/restls/transport.hpp>
 #include <prism/stealth/scheme.hpp>
 
 #include <boost/asio.hpp>
