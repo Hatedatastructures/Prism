@@ -174,6 +174,98 @@ void TestEvictExpired(psm::testing::TestRunner &runner)
     runner.Check(!result.has_value(), "evict: expired entry removed");
 }
 
+void TestPutUpdateExisting(psm::testing::TestRunner &runner)
+{
+    runner.LogInfo("=== TestPutUpdateExisting ===");
+
+    cache c(cache_options{psm::memory::current_resource(), std::chrono::seconds(300), 100, stale_policy::discard});
+
+    auto ips1 = MakeIps({"1.0.0.1"});
+    c.put({"update.com", qtype::a, ips1, 300});
+
+    auto result1 = c.get("update.com", qtype::a);
+    runner.Check(result1.has_value() && result1->size() == 1, "put update: initial 1 IP");
+
+    // 二次 put 更新 IP
+    auto ips2 = MakeIps({"2.0.0.2", "3.0.0.3"});
+    c.put({"update.com", qtype::a, ips2, 300});
+
+    auto result2 = c.get("update.com", qtype::a);
+    runner.Check(result2.has_value() && result2->size() == 2, "put update: updated to 2 IPs");
+
+    runner.LogPass("PutUpdateExisting");
+}
+
+void TestPutEvictionLoop(psm::testing::TestRunner &runner)
+{
+    runner.LogInfo("=== TestPutEvictionLoop ===");
+
+    cache c(cache_options{psm::memory::current_resource(), std::chrono::seconds(300), 2, stale_policy::discard});
+
+    auto ips = MakeIps({"1.0.0.1"});
+
+    c.put({"a.com", qtype::a, ips, 300});
+    c.put({"b.com", qtype::a, ips, 300});
+    c.put({"c.com", qtype::a, ips, 300}); // 触发驱逐 a.com
+
+    // a.com 应被驱逐（LRU 尾部）
+    runner.Check(!c.get("a.com", qtype::a).has_value(), "eviction loop: a.com evicted");
+    runner.Check(c.get("b.com", qtype::a).has_value(), "eviction loop: b.com exists");
+    runner.Check(c.get("c.com", qtype::a).has_value(), "eviction loop: c.com exists");
+
+    runner.LogPass("PutEvictionLoop");
+}
+
+void TestPutNegativeUpdate(psm::testing::TestRunner &runner)
+{
+    runner.LogInfo("=== TestPutNegativeUpdate ===");
+
+    cache c(cache_options{psm::memory::current_resource(), std::chrono::seconds(300), 100, stale_policy::discard});
+
+    c.put_negative("neg.com", qtype::a, std::chrono::seconds(30));
+    c.put_negative("neg.com", qtype::a, std::chrono::seconds(60)); // 更新 TTL
+
+    auto result = c.get("neg.com", qtype::a);
+    runner.Check(result.has_value(), "put_negative update: has_value");
+    runner.Check(result->empty(), "put_negative update: empty IPs (negative)");
+
+    runner.LogPass("PutNegativeUpdate");
+}
+
+void TestNegativeCacheGet(psm::testing::TestRunner &runner)
+{
+    runner.LogInfo("=== TestNegativeCacheGet ===");
+
+    cache c(cache_options{psm::memory::current_resource(), std::chrono::seconds(300), 100, stale_policy::discard});
+
+    c.put_negative("negget.com", qtype::aaaa, std::chrono::seconds(300));
+
+    // 未过期的 negative cache hit → 返回空 vector（不是 nullopt）
+    auto result = c.get("negget.com", qtype::aaaa);
+    runner.Check(result.has_value(), "negative get: has_value");
+    runner.Check(result->empty(), "negative get: empty vector");
+
+    runner.LogPass("NegativeCacheGet");
+}
+
+void TestServeStaleNegative(psm::testing::TestRunner &runner)
+{
+    runner.LogInfo("=== TestServeStaleNegative ===");
+
+    cache c(cache_options{psm::memory::current_resource(), std::chrono::seconds(300), 100, stale_policy::serve});
+
+    c.put_negative("stalneg.com", qtype::a, std::chrono::seconds(1));
+
+    std::this_thread::sleep_for(std::chrono::milliseconds(1100));
+
+    // 过期的 negative entry + serve_stale=true → 返回空 vector
+    auto result = c.get("stalneg.com", qtype::a);
+    runner.Check(result.has_value(), "stale negative: has_value");
+    runner.Check(result->empty(), "stale negative: empty vector");
+
+    runner.LogPass("ServeStaleNegative");
+}
+
 int main()
 {
 #ifdef _WIN32
@@ -191,6 +283,11 @@ int main()
     TestServeStale(runner);
     TestNegativeCache(runner);
     TestEvictExpired(runner);
+    TestPutUpdateExisting(runner);
+    TestPutEvictionLoop(runner);
+    TestPutNegativeUpdate(runner);
+    TestNegativeCacheGet(runner);
+    TestServeStaleNegative(runner);
 
     return runner.Summary();
 }

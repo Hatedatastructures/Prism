@@ -455,6 +455,133 @@ void TestAeadOutputSizeValidation()
 }
 
 /**
+ * @brief 测试无效加密算法构造
+ * @details 使用非法的 cipher 枚举值构造 aead_context，
+ * 验证 seal/open 均返回 crypto_error。
+ */
+void TestAeadInvalidCipher()
+{
+    LogInfo("=== TestAeadInvalidCipher ===");
+
+    const std::array<std::uint8_t, 32> key = {};
+    psm::crypto::aead_context ctx(static_cast<psm::crypto::aead_cipher>(99), key);
+
+    const std::array<std::uint8_t, 16> plaintext = {};
+    const std::array<std::uint8_t, 12> nonce{};
+    const std::array<std::uint8_t, 16> ciphertext = {};
+
+    std::vector<std::uint8_t> out_ciphertext(psm::crypto::aead_context::seal_size(plaintext.size()));
+    auto seal_ec = ctx.seal(psm::crypto::seal_input{out_ciphertext, plaintext, nonce, {}});
+    if (seal_ec != psm::fault::code::crypto_error)
+    {
+        LogFail("seal on invalid cipher should return crypto_error, got " + std::to_string(static_cast<int>(seal_ec)));
+        return;
+    }
+
+    std::vector<std::uint8_t> out_plaintext(psm::crypto::aead_context::open_size(ciphertext.size()));
+    auto open_ec = ctx.open(psm::crypto::open_input{out_plaintext, ciphertext, nonce, {}});
+    if (open_ec != psm::fault::code::crypto_error)
+    {
+        LogFail("open on invalid cipher should return crypto_error, got " + std::to_string(static_cast<int>(open_ec)));
+        return;
+    }
+
+    LogPass("AeadInvalidCipher");
+}
+
+/**
+ * @brief 测试 ChaCha20-Poly1305 seal/open 往返
+ */
+void TestAeadChaCha20Roundtrip()
+{
+    LogInfo("=== TestAeadChaCha20Roundtrip ===");
+
+    const std::array<std::uint8_t, 32> key = {};
+    psm::crypto::aead_context ctx(psm::crypto::aead_cipher::chacha20_poly1305, key);
+
+    if (ctx.nonce_length() != 12)
+    {
+        LogFail("ChaCha20 nonce_length should be 12, got " + std::to_string(ctx.nonce_length()));
+        return;
+    }
+
+    const std::string plaintext = "Hello ChaCha20-Poly1305!";
+    const auto pt_data = reinterpret_cast<const std::uint8_t *>(plaintext.data());
+    const auto pt_span = std::span<const std::uint8_t>(pt_data, plaintext.size());
+    const std::array<std::uint8_t, 12> nonce{};
+
+    std::vector<std::uint8_t> ciphertext(psm::crypto::aead_context::seal_size(pt_span.size()));
+    auto ec = ctx.seal(psm::crypto::seal_input{ciphertext, pt_span, nonce, {}});
+    if (psm::fault::failed(ec))
+    {
+        LogFail("ChaCha20 seal failed");
+        return;
+    }
+
+    std::vector<std::uint8_t> decrypted(psm::crypto::aead_context::open_size(ciphertext.size()));
+    ec = ctx.open(psm::crypto::open_input{decrypted, ciphertext, nonce, {}});
+    if (psm::fault::failed(ec))
+    {
+        LogFail("ChaCha20 open failed");
+        return;
+    }
+
+    if (std::memcmp(decrypted.data(), plaintext.data(), plaintext.size()) != 0)
+    {
+        LogFail("ChaCha20 decrypted data does not match original");
+        return;
+    }
+
+    LogPass("AeadChaCha20Roundtrip");
+}
+
+/**
+ * @brief 测试 XChaCha20-Poly1305 seal/open 往返
+ */
+void TestAeadXChaCha20Roundtrip()
+{
+    LogInfo("=== TestAeadXChaCha20Roundtrip ===");
+
+    const std::array<std::uint8_t, 32> key = {};
+    psm::crypto::aead_context ctx(psm::crypto::aead_cipher::xchacha20_poly1305, key);
+
+    if (ctx.nonce_length() != 24)
+    {
+        LogFail("XChaCha20 nonce_length should be 24, got " + std::to_string(ctx.nonce_length()));
+        return;
+    }
+
+    const std::string plaintext = "Hello XChaCha20-Poly1305!";
+    const auto pt_data = reinterpret_cast<const std::uint8_t *>(plaintext.data());
+    const auto pt_span = std::span<const std::uint8_t>(pt_data, plaintext.size());
+    const std::array<std::uint8_t, 24> nonce{};
+
+    std::vector<std::uint8_t> ciphertext(psm::crypto::aead_context::seal_size(pt_span.size()));
+    auto ec = ctx.seal(psm::crypto::seal_input{ciphertext, pt_span, nonce, {}});
+    if (psm::fault::failed(ec))
+    {
+        LogFail("XChaCha20 seal failed");
+        return;
+    }
+
+    std::vector<std::uint8_t> decrypted(psm::crypto::aead_context::open_size(ciphertext.size()));
+    ec = ctx.open(psm::crypto::open_input{decrypted, ciphertext, nonce, {}});
+    if (psm::fault::failed(ec))
+    {
+        LogFail("XChaCha20 open failed");
+        return;
+    }
+
+    if (std::memcmp(decrypted.data(), plaintext.data(), plaintext.size()) != 0)
+    {
+        LogFail("XChaCha20 decrypted data does not match original");
+        return;
+    }
+
+    LogPass("AeadXChaCha20Roundtrip");
+}
+
+/**
  * @brief 测试入口
  * @return 0 表示全部通过，1 表示存在失败
  */
@@ -478,6 +605,9 @@ int main()
     TestAeadLargePayload();
     TestAeadMoveSemantics();
     TestAeadOutputSizeValidation();
+    TestAeadInvalidCipher();
+    TestAeadChaCha20Roundtrip();
+    TestAeadXChaCha20Roundtrip();
 
     psm::trace::info("[Aead] Results: {} passed, {} failed", passed, failed);
 

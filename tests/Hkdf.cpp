@@ -455,6 +455,71 @@ void TestSha256Span()
     runner.LogPass("Sha256Span");
 }
 
+// ============================================================================
+// 边界条件测试
+// ============================================================================
+
+void TestHkdfExpandOverflow()
+{
+    runner.LogInfo("=== TestHkdfExpandOverflow ===");
+
+    std::array<std::uint8_t, 32> prk{};
+    prk[0] = 0xAA;
+
+    // length > 255 * 32 = 8160 → invalid_argument
+    auto [ec, out] = psm::crypto::hkdf_expand(prk, std::span<const std::uint8_t>{}, 8161);
+    runner.Check(ec == psm::fault::code::invalid_argument, "hkdf_expand overflow: invalid_argument");
+    runner.Check(out.empty(), "hkdf_expand overflow: empty output");
+
+    runner.LogPass("HkdfExpandOverflow");
+}
+
+void TestHkdfExpandShortPrk()
+{
+    runner.LogInfo("=== TestHkdfExpandShortPrk ===");
+
+    // PRK < 32 字节 → invalid_argument
+    const std::array<std::uint8_t, 16> short_prk{};
+    auto [ec, out] = psm::crypto::hkdf_expand(short_prk, std::span<const std::uint8_t>{}, 16);
+    runner.Check(ec == psm::fault::code::invalid_argument, "hkdf_expand short prk: invalid_argument");
+    runner.Check(out.empty(), "hkdf_expand short prk: empty output");
+
+    runner.LogPass("HkdfExpandShortPrk");
+}
+
+void TestExpandLabelTooLong()
+{
+    runner.LogInfo("=== TestExpandLabelTooLong ===");
+
+    std::array<std::uint8_t, 32> secret{};
+    secret[0] = 0x01;
+
+    // label + "tls13 " prefix > 255 → invalid_argument
+    std::string long_label(250, 'A'); // "tls13 " (6) + 250 = 256 > 255
+    auto [ec, out] = psm::crypto::expand_label({secret, long_label, {}, 16});
+    runner.Check(ec == psm::fault::code::invalid_argument, "expand_label long label: invalid_argument");
+    runner.Check(out.empty(), "expand_label long label: empty output");
+
+    runner.LogPass("ExpandLabelTooLong");
+}
+
+void TestExpandLabelContextTooLong()
+{
+    runner.LogInfo("=== TestExpandLabelContextTooLong ===");
+
+    std::array<std::uint8_t, 32> secret{};
+    secret[0] = 0x01;
+
+    // context > 255 字节 → invalid_argument
+    std::vector<std::uint8_t> long_context(256, 'X');
+    auto [ec, out] = psm::crypto::expand_label({secret, "key",
+        std::span<const std::uint8_t>{long_context.data(), long_context.size()}, 16});
+    runner.Check(ec == psm::fault::code::invalid_argument, "expand_label long context: invalid_argument");
+    runner.Check(out.empty(), "expand_label long context: empty output");
+
+    runner.LogPass("ExpandLabelContextTooLong");
+}
+
 /**
  * @brief 测试入口
  * @details 初始化全局内存池和日志系统，依次运行 HMAC-SHA256、HMAC-SHA512、
@@ -487,6 +552,12 @@ int main()
     TestSha256Empty();
     TestSha256Known();
     TestSha256Span();
+
+    // 边界条件测试
+    TestHkdfExpandOverflow();
+    TestHkdfExpandShortPrk();
+    TestExpandLabelTooLong();
+    TestExpandLabelContextTooLong();
 
     runner.LogInfo("HKDF tests completed.");
 

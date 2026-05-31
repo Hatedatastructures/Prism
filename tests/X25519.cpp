@@ -206,6 +206,94 @@ void TestX25519Rfc7748()
     runner.LogPass("X25519Rfc7748");
 }
 
+// ============================================================================
+// X25519 异常输入测试
+// ============================================================================
+
+/**
+ * @brief 测试 derive_pubkey 对无效长度的处理
+ * @details 传入过短(16字节)和过长(48字节)的私钥，
+ * 验证返回全零公钥。
+ */
+void TestDerivePubkeyInvalidSize()
+{
+    runner.LogInfo("=== TestDerivePubkeyInvalidSize ===");
+
+    // 过短：16 字节
+    const std::array<std::uint8_t, 16> short_key = {};
+    auto derived_short = psm::crypto::derive_pubkey(short_key);
+    if (!is_all_zero(derived_short))
+    {
+        runner.LogFail("derive_pubkey with 16-byte key should return all zeros");
+        return;
+    }
+
+    // 过长：48 字节
+    const std::array<std::uint8_t, 48> long_key = {};
+    auto derived_long = psm::crypto::derive_pubkey(long_key);
+    if (!is_all_zero(derived_long))
+    {
+        runner.LogFail("derive_pubkey with 48-byte key should return all zeros");
+        return;
+    }
+
+    runner.LogPass("DerivePubkeyInvalidSize");
+}
+
+/**
+ * @brief 测试 x25519 对无效私钥长度的处理
+ * @details 传入 16 字节私钥和 32 字节对端公钥，
+ * 验证返回 invalid_argument 且共享密钥全零。
+ */
+void TestX25519InvalidPrivateKeySize()
+{
+    runner.LogInfo("=== TestX25519InvalidPrivateKeySize ===");
+
+    const std::array<std::uint8_t, 16> short_priv = {};
+    const std::array<std::uint8_t, 32> peer_pub = {};
+
+    auto [ec, shared] = psm::crypto::x25519(short_priv, peer_pub);
+
+    if (ec != psm::fault::code::invalid_argument)
+    {
+        runner.LogFail("x25519 with 16-byte private key should return invalid_argument, got "
+                       + std::to_string(static_cast<int>(ec)));
+        return;
+    }
+
+    if (!is_all_zero(shared))
+    {
+        runner.LogFail("shared secret should be all zeros for invalid private key");
+        return;
+    }
+
+    runner.LogPass("X25519InvalidPrivateKeySize");
+}
+
+/**
+ * @brief 测试 x25519 对无效对端公钥长度的处理
+ * @details 传入 32 字节私钥和 16 字节对端公钥，
+ * 验证返回 invalid_argument。
+ */
+void TestX25519InvalidPeerPubkeySize()
+{
+    runner.LogInfo("=== TestX25519InvalidPeerPubkeySize ===");
+
+    const std::array<std::uint8_t, 32> priv = {};
+    const std::array<std::uint8_t, 16> short_peer = {};
+
+    auto [ec, shared] = psm::crypto::x25519(priv, short_peer);
+
+    if (ec != psm::fault::code::invalid_argument)
+    {
+        runner.LogFail("x25519 with 16-byte peer pubkey should return invalid_argument, got "
+                       + std::to_string(static_cast<int>(ec)));
+        return;
+    }
+
+    runner.LogPass("X25519InvalidPeerPubkeySize");
+}
+
 /**
  * @brief 测试入口
  * @details 初始化全局内存池和日志系统，依次运行 X25519 密钥生成、
@@ -223,6 +311,9 @@ int main()
     TestX25519DerivePublic();
     TestX25519KeyExchange();
     TestX25519Rfc7748();
+    TestDerivePubkeyInvalidSize();
+    TestX25519InvalidPrivateKeySize();
+    TestX25519InvalidPeerPubkeySize();
 
     runner.LogInfo("X25519 tests completed.");
 

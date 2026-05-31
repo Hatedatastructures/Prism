@@ -3,13 +3,15 @@
  * @brief ShadowTLS v3 测试
  */
 
-#include <prism/stealth/shadowtls/util/auth.hpp>
+#include <prism/stealth/facade/shadowtls/util/auth.hpp>
 #include <prism/memory.hpp>
 #include <prism/trace/spdlog.hpp>
 #include <openssl/hmac.h>
 #include <iostream>
 #include <iomanip>
 #include <sstream>
+#include <span>
+#include <vector>
 
 #ifdef _WIN32
 #include <windows.h>
@@ -144,6 +146,47 @@ void TestClientHelloVerification()
           "ClientHello rejects wrong record type");
 }
 
+void TestVerifyClientHelloTooShort()
+{
+    std::vector<std::byte> short_buf(50, std::byte{0x16});
+    Check(!psm::stealth::shadowtls::verify_client_hello(
+              std::span<const std::byte>{short_buf.data(), short_buf.size()}, "password"),
+          "verify_client_hello: too short -> false");
+}
+
+void TestVerifyClientHelloWrongContentType()
+{
+    std::vector<std::byte> buf(100, std::byte{0x00});
+    buf[0] = std::byte{0x17}; // not 0x16
+    buf[5] = std::byte{0x01};
+    buf[43] = std::byte{32};
+    Check(!psm::stealth::shadowtls::verify_client_hello(
+              std::span<const std::byte>{buf.data(), buf.size()}, "password"),
+          "verify_client_hello: wrong content type -> false");
+}
+
+void TestVerifyClientHelloWrongHandshakeType()
+{
+    std::vector<std::byte> buf(100, std::byte{0x00});
+    buf[0] = std::byte{0x16};
+    buf[5] = std::byte{0x02}; // ServerHello, not ClientHello
+    buf[43] = std::byte{32};
+    Check(!psm::stealth::shadowtls::verify_client_hello(
+              std::span<const std::byte>{buf.data(), buf.size()}, "password"),
+          "verify_client_hello: wrong handshake type -> false");
+}
+
+void TestVerifyClientHelloWrongSessionIdLen()
+{
+    std::vector<std::byte> buf(100, std::byte{0x00});
+    buf[0] = std::byte{0x16};
+    buf[5] = std::byte{0x01};
+    buf[43] = std::byte{16}; // not 32
+    Check(!psm::stealth::shadowtls::verify_client_hello(
+              std::span<const std::byte>{buf.data(), buf.size()}, "password"),
+          "verify_client_hello: wrong session_id_len -> false");
+}
+
 int main()
 {
 #ifdef _WIN32
@@ -156,6 +199,10 @@ int main()
     TestWriteKeyGeneration();
     TestFrameHMACVerification();
     TestClientHelloVerification();
+    TestVerifyClientHelloTooShort();
+    TestVerifyClientHelloWrongContentType();
+    TestVerifyClientHelloWrongHandshakeType();
+    TestVerifyClientHelloWrongSessionIdLen();
 
     psm::trace::info("[Shadowtls] =============================");
     psm::trace::info("[Shadowtls] Passed: {}, Failed: {}", passed, failed);

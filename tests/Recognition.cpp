@@ -14,7 +14,7 @@
 #include <prism/recognition/routes.hpp>
 #include <prism/recognition/tls/features.hpp>
 #include <prism/protocol/tls/types.hpp>
-#include <prism/stealth/reality/scheme.hpp>
+#include <prism/stealth/facade/reality/scheme.hpp>
 #include <prism/stealth/registry.hpp>
 #include <prism/config.hpp>
 #include <prism/memory.hpp>

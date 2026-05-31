@@ -5,8 +5,8 @@
  * 使用 OpenSSL 解析叶子证书，验证 DER 是否可被正常解析且公钥类型为 Ed25519。
  */
 
-#include <prism/stealth/reality/util/response.hpp>
-#include <prism/stealth/reality/util/keygen.hpp>
+#include <prism/stealth/facade/reality/util/response.hpp>
+#include <prism/stealth/facade/reality/util/keygen.hpp>
 #include <prism/crypto/x25519.hpp>
 #include <prism/trace/spdlog.hpp>
 #include <openssl/x509.h>

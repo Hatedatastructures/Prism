@@ -22,6 +22,8 @@
 
 namespace psm::testing
 {
+    namespace net = boost::asio;
+
     /**
      * @class MockTransport
      * @brief 传输层 Mock 实现
@@ -67,7 +69,7 @@ namespace psm::testing
          */
         [[nodiscard]] auto executor() const -> executor_type override
         {
-            return ioc_.get_executor();
+            return const_cast<net::io_context &>(ioc_).get_executor();
         }
 
         /**
@@ -92,10 +94,19 @@ namespace psm::testing
             // 如果队列不为空，立即返回数据
             if (!read_queue_.empty())
             {
-                auto chunk = std::move(read_queue_.front());
-                read_queue_.erase(read_queue_.begin());
+                auto &chunk = read_queue_.front();
                 const auto copy_size = (std::min)(chunk.size(), buffer.size());
                 std::copy_n(chunk.data(), copy_size, buffer.data());
+                if (copy_size >= chunk.size())
+                {
+                    // 整块已消费
+                    read_queue_.erase(read_queue_.begin());
+                }
+                else
+                {
+                    // 部分消费，保留剩余字节
+                    chunk.erase(chunk.begin(), chunk.begin() + static_cast<std::ptrdiff_t>(copy_size));
+                }
                 co_return copy_size;
             }
 
@@ -132,10 +143,17 @@ namespace psm::testing
             // 取出数据
             if (!read_queue_.empty())
             {
-                auto chunk = std::move(read_queue_.front());
-                read_queue_.erase(read_queue_.begin());
+                auto &chunk = read_queue_.front();
                 const auto copy_size = (std::min)(chunk.size(), buffer.size());
                 std::copy_n(chunk.data(), copy_size, buffer.data());
+                if (copy_size >= chunk.size())
+                {
+                    read_queue_.erase(read_queue_.begin());
+                }
+                else
+                {
+                    chunk.erase(chunk.begin(), chunk.begin() + static_cast<std::ptrdiff_t>(copy_size));
+                }
                 co_return copy_size;
             }
 

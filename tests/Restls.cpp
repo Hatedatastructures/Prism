@@ -3,9 +3,9 @@
  * @brief Restls 伪装方案测试
  */
 
-#include <prism/stealth/restls/config.hpp>
-#include <prism/stealth/restls/crypto.hpp>
-#include <prism/stealth/shadowtls/util/constants.hpp>
+#include <prism/stealth/facade/restls/config.hpp>
+#include <prism/stealth/facade/restls/crypto.hpp>
+#include <prism/stealth/facade/shadowtls/util/constants.hpp>
 #include <prism/memory.hpp>
 #include <prism/trace/spdlog.hpp>
 #include <iostream>
