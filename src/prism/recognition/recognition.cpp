@@ -91,6 +91,7 @@ namespace psm::recognition
             .cfg = ctx.cfg,
             .router = ctx.router,
             .session = ctx.session,
+            .session_keepalive = std::move(ctx.session_keepalive),
             .preread = std::move(preread_bytes)};
 
         auto executor = stealth::scheme_executor(registry);
@@ -180,6 +181,7 @@ namespace psm::recognition
                 .preread = preread_span,
                 .router = ctx.router,
                 .session = ctx.session,
+                .session_keepalive = std::move(ctx.session_keepalive),
                 .frame_arena = ctx.frame_arena});
 
             if (id_result.success)

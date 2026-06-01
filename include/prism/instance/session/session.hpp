@@ -11,6 +11,7 @@
 
 #include <prism/context/context.hpp>
 #include <prism/memory/pool.hpp>
+#include <prism/trace/context.hpp>
 #include <prism/transport/transmission.hpp>
 
 #include <boost/asio.hpp>
@@ -218,6 +219,14 @@ namespace psm::instance::session
             return id_;
         }
 
+        /**
+         * @brief 初始化日志前缀
+         * @param pfx 包含客户端/监听端点信息的前缀数据
+         * @details 在 socket 被移动前提取的端点信息填充到会话前缀中，
+         * 同时设置会话 ID。由 launch::start() 调用。
+         */
+        void init_prefix(const trace::session_prefix &pfx) noexcept;
+
     private:
         /**
          * @brief 协议分流处理
@@ -251,6 +260,7 @@ namespace psm::instance::session
         state state_{state::active};      // 会话状态（单线程 io_context，无需原子）
         std::function<void()> on_closed_; // 关闭回调
         std::unique_ptr<net::steady_timer> handshake_deadline_; // 握手截止定时器
+        trace::session_prefix prefix_;   // 日志前缀数据
 
         psm::context::session ctx_; // 会话上下文，持有所有状态
     };

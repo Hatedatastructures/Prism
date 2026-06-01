@@ -85,12 +85,14 @@ namespace psm::protocol::trojan
                         .router = ctx.worker_ctx.router,
                         .cfg = ctx.server_ctx.config().mux,
                         .traffic = ctx.worker_ctx.traffic,
-                        .proto = ctx.detected_protocol
+                        .proto = ctx.detected_protocol,
                     });
                 if (muxprotocol)
                 {
                     muxprotocol->start();
                 }
+                // mux 已接管 transport，清除 inbound 防止 release_resources() 关闭 mux 使用的连接
+                ctx.inbound = nullptr;
                 co_return;
             }
 
@@ -139,12 +141,14 @@ namespace psm::protocol::trojan
                     .router = ctx.worker_ctx.router,
                     .cfg = ctx.server_ctx.config().mux,
                     .traffic = ctx.worker_ctx.traffic,
-                    .proto = ctx.detected_protocol
+                    .proto = ctx.detected_protocol,
                 });
             if (muxprotocol)
             {
                 muxprotocol->start();
             }
+            // mux 已接管 transport，清除 inbound 防止 release_resources() 关闭 mux 使用的连接
+            ctx.inbound = nullptr;
             co_return;
         }
         default:

@@ -175,8 +175,13 @@ namespace psm::context
         outbound::proxy *outbound_proxy{nullptr};                       // 出站代理指针
         protocol::protocol_type detected_protocol{protocol::protocol_type::unknown}; // 识别出的协议类型
         account::lease account_lease;                                   // 账户连接租约
-        std::function<void()> stream_cancel;                          // 活跃流取消回调
-        std::function<void()> stream_close;                           // 活跃流关闭回调
+        // stream_cancel/stream_close 已废弃：原先由 native.cpp 设置，
+        // 在 session::close()/release_resources() 中绕过 encrypted 层直接操作 socket，
+        // 导致同一 socket 被 close/cancel 两次（UB → 崩溃）。现在 session 直接通过
+        // transport 的 cancel()/close() 操作，无需额外回调。
+        // 保留字段以便 mux handler 清空（向后兼容），但 session 不再读取它们。
+        std::function<void()> stream_cancel;                          // [已废弃] 活跃流取消回调
+        std::function<void()> stream_close;                           // [已废弃] 活跃流关闭回调
     };
 
 } // namespace psm::context

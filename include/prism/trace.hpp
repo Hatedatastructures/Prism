@@ -13,6 +13,7 @@
 #pragma once
 
 #include <prism/trace/config.hpp>
+#include <prism/trace/context.hpp>
 #include <prism/trace/spdlog.hpp>
 
 

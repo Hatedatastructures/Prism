@@ -47,6 +47,7 @@ namespace psm::multiplex
 
         auto run_wrapper = [self]() -> net::awaitable<void>
         {
+            trace::scope_guard guard(self->prefix_);
             co_await self->run();
         };
         net::co_spawn(transport_->executor(), run_wrapper(),

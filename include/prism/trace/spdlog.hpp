@@ -11,6 +11,7 @@
 #pragma once
 
 #include <prism/trace/config.hpp>
+#include <prism/trace/context.hpp>
 
 #include <spdlog/fmt/fmt.h>
 #include <spdlog/mdc.h>
@@ -96,7 +97,7 @@ namespace psm::trace
     {
         if (const auto rec = recorder())
         {
-            const auto prefix = build_mdc_prefix();
+            const auto prefix = build_prefix(level_default::debug);
             if (prefix.empty())
             {
                 rec->debug(spdlog::fmt_lib::runtime(fmt), std::forward<Args>(args)...);
@@ -122,7 +123,7 @@ namespace psm::trace
     {
         if (const auto rec = recorder())
         {
-            const auto prefix = build_mdc_prefix();
+            const auto prefix = build_prefix(level_default::info);
             if (prefix.empty())
             {
                 rec->info(spdlog::fmt_lib::runtime(fmt), std::forward<Args>(args)...);
@@ -148,7 +149,7 @@ namespace psm::trace
     {
         if (const auto rec = recorder())
         {
-            const auto prefix = build_mdc_prefix();
+            const auto prefix = build_prefix(level_default::warn);
             if (prefix.empty())
             {
                 rec->warn(spdlog::fmt_lib::runtime(fmt), std::forward<Args>(args)...);
@@ -174,7 +175,7 @@ namespace psm::trace
     {
         if (const auto rec = recorder())
         {
-            const auto prefix = build_mdc_prefix();
+            const auto prefix = build_prefix(level_default::error);
             if (prefix.empty())
             {
                 rec->error(spdlog::fmt_lib::runtime(fmt), std::forward<Args>(args)...);
@@ -202,7 +203,7 @@ namespace psm::trace
     {
         if (const auto rec = recorder())
         {
-            const auto prefix = build_mdc_prefix();
+            const auto prefix = build_prefix(level_default::error);
             if (prefix.empty())
             {
                 rec->critical(spdlog::fmt_lib::runtime(fmt), std::forward<Args>(args)...);

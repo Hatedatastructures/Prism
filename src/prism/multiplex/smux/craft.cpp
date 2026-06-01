@@ -4,6 +4,7 @@
 #include <prism/multiplex/duct.hpp>
 #include <prism/multiplex/parcel.hpp>
 #include <prism/trace.hpp>
+#include <prism/trace/context.hpp>
 #include <prism/transport/reliable.hpp>
 #include <prism/transport/transmission.hpp>
 
@@ -99,6 +100,7 @@ namespace psm::multiplex::smux
         const auto self = std::static_pointer_cast<craft>(shared_from_this());
         auto start_send_loop = [self]() -> net::awaitable<void>
         {
+            trace::scope_guard guard(self->prefix_);
             co_await self->send_loop();
         };
         net::co_spawn(executor(), std::move(start_send_loop), net::detached);
@@ -107,6 +109,7 @@ namespace psm::multiplex::smux
         {
             auto start_keepalive = [self]() -> net::awaitable<void>
             {
+                trace::scope_guard guard(self->prefix_);
                 co_await self->keepalive_loop();
             };
             net::co_spawn(executor(), std::move(start_keepalive), net::detached);
@@ -231,7 +234,13 @@ namespace psm::multiplex::smux
                 {
                     if (ep) log_spawn_error(ep, stream_id, "activate_stream");
                 };
-                net::co_spawn(transport_->executor(), self->activate_stream(stream_id), std::move(on_error));
+                net::co_spawn(transport_->executor(),
+                    [self, stream_id]() -> net::awaitable<void>
+                    {
+                        trace::scope_guard guard(self->prefix_);
+                        co_await self->activate_stream(stream_id);
+                    },
+                    std::move(on_error));
             }
             return;
         }
@@ -479,6 +488,7 @@ namespace psm::multiplex::smux
         auto self = std::static_pointer_cast<craft>(shared_from_this());
         auto send_fn = [self, stream_id]() -> net::awaitable<void>
         {
+            trace::scope_guard guard(self->prefix_);
             memory::vector<std::byte> empty_payload(self->mr_);
             co_await self->push_frame(command::fin, stream_id, std::move(empty_payload));
         };

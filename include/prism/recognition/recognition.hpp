@@ -70,6 +70,9 @@ namespace psm::recognition
         /** @brief 会话上下文（供方案使用） */
         context::session *session{nullptr};
 
+        /** @brief session 保活（stack 方案 detached 协程持有） */
+        std::shared_ptr<void> session_keepalive;
+
         /** @brief 帧内存池（用于预读数据分配） */
         memory::frame_arena *frame_arena{nullptr};
     };
@@ -141,6 +144,9 @@ namespace psm::recognition
 
         /** @brief 会话上下文（可选，供方案使用） */
         context::session *session{nullptr};
+
+        /** @brief session 保活（stack 方案 detached 协程持有） */
+        std::shared_ptr<void> session_keepalive;
 
         /** @brief 帧内存池（用于预读数据分配） */
         memory::frame_arena *frame_arena{nullptr};

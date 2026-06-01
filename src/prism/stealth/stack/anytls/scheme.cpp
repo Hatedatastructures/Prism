@@ -270,19 +270,31 @@ namespace psm::stealth::anytls
         }
 
 
-        auto make_stream_callback(context::session *session_ptr)
+        auto make_stream_callback(context::session *session_ptr,
+                                   std::shared_ptr<void> keepalive)
             -> anytls_session::stream_callback
         {
-            return [session_ptr](std::uint32_t /*stream_id*/,
+            return [session_ptr, keepalive = std::move(keepalive)](std::uint32_t /*stream_id*/,
                                   std::shared_ptr<transport::transmission> inbound,
                                   memory::vector<std::uint8_t> preread_data)
             {
                 auto subsequent_task = [inbound = std::move(inbound),
                                          preread = std::move(preread_data),
-                                         session_ptr]() -> net::awaitable<void>
+                                         session_ptr, keepalive]() -> net::awaitable<void>
                 {
-                    co_await handle_subsequent_stream(session_ptr,
-                        std::move(inbound), std::move(preread));
+                    try
+                    {
+                        co_await handle_subsequent_stream(session_ptr,
+                            std::move(inbound), std::move(preread));
+                    }
+                    catch (const std::exception &e)
+                    {
+                        trace::error("{} subsequent stream exception: {}", tag, e.what());
+                    }
+                    catch (...)
+                    {
+                        trace::error("{} subsequent stream unknown exception", tag);
+                    }
                 };
                 net::co_spawn(session_ptr->worker_ctx.io_context.get_executor(),
                     std::move(subsequent_task), net::detached);
@@ -291,7 +303,8 @@ namespace psm::stealth::anytls
 
         auto handle_first_stream(std::shared_ptr<anytls_session> anytls_sess,
                                   context::session *session_ptr,
-                                  memory::resource_pointer frame_arena_mr)
+                                  memory::resource_pointer frame_arena_mr,
+                                  std::shared_ptr<void> keepalive)
             -> net::awaitable<fault::code>
         {
             auto [wait_ec, stream_info] = co_await anytls_sess->wait_first_stream();
@@ -327,15 +340,36 @@ namespace psm::stealth::anytls
 
             trace::info("{} -> {}:{}", tag, target.host, target.port);
 
+            // 第一个流的 SYNACK：v2+ 客户端等待此确认后才发送后续数据
+            std::error_code synack_ec;
+            co_await anytls_sess->write_synack(stream_id, synack_ec);
+            if (synack_ec)
+            {
+                trace::warn("{} failed to send SYNACK for first stream: {}",
+                    tag, synack_ec.message());
+            }
+
             auto channel = anytls_sess->get_stream_channel(stream_id);
             auto stream_transport = std::make_shared<anytls_stream_transport>(
                 anytls_sess, stream_id, channel);
 
-            auto forward_task = [session_ptr, target = std::move(target),
+            auto forward_task = [session_ptr, keepalive = std::move(keepalive),
+                                  target = std::move(target),
                                   stream_transport = std::move(stream_transport)]() -> net::awaitable<void>
             {
-                co_await psm::connect::forward(
-                    *session_ptr, {"AnyTLS", target, std::move(stream_transport)});
+                try
+                {
+                    co_await psm::connect::forward(
+                        *session_ptr, {"AnyTLS", target, std::move(stream_transport)});
+                }
+                catch (const std::exception &e)
+                {
+                    trace::error("{} first stream forward exception: {}", tag, e.what());
+                }
+                catch (...)
+                {
+                    trace::error("{} first stream forward unknown exception", tag);
+                }
             };
             net::co_spawn(session_ptr->worker_ctx.io_context.get_executor(),
                 std::move(forward_task), net::detached);
@@ -431,6 +465,7 @@ namespace psm::stealth::anytls
         auto read_ec = co_await read_auth_frame(*hs_res.encrypted_trans, frame);
         if (fault::failed(read_ec))
         {
+            result.polluted = true;
             result.error = read_ec;
             co_return result;
         }
@@ -438,6 +473,7 @@ namespace psm::stealth::anytls
         auto username = verify_user(frame, cfg.users);
         if (!username)
         {
+            result.polluted = true;
             result.error = fault::code::auth_failed;
             co_return result;
         }
@@ -445,16 +481,18 @@ namespace psm::stealth::anytls
         auto scheme_view = std::string_view(cfg.padding_scheme.data(), cfg.padding_scheme.size());
         auto padding = std::make_shared<padding_factory>(scheme_view);
 
-        auto on_new_stream = make_stream_callback(ctx.session);
+        auto keepalive_copy = ctx.session_keepalive; // 拷贝给 handle_first_stream
+        auto on_new_stream = make_stream_callback(ctx.session, std::move(ctx.session_keepalive));
 
         auto anytls_sess = std::make_shared<anytls_session>(
             hs_res.encrypted_trans, padding, std::move(on_new_stream));
         anytls_sess->start();
 
         auto stream_ec = co_await handle_first_stream(
-            anytls_sess, ctx.session, ctx.session->frame_arena.get());
+            anytls_sess, ctx.session, ctx.session->frame_arena.get(), std::move(keepalive_copy));
         if (fault::failed(stream_ec))
         {
+            result.polluted = true;
             result.error = stream_ec;
             co_return result;
         }

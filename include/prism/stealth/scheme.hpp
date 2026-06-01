@@ -136,7 +136,8 @@ namespace psm::stealth
         shared_transmission inbound;              ///< 当前传输层（应包含预读数据）
         const psm::config *cfg{nullptr};          ///< 服务器配置
         connect::router *router{nullptr};         ///< 路由器（fallback 用）
-        context::session *session{nullptr}; ///< 会话上下文
+        context::session *session{nullptr};       ///< 会话上下文
+        std::shared_ptr<void> session_keepalive;  ///< session 保活（stack 方案 detached 协程持有）
         memory::vector<std::byte> preread;        ///< 来自 identify 的 preread 数据（完整 ClientHello）
     };
 

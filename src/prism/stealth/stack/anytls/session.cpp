@@ -62,54 +62,59 @@ namespace psm::stealth::anytls
     {
         try
         {
-        std::array<std::byte, 7> header_buf{};
+            std::array<std::byte, 7> header_buf{};
 
-        while (!closed_)
-        {
-            if (!co_await read_exact(header_buf))
+            while (!closed_)
             {
-                trace::debug("{} connection closed during header read", tag);
-                break;
-            }
-
-            // safe: casting byte buffer to uint8_t span for frame header parsing, same memory layout
-            auto header = frame_header::parse(
-                std::span<const std::uint8_t>(
-                    reinterpret_cast<const std::uint8_t *>(header_buf.data()),
-                    frame_header_size));
-
-            if (!header)
-            {
-                trace::warn("{} invalid frame header", tag);
-                break;
-            }
-
-            memory::vector<std::uint8_t> payload(header->length);
-            if (header->length > 0)
-            {
-                // safe: casting uint8_t vector to mutable byte span for async read
-                if (!co_await read_exact(
-                    std::span<std::byte>(
-                        reinterpret_cast<std::byte *>(payload.data()),
-                        payload.size())))
+                if (!co_await read_exact(header_buf))
                 {
-                    trace::debug("{} connection closed during payload read", tag);
+                    trace::debug("{} connection closed during header read", tag);
                     break;
                 }
-            }
 
-            if (padding_ && padding_->enabled())
-            {
-                std::error_code pad_ec;
-                co_await send_waste_frame(pkt_counter_, pad_ec);
-                if (pad_ec)
+                // safe: casting byte buffer to uint8_t span for frame header parsing, same memory layout
+                auto header = frame_header::parse(
+                    std::span<const std::uint8_t>(
+                        reinterpret_cast<const std::uint8_t *>(header_buf.data()),
+                        frame_header_size));
+
+                if (!header)
                 {
-                    trace::warn("{} padding frame failed: {}", tag, pad_ec.message());
+                    trace::warn("{} invalid frame header", tag);
+                    break;
                 }
-                ++pkt_counter_;
-            }
 
-            co_await dispatch_frame(*header, std::move(payload));
+                memory::vector<std::uint8_t> payload(header->length);
+                if (header->length > 0)
+                {
+                    // safe: casting uint8_t vector to mutable byte span for async read
+                    if (!co_await read_exact(
+                        std::span<std::byte>(
+                            reinterpret_cast<std::byte *>(payload.data()),
+                            payload.size())))
+                    {
+                        trace::debug("{} connection closed during payload read", tag);
+                        break;
+                    }
+                }
+
+                if (padding_ && padding_->enabled())
+                {
+                    std::error_code pad_ec;
+                    co_await send_waste_frame(pkt_counter_, pad_ec);
+                    if (pad_ec)
+                    {
+                        trace::warn("{} padding frame failed: {}", tag, pad_ec.message());
+                    }
+                    ++pkt_counter_;
+                }
+
+                co_await dispatch_frame(*header, std::move(payload));
+            }
+        }
+        catch (...)
+        {
+            trace::error("[AnyTLS] recv_loop exception, closing session");
         }
 
         for (auto &[id, ch] : streams_)
@@ -127,13 +132,11 @@ namespace psm::stealth::anytls
             init_waiter_.cancel();
         }
 
+        closed_ = true;
+        if (transport_)
+            transport_->close();
+
         trace::debug("{} recv_loop ended", tag);
-        }
-        catch (...)
-        {
-            trace::error("[AnyTLS] recv_loop exception, closing session");
-            close();
-        }
     }
 
     auto anytls_session::dispatch_frame(const frame_header &hdr, memory::vector<std::uint8_t> payload)
@@ -293,18 +296,13 @@ namespace psm::stealth::anytls
 
     auto anytls_session::on_psh(std::uint32_t stream_id, memory::vector<std::uint8_t> payload) -> net::awaitable<void>
     {
-        // 第一个 stream 的第一个 PSH：保存 preread 数据
+        // 第一个 stream 的第一个 PSH：保存 preread 数据用于解析 SOCKS 目标
+        // 不发送到 channel——数据由 handle_first_stream() 消费，
+        // channel 只接收后续 PSH 数据，避免 SOCKS 地址被 relay 到目标服务器
         if (!init_resolved_ && stream_id == init_id_ && stream_id != 0)
         {
-            init_preread_ = payload;
+            init_preread_ = std::move(payload);
             init_resolved_ = true;
-
-            // 同时发送到 channel 供 stream_transport 读取
-            auto it = streams_.find(stream_id);
-            if (it != streams_.end())
-            {
-                it->second->try_send(boost::system::error_code{}, std::move(payload));
-            }
 
             init_waiter_.cancel();
             co_return;

@@ -11,6 +11,8 @@
 #include <unistd.h>
 #endif
 
+#include <cstring>
+
 namespace psm::instance::worker::launch
 {
 
@@ -63,6 +65,25 @@ namespace psm::instance::worker::launch
         auto &server = params.server;
         auto &worker = params.worker;
         auto &metrics = params.metrics;
+
+        // 在 socket 被移动前提取端点信息
+        trace::session_prefix pfx;
+        boost::system::error_code ep_ec;
+        auto remote_ep = params.socket.remote_endpoint(ep_ec);
+        if (!ep_ec)
+        {
+            auto addr_str = remote_ep.address().to_string();
+            std::strncpy(pfx.client, addr_str.c_str(), sizeof(pfx.client) - 1);
+            pfx.client_port = remote_ep.port();
+        }
+        auto local_ep = params.socket.local_endpoint(ep_ec);
+        if (!ep_ec)
+        {
+            auto addr_str = local_ep.address().to_string();
+            std::strncpy(pfx.listen, addr_str.c_str(), sizeof(pfx.listen) - 1);
+            pfx.listen_port = local_ep.port();
+        }
+
         // 获取活跃会话计数器，用于会话关闭时递减
         auto active_sessions = metrics.session_counter();
         auto on_closed = [active_sessions]() noexcept
@@ -74,6 +95,9 @@ namespace psm::instance::worker::launch
         auto inbound = psm::transport::make_reliable(std::move(params.socket));
         session::session_params sess_params{server, worker, std::move(inbound)};
         const auto shared_session = psm::instance::session::make_session(std::move(sess_params));
+
+        // 填充日志前缀的端点信息
+        shared_session->init_prefix(pfx);
 
         // 记录会话开启
         metrics.session_open();

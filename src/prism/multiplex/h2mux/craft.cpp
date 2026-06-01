@@ -4,6 +4,7 @@
 #include <prism/multiplex/duct.hpp>
 #include <prism/multiplex/parcel.hpp>
 #include <prism/trace.hpp>
+#include <prism/trace/context.hpp>
 #include <prism/transport/reliable.hpp>
 #include <prism/transport/transmission.hpp>
 
@@ -106,6 +107,7 @@ namespace psm::multiplex::h2mux
 
         auto send_task = [self]() -> net::awaitable<void>
         {
+            trace::scope_guard guard(self->prefix_);
             co_await self->send_loop();
         };
         net::co_spawn(executor(), std::move(send_task), net::detached);
@@ -216,6 +218,7 @@ namespace psm::multiplex::h2mux
             const auto id = static_cast<std::uint32_t>(stream_id);
             auto activate_task = [self, id]() -> net::awaitable<void>
             {
+                trace::scope_guard guard(self->prefix_);
                 co_await self->activate_stream(id);
             };
             auto on_error = [](const std::exception_ptr &ep)
@@ -462,8 +465,10 @@ namespace psm::multiplex::h2mux
                 reinterpret_cast<const std::byte *>(data),
                 reinterpret_cast<const std::byte *>(data) + len);
 
-            auto dispatch_data = [dp, p = std::move(payload)]() mutable -> net::awaitable<void>
+            auto craft_self = std::static_pointer_cast<craft>(self->shared_from_this());
+            auto dispatch_data = [dp, p = std::move(payload), craft_self]() mutable -> net::awaitable<void>
             {
+                trace::scope_guard guard(craft_self->prefix_);
                 co_await dp->on_data(std::move(p));
             };
             auto on_duct_error = [dp](const std::exception_ptr &ep)
@@ -486,8 +491,10 @@ namespace psm::multiplex::h2mux
                 reinterpret_cast<const std::byte *>(data),
                 reinterpret_cast<const std::byte *>(data) + len);
 
-            auto dispatch_parcel = [dp, p = std::move(payload)]() mutable -> net::awaitable<void>
+            auto craft_self = std::static_pointer_cast<craft>(self->shared_from_this());
+            auto dispatch_parcel = [dp, p = std::move(payload), craft_self]() mutable -> net::awaitable<void>
             {
+                trace::scope_guard guard(craft_self->prefix_);
                 co_await dp->on_data(std::move(p));
             };
             auto on_parcel_error = [dp](const std::exception_ptr &ep)
@@ -550,6 +557,7 @@ namespace psm::multiplex::h2mux
         auto self = std::static_pointer_cast<craft>(shared_from_this());
         auto send_fn = [self, stream_id]() -> net::awaitable<void>
         {
+            trace::scope_guard guard(self->prefix_);
             outbound_data item(self->mr_);
             item.stream_id = stream_id;
             item.is_fin = true;

@@ -9,6 +9,7 @@
 
 #include <prism/memory/container.hpp>
 #include <prism/stealth/stack/anytls/mux/session.hpp>
+#include <prism/trace.hpp>
 #include <prism/transport/transmission.hpp>
 
 #include <boost/asio.hpp>
@@ -130,8 +131,15 @@ namespace psm::stealth::anytls
             net::co_spawn(saved_executor,
                 [self, sid]() -> net::awaitable<void>
                 {
-                    std::error_code ec;
-                    co_await self->write_fin(sid, ec);
+                    try
+                    {
+                        std::error_code ec;
+                        co_await self->write_fin(sid, ec);
+                    }
+                    catch (...)
+                    {
+                        trace::error("[AnyTLS] write_fin exception for stream_id={}", sid);
+                    }
                 },
                 net::detached);
         }

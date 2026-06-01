@@ -3,6 +3,7 @@
 #include <prism/multiplex/smux/craft.hpp>
 #include <prism/multiplex/yamux/craft.hpp>
 #include <prism/trace.hpp>
+#include <prism/trace/context.hpp>
 #include <prism/transport/transmission.hpp>
 
 constexpr std::string_view tag = "[Mux.Bootstrap]";
@@ -102,6 +103,7 @@ namespace psm::multiplex
                     std::shared_ptr<core> session = std::make_shared<yamux::craft>(
                         core_options{std::move(ctx.transport), ctx.router, ctx.cfg, ctx.mr});
                     session->set_traffic(ctx.traffic, ctx.proto);
+                    if (trace::active_prefix) session->set_prefix(*trace::active_prefix);
                     trace::info("{} yamux session constructed", tag);
                     co_return session;
                 }
@@ -119,6 +121,7 @@ namespace psm::multiplex
                         core_options{std::move(ctx.transport), ctx.router, ctx.cfg, ctx.mr},
                         h2mux::craft_init{ctx.router, ctx.cfg, singmux_resolver});
                     session->set_traffic(ctx.traffic, ctx.proto);
+                    if (trace::active_prefix) session->set_prefix(*trace::active_prefix);
                     trace::info("{} h2mux session constructed", tag);
                     co_return session;
                 }
@@ -130,6 +133,7 @@ namespace psm::multiplex
                     std::shared_ptr<core> session = std::make_shared<smux::craft>(
                         core_options{std::move(ctx.transport), ctx.router, ctx.cfg, ctx.mr});
                     session->set_traffic(ctx.traffic, ctx.proto);
+                    if (trace::active_prefix) session->set_prefix(*trace::active_prefix);
                     trace::info("{} smux session constructed", tag);
                     co_return session;
                 }

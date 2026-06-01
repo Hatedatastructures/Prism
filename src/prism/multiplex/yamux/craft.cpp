@@ -5,6 +5,7 @@
 #include <prism/multiplex/parcel.hpp>
 #include <prism/multiplex/smux/frame.hpp>
 #include <prism/trace.hpp>
+#include <prism/trace/context.hpp>
 #include <prism/transport/reliable.hpp>
 #include <prism/transport/transmission.hpp>
 
@@ -60,6 +61,7 @@ namespace psm::multiplex::yamux
         const auto self = std::static_pointer_cast<craft>(shared_from_this());
         auto start_send_loop = [self]() -> net::awaitable<void>
         {
+            trace::scope_guard guard(self->prefix_);
             co_await self->send_loop();
         };
         net::co_spawn(executor(), std::move(start_send_loop), net::detached);
@@ -68,6 +70,7 @@ namespace psm::multiplex::yamux
         {
             auto start_ping = [self]() -> net::awaitable<void>
             {
+                trace::scope_guard guard(self->prefix_);
                 co_await self->ping_loop();
             };
             net::co_spawn(executor(), std::move(start_ping), net::detached);
@@ -294,8 +297,10 @@ namespace psm::multiplex::yamux
             }
 
             auto dp = it->second;
-            auto async_push = [dp, p = std::move(payload)]() mutable -> net::awaitable<void>
+            auto self = std::static_pointer_cast<craft>(shared_from_this());
+            auto async_push = [dp, p = std::move(payload), self]() mutable -> net::awaitable<void>
             {
+                trace::scope_guard guard(self->prefix_);
                 co_await dp->on_data(std::move(p));
             };
             auto on_error = [dp](const std::exception_ptr &ep)
@@ -318,8 +323,10 @@ namespace psm::multiplex::yamux
             }
 
             auto dp = it->second;
-            auto async_push = [dp, p = std::move(payload)]() mutable -> net::awaitable<void>
+            auto self = std::static_pointer_cast<craft>(shared_from_this());
+            auto async_push = [dp, p = std::move(payload), self]() mutable -> net::awaitable<void>
             {
+                trace::scope_guard guard(self->prefix_);
                 co_await dp->on_data(std::move(p));
             };
             auto on_error = [dp](const std::exception_ptr &ep)
@@ -359,7 +366,12 @@ namespace psm::multiplex::yamux
         {
             if (ep) log_spawn_error(ep, stream_id, "activate");
         };
-        net::co_spawn(transport_->executor(), self->activate_stream(stream_id), callback);
+        auto activate_fn = [self, stream_id]() -> net::awaitable<void>
+        {
+            trace::scope_guard guard(self->prefix_);
+            co_await self->activate_stream(stream_id);
+        };
+        net::co_spawn(transport_->executor(), std::move(activate_fn), callback);
     }
 
 
@@ -691,6 +703,7 @@ namespace psm::multiplex::yamux
         auto self = std::static_pointer_cast<craft>(shared_from_this());
         auto timeout_task = [self, stream_id, timer = std::move(timer)]() -> net::awaitable<void>
         {
+            trace::scope_guard guard(self->prefix_);
             co_return co_await self->pending_timeout(stream_id, std::move(timer));
         };
         net::co_spawn(executor(), std::move(timeout_task), net::detached);
@@ -824,6 +837,7 @@ namespace psm::multiplex::yamux
         auto self = std::static_pointer_cast<craft>(shared_from_this());
         auto send_fn = [self, stream_id]() -> net::awaitable<void>
         {
+            trace::scope_guard guard(self->prefix_);
             co_await self->push_frame({message_type::data, flags::fin, stream_id, 0, {}});
         };
         auto callback = [stream_id](const std::exception_ptr &ep)

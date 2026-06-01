@@ -18,6 +18,7 @@
 #include <boost/asio/experimental/awaitable_operators.hpp>
 
 #include <chrono>
+#include <cstring>
 
 namespace psm::instance::session
 {
@@ -36,12 +37,22 @@ namespace psm::instance::session
         release_resources();
     }
 
+    void session::init_prefix(const trace::session_prefix &pfx) noexcept
+    {
+        prefix_.session_id = id_;
+        std::memcpy(prefix_.client, pfx.client, sizeof(prefix_.client));
+        prefix_.client_port = pfx.client_port;
+        std::memcpy(prefix_.listen, pfx.listen, sizeof(prefix_.listen));
+        prefix_.listen_port = pfx.listen_port;
+    }
+
     void session::start()
     {
         trace::debug("[Session] [{}] Session started.", id_);
 
         auto process = [self = this->shared_from_this()]() -> net::awaitable<void>
         {
+            trace::scope_guard guard(self->prefix_);
             try
             {
                 co_await self->diversion();
@@ -90,8 +101,8 @@ namespace psm::instance::session
         state_ = state::closing;
         trace::debug("[Session] [{}] Session closing.", id_);
 
-        if (ctx_.stream_cancel)
-            ctx_.stream_cancel();
+        // stream_cancel 已移除：encrypted::cancel() 已通过 ssl_stream 操作底层 socket，
+        // 额外的 stream_cancel 会导致同一 socket 被 cancel 两次（UB → 崩溃）
         if (ctx_.inbound)
             ctx_.inbound->cancel();
         if (ctx_.outbound)
@@ -110,12 +121,9 @@ namespace psm::instance::session
             ctx_.worker_ctx.traffic->on_disconnect(ctx_.detected_protocol);
         }
 
-        if (ctx_.stream_close)
-        {
-            ctx_.stream_close();
-            ctx_.stream_close = nullptr;
-            ctx_.stream_cancel = nullptr;
-        }
+        // stream_close/stream_cancel 已移除：
+        // encrypted::close() 和 encrypted::cancel() 内部已通过 ssl_stream 操作底层 socket，
+        // 额外的 stream_close 会导致同一 socket 被 close 两次（UB → 崩溃）
         if (ctx_.inbound)
         {
             ctx_.inbound->close();
@@ -159,13 +167,14 @@ namespace psm::instance::session
             co_return true;
         };
 
-        auto do_recognize = [this]() -> net::awaitable<recognition::recognize_result>
+        auto do_recognize = [this, self = this->shared_from_this()]() -> net::awaitable<recognition::recognize_result>
         {
             co_return co_await recognition::recognize(recognition::recognize_context{
                 .transport = ctx_.inbound,
                 .cfg = &ctx_.server_ctx.config(),
                 .router = &ctx_.worker_ctx.router,
                 .session = &ctx_,
+                .session_keepalive = std::move(self),
                 .frame_arena = &ctx_.frame_arena
             });
         };
@@ -206,6 +215,8 @@ namespace psm::instance::session
 
         // 记录识别出的协议类型并通知流量统计
         ctx_.detected_protocol = result.detected;
+        auto proto_view = psm::protocol::to_string_view(result.detected);
+        std::strncpy(prefix_.protocol, proto_view.data(), sizeof(prefix_.protocol) - 1);
         if (ctx_.worker_ctx.traffic)
         {
             ctx_.worker_ctx.traffic->on_protocol_detected(result.detected);

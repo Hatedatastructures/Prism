@@ -16,7 +16,6 @@ namespace psm::stealth::native
 {
 
     namespace net = boost::asio;
-    namespace ssl = net::ssl;
     auto native::active(const psm::config &cfg) const noexcept
         -> bool
     {
@@ -99,14 +98,10 @@ namespace psm::stealth::native
 
         auto encrypted_trans = std::make_shared<transport::encrypted>(ssl_stream);
 
-        ctx.session->stream_cancel = [ssl = ssl_stream]() noexcept
-        {
-            ssl->lowest_layer().transmission().cancel();
-        };
-        ctx.session->stream_close = [ssl = ssl_stream]() noexcept
-        {
-            ssl->lowest_layer().transmission().close();
-        };
+        // stream_close/stream_cancel 已移除：
+        // encrypted::close() 和 encrypted::cancel() 内部已通过 ssl_stream 操作底层 socket，
+        // session::close()/release_resources() 直接调用 transport 的 cancel()/close() 即可。
+        // 原先的回调绕过 encrypted 层直接操作 lowest_layer，导致同一 socket 被 close/cancel 两次。
 
         constexpr std::size_t trojan_min = 60;
         std::array<std::byte, 128> inner_buf{};
