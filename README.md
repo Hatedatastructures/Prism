@@ -186,7 +186,6 @@ Prism/
 ├── docs/               # 文档 + Wiki
 └── scripts/            # 工具脚本
 ```
-```
 
 ---
 
