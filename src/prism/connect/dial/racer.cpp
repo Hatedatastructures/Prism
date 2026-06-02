@@ -2,6 +2,7 @@
 
 #include <prism/memory/container.hpp>
 #include <prism/trace.hpp>
+#include <prism/trace/context.hpp>
 
 #include <atomic>
 #include <memory>
@@ -84,6 +85,9 @@ namespace psm::connect
     auto address_racer::race_endpoint(tcp::endpoint ep, std::chrono::milliseconds delay, std::shared_ptr<race_context> ctx)
         -> net::awaitable<void>
     {
+        // detached 协程：清空外部可能悬垂的 active_prefix
+        trace::active_prefix = nullptr;
+
         try
         {
             // 等待 staggered delay（第 1 个端点 delay=0 跳过）

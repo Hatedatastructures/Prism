@@ -18,6 +18,7 @@ namespace psm::stealth::trusttunnel
 {
 
     namespace net = boost::asio;
+    namespace ssl = net::ssl;
 
     namespace
     {
@@ -181,28 +182,43 @@ namespace psm::stealth::trusttunnel
             co_return result;
         }
 
-        // safe: 使用 SSL_CTX_set_alpn_select_cb 设置服务端 ALPN 选择回调，不影响共享 SSL_CTX
-        // 此回调仅在选择阶段生效，不会修改 SSL_CTX 的客户端 ALPN 配置
-        SSL_CTX_set_alpn_select_cb(ctx.session->server_ctx.ssl_ctx->native_handle(),
-            [](SSL *, const unsigned char **out, unsigned char *outlen,
-               const unsigned char *in, unsigned int inlen, void *) -> int
-            {
-                // 在客户端提供的 ALPN 列表中查找 h2
-                if (SSL_select_next_proto(const_cast<unsigned char **>(out), outlen,
-                    reinterpret_cast<const unsigned char *>("\x2h2"), 3,
-                    in, inlen) == OPENSSL_NPN_NEGOTIATED)
+        // 创建独立的 SSL_CTX 副本用于 TrustTunnel，不修改共享 SSL_CTX 的 ALPN 回调
+        auto tt_ssl_ctx = std::make_shared<ssl::context>(ssl::context::tlsv13);
+        {
+            auto &src_ctx = *ctx.session->server_ctx.ssl_ctx;
+            auto *src_native = src_ctx.native_handle();
+            auto *dst_native = tt_ssl_ctx->native_handle();
+
+            // 复制证书和私钥
+            SSL_CTX_use_certificate(dst_native, SSL_CTX_get0_certificate(src_native));
+            SSL_CTX_use_PrivateKey(dst_native, SSL_CTX_get0_privatekey(src_native));
+
+            // 复制基本设置
+            SSL_CTX_set_min_proto_version(dst_native, SSL_CTX_get_min_proto_version(src_native));
+            SSL_CTX_set_max_proto_version(dst_native, SSL_CTX_get_max_proto_version(src_native));
+            SSL_CTX_set_session_cache_mode(dst_native, SSL_CTX_get_session_cache_mode(src_native));
+
+            // TrustTunnel 专用 ALPN 回调：仅选择 h2
+            SSL_CTX_set_alpn_select_cb(dst_native,
+                [](SSL *, const unsigned char **out, unsigned char *outlen,
+                   const unsigned char *in, unsigned int inlen, void *) -> int
                 {
-                    return SSL_TLSEXT_ERR_OK;
-                }
-                return SSL_TLSEXT_ERR_NOACK;
-            }, nullptr);
+                    if (SSL_select_next_proto(const_cast<unsigned char **>(out), outlen,
+                        reinterpret_cast<const unsigned char *>("\x2h2"), 3,
+                        in, inlen) == OPENSSL_NPN_NEGOTIATED)
+                    {
+                        return SSL_TLSEXT_ERR_OK;
+                    }
+                    return SSL_TLSEXT_ERR_NOACK;
+                }, nullptr);
+        }
 
         auto preread_span = std::span<const std::byte>(ctx.preread.data(), ctx.preread.size());
         auto clean_inbound = transport::wrap_with_preview(
             std::move(raw), preread_span, ctx.session->frame_arena.get());
 
         auto [ssl_ec, ssl_stream, recovered] = co_await transport::encrypted::ssl_handshake(
-            std::move(clean_inbound), *ctx.session->server_ctx.ssl_ctx);
+            std::move(clean_inbound), *tt_ssl_ctx);
 
         if (fault::failed(ssl_ec) || !ssl_stream)
         {

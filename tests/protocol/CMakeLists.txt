@@ -1,0 +1,5 @@
+add_subdirectory(http)
+add_subdirectory(socks5)
+add_subdirectory(trojan)
+add_subdirectory(vless)
+add_subdirectory(shadowsocks)

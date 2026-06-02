@@ -61,6 +61,7 @@ namespace psm::multiplex::yamux
         const auto self = std::static_pointer_cast<craft>(shared_from_this());
         auto start_send_loop = [self]() -> net::awaitable<void>
         {
+            trace::active_prefix = nullptr;
             trace::scope_guard guard(self->prefix_);
             co_await self->send_loop();
         };
@@ -70,6 +71,7 @@ namespace psm::multiplex::yamux
         {
             auto start_ping = [self]() -> net::awaitable<void>
             {
+                trace::active_prefix = nullptr;
                 trace::scope_guard guard(self->prefix_);
                 co_await self->ping_loop();
             };
@@ -300,6 +302,7 @@ namespace psm::multiplex::yamux
             auto self = std::static_pointer_cast<craft>(shared_from_this());
             auto async_push = [dp, p = std::move(payload), self]() mutable -> net::awaitable<void>
             {
+                trace::active_prefix = nullptr;
                 trace::scope_guard guard(self->prefix_);
                 co_await dp->on_data(std::move(p));
             };
@@ -326,6 +329,7 @@ namespace psm::multiplex::yamux
             auto self = std::static_pointer_cast<craft>(shared_from_this());
             auto async_push = [dp, p = std::move(payload), self]() mutable -> net::awaitable<void>
             {
+                trace::active_prefix = nullptr;
                 trace::scope_guard guard(self->prefix_);
                 co_await dp->on_data(std::move(p));
             };
@@ -368,6 +372,7 @@ namespace psm::multiplex::yamux
         };
         auto activate_fn = [self, stream_id]() -> net::awaitable<void>
         {
+            trace::active_prefix = nullptr;
             trace::scope_guard guard(self->prefix_);
             co_await self->activate_stream(stream_id);
         };
@@ -559,6 +564,12 @@ namespace psm::multiplex::yamux
             dp->set_destination(opts.host, opts.port);
         }
 
+        if (!active_.load(std::memory_order_acquire))
+        {
+            dp->close();
+            co_return;
+        }
+
         parcels_[opts.stream_id] = dp;
 
         dp->start();
@@ -566,11 +577,6 @@ namespace psm::multiplex::yamux
         if (!opts.remaining.empty())
         {
             co_await dp->on_data(std::move(opts.remaining));
-        }
-
-        if (!active_.load(std::memory_order_acquire))
-        {
-            dp->close();
         }
 
         trace::debug("{} stream {} UDP parcel created", tag, opts.stream_id);
@@ -703,6 +709,7 @@ namespace psm::multiplex::yamux
         auto self = std::static_pointer_cast<craft>(shared_from_this());
         auto timeout_task = [self, stream_id, timer = std::move(timer)]() -> net::awaitable<void>
         {
+            trace::active_prefix = nullptr;
             trace::scope_guard guard(self->prefix_);
             co_return co_await self->pending_timeout(stream_id, std::move(timer));
         };
@@ -837,6 +844,7 @@ namespace psm::multiplex::yamux
         auto self = std::static_pointer_cast<craft>(shared_from_this());
         auto send_fn = [self, stream_id]() -> net::awaitable<void>
         {
+            trace::active_prefix = nullptr;
             trace::scope_guard guard(self->prefix_);
             co_await self->push_frame({message_type::data, flags::fin, stream_id, 0, {}});
         };

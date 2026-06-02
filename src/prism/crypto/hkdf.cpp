@@ -77,6 +77,13 @@ namespace psm::crypto
             return {fault::code::invalid_argument, {}};
         }
 
+        constexpr std::size_t max_info_size = 514;
+        if (info.size() > max_info_size)
+        {
+            trace::error("{} HKDF-Expand info 过长: {}", tag, info.size());
+            return {fault::code::invalid_argument, {}};
+        }
+
         std::vector<std::uint8_t> result;
         result.reserve(length);
 
@@ -87,7 +94,7 @@ namespace psm::crypto
 
         while (offset < length)
         {
-            constexpr std::size_t max_hmac_buf = sha256_len + 256 + 1;
+            constexpr std::size_t max_hmac_buf = sha256_len + max_info_size + 1;
             std::array<std::uint8_t, max_hmac_buf> hmac_buf;
             const auto hmac_size = t_size + info.size() + 1;
             if (t_size > 0)

@@ -1,0 +1,6 @@
+prism_add_test(Vless.cpp)
+prism_add_test(VlessFraming.cpp)
+prism_add_test(VlessFramingPure.cpp)
+prism_add_test(VlessProcessPure.cpp)
+prism_add_test(VlessConnPure.cpp)
+prism_add_test(VlessConnPure2.cpp)

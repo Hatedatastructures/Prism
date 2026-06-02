@@ -255,8 +255,6 @@ namespace psm::multiplex::h2mux
         bool connect_resolved_{false};
         h2_headers first_connect_;
         net::steady_timer connect_waiter_;
-
-        bool closed_{false};
     }; // class craft
 
 } // namespace psm::multiplex::h2mux

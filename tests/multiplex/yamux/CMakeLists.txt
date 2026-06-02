@@ -1,0 +1,7 @@
+prism_add_test(Yamux.cpp)
+prism_add_test(YamuxCraft.cpp)
+prism_add_test(YamuxCraftPure.cpp)
+prism_add_test(YamuxCraftDeep.cpp)
+prism_add_test(YamuxCraftDeep2.cpp)
+prism_add_test(YamuxFrameError.cpp)
+prism_add_test(YamuxWindow.cpp)

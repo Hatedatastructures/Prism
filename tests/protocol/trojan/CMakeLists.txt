@@ -1,0 +1,6 @@
+prism_add_test(Trojan.cpp)
+prism_add_test(TrojanFraming.cpp)
+prism_add_test(TrojanFramingPure.cpp)
+prism_add_test(TrojanProcessPure.cpp)
+prism_add_test(TrojanConnPure.cpp)
+prism_add_test(TrojanConnPure2.cpp)

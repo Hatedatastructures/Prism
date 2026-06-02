@@ -25,7 +25,7 @@ namespace psm::resolve::dns
         explicit resolver_impl(net::io_context &ioc, config cfg, memory::resource_pointer mr = memory::current_resource())
             : ioc_(ioc),
               config_(std::move(cfg)),
-              mr_(memory::current_resource()),
+              mr_(mr ? mr : memory::current_resource()),
               upstream_(ioc_, mr_), cache_([&]
               {
                   detail::cache_options opts;
@@ -43,12 +43,9 @@ namespace psm::resolve::dns
                   return opts;
               }()),
               rules_(mr_), coalescer_(mr_),
-              alive_(std::make_shared<std::atomic<bool>>(true))
+              alive_(std::make_shared<std::atomic<bool>>(true)),
+              eviction_timer_(ioc_)
         {
-            if (mr)
-            {
-                mr_ = mr;
-            }
             if (!config_.servers.empty())
             {
                 upstream_.set_servers(std::move(config_.servers));
@@ -81,6 +78,7 @@ namespace psm::resolve::dns
             {
                 alive_->store(false);
             }
+            eviction_timer_.cancel();
         }
 
         [[nodiscard]] auto resolve(std::string_view host)
@@ -195,12 +193,11 @@ namespace psm::resolve::dns
     private:
         [[nodiscard]] auto eviction_loop() -> net::awaitable<void>
         {
-            auto timer = net::steady_timer(ioc_);
             while (alive_->load())
             {
-                timer.expires_after(std::chrono::seconds(30));
+                eviction_timer_.expires_after(std::chrono::seconds(30));
                 boost::system::error_code ec;
-                co_await timer.async_wait(net::redirect_error(net::use_awaitable, ec));
+                co_await eviction_timer_.async_wait(net::redirect_error(net::use_awaitable, ec));
                 if (ec == net::error::operation_aborted || !alive_->load())
                     co_return;
                 cache_.evict_expired();
@@ -468,6 +465,7 @@ namespace psm::resolve::dns
         detail::rules_engine rules_;
         detail::coalescer coalescer_;
         std::shared_ptr<std::atomic<bool>> alive_;
+        net::steady_timer eviction_timer_;
     };
 
     // ─── factory ───────────────────────────────────────────────────

@@ -1,0 +1,8 @@
+prism_add_test(AnytlsFrameParse.cpp)
+prism_add_test(AnytlsPadding.cpp)
+prism_add_test(AnytlsPaddingPure.cpp)
+prism_add_test(AnytlsScheme.cpp)
+prism_add_test(AnytlsSchemeDeep.cpp)
+prism_add_test(AnytlsSchemeDeep2.cpp)
+prism_add_test(AnytlsSchemeExtended.cpp)
+prism_add_test(AnytlsSessionDeep.cpp)

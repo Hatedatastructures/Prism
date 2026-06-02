@@ -76,6 +76,12 @@ cp src/configuration.json build/src/
 
 # 测试
 ctest --test-dir build --output-on-failure -j 1 --timeout 30
+
+# 运行单个测试（gtest_discover_tests 自动注册用例）
+build/tests/Socks5
+
+# 按过滤条件运行
+ctest --test-dir build -R "Crypto" --output-on-failure
 ```
 
 > 配置文件中的路径需改为绝对路径，详见 [配置详解](docs/tutorial/configuration.md)
@@ -179,9 +185,22 @@ Prism/
 │   ├── loader/         # 配置加载器
 │   ├── trace/          # 日志 (spdlog) + 会话上下文 (字段选择性前缀)
 │   └── pipeline/       # 原语管道
-├── src/                # 模块实现 + 入口 (84 源文件)
-├── tests/              # 单元测试 (216 个)
-├── benchmarks/         # 性能测试 (27 个)
+├── src/                # 模块实现 + 入口
+├── tests/              # Google Test 单元测试 (219 个文件，505 用例)
+│   ├── common/         # gtest_main · fixtures · MockTransport · MockTlsServer
+│   ├── crypto/         # AEAD · BLAKE3 · HKDF · X25519 · SHA224 · Block · Base64
+│   ├── protocol/       # HTTP · SOCKS5 · Trojan · VLESS · SS2022
+│   ├── stealth/        # Reality · ShadowTLS · Restls · AnyTLS · TrustTunnel · Native
+│   ├── multiplex/      # smux · yamux · h2mux · duct · parcel
+│   ├── resolve/        # DNS · cache · rules · format · upstream · coalescer
+│   ├── connect/        # dial · router · racer · pool · health
+│   ├── transport/      # reliable · encrypted · unreliable · preview · transmission
+│   ├── instance/       # listener · balancer · worker · session · launch · config
+│   ├── recognition/    # probe · analyzer · scheme-route-table · pipeline
+│   ├── infrastructure/ # trace · stats · memory · executor · pipeline · fault · exception
+│   ├── integration/    # E2E · regression · protocol-analysis
+│   └── concurrency/    # 并发 server/client 对测试
+├── benchmarks/         # 基准测试 (27 个)
 ├── stresses/           # 压力测试 (4 个)
 ├── docs/               # 文档 + Wiki
 └── scripts/            # 工具脚本
@@ -202,6 +221,8 @@ Prism/
 | BLAKE3 | 1.8.1 | SS2022 密钥派生 |
 | nghttp2 | 1.69.0 | h2mux HTTP/2 帧编解码 |
 | Google Benchmark | 1.9.5 | 性能测试 |
+| Google Test | 1.16.0 | 单元测试框架 |
+
 
 ---
 

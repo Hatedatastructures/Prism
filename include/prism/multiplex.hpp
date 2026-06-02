@@ -19,4 +19,5 @@
 #include <prism/multiplex/yamux/craft.hpp>
 #include <prism/multiplex/yamux/frame.hpp>
 
-
+#include <prism/multiplex/h2mux/config.hpp>
+#include <prism/multiplex/h2mux/craft.hpp>

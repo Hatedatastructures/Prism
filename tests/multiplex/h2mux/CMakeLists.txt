@@ -1,0 +1,5 @@
+prism_add_test(H2mux.cpp)
+prism_add_test(H2muxCraft.cpp)
+prism_add_test(H2muxCraftPure.cpp)
+prism_add_test(H2muxCraftDeep.cpp)
+prism_add_test(H2muxCraftDeep2.cpp)

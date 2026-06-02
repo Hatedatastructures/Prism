@@ -107,6 +107,7 @@ namespace psm::multiplex::h2mux
 
         auto send_task = [self]() -> net::awaitable<void>
         {
+            trace::active_prefix = nullptr;
             trace::scope_guard guard(self->prefix_);
             co_await self->send_loop();
         };
@@ -123,7 +124,7 @@ namespace psm::multiplex::h2mux
 
         memory::vector<std::byte> recv_buf(config_.h2mux.buffer_size, mr_);
 
-        while (active_.load(std::memory_order_acquire) && !closed_)
+        while (active_.load(std::memory_order_acquire))
         {
             std::error_code read_ec;
             const auto n = co_await transport_->async_read_some(
@@ -218,6 +219,7 @@ namespace psm::multiplex::h2mux
             const auto id = static_cast<std::uint32_t>(stream_id);
             auto activate_task = [self, id]() -> net::awaitable<void>
             {
+                trace::active_prefix = nullptr;
                 trace::scope_guard guard(self->prefix_);
                 co_await self->activate_stream(id);
             };
@@ -463,11 +465,12 @@ namespace psm::multiplex::h2mux
             // safe: casting nghttp2 data frame payload (uint8_t*) to byte vector for duct dispatch
             auto payload = memory::vector<std::byte>(
                 reinterpret_cast<const std::byte *>(data),
-                reinterpret_cast<const std::byte *>(data) + len);
+                reinterpret_cast<const std::byte *>(data) + len, self->mr_);
 
             auto craft_self = std::static_pointer_cast<craft>(self->shared_from_this());
             auto dispatch_data = [dp, p = std::move(payload), craft_self]() mutable -> net::awaitable<void>
             {
+                trace::active_prefix = nullptr;
                 trace::scope_guard guard(craft_self->prefix_);
                 co_await dp->on_data(std::move(p));
             };
@@ -489,11 +492,12 @@ namespace psm::multiplex::h2mux
             // safe: casting nghttp2 data frame payload (uint8_t*) to byte vector for parcel dispatch
             memory::vector<std::byte> payload(
                 reinterpret_cast<const std::byte *>(data),
-                reinterpret_cast<const std::byte *>(data) + len);
+                reinterpret_cast<const std::byte *>(data) + len, self->mr_);
 
             auto craft_self = std::static_pointer_cast<craft>(self->shared_from_this());
             auto dispatch_parcel = [dp, p = std::move(payload), craft_self]() mutable -> net::awaitable<void>
             {
+                trace::active_prefix = nullptr;
                 trace::scope_guard guard(craft_self->prefix_);
                 co_await dp->on_data(std::move(p));
             };
@@ -557,6 +561,7 @@ namespace psm::multiplex::h2mux
         auto self = std::static_pointer_cast<craft>(shared_from_this());
         auto send_fn = [self, stream_id]() -> net::awaitable<void>
         {
+            trace::active_prefix = nullptr;
             trace::scope_guard guard(self->prefix_);
             outbound_data item(self->mr_);
             item.stream_id = stream_id;
@@ -691,6 +696,9 @@ namespace psm::multiplex::h2mux
 
     auto craft::respond_connect(const std::int32_t stream_id, const std::uint32_t status) -> std::int32_t
     {
+        if (!session_)
+            return NGHTTP2_ERR_INVALID_STATE;
+
         const char *status_str = "407";
         if (status == 200)
             status_str = "200";

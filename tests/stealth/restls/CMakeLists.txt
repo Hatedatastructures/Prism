@@ -1,0 +1,7 @@
+prism_add_test(Restls.cpp)
+prism_add_test(RestlsScript.cpp)
+prism_add_test(RestlsHandshakePure.cpp)
+prism_add_test(RestlsHandshakePure2.cpp)
+prism_add_test(RestlsHandshakeParse2.cpp)
+prism_add_test(RestlsTransportPure.cpp)
+prism_add_test(RestlsTransportDeep.cpp)

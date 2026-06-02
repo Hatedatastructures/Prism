@@ -1,0 +1,5 @@
+prism_add_test(StealthExecutorPure2.cpp)
+prism_add_test(StealthExecutorDeep.cpp)
+prism_add_test(StealthExecutorDeep2.cpp)
+prism_add_test(StealthExecutorDeep3.cpp)
+prism_add_test(StealthFacadeSchemes.cpp)

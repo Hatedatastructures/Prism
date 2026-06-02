@@ -1,0 +1,8 @@
+add_subdirectory(reality)
+add_subdirectory(shadowtls)
+add_subdirectory(restls)
+add_subdirectory(anytls)
+add_subdirectory(trusttunnel)
+add_subdirectory(common)
+add_subdirectory(executor)
+add_subdirectory(native)
