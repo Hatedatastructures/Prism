@@ -721,7 +721,7 @@ namespace psm::multiplex::yamux
         -> net::awaitable<void>
     {
         boost::system::error_code ec;
-        co_await timer->async_wait(net::redirect_error(net::use_awaitable, ec));
+        co_await timer->async_wait(net::redirect_error(trace::use_prefix_awaitable, ec));
         if (ec)
         {
             co_return;
@@ -812,7 +812,7 @@ namespace psm::multiplex::yamux
                 auto signal = window->window_signal;
                 signal->expires_at(net::steady_timer::time_point::max());
                 boost::system::error_code wait_ec;
-                co_await signal->async_wait(net::redirect_error(net::use_awaitable, wait_ec));
+                co_await signal->async_wait(net::redirect_error(trace::use_prefix_awaitable, wait_ec));
                 if (wait_ec != net::error::operation_aborted)
                 {
                     if (!is_active())
@@ -916,7 +916,7 @@ namespace psm::multiplex::yamux
         frame.payload = std::move(data.payload);
 
         boost::system::error_code ec;
-        auto token = net::redirect_error(net::use_awaitable, ec);
+        auto token = net::redirect_error(trace::use_prefix_awaitable, ec);
         co_await channel_.async_send(boost::system::error_code{}, std::move(frame), token);
         if (ec)
         {
@@ -934,7 +934,7 @@ namespace psm::multiplex::yamux
             while (is_active())
             {
                 boost::system::error_code ec;
-                auto token = net::redirect_error(net::use_awaitable, ec);
+                auto token = net::redirect_error(trace::use_prefix_awaitable, ec);
                 auto frame = co_await channel_.async_receive(token);
                 if (ec)
                 {
@@ -987,7 +987,7 @@ namespace psm::multiplex::yamux
             {
                 timer.expires_after(std::chrono::milliseconds(config_.yamux.ping_interval));
                 boost::system::error_code ec;
-                co_await timer.async_wait(net::redirect_error(net::use_awaitable, ec));
+                co_await timer.async_wait(net::redirect_error(trace::use_prefix_awaitable, ec));
                 if (ec || !is_active())
                 {
                     break;

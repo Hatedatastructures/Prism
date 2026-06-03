@@ -176,21 +176,23 @@ namespace psm::trace
     /**
      * @class scope_guard
      * @brief 会话前缀 RAII 守卫
-     * @details 构造时保存当前 active_prefix 并设置新值，
-     * 析构时恢复旧值。确保协程切换时前缀上下文正确。
+     * @details 构造时设置 active_prefix 为当前会话的前缀，
+     * 析构时仅在 active_prefix 仍指向此前缀时清除为 nullptr。
+     * 不保存/恢复旧值，避免多协程环境下产生悬垂指针。
      */
     class scope_guard
     {
     public:
         explicit scope_guard(session_prefix &pfx) noexcept
-            : saved_(active_prefix)
+            : prefix_(&pfx)
         {
             active_prefix = &pfx;
         }
 
         ~scope_guard() noexcept
         {
-            active_prefix = saved_;
+            if (active_prefix == prefix_)
+                active_prefix = nullptr;
         }
 
         scope_guard(const scope_guard &) = delete;
@@ -199,7 +201,7 @@ namespace psm::trace
         auto operator=(scope_guard &&) -> scope_guard & = delete;
 
     private:
-        session_prefix *saved_;
+        session_prefix *prefix_;
     };
 
     /**

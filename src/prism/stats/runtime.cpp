@@ -75,7 +75,7 @@ namespace psm::stats::runtime
             timer.expires_at(expected_time);
 
             boost::system::error_code ec;
-            co_await timer.async_wait(net::redirect_error(net::use_awaitable, ec));
+            co_await timer.async_wait(net::redirect_error(trace::use_prefix_awaitable, ec));
             if (ec)
             {
                 if (ec != net::error::operation_aborted)

@@ -86,7 +86,7 @@ namespace psm::stealth::anytls
             }
 
             auto [recv_ec, chunk] = co_await channel_->async_receive(
-                net::as_tuple(net::use_awaitable));
+                net::as_tuple(trace::use_prefix_awaitable));
 
             if (recv_ec)
             {

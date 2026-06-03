@@ -42,7 +42,7 @@ namespace psm::multiplex
         touch_timer();
 
         auto self = shared_from_this();
-        net::co_spawn(executor_, uplink_loop(),
+        net::co_spawn(executor_, uplink_loop_core(),
             [self](const std::exception_ptr &ep)
             {
                 self->on_uplink_done(ep);
@@ -71,13 +71,43 @@ namespace psm::multiplex
     }
 
 
+    auto parcel::uplink_loop_core()
+        -> net::awaitable<void>
+    {
+        if (auto owner = owner_.lock())
+        {
+            trace::scope_guard guard(owner->prefix_);
+            co_await uplink_loop();
+        }
+        else
+        {
+            co_await uplink_loop();
+        }
+    }
+
+
+    auto parcel::downlink_loop_core()
+        -> net::awaitable<void>
+    {
+        if (auto owner = owner_.lock())
+        {
+            trace::scope_guard guard(owner->prefix_);
+            co_await downlink_loop();
+        }
+        else
+        {
+            co_await downlink_loop();
+        }
+    }
+
+
     auto parcel::uplink_loop()
         -> net::awaitable<void>
     {
         while (!closed_)
         {
             boost::system::error_code ec;
-            auto token = net::redirect_error(net::use_awaitable, ec);
+            auto token = net::redirect_error(trace::use_prefix_awaitable, ec);
             co_await idle_timer_.async_wait(token);
 
             if (ec == net::error::operation_aborted)
@@ -275,12 +305,12 @@ namespace psm::multiplex
         if (!recv_running_.exchange(true))
         {
             auto self = shared_from_this();
-            net::co_spawn(executor_, self->downlink_loop(), net::detached);
+            net::co_spawn(executor_, self->downlink_loop_core(), net::detached);
         }
 
         // 发送数据报（不等待响应）
         boost::system::error_code ec;
-        auto token = net::redirect_error(net::use_awaitable, ec);
+        auto token = net::redirect_error(trace::use_prefix_awaitable, ec);
         co_await egress_socket_->async_send_to(net::buffer(payload.data(), payload.size()),
                                                target_ep, token);
         if (ec)
@@ -305,7 +335,7 @@ namespace psm::multiplex
             {
                 // 读取一个完整的 UDP 响应数据报
                 boost::system::error_code ec;
-                auto token = net::redirect_error(net::use_awaitable, ec);
+                auto token = net::redirect_error(trace::use_prefix_awaitable, ec);
 
                 net::ip::udp::endpoint sender_ep;
                 auto recv_buf = net::buffer(recv_buffer_.data(), recv_buffer_.size());

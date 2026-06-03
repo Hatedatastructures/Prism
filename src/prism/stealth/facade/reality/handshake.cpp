@@ -550,7 +550,7 @@ namespace psm::stealth::reality
         // 把客户端发来的原始 ClientHello TLS 记录转发给真实网站
         boost::system::error_code write_ec;
         co_await net::async_write(*dest_socket_raw, net::buffer(raw_record.data(), raw_record.size()),
-                                  net::redirect_error(net::use_awaitable, write_ec));
+                                  net::redirect_error(trace::use_prefix_awaitable, write_ec));
         if (write_ec)
         {
             trace::warn("{} write to dest failed: {}", tag, write_ec.message());
@@ -598,7 +598,7 @@ namespace psm::stealth::reality
 
             boost::system::error_code ec;
             co_await ssl_stream.async_handshake(ssl_local::stream_base::client,
-                                                net::redirect_error(net::use_awaitable, ec));
+                                                net::redirect_error(trace::use_prefix_awaitable, ec));
             if (ec)
             {
                 trace::warn("{} TLS handshake to dest failed: {}", tag, ec.message());

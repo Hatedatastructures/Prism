@@ -48,11 +48,8 @@ namespace psm::instance::session
 
     void session::start()
     {
-        trace::debug("[Session] [{}] Session started.", id_);
-
         auto process = [self = this->shared_from_this()]() -> net::awaitable<void>
         {
-            trace::scope_guard guard(self->prefix_);
             try
             {
                 co_await self->diversion();
@@ -150,6 +147,8 @@ namespace psm::instance::session
     auto session::diversion()
         -> net::awaitable<void>
     {
+        trace::scope_guard guard(prefix_);
+
         if (!ctx_.inbound)
         {
             trace::warn("[Session] [{}] diversion aborted: missing inbound transmission.", id_);
@@ -163,7 +162,7 @@ namespace psm::instance::session
         auto deadline_expired = [this]() -> net::awaitable<bool>
         {
             boost::system::error_code ec;
-            co_await handshake_deadline_->async_wait(net::redirect_error(net::use_awaitable, ec));
+            co_await handshake_deadline_->async_wait(net::redirect_error(trace::use_prefix_awaitable, ec));
             co_return true;
         };
 
@@ -181,7 +180,6 @@ namespace psm::instance::session
 
         using boost::asio::experimental::awaitable_operators::operator||;
         auto variant = co_await (do_recognize() || deadline_expired());
-
         recognition::recognize_result result;
         bool timed_out = false;
 

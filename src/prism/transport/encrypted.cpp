@@ -22,7 +22,7 @@ namespace psm::transport
         auto stream = std::make_shared<stream_type>(std::move(connector), ssl_ctx);
 
         boost::system::error_code ec;
-        auto token = net::redirect_error(net::use_awaitable, ec);
+        auto token = net::redirect_error(trace::use_prefix_awaitable, ec);
         co_await stream->async_handshake(ssl::stream_base::server, token);
         if (ec)
         {

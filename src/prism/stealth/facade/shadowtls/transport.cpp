@@ -270,7 +270,7 @@ namespace psm::stealth::shadowtls
         boost::system::error_code boost_ec;
         auto written = co_await net::async_write(
             socket_, net::buffer(frame_bytes.data(), frame_bytes.size()),
-            net::redirect_error(net::use_awaitable, boost_ec));
+            net::redirect_error(trace::use_prefix_awaitable, boost_ec));
 
         if (boost_ec)
         {

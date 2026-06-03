@@ -107,7 +107,7 @@ namespace psm::transport
             -> net::awaitable<std::size_t> override
         {
             boost::system::error_code sys_ec;
-            auto token = net::redirect_error(net::use_awaitable, sys_ec);
+            auto token = net::redirect_error(trace::use_prefix_awaitable, sys_ec);
             const auto n = co_await ssl_stream_->async_read_some(
                 net::buffer(buffer.data(), buffer.size()), token);
             ec = psm::fault::make_error_code(psm::fault::to_code(sys_ec));
@@ -126,7 +126,7 @@ namespace psm::transport
             -> net::awaitable<std::size_t> override
         {
             boost::system::error_code sys_ec;
-            auto token = net::redirect_error(net::use_awaitable, sys_ec);
+            auto token = net::redirect_error(trace::use_prefix_awaitable, sys_ec);
             const auto n = co_await ssl_stream_->async_write_some(
                 net::buffer(buffer.data(), buffer.size()), token);
             ec = psm::fault::make_error_code(psm::fault::to_code(sys_ec));

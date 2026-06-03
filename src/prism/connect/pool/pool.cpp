@@ -241,8 +241,8 @@ namespace psm::connect
 
         boost::system::error_code connect_ec;
         boost::system::error_code timer_ec;
-        auto connect_token = net::redirect_error(net::use_awaitable, connect_ec);
-        auto timer_token = net::redirect_error(net::use_awaitable, timer_ec);
+        auto connect_token = net::redirect_error(trace::use_prefix_awaitable, connect_ec);
+        auto timer_token = net::redirect_error(trace::use_prefix_awaitable, timer_ec);
 
         auto connect_op = sock->async_connect(endpoint, connect_token);
         auto timer_op = timer.async_wait(timer_token);
@@ -340,7 +340,7 @@ namespace psm::connect
             {
                 cleanup_timer_->expires_after(std::chrono::seconds(config_.clean_interval));
                 boost::system::error_code ec;
-                co_await cleanup_timer_->async_wait(net::redirect_error(net::use_awaitable, ec));
+                co_await cleanup_timer_->async_wait(net::redirect_error(trace::use_prefix_awaitable, ec));
                 if (ec)
                     break;
                 if (shutdown_flag_->load(std::memory_order_acquire))

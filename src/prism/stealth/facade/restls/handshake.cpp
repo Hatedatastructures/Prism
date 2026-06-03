@@ -175,7 +175,7 @@ namespace psm::stealth::restls
                 co_await net::async_write(
                     opts.client_sock,
                     net::buffer(frame.data(), frame.size()),
-                    net::redirect_error(net::use_awaitable, write_ec));
+                    net::redirect_error(trace::use_prefix_awaitable, write_ec));
                 if (write_ec)
                 {
                     co_return false;
@@ -215,7 +215,7 @@ namespace psm::stealth::restls
                 co_await net::async_write(
                     opts.backend_sock,
                     net::buffer(frame.data(), frame.size()),
-                    net::redirect_error(net::use_awaitable, write_ec));
+                    net::redirect_error(trace::use_prefix_awaitable, write_ec));
                 if (write_ec)
                 {
                     co_return false;
@@ -237,7 +237,7 @@ namespace psm::stealth::restls
             boost::system::error_code connect_ec;
             co_await net::async_connect(
                 backend_sock, endpoints,
-                net::redirect_error(net::use_awaitable, connect_ec));
+                net::redirect_error(trace::use_prefix_awaitable, connect_ec));
 
             if (connect_ec)
             {
@@ -317,7 +317,7 @@ namespace psm::stealth::restls
                 net::steady_timer exit_timer(executor);
                 exit_timer.expires_after(std::chrono::milliseconds(500));
                 boost::system::error_code wait_ec;
-                co_await exit_timer.async_wait(net::redirect_error(net::use_awaitable, wait_ec));
+                co_await exit_timer.async_wait(net::redirect_error(trace::use_prefix_awaitable, wait_ec));
             }
 
             if (!relay_done->load())
@@ -369,7 +369,7 @@ namespace psm::stealth::restls
             co_await net::async_write(
                 backend_sock,
                 net::buffer(opts.client_hello.data(), opts.client_hello.size()),
-                net::redirect_error(net::use_awaitable, write_ec));
+                net::redirect_error(trace::use_prefix_awaitable, write_ec));
             if (write_ec)
             {
                 trace::warn("[Restls] write ClientHello failed: {}", write_ec.message());
@@ -392,7 +392,7 @@ namespace psm::stealth::restls
             co_await net::async_write(
                 client_sock,
                 net::buffer(server_hello_opt->data(), server_hello_opt->size()),
-                net::redirect_error(net::use_awaitable, write_ec));
+                net::redirect_error(trace::use_prefix_awaitable, write_ec));
             if (write_ec)
             {
                 trace::warn("[Restls] write ServerHello failed: {}", write_ec.message());

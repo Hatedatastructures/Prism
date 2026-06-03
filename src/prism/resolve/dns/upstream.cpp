@@ -178,7 +178,7 @@ namespace psm::resolve::dns
             -> net::awaitable<std::shared_ptr<net::ip::tcp::socket>>
         {
             auto sock = std::make_shared<net::ip::tcp::socket>(target.ioc);
-            auto token = net::redirect_error(net::use_awaitable, ec);
+            auto token = net::redirect_error(trace::use_prefix_awaitable, ec);
 
             arm_tcp(ctx, sock);
             co_await sock->async_connect(target.endpoint, token);
@@ -194,7 +194,7 @@ namespace psm::resolve::dns
         {
             auto ssl_sock = std::make_shared<ssl::stream<net::ip::tcp::socket>>(
                 std::move(*mat.sock), *mat.ssl_ctx);
-            auto token = net::redirect_error(net::use_awaitable, ec);
+            auto token = net::redirect_error(trace::use_prefix_awaitable, ec);
 
             arm_ssl_stream(ctx, ssl_sock);
             co_await ssl_sock->async_handshake(ssl::stream_base::client, token);
@@ -208,7 +208,7 @@ namespace psm::resolve::dns
                             transport_context &ctx)
             -> net::awaitable<memory::vector<std::uint8_t>>
         {
-            auto token = net::redirect_error(net::use_awaitable, fctx.ec);
+            auto token = net::redirect_error(trace::use_prefix_awaitable, fctx.ec);
 
             // 读取 2 字节长度前缀
             std::uint8_t recv_len[2]{};
@@ -275,7 +275,7 @@ namespace psm::resolve::dns
             auto send(const memory::vector<std::uint8_t> &payload, transport_context &ctx, boost::system::error_code &ec)
                 -> net::awaitable<void>
             {
-                auto token = net::redirect_error(net::use_awaitable, ec);
+                auto token = net::redirect_error(trace::use_prefix_awaitable, ec);
                 ctx.timer.expires_after(std::chrono::milliseconds(ctx.timeout_ms));
                 auto on_timeout = [s = sock](boost::system::error_code e)
                 {
@@ -292,7 +292,7 @@ namespace psm::resolve::dns
             auto recv(memory::resource_pointer mr, transport_context &ctx, boost::system::error_code &ec)
                 -> net::awaitable<memory::vector<std::uint8_t>>
             {
-                auto token = net::redirect_error(net::use_awaitable, ec);
+                auto token = net::redirect_error(trace::use_prefix_awaitable, ec);
                 memory::vector<std::uint8_t> buf(mr);
                 buf.resize(4096);
 
@@ -353,7 +353,7 @@ namespace psm::resolve::dns
             auto send(const memory::vector<std::uint8_t> &payload, transport_context &ctx, boost::system::error_code &ec)
                 -> net::awaitable<void>
             {
-                auto token = net::redirect_error(net::use_awaitable, ec);
+                auto token = net::redirect_error(trace::use_prefix_awaitable, ec);
                 const std::uint16_t payload_len = static_cast<std::uint16_t>(payload.size());
                 std::uint8_t frame_header[2];
                 frame_header[0] = static_cast<std::uint8_t>(payload_len >> 8);
@@ -374,7 +374,7 @@ namespace psm::resolve::dns
             auto recv(memory::resource_pointer mr, transport_context &ctx, boost::system::error_code &ec)
                 -> net::awaitable<memory::vector<std::uint8_t>>
             {
-                auto token = net::redirect_error(net::use_awaitable, ec);
+                auto token = net::redirect_error(trace::use_prefix_awaitable, ec);
                 arm_tcp(ctx, sock);
                 auto body = co_await read_dns_frame(*sock, frame_context{mr, ec}, ctx);
                 if (ec)
@@ -428,7 +428,7 @@ namespace psm::resolve::dns
             auto send(const memory::vector<std::uint8_t> &payload, transport_context &ctx, boost::system::error_code &ec)
                 -> net::awaitable<void>
             {
-                auto token = net::redirect_error(net::use_awaitable, ec);
+                auto token = net::redirect_error(trace::use_prefix_awaitable, ec);
                 const std::uint16_t payload_len = static_cast<std::uint16_t>(payload.size());
                 std::uint8_t frame_header[2];
                 frame_header[0] = static_cast<std::uint8_t>(payload_len >> 8);
@@ -449,7 +449,7 @@ namespace psm::resolve::dns
             auto recv(memory::resource_pointer mr, transport_context &ctx, boost::system::error_code &ec)
                 -> net::awaitable<memory::vector<std::uint8_t>>
             {
-                auto token = net::redirect_error(net::use_awaitable, ec);
+                auto token = net::redirect_error(trace::use_prefix_awaitable, ec);
                 arm_ssl_stream(ctx, ssl_sock);
                 auto body = co_await read_dns_frame(*ssl_sock, frame_context{mr, ec}, ctx);
                 if (ec)
@@ -505,7 +505,7 @@ namespace psm::resolve::dns
             auto send(const memory::vector<std::uint8_t> &payload, transport_context &ctx, boost::system::error_code &ec)
                 -> net::awaitable<void>
             {
-                auto token = net::redirect_error(net::use_awaitable, ec);
+                auto token = net::redirect_error(trace::use_prefix_awaitable, ec);
 
                 // 构造 HTTP POST 请求（RFC 8484）
                 memory::string http_request(payload.get_allocator());
@@ -539,7 +539,7 @@ namespace psm::resolve::dns
             auto recv(memory::resource_pointer mr, transport_context &ctx, boost::system::error_code &ec)
                 -> net::awaitable<memory::vector<std::uint8_t>>
             {
-                auto token = net::redirect_error(net::use_awaitable, ec);
+                auto token = net::redirect_error(trace::use_prefix_awaitable, ec);
 
                 // 读取 HTTP 响应头，循环直到找到 "\r\n\r\n"
                 arm_ssl_stream(ctx, ssl_sock);
@@ -936,7 +936,7 @@ namespace psm::resolve::dns
         {
             boost::system::error_code wait_ec;
             co_await completion_signal->async_wait(
-                net::redirect_error(net::use_awaitable, wait_ec));
+                net::redirect_error(trace::use_prefix_awaitable, wait_ec));
 
             // 被取消说明有查询完成，重置定时器用于下一次等待
             if (wait_ec == net::error::operation_aborted)

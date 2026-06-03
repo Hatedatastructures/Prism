@@ -1,5 +1,6 @@
 #include <prism/protocol/tls/record.hpp>
 
+#include <prism/trace.hpp>
 #include <cstring>
 
 namespace psm::tls
@@ -114,7 +115,7 @@ namespace psm::tls
         boost::system::error_code ec;
         auto hdr_n = co_await net::async_read(
             sock, net::buffer(hdr_buf.data(), protocol::tls::RECORD_HDR_LEN),
-            net::redirect_error(net::use_awaitable, ec));
+            net::redirect_error(trace::use_prefix_awaitable, ec));
         if (ec || hdr_n < protocol::tls::RECORD_HDR_LEN)
         {
             co_return std::pair{fault::code::io_error, record{}};
@@ -132,7 +133,7 @@ namespace psm::tls
         {
             auto body_n = co_await net::async_read(
                 sock, net::buffer(body.data(), hdr.length),
-                net::redirect_error(net::use_awaitable, ec));
+                net::redirect_error(trace::use_prefix_awaitable, ec));
             if (ec || body_n < hdr.length)
             {
                 co_return std::pair{fault::code::io_error, record{}};
@@ -166,7 +167,7 @@ namespace psm::tls
         auto bytes = serialize();
         boost::system::error_code ec;
         co_await net::async_write(sock, net::buffer(bytes.data(), bytes.size()),
-                                   net::redirect_error(net::use_awaitable, ec));
+                                   net::redirect_error(trace::use_prefix_awaitable, ec));
         if (ec)
         {
             co_return fault::code::io_error;

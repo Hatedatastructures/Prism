@@ -51,7 +51,7 @@ namespace psm::stealth::anytls
 
         // 等待 recv_loop 通知
         boost::system::error_code ec;
-        co_await init_waiter_.async_wait(net::redirect_error(net::use_awaitable, ec));
+        co_await init_waiter_.async_wait(net::redirect_error(trace::use_prefix_awaitable, ec));
 
         auto result2 = std::pair{init_error_,
             std::tuple{init_id_, std::move(init_preread_)}};
@@ -393,7 +393,7 @@ namespace psm::stealth::anytls
     auto anytls_session::write_frame(frame_input input) -> net::awaitable<void>
     {
         // 通过 write_strand_ 序列化写入，防止多 stream 并发写入帧交错
-        co_await net::dispatch(write_strand_, net::use_awaitable);
+        co_await net::dispatch(write_strand_, trace::use_prefix_awaitable);
 
         frame_header hdr;
         hdr.cmd = input.cmd;

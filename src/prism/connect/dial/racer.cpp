@@ -78,7 +78,7 @@ namespace psm::connect
 
         // 等待任意子协程取消 signal（有获胜者或全部失败）
         boost::system::error_code ec;
-        co_await ctx->signal.async_wait(net::redirect_error(net::use_awaitable, ec));
+        co_await ctx->signal.async_wait(net::redirect_error(trace::use_prefix_awaitable, ec));
         co_return std::move(ctx->result);
     }
 
@@ -97,7 +97,7 @@ namespace psm::connect
                 timer.expires_after(delay);
 
                 boost::system::error_code ec;
-                co_await timer.async_wait(net::redirect_error(net::use_awaitable, ec));
+                co_await timer.async_wait(net::redirect_error(trace::use_prefix_awaitable, ec));
 
                 if (ec)
                 {

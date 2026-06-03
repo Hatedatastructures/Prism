@@ -201,6 +201,18 @@ namespace psm::multiplex
             -> net::awaitable<void>;
 
         /**
+         * @brief uplink_loop 的 co_spawn 包装，绑定 owner prefix
+         */
+        auto uplink_loop_core()
+            -> net::awaitable<void>;
+
+        /**
+         * @brief downlink_loop 的 co_spawn 包装，绑定 owner prefix
+         */
+        auto downlink_loop_core()
+            -> net::awaitable<void>;
+
+        /**
          * @brief 重置空闲计时器
          * @details 将 idle_timer_ 的超时时间重新设置为 config_.idle_timeout，
          * 延迟管道的空闲关闭。每次 on_mux_data 调用时触发。

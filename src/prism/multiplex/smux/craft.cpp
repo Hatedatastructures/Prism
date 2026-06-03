@@ -99,16 +99,18 @@ namespace psm::multiplex::smux
     {
         const auto self = std::static_pointer_cast<craft>(shared_from_this());
         auto start_send_loop = [self]() -> net::awaitable<void>
-        {
-            trace::scope_guard guard(self->prefix_);
-            co_await self->send_loop();
-        };
+            {
+                trace::active_prefix = nullptr;
+                trace::scope_guard guard(self->prefix_);
+                co_await self->send_loop();
+            };
         net::co_spawn(executor(), std::move(start_send_loop), net::detached);
 
         if (config_.smux.keepalive_interval > 0)
         {
             auto start_keepalive = [self]() -> net::awaitable<void>
             {
+                trace::active_prefix = nullptr;
                 trace::scope_guard guard(self->prefix_);
                 co_await self->keepalive_loop();
             };
@@ -221,6 +223,8 @@ namespace psm::multiplex::smux
 
     void craft::dispatch_push(const std::uint32_t stream_id, memory::vector<std::byte> payload)
     {
+        const auto self = std::static_pointer_cast<craft>(shared_from_this());
+
         if (const auto pit = pending_.find(stream_id); pit != pending_.end())
         {
             auto &entry = pit->second;
@@ -229,7 +233,6 @@ namespace psm::multiplex::smux
             if (!entry.connecting && entry.buffer.size() >= 7)
             {
                 entry.connecting = true;
-                auto self = std::static_pointer_cast<craft>(shared_from_this());
                 auto on_error = [stream_id](const std::exception_ptr &ep)
                 {
                     if (ep) log_spawn_error(ep, stream_id, "activate_stream");
@@ -237,6 +240,7 @@ namespace psm::multiplex::smux
                 net::co_spawn(transport_->executor(),
                     [self, stream_id]() -> net::awaitable<void>
                     {
+                        trace::active_prefix = nullptr;
                         trace::scope_guard guard(self->prefix_);
                         co_await self->activate_stream(stream_id);
                     },
@@ -250,8 +254,10 @@ namespace psm::multiplex::smux
         {
             auto dp = sit->second;
 
-            auto async_push = [dp, p = std::move(payload)]() mutable -> net::awaitable<void>
+            auto async_push = [self, dp, p = std::move(payload)]() mutable -> net::awaitable<void>
             { // dp->on_data 可能涉及网络 I/O，异步调用避免阻塞帧循环
+                trace::active_prefix = nullptr;
+                trace::scope_guard guard(self->prefix_);
                 co_await dp->on_data(std::move(p));
             };
             auto on_error = [dp](const std::exception_ptr &ep)
@@ -270,8 +276,10 @@ namespace psm::multiplex::smux
         if (uit != parcels_.end() && uit->second)
         {
             auto dp = uit->second;
-            auto async_push = [dp, p = std::move(payload)]() mutable -> net::awaitable<void>
+            auto async_push = [self, dp, p = std::move(payload)]() mutable -> net::awaitable<void>
             {
+                trace::active_prefix = nullptr;
+                trace::scope_guard guard(self->prefix_);
                 co_await dp->on_data(std::move(p));
             };
             auto on_error = [dp](const std::exception_ptr &ep)
@@ -488,6 +496,7 @@ namespace psm::multiplex::smux
         auto self = std::static_pointer_cast<craft>(shared_from_this());
         auto send_fn = [self, stream_id]() -> net::awaitable<void>
         {
+            trace::active_prefix = nullptr;
             trace::scope_guard guard(self->prefix_);
             memory::vector<std::byte> empty_payload(self->mr_);
             co_await self->push_frame(command::fin, stream_id, std::move(empty_payload));
@@ -515,7 +524,7 @@ namespace psm::multiplex::smux
         frame.payload = std::move(payload);
 
         boost::system::error_code ec;
-        auto token = net::redirect_error(net::use_awaitable, ec);
+        auto token = net::redirect_error(trace::use_prefix_awaitable, ec);
         co_await channel_.async_send(boost::system::error_code{}, std::move(frame), token);
         if (ec)
         {
@@ -533,7 +542,7 @@ namespace psm::multiplex::smux
             while (is_active())
             {
                 boost::system::error_code ec;
-                auto token = net::redirect_error(net::use_awaitable, ec);
+                auto token = net::redirect_error(trace::use_prefix_awaitable, ec);
                 auto frame = co_await channel_.async_receive(token);
                 if (ec)
                 {
@@ -586,7 +595,7 @@ namespace psm::multiplex::smux
             {
                 timer.expires_after(std::chrono::milliseconds(config_.smux.keepalive_interval));
                 boost::system::error_code ec;
-                co_await timer.async_wait(net::redirect_error(net::use_awaitable, ec));
+                co_await timer.async_wait(net::redirect_error(trace::use_prefix_awaitable, ec));
                 if (ec || !is_active())
                 {
                     break;

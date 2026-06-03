@@ -12,6 +12,7 @@
 #pragma once
 
 #include <prism/fault/handling.hpp>
+#include <prism/trace.hpp>
 #include <prism/transport/transmission.hpp>
 
 #include <boost/asio.hpp>
@@ -138,7 +139,7 @@ namespace psm::transport
             -> net::awaitable<std::size_t> override
         {
             boost::system::error_code sys_ec;
-            auto token = net::redirect_error(net::use_awaitable, sys_ec);
+            auto token = net::redirect_error(trace::use_prefix_awaitable, sys_ec);
             while (true)
             {
                 sys_ec.clear();
@@ -181,7 +182,7 @@ namespace psm::transport
                 co_return 0;
             }
             boost::system::error_code sys_ec;
-            auto token = net::redirect_error(net::use_awaitable, sys_ec);
+            auto token = net::redirect_error(trace::use_prefix_awaitable, sys_ec);
             const auto n = co_await socket_.async_send_to(
                 net::buffer(buffer.data(), buffer.size()), *remote_endpoint_, token);
             ec = psm::fault::make_error_code(psm::fault::to_code(sys_ec));

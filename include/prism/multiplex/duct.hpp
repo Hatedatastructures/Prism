@@ -159,6 +159,12 @@ namespace psm::multiplex
             -> net::awaitable<void>;
 
         /**
+         * @brief target_readloop 的 co_spawn 包装，绑定 owner prefix
+         */
+        auto target_readloop_core()
+            -> net::awaitable<void>;
+
+        /**
          * @brief target 写循环：从写通道取数据写入 target（客户端上传方向）
          * @details 循环从 write_channel_ 取出数据并写入 target 传输层。
          * write_channel_ 关闭时（on_fin 或 close 触发）退出循环。
@@ -166,6 +172,12 @@ namespace psm::multiplex
          * @note 方法定义在 duct.cpp 中
          */
         auto target_writeloop()
+            -> net::awaitable<void>;
+
+        /**
+         * @brief target_writeloop 的 co_spawn 包装，绑定 owner prefix
+         */
+        auto target_writeloop_core()
             -> net::awaitable<void>;
 
         /**

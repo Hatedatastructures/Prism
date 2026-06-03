@@ -220,7 +220,7 @@ namespace psm::stealth::shadowtls
             co_await net::async_write(
                 args.backend_sock,
                 net::buffer(frame.data(), frame.size()),
-                net::redirect_error(net::use_awaitable, write_ec));
+                net::redirect_error(trace::use_prefix_awaitable, write_ec));
 
             if (write_ec)
             {
@@ -263,7 +263,7 @@ namespace psm::stealth::shadowtls
 
         boost::system::error_code write_ec;
         co_await net::async_write(args.client_sock, net::buffer(frame_bytes.data(), frame_bytes.size()),
-            net::redirect_error(net::use_awaitable, write_ec));
+            net::redirect_error(trace::use_prefix_awaitable, write_ec));
         if (write_ec)
         {
             trace::warn("[ShadowTLS.Relay] write to client failed: {}", write_ec.message());
@@ -280,7 +280,7 @@ namespace psm::stealth::shadowtls
     {
         boost::system::error_code write_ec;
         co_await net::async_write(args.client_sock, net::buffer(args.frame.data(), args.frame.size()),
-            net::redirect_error(net::use_awaitable, write_ec));
+            net::redirect_error(trace::use_prefix_awaitable, write_ec));
         if (write_ec)
         {
             trace::warn("[ShadowTLS.Relay] write passthrough failed: {}", write_ec.message());
@@ -463,7 +463,7 @@ namespace psm::stealth::shadowtls
         boost::system::error_code connect_ec;
         auto connected_endpoint = co_await net::async_connect(
             opts.backend_sock, endpoints,
-            net::redirect_error(net::use_awaitable, connect_ec));
+            net::redirect_error(trace::use_prefix_awaitable, connect_ec));
         (void)connected_endpoint;
 
         if (connect_ec)
@@ -480,7 +480,7 @@ namespace psm::stealth::shadowtls
             co_await net::async_write(
                 opts.backend_sock,
                 net::buffer(opts.client_hello.data(), opts.client_hello.size()),
-                net::redirect_error(net::use_awaitable, write_ec));
+                net::redirect_error(trace::use_prefix_awaitable, write_ec));
             if (write_ec)
             {
                 trace::warn("[ShadowTLS] write ClientHello to backend failed: {}", write_ec.message());
@@ -507,7 +507,7 @@ namespace psm::stealth::shadowtls
             co_await net::async_write(
                 opts.client_sock,
                 net::buffer(server_hello_opt->data(), server_hello_opt->size()),
-                net::redirect_error(net::use_awaitable, write_ec));
+                net::redirect_error(trace::use_prefix_awaitable, write_ec));
             if (write_ec)
             {
                 trace::warn("[ShadowTLS] write ServerHello to client failed: {}", write_ec.message());
@@ -588,7 +588,7 @@ namespace psm::stealth::shadowtls
             net::steady_timer exit_timer(executor);
             exit_timer.expires_after(std::chrono::milliseconds(500));
             boost::system::error_code wait_ec;
-            co_await exit_timer.async_wait(net::redirect_error(net::use_awaitable, wait_ec));
+            co_await exit_timer.async_wait(net::redirect_error(trace::use_prefix_awaitable, wait_ec));
         }
 
         if (!relay_done->load())

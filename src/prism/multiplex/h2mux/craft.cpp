@@ -548,7 +548,7 @@ namespace psm::multiplex::h2mux
         item.is_fin = false;
 
         boost::system::error_code ec;
-        auto token = net::redirect_error(net::use_awaitable, ec);
+        auto token = net::redirect_error(trace::use_prefix_awaitable, ec);
         co_await send_channel_.async_send(boost::system::error_code{}, std::move(item), token);
         if (ec)
         {
@@ -568,7 +568,7 @@ namespace psm::multiplex::h2mux
             item.is_fin = true;
 
             boost::system::error_code ec;
-            auto token = net::redirect_error(net::use_awaitable, ec);
+            auto token = net::redirect_error(trace::use_prefix_awaitable, ec);
             co_await self->send_channel_.async_send(boost::system::error_code{}, std::move(item), token);
         };
         net::co_spawn(executor(), std::move(send_fn), net::detached);
@@ -583,7 +583,7 @@ namespace psm::multiplex::h2mux
             while (is_active())
             {
                 boost::system::error_code ec;
-                auto token = net::redirect_error(net::use_awaitable, ec);
+                auto token = net::redirect_error(trace::use_prefix_awaitable, ec);
                 auto item = co_await send_channel_.async_receive(token);
                 if (ec)
                 {
@@ -685,7 +685,7 @@ namespace psm::multiplex::h2mux
 
         boost::system::error_code ec;
         co_await connect_waiter_.async_wait(
-            net::redirect_error(net::use_awaitable, ec));
+            net::redirect_error(trace::use_prefix_awaitable, ec));
 
         if (first_connect_.authority.empty())
         {

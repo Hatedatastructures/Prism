@@ -45,7 +45,7 @@ namespace psm::multiplex
 
         // target 读循环：target → mux → 客户端（客户端下载方向）
         // 退出时关闭整个管道
-        net::co_spawn(target_->executor(), target_readloop(),
+        net::co_spawn(target_->executor(), target_readloop_core(),
             [self](const std::exception_ptr &ep)
             {
                 self->on_read_done(ep);
@@ -53,11 +53,42 @@ namespace psm::multiplex
 
         // target 写循环：客户端 → mux → write_channel_ → target（客户端上传方向）
         // 不触发 close，由 target_readloop 退出或自身写错误触发
-        net::co_spawn(target_->executor(), target_writeloop(),
+        net::co_spawn(target_->executor(), target_writeloop_core(),
             [self](const std::exception_ptr &ep)
             {
                 self->on_write_done(ep);
             });
+    }
+
+
+    auto duct::target_readloop_core()
+        -> net::awaitable<void>
+    {
+        // 绑定 owner 的 prefix 副本，防止 co_spawn 后 active_prefix 指向已析构对象
+        if (auto owner = owner_.lock())
+        {
+            trace::scope_guard guard(owner->prefix_);
+            co_await target_readloop();
+        }
+        else
+        {
+            co_await target_readloop();
+        }
+    }
+
+
+    auto duct::target_writeloop_core()
+        -> net::awaitable<void>
+    {
+        if (auto owner = owner_.lock())
+        {
+            trace::scope_guard guard(owner->prefix_);
+            co_await target_writeloop();
+        }
+        else
+        {
+            co_await target_writeloop();
+        }
     }
 
 
@@ -111,7 +142,7 @@ namespace psm::multiplex
         }
 
         boost::system::error_code ch_ec;
-        auto token = net::redirect_error(net::use_awaitable, ch_ec);
+        auto token = net::redirect_error(trace::use_prefix_awaitable, ch_ec);
         co_await write_channel_.async_send(boost::system::error_code{}, std::move(data), token);
         if (ch_ec)
         {
@@ -250,7 +281,7 @@ namespace psm::multiplex
         while (!closed_)
         {
             boost::system::error_code ch_ec;
-            auto token = net::redirect_error(net::use_awaitable, ch_ec);
+            auto token = net::redirect_error(trace::use_prefix_awaitable, ch_ec);
             auto data = co_await write_channel_.async_receive(token);
             if (ch_ec)
             {

@@ -106,7 +106,7 @@ namespace psm::instance::front
         for (;;)
         {
             boost::system::error_code ec;
-            tcp::socket socket = co_await acceptor_.async_accept(net::redirect_error(net::use_awaitable, ec));
+            tcp::socket socket = co_await acceptor_.async_accept(net::redirect_error(trace::use_prefix_awaitable, ec));
             if (ec)
             {
                 // 优雅关闭：acceptor 已关闭，退出接受循环
@@ -122,7 +122,7 @@ namespace psm::instance::front
                     ec == boost::system::errc::not_enough_memory)
                 {
                     timer.expires_after(delay);
-                    co_await timer.async_wait(net::use_awaitable);
+                    co_await timer.async_wait(trace::use_prefix_awaitable);
 
                     delay = std::min(delay * 2, max_delay);
                     continue;
@@ -130,7 +130,7 @@ namespace psm::instance::front
 
                 // 普通错误：短延迟后重试
                 timer.expires_after(std::chrono::milliseconds(10));
-                co_await timer.async_wait(net::use_awaitable);
+                co_await timer.async_wait(trace::use_prefix_awaitable);
                 continue;
             }
 
@@ -156,7 +156,7 @@ namespace psm::instance::front
             if (decision.backpressure)
             {
                 timer.expires_after(backpressure_delay_);
-                co_await timer.async_wait(net::use_awaitable);
+                co_await timer.async_wait(trace::use_prefix_awaitable);
             }
 
             // 将 socket 移交给选中的 Worker

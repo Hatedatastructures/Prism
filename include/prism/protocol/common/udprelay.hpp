@@ -111,7 +111,7 @@ namespace psm::protocol::common
             }
         }
 
-        auto token = net::redirect_error(net::use_awaitable, udp_ec);
+        auto token = net::redirect_error(trace::use_prefix_awaitable, udp_ec);
         co_await opts.udp_socket.async_send_to(net::buffer(opts.payload.data(), opts.payload.size()), opts.target_ep, token);
         if (udp_ec)
         {
@@ -122,7 +122,7 @@ namespace psm::protocol::common
         net::ip::udp::endpoint sender_ep;
         const auto resp_n = co_await opts.udp_socket.async_receive_from(
             net::buffer(opts.buf.response.data(), opts.buf.response.size()), sender_ep,
-            net::redirect_error(net::use_awaitable, udp_ec));
+            net::redirect_error(trace::use_prefix_awaitable, udp_ec));
         if (udp_ec)
         {
             trace::debug("[UDP] Receive failed: {}", udp_ec.message());
@@ -253,7 +253,7 @@ namespace psm::protocol::common
                 co_return n;
             };
 
-            auto read_result = co_await (do_read() || config.idle_timer.async_wait(net::use_awaitable));
+            auto read_result = co_await (do_read() || config.idle_timer.async_wait(trace::use_prefix_awaitable));
 
             if (read_result.index() == 1)
             {

@@ -197,7 +197,7 @@ namespace psm::resolve::dns
             {
                 eviction_timer_.expires_after(std::chrono::seconds(30));
                 boost::system::error_code ec;
-                co_await eviction_timer_.async_wait(net::redirect_error(net::use_awaitable, ec));
+                co_await eviction_timer_.async_wait(net::redirect_error(trace::use_prefix_awaitable, ec));
                 if (ec == net::error::operation_aborted || !alive_->load())
                     co_return;
                 cache_.evict_expired();
@@ -324,7 +324,7 @@ namespace psm::resolve::dns
                 {
                     ++flight_it->waiters;
                     boost::system::error_code ignored;
-                    co_await flight_it->timer.async_wait(net::redirect_error(net::use_awaitable, ignored));
+                    co_await flight_it->timer.async_wait(net::redirect_error(trace::use_prefix_awaitable, ignored));
                     --flight_it->waiters;
                 }
 
