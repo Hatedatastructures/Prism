@@ -2,11 +2,17 @@
  * @file spdlog.hpp
  * @brief 日志接口封装
  * @details 封装 spdlog 库，提供统一的日志记录接口，
- * 支持多级别日志输出。所有接口内部捕获异常，确保
- * 日志失败不影响业务逻辑。
+ * 支持多级别日志输出和编译期字段管道选择。
+ *
+ * 默认字段选择（使用 level_default 链）：
+ *   trace::debug("msg")
+ *
+ * 自定义字段选择（pipe 语法）：
+ *   trace::debug<field::sid | field::protocol>("msg")
+ *
+ * 所有接口内部捕获异常，确保日志失败不影响业务逻辑。
  * @note 允许重复调用 init，后一次覆盖前一次。
- * @warning 必须在程序退出前调用 shutdown 释放
- * 线程池资源。
+ * @warning 必须在程序退出前调用 shutdown 释放线程池资源。
  */
 #pragma once
 
@@ -84,135 +90,162 @@ namespace psm::trace
      */
     [[nodiscard]] auto recorder() noexcept -> std::shared_ptr<spdlog::logger>;
 
+    // ─── 内部实现 ────────────────────────────────
+
+    namespace detail
+    {
+
+        /**
+         * @brief 日志输出内部实现
+         * @tparam Fields 编译期字段链（NTTP）
+         * @param lvl spdlog 日志等级
+         * @param fmt 格式化字符串
+         * @param args 格式化参数
+         * @details 渲染前缀到栈上 scratch_pad，通过 std::string_view
+         * 传递给 spdlog，零堆分配。前缀为空时跳过拼接。
+         */
+        template <auto Fields>
+        auto log_impl(spdlog::level::level_enum lvl,
+                      std::string_view fmt, auto &&...args) -> void
+        {
+            if (const auto rec = recorder())
+            {
+                scratch_pad buf;
+                render_prefix<decltype(Fields)>(buf);
+                if (buf.empty())
+                {
+                    rec->log(lvl, spdlog::fmt_lib::runtime(fmt),
+                             std::forward<decltype(args)>(args)...);
+                }
+                else
+                {
+                    rec->log(lvl, spdlog::fmt_lib::runtime("{}" + std::string(fmt)),
+                             std::string_view(buf.c_str(),
+                                              static_cast<std::size_t>(buf.pos)),
+                             std::forward<decltype(args)>(args)...);
+                }
+            }
+        }
+
+    } // namespace detail
+
+    // ─── debug ──────────────────────────────────
+
     /**
-     * @brief 记录调试日志
+     * @brief 记录调试日志（默认字段：sid + protocol）
      * @tparam Args 格式化参数类型
      * @param fmt 格式化字符串，支持 fmt 库语法
      * @param args 格式化参数
-     * @details 在异步日志模式下，自动将当前线程的 MDC 上下文
-     * 前置到消息载荷中，确保日志输出包含完整的诊断信息。
      */
     template <typename... Args>
-    void debug(const std::string_view fmt, Args &&...args)
+    auto debug(std::string_view fmt, Args &&...args) -> void
     {
-        if (const auto rec = recorder())
-        {
-            const auto prefix = build_prefix(level_default::debug);
-            if (prefix.empty())
-            {
-                rec->debug(spdlog::fmt_lib::runtime(fmt), std::forward<Args>(args)...);
-            }
-            else
-            {
-                rec->debug(spdlog::fmt_lib::runtime("{}" + std::string(fmt)),
-                           prefix, std::forward<Args>(args)...);
-            }
-        }
+        detail::log_impl<level_default::debug>(
+            spdlog::level::debug, fmt, std::forward<Args>(args)...);
     }
 
     /**
-     * @brief 记录信息日志
+     * @brief 记录调试日志（自定义字段）
+     * @tparam Fields 字段管道，如 field::sid | field::protocol
      * @tparam Args 格式化参数类型
-     * @param fmt 格式化字符串，支持 fmt 库语法
+     * @param fmt 格式化字符串
      * @param args 格式化参数
-     * @details 在异步日志模式下，自动将当前线程的 MDC 上下文
-     * 前置到消息载荷中，确保日志输出包含完整的诊断信息。
+     */
+    template <field::field_or_chain auto Fields, typename... Args>
+    auto debug(std::string_view fmt, Args &&...args) -> void
+    {
+        detail::log_impl<field::normalize(Fields)>(
+            spdlog::level::debug, fmt, std::forward<Args>(args)...);
+    }
+
+    // ─── info ───────────────────────────────────
+
+    /**
+     * @brief 记录信息日志（默认字段：sid）
      */
     template <typename... Args>
-    void info(const std::string_view fmt, Args &&...args)
+    auto info(std::string_view fmt, Args &&...args) -> void
     {
-        if (const auto rec = recorder())
-        {
-            const auto prefix = build_prefix(level_default::info);
-            if (prefix.empty())
-            {
-                rec->info(spdlog::fmt_lib::runtime(fmt), std::forward<Args>(args)...);
-            }
-            else
-            {
-                rec->info(spdlog::fmt_lib::runtime("{}" + std::string(fmt)),
-                          prefix, std::forward<Args>(args)...);
-            }
-        }
+        detail::log_impl<level_default::info>(
+            spdlog::level::info, fmt, std::forward<Args>(args)...);
     }
 
     /**
-     * @brief 记录警告日志
-     * @tparam Args 格式化参数类型
-     * @param fmt 格式化字符串，支持 fmt 库语法
-     * @param args 格式化参数
-     * @details 在异步日志模式下，自动将当前线程的 MDC 上下文
-     * 前置到消息载荷中，确保日志输出包含完整的诊断信息。
+     * @brief 记录信息日志（自定义字段）
+     */
+    template <field::field_or_chain auto Fields, typename... Args>
+    auto info(std::string_view fmt, Args &&...args) -> void
+    {
+        detail::log_impl<field::normalize(Fields)>(
+            spdlog::level::info, fmt, std::forward<Args>(args)...);
+    }
+
+    // ─── warn ───────────────────────────────────
+
+    /**
+     * @brief 记录警告日志（默认字段：sid + client + protocol）
      */
     template <typename... Args>
-    void warn(const std::string_view fmt, Args &&...args)
+    auto warn(std::string_view fmt, Args &&...args) -> void
     {
-        if (const auto rec = recorder())
-        {
-            const auto prefix = build_prefix(level_default::warn);
-            if (prefix.empty())
-            {
-                rec->warn(spdlog::fmt_lib::runtime(fmt), std::forward<Args>(args)...);
-            }
-            else
-            {
-                rec->warn(spdlog::fmt_lib::runtime("{}" + std::string(fmt)),
-                          prefix, std::forward<Args>(args)...);
-            }
-        }
+        detail::log_impl<level_default::warn>(
+            spdlog::level::warn, fmt, std::forward<Args>(args)...);
     }
 
     /**
-     * @brief 记录错误日志
-     * @tparam Args 格式化参数类型
-     * @param fmt 格式化字符串，支持 fmt 库语法
-     * @param args 格式化参数
-     * @details 在异步日志模式下，自动将当前线程的 MDC 上下文
-     * 前置到消息载荷中，确保日志输出包含完整的诊断信息。
+     * @brief 记录警告日志（自定义字段）
+     */
+    template <field::field_or_chain auto Fields, typename... Args>
+    auto warn(std::string_view fmt, Args &&...args) -> void
+    {
+        detail::log_impl<field::normalize(Fields)>(
+            spdlog::level::warn, fmt, std::forward<Args>(args)...);
+    }
+
+    // ─── error ──────────────────────────────────
+
+    /**
+     * @brief 记录错误日志（默认字段：全部）
      */
     template <typename... Args>
-    void error(const std::string_view fmt, Args &&...args)
+    auto error(std::string_view fmt, Args &&...args) -> void
     {
-        if (const auto rec = recorder())
-        {
-            const auto prefix = build_prefix(level_default::error);
-            if (prefix.empty())
-            {
-                rec->error(spdlog::fmt_lib::runtime(fmt), std::forward<Args>(args)...);
-            }
-            else
-            {
-                rec->error(spdlog::fmt_lib::runtime("{}" + std::string(fmt)),
-                           prefix, std::forward<Args>(args)...);
-            }
-        }
+        detail::log_impl<level_default::error>(
+            spdlog::level::err, fmt, std::forward<Args>(args)...);
     }
 
     /**
-     * @brief 记录致命错误日志
-     * @tparam Args 格式化参数类型
-     * @param fmt 格式化字符串，支持 fmt 库语法
-     * @param args 格式化参数
+     * @brief 记录错误日志（自定义字段）
+     */
+    template <field::field_or_chain auto Fields, typename... Args>
+    auto error(std::string_view fmt, Args &&...args) -> void
+    {
+        detail::log_impl<field::normalize(Fields)>(
+            spdlog::level::err, fmt, std::forward<Args>(args)...);
+    }
+
+    // ─── fatal ──────────────────────────────────
+
+    /**
+     * @brief 记录致命错误日志（默认字段：全部）
      * @warning 致命错误通常意味着程序即将终止，
      * 但此函数不会自动终止程序。
-     * @details 在异步日志模式下，自动将当前线程的 MDC 上下文
-     * 前置到消息载荷中，确保日志输出包含完整的诊断信息。
      */
     template <typename... Args>
-    void fatal(const std::string_view fmt, Args &&...args)
+    auto fatal(std::string_view fmt, Args &&...args) -> void
     {
-        if (const auto rec = recorder())
-        {
-            const auto prefix = build_prefix(level_default::error);
-            if (prefix.empty())
-            {
-                rec->critical(spdlog::fmt_lib::runtime(fmt), std::forward<Args>(args)...);
-            }
-            else
-            {
-                rec->critical(spdlog::fmt_lib::runtime("{}" + std::string(fmt)),
-                              prefix, std::forward<Args>(args)...);
-            }
-        }
+        detail::log_impl<level_default::error>(
+            spdlog::level::critical, fmt, std::forward<Args>(args)...);
     }
+
+    /**
+     * @brief 记录致命错误日志（自定义字段）
+     */
+    template <field::field_or_chain auto Fields, typename... Args>
+    auto fatal(std::string_view fmt, Args &&...args) -> void
+    {
+        detail::log_impl<field::normalize(Fields)>(
+            spdlog::level::critical, fmt, std::forward<Args>(args)...);
+    }
+
 } // namespace psm::trace
