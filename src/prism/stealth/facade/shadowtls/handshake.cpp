@@ -11,7 +11,6 @@
 #include <openssl/crypto.h>
 #include <openssl/hmac.h>
 
-#include <algorithm>
 #include <atomic>
 #include <charconv>
 #include <cstdint>
@@ -98,7 +97,7 @@ namespace psm::stealth::shadowtls
     struct hmac_read_args
     {
         net::ip::tcp::socket &client_sock;
-        net::ip::tcp::socket &backend_sock;
+        std::shared_ptr<net::ip::tcp::socket> backend_sock;
         std::string_view password;
         std::span<const std::byte> server_random;
         std::shared_ptr<HMAC_CTX> &hmac_verify_out;
@@ -106,7 +105,7 @@ namespace psm::stealth::shadowtls
 
     struct backend_relay_args
     {
-        net::ip::tcp::socket &backend_sock;
+        std::shared_ptr<net::ip::tcp::socket> backend_sock;
         net::ip::tcp::socket &client_sock;
         std::string_view password;
         std::span<const std::byte> server_random;
@@ -116,7 +115,7 @@ namespace psm::stealth::shadowtls
     struct relay_args
     {
         net::ip::tcp::socket &client_sock;
-        net::ip::tcp::socket &backend_sock;
+        std::shared_ptr<net::ip::tcp::socket> backend_sock;
         const config &cfg;
         std::string_view password;
         std::span<const std::byte> server_hello;
@@ -218,7 +217,7 @@ namespace psm::stealth::shadowtls
             trace::debug("[ShadowTLS.Relay] forwarding client frame to backend, type=0x{:02x}, size={}", raw[0], frame.size());
             boost::system::error_code write_ec;
             co_await net::async_write(
-                args.backend_sock,
+                *args.backend_sock,
                 net::buffer(frame.data(), frame.size()),
                 net::redirect_error(trace::use_prefix_awaitable, write_ec));
 
@@ -318,7 +317,7 @@ namespace psm::stealth::shadowtls
         while (true)
         {
             std::error_code frame_ec;
-            auto frame_opt = co_await common::read_tls_frame(args.backend_sock, frame_ec);
+            auto frame_opt = co_await common::read_tls_frame(*args.backend_sock, frame_ec);
             if (frame_ec || !frame_opt)
             {
                 trace::warn("[ShadowTLS.Relay] backend closed (nullopt), total_frames={}", frame_count);
@@ -427,7 +426,7 @@ namespace psm::stealth::shadowtls
     struct backend_opts
     {
         net::ip::tcp::socket &client_sock;
-        net::ip::tcp::socket &backend_sock;
+        std::shared_ptr<net::ip::tcp::socket> backend_sock;
         const config &cfg;
         memory::vector<std::byte> &client_hello;
     };
@@ -462,7 +461,7 @@ namespace psm::stealth::shadowtls
 
         boost::system::error_code connect_ec;
         auto connected_endpoint = co_await net::async_connect(
-            opts.backend_sock, endpoints,
+            *opts.backend_sock, endpoints,
             net::redirect_error(trace::use_prefix_awaitable, connect_ec));
         (void)connected_endpoint;
 
@@ -478,7 +477,7 @@ namespace psm::stealth::shadowtls
         {
             boost::system::error_code write_ec;
             co_await net::async_write(
-                opts.backend_sock,
+                *opts.backend_sock,
                 net::buffer(opts.client_hello.data(), opts.client_hello.size()),
                 net::redirect_error(trace::use_prefix_awaitable, write_ec));
             if (write_ec)
@@ -492,7 +491,7 @@ namespace psm::stealth::shadowtls
         trace::debug("[ShadowTLS] sent ClientHello to backend");
 
         std::error_code server_hello_ec;
-        auto server_hello_opt = co_await common::read_tls_frame(opts.backend_sock, server_hello_ec);
+        auto server_hello_opt = co_await common::read_tls_frame(*opts.backend_sock, server_hello_ec);
         if (server_hello_ec || !server_hello_opt)
         {
             trace::warn("[ShadowTLS] Failed to read ServerHello from backend");
@@ -551,20 +550,19 @@ namespace psm::stealth::shadowtls
 
         auto executor = args.client_sock.get_executor();
 
-        auto backend_relay = [relay_done, hmac_relay_ctx, backend_sock_ptr = std::shared_ptr<net::ip::tcp::socket>(&args.backend_sock, [](auto *) {}),
+        auto backend_relay = [relay_done, hmac_relay_ctx, backend_sock = args.backend_sock,
                               client_sock_ptr = std::shared_ptr<net::ip::tcp::socket>(&args.client_sock, [](auto *) {}),
                               password = args.password,
                               server_random_span]() -> net::awaitable<void>
         {
             std::shared_ptr<HMAC_CTX> hmac_out;
             co_await relay_modified(
-                backend_relay_args{*backend_sock_ptr, *client_sock_ptr, password, server_random_span, hmac_out});
+                backend_relay_args{std::move(backend_sock), *client_sock_ptr, password, server_random_span, hmac_out});
             *hmac_relay_ctx = std::move(hmac_out);
             relay_done->store(true);
         };
 
-        net::co_spawn(executor, std::move(backend_relay),
-                      net::bind_cancellation_slot(cancel_signal->slot(), net::detached));
+        net::co_spawn(executor, std::move(backend_relay), net::bind_cancellation_slot(cancel_signal->slot(), net::detached));
 
         trace::debug("[ShadowTLS] started backend relay coroutine");
 
@@ -576,8 +574,19 @@ namespace psm::stealth::shadowtls
 
         {
             boost::system::error_code close_ec;
-            args.backend_sock.shutdown(net::ip::tcp::socket::shutdown_both, close_ec);
-            args.backend_sock.close(close_ec);
+            if (args.backend_sock->is_open())
+            {
+                args.backend_sock->shutdown(net::ip::tcp::socket::shutdown_both, close_ec);
+                if (close_ec)
+                {
+                    trace::debug("[ShadowTLS] backend shutdown error: {}", close_ec.message());
+                }
+                args.backend_sock->close(close_ec);
+                if (close_ec)
+                {
+                    trace::debug("[ShadowTLS] backend close error: {}", close_ec.message());
+                }
+            }
         }
 
         trace::debug("[ShadowTLS] closed backend socket");
@@ -645,7 +654,7 @@ namespace psm::stealth::shadowtls
             co_return result;
         }
 
-        net::ip::tcp::socket backend_sock(executor);
+        auto backend_sock = std::make_shared<net::ip::tcp::socket>(executor);
         auto backend = co_await connect_backend(
             backend_opts{client_sock, backend_sock, cfg, opts.client_hello});
         if (backend.error != fault::code::success)

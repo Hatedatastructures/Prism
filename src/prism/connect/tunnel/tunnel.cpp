@@ -83,7 +83,6 @@ namespace psm::connect
                 }
                 else
                 {
-                    // partial write: 循环写入直到所有数据发送完毕
                     auto remaining = data;
                     while (!remaining.empty())
                     {
@@ -92,6 +91,12 @@ namespace psm::connect
                         {
                             trace::debug("{} forward[{}]: partial write failed, written={}",
                                 TunnelStr, dir, written);
+                            co_return;
+                        }
+                        if (written == 0)
+                        {
+                            trace::debug("{} forward[{}]: partial write returned 0 bytes",
+                                TunnelStr, dir);
                             co_return;
                         }
                         remaining = remaining.subspan(written);

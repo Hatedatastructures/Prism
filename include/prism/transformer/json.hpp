@@ -134,7 +134,7 @@ namespace psm::transformer::json
         {
             if constexpr (std::is_default_constructible_v<StructureObject> && std::is_move_assignable_v<StructureObject>)
             {
-                StructureObject temp{};
+                StructureObject temp;
                 if (const auto ec = glz::read_json(temp, json_data))
                 {
                     return false;
@@ -152,7 +152,7 @@ namespace psm::transformer::json
         {
             if constexpr (std::is_default_constructible_v<StructureObject> && std::is_move_assignable_v<StructureObject>)
             {
-                StructureObject temp{};
+                StructureObject temp;
                 glz::read_json(temp, json_data);
                 value = std::move(temp);
                 return true;
@@ -183,7 +183,7 @@ namespace psm::transformer::json
         {
             if constexpr (std::is_default_constructible_v<StructureObject> && std::is_move_assignable_v<StructureObject>)
             {
-                StructureObject temp{};
+                StructureObject temp;
                 out_ec = glz::read_json(temp, json_data);
                 if (out_ec)
                 {
@@ -201,7 +201,7 @@ namespace psm::transformer::json
         {
             if constexpr (std::is_default_constructible_v<StructureObject> && std::is_move_assignable_v<StructureObject>)
             {
-                StructureObject temp{};
+                StructureObject temp;
                 glz::read_json(temp, json_data);
                 out_ec = {};
                 value = std::move(temp);
