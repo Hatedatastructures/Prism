@@ -7,7 +7,7 @@
 #include <prism/trace.hpp>
 #include <prism/transport/reliable.hpp>
 
-constexpr std::string_view DialStr = "[Connect.Dial]";
+using namespace psm::trace;
 
 namespace psm::connect
 {
@@ -48,12 +48,12 @@ namespace psm::connect
             {
                 if (addr.is_v6() && rt.ipv6_disabled())
                 {
-                    trace::debug("[Connect.Dial] IPv6 disabled, rejected literal: {}", host);
+                    trace::debug<flt::conn | flt::protocol>("IPv6 disabled, rejected literal: {}", host);
                     co_return std::make_pair(fault::code::host_noreply, pooled_connection{});
                 }
                 const auto port_num = parse_port(port).value_or(0);
                 const tcp::endpoint ep(addr, port_num);
-                trace::debug("[Connect.Dial] literal address, direct connect: {}", host);
+                trace::debug<flt::conn | flt::protocol>("literal address, direct connect: {}", host);
                 auto [code, conn] = co_await rt.pool().async_acquire(ep);
                 if (conn.valid())
                 {
@@ -66,7 +66,7 @@ namespace psm::connect
         auto [resolve_ec, endpoints] = co_await rt.dns().resolve_tcp(host, port);
         if (fault::failed(resolve_ec) || endpoints.empty())
         {
-            trace::warn("[Connect.Dial] DNS resolve {}:{} failed", host, port);
+            trace::warn<flt::conn | flt::protocol>("DNS resolve {}:{} failed", host, port);
             co_return std::make_pair(fault::code::host_noreply, pooled_connection{});
         }
 
@@ -136,7 +136,7 @@ namespace psm::connect
 
         if (rt.ipv6_disabled() && is_ipv6(target.host))
         {
-            trace::debug("{} {} rejecting IPv6 literal: {}:{}", DialStr, label, target.host, target.port);
+            trace::debug<flt::conn | flt::protocol>("{} rejecting IPv6 literal: {}:{}", label, target.host, target.port);
             co_return std::make_pair(fault::code::ipv6_disabled, nullptr);
         }
 
@@ -159,8 +159,8 @@ namespace psm::connect
 
         if (fault::failed(ec))
         {
-            trace::warn("{} {} route failed: {}, target: {}:{}", DialStr, label,
-                        fault::describe(ec), target.host, target.port);
+            trace::warn<flt::conn | flt::protocol>("{} route failed: {}, target: {}:{}", label,
+                                                    fault::describe(ec), target.host, target.port);
             co_return std::make_pair(ec, nullptr);
         }
 
@@ -168,11 +168,11 @@ namespace psm::connect
             && opts.routing != dial_options::flag::neither;
         if (require_open && !conn.valid())
         {
-            trace::warn("{} {} socket not open, target: {}:{}", DialStr, label, target.host, target.port);
+            trace::warn<flt::conn | flt::protocol>("{} socket not open, target: {}:{}", label, target.host, target.port);
             co_return std::make_pair(fault::code::connection_refused, nullptr);
         }
 
-        trace::info("{} {} success, target: {}:{}", DialStr, label, target.host, target.port);
+        trace::info<flt::conn | flt::protocol>("{} success, target: {}:{}", label, target.host, target.port);
         co_return std::make_pair(ec, transport::make_reliable(std::move(conn)));
     }
 
@@ -182,7 +182,7 @@ namespace psm::connect
         auto [ec, trans] = co_await outbound_proxy.async_connect(target, executor);
         if (fault::failed(ec) || !trans)
         {
-            trace::debug("{} outbound dial failed: {}, target: {}:{}", DialStr,
+            trace::debug<flt::conn | flt::protocol>("outbound dial failed: {}, target: {}:{}",
                          fault::describe(ec), target.host, target.port);
         }
         co_return std::pair{ec, std::move(trans)};

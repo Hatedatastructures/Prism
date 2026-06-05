@@ -1,5 +1,6 @@
 #include <prism/crypto/hkdf.hpp>
 #include <prism/trace.hpp>
+#include <prism/trace/context.hpp>
 
 #include <openssl/evp.h>
 #include <openssl/hmac.h>
@@ -7,10 +8,11 @@
 
 #include <cstring>
 
+using namespace psm::trace;
+
 namespace psm::crypto
 {
 
-    constexpr std::string_view tag = "[Crypto.HKDF]";
 
     auto hmac_sha256(const std::span<const std::uint8_t> key, const std::span<const std::uint8_t> data)
         -> std::array<std::uint8_t, sha256_len>
@@ -23,7 +25,7 @@ namespace psm::crypto
 
         if (!ret)
         {
-            trace::error("{} HMAC-SHA256 计算失败", tag);
+            trace::error("HMAC-SHA256 failed");
             result.fill(0);
         }
 
@@ -42,7 +44,7 @@ namespace psm::crypto
 
         if (!ret)
         {
-            trace::error("{} HMAC-SHA512 计算失败", tag);
+            trace::error("HMAC-SHA512 failed");
             result.fill(0);
         }
 
@@ -67,20 +69,20 @@ namespace psm::crypto
     {
         if (length > 255 * sha256_len)
         {
-            trace::error("{} HKDF-Expand 请求长度 {} 超过最大 {}", tag, length, 255 * sha256_len);
+            trace::error("HKDF-Expand length {} exceeds max {}", length, 255 * sha256_len);
             return {fault::code::invalid_argument, {}};
         }
 
         if (prk.size() < sha256_len)
         {
-            trace::error("{} HKDF-Expand PRK 过短: {}", tag, prk.size());
+            trace::error("HKDF-Expand PRK too short: {}", prk.size());
             return {fault::code::invalid_argument, {}};
         }
 
         constexpr std::size_t max_info_size = 514;
         if (info.size() > max_info_size)
         {
-            trace::error("{} HKDF-Expand info 过长: {}", tag, info.size());
+            trace::error("HKDF-Expand info too long: {}", info.size());
             return {fault::code::invalid_argument, {}};
         }
 
@@ -134,13 +136,13 @@ namespace psm::crypto
 
         if (full_label_len > 255)
         {
-            trace::error("{} HKDF-Expand-Label 标签过长: {}", tag, full_label_len);
+            trace::error("HKDF-Expand-Label label too long: {}", full_label_len);
             return {fault::code::invalid_argument, {}};
         }
 
         if (context.size() > 255)
         {
-            trace::error("{} HKDF-Expand-Label 上下文过长: {}", tag, context.size());
+            trace::error("HKDF-Expand-Label context too long: {}", context.size());
             return {fault::code::invalid_argument, {}};
         }
 

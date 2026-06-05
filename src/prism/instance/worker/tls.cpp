@@ -2,6 +2,8 @@
 #include <prism/exception.hpp>
 #include <prism/trace.hpp>
 
+using namespace psm::trace;
+
 #include <cstdint>
 #include <cstring>
 

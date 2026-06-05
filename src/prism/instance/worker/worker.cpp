@@ -3,6 +3,8 @@
 #include <prism/instance/worker/launch.hpp>
 #include <prism/trace.hpp>
 
+using namespace psm::trace;
+
 namespace psm::instance::worker
 {
 

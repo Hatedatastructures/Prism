@@ -20,13 +20,15 @@
 #include <chrono>
 #include <cstring>
 
+using namespace psm::trace;
+
 namespace psm::instance::session
 {
 
     namespace net = boost::asio;
 
     session::session(session_params params)
-        : id_(detail::next_sid()),
+        : id_(detail::next_conn_id()),
           ctx_{context::session_opts{id_, params.server, params.worker, frame_arena_, {},
               params.server.config().buffer.size, std::move(params.inbound)}}
     {
@@ -39,7 +41,7 @@ namespace psm::instance::session
 
     void session::init_prefix(const trace::session_prefix &pfx) noexcept
     {
-        prefix_.session_id = id_;
+        prefix_.conn_id = id_;
         std::memcpy(prefix_.client, pfx.client, sizeof(prefix_.client));
         prefix_.client_port = pfx.client_port;
         std::memcpy(prefix_.listen, pfx.listen, sizeof(prefix_.listen));
@@ -50,17 +52,20 @@ namespace psm::instance::session
     {
         auto process = [self = this->shared_from_this()]() -> net::awaitable<void>
         {
+            trace::scope_guard guard(self->prefix_);
             try
             {
                 co_await self->diversion();
             }
             catch (const std::exception &e)
             {
-                trace::error("[Session] [{}] Unhandled exception in diversion: {}", self->id_, e.what());
+                trace::error<flt::conn | flt::protocol>(
+                    "unhandled exception in diversion: {}", e.what());
             }
             catch (...)
             {
-                trace::error("[Session] [{}] Unknown exception in diversion", self->id_);
+                trace::error<flt::conn | flt::protocol>(
+                    "unknown exception in diversion");
             }
             self->release_resources();
         };
@@ -69,21 +74,25 @@ namespace psm::instance::session
         {
             if (!ep)
                 return;
+            trace::scope_guard guard(self->prefix_);
             try
             {
                 std::rethrow_exception(ep);
             }
             catch (const ::psm::exception::deviant &e)
             {
-                trace::error("[Session] [{}] Abnormal exception: {}", self->id_, e.dump());
+                trace::error<flt::conn | flt::protocol>(
+                    "abnormal exception: {}", e.dump());
             }
             catch (const std::exception &e)
             {
-                trace::error("[Session] [{}] Standard exception: {}", self->id_, e.what());
+                trace::error<flt::conn | flt::protocol>(
+                    "standard exception: {}", e.what());
             }
             catch (...)
             {
-                trace::error("[Session] [{}] Unknown exception type", self->id_);
+                trace::error<flt::conn | flt::protocol>(
+                    "unknown exception type");
             }
             self->release_resources();
         };
@@ -96,10 +105,8 @@ namespace psm::instance::session
         if (state_ != state::active)
             return;
         state_ = state::closing;
-        trace::debug("[Session] [{}] Session closing.", id_);
+        trace::debug<flt::conn | flt::protocol>("session closing");
 
-        // stream_cancel 已移除：encrypted::cancel() 已通过 ssl_stream 操作底层 socket，
-        // 额外的 stream_cancel 会导致同一 socket 被 cancel 两次（UB → 崩溃）
         if (ctx_.inbound)
             ctx_.inbound->cancel();
         if (ctx_.outbound)
@@ -112,15 +119,11 @@ namespace psm::instance::session
             return;
         state_ = state::closed;
 
-        // 通知流量统计连接断开（包括识别失败的连接）
         if (ctx_.worker_ctx.traffic)
         {
             ctx_.worker_ctx.traffic->on_disconnect(ctx_.detected_protocol);
         }
 
-        // stream_close/stream_cancel 已移除：
-        // encrypted::close() 和 encrypted::cancel() 内部已通过 ssl_stream 操作底层 socket，
-        // 额外的 stream_close 会导致同一 socket 被 close 两次（UB → 崩溃）
         if (ctx_.inbound)
         {
             ctx_.inbound->close();
@@ -141,21 +144,25 @@ namespace psm::instance::session
             on_closed_ = nullptr;
             callback();
         }
-        trace::debug("[Session] [{}] Session closed.", id_);
+        trace::info<flt::conn | flt::protocol>("session closed");
     }
 
     auto session::diversion()
         -> net::awaitable<void>
     {
-        trace::scope_guard guard(prefix_);
-
         if (!ctx_.inbound)
         {
-            trace::warn("[Session] [{}] diversion aborted: missing inbound transmission.", id_);
+            trace::warn<flt::conn | flt::protocol>(
+                "diversion aborted: missing inbound transmission");
             co_return;
         }
 
-        // 1. 完整识别流程（统一入口：外层探测 + TLS 伪装方案识别），带 30 秒握手超时
+        trace::info<flt::conn | flt::protocol>(
+            "session established, {}:{} → {}:{}",
+            prefix_.client, prefix_.client_port,
+            prefix_.listen, prefix_.listen_port);
+
+        // 1. 完整识别流程
         handshake_deadline_ = std::make_unique<net::steady_timer>(
             ctx_.inbound->executor(), std::chrono::seconds(30));
 
@@ -189,25 +196,26 @@ namespace psm::instance::session
         }
         else
         {
-            // 定时器先触发，识别超时
             timed_out = true;
         }
 
-        // 无论谁先完成，取消定时器
         handshake_deadline_->cancel();
         handshake_deadline_.reset();
 
         if (timed_out)
         {
-            // 取消传输层以中止识别流程
             ctx_.inbound->cancel();
-            trace::warn("[Session] [{}] Handshake deadline exceeded, aborting.", id_);
+            prefix_.phase.set("handshake");
+            trace::warn<flt::conn | flt::protocol>(
+                "handshake deadline exceeded, aborting");
+            prefix_.phase.clear();
             co_return;
         }
 
         if (!result.success)
         {
-            trace::warn("[Session] [{}] Recognition failed: {}", id_, fault::describe(result.error));
+            trace::warn<flt::conn | flt::protocol>(
+                "recognition failed: {}", fault::describe(result.error));
             co_return;
         }
 
@@ -220,14 +228,17 @@ namespace psm::instance::session
             ctx_.worker_ctx.traffic->on_protocol_detected(result.detected);
         }
 
+        trace::info<flt::conn | flt::protocol>(
+            "recognized as {}", proto_view);
+
         // 2. 更新传输层
         ctx_.inbound = std::move(result.transport);
 
-        // Stack 方案内部已处理连接（无 transport）
+        // Stack 方案内部已处理连接
         if (!ctx_.inbound)
         {
-            trace::debug("[Session] [{}] Connection handled by stack scheme '{}'",
-                         id_, result.executed_scheme);
+            trace::debug<flt::conn | flt::protocol>(
+                "connection handled by stack scheme");
             co_return;
         }
 
@@ -235,7 +246,6 @@ namespace psm::instance::session
             result.preread.data(), result.preread.size());
 
         // 3. 分发到协议处理器
-        trace::debug("[Session] [{}] Dispatching to {}", id_, psm::protocol::to_string_view(result.detected));
         switch (result.detected)
         {
         case psm::protocol::protocol_type::http:

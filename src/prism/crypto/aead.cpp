@@ -1,11 +1,13 @@
 #include <prism/crypto/aead.hpp>
 
-#include <prism/trace/spdlog.hpp>
+#include <prism/trace.hpp>
 
 #include <openssl/evp.h>
 
 #include <cstring>
 #include <memory>
+
+using namespace psm::trace;
 
 namespace psm::crypto
 {
@@ -43,13 +45,13 @@ namespace psm::crypto
             nonce_len_ = 24;
             break;
         default:
-            trace::error("[Crypto.AEAD] 未知加密算法: {}", static_cast<std::int32_t>(cipher));
+            trace::error("未知加密算法: {}", static_cast<std::int32_t>(cipher));
             return;
         }
 
         if (!aead)
         {
-            trace::error("[Crypto.AEAD] 获取 AEAD 算法失败");
+            trace::error("获取 AEAD 算法失败");
             return;
         }
 
@@ -57,7 +59,7 @@ namespace psm::crypto
         EVP_AEAD_CTX_zero(raw_ctx);
         if (!EVP_AEAD_CTX_init(raw_ctx, aead, key.data(), key.size(), EVP_AEAD_DEFAULT_TAG_LENGTH, nullptr))
         {
-            trace::error("[Crypto.AEAD] EVP_AEAD_CTX_init 失败");
+            trace::error("EVP_AEAD_CTX_init 失败");
             EVP_AEAD_CTX_cleanup(raw_ctx);
             delete raw_ctx;
             return;
@@ -102,7 +104,7 @@ namespace psm::crypto
 
         if (is_nonce_exhausted())
         {
-            trace::error("[Crypto.AEAD] seal nonce 溢出");
+            trace::error("seal nonce 溢出");
             return fault::code::crypto_error;
         }
 
@@ -134,7 +136,7 @@ namespace psm::crypto
 
         if (is_nonce_exhausted())
         {
-            trace::error("[Crypto.AEAD] open nonce 溢出");
+            trace::error("open nonce 溢出");
             return fault::code::crypto_error;
         }
 

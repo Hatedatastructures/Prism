@@ -1,18 +1,16 @@
 #include <prism/crypto/x25519.hpp>
 #include <prism/trace.hpp>
+#include <prism/trace/context.hpp>
 
 #include <openssl/curve25519.h>
 #include <openssl/rand.h>
 
 #include <cstring>
 
+using namespace psm::trace;
+
 namespace psm::crypto
 {
-
-    namespace
-    {
-        constexpr std::string_view tag = "[Crypto.X25519]";
-    } // namespace
 
     auto generate_keypair()
         -> x25519_keypair
@@ -21,7 +19,7 @@ namespace psm::crypto
 
         if (RAND_bytes(keypair.private_key.data(), static_cast<int>(x25519_klen)) != 1)
         {
-            trace::error("{} RAND_bytes 失败", tag);
+            trace::error("RAND_bytes failed");
             return keypair;
         }
 
@@ -37,7 +35,7 @@ namespace psm::crypto
 
         if (private_key.size() != x25519_klen)
         {
-            trace::error("{} 私钥长度无效: {}", tag, private_key.size());
+            trace::error("invalid private key length: {}", private_key.size());
             return public_key;
         }
 
@@ -54,19 +52,19 @@ namespace psm::crypto
 
         if (private_key.size() != x25519_klen)
         {
-            trace::error("{} 私钥长度无效: {}", tag, private_key.size());
+            trace::error("invalid private key length: {}", private_key.size());
             return {fault::code::invalid_argument, shared_secret};
         }
 
         if (peer_pubkey.size() != x25519_klen)
         {
-            trace::error("{} 对端公钥长度无效: {}", tag, peer_pubkey.size());
+            trace::error("invalid peer pubkey length: {}", peer_pubkey.size());
             return {fault::code::invalid_argument, shared_secret};
         }
 
         if (X25519(shared_secret.data(), private_key.data(), peer_pubkey.data()) != 1)
         {
-            trace::error("{} X25519 密钥交换失败", tag);
+            trace::error("X25519 key exchange failed");
             shared_secret.fill(0);
             return {fault::code::kexfail, shared_secret};
         }
@@ -83,7 +81,7 @@ namespace psm::crypto
         }
         if (all_zero)
         {
-            trace::error("{} X25519 共享密钥全零（可能遭遇低阶点攻击）", tag);
+            trace::error("X25519 shared secret all-zero (possible low-order point attack)");
             shared_secret.fill(0);
             return {fault::code::kexfail, shared_secret};
         }

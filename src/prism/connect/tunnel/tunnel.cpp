@@ -13,7 +13,7 @@
 #include <array>
 #include <chrono>
 
-constexpr std::string_view TunnelStr = "[Connect.Tunnel]";
+using namespace psm::trace;
 
 namespace psm::connect
 {
@@ -49,8 +49,8 @@ namespace psm::connect
             {
                 pol = "complete";
             }
-            trace::debug("{} forward[{}]: started, policy={}",
-                        TunnelStr, dir, pol);
+            trace::debug<flt::conn | flt::protocol>("forward[{}]: started, policy={}",
+                                                        dir, pol);
 
             std::error_code ec;
             while (true)
@@ -58,14 +58,14 @@ namespace psm::connect
                 const auto transferred = co_await opts.from->async_read_some(opts.scratch, ec);
                 if (ec || transferred == 0)
                 {
-                    trace::debug("{} forward[{}]: read done, transferred={}, ec={}",
-                                TunnelStr, dir, transferred, ec.message());
+                    trace::debug<flt::conn | flt::protocol>("forward[{}]: read done, transferred={}, ec={}",
+                                                                dir, transferred, ec.message());
                     co_return;
                 }
 
                 opts.total_bytes[opts.idx] += transferred;
-                trace::debug("{} forward[{}]: read {} bytes, total now {}",
-                            TunnelStr, dir, transferred, opts.total_bytes[opts.idx]);
+                trace::debug<flt::conn | flt::protocol>("forward[{}]: read {} bytes, total now {}",
+                                                            dir, transferred, opts.total_bytes[opts.idx]);
 
                 // 重置空闲超时
                 opts.idle_timer->expires_after(opts.idle_timeout);
@@ -75,11 +75,11 @@ namespace psm::connect
                 std::size_t written;
                 if (opts.policy == write_policy::complete)
                 {
-                    trace::debug("{} forward[{}]: calling async_write({} bytes)",
-                                TunnelStr, dir, data.size());
+                    trace::debug<flt::conn | flt::protocol>("forward[{}]: calling async_write({} bytes)",
+                                                                dir, data.size());
                     written = co_await transport::async_write(*opts.to, data, ec);
-                    trace::debug("{} forward[{}]: async_write returned written={}, ec={}",
-                                TunnelStr, dir, written, ec.message());
+                    trace::debug<flt::conn | flt::protocol>("forward[{}]: async_write returned written={}, ec={}",
+                                                                dir, written, ec.message());
                 }
                 else
                 {
@@ -89,14 +89,14 @@ namespace psm::connect
                         written = co_await opts.to->async_write_some(remaining, ec);
                         if (ec)
                         {
-                            trace::debug("{} forward[{}]: partial write failed, written={}",
-                                TunnelStr, dir, written);
+                            trace::debug<flt::conn | flt::protocol>("forward[{}]: partial write failed, written={}",
+                                                                dir, written);
                             co_return;
                         }
                         if (written == 0)
                         {
-                            trace::debug("{} forward[{}]: partial write returned 0 bytes",
-                                TunnelStr, dir);
+                            trace::debug<flt::conn | flt::protocol>("forward[{}]: partial write returned 0 bytes",
+                                                                dir);
                             co_return;
                         }
                         remaining = remaining.subspan(written);
@@ -106,8 +106,8 @@ namespace psm::connect
 
                 if (ec || (opts.policy == write_policy::complete && written < transferred))
                 {
-                    trace::debug("{} forward[{}]: write done/failed, written={}, expected={}",
-                                TunnelStr, dir, written, transferred);
+                    trace::debug<flt::conn | flt::protocol>("forward[{}]: write done/failed, written={}, expected={}",
+                                                                dir, written, transferred);
                     co_return;
                 }
 
@@ -145,7 +145,7 @@ namespace psm::connect
         {
             if (!ec)
             {
-                trace::info("{} idle timeout, closing tunnel", TunnelStr);
+                trace::info<flt::conn | flt::protocol>("idle timeout, closing tunnel");
                 inbound->cancel();
                 outbound->cancel();
             }
@@ -171,8 +171,9 @@ namespace psm::connect
         const auto end_time = std::chrono::steady_clock::now();
         if (const auto up = total_bytes[0], down = total_bytes[1]; up > 0 || down > 0)
         {
-            trace::info("{} [{}] Transfer: Upload {} B, Download {} B, duration: {} ms", TunnelStr, ctx.session_id, up,
-                        down, std::chrono::duration_cast<std::chrono::milliseconds>(end_time - start_time).count());
+            trace::info<flt::conn | flt::protocol>("Transfer: ↑{} B ↓{} B, {} ms",
+                                                        up, down,
+                                                        std::chrono::duration_cast<std::chrono::milliseconds>(end_time - start_time).count());
         }
 
         // 刷写流量统计并累加账户用量

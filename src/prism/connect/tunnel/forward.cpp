@@ -5,7 +5,7 @@
 #include <prism/connect/tunnel/tunnel.hpp>
 #include <prism/trace.hpp>
 
-constexpr std::string_view ForwardStr = "[Connect.Forward]";
+using namespace psm::trace;
 
 namespace psm::connect
 {
@@ -23,9 +23,9 @@ namespace psm::connect
             if (fault::failed(ec) || !outbound)
             {
                 if (ec == fault::code::ipv6_disabled)
-                    trace::debug("{} IPv6 disabled: {}:{}", ForwardStr, target.host, target.port);
+                    trace::debug<flt::conn | flt::protocol>("IPv6 disabled: {}:{}", target.host, target.port);
                 else
-                    trace::warn("{} dial failed: {}, target: {}:{}", ForwardStr, fault::describe(ec), target.host, target.port);
+                    trace::warn<flt::conn | flt::protocol>("dial failed: {}, target: {}:{}", fault::describe(ec), target.host, target.port);
                 co_return;
             }
             co_await tunnel({std::move(opts.inbound), std::move(outbound), ctx});
@@ -36,9 +36,9 @@ namespace psm::connect
         if (fault::failed(ec) || !outbound)
         {
             if (ec == fault::code::ipv6_disabled)
-                trace::debug("{} IPv6 disabled: {}:{}", ForwardStr, target.host, target.port);
+                trace::debug<flt::conn | flt::protocol>("IPv6 disabled: {}:{}", target.host, target.port);
             else
-                trace::warn("{} dial failed: {}, target: {}:{}", ForwardStr, fault::describe(ec), target.host, target.port);
+                trace::warn<flt::conn | flt::protocol>("dial failed: {}, target: {}:{}", fault::describe(ec), target.host, target.port);
             co_return;
         }
         co_await tunnel({std::move(opts.inbound), std::move(outbound), ctx});

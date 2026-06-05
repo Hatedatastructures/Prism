@@ -7,6 +7,8 @@
 #include <prism/trace.hpp>
 #include <prism/transport/reliable.hpp>
 
+using namespace psm::trace;
+
 #ifndef _WIN32
 #include <unistd.h>
 #endif

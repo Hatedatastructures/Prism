@@ -2,6 +2,9 @@
 #include <prism/trace.hpp>
 
 #include <array>
+
+using namespace psm::trace;
+
 namespace psm::instance::front
 {
 
@@ -115,7 +118,7 @@ namespace psm::instance::front
                     co_return;
                 }
 
-                trace::warn("[Listener] accept error: {}", ec.message());
+                trace::warn("accept error: {}", ec.message());
 
                 // 致命错误（文件描述符耗尽 / 内存不足）：指数退避，避免 CPU 空转
                 if (ec == boost::system::errc::too_many_files_open ||
