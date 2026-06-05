@@ -12,6 +12,8 @@
 #include <prism/transport/reliable.hpp>
 #include <prism/transport/snapshot.hpp>
 
+using namespace psm::trace;
+
 namespace psm::stealth::shadowtls
 {
 
@@ -21,10 +23,8 @@ namespace psm::stealth::shadowtls
         -> bool
     {
         const auto &st_cfg = cfg.stealth.shadowtls;
-        // v3: 需要至少一个用户、握手目标和 SNI 白名单
         if (st_cfg.version == 3)
             return !st_cfg.users.empty() && !st_cfg.handshake_dest.empty() && !st_cfg.server_names.empty();
-        // v2: 需要密码、握手目标和 SNI 白名单
         return !st_cfg.password.empty() && !st_cfg.handshake_dest.empty() && !st_cfg.server_names.empty();
     }
 
@@ -51,7 +51,7 @@ namespace psm::stealth::shadowtls
         {
             return {
                 .hit = true,
-                .solo = false,  // 不能独占，需要 Tier 1 HMAC 验证
+                .solo = false,
                 .hint = 150,
                 .note = "non-standard session_id length"};
         }
@@ -77,10 +77,10 @@ namespace psm::stealth::shadowtls
                         continue;
                     if (verify_client_hello(raw, user.password))
                     {
-                        trace::debug("[ShadowTLS] HMAC verified, user: {}", user.name);
+                        trace::debug<flt::conn | flt::protocol>("HMAC verified, user: {}", user.name);
                         return {
                             .score = 900,
-                            .solo_flag = 0xFFFF,  // 独占
+                            .solo_flag = 0xFFFF,
                             .note = memory::string("HMAC verified, user: ") + memory::string(user.name)};
                     }
                 }
@@ -89,7 +89,7 @@ namespace psm::stealth::shadowtls
             {
                 if (verify_client_hello(raw, st_cfg.password))
                 {
-                    trace::debug("[ShadowTLS] HMAC verified (v2)");
+                    trace::debug<flt::conn | flt::protocol>("HMAC verified (v2)");
                     return {
                         .score = 900,
                         .solo_flag = 0xFFFF,
@@ -98,7 +98,6 @@ namespace psm::stealth::shadowtls
             }
         }
 
-        // HMAC 不匹配
         return {.score = 50, .solo_flag = 0, .note = "HMAC not verified"};
     }
 
@@ -118,7 +117,7 @@ namespace psm::stealth::shadowtls
 
         if (!rel)
         {
-            trace::info("[ShadowTlsScheme] Cannot access reliable transport, pass to next scheme");
+            trace::info<flt::conn | flt::protocol>("cannot access reliable transport, pass to next scheme");
             result.detected = protocol::protocol_type::tls;
             result.transport = std::move(ctx.inbound);
             co_return result;
@@ -142,32 +141,29 @@ namespace psm::stealth::shadowtls
                     first_frame.data() + local_tls_hdrsize,
                     first_frame.size() - local_tls_hdrsize);
 
-                trace::debug("[ShadowTlsScheme] first_frame TLS header stripped, payload_size={}", payload.size());
+                trace::debug<flt::conn | flt::protocol>("first_frame TLS header stripped, payload_size={}", payload.size());
 
-                // safe: casting uint8_t payload to string_view for inner protocol detection
                 auto inner_view = std::string_view(
                     reinterpret_cast<const char *>(payload.data()), payload.size());
-                // executor 统一做二次探测，scheme 只存储 preread
                 result.preread.assign(payload.begin(), payload.end());
                 result.detected = protocol::protocol_type::unknown;
 
                 auto raw_socket_opt = rel->release_socket();
                 if (!raw_socket_opt)
                 {
-                    trace::warn("[ShadowTlsScheme] Cannot release socket from reliable transport");
+                    trace::warn<flt::conn | flt::protocol>("cannot release socket from reliable transport");
                     result.detected = protocol::protocol_type::tls;
                     result.transport = std::move(ctx.inbound);
                     co_return result;
                 }
                 auto raw_socket = std::move(*raw_socket_opt);
-                trace::debug("[ShadowTlsScheme] socket released from reliable transport");
 
                 auto shadowtls_trans = std::make_shared<shadowtls_transport>(
                     std::move(raw_socket),
                     shadowtls_handover{
                         detail.matched_password,
                         std::span<const std::byte>(detail.server_random.data(), detail.server_random.size()),
-                        std::span<const std::byte>(),  // preread 已通过 result.preread 传递给 preview 层
+                        std::span<const std::byte>(),
                         std::move(detail.hmac_write_ctx),
                         std::move(detail.hmac_read_ctx)
                     });
@@ -175,12 +171,18 @@ namespace psm::stealth::shadowtls
                 result.transport = shadowtls_trans;
                 result.scheme = "shadowtls";
 
-                trace::debug("[ShadowTlsScheme] Authenticated (user: {}), shadowtls_transport created (HMAC inherited)",
-                             detail.matched_user);
+                // 认证成功写入 user
+                auto *pfx = trace::active_prefix;
+                if (pfx && !detail.matched_user.empty())
+                {
+                    std::strncpy(pfx->user, detail.matched_user.c_str(),
+                                 sizeof(pfx->user) - 1);
+                }
+
+                trace::debug<flt::conn | flt::protocol>("authenticated, shadowtls_transport created (HMAC inherited)");
             }
             else
             {
-                // first_frame 太小，无法剥离 TLS header
                 result.detected = protocol::protocol_type::tls;
                 result.transport = std::move(ctx.inbound);
             }
@@ -190,7 +192,7 @@ namespace psm::stealth::shadowtls
             result.detected = protocol::protocol_type::tls;
             result.error = hs_result.error;
             result.polluted = hs_result.polluted;
-            trace::debug("[ShadowTlsScheme] Not ShadowTLS, pass to next scheme");
+            trace::debug<flt::conn | flt::protocol>("not ShadowTLS, pass to next scheme");
         }
 
         co_return result;

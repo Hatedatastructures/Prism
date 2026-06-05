@@ -77,14 +77,14 @@ namespace
         for (int i = 0; i < yield_count; ++i)
         {
             auto *cur = psm::trace::active_prefix;
-            record_log(pfx.session_id, cur ? cur->session_id : 0, i * 2, "bugged");
+            record_log(pfx.conn_id, cur ? cur->conn_id : 0, i * 2, "bugged");
 
             net::steady_timer timer(co_await net::this_coro::executor);
             timer.expires_after(std::chrono::milliseconds(1));
             co_await timer.async_wait(net::use_awaitable);
 
             cur = psm::trace::active_prefix;
-            record_log(pfx.session_id, cur ? cur->session_id : 0, i * 2 + 1, "bugged");
+            record_log(pfx.conn_id, cur ? cur->conn_id : 0, i * 2 + 1, "bugged");
         }
     }
 
@@ -109,12 +109,12 @@ namespace
         for (int i = 0; i < yield_count; ++i)
         {
             auto *cur = psm::trace::active_prefix;
-            record_log(pfx.session_id, cur ? cur->session_id : 0, i * 2, "fixed");
+            record_log(pfx.conn_id, cur ? cur->conn_id : 0, i * 2, "fixed");
 
             co_await protected_step(pfx);
 
             cur = psm::trace::active_prefix;
-            record_log(pfx.session_id, cur ? cur->session_id : 0, i * 2 + 1, "fixed");
+            record_log(pfx.conn_id, cur ? cur->conn_id : 0, i * 2 + 1, "fixed");
         }
     }
 
@@ -129,7 +129,7 @@ namespace
         for (int i = 0; i < checks; ++i)
         {
             auto *cur = psm::trace::active_prefix;
-            record_log(0, cur ? cur->session_id : 0, i, "orphan");
+            record_log(0, cur ? cur->conn_id : 0, i, "orphan");
 
             net::steady_timer timer(co_await net::this_coro::executor);
             timer.expires_after(std::chrono::milliseconds(1));
@@ -150,8 +150,8 @@ namespace
 
         for (int i = 0; i < 3; ++i)
         {
-            record_log(pfx.session_id,
-                       psm::trace::active_prefix ? psm::trace::active_prefix->session_id : 0,
+            record_log(pfx.conn_id,
+                       psm::trace::active_prefix ? psm::trace::active_prefix->conn_id : 0,
                        i, "parent");
 
             net::steady_timer timer(ex);
@@ -177,8 +177,8 @@ namespace
             for (int i = 0; i < 4; ++i)
             {
                 mux_checks->fetch_add(1);
-                record_log(pfx_ptr->session_id,
-                           psm::trace::active_prefix ? psm::trace::active_prefix->session_id : 0,
+                record_log(pfx_ptr->conn_id,
+                           psm::trace::active_prefix ? psm::trace::active_prefix->conn_id : 0,
                            i, "mux_run");
 
                 net::steady_timer timer(co_await net::this_coro::executor);
@@ -198,8 +198,8 @@ namespace
     {
         // session_pfx 和 mux_pfx 的生命周期由测试函数的 vector 保证
         psm::trace::scope_guard session_guard(session_pfx);
-        record_log(session_pfx.session_id,
-                   psm::trace::active_prefix ? psm::trace::active_prefix->session_id : 0,
+        record_log(session_pfx.conn_id,
+                   psm::trace::active_prefix ? psm::trace::active_prefix->conn_id : 0,
                    0, "session_pre_mux");
 
         co_await mux_start_and_return(mux_pfx, mux_checks);
@@ -216,7 +216,7 @@ namespace
         for (int i = 0; i < checks; ++i)
         {
             auto *cur = psm::trace::active_prefix;
-            record_log(caller_sid, cur ? cur->session_id : 0, i, "innermost");
+            record_log(caller_sid, cur ? cur->conn_id : 0, i, "innermost");
 
             net::steady_timer timer(co_await net::this_coro::executor);
             timer.expires_after(std::chrono::milliseconds(1));
@@ -232,12 +232,12 @@ namespace
         psm::trace::scope_guard guard(pfx);
 
         auto ex = co_await net::this_coro::executor;
-        net::co_spawn(ex, innermost_coro(pfx.session_id, 3, done), net::detached);
+        net::co_spawn(ex, innermost_coro(pfx.conn_id, 3, done), net::detached);
 
         for (int i = 0; i < 3; ++i)
         {
-            record_log(pfx.session_id,
-                       psm::trace::active_prefix ? psm::trace::active_prefix->session_id : 0,
+            record_log(pfx.conn_id,
+                       psm::trace::active_prefix ? psm::trace::active_prefix->conn_id : 0,
                        i, "middle");
 
             net::steady_timer timer(ex);
@@ -268,7 +268,7 @@ namespace
         psm::trace::scope_guard guard(stream_pfx);
 
         record_log(stream_id,
-                   psm::trace::active_prefix ? psm::trace::active_prefix->session_id : 0,
+                   psm::trace::active_prefix ? psm::trace::active_prefix->conn_id : 0,
                    0, "dispatch");
 
         net::steady_timer timer(co_await net::this_coro::executor);
@@ -276,7 +276,7 @@ namespace
         co_await timer.async_wait(net::use_awaitable);
 
         record_log(stream_id,
-                   psm::trace::active_prefix ? psm::trace::active_prefix->session_id : 0,
+                   psm::trace::active_prefix ? psm::trace::active_prefix->conn_id : 0,
                    1, "dispatch");
 
         done->fetch_add(1);
@@ -293,7 +293,7 @@ namespace
         for (size_t i = 0; i < stream_pfxs.size(); ++i)
         {
             net::co_spawn(ex,
-                dispatch_coro(stream_pfxs[i], stream_pfxs[i].session_id, done),
+                dispatch_coro(stream_pfxs[i], stream_pfxs[i].conn_id, done),
                 net::detached);
 
             net::steady_timer timer(ex);
@@ -318,7 +318,7 @@ namespace
         co_await timer.async_wait(net::use_awaitable);
 
         auto *cur = psm::trace::active_prefix;
-        record_log(0, cur ? cur->session_id : 0,
+        record_log(0, cur ? cur->conn_id : 0,
                    static_cast<int>(endpoint_id),
                    winner->exchange(true) ? "racer_loser" : "racer_winner");
 
@@ -356,11 +356,11 @@ namespace
         -> net::awaitable<void>
     {
         auto short_pfx = std::make_unique<psm::trace::session_prefix>();
-        short_pfx->session_id = 999;
+        short_pfx->conn_id = 999;
         {
             psm::trace::scope_guard guard(*short_pfx);
             record_log(999,
-                       psm::trace::active_prefix ? psm::trace::active_prefix->session_id : 0,
+                       psm::trace::active_prefix ? psm::trace::active_prefix->conn_id : 0,
                        0, "short_lived");
         }
         phase->store(1);
@@ -383,7 +383,7 @@ namespace
         }
 
         auto *cur = psm::trace::active_prefix;
-        record_log(0, cur ? cur->session_id : 0, 0, "observer");
+        record_log(0, cur ? cur->conn_id : 0, 0, "observer");
     }
 
     // ============================================================
@@ -406,7 +406,7 @@ TEST(ScopedPrefix, BuggedScopeGuard_ShowsCorruption)
 
     std::array<psm::trace::session_prefix, coro_count> pfx{};
     for (int i = 0; i < coro_count; ++i)
-        pfx[i].session_id = 100 + i;
+        pfx[i].conn_id = 100 + i;
 
     for (int i = 0; i < coro_count; ++i)
         net::co_spawn(ioc, bugged_session_coro(pfx[i], yields), net::detached);
@@ -430,7 +430,7 @@ TEST(ScopedPrefix, ProtectedStep_NoCorruption)
 
     std::array<psm::trace::session_prefix, coro_count> pfx{};
     for (int i = 0; i < coro_count; ++i)
-        pfx[i].session_id = 200 + i;
+        pfx[i].conn_id = 200 + i;
 
     for (int i = 0; i < coro_count; ++i)
         net::co_spawn(ioc, fixed_session_coro(pfx[i], yields), net::detached);
@@ -458,7 +458,7 @@ TEST(ScopedPrefix, CoSpawnOrphan_ResidualPrefix)
 
     std::array<psm::trace::session_prefix, parents> pfx{};
     for (int i = 0; i < parents; ++i)
-        pfx[i].session_id = 300 + i;
+        pfx[i].conn_id = 300 + i;
 
     for (int i = 0; i < parents; ++i)
         net::co_spawn(ioc, parent_coro(pfx[i], children_per_parent, done), net::detached);
@@ -488,8 +488,8 @@ TEST(ScopedPrefix, SessionReturn_MuxStillRunning)
 
     for (int i = 0; i < sessions; ++i)
     {
-        session_pfx[i].session_id = 400 + i;
-        mux_pfx[i].session_id = 500 + i;
+        session_pfx[i].conn_id = 400 + i;
+        mux_pfx[i].conn_id = 500 + i;
         mux_checks[i] = std::make_shared<std::atomic<int>>(0);
     }
 
@@ -526,8 +526,8 @@ TEST(ScopedPrefix, NestedCoSpawn_AnyTlsMode)
 
     for (int i = 0; i < depth; ++i)
     {
-        outer_pfx[i].session_id = 600 + i;
-        middle_pfx[i].session_id = 700 + i;
+        outer_pfx[i].conn_id = 600 + i;
+        middle_pfx[i].conn_id = 700 + i;
     }
 
     for (int i = 0; i < depth; ++i)
@@ -557,12 +557,12 @@ TEST(ScopedPrefix, MuxDispatch_YamuxMode)
 
     constexpr int streams = 8;
     psm::trace::session_prefix mux_pfx{};
-    mux_pfx.session_id = 800;
+    mux_pfx.conn_id = 800;
     std::vector<psm::trace::session_prefix> stream_pfx(streams);
     auto done = std::make_shared<std::atomic<int>>(0);
 
     for (int i = 0; i < streams; ++i)
-        stream_pfx[i].session_id = 810 + i;
+        stream_pfx[i].conn_id = 810 + i;
 
     net::co_spawn(ioc,
         frame_loop_coro(mux_pfx, stream_pfx, done),
@@ -589,7 +589,7 @@ TEST(ScopedPrefix, RacerMode)
 
     constexpr int endpoints = 6;
     psm::trace::session_prefix session_pfx{};
-    session_pfx.session_id = 900;
+    session_pfx.conn_id = 900;
 
     auto winner = std::make_shared<std::atomic<bool>>(false);
     auto done = std::make_shared<std::atomic<int>>(0);
@@ -620,7 +620,7 @@ TEST(ScopedPrefix, ScopeGuardDestruct_RestoresPrefix)
 
     auto phase = std::make_shared<std::atomic<int>>(0);
     psm::trace::session_prefix global_pfx{};
-    global_pfx.session_id = 9999;
+    global_pfx.conn_id = 9999;
 
     {
         psm::trace::scope_guard global_guard(global_pfx);
@@ -654,7 +654,7 @@ TEST(ScopedPrefix, HighStress_AllModes)
 
     std::vector<psm::trace::session_prefix> pfx(stress_coros);
     for (int i = 0; i < stress_coros; ++i)
-        pfx[i].session_id = 1000 + i;
+        pfx[i].conn_id = 1000 + i;
 
     for (int i = 0; i < stress_coros / 2; ++i)
         net::co_spawn(ioc, fixed_session_coro(pfx[i], stress_yields), net::detached);

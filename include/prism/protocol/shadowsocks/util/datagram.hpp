@@ -29,6 +29,7 @@
 
 namespace psm::protocol::shadowsocks
 {
+    using namespace psm::trace;
 
     namespace net = boost::asio;
 
@@ -40,7 +41,7 @@ namespace psm::protocol::shadowsocks
      */
     struct udp_dec_pkt
     {
-        std::array<std::uint8_t, session_id_len> session_id{};           // 会话标识
+        std::array<std::uint8_t, session_id_len> relay_id{};              // SS2022 UDP relay session identifier
         address destination_address;                                     // 目标地址
         std::uint16_t destination_port{0};                               // 目标端口
         memory::vector<std::uint8_t> buffer{memory::current_resource()}; // 解密明文缓冲区（PMR），payload span 指向其子区间
@@ -73,7 +74,7 @@ namespace psm::protocol::shadowsocks
             }
             else
             {
-                trace::error("[SS2022.UDP] PSK decode failed: {}", fault::describe(ec));
+                trace::error<flt::conn | flt::protocol>("PSK decode failed: {}", fault::describe(ec));
                 valid_ = false;
             }
             method_ = format::resolve_method(config_.method, psk_.size());
@@ -91,11 +92,11 @@ namespace psm::protocol::shadowsocks
         /**
          * @brief 加密出站 UDP 数据包
          * @param payload 明文载荷
-         * @param session_id 目标会话 ID
+         * @param relay_id SS2022 relay session identifier
          * @param entry 目标会话条目
          * @return 错误码和密文数据包
          */
-        [[nodiscard]] auto encrypt_out(std::span<const std::byte> payload, const std::array<std::uint8_t, session_id_len> &session_id, const std::shared_ptr<udp_session> &entry)
+        [[nodiscard]] auto encrypt_out(std::span<const std::byte> payload, const std::array<std::uint8_t, session_id_len> &relay_id, const std::shared_ptr<udp_session> &entry)
             -> std::pair<fault::code, memory::vector<std::byte>>;
 
         /**
@@ -124,11 +125,11 @@ namespace psm::protocol::shadowsocks
         /**
          * @brief AES-GCM 变体加密
          * @param payload 明文载荷
-         * @param session_id 目标会话 ID
+         * @param relay_id SS2022 relay session identifier
          * @param entry 目标会话条目
          * @return 错误码和密文数据包
          */
-        [[nodiscard]] auto send_aes_gcm(std::span<const std::byte> payload, const std::array<std::uint8_t, session_id_len> &session_id, const std::shared_ptr<udp_session> &entry)
+        [[nodiscard]] auto send_aes_gcm(std::span<const std::byte> payload, const std::array<std::uint8_t, session_id_len> &relay_id, const std::shared_ptr<udp_session> &entry)
             -> std::pair<fault::code, memory::vector<std::byte>>;
 
         /**
@@ -143,21 +144,21 @@ namespace psm::protocol::shadowsocks
         /**
          * @brief ChaCha20 变体加密
          * @param payload 明文载荷
-         * @param session_id 目标会话 ID
+         * @param relay_id SS2022 relay session identifier
          * @param entry 目标会话条目
          * @return 错误码和密文数据包
          */
-        [[nodiscard]] auto send_chacha(std::span<const std::byte> payload, const std::array<std::uint8_t, session_id_len> &session_id, const std::shared_ptr<udp_session> &entry)
+        [[nodiscard]] auto send_chacha(std::span<const std::byte> payload, const std::array<std::uint8_t, session_id_len> &relay_id, const std::shared_ptr<udp_session> &entry)
             -> std::pair<fault::code, memory::vector<std::byte>>;
 
         /**
          * @brief 构造 AES-GCM 12 字节 nonce
          * @details sessionID[4..8] + packetID[0..8]
-         * @param session_id 8 字节 SessionID
+         * @param relay_id 8-byte SS2022 relay session identifier
          * @param packet_id 8 字节 PacketID
          * @return 12 字节 nonce
          */
-        [[nodiscard]] static auto make_nonce_aes(const std::array<std::uint8_t, session_id_len> &session_id, const std::array<std::uint8_t, packet_id_len> &packet_id)
+        [[nodiscard]] static auto make_nonce_aes(const std::array<std::uint8_t, session_id_len> &relay_id, const std::array<std::uint8_t, packet_id_len> &packet_id)
             -> std::array<std::uint8_t, 12>;
 
         /**

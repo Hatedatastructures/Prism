@@ -21,6 +21,8 @@ namespace
     using namespace psm;
     using namespace psm::protocol::shadowsocks;
 
+    using ss_config = psm::protocol::shadowsocks::config;
+
     auto b64_encode(std::span<const std::uint8_t> data) -> std::string
     {
         static const char table[] = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
@@ -41,9 +43,9 @@ namespace
         return out;
     }
 
-    auto make_aes128_config() -> config
+    auto make_aes128_config() -> ss_config
     {
-        config cfg;
+        ss_config cfg;
         std::array<std::uint8_t, 16> key{};
         for (std::size_t i = 0; i < 16; ++i)
             key[i] = static_cast<std::uint8_t>(i + 1);
@@ -53,9 +55,9 @@ namespace
         return cfg;
     }
 
-    auto make_chacha_config() -> config
+    auto make_chacha_config() -> ss_config
     {
-        config cfg;
+        ss_config cfg;
         std::array<std::uint8_t, 32> key{};
         for (std::size_t i = 0; i < 32; ++i)
             key[i] = static_cast<std::uint8_t>(i + 1);
@@ -534,7 +536,7 @@ namespace
         EXPECT_TRUE(result.destination_port == 80) << "aes ipv4 decrypt: port=80";
         EXPECT_TRUE(result.payload.size() == 1) << "aes ipv4 decrypt: payload size=1";
         EXPECT_TRUE(result.payload[0] == 0xAB) << "aes ipv4 decrypt: payload[0]=0xAB";
-        EXPECT_TRUE(result.session_id == session_id) << "aes ipv4 decrypt: session_id";
+        EXPECT_TRUE(result.relay_id == session_id) << "aes ipv4 decrypt: session_id";
     }
 
     TEST(ShadowsocksDatagramDeep, AesDecryptDomainSuccess)
@@ -634,7 +636,7 @@ namespace
         EXPECT_TRUE(result.destination_port == 80) << "chacha ipv6 decrypt: port=80";
         EXPECT_TRUE(result.payload.size() == 1) << "chacha ipv6 decrypt: payload size=1";
         EXPECT_TRUE(result.payload[0] == 0xFF) << "chacha ipv6 decrypt: payload[0]=0xFF";
-        EXPECT_TRUE(result.session_id == session_id) << "chacha ipv6 decrypt: session_id";
+        EXPECT_TRUE(result.relay_id == session_id) << "chacha ipv6 decrypt: session_id";
     }
 
     TEST(ShadowsocksDatagramDeep, ChachaDecryptDomainSuccess)

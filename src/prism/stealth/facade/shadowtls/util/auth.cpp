@@ -1,4 +1,3 @@
-
 #include <prism/stealth/facade/shadowtls/util/auth.hpp>
 
 #include <prism/stealth/facade/shadowtls/util/constants.hpp>
@@ -11,6 +10,8 @@
 #include <cstdint>
 #include <cstring>
 #include <vector>
+
+using namespace psm::trace;
 
 namespace psm::stealth::shadowtls
 {
@@ -80,9 +81,10 @@ namespace psm::stealth::shadowtls
         std::array<std::uint8_t, 4> client_tag{};
         std::memcpy(client_tag.data(), raw + client_hmac_offset, hmac_size);
 
-        // 调试日志
-        trace::debug("[ShadowTLS] verify_client_hello: data_size={}, hmac_offset={}, ch_size={}",
-            data_size, hmac_offset_in_data, client_hello.size());
+        {
+            trace::debug("verify_client_hello: data_size={}, hmac_offset={}, ch_size={}",
+                data_size, hmac_offset_in_data, client_hello.size());
+        }
 
         return CRYPTO_memcmp(expected.data(), client_tag.data(), hmac_size) == 0;
     }

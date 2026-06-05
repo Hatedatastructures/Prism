@@ -5,7 +5,7 @@
 #include <prism/trace/spdlog.hpp>
 #include <prism/transport/preview.hpp>
 
-constexpr std::string_view shadowsocks_tag = "[Protocol.Shadowsocks]";
+using namespace psm::trace;
 
 namespace psm::protocol::shadowsocks
 {
@@ -35,18 +35,18 @@ namespace psm::protocol::shadowsocks
         auto [ec, req] = co_await agent->handshake();
         if (fault::failed(ec))
         {
-            trace::warn("{} handshake failed: {}", shadowsocks_tag, fault::describe(ec));
+            trace::warn<flt::conn | flt::protocol>("handshake failed: {}", fault::describe(ec));
             co_return;
         }
 
         // 解析目标地址
-        trace::info("{} CONNECT -> {}:{}", shadowsocks_tag, agent->target().host, agent->target().port);
+        trace::info<flt::conn | flt::protocol>("CONNECT -> {}:{}", agent->target().host, agent->target().port);
 
         // 乐观响应：先发送 acknowledge 再拨号（与 mihomo 一致）
         auto ack_ec = co_await agent->acknowledge();
         if (fault::failed(ack_ec))
         {
-            trace::warn("{} acknowledge failed: {}", shadowsocks_tag, fault::describe(ack_ec));
+            trace::warn<flt::conn | flt::protocol>("acknowledge failed: {}", fault::describe(ack_ec));
             co_return;
         }
 

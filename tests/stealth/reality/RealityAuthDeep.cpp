@@ -17,6 +17,7 @@ namespace
 {
     using namespace psm::stealth::reality;
     namespace tls = psm::protocol::tls;
+    using reality_config = psm::stealth::reality::config;
 
     // ─── hex_digit ─────────────────────────────────
 
@@ -207,7 +208,7 @@ namespace
 
     TEST(RealityAuthDeep, VerifyClientHelloSuccess)
     {
-        config cfg;
+        reality_config cfg;
         tls::hello_features hello;
         hello.server_name = "example.com";
         cfg.server_names.emplace_back("example.com");
@@ -221,7 +222,7 @@ namespace
 
     TEST(RealityAuthDeep, VerifyClientHelloSniMismatch)
     {
-        config cfg;
+        reality_config cfg;
         tls::hello_features hello;
         hello.server_name = "bad.com";
         cfg.server_names.emplace_back("example.com");
@@ -236,7 +237,7 @@ namespace
     TEST(RealityAuthDeep, VerifyClientHelloEmptySni)
     {
         // 空 SNI 不触发 mismatch 检查
-        config cfg;
+        reality_config cfg;
         tls::hello_features hello;
         // server_name 默认为空
         cfg.server_names.emplace_back("example.com");
@@ -250,7 +251,7 @@ namespace
 
     TEST(RealityAuthDeep, VerifyClientHelloNoX25519)
     {
-        config cfg;
+        reality_config cfg;
         tls::hello_features hello;
         hello.has_x25519 = false;
         hello.versions.push_back(tls::VERSION_TLS13);
@@ -262,7 +263,7 @@ namespace
 
     TEST(RealityAuthDeep, VerifyClientHelloNoTls13)
     {
-        config cfg;
+        reality_config cfg;
         tls::hello_features hello;
         hello.has_x25519 = true;
         hello.versions.push_back(tls::VERSION_TLS12); // 只有 TLS 1.2
@@ -274,7 +275,7 @@ namespace
 
     TEST(RealityAuthDeep, VerifyClientHelloSessionIdTooShort)
     {
-        config cfg;
+        reality_config cfg;
         tls::hello_features hello;
         hello.has_x25519 = true;
         hello.versions.push_back(tls::VERSION_TLS13);
@@ -286,7 +287,7 @@ namespace
 
     TEST(RealityAuthDeep, VerifyClientHelloNoVersions)
     {
-        config cfg;
+        reality_config cfg;
         tls::hello_features hello;
         hello.has_x25519 = true;
         // versions 为空
@@ -299,7 +300,7 @@ namespace
     TEST(RealityAuthDeep, VerifyClientHelloEmptyServerNames)
     {
         // server_names 为空列表，任何 SNI 都不匹配
-        config cfg;
+        reality_config cfg;
         tls::hello_features hello;
         hello.server_name = "example.com";
         // cfg.server_names 为空

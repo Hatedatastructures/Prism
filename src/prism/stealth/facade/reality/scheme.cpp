@@ -5,6 +5,8 @@
 #include <prism/stealth/facade/reality/handshake.hpp>
 #include <prism/trace.hpp>
 
+using namespace psm::trace;
+
 namespace psm::stealth::reality
 {
 
@@ -29,7 +31,7 @@ namespace psm::stealth::reality
     {
         if (rec_tls::has_feature(bitmap, rec_tls::feature_bit::reality_marker))
         {
-            trace::debug("[Reality] Sniff: exclusive marker [01:08:02] found");
+            trace::debug<flt::conn | flt::protocol>("Sniff: exclusive marker [01:08:02] found");
             return {
                 .hit = true,
                 .solo = true,  // 独占！命中则跳过其他方案
@@ -41,7 +43,7 @@ namespace psm::stealth::reality
         // 不独占，可能被 ShadowTLS HMAC 验证后抢走
         if (rec_tls::has_all(bitmap, rec_tls::feature_bit::has_x25519 | rec_tls::feature_bit::full_session))
         {
-            trace::debug("[Reality] Sniff: has X25519 + session_id=32, no marker");
+            trace::debug<flt::conn | flt::protocol>("Sniff: has X25519 + session_id=32, no marker");
             return {
                 .hit = true,
                 .solo = false,
@@ -55,7 +57,7 @@ namespace psm::stealth::reality
         const bool has_nonstd_session = rec_tls::has_feature(bitmap, rec_tls::feature_bit::nonstd_session);
         if (has_x25519 && has_nonstd_session)
         {
-            trace::debug("[Reality] Sniff: has X25519 + non-standard session_id");
+            trace::debug<flt::conn | flt::protocol>("Sniff: has X25519 + non-standard session_id");
             return {
                 .hit = true,
                 .solo = false,
@@ -66,7 +68,7 @@ namespace psm::stealth::reality
         // 有 X25519 但 session_id 标准长度（无标记）→ medium-low
         if (rec_tls::has_feature(bitmap, rec_tls::feature_bit::has_x25519))
         {
-            trace::debug("[Reality] Sniff: has X25519 only");
+            trace::debug<flt::conn | flt::protocol>("Sniff: has X25519 only");
             return {
                 .hit = true,
                 .solo = false,
@@ -78,7 +80,7 @@ namespace psm::stealth::reality
         // 需要 SNI 匹配（在 route_table 层检查）
         if (rec_tls::has_all(bitmap, rec_tls::feature_bit::has_sni | rec_tls::feature_bit::full_session))
         {
-            trace::debug("[Reality] Sniff: has SNI + session_id=32, no X25519");
+            trace::debug<flt::conn | flt::protocol>("Sniff: has SNI + session_id=32, no X25519");
             return {
                 .hit = true,
                 .solo = false,
@@ -89,7 +91,7 @@ namespace psm::stealth::reality
         // 只有 SNI → low confidence (SNI 匹配已在上层检查)
         if (rec_tls::has_feature(bitmap, rec_tls::feature_bit::has_sni))
         {
-            trace::debug("[Reality] Sniff: has SNI only");
+            trace::debug<flt::conn | flt::protocol>("Sniff: has SNI only");
             return {
                 .hit = true,
                 .solo = false,

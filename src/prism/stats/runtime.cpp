@@ -2,6 +2,8 @@
 
 #include <prism/trace.hpp>
 
+using namespace psm::trace;
+
 namespace psm::stats::runtime
 {
 
@@ -80,7 +82,7 @@ namespace psm::stats::runtime
             {
                 if (ec != net::error::operation_aborted)
                 {
-                    trace::debug("[Stats] observe timer error: {}", ec.message());
+                    trace::debug("observe timer error: {}", ec.message());
                 }
                 co_return;
             }

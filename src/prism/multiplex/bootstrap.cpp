@@ -6,9 +6,9 @@
 #include <prism/trace/context.hpp>
 #include <prism/transport/transmission.hpp>
 
-constexpr std::string_view tag = "[Mux.Bootstrap]";
-
 using transmission = psm::transport::transmission;
+
+using namespace psm::trace;
 
 namespace psm::multiplex
 {
@@ -76,7 +76,7 @@ namespace psm::multiplex
             {
                 proto_name = "yamux";
             }
-            trace::debug("{} sing-mux handshake completed, protocol={}", tag, proto_name);
+            trace::debug<flt::conn | flt::protocol>("sing-mux handshake completed, protocol={}", proto_name);
             co_return std::make_pair(std::error_code{}, protocol);
         }
     } // namespace
@@ -88,7 +88,7 @@ namespace psm::multiplex
         auto [ec, protocol] = co_await negotiate(*ctx.transport, ctx.mr);
         if (ec)
         {
-            trace::warn("{} sing-mux negotiate failed: {}", tag, ec.message());
+            trace::warn<flt::conn | flt::protocol>("sing-mux negotiate failed: {}", ec.message());
             co_return nullptr;
         }
 
@@ -98,18 +98,18 @@ namespace psm::multiplex
             switch (protocol)
             {
             case protocol_type::yamux:
-                trace::info("{} constructing yamux session", tag);
+                trace::info<flt::conn | flt::protocol>("constructing yamux session");
                 {
                     std::shared_ptr<core> session = std::make_shared<yamux::craft>(
                         core_options{std::move(ctx.transport), ctx.router, ctx.cfg, ctx.mr});
                     session->set_traffic(ctx.traffic, ctx.proto);
                     if (trace::active_prefix) session->set_prefix(*trace::active_prefix);
-                    trace::info("{} yamux session constructed", tag);
+                    trace::info<flt::conn | flt::protocol>("yamux session constructed");
                     co_return session;
                 }
 
             case protocol_type::h2mux:
-                trace::info("{} constructing h2mux session", tag);
+                trace::info<flt::conn | flt::protocol>("constructing h2mux session");
                 {
                     // h2mux bootstrap 路径：sing-mux resolver（等待 StreamRequest）
                     auto singmux_resolver = [](std::int32_t, const h2mux::h2_headers &) -> h2mux::stream_info
@@ -122,31 +122,31 @@ namespace psm::multiplex
                         h2mux::craft_init{ctx.router, ctx.cfg, singmux_resolver});
                     session->set_traffic(ctx.traffic, ctx.proto);
                     if (trace::active_prefix) session->set_prefix(*trace::active_prefix);
-                    trace::info("{} h2mux session constructed", tag);
+                    trace::info<flt::conn | flt::protocol>("h2mux session constructed");
                     co_return session;
                 }
 
             case protocol_type::smux:
             default:
-                trace::info("{} constructing smux session", tag);
+                trace::info<flt::conn | flt::protocol>("constructing smux session");
                 {
                     std::shared_ptr<core> session = std::make_shared<smux::craft>(
                         core_options{std::move(ctx.transport), ctx.router, ctx.cfg, ctx.mr});
                     session->set_traffic(ctx.traffic, ctx.proto);
                     if (trace::active_prefix) session->set_prefix(*trace::active_prefix);
-                    trace::info("{} smux session constructed", tag);
+                    trace::info<flt::conn | flt::protocol>("smux session constructed");
                     co_return session;
                 }
             }
         }
         catch (const std::exception &e)
         {
-            trace::error("{} create_session exception: {}", tag, e.what());
+            trace::error<flt::conn | flt::protocol>("create_session exception: {}", e.what());
             co_return nullptr;
         }
         catch (...)
         {
-            trace::error("{} create_session unknown exception", tag);
+            trace::error<flt::conn | flt::protocol>("create_session unknown exception");
             co_return nullptr;
         }
     }

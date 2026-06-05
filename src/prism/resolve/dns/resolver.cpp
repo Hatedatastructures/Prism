@@ -14,6 +14,8 @@
 #include <numeric>
 #include <optional>
 
+using namespace psm::trace;
+
 namespace psm::resolve::dns
 {
 
@@ -260,17 +262,17 @@ namespace psm::resolve::dns
             {
                 if (rule->blocked)
                 {
-                    trace::debug("[Resolve] {} blocked by rule", qname);
+                    trace::debug("{} blocked by rule", qname);
                     return std::make_pair(fault::code::blocked, memory::vector<net::ip::address>(mr_));
                 }
                 if (rule->negative)
                 {
-                    trace::debug("[Resolve] {} negative rule hit", qname);
+                    trace::debug("{} negative rule hit", qname);
                     return std::make_pair(fault::code::success, memory::vector<net::ip::address>(mr_));
                 }
                 if (!rule->addresses.empty())
                 {
-                    trace::debug("[Resolve] {} -> static address ({} IPs)", qname, rule->addresses.size());
+                    trace::debug("{} -> static address ({} IPs)", qname, rule->addresses.size());
                     return std::make_pair(fault::code::success, memory::vector<net::ip::address>(rule->addresses));
                 }
             }
@@ -288,10 +290,10 @@ namespace psm::resolve::dns
             {
                 if (cached->empty())
                 {
-                    trace::debug("[Resolve] {} negative cache hit", qname);
+                    trace::debug("{} negative cache hit", qname);
                     return std::make_pair(fault::code::dns_failed, std::move(*cached));
                 }
-                trace::debug("[Resolve] {} cache hit ({} IPs)", qname, cached->size());
+                trace::debug("{} cache hit ({} IPs)", qname, cached->size());
                 return std::make_pair(fault::code::success, std::move(*cached));
             }
             return std::nullopt;
@@ -364,7 +366,7 @@ namespace psm::resolve::dns
                     {
                         cache_.put_negative(qname, qt, config_.negative_ttl);
                     }
-                    trace::warn("[Resolve] {} all IPs blacklisted", qname);
+                    trace::warn("{} all IPs blacklisted", qname);
                     co_return std::make_pair(fault::code::blocked, memory::vector<net::ip::address>(mr_));
                 }
                 result.ips = std::move(filtered);
@@ -374,12 +376,12 @@ namespace psm::resolve::dns
 
             if (fault::succeeded(result.error))
             {
-                trace::debug("[Resolve] {} -> {} IPs in {}ms via {}",
+                trace::debug("{} -> {} IPs in {}ms via {}",
                              qname, result.ips.size(), result.rtt_ms, result.server_addr);
             }
             else
             {
-                trace::warn("[Resolve] {} failed: {}", qname, fault::describe(result.error));
+                trace::warn("{} failed: {}", qname, fault::describe(result.error));
             }
 
             co_return std::make_pair(result.error, std::move(result.ips));

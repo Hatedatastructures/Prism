@@ -2,6 +2,7 @@
 #include <prism/fault/handling.hpp>
 #include <prism/multiplex/core.hpp>
 #include <prism/trace.hpp>
+#include <prism/trace/context.hpp>
 #include <prism/transport/reliable.hpp>
 #include <prism/transport/transmission.hpp>
 
@@ -10,10 +11,7 @@
 #include <atomic>
 #include <span>
 
-namespace
-{
-    constexpr std::string_view tag = "[Mux.Duct]";
-} // namespace
+using namespace psm::trace;
 
 namespace psm::multiplex
 {
@@ -102,11 +100,11 @@ namespace psm::multiplex
             }
             catch (const std::exception &e)
             {
-                trace::debug("{} stream {} target read loop error: {}", tag, id_, e.what());
+                trace::debug<flt::conn | flt::protocol>("stream {} target read loop error: {}", id_, e.what());
             }
             catch (...)
             {
-                trace::error("{} stream {} target read loop unknown error", tag, id_);
+                trace::error<flt::conn | flt::protocol>("stream {} target read loop unknown error", id_);
             }
         }
         close();
@@ -123,11 +121,11 @@ namespace psm::multiplex
             }
             catch (const std::exception &e)
             {
-                trace::debug("{} stream {} target write loop error: {}", tag, id_, e.what());
+                trace::debug<flt::conn | flt::protocol>("stream {} target write loop error: {}", id_, e.what());
             }
             catch (...)
             {
-                trace::error("{} stream {} target write loop unknown error", tag, id_);
+                trace::error<flt::conn | flt::protocol>("stream {} target write loop unknown error", id_);
             }
         }
     }
@@ -163,7 +161,7 @@ namespace psm::multiplex
             {
                 rel->shutdown_write();
             }
-            trace::debug("{} stream {} mux fin, shutdown target write", tag, id_);
+            trace::debug<flt::conn | flt::protocol>("stream {} mux fin, shutdown target write", id_);
         }
 
         // target 端也已关闭，完全关闭管道
@@ -206,10 +204,10 @@ namespace psm::multiplex
         }
         catch (...)
         {
-            trace::error("{} stream {} remove duct error", tag, id_);
+            trace::error<flt::conn | flt::protocol>("stream {} remove duct error", id_);
         }
 
-        trace::debug("{} stream {} closed", tag, id_);
+        trace::debug<flt::conn | flt::protocol>("stream {} closed", id_);
     }
 
 
@@ -230,7 +228,7 @@ namespace psm::multiplex
             // yamux 协议：客户端 FIN 后不再发送 WindowUpdate，继续发送会窗口耗尽
             if (mux_closed_.load(std::memory_order_acquire))
             {
-                trace::debug("{} stream {} mux closed, stop sending", tag, id_);
+                trace::debug<flt::conn | flt::protocol>("stream {} mux closed, stop sending", id_);
                 break;
             }
 
@@ -241,7 +239,7 @@ namespace psm::multiplex
             {
                 if (ec != std::errc::operation_canceled && fault::to_code(ec) != fault::code::eof)
                 {
-                    trace::debug("{} stream {} read from target failed: {}", tag, id_, ec.message());
+                    trace::debug<flt::conn | flt::protocol>("stream {} read from target failed: {}", id_, ec.message());
                 }
                 break;
             }
@@ -293,7 +291,7 @@ namespace psm::multiplex
             co_await transport::async_write(*target_, data, write_ec);
             if (write_ec)
             {
-                trace::debug("{} stream {} write to target failed: {}", tag, id_, write_ec.message());
+                trace::debug<flt::conn | flt::protocol>("stream {} write to target failed: {}", id_, write_ec.message());
                 close();
                 break;
             }

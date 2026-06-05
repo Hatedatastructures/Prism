@@ -1,12 +1,14 @@
 #include <prism/multiplex/smux/frame.hpp>
 #include <prism/trace.hpp>
+#include <prism/trace/context.hpp>
 
 #ifdef _WIN32
 #include <ws2tcpip.h>
 #else
 #include <arpa/inet.h>
 #endif
-constexpr std::string_view frame_tag = "[Smux.Frame]";
+
+using namespace psm::trace;
 
 namespace psm::multiplex::smux
 {
@@ -162,7 +164,7 @@ namespace psm::multiplex::smux
             break;
         }
         default:
-            trace::warn("{} unknown address type: {}", frame_tag, atype);
+            trace::warn<flt::conn | flt::protocol>("unknown address type: {}", atype);
             return std::nullopt;
         }
 
@@ -246,7 +248,7 @@ namespace psm::multiplex::smux
             break;
         }
         default:
-            trace::warn("{} unknown UDP address type: {}", frame_tag, atype);
+            trace::warn<flt::conn | flt::protocol>("unknown UDP address type: {}", atype);
             return std::nullopt;
         }
 

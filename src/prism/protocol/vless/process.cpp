@@ -13,9 +13,8 @@
 #include <prism/transport/preview.hpp>
 
 #include <cstdint>
-#include <string_view>
 
-constexpr std::string_view VlessStr = "[Protocol.Vless]";
+using namespace psm::trace;
 
 namespace psm::protocol::vless
 {
@@ -34,13 +33,13 @@ namespace psm::protocol::vless
         {
             if (!ctx.account_directory)
             {
-                trace::warn("{} account directory not configured", VlessStr);
+                trace::warn<flt::conn | flt::protocol>("account directory not configured");
                 return false;
             }
             auto lease = account::try_acquire(*ctx.account_directory, credential);
             if (!lease)
             {
-                trace::warn("{} credential verification failed", VlessStr);
+                trace::warn<flt::conn | flt::protocol>("credential verification failed");
                 return false;
             }
             ctx.account_lease = std::move(lease);
@@ -55,7 +54,7 @@ namespace psm::protocol::vless
         auto [vless_ec, req] = co_await agent->handshake();
         if (fault::failed(vless_ec))
         {
-            trace::warn("{} handshake failed: {}", VlessStr, fault::describe(vless_ec));
+            trace::warn<flt::conn | flt::protocol>("handshake failed: {}", fault::describe(vless_ec));
             co_return;
         }
 
@@ -78,7 +77,7 @@ namespace psm::protocol::vless
                 mux_sw = psm::connect::mux_switch::on;
             if (psm::connect::is_mux(target.host, mux_sw))
             {
-                trace::info("{} mux session started", VlessStr);
+                trace::info<flt::conn | flt::protocol>("mux session started");
                 ctx.stream_close = nullptr;
                 ctx.stream_cancel = nullptr;
                 auto muxprotocol = co_await multiplex::bootstrap(
@@ -99,7 +98,7 @@ namespace psm::protocol::vless
             }
 
             target.positive = true;
-            trace::info("{} CONNECT -> {}:{}", VlessStr, target.host, target.port);
+            trace::info<flt::conn | flt::protocol>("CONNECT -> {}:{}", target.host, target.port);
 
             // 拨号 + 隧道转发
             co_await psm::connect::forward(ctx, {"Vless", target, agent->release()});
@@ -107,7 +106,7 @@ namespace psm::protocol::vless
         }
         case command::udp:
         {
-            trace::info("{} UDP associate started", VlessStr);
+            trace::info<flt::conn | flt::protocol>("UDP associate started");
             using dgram_result = std::pair<fault::code, net::ip::udp::endpoint>;
             using route_fn = std::function<net::awaitable<dgram_result>(std::string_view, std::string_view)>;
             route_fn dgram_router;
@@ -122,16 +121,16 @@ namespace psm::protocol::vless
             const auto associate_ec = co_await agent->async_associate(std::move(dgram_router));
             if (fault::failed(associate_ec))
             {
-                trace::warn("{} UDP associate failed: {}", VlessStr, fault::describe(associate_ec));
+                trace::warn<flt::conn | flt::protocol>("UDP associate failed: {}", fault::describe(associate_ec));
             }
             else
             {
-                trace::info("{} UDP associate completed", VlessStr);
+                trace::info<flt::conn | flt::protocol>("UDP associate completed");
             }
             break;
         }
         default:
-            trace::warn("{} unknown command: {}", VlessStr, static_cast<int>(req.cmd));
+            trace::warn<flt::conn | flt::protocol>("unknown command: {}", static_cast<int>(req.cmd));
             break;
         }
     }

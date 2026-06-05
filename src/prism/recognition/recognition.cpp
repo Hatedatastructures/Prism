@@ -11,6 +11,8 @@
 
 #include <algorithm>
 
+using namespace psm::trace;
+
 namespace psm::recognition
 {
 
@@ -19,33 +21,35 @@ namespace psm::recognition
     {
         identify_result result;
 
-        trace::debug("[Recognition] Starting identify lifecycle");
+        auto *pfx = trace::active_prefix;
+
+        trace::debug<flt::conn | flt::protocol>("starting identify lifecycle");
 
         // Phase 1: 读取完整 ClientHello
         auto [read_ec, raw_record] = co_await recognition::tls::read_tls_record(*ctx.transport, ctx.preread);
         if (fault::failed(read_ec))
         {
-            trace::error("[Recognition] read_tls_record failed: {}", fault::describe(read_ec));
+            trace::error<flt::conn | flt::protocol>(
+                "read_tls_record failed: {}", fault::describe(read_ec));
             result.error = read_ec;
             co_return result;
         }
 
-        trace::debug("[Recognition] Read {} bytes ClientHello", raw_record.size());
+        trace::debug<flt::conn | flt::protocol>("read {} bytes ClientHello", raw_record.size());
 
         // Phase 2: 解析 ClientHello 特征
         auto [parse_ec, features] = recognition::tls::parse_client_hello(raw_record);
         if (fault::failed(parse_ec))
         {
-            trace::error("[Recognition] parse_client_hello failed: {}", fault::describe(parse_ec));
+            trace::error<flt::conn | flt::protocol>(
+                "parse_client_hello failed: {}", fault::describe(parse_ec));
             result.error = parse_ec;
             co_return result;
         }
 
-        // Phase 3: SNI 路由（新增）
+        // Phase 3: SNI 路由
         auto route_table = route_table::build(*ctx.cfg);
         auto matched_scheme_names = route_table.lookup(features.server_name);
-        trace::debug("[Recognition] SNI '{}' matched {} schemes",
-                     features.server_name, matched_scheme_names.size());
 
         // 从 registry 获取匹配的 scheme 实例
         auto &registry = stealth::scheme_registry::instance();
@@ -58,19 +62,16 @@ namespace psm::recognition
         }
 
         // Phase 4: 分层检测
-        // safe: casting uint8_t record data to byte span for TLS pipeline analysis
         auto raw_ch_span = std::span<const std::byte>(
             reinterpret_cast<const std::byte *>(raw_record.data()), raw_record.size());
         auto bitmap = recognition::tls::build_bitmap(features);
 
-        // 使用分层检测管道
         auto pipeline = layered_detection_pipeline(registry.all());
         auto pipeline_result = pipeline.detect(
             detect_input{bitmap, features, raw_ch_span, *ctx.cfg},
             matched_schemes);
 
         // Phase 5: 构建 preview transport
-        // safe: casting uint8_t record data to byte span for preview transport replay
         auto preread_span = std::span(reinterpret_cast<const std::byte *>(raw_record.data()), raw_record.size());
         auto arena_mr = memory::current_resource();
         if (ctx.frame_arena)
@@ -99,7 +100,8 @@ namespace psm::recognition
         // 确定性命中：直接执行
         if (pipeline_result.deterministic_hit)
         {
-            trace::debug("[Recognition] Deterministic hit: {}", pipeline_result.exclusive_scheme);
+            trace::debug<flt::conn | flt::protocol>(
+                "deterministic hit: {}", pipeline_result.exclusive_scheme);
             memory::vector<memory::string> single_candidate;
             single_candidate.push_back(pipeline_result.exclusive_scheme);
 
@@ -110,6 +112,14 @@ namespace psm::recognition
             result.error = scheme_result.error;
             result.executed_scheme = std::move(scheme_result.scheme);
             result.success = !fault::failed(scheme_result.error);
+
+            // 写入 scheme 名到 prefix
+            if (result.success && pfx && !result.executed_scheme.empty())
+            {
+                std::strncpy(pfx->scheme_name, result.executed_scheme.c_str(),
+                             sizeof(pfx->scheme_name) - 1);
+            }
+
             co_return result;
         }
 
@@ -133,12 +143,21 @@ namespace psm::recognition
 
         if (result.success)
         {
-            trace::debug("[Recognition] Identify succeeded: scheme={}, protocol={}",
-                         result.executed_scheme, static_cast<int>(result.detected));
+            // 写入 scheme 名到 prefix
+            if (pfx && !result.executed_scheme.empty())
+            {
+                std::strncpy(pfx->scheme_name, result.executed_scheme.c_str(),
+                             sizeof(pfx->scheme_name) - 1);
+            }
+            trace::debug<flt::conn | flt::protocol>(
+                "identify succeeded: {} → {}",
+                result.executed_scheme,
+                protocol::to_string_view(result.detected));
         }
         else
         {
-            trace::warn("[Recognition] Identify failed: error={}", fault::describe(result.error));
+            trace::warn<flt::conn | flt::protocol>(
+                "identify failed: {}", fault::describe(result.error));
         }
 
         co_return result;
@@ -149,11 +168,9 @@ namespace psm::recognition
     {
         recognize_result result;
 
-        trace::debug("[Recognition] Starting recognize lifecycle");
-
         if (!ctx.transport)
         {
-            trace::error("[Recognition] transport is null");
+            trace::error<flt::conn | flt::protocol>("transport is null");
             result.error = fault::code::not_supported;
             co_return result;
         }
@@ -161,12 +178,13 @@ namespace psm::recognition
         auto probe_res = co_await probe::probe(*ctx.transport, 24);
         if (fault::failed(probe_res.ec))
         {
-            trace::warn("[Recognition] Probe failed: {}", fault::describe(probe_res.ec));
+            trace::warn<flt::conn | flt::protocol>(
+                "probe failed: {}", fault::describe(probe_res.ec));
             result.error = probe_res.ec;
             co_return result;
         }
 
-        trace::debug("[Recognition] Probe result: type={}", protocol::to_string_view(probe_res.type));
+        trace::debug<flt::conn | flt::protocol>("probe result: {}", protocol::to_string_view(probe_res.type));
 
         result.detected = probe_res.type;
         result.preread.assign(probe_res.pre_read_data.begin(), probe_res.pre_read_data.begin() + probe_res.pre_read_size);
@@ -192,13 +210,16 @@ namespace psm::recognition
                 result.executed_scheme = std::move(id_result.executed_scheme);
                 result.success = true;
 
-                trace::debug("[Recognition] Recognize succeeded: scheme={}, protocol={}",
-                             result.executed_scheme, protocol::to_string_view(result.detected));
+                trace::info<flt::conn | flt::protocol>(
+                    "recognized: {} → {}",
+                    result.executed_scheme,
+                    protocol::to_string_view(result.detected));
             }
             else
             {
                 result.error = id_result.error;
-                trace::warn("[Recognition] Identify failed: {}", fault::describe(result.error));
+                trace::warn<flt::conn | flt::protocol>(
+                    "identify failed: {}", fault::describe(result.error));
             }
         }
         else
@@ -206,8 +227,8 @@ namespace psm::recognition
             result.transport = ctx.transport;
             result.success = probe_res.success();
 
-            trace::debug("[Recognition] Recognize succeeded (non-TLS): protocol={}",
-                         protocol::to_string_view(result.detected));
+            trace::debug<flt::conn | flt::protocol>(
+                "recognized (non-TLS): {}", protocol::to_string_view(result.detected));
         }
 
         co_return result;

@@ -9,6 +9,7 @@
 
 #include <algorithm>
 
+using namespace psm::trace;
 
 namespace psm::stealth
 {
@@ -103,19 +104,19 @@ namespace psm::stealth
             const auto scheme = find_scheme(name);
             if (!scheme)
             {
-                trace::warn("[SchemeExecutor] Scheme '{}' not found", name);
+                trace::warn<flt::conn | flt::protocol>("Scheme '{}' not found", name);
                 continue;
             }
 
             if (!scheme->active(*ctx.cfg))
             {
-                trace::debug("[SchemeExecutor] Scheme '{}' disabled, skipping", name);
+                trace::debug<flt::conn | flt::protocol>("Scheme '{}' disabled, skipping", name);
                 continue;
             }
 
             ensure_snapshot(ctx);
 
-            trace::debug("[SchemeExecutor] Executing scheme '{}'", name);
+            trace::debug<flt::conn | flt::protocol>("Executing scheme '{}'", name);
 
             auto exec_result = co_await execute_single(scheme, handshake_context{ctx});
 
@@ -124,7 +125,7 @@ namespace psm::stealth
             {
                 if (!fault::failed(exec_result.error) && !exec_result.transport)
                 {
-                    trace::debug("[SchemeExecutor] Stack scheme '{}' handled connection", name);
+                    trace::debug<flt::conn | flt::protocol>("Stack scheme '{}' handled connection", name);
                     co_return exec_result;
                 }
                 // Stack 失败 → rewind 并尝试下一个
@@ -147,7 +148,7 @@ namespace psm::stealth
             // Facade detected==tls → "不是我的"，尝试下一个（优先于成功判断）
             if (exec_result.detected == protocol::protocol_type::tls)
             {
-                trace::debug("[SchemeExecutor] Scheme '{}' returned TLS, continuing to next", name);
+                trace::debug<flt::conn | flt::protocol>("Scheme '{}' returned TLS, continuing to next", name);
                 rewind_mode rw_mode2;
                 if (exec_result.polluted)
                 {
@@ -170,7 +171,7 @@ namespace psm::stealth
                 {
                     exec_result.detected = secondary_probe(exec_result.preread);
                 }
-                trace::debug("[SchemeExecutor] Facade scheme '{}' succeeded, inner: {}",
+                trace::debug<flt::conn | flt::protocol>("Facade scheme '{}' succeeded, inner: {}",
                              name, static_cast<std::int32_t>(exec_result.detected));
                 co_return exec_result;
             }
@@ -188,10 +189,10 @@ namespace psm::stealth
                 }
                 if (try_rewind(ctx, rw_mode))
                 {
-                    trace::debug("[SchemeExecutor] Scheme '{}' failed but snapshot rewound, trying next", name);
+                    trace::debug<flt::conn | flt::protocol>("Scheme '{}' failed but snapshot rewound, trying next", name);
                     continue;
                 }
-                trace::warn("[SchemeExecutor] Scheme '{}' failed with error: {}",
+                trace::warn<flt::conn | flt::protocol>("Scheme '{}' failed with error: {}",
                             name, fault::describe(exec_result.error));
                 co_return exec_result;
             }
@@ -210,7 +211,7 @@ namespace psm::stealth
     {
         if (analysis.candidates.empty())
         {
-            trace::debug("[SchemeExecutor] No candidates from analysis, executing by default priority");
+            trace::debug<flt::conn | flt::protocol>("No candidates from analysis, executing by default priority");
 
             memory::vector<memory::string> default_order; // 默认顺序
             for (const auto &scheme : schemes_)
@@ -221,9 +222,11 @@ namespace psm::stealth
 
             if (fault::failed(result.error) && !result.transport)
             {
-                trace::debug("[SchemeExecutor] All candidates failed, executing native fallback");
+                trace::debug<flt::conn | flt::protocol>("All candidates failed, executing native fallback");
                 if (const auto native = find_scheme("native"))
+                {
                     co_return co_await execute_single(native, std::move(native_ctx));
+                }
             }
 
             co_return result;

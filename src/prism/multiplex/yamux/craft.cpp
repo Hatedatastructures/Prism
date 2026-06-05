@@ -16,10 +16,11 @@
 
 namespace
 {
-    constexpr std::string_view tag = "[Yamux.Craft]";
 
     constexpr std::size_t max_frame_payload = 65535;
 } // namespace
+
+using namespace psm::trace;
 
 namespace psm::multiplex::yamux
 {
@@ -34,11 +35,11 @@ namespace psm::multiplex::yamux
             }
             catch (const std::exception &e)
             {
-                trace::debug("{} stream {} {} error: {}", tag, stream_id, label, e.what());
+                trace::debug<flt::conn | flt::protocol>("stream {} {} error: {}", stream_id, label, e.what());
             }
             catch (...)
             {
-                trace::error("{} stream {} {} unknown error", tag, stream_id, label);
+                trace::error<flt::conn | flt::protocol>("stream {} {} unknown error", stream_id, label);
             }
         }
     } // namespace
@@ -49,7 +50,7 @@ namespace psm::multiplex::yamux
           channel_(transport_->executor(), config_.yamux.max_streams),
           windows_(mr_)
     {
-        trace::debug("{} constructed", tag);
+        trace::debug<flt::conn | flt::protocol>("constructed");
     }
 
     craft::~craft() noexcept = default;
@@ -87,7 +88,7 @@ namespace psm::multiplex::yamux
     auto craft::frame_loop()
         -> net::awaitable<void>
     {
-        trace::debug("{} frame loop started", tag);
+        trace::debug<flt::conn | flt::protocol>("frame loop started");
 
         std::error_code ec;
 
@@ -99,7 +100,7 @@ namespace psm::multiplex::yamux
             {
                 if (ec != std::errc::operation_canceled)
                 {
-                    trace::debug("{} read header failed: {}", tag, ec.message());
+                    trace::debug<flt::conn | flt::protocol>("read header failed: {}", ec.message());
                 }
                 break;
             }
@@ -107,7 +108,7 @@ namespace psm::multiplex::yamux
             const auto hdr_opt = parse_header(recv_buffer_);
             if (!hdr_opt)
             {
-                trace::warn("{} invalid frame header", tag);
+                trace::warn<flt::conn | flt::protocol>("invalid frame header");
                 break;
             }
 
@@ -118,7 +119,7 @@ namespace psm::multiplex::yamux
             {
                 if (hdr.length > max_frame_payload)
                 {
-                    trace::warn("{} oversized Data frame: stream={}, length={}", tag, hdr.stream_id, hdr.length);
+                    trace::warn<flt::conn | flt::protocol>("oversized Data frame: stream={}, length={}", hdr.stream_id, hdr.length);
                     co_await push_frame({message_type::go_away, flags::none, 0,
                                         static_cast<std::uint32_t>(away_code::protocol_error), {}});
                     break;
@@ -127,7 +128,7 @@ namespace psm::multiplex::yamux
                 const auto payload_n = co_await transport::async_read(*transport_, payload, ec);
                 if (ec || payload_n < hdr.length)
                 {
-                    trace::debug("{} read payload failed: {}", tag, ec.message());
+                    trace::debug<flt::conn | flt::protocol>("read payload failed: {}", ec.message());
                     break;
                 }
             }
@@ -152,7 +153,7 @@ namespace psm::multiplex::yamux
             }
         }
 
-        trace::debug("{} frame loop ended", tag);
+        trace::debug<flt::conn | flt::protocol>("frame loop ended");
     }
 
 
@@ -188,7 +189,7 @@ namespace psm::multiplex::yamux
     {
         if (pending_.size() + ducts_.size() + parcels_.size() >= config_.yamux.max_streams)
         {
-            trace::warn("{} max streams reached, rejecting stream {}", tag, stream_id);
+            trace::warn<flt::conn | flt::protocol>("max streams reached, rejecting stream {}", stream_id);
             co_await push_frame({message_type::window_update, flags::rst, stream_id, 0, {}});
             co_return;
         }
@@ -196,7 +197,7 @@ namespace psm::multiplex::yamux
         auto [it, inserted] = pending_.emplace(stream_id, pending_entry(mr_));
         if (!inserted)
         {
-            trace::warn("{} duplicate SYN for stream {}", tag, stream_id);
+            trace::warn<flt::conn | flt::protocol>("duplicate SYN for stream {}", stream_id);
             co_return;
         }
 
@@ -208,7 +209,7 @@ namespace psm::multiplex::yamux
         auto *window = ensure_window(stream_id);
         if (!window)
         {
-            trace::warn("{} ensure_window failed for stream {}", tag, stream_id);
+            trace::warn<flt::conn | flt::protocol>("ensure_window failed for stream {}", stream_id);
         }
 
         start_pending(stream_id);
@@ -239,7 +240,7 @@ namespace psm::multiplex::yamux
             wit->second->window_signal->cancel();
         }
         windows_.erase(stream_id);
-        trace::debug("{} stream {} reset", tag, stream_id);
+        trace::debug<flt::conn | flt::protocol>("stream {} reset", stream_id);
     }
 
 
@@ -247,7 +248,7 @@ namespace psm::multiplex::yamux
     {
         if (pending_.erase(stream_id))
         {
-            trace::debug("{} stream {} fin while pending", tag, stream_id);
+            trace::debug<flt::conn | flt::protocol>("stream {} fin while pending", stream_id);
             if (const auto wit = windows_.find(stream_id); wit != windows_.end())
             {
                 wit->second->window_signal->cancel();
@@ -267,7 +268,7 @@ namespace psm::multiplex::yamux
             it->second->close();
         }
 
-        trace::debug("{} stream {} fin", tag, stream_id);
+        trace::debug<flt::conn | flt::protocol>("stream {} fin", stream_id);
     }
 
 
@@ -345,7 +346,7 @@ namespace psm::multiplex::yamux
             co_return;
         }
 
-        trace::debug("{} data for unknown stream {}", tag, stream_id);
+        trace::debug<flt::conn | flt::protocol>("data for unknown stream {}", stream_id);
         co_await push_frame({message_type::window_update, flags::rst, stream_id, 0, {}});
     }
 
@@ -407,7 +408,7 @@ namespace psm::multiplex::yamux
                 wit->second->window_signal->cancel();
             }
             windows_.erase(stream_id);
-            trace::debug("{} stream {} reset via window update", tag, stream_id);
+            trace::debug<flt::conn | flt::protocol>("stream {} reset via window update", stream_id);
             co_return;
         }
 
@@ -430,7 +431,7 @@ namespace psm::multiplex::yamux
         {
             if (pending_.size() + ducts_.size() + parcels_.size() >= config_.yamux.max_streams)
             {
-                trace::warn("{} max streams reached, rejecting stream {}", tag, stream_id);
+                trace::warn<flt::conn | flt::protocol>("max streams reached, rejecting stream {}", stream_id);
                 co_await push_frame({message_type::window_update, flags::rst, stream_id, 0, {}});
                 co_return;
             }
@@ -438,7 +439,7 @@ namespace psm::multiplex::yamux
             auto [it, inserted] = pending_.emplace(stream_id, pending_entry(mr_));
             if (!inserted)
             {
-                trace::warn("{} duplicate SYN for stream {}", tag, stream_id);
+                trace::warn<flt::conn | flt::protocol>("duplicate SYN for stream {}", stream_id);
                 co_return;
             }
 
@@ -459,14 +460,14 @@ namespace psm::multiplex::yamux
 
             start_pending(stream_id);
 
-            trace::debug("{} stream {} opened via window update syn, client_window={}, using_window={}",
-                         tag, stream_id, delta, client_window);
+            trace::debug<flt::conn | flt::protocol>("stream {} opened via window update syn, client_window={}, using_window={}",
+                         stream_id, delta, client_window);
             co_return;
         }
 
         if (has_flag(hdr.flag, flags::syn) && has_flag(hdr.flag, flags::ack))
         {
-            trace::debug("{} stream {} syn+ack received", tag, stream_id);
+            trace::debug<flt::conn | flt::protocol>("stream {} syn+ack received", stream_id);
             co_return;
         }
 
@@ -482,7 +483,7 @@ namespace psm::multiplex::yamux
                     new_val = std::numeric_limits<std::uint32_t>::max();
                 }
             } while (!window->send_window.compare_exchange_weak(old_val, new_val, std::memory_order_acq_rel));
-            trace::debug("{} stream {} window update received, delta={}, new_window={}", tag, stream_id, delta, new_val);
+            trace::debug<flt::conn | flt::protocol>("stream {} window update received, delta={}, new_window={}", stream_id, delta, new_val);
 
             window->window_signal->cancel();
         }
@@ -512,7 +513,7 @@ namespace psm::multiplex::yamux
         -> net::awaitable<void>
     {
         const auto code = static_cast<away_code>(hdr.length);
-        trace::debug("{} go away received, code={}", tag, static_cast<std::uint32_t>(code));
+        trace::debug<flt::conn | flt::protocol>("go away received, code={}", static_cast<std::uint32_t>(code));
         close();
         co_return;
     }
@@ -521,7 +522,7 @@ namespace psm::multiplex::yamux
     auto craft::send_addr_err(const std::uint32_t stream_id)
         -> net::awaitable<void>
     {
-        trace::warn("{} stream {} address parse failed", tag, stream_id);
+        trace::warn<flt::conn | flt::protocol>("stream {} address parse failed", stream_id);
         memory::vector<std::byte> error_buf(mr_);
         error_buf.push_back(std::byte{0x01});
         co_await send_data(stream_id, std::move(error_buf));
@@ -533,7 +534,7 @@ namespace psm::multiplex::yamux
     auto craft::activate_udp(activate_opts opts)
         -> net::awaitable<void>
     {
-        trace::debug("{} stream {} creating UDP parcel", tag, opts.stream_id);
+        trace::debug<flt::conn | flt::protocol>("stream {} creating UDP parcel", opts.stream_id);
 
         memory::vector<std::byte> success_buf(mr_);
         success_buf.push_back(std::byte{0x00});
@@ -579,14 +580,14 @@ namespace psm::multiplex::yamux
             co_await dp->on_data(std::move(opts.remaining));
         }
 
-        trace::debug("{} stream {} UDP parcel created", tag, opts.stream_id);
+        trace::debug<flt::conn | flt::protocol>("stream {} UDP parcel created", opts.stream_id);
     }
 
 
     auto craft::activate_tcp(activate_opts opts)
         -> net::awaitable<void>
     {
-        trace::debug("{} stream {} connecting to {}:{}", tag, opts.stream_id, opts.host, opts.port);
+        trace::debug<flt::conn | flt::protocol>("stream {} connecting to {}:{}", opts.stream_id, opts.host, opts.port);
 
         char port_buf[8];
         const auto [port_end, port_ec] = std::to_chars(port_buf, port_buf + sizeof(port_buf), opts.port);
@@ -595,7 +596,7 @@ namespace psm::multiplex::yamux
 
         if (code != fault::code::success || !conn.valid())
         {
-            trace::warn("{} stream {} connect to {}:{} failed", tag, opts.stream_id, opts.host, opts.port);
+            trace::warn<flt::conn | flt::protocol>("stream {} connect to {}:{} failed", opts.stream_id, opts.host, opts.port);
             memory::vector<std::byte> error_buf(mr_);
             error_buf.push_back(std::byte{0x01});
             co_await send_data(opts.stream_id, std::move(error_buf));
@@ -624,7 +625,7 @@ namespace psm::multiplex::yamux
             co_await p->on_data(std::move(opts.remaining));
         }
 
-        trace::debug("{} stream {} connected to {}:{}", tag, opts.stream_id, opts.host, opts.port);
+        trace::debug<flt::conn | flt::protocol>("stream {} connected to {}:{}", opts.stream_id, opts.host, opts.port);
     }
 
 
@@ -728,7 +729,7 @@ namespace psm::multiplex::yamux
         }
         if (pending_.count(stream_id))
         {
-            trace::warn("{} stream {} open timeout, resetting", tag, stream_id);
+            trace::warn<flt::conn | flt::protocol>("stream {} open timeout, resetting", stream_id);
             pending_.erase(stream_id);
             pending_timers_.erase(stream_id);
             windows_.erase(stream_id);
@@ -778,7 +779,7 @@ namespace psm::multiplex::yamux
             const std::uint32_t delta = total_consumed;
             co_await push_frame({message_type::window_update, flags::none, stream_id, delta, {}});
 
-            trace::debug("{} stream {} window update sent, delta={}", tag, stream_id, delta);
+            trace::debug<flt::conn | flt::protocol>("stream {} window update sent, delta={}", stream_id, delta);
         }
     }
 
@@ -824,7 +825,7 @@ namespace psm::multiplex::yamux
                 window = get_window(stream_id);
                 if (!window)
                 {
-                    trace::debug("{} stream {} window removed while waiting", tag, stream_id);
+                    trace::debug<flt::conn | flt::protocol>("stream {} window removed while waiting", stream_id);
                     co_return;
                 }
             }
@@ -920,7 +921,7 @@ namespace psm::multiplex::yamux
         co_await channel_.async_send(boost::system::error_code{}, std::move(frame), token);
         if (ec)
         {
-            trace::debug("{} push frame to channel failed: {}", tag, ec.message());
+            trace::debug<flt::conn | flt::protocol>("push frame to channel failed: {}", ec.message());
         }
     }
 
@@ -928,7 +929,7 @@ namespace psm::multiplex::yamux
     auto craft::send_loop()
         -> net::awaitable<void>
     {
-        trace::debug("{} send loop started", tag);
+        trace::debug<flt::conn | flt::protocol>("send loop started");
         try
         {
             while (is_active())
@@ -958,7 +959,7 @@ namespace psm::multiplex::yamux
 
                 if (transport_ec)
                 {
-                    trace::debug("{} send frame failed: {}", tag, transport_ec.message());
+                    trace::debug<flt::conn | flt::protocol>("send frame failed: {}", transport_ec.message());
                     close();
                     break;
                 }
@@ -966,20 +967,20 @@ namespace psm::multiplex::yamux
         }
         catch (const std::exception &e)
         {
-            trace::debug("{} send loop error: {}", tag, e.what());
+            trace::debug<flt::conn | flt::protocol>("send loop error: {}", e.what());
         }
         catch (...)
         {
-            trace::debug("{} send loop unknown error", tag);
+            trace::debug<flt::conn | flt::protocol>("send loop unknown error");
         }
-        trace::debug("{} send loop ended", tag);
+        trace::debug<flt::conn | flt::protocol>("send loop ended");
     }
 
 
     auto craft::ping_loop()
         -> net::awaitable<void>
     {
-        trace::debug("{} ping loop started, interval={}ms", tag, config_.yamux.ping_interval);
+        trace::debug<flt::conn | flt::protocol>("ping loop started, interval={}ms", config_.yamux.ping_interval);
         net::steady_timer timer(executor());
         try
         {
@@ -998,12 +999,12 @@ namespace psm::multiplex::yamux
         }
         catch (const std::exception &e)
         {
-            trace::debug("{} ping loop error: {}", tag, e.what());
+            trace::debug<flt::conn | flt::protocol>("ping loop error: {}", e.what());
         }
         catch (...)
         {
         }
-        trace::debug("{} ping loop ended", tag);
+        trace::debug<flt::conn | flt::protocol>("ping loop ended");
     }
 
 } // namespace psm::multiplex::yamux

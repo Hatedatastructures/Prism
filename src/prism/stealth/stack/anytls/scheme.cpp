@@ -24,6 +24,8 @@
 #include <array>
 #include <cstring>
 
+using namespace psm::trace;
+
 namespace psm::stealth::anytls
 {
 
@@ -120,8 +122,6 @@ namespace psm::stealth::anytls
             }
         }
 
-        constexpr std::string_view tag = "[AnyTLS]";
-
         auto build_user_map(const memory::vector<user> &users)
             -> user_map_type
         {
@@ -157,7 +157,7 @@ namespace psm::stealth::anytls
             auto raw = connect::peel(std::move(ctx.inbound));
             if (!raw)
             {
-                trace::warn("[AnyTLS] Cannot unwrap transport layers");
+                trace::warn<flt::conn | flt::protocol>("Cannot unwrap transport layers");
                 res.error = fault::code::not_supported;
                 co_return res;
             }
@@ -172,12 +172,12 @@ namespace psm::stealth::anytls
             if (fault::failed(ssl_ec) || !ssl_stream)
             {
                 res.recovered = std::move(recovered);
-                trace::warn("[AnyTLS] TLS handshake failed: {}", fault::describe(ssl_ec));
+                trace::warn<flt::conn | flt::protocol>("TLS handshake failed: {}", fault::describe(ssl_ec));
                 res.error = ssl_ec;
                 co_return res;
             }
 
-            trace::debug("[AnyTLS] TLS handshake succeeded");
+            trace::debug<flt::conn | flt::protocol>("TLS handshake succeeded");
             res.encrypted_trans = std::make_shared<transport::encrypted>(ssl_stream);
             co_return res;
         }
@@ -192,7 +192,7 @@ namespace psm::stealth::anytls
                 read_ec);
             if (read_ec || hash_read < 32)
             {
-                trace::warn("[AnyTLS] Failed to read password hash: {}", read_ec.message());
+                trace::warn<flt::conn | flt::protocol>("Failed to read password hash: {}", read_ec.message());
                 co_return fault::to_code(read_ec);
             }
 
@@ -201,7 +201,7 @@ namespace psm::stealth::anytls
                 std::span<std::byte>(pad_len_buf.data(), pad_len_buf.size()), read_ec);
             if (read_ec || pad_read < 2)
             {
-                trace::warn("[AnyTLS] Failed to read padding length: {}", read_ec.message());
+                trace::warn<flt::conn | flt::protocol>("Failed to read padding length: {}", read_ec.message());
                 co_return fault::to_code(read_ec);
             }
 
@@ -214,7 +214,7 @@ namespace psm::stealth::anytls
                     std::span<std::byte>(padding.data(), padding.size()), read_ec);
                 if (read_ec)
                 {
-                    trace::warn("[AnyTLS] Failed to read padding: {}", read_ec.message());
+                    trace::warn<flt::conn | flt::protocol>("Failed to read padding: {}", read_ec.message());
                     co_return fault::to_code(read_ec);
                 }
             }
@@ -232,10 +232,10 @@ namespace psm::stealth::anytls
             auto it = user_map.find(key);
             if (it == user_map.end())
             {
-                trace::warn("[AnyTLS] Authentication failed: unknown password hash");
+                trace::warn<flt::conn | flt::protocol>("Authentication failed: unknown password hash");
                 return nullptr;
             }
-            trace::debug("[AnyTLS] Authenticated as user: {}", it->second);
+            trace::debug<flt::conn | flt::protocol>("Authenticated as user: {}", it->second);
             return &it->second;
         }
 
@@ -246,7 +246,7 @@ namespace psm::stealth::anytls
         {
             if (preread_data.empty())
             {
-                trace::warn("{} Subsequent stream with empty preread", tag);
+                trace::warn<flt::conn | flt::protocol>("Subsequent stream with empty preread");
                 co_return;
             }
 
@@ -259,12 +259,12 @@ namespace psm::stealth::anytls
                 preread_span, session_ptr->frame_arena.get());
             if (fault::failed(parse_ec))
             {
-                trace::warn("{} failed to parse SOCKS target: {}",
-                    tag, fault::describe(parse_ec));
+                trace::warn<flt::conn | flt::protocol>("failed to parse SOCKS target: {}",
+                    fault::describe(parse_ec));
                 co_return;
             }
 
-            trace::info("{} -> {}:{}", tag, target.host, target.port);
+            trace::info<flt::conn | flt::protocol>("-> {}:{}", target.host, target.port);
             co_await psm::connect::forward(
                 *session_ptr, {"AnyTLS", target, std::move(inbound)});
         }
@@ -289,11 +289,11 @@ namespace psm::stealth::anytls
                     }
                     catch (const std::exception &e)
                     {
-                        trace::error("{} subsequent stream exception: {}", tag, e.what());
+                        trace::error<flt::conn | flt::protocol>("subsequent stream exception: {}", e.what());
                     }
                     catch (...)
                     {
-                        trace::error("{} subsequent stream unknown exception", tag);
+                        trace::error<flt::conn | flt::protocol>("subsequent stream unknown exception");
                     }
                 };
                 net::co_spawn(session_ptr->worker_ctx.io_context.get_executor(),
@@ -310,13 +310,13 @@ namespace psm::stealth::anytls
             auto [wait_ec, stream_info] = co_await anytls_sess->wait_first_stream();
             if (fault::failed(wait_ec))
             {
-                trace::warn("[AnyTLS] Failed to get first stream: {}", fault::describe(wait_ec));
+                trace::warn<flt::conn | flt::protocol>("Failed to get first stream: {}", fault::describe(wait_ec));
                 anytls_sess->close();
                 co_return wait_ec;
             }
 
             auto [stream_id, preread_data] = std::move(stream_info);
-            trace::debug("[AnyTLS] First stream ready, stream_id={}, preread={} bytes",
+            trace::debug<flt::conn | flt::protocol>("First stream ready, stream_id={}, preread={} bytes",
                          stream_id, preread_data.size());
 
             if (preread_data.empty())
@@ -332,21 +332,21 @@ namespace psm::stealth::anytls
             auto [parse_ec, target] = parse_socks_target(preread_span, frame_arena_mr);
             if (fault::failed(parse_ec))
             {
-                trace::warn("{} failed to parse first stream SOCKS target: {}",
-                    tag, fault::describe(parse_ec));
+                trace::warn<flt::conn | flt::protocol>("failed to parse first stream SOCKS target: {}",
+                    fault::describe(parse_ec));
                 anytls_sess->close();
                 co_return parse_ec;
             }
 
-            trace::info("{} -> {}:{}", tag, target.host, target.port);
+            trace::info<flt::conn | flt::protocol>("-> {}:{}", target.host, target.port);
 
             // 第一个流的 SYNACK：v2+ 客户端等待此确认后才发送后续数据
             std::error_code synack_ec;
             co_await anytls_sess->write_synack(stream_id, synack_ec);
             if (synack_ec)
             {
-                trace::warn("{} failed to send SYNACK for first stream: {}",
-                    tag, synack_ec.message());
+                trace::warn<flt::conn | flt::protocol>("failed to send SYNACK for first stream: {}",
+                    synack_ec.message());
             }
 
             auto channel = anytls_sess->get_stream_channel(stream_id);
@@ -364,11 +364,11 @@ namespace psm::stealth::anytls
                 }
                 catch (const std::exception &e)
                 {
-                    trace::error("{} first stream forward exception: {}", tag, e.what());
+                    trace::error<flt::conn | flt::protocol>("first stream forward exception: {}", e.what());
                 }
                 catch (...)
                 {
-                    trace::error("{} first stream forward unknown exception", tag);
+                    trace::error<flt::conn | flt::protocol>("first stream forward unknown exception");
                 }
             };
             net::co_spawn(session_ptr->worker_ctx.io_context.get_executor(),
@@ -411,7 +411,7 @@ namespace psm::stealth::anytls
 
             if (recognition::tls::has_feature(bitmap, recognition::tls::feature_bit::has_ech))
             {
-                trace::debug("[AnyTLS] ECH extension present, key configured");
+                trace::debug<flt::conn | flt::protocol>("ECH extension present, key configured");
                 return {
                     .score = 300,
                     .solo_flag = 0,
@@ -436,6 +436,8 @@ namespace psm::stealth::anytls
     auto scheme::handshake(stealth::handshake_context ctx)
         -> net::awaitable<stealth::handshake_result>
     {
+        auto *pfx = trace::active_prefix;
+
         stealth::handshake_result result;
 
         if (!ctx.session)
@@ -446,7 +448,7 @@ namespace psm::stealth::anytls
 
         if (!ctx.session->server_ctx.ssl_ctx)
         {
-            trace::warn("[AnyTLS] No SSL context configured");
+            trace::warn<flt::conn | flt::protocol>("No SSL context configured");
             result.error = fault::code::not_supported;
             co_return result;
         }
@@ -476,6 +478,13 @@ namespace psm::stealth::anytls
             result.polluted = true;
             result.error = fault::code::auth_failed;
             co_return result;
+        }
+
+        // 认证成功，写入用户名到会话前缀
+        if (pfx)
+        {
+            std::strncpy(pfx->user, username->c_str(), sizeof(pfx->user) - 1);
+            pfx->user[sizeof(pfx->user) - 1] = '\0';
         }
 
         auto scheme_view = std::string_view(cfg.padding_scheme.data(), cfg.padding_scheme.size());

@@ -23,6 +23,7 @@
 
 namespace psm::stealth::anytls
 {
+    using namespace psm::trace;
 
     namespace net = boost::asio;
 
@@ -138,7 +139,7 @@ namespace psm::stealth::anytls
                     }
                     catch (...)
                     {
-                        trace::error("[AnyTLS] write_fin exception for stream_id={}", sid);
+                        trace::error<flt::conn | flt::protocol>("write_fin exception for stream_id={}", sid);
                     }
                 },
                 net::detached);

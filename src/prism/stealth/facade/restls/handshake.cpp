@@ -12,6 +12,8 @@
 #include <atomic>
 #include <cstring>
 
+using namespace psm::trace;
+
 namespace psm::stealth::restls
 {
 
@@ -241,7 +243,7 @@ namespace psm::stealth::restls
 
             if (connect_ec)
             {
-                trace::warn("[Restls] backend connection failed: {}", connect_ec.message());
+                trace::warn<flt::conn | flt::protocol>("backend connection failed: {}", connect_ec.message());
                 co_return std::nullopt;
             }
 
@@ -256,7 +258,7 @@ namespace psm::stealth::restls
             auto sr_opt = extract_server_random(server_hello);
             if (!sr_opt)
             {
-                trace::warn("[Restls] failed to extract server_random");
+                trace::warn<flt::conn | flt::protocol>("failed to extract server_random");
                 return std::nullopt;
             }
 
@@ -268,7 +270,7 @@ namespace psm::stealth::restls
             auto sr_span = std::span<const std::uint8_t, 32>(server_random);
             auto auth_mask = compute_server_mask(secret_span, sr_span);
 
-            trace::debug("[Restls] server_random extracted, tls13={}", tls13);
+            trace::debug<flt::conn | flt::protocol>("server_random extracted, tls13={}", tls13);
             return server_info{
                 .server_random = server_random,
                 .auth_mask = auth_mask,
@@ -322,7 +324,7 @@ namespace psm::stealth::restls
 
             if (!relay_done->load())
             {
-                trace::warn("[Restls] client relay did not exit within timeout");
+                trace::warn<flt::conn | flt::protocol>("client relay did not exit within timeout");
             }
 
             // 将 detached 协程产出的 client_finished 写回调用方
@@ -346,7 +348,7 @@ namespace psm::stealth::restls
             co_return result;
         }
 
-        trace::debug("[Restls] handshake start, client_hello size={}", opts.client_hello.size());
+        trace::debug<flt::conn | flt::protocol>("handshake start, client_hello size={}", opts.client_hello.size());
         auto executor = client_sock.get_executor();
 
         const auto secret = derive_secret(cfg.password);
@@ -354,7 +356,7 @@ namespace psm::stealth::restls
 
         auto [backend_host, backend_port] = parse_host_port(
             std::string_view(cfg.host.data(), cfg.host.size()));
-        trace::debug("[Restls] connecting to backend: {}:{}", backend_host, backend_port);
+        trace::debug<flt::conn | flt::protocol>("connecting to backend: {}:{}", backend_host, backend_port);
 
         auto backend_opt = co_await connect_to_backend(executor, backend_host, backend_port);
         if (!backend_opt)
@@ -372,7 +374,7 @@ namespace psm::stealth::restls
                 net::redirect_error(trace::use_prefix_awaitable, write_ec));
             if (write_ec)
             {
-                trace::warn("[Restls] write ClientHello failed: {}", write_ec.message());
+                trace::warn<flt::conn | flt::protocol>("write ClientHello failed: {}", write_ec.message());
                 result.error = fault::code::connection_refused;
                 co_return result;
             }
@@ -382,7 +384,7 @@ namespace psm::stealth::restls
         auto server_hello_opt = co_await common::read_tls_frame(backend_sock, sh_ec);
         if (sh_ec || !server_hello_opt)
         {
-            trace::warn("[Restls] failed to read ServerHello");
+            trace::warn<flt::conn | flt::protocol>("failed to read ServerHello");
             result.error = fault::code::connection_refused;
             co_return result;
         }
@@ -395,7 +397,7 @@ namespace psm::stealth::restls
                 net::redirect_error(trace::use_prefix_awaitable, write_ec));
             if (write_ec)
             {
-                trace::warn("[Restls] write ServerHello failed: {}", write_ec.message());
+                trace::warn<flt::conn | flt::protocol>("write ServerHello failed: {}", write_ec.message());
                 result.error = fault::code::connection_refused;
                 result.polluted = true;
                 co_return result;
@@ -426,12 +428,12 @@ namespace psm::stealth::restls
 
         if (client_finished.empty())
         {
-            trace::warn("[Restls] clientFinished not captured");
+            trace::warn<flt::conn | flt::protocol>("clientFinished not captured");
             result.error = fault::code::protocol_error;
             co_return result;
         }
 
-        trace::debug("[Restls] handshake complete, client_finished size={}", client_finished.size());
+        trace::debug<flt::conn | flt::protocol>("handshake complete, client_finished size={}", client_finished.size());
 
         detail.restls_secret = secret;
         detail.server_random = info_opt->server_random;

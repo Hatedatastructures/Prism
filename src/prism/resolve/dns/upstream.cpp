@@ -13,6 +13,8 @@
 #include <span>
 #include <string>
 
+using namespace psm::trace;
+
 namespace psm::resolve::dns
 {
 
@@ -685,12 +687,12 @@ namespace psm::resolve::dns
             {
                 if (is_timeout(ec))
                 {
-                    trace::warn("[Resolve] connect to {}:{} timed out", qctx.server.address, qctx.server.port);
+                    trace::warn("connect to {}:{} timed out", qctx.server.address, qctx.server.port);
                     result.error = fault::code::timeout;
                 }
                 else
                 {
-                    trace::warn("[Resolve] connect to {}:{} failed: {}", qctx.server.address, qctx.server.port, ec.message());
+                    trace::warn("connect to {}:{} failed: {}", qctx.server.address, qctx.server.port, ec.message());
                     result.error = fault::code::io_error;
                 }
                 tr.result = std::move(result);
@@ -702,7 +704,7 @@ namespace psm::resolve::dns
             co_await transport.send(payload, ctx, ec);
             if (ec) [[unlikely]]
             {
-                trace::warn("[Resolve] write to {} failed: {}", qctx.server.address, ec.message());
+                trace::warn("write to {} failed: {}", qctx.server.address, ec.message());
                 fault::code send_ec;
                 if (is_timeout(ec))
                 {
@@ -734,12 +736,12 @@ namespace psm::resolve::dns
             {
                 if (is_timeout(ec))
                 {
-                    trace::warn("[Resolve] recv from {} timed out ({}ms)", qctx.server.address, effective_timeout);
+                    trace::warn("recv from {} timed out ({}ms)", qctx.server.address, effective_timeout);
                     result.error = fault::code::timeout;
                 }
                 else
                 {
-                    trace::warn("[Resolve] recv from {} failed: {}", qctx.server.address, ec.message());
+                    trace::warn("recv from {} failed: {}", qctx.server.address, ec.message());
                     result.error = fault::code::io_error;
                 }
                 tr.result = std::move(result);
@@ -749,7 +751,7 @@ namespace psm::resolve::dns
             // 6. 解析响应报文
             if (response_buf.empty()) [[unlikely]]
             {
-                trace::warn("[Resolve] empty response from {}", qctx.server.address);
+                trace::warn("empty response from {}", qctx.server.address);
                 result.error = fault::code::bad_message;
                 tr.result = std::move(result);
                 co_return tr;
@@ -759,7 +761,7 @@ namespace psm::resolve::dns
                 std::span<const std::uint8_t>(response_buf.data(), response_buf.size()), qctx.mr);
             if (!resp || resp->id != qctx.query.id) [[unlikely]]
             {
-                trace::warn("[Resolve] bad response from {}", qctx.server.address);
+                trace::warn("bad response from {}", qctx.server.address);
                 result.error = fault::code::bad_message;
                 tr.result = std::move(result);
                 co_return tr;
@@ -768,7 +770,7 @@ namespace psm::resolve::dns
             // 7. 检查 RCODE（0 = NoError, 3 = NXDomain 均视为可处理）
             if (resp->rcode != 0 && resp->rcode != 3) [[unlikely]]
             {
-                trace::warn("[Resolve] rcode={} from {}", resp->rcode, qctx.server.address);
+                trace::warn("rcode={} from {}", resp->rcode, qctx.server.address);
                 result.response = std::move(*resp);
                 result.error = fault::code::dns_failed;
                 tr.result = std::move(result);
@@ -816,7 +818,7 @@ namespace psm::resolve::dns
         // TC 截断回退：UDP 响应被截断时自动重试 TCP
         if (succeeded(result.error) && resp && resp->tc) [[unlikely]]
         {
-            trace::debug("[Resolve] truncated response from {}, retrying via TCP", server.address);
+            trace::debug("truncated response from {}, retrying via TCP", server.address);
             co_return co_await query_tcp(server, query);
         }
         co_return std::move(result);
@@ -870,7 +872,7 @@ namespace psm::resolve::dns
         {
             auto result = co_await query_server(server, query_msg);
 
-            trace::debug("[Resolve] query to {} completed: code={}, ips={}, rtt={}ms", server.address,
+            trace::debug("query to {} completed: code={}, ips={}, rtt={}ms", server.address,
                          fault::describe(result.error), result.ips.size(), result.rtt_ms);
 
             // 成功获取结果即返回
@@ -880,7 +882,7 @@ namespace psm::resolve::dns
             }
         }
 
-        trace::warn("[Resolve] all upstream failed in fallback mode, domain={}", domain);
+        trace::warn("all upstream failed in fallback mode, domain={}", domain);
         auto fallback = query_result(mr_);
         fallback.error = fault::code::dns_failed;
         co_return fallback;
@@ -915,7 +917,7 @@ namespace psm::resolve::dns
                 auto &result = (*results_shared)[i];
                 result = co_await query_server(server, *query_shared);
 
-                trace::debug("[Resolve] query to {} completed: code={}, ips={}, rtt={}ms", server.address,
+                trace::debug("query to {} completed: code={}, ips={}, rtt={}ms", server.address,
                              fault::describe(result.error), result.ips.size(), result.rtt_ms);
 
                 // 完成后递增计数器并唤醒主协程
@@ -1011,7 +1013,7 @@ namespace psm::resolve::dns
         // 无上游服务器时直接返回失败
         if (servers_.empty()) [[unlikely]]
         {
-            trace::warn("[Resolve] upstream list is empty, domain={}", domain);
+            trace::warn("upstream list is empty, domain={}", domain);
             auto fallback = query_result(mr_);
             fallback.error = fault::code::dns_failed;
             co_return fallback;

@@ -12,9 +12,8 @@
 #include <prism/transport/preview.hpp>
 
 #include <charconv>
-#include <string_view>
 
-constexpr std::string_view TrojanStr = "[Protocol.Trojan]";
+using namespace psm::trace;
 
 namespace psm::protocol::trojan
 {
@@ -33,13 +32,13 @@ namespace psm::protocol::trojan
         {
             if (!ctx.account_directory)
             {
-                trace::warn("{} account directory not configured", TrojanStr);
+                trace::warn<flt::conn | flt::protocol>("account directory not configured");
                 return false;
             }
             auto lease = account::try_acquire(*ctx.account_directory, credential);
             if (!lease)
             {
-                trace::warn("{} credential verification failed", TrojanStr);
+                trace::warn<flt::conn | flt::protocol>("credential verification failed");
                 return false;
             }
             ctx.account_lease = std::move(lease);
@@ -54,7 +53,7 @@ namespace psm::protocol::trojan
         auto [trojan_ec, req] = co_await agent->handshake();
         if (fault::failed(trojan_ec))
         {
-            trace::warn("{} handshake failed: {}", TrojanStr, fault::describe(trojan_ec));
+            trace::warn<flt::conn | flt::protocol>("handshake failed: {}", fault::describe(trojan_ec));
             co_return;
         }
 
@@ -76,7 +75,7 @@ namespace psm::protocol::trojan
                 mux_sw = psm::connect::mux_switch::on;
             if (psm::connect::is_mux(target.host, mux_sw))
             {
-                trace::info("{} mux session started", TrojanStr);
+                trace::info<flt::conn | flt::protocol>("mux session started");
                 ctx.stream_close = nullptr;
                 ctx.stream_cancel = nullptr;
                 auto muxprotocol = co_await multiplex::bootstrap(
@@ -97,7 +96,7 @@ namespace psm::protocol::trojan
             }
 
             target.positive = true;
-            trace::info("{} CONNECT -> {}:{}", TrojanStr, target.host, target.port);
+            trace::info<flt::conn | flt::protocol>("CONNECT -> {}:{}", target.host, target.port);
 
             // 拨号 + 隧道转发
             co_await psm::connect::forward(ctx, {"Trojan", target, agent->release()});
@@ -105,7 +104,7 @@ namespace psm::protocol::trojan
         }
         case command::udp_associate:
         {
-            trace::info("{} UDP_ASSOCIATE started", TrojanStr);
+            trace::info<flt::conn | flt::protocol>("UDP_ASSOCIATE started");
 
             using dgram_result = std::pair<fault::code, net::ip::udp::endpoint>;
             using route_fn = std::function<net::awaitable<dgram_result>(std::string_view, std::string_view)>;
@@ -121,18 +120,18 @@ namespace psm::protocol::trojan
             const auto associate_ec = co_await agent->async_associate(std::move(dgram_router));
             if (fault::failed(associate_ec))
             {
-                trace::warn("{} UDP_ASSOCIATE failed: {}", TrojanStr, fault::describe(associate_ec));
+                trace::warn<flt::conn | flt::protocol>("UDP_ASSOCIATE failed: {}", fault::describe(associate_ec));
             }
             else
             {
-                trace::info("{} UDP_ASSOCIATE completed", TrojanStr);
+                trace::info<flt::conn | flt::protocol>("UDP_ASSOCIATE completed");
             }
             break;
         }
         case command::mux:
         {
             // Trojan mux (cmd=0x7F)：直接进入多路复用模式
-            trace::info("{} mux session started (cmd=0x7F)", TrojanStr);
+            trace::info<flt::conn | flt::protocol>("mux session started (cmd=0x7F)");
             ctx.stream_close = nullptr;
             ctx.stream_cancel = nullptr;
             auto muxprotocol = co_await multiplex::bootstrap(
@@ -152,7 +151,7 @@ namespace psm::protocol::trojan
             co_return;
         }
         default:
-            trace::warn("{} unknown command: {}", TrojanStr, static_cast<int>(req.cmd));
+            trace::warn<flt::conn | flt::protocol>("unknown command: {}", static_cast<int>(req.cmd));
             break;
         }
     }

@@ -8,7 +8,7 @@
  *   trace::debug("msg")
  *
  * 自定义字段选择（pipe 语法）：
- *   trace::debug<field::sid | field::protocol>("msg")
+ *   trace::debug<flt::conn | flt::protocol>("msg")
  *
  * 所有接口内部捕获异常，确保日志失败不影响业务逻辑。
  * @note 允许重复调用 init，后一次覆盖前一次。
@@ -59,7 +59,7 @@ namespace psm::trace
 
     /**
      * @brief 构建当前线程 MDC 上下文的前缀字符串
-     * @return 格式化后的 MDC 前缀，如 "[session_id=abc][request_id=123] "
+     * @return 格式化后的 MDC 前缀，如 "[key1=value1][key2=value2] "
      * @details 遍历当前线程的 MDC 映射，生成 "[key=value]" 格式的
      * 前缀字符串。MDC 为空时返回空字符串。该函数供日志模板函数
      * 内部调用，将 MDC 上下文嵌入消息载荷，绕过异步日志模式下
@@ -132,7 +132,7 @@ namespace psm::trace
     // ─── debug ──────────────────────────────────
 
     /**
-     * @brief 记录调试日志（默认字段：sid + protocol）
+     * @brief 记录调试日志（默认字段：conn + protocol）
      * @tparam Args 格式化参数类型
      * @param fmt 格式化字符串，支持 fmt 库语法
      * @param args 格式化参数
@@ -146,22 +146,22 @@ namespace psm::trace
 
     /**
      * @brief 记录调试日志（自定义字段）
-     * @tparam Fields 字段管道，如 field::sid | field::protocol
+     * @tparam Fields 字段管道，如 flt::conn | flt::protocol
      * @tparam Args 格式化参数类型
      * @param fmt 格式化字符串
      * @param args 格式化参数
      */
-    template <field::field_or_chain auto Fields, typename... Args>
+    template <flt::field_or_chain auto Fields, typename... Args>
     auto debug(std::string_view fmt, Args &&...args) -> void
     {
-        detail::log_impl<field::normalize(Fields)>(
+        detail::log_impl<flt::normalize(Fields)>(
             spdlog::level::debug, fmt, std::forward<Args>(args)...);
     }
 
     // ─── info ───────────────────────────────────
 
     /**
-     * @brief 记录信息日志（默认字段：sid）
+     * @brief 记录信息日志（默认字段：conn）
      */
     template <typename... Args>
     auto info(std::string_view fmt, Args &&...args) -> void
@@ -173,17 +173,17 @@ namespace psm::trace
     /**
      * @brief 记录信息日志（自定义字段）
      */
-    template <field::field_or_chain auto Fields, typename... Args>
+    template <flt::field_or_chain auto Fields, typename... Args>
     auto info(std::string_view fmt, Args &&...args) -> void
     {
-        detail::log_impl<field::normalize(Fields)>(
+        detail::log_impl<flt::normalize(Fields)>(
             spdlog::level::info, fmt, std::forward<Args>(args)...);
     }
 
     // ─── warn ───────────────────────────────────
 
     /**
-     * @brief 记录警告日志（默认字段：sid + client + protocol）
+     * @brief 记录警告日志（默认字段：conn + protocol）
      */
     template <typename... Args>
     auto warn(std::string_view fmt, Args &&...args) -> void
@@ -195,10 +195,10 @@ namespace psm::trace
     /**
      * @brief 记录警告日志（自定义字段）
      */
-    template <field::field_or_chain auto Fields, typename... Args>
+    template <flt::field_or_chain auto Fields, typename... Args>
     auto warn(std::string_view fmt, Args &&...args) -> void
     {
-        detail::log_impl<field::normalize(Fields)>(
+        detail::log_impl<flt::normalize(Fields)>(
             spdlog::level::warn, fmt, std::forward<Args>(args)...);
     }
 
@@ -217,10 +217,10 @@ namespace psm::trace
     /**
      * @brief 记录错误日志（自定义字段）
      */
-    template <field::field_or_chain auto Fields, typename... Args>
+    template <flt::field_or_chain auto Fields, typename... Args>
     auto error(std::string_view fmt, Args &&...args) -> void
     {
-        detail::log_impl<field::normalize(Fields)>(
+        detail::log_impl<flt::normalize(Fields)>(
             spdlog::level::err, fmt, std::forward<Args>(args)...);
     }
 
@@ -241,10 +241,10 @@ namespace psm::trace
     /**
      * @brief 记录致命错误日志（自定义字段）
      */
-    template <field::field_or_chain auto Fields, typename... Args>
+    template <flt::field_or_chain auto Fields, typename... Args>
     auto fatal(std::string_view fmt, Args &&...args) -> void
     {
-        detail::log_impl<field::normalize(Fields)>(
+        detail::log_impl<flt::normalize(Fields)>(
             spdlog::level::critical, fmt, std::forward<Args>(args)...);
     }
 

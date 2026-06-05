@@ -14,9 +14,7 @@
 #include <algorithm>
 #include <array>
 #include <charconv>
-#include <string_view>
-
-constexpr std::string_view udp_tag = "[Trojan.UDP]";
+#include <string>
 
 namespace psm::protocol::trojan
 {
@@ -373,7 +371,6 @@ namespace psm::protocol::trojan
             },
             protocol::common::loop_cfg{
                 idle_timer,
-                udp_tag,
                 config_.idle_timeout,
                 config_.max_dgram,
                 [](void *ctx, std::uint64_t up, std::uint64_t down) noexcept {

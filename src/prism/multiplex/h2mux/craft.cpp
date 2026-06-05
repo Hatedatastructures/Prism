@@ -14,12 +14,13 @@
 #include <charconv>
 #include <cstring>
 
+using namespace psm::trace;
+
 namespace psm::multiplex::h2mux
 {
 
     namespace
     {
-        constexpr std::string_view tag = "[H2mux.Craft]";
 
         void log_spawn_error(const std::exception_ptr &ep, std::string_view label)
         {
@@ -29,7 +30,7 @@ namespace psm::multiplex::h2mux
             }
             catch (const std::exception &e)
             {
-                trace::debug("{} {} error: {}", tag, label, e.what());
+                trace::debug<flt::conn | flt::protocol>("{} error: {}", label, e.what());
             }
             catch (...)
             {
@@ -63,7 +64,7 @@ namespace psm::multiplex::h2mux
         nghttp2_session_callbacks *callbacks = nullptr;
         if (nghttp2_session_callbacks_new(&callbacks) != 0)
         {
-            trace::error("{} failed to create nghttp2 callbacks", tag);
+            trace::error<flt::conn | flt::protocol>("failed to create nghttp2 callbacks");
             return -1;
         }
 
@@ -78,17 +79,17 @@ namespace psm::multiplex::h2mux
 
         if (rv != 0)
         {
-            trace::error("{} failed to create nghttp2 session: {}", tag, nghttp2_strerror(rv));
+            trace::error<flt::conn | flt::protocol>("failed to create nghttp2 session: {}", nghttp2_strerror(rv));
             return -1;
         }
 
         if (nghttp2_submit_settings(session_, NGHTTP2_FLAG_NONE, nullptr, 0) != 0)
         {
-            trace::error("{} failed to submit settings", tag);
+            trace::error<flt::conn | flt::protocol>("failed to submit settings");
             return -1;
         }
 
-        trace::debug("{} nghttp2 session initialized", tag);
+        trace::debug<flt::conn | flt::protocol>("nghttp2 session initialized");
         return 0;
     }
 
@@ -97,7 +98,7 @@ namespace psm::multiplex::h2mux
     {
         if (init_nghttp2() != 0)
         {
-            trace::error("{} nghttp2 init failed", tag);
+            trace::error<flt::conn | flt::protocol>("nghttp2 init failed");
             co_return;
         }
 
@@ -120,7 +121,7 @@ namespace psm::multiplex::h2mux
 
     auto craft::frame_loop() -> net::awaitable<void>
     {
-        trace::debug("{} frame loop started", tag);
+        trace::debug<flt::conn | flt::protocol>("frame loop started");
 
         memory::vector<std::byte> recv_buf(config_.h2mux.buffer_size, mr_);
 
@@ -134,7 +135,7 @@ namespace psm::multiplex::h2mux
             {
                 if (read_ec && read_ec != std::errc::operation_canceled)
                 {
-                    trace::debug("{} transport read closed: {}", tag, read_ec.message());
+                    trace::debug<flt::conn | flt::protocol>("transport read closed: {}", read_ec.message());
                 }
                 break;
             }
@@ -147,8 +148,8 @@ namespace psm::multiplex::h2mux
 
             if (recv_len < 0)
             {
-                trace::error("{} nghttp2 recv error: {}",
-                             tag, nghttp2_strerror(static_cast<std::int32_t>(recv_len)));
+                trace::error<flt::conn | flt::protocol>("nghttp2 recv error: {}",
+                             nghttp2_strerror(static_cast<std::int32_t>(recv_len)));
                 break;
             }
 
@@ -161,7 +162,7 @@ namespace psm::multiplex::h2mux
             connect_waiter_.cancel();
         }
 
-        trace::debug("{} frame loop ended", tag);
+        trace::debug<flt::conn | flt::protocol>("frame loop ended");
     }
 
 
@@ -185,7 +186,7 @@ namespace psm::multiplex::h2mux
 
             if (write_ec)
             {
-                trace::warn("{} send_pending write failed: {}", tag, write_ec.message());
+                trace::warn<flt::conn | flt::protocol>("send_pending write failed: {}", write_ec.message());
                 break;
             }
         }
@@ -250,25 +251,25 @@ namespace psm::multiplex::h2mux
             const auto rc = respond_connect(static_cast<std::int32_t>(stream_id), 200);
             if (rc != 0)
             {
-                trace::warn("{} respond_connect for health check stream {} failed: nghttp2 rc={}", tag, stream_id, rc);
+                trace::warn<flt::conn | flt::protocol>("respond_connect for health check stream {} failed: nghttp2 rc={}", stream_id, rc);
             }
             std::error_code ec;
             co_await send_pending();
             nghttp2_submit_rst_stream(session_, NGHTTP2_FLAG_NONE,
                                       static_cast<std::int32_t>(stream_id), NGHTTP2_NO_ERROR);
             co_await send_pending();
-            trace::debug("{} stream {} health check completed", tag, stream_id);
+            trace::debug<flt::conn | flt::protocol>("stream {} health check completed", stream_id);
             co_return;
         }
 
         case stream_type::udp:
         {
-            trace::debug("{} stream {} creating UDP parcel -> {}:{}", tag, stream_id, info.host, info.port);
+            trace::debug<flt::conn | flt::protocol>("stream {} creating UDP parcel -> {}:{}", stream_id, info.host, info.port);
 
             const auto rc = respond_connect(static_cast<std::int32_t>(stream_id), 200);
             if (rc != 0)
             {
-                trace::warn("{} respond_connect for UDP stream {} failed: nghttp2 rc={}", tag, stream_id, rc);
+                trace::warn<flt::conn | flt::protocol>("respond_connect for UDP stream {} failed: nghttp2 rc={}", stream_id, rc);
             }
             std::error_code ec;
             co_await send_pending();
@@ -295,20 +296,20 @@ namespace psm::multiplex::h2mux
                 dp->close();
             }
 
-            trace::debug("{} stream {} UDP parcel created", tag, stream_id);
+            trace::debug<flt::conn | flt::protocol>("stream {} UDP parcel created", stream_id);
             co_return;
         }
 
         case stream_type::icmp:
         {
-            trace::warn("{} stream {} ICMP not yet implemented, treating as TCP", tag, stream_id);
+            trace::warn<flt::conn | flt::protocol>("stream {} ICMP not yet implemented, treating as TCP", stream_id);
             [[fallthrough]];
         }
 
         case stream_type::tcp:
         default:
         {
-            trace::debug("{} stream {} connecting to {}:{}", tag, stream_id, info.host, info.port);
+            trace::debug<flt::conn | flt::protocol>("stream {} connecting to {}:{}", stream_id, info.host, info.port);
 
             char port_buf[8];
             const auto [port_end, port_ec] = std::to_chars(port_buf, port_buf + sizeof(port_buf), info.port);
@@ -318,7 +319,7 @@ namespace psm::multiplex::h2mux
 
             if (code != fault::code::success || !conn.valid())
             {
-                trace::warn("{} stream {} connect to {}:{} failed", tag, stream_id, info.host, info.port);
+                trace::warn<flt::conn | flt::protocol>("stream {} connect to {}:{} failed", stream_id, info.host, info.port);
                 nghttp2_submit_rst_stream(session_, NGHTTP2_FLAG_NONE,
                                           static_cast<std::int32_t>(stream_id), NGHTTP2_INTERNAL_ERROR);
                 co_await send_pending();
@@ -328,7 +329,7 @@ namespace psm::multiplex::h2mux
             const auto rc = respond_connect(static_cast<std::int32_t>(stream_id), 200);
             if (rc != 0)
             {
-                trace::warn("{} respond_connect for TCP stream {} failed: nghttp2 rc={}", tag, stream_id, rc);
+                trace::warn<flt::conn | flt::protocol>("respond_connect for TCP stream {} failed: nghttp2 rc={}", stream_id, rc);
             }
             std::error_code send_ec;
             co_await send_pending();
@@ -341,7 +342,7 @@ namespace psm::multiplex::h2mux
             ducts_[stream_id] = p;
             p->start();
 
-            trace::debug("{} stream {} connected to {}:{}", tag, stream_id, info.host, info.port);
+            trace::debug<flt::conn | flt::protocol>("stream {} connected to {}:{}", stream_id, info.host, info.port);
         }
         }
     }
@@ -378,7 +379,7 @@ namespace psm::multiplex::h2mux
                 h2_pending_entry entry;
                 entry.headers.stream_id = frame->hd.stream_id;
                 self->h2_pending_[stream_id] = std::move(entry);
-                trace::debug("{} CONNECT detected on stream {}", tag, stream_id);
+                trace::debug<flt::conn | flt::protocol>("CONNECT detected on stream {}", stream_id);
             }
         }
         return 0;
@@ -552,7 +553,7 @@ namespace psm::multiplex::h2mux
         co_await send_channel_.async_send(boost::system::error_code{}, std::move(item), token);
         if (ec)
         {
-            trace::debug("{} send_data channel send failed: {}", tag, ec.message());
+            trace::debug<flt::conn | flt::protocol>("send_data channel send failed: {}", ec.message());
         }
     }
 
@@ -576,7 +577,7 @@ namespace psm::multiplex::h2mux
 
     auto craft::send_loop() -> net::awaitable<void>
     {
-        trace::debug("{} send loop started", tag);
+        trace::debug<flt::conn | flt::protocol>("send loop started");
 
         try
         {
@@ -645,7 +646,7 @@ namespace psm::multiplex::h2mux
                                                     static_cast<std::int32_t>(item.stream_id), &dp);
                 if (rv != 0)
                 {
-                    trace::warn("{} nghttp2_submit_data failed: {}", tag, nghttp2_strerror(rv));
+                    trace::warn<flt::conn | flt::protocol>("nghttp2_submit_data failed: {}", nghttp2_strerror(rv));
                     continue;
                 }
 
@@ -655,14 +656,14 @@ namespace psm::multiplex::h2mux
         }
         catch (const std::exception &e)
         {
-            trace::debug("{} send loop error: {}", tag, e.what());
+            trace::debug<flt::conn | flt::protocol>("send loop error: {}", e.what());
         }
         catch (...)
         {
-            trace::debug("{} send loop unknown error", tag);
+            trace::debug<flt::conn | flt::protocol>("send loop unknown error");
         }
 
-        trace::debug("{} send loop ended", tag);
+        trace::debug<flt::conn | flt::protocol>("send loop ended");
     }
 
 

@@ -28,6 +28,7 @@
 
 namespace psm::protocol::common
 {
+    using namespace psm::trace;
 
     namespace net = boost::asio;
 
@@ -46,7 +47,6 @@ namespace psm::protocol::common
     struct loop_cfg
     {
         net::steady_timer &idle_timer;      // 空闲超时计时器
-        std::string_view log_tag;           // 日志标签
         std::uint32_t idle_timeout;         // 空闲超时时间（秒）
         std::uint32_t max_datagram;         // 最大数据报长度
         traffic_callback on_traffic{nullptr}; // 流量通知回调
@@ -106,7 +106,7 @@ namespace psm::protocol::common
             opts.udp_socket.open(opts.target_ep.protocol(), udp_ec);
             if (udp_ec)
             {
-                trace::warn("[UDP] Socket open failed: {}", udp_ec.message());
+                trace::warn<flt::conn | flt::protocol>("Socket open failed: {}", udp_ec.message());
                 co_return std::tuple{fault::to_code(udp_ec), std::size_t{0}, net::ip::udp::endpoint{}};
             }
         }
@@ -115,7 +115,7 @@ namespace psm::protocol::common
         co_await opts.udp_socket.async_send_to(net::buffer(opts.payload.data(), opts.payload.size()), opts.target_ep, token);
         if (udp_ec)
         {
-            trace::debug("[UDP] Send failed: {}", udp_ec.message());
+            trace::debug<flt::conn | flt::protocol>("Send failed: {}", udp_ec.message());
             co_return std::tuple{fault::to_code(udp_ec), std::size_t{0}, net::ip::udp::endpoint{}};
         }
 
@@ -125,7 +125,7 @@ namespace psm::protocol::common
             net::redirect_error(trace::use_prefix_awaitable, udp_ec));
         if (udp_ec)
         {
-            trace::debug("[UDP] Receive failed: {}", udp_ec.message());
+            trace::debug<flt::conn | flt::protocol>("Receive failed: {}", udp_ec.message());
             co_return std::tuple{fault::to_code(udp_ec), std::size_t{0}, net::ip::udp::endpoint{}};
         }
 
@@ -146,7 +146,6 @@ namespace psm::protocol::common
         const net::ip::udp::endpoint &sender_ep;       // UDP 响应来源端点
         std::size_t resp_n;                            // 响应数据长度
         std::decay_t<BuildFn> build_fn;                // UDP 帧构建函数
-        std::string_view log_tag;                      // 日志标签
     };
 
     /**
@@ -172,7 +171,7 @@ namespace psm::protocol::common
      * @tparam BuildFn UDP 帧构建函数类型
      * @tparam UdpFrame UDP 帧结构类型
      * @param transport TLS 传输层引用
-     * @param ctx 响应上下文（sender_ep, resp_n, build_fn, log_tag）
+     * @param ctx 响应上下文（sender_ep, resp_n, build_fn）
      * @param buf 缓冲区集合
      * @return 是否成功（失败应终止循环）
      * @details 将 UDP 响应封装为协议帧并通过 TLS 传输层发送。
@@ -202,7 +201,7 @@ namespace psm::protocol::common
         co_await transport::async_write(transport, {buf.send.data(), buf.send.size()}, write_ec);
         if (write_ec)
         {
-            trace::debug("{} Write response failed: {}", ctx.log_tag, write_ec.message());
+            trace::warn<flt::conn | flt::protocol>("Write response failed: {}", write_ec.message());
             co_return false;
         }
         co_return true;
@@ -216,7 +215,7 @@ namespace psm::protocol::common
      * @tparam UdpParseResult UDP 解析结果类型
      * @param tls_transport TLS 传输层引用
      * @param frame_ctx 帧循环回调上下文（parse_fn, build_fn, route_cb）
-     * @param config 帧循环配置（定时器、日志标签、超时、最大数据报长度）
+     * @param config 帧循环配置（定时器、超时、最大数据报长度）
      * @return net::awaitable<void> 异步操作
      * @details 从 TLS 流读取 UDP 数据包，解析并转发到目标地址，
      * 然后将响应封装回 TLS 流。支持空闲超时和错误处理。
@@ -257,7 +256,7 @@ namespace psm::protocol::common
 
             if (read_result.index() == 1)
             {
-                trace::debug("{} Idle timeout", config.log_tag);
+                trace::debug<flt::conn | flt::protocol>("Idle timeout");
                 if (config.on_traffic)
                 {
                     config.on_traffic(config.traffic_ctx, uplink_bytes, downlink_bytes);
@@ -270,7 +269,7 @@ namespace psm::protocol::common
 
             if (n == 0)
             {
-                trace::debug("{} Read error or EOF", config.log_tag);
+                trace::debug<flt::conn | flt::protocol>("Read error or EOF");
                 if (config.on_traffic)
                 {
                     config.on_traffic(config.traffic_ctx, uplink_bytes, downlink_bytes);
@@ -281,7 +280,7 @@ namespace psm::protocol::common
             auto [parse_ec, parsed] = frame_ctx.parse_fn(std::span<const std::byte>{buf.recv.data(), n});
             if (fault::failed(parse_ec))
             {
-                trace::warn("{} Packet parse failed", config.log_tag);
+                trace::warn<flt::conn | flt::protocol>("Packet parse failed");
                 continue;
             }
 
@@ -293,7 +292,7 @@ namespace psm::protocol::common
             auto [route_ec, target_ep] = co_await frame_ctx.route_cb(target_host, target_port);
             if (fault::failed(route_ec))
             {
-                trace::debug("{} Route failed for {}:{}", config.log_tag, target_host, target_port);
+                trace::debug<flt::conn | flt::protocol>("Route failed for {}:{}", target_host, target_port);
                 continue;
             }
 
@@ -308,7 +307,7 @@ namespace psm::protocol::common
 
             if (!co_await send_frame<BuildFn, UdpFrame>(
                     tls_transport,
-                    resp_ctx<BuildFn, UdpFrame>{sender_ep, resp_n, frame_ctx.build_fn, config.log_tag},
+                    resp_ctx<BuildFn, UdpFrame>{sender_ep, resp_n, frame_ctx.build_fn},
                     buf))
             {
                 if (config.on_traffic)

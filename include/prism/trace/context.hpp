@@ -4,12 +4,14 @@
  * @details 提供编译期字段管道组合日志前缀机制。通过 operator| 管道语法
  * 选择输出字段，字段按管道顺序渲染，编译期完全展开，运行时零开销。
  *
- * 用法：
- *   trace::debug("msg");                                    // 默认字段
- *   trace::debug<field::sid | field::protocol>("msg");      // 自定义字段
- *   trace::debug<field::protocol | field::sid>("msg");      // 反序输出
+ * 6 字段体系：conn、protocol、stream、scheme、user、phase
+ * 没有值的字段不渲染，每行最多 2 个字段。
  *
- * 扩展字段只需在 namespace field 中添加 tag struct + constexpr 值。
+ * 用法：
+ *   trace::debug("msg");                                        // 默认无前缀
+ *   trace::debug<flt::conn | flt::protocol>("msg");         // 自定义字段
+ *
+ * 扩展字段只需在 namespace flt 中添加 tag struct + constexpr 值。
  *
  * 纯 header-only，零外部依赖（不含 spdlog、boost）。
  */
@@ -18,6 +20,7 @@
 
 #include <cstdint>
 #include <cstdio>
+#include <cstring>
 #include <string>
 #include <type_traits>
 
@@ -39,50 +42,66 @@ namespace psm::trace
      * 组合，编译期构建 chain<Fs...> 类型链。运行时通过 fold expression
      * 按管道顺序展开渲染，零间接调用。
      */
-    namespace field
+    namespace flt
     {
-        /// 字段类型约束：必须含 static constexpr bit
+        /// 字段类型约束：必须含 static constexpr bit 和 static active()
         template <typename T>
-        concept field_type = requires { { T::bit } -> std::convertible_to<unsigned>; };
+        concept field_type = requires(const session_prefix &p) {
+            { T::bit } -> std::convertible_to<unsigned>;
+            { T::active(p) } -> std::convertible_to<bool>;
+        };
 
         // ---- 字段标签 ----
 
-        struct sid_t
+        struct conn_t
         {
             static constexpr unsigned bit = 1u << 0;
-            static auto render(const session_prefix &p, scratch_pad &buf) noexcept -> void;
-        };
-
-        struct client_t
-        {
-            static constexpr unsigned bit = 1u << 1;
-            static auto render(const session_prefix &p, scratch_pad &buf) noexcept -> void;
-        };
-
-        struct listen_t
-        {
-            static constexpr unsigned bit = 1u << 2;
+            static auto active(const session_prefix &p) noexcept -> bool;
             static auto render(const session_prefix &p, scratch_pad &buf) noexcept -> void;
         };
 
         struct protocol_t
         {
+            static constexpr unsigned bit = 1u << 1;
+            static auto active(const session_prefix &p) noexcept -> bool;
+            static auto render(const session_prefix &p, scratch_pad &buf) noexcept -> void;
+        };
+
+        struct stream_t
+        {
+            static constexpr unsigned bit = 1u << 2;
+            static auto active(const session_prefix &p) noexcept -> bool;
+            static auto render(const session_prefix &p, scratch_pad &buf) noexcept -> void;
+        };
+
+        struct scheme_t
+        {
             static constexpr unsigned bit = 1u << 3;
+            static auto active(const session_prefix &p) noexcept -> bool;
+            static auto render(const session_prefix &p, scratch_pad &buf) noexcept -> void;
+        };
+
+        struct user_t
+        {
+            static constexpr unsigned bit = 1u << 4;
+            static auto active(const session_prefix &p) noexcept -> bool;
             static auto render(const session_prefix &p, scratch_pad &buf) noexcept -> void;
         };
 
         struct phase_t
         {
-            static constexpr unsigned bit = 1u << 4;
+            static constexpr unsigned bit = 1u << 5;
+            static auto active(const session_prefix &p) noexcept -> bool;
             static auto render(const session_prefix &p, scratch_pad &buf) noexcept -> void;
         };
 
         // ---- constexpr 值 ----
 
-        inline constexpr sid_t      sid{};
-        inline constexpr client_t   client{};
-        inline constexpr listen_t   listen{};
+        inline constexpr conn_t     conn{};
         inline constexpr protocol_t protocol{};
+        inline constexpr stream_t   stream{};
+        inline constexpr scheme_t   scheme{};
+        inline constexpr user_t     user{};
         inline constexpr phase_t    phase{};
 
         // ---- chain 类型 ----
@@ -142,22 +161,19 @@ namespace psm::trace
             return {};
         }
 
-    } // namespace field
+    } // namespace flt
 
     /**
      * @brief 日志等级默认字段链
-     * @details 每个日志等级绑定一组默认字段，debug 输出最少，
-     * error 输出全部字段用于排查。
+     * @details 所有等级默认无前缀，调用方通过显式模板参数指定字段。
+     * 启动日志、全局模块无需会话上下文。
      */
     namespace level_default
     {
-        static constexpr auto debug = field::chain<field::sid_t, field::protocol_t>{};
-        static constexpr auto info  = field::chain<field::sid_t>{};
-        static constexpr auto warn  = field::chain<field::sid_t, field::client_t,
-                                                     field::protocol_t>{};
-        static constexpr auto error = field::chain<field::sid_t, field::client_t,
-                                                    field::listen_t, field::protocol_t,
-                                                    field::phase_t>{};
+        static constexpr auto debug = flt::chain<>{};
+        static constexpr auto info  = flt::chain<>{};
+        static constexpr auto warn  = flt::chain<>{};
+        static constexpr auto error = flt::chain<>{};
     }
 
     /**
@@ -185,6 +201,12 @@ namespace psm::trace
                                  "%llu", static_cast<unsigned long long>(v));
         }
 
+        auto append(std::uint32_t v) noexcept -> void
+        {
+            pos += std::snprintf(data + pos, capacity - pos,
+                                 "%u", static_cast<unsigned>(v));
+        }
+
         auto append(std::uint16_t v) noexcept -> void
         {
             pos += std::snprintf(data + pos, capacity - pos,
@@ -206,21 +228,11 @@ namespace psm::trace
      * @struct phase_slot
      * @brief 阶段标注
      * @details 通过 set() 设置当前阶段（指向字符串字面量，零分配），
-     * phase_t 字段渲染时输出 [label] 格式。
+     * phase_t 字段渲染时输出 phase=xxx 格式。
      */
     struct phase_slot
     {
         const char *label = nullptr;
-
-        auto render(scratch_pad &buf) const noexcept -> void
-        {
-            if (label)
-            {
-                buf.append("[");
-                buf.append(label);
-                buf.append("]");
-            }
-        }
 
         [[nodiscard]] auto active() const noexcept -> bool
         {
@@ -241,45 +253,45 @@ namespace psm::trace
     /**
      * @struct session_prefix
      * @brief 会话前缀数据
-     * @details 承载单个会话的诊断上下文（会话 ID、客户端/监听端点、
-     * 协议名、阶段标注）。每个字段的渲染逻辑由对应的 field tag struct
-     * 的 static render() 方法实现，由 render_ordered 编译期展开。
+     * @details 承载单个会话的诊断上下文（连接 ID、协议名、流 ID、
+     * TLS 方案、用户名、阶段标注、处理单元名）。每个字段的渲染逻辑
+     * 由对应的 field tag struct 的 static render() 方法实现，
+     * 由 render_ordered 编译期展开。没有值的字段不渲染。
      */
     struct session_prefix
     {
-        std::uint64_t session_id = 0;
+        std::uint64_t conn_id = 0;
         char client[48] = {};
         std::uint16_t client_port = 0;
         char listen[48] = {};
         std::uint16_t listen_port = 0;
         char protocol[16] = {};
+        std::uint32_t stream_id = 0;
+        char scheme_name[16] = {};
+        char user[32] = {};
 
         phase_slot phase;
     };
 
-    // ─── 字段 render 实现 ──────────────────────
+    // ─── 字段 active + render 实现 ──────────────
 
-    namespace field
+    namespace flt
     {
 
-        inline auto sid_t::render(const session_prefix &p, scratch_pad &buf) noexcept -> void
+        inline auto conn_t::active(const session_prefix &p) noexcept -> bool
         {
-            buf.append("sid=");
-            buf.append(p.session_id);
+            return p.conn_id != 0;
         }
 
-        inline auto client_t::render(const session_prefix &p, scratch_pad &buf) noexcept -> void
+        inline auto conn_t::render(const session_prefix &p, scratch_pad &buf) noexcept -> void
         {
-            buf.append(p.client);
-            buf.append(":");
-            buf.append(p.client_port);
+            buf.append("conn=");
+            buf.append(p.conn_id);
         }
 
-        inline auto listen_t::render(const session_prefix &p, scratch_pad &buf) noexcept -> void
+        inline auto protocol_t::active(const session_prefix &p) noexcept -> bool
         {
-            buf.append(p.listen);
-            buf.append(":");
-            buf.append(p.listen_port);
+            return p.protocol[0] != '\0';
         }
 
         inline auto protocol_t::render(const session_prefix &p, scratch_pad &buf) noexcept -> void
@@ -287,48 +299,114 @@ namespace psm::trace
             buf.append(p.protocol);
         }
 
-        inline auto phase_t::render(const session_prefix &p, scratch_pad &buf) noexcept -> void
+        inline auto stream_t::active(const session_prefix &p) noexcept -> bool
         {
-            p.phase.render(buf);
+            return p.stream_id != 0;
         }
 
-    } // namespace field
+        inline auto stream_t::render(const session_prefix &p, scratch_pad &buf) noexcept -> void
+        {
+            buf.append("stream=");
+            buf.append(p.stream_id);
+        }
 
-    // ─── render_ordered — 按 chain 顺序展开 ──────
+        inline auto scheme_t::active(const session_prefix &p) noexcept -> bool
+        {
+            return p.scheme_name[0] != '\0';
+        }
 
-    /// 渲染单个字段
+        inline auto scheme_t::render(const session_prefix &p, scratch_pad &buf) noexcept -> void
+        {
+            buf.append(p.scheme_name);
+        }
+
+        inline auto user_t::active(const session_prefix &p) noexcept -> bool
+        {
+            return p.user[0] != '\0';
+        }
+
+        inline auto user_t::render(const session_prefix &p, scratch_pad &buf) noexcept -> void
+        {
+            buf.append("user=");
+            buf.append(p.user);
+        }
+
+        inline auto phase_t::active(const session_prefix &p) noexcept -> bool
+        {
+            return p.phase.active();
+        }
+
+        inline auto phase_t::render(const session_prefix &p, scratch_pad &buf) noexcept -> void
+        {
+            buf.append("phase=");
+            buf.append(p.phase.label);
+        }
+
+    } // namespace flt
+
+    // ─── render_ordered — 按 chain 顺序展开（跳过无值字段） ──
+
+    /**
+     * @brief 渲染单个字段，返回是否实际渲染
+     * @details 先检查 active()，为 false 时跳过渲染。
+     */
     template <typename F>
-    auto render_one(const session_prefix &p, scratch_pad &buf) noexcept -> void
+    auto render_one(const session_prefix &p, scratch_pad &buf) noexcept -> bool
     {
+        if (!F::active(p))
+            return false;
         F::render(p, buf);
+        return true;
     }
 
     /**
      * @brief 按 chain 顺序渲染字段到 scratch_pad
      * @details 通过 fold expression 编译期展开 chain<Fs...>，
-     * 按管道顺序依次调用每个字段的 render()。输出格式：[field1 field2 ...]
+     * 按管道顺序依次调用每个字段的 render()。
+     * 没有值的字段跳过，全部字段无值时不输出任何内容。
+     * 输出格式：[field1 field2 ...]
      * @param p 会话前缀数据
      * @param buf 栈缓冲区
      * @param ch 字段链（仅用于模板参数推导）
      */
     template <typename... Fs>
     auto render_ordered(const session_prefix &p, scratch_pad &buf,
-                        field::chain<Fs...> /*ch*/) noexcept -> void
+                        flt::chain<Fs...> /*ch*/) noexcept -> void
     {
-        buf.append("[");
         bool sep = false;
+        const auto start_pos = buf.pos;
         auto emit_field = [&](auto fn)
         {
-            if (sep)
-                buf.append(" ");
+            const auto before = buf.pos;
             fn();
-            sep = true;
+            if (buf.pos > before)
+            {
+                if (sep)
+                {
+                    // 在已写入内容前插入空格
+                    // 先把内容右移 1 字节
+                    const auto len = buf.pos - before;
+                    std::memmove(buf.data + before + 1, buf.data + before, len);
+                    buf.data[before] = ' ';
+                    buf.pos++;
+                }
+                sep = true;
+            }
         };
         if constexpr (sizeof...(Fs) > 0)
         {
             (emit_field([&] { render_one<Fs>(p, buf); }), ...);
         }
-        buf.append("]");
+        if (buf.pos > start_pos)
+        {
+            // 在已写入内容前插入 '['，末尾追加 ']'
+            const auto len = buf.pos - start_pos;
+            std::memmove(buf.data + start_pos + 1, buf.data + start_pos, len);
+            buf.data[start_pos] = '[';
+            buf.pos++;
+            buf.data[buf.pos++] = ']';
+            buf.data[buf.pos] = '\0';
+        }
     }
 
     // ─── thread_local 上下文 ────────────────────

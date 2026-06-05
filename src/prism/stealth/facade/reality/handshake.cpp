@@ -34,6 +34,8 @@
 #include <memory>
 #include <string>
 
+using namespace psm::trace;
+
 namespace psm::stealth::reality
 {
 
@@ -41,8 +43,6 @@ namespace psm::stealth::reality
 
     namespace
     {
-        constexpr std::string_view tag = "[Stealth.Handshake]";
-
 
         // 根据握手 transcript 重新计算并加密服务端 Finished 消息
         // TLS 1.3 的 Finished 包含 verify_data = HMAC(handshake_key, transcript_hash)
@@ -55,7 +55,7 @@ namespace psm::stealth::reality
 
             if (old_plaintext.size() < FINISHED_MSG_SIZE)
             {
-                trace::warn("{} plaintext too short for Finished: {}", tag, old_plaintext.size());
+                trace::warn<flt::conn | flt::protocol>("plaintext too short for Finished: {}", old_plaintext.size());
                 return fault::code::kdferr;
             }
 
@@ -72,8 +72,8 @@ namespace psm::stealth::reality
             const auto verify_data = compute_verify(
                 keys.server_finkey, transcript_for_finished);
 
-            trace::debug("{} server Finished transcript computed", tag);
-            trace::debug("{} server Finished verify_data computed", tag);
+            trace::debug<flt::conn | flt::protocol>("server Finished transcript computed");
+            trace::debug<flt::conn | flt::protocol>("server Finished verify_data computed");
 
             // 用正确的 verify_data 构造新的 Finished 明文
             memory::vector<std::uint8_t> correct_plaintext(ee_cert_cv.begin(), ee_cert_cv.end());
@@ -94,7 +94,7 @@ namespace psm::stealth::reality
 
             if (fault::failed(enc_ec))
             {
-                trace::warn("{} failed to encrypt handshake record", tag);
+                trace::warn<flt::conn | flt::protocol>("failed to encrypt handshake record");
                 return enc_ec;
             }
 
@@ -116,20 +116,20 @@ namespace psm::stealth::reality
                 auto [read_ec, rec] = co_await ::psm::tls::record::read(inbound);
                 if (fault::failed(read_ec))
                 {
-                    trace::warn("{} failed to read client record", tag);
+                    trace::warn<flt::conn | flt::protocol>("failed to read client record");
                     co_return fault::code::io_error;
                 }
 
                 const auto rec_ctype = rec.header().content_type;
                 const auto rec_len = rec.header().length;
 
-                trace::debug("{} client rec: type=0x{:02x} len={}", tag,
+                trace::debug<flt::conn | flt::protocol>("client rec: type=0x{:02x} len={}",
                              static_cast<unsigned>(rec_ctype), rec_len);
 
                 // TLS 1.3 中间件兼容性 CCS 记录，直接跳过
                 if (rec_ctype == tls::CT_CHANGE_CIPHER_SPEC)
                 {
-                    trace::debug("{} skipping client CCS record", tag);
+                    trace::debug<flt::conn | flt::protocol>("skipping client CCS record");
                     continue;
                 }
 
@@ -164,23 +164,22 @@ namespace psm::stealth::reality
                         if (inner_ctype == tls::CT_ALERT && decrypted.size() >= 3)
                         {
                             // 客户端拒绝了我们发出去的 ServerHello/证书，握手失败
-                            trace::error("{} client sent TLS ALERT: level={}, desc=0x{:02x} — server Finished was rejected",
-                                         tag,
+                            trace::error<flt::conn | flt::protocol>("client sent TLS ALERT: level={}, desc=0x{:02x} — server Finished was rejected",
                                          static_cast<unsigned>(decrypted[0]),
                                          static_cast<unsigned>(decrypted[1]));
                             co_return fault::code::hsfail;
                         }
                         else
                         {
-                            trace::debug("{} consumed client Finished record ({} bytes, inner_type=0x{:02x})",
-                                         tag, rec_len, static_cast<unsigned>(inner_ctype));
+                            trace::debug<flt::conn | flt::protocol>("consumed client Finished record ({} bytes, inner_type=0x{:02x})",
+                                         rec_len, static_cast<unsigned>(inner_ctype));
                         }
                     }
                     else
                     {
                         // 解密失败：客户端可能用了错误的密钥（说明不是合法 Reality 客户端）
-                        trace::warn("{} failed to decrypt client record (ec={}), raw {} bytes",
-                                    tag, static_cast<int>(open_ec), rec_len);
+                        trace::warn<flt::conn | flt::protocol>("failed to decrypt client record (ec={}), raw {} bytes",
+                                    static_cast<int>(open_ec), rec_len);
                         co_return fault::code::hsfail;
                     }
                 }
@@ -229,7 +228,7 @@ namespace psm::stealth::reality
             if (fault::failed(read_ec))
             {   // 读取失败，可能连接异常或对方不是 TLS 客户端，无法继续握手,取消定时器并返回错误
                 args.deadline.cancel();
-                trace::warn("{} failed to read TLS record: {}", tag, fault::describe(read_ec));
+                trace::warn<flt::conn | flt::protocol>("failed to read TLS record: {}", fault::describe(read_ec));
                 out.result.error = read_ec;
                 if (read_ec == fault::code::canceled)
                     out.result.error = fault::code::timeout;
@@ -241,7 +240,7 @@ namespace psm::stealth::reality
             if (fault::failed(parse_ec))
             {   // 解析失败，取消定时器并返回错误
                 args.deadline.cancel();
-                trace::warn("{} failed to parse ClientHello: {}", tag, fault::describe(parse_ec));
+                trace::warn<flt::conn | flt::protocol>("failed to parse ClientHello: {}", fault::describe(parse_ec));
                 // ClientHello 格式异常，连解析都做不到，直接转发给真实网站兜底
                 const auto fb_ec = co_await fallback_dest(args.session, args.inbound, raw_record);
                 if (fault::succeeded(fb_ec))
@@ -256,7 +255,7 @@ namespace psm::stealth::reality
                 co_return out;
             }
 
-            trace::debug("{} ClientHello parsed, SNI: {}", tag, ch_features.server_name);
+            trace::debug<flt::conn | flt::protocol>("ClientHello parsed, SNI: {}", ch_features.server_name);
 
             // base64 解码服务端静态 X25519 私钥（配置中的 private_key）
             const auto private_key_str = std::string(reality_cfg.private_key.data(), reality_cfg.private_key.size());
@@ -264,7 +263,7 @@ namespace psm::stealth::reality
             if (decoded_key_str.size() != tls::REALITY_KEY_LEN)
             {
                 args.deadline.cancel();
-                trace::warn("{} invalid private key length: {}", tag, decoded_key_str.size());
+                trace::warn<flt::conn | flt::protocol>("invalid private key length: {}", decoded_key_str.size());
                 // 私钥配置错误，无法做 Reality 认证，转发给真实网站
                 const auto fb_ec = co_await fallback_dest(args.session, args.inbound, raw_record);
                 if (fault::succeeded(fb_ec))
@@ -304,24 +303,24 @@ namespace psm::stealth::reality
                 if (auth_ec == fault::code::badsni)
                 {
                     // SNI 不在 server_names 白名单 → 不是 Reality 客户端，交给下一个伪装方案
-                    trace::debug("{} SNI mismatch, falling back to standard TLS", tag);
+                    trace::debug<flt::conn | flt::protocol>("SNI mismatch, falling back to standard TLS");
                     set_preread(out.result);
                     co_return out;
                 }
                 if (out.ch_features.server_name.empty())
                 {
                     // 空 SNI → 无法匹配任何方案，交给下一个伪装方案
-                    trace::debug("{} auth failed with empty SNI, falling back to standard TLS", tag);
+                    trace::debug<flt::conn | flt::protocol>("auth failed with empty SNI, falling back to standard TLS");
                     set_preread(out.result);
                     co_return out;
                 }
                 // short_id 错误或无 X25519 key_share → 不是 Reality 客户端
-                trace::debug("{} auth failed: {}, not Reality, passing to next scheme", tag, fault::describe(auth_ec));
+                trace::debug<flt::conn | flt::protocol>("auth failed: {}, not Reality, passing to next scheme", fault::describe(auth_ec));
                 set_preread(out.result);
                 co_return out;
             }
 
-            trace::info("{} authentication successful", tag);
+            trace::info<flt::conn | flt::protocol>("authentication successful");
             out.auth_res = std::move(auth_res);
             out.done = true;
             co_return out;
@@ -360,7 +359,7 @@ namespace psm::stealth::reality
             if (fault::failed(ephemeral_ec))
             {
                 deadline.cancel();
-                trace::warn("{} ephemeral X25519 key exchange failed", tag);
+                trace::warn<flt::conn | flt::protocol>("ephemeral X25519 key exchange failed");
                 out.result.error = ephemeral_ec;
                 return out;
             }
@@ -380,7 +379,7 @@ namespace psm::stealth::reality
             if (fault::failed(sh_ec))
             {
                 deadline.cancel();
-                trace::warn("{} failed to generate ServerHello: {}", tag, fault::describe(sh_ec));
+                trace::warn<flt::conn | flt::protocol>("failed to generate ServerHello: {}", fault::describe(sh_ec));
                 out.result.error = sh_ec;
                 return out;
             }
@@ -395,7 +394,7 @@ namespace psm::stealth::reality
             if (fault::failed(ks_ec))
             {
                 deadline.cancel();
-                trace::warn("{} failed to derive keys: {}", tag, fault::describe(ks_ec));
+                trace::warn<flt::conn | flt::protocol>("failed to derive keys: {}", fault::describe(ks_ec));
                 out.result.error = ks_ec;
                 return out;
             }
@@ -451,7 +450,7 @@ namespace psm::stealth::reality
                 if (write_ec)
                 {
                     args.deadline.cancel();
-                    trace::warn("{} failed to send handshake records: {}", tag, write_ec.message());
+                    trace::warn<flt::conn | flt::protocol>("failed to send handshake records: {}", write_ec.message());
                     auto err = fault::to_code(write_ec);
                     if (err == fault::code::canceled)
                         err = fault::code::timeout;
@@ -528,11 +527,11 @@ namespace psm::stealth::reality
         std::uint16_t dest_port = 443;
         if (!parse_dest(std::string_view(reality_cfg.dest.data(), reality_cfg.dest.size()), dest_host, dest_port))
         {
-            trace::error("{} invalid dest config: {}", tag, reality_cfg.dest);
+            trace::error<flt::conn | flt::protocol>("invalid dest config: {}", reality_cfg.dest);
             co_return fault::code::unreach;
         }
 
-        trace::info("{} falling back to {}:{}", tag, dest_host, dest_port);
+        trace::info<flt::conn | flt::protocol>("falling back to {}:{}", dest_host, dest_port);
 
         // 通过 router 建立 TCP 连接到真实网站
         char dest_port_buf[8];
@@ -541,7 +540,7 @@ namespace psm::stealth::reality
         auto [connect_ec, dest_conn] = co_await connect::async_forward(session.worker_ctx.router, dest_host, dest_port_str);
         if (fault::failed(connect_ec) || !dest_conn.valid())
         {
-            trace::warn("{} connect to dest failed: {}", tag, fault::describe(connect_ec));
+            trace::warn<flt::conn | flt::protocol>("connect to dest failed: {}", fault::describe(connect_ec));
             co_return fault::code::unreach;
         }
 
@@ -553,7 +552,7 @@ namespace psm::stealth::reality
                                   net::redirect_error(trace::use_prefix_awaitable, write_ec));
         if (write_ec)
         {
-            trace::warn("{} write to dest failed: {}", tag, write_ec.message());
+            trace::warn<flt::conn | flt::protocol>("write to dest failed: {}", write_ec.message());
             co_return fault::code::unreach;
         }
 
@@ -562,7 +561,7 @@ namespace psm::stealth::reality
         auto dest_trans = transport::make_reliable(std::move(*dest_socket_raw));
         co_await connect::tunnel({inbound, std::move(dest_trans), session});
 
-        trace::debug("{} fallback tunnel completed", tag);
+        trace::debug<flt::conn | flt::protocol>("fallback tunnel completed");
         co_return fault::code::success;
     }
 
@@ -582,7 +581,7 @@ namespace psm::stealth::reality
             auto [connect_ec, conn] = co_await connect::async_forward(router, host, cert_port_str);
             if (fault::failed(connect_ec) || !conn.valid())
             {
-                trace::warn("{} connect to dest for cert failed: {}", tag, fault::describe(connect_ec));
+                trace::warn<flt::conn | flt::protocol>("connect to dest for cert failed: {}", fault::describe(connect_ec));
                 co_return std::pair{fault::code::st_certfail, empty_cert};
             }
 
@@ -601,7 +600,7 @@ namespace psm::stealth::reality
                                                 net::redirect_error(trace::use_prefix_awaitable, ec));
             if (ec)
             {
-                trace::warn("{} TLS handshake to dest failed: {}", tag, ec.message());
+                trace::warn<flt::conn | flt::protocol>("TLS handshake to dest failed: {}", ec.message());
                 co_return std::pair{fault::code::st_certfail, empty_cert};
             }
 
@@ -629,16 +628,16 @@ namespace psm::stealth::reality
 
             if (cert_der.empty())
             {
-                trace::warn("{} failed to extract certificate from dest", tag);
+                trace::warn<flt::conn | flt::protocol>("failed to extract certificate from dest");
                 co_return std::pair{fault::code::st_certfail, empty_cert};
             }
 
-            trace::debug("{} fetched dest certificate ({} bytes)", tag, cert_der.size());
+            trace::debug<flt::conn | flt::protocol>("fetched dest certificate ({} bytes)", cert_der.size());
             co_return std::pair{fault::code::success, std::move(cert_der)};
         }
         catch (const std::exception &e)
         {
-            trace::warn("{} exception fetching cert: {}", tag, e.what());
+            trace::warn<flt::conn | flt::protocol>("exception fetching cert: {}", e.what());
             co_return std::pair{fault::code::st_certfail, empty_cert};
         }
     }
@@ -661,7 +660,7 @@ namespace psm::stealth::reality
 
         if (!inbound)
         {   // 传输层无效，无法继续握手
-            trace::warn("{} invalid inbound transmission", tag);
+            trace::warn<flt::conn | flt::protocol>("invalid inbound transmission");
             result.error = fault::code::io_error;
             co_return result;
         }
@@ -678,13 +677,17 @@ namespace psm::stealth::reality
         // authenticate 内部：X25519(静态私钥, 客户端公钥) → 派生 auth_key → AES-GCM 解密 session_id → 验证 short_id
         auto auth = co_await authenticate_client({inbound, cfg, session, deadline});
         if (!auth.done)
+        {
             co_return auth.result;
+        }
 
         // 阶段 2：本地完成 TLS 1.3 密钥协商
         // X25519(临时私钥, 客户端公钥) → 构造 ServerHello + 伪造证书 → 派生握手密钥
         auto nego = negotiate_tls(auth.ch_features, auth.auth_res, deadline);
         if (!nego.done)
+        {
             co_return nego.result;
+        }
 
         // 阶段 3：发送握手记录给客户端，等待客户端 Finished 验证
         auto [hello_ec, hello_ok] = co_await complete_hello({*inbound, nego.keys, nego.sh_result, deadline});
@@ -710,7 +713,7 @@ namespace psm::stealth::reality
         if (fault::failed(app_ec))
         {   // 派生应用密钥失败，无法建立加密隧道
             deadline.cancel();
-            trace::warn("{} failed to derive application keys", tag);
+            trace::warn<flt::conn | flt::protocol>("failed to derive application keys");
             result.error = app_ec;
             co_return result;
         }
@@ -731,7 +734,7 @@ namespace psm::stealth::reality
         if (read_inner_ec || inner_n == 0)
         {
             deadline.cancel();
-            trace::warn("{} failed to read inner data: {}", tag, read_inner_ec.message());
+            trace::warn<flt::conn | flt::protocol>("failed to read inner data: {}", read_inner_ec.message());
             result.error = fault::to_code(read_inner_ec);
             co_return result;
         }
@@ -743,7 +746,7 @@ namespace psm::stealth::reality
         result.error = fault::code::success;
 
         deadline.cancel();
-        trace::info("{} handshake completed successfully", tag);
+        trace::info<flt::conn | flt::protocol>("handshake completed successfully");
         co_return result;
     }
 } // namespace psm::stealth::reality

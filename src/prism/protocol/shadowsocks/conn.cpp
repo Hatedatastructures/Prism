@@ -16,7 +16,7 @@
 #include <cstdint>
 #include <cstring>
 
-constexpr std::string_view tag = "[SS2022.Relay]";
+using namespace psm::trace;
 
 namespace psm::protocol::shadowsocks
 {
@@ -57,7 +57,7 @@ namespace psm::protocol::shadowsocks
         const auto [ec, psk_bytes] = format::decode_psk(config_.psk);
         if (ec != fault::code::success)
         {
-            trace::error("{} invalid PSK configuration: {}", tag, fault::describe(ec));
+            trace::error<flt::conn | flt::protocol>("invalid PSK configuration: {}", fault::describe(ec));
             return;
         }
         psk_.assign(psk_bytes.begin(), psk_bytes.end());
@@ -137,7 +137,7 @@ namespace psm::protocol::shadowsocks
         co_await transport::async_read(*next_layer_, header_enc, ec);
         if (ec)
         {
-            trace::warn("{} read fixed header failed: {}", tag, ec.message());
+            trace::warn<flt::conn | flt::protocol>("read fixed header failed: {}", ec.message());
             co_return fail(fault::code::connection_reset);
         }
 
@@ -146,14 +146,14 @@ namespace psm::protocol::shadowsocks
         if (const auto r = decrypt_ctx_->open(header_plain, as_u8(header_enc));
             r != fault::code::success)
         {
-            trace::warn("{} decrypt fixed header failed: {} (expected {} plain bytes, got {} enc bytes)",
-                        tag, fault::describe(r), fixed_hdr_plain, fixed_hdr_size);
+            trace::warn<flt::conn | flt::protocol>("decrypt fixed header failed: {} (expected {} plain bytes, got {} enc bytes)",
+                        fault::describe(r), fixed_hdr_plain, fixed_hdr_size);
             co_return fail(fault::code::auth_failed);
         }
         // 验证请求类型
         if (header_plain[0] != request_type)
         {
-            trace::warn("{} invalid request type: 0x{:02x}", tag, header_plain[0]);
+            trace::warn<flt::conn | flt::protocol>("invalid request type: 0x{:02x}", header_plain[0]);
             co_return fail(fault::code::bad_message);
         }
 
@@ -175,8 +175,8 @@ namespace psm::protocol::shadowsocks
         }
         if (diff > config_.timestamp_window)
         {
-            trace::warn("{} timestamp expired: client_ts={}, server_ts={}, diff={}s",
-                        tag, client_ts, now, diff);
+            trace::warn<flt::conn | flt::protocol>("timestamp expired: client_ts={}, server_ts={}, diff={}s",
+                        client_ts, now, diff);
             co_return fail(fault::code::timestamp_expired);
         }
 
@@ -197,7 +197,7 @@ namespace psm::protocol::shadowsocks
         co_await transport::async_read(*next_layer_, var_header_enc, ec);
         if (ec)
         {
-            trace::warn("{} read variable header failed: {}", tag, ec.message());
+            trace::warn<flt::conn | flt::protocol>("read variable header failed: {}", ec.message());
             co_return fault::code::connection_reset;
         }
 
@@ -206,7 +206,7 @@ namespace psm::protocol::shadowsocks
         if (const auto r = decrypt_ctx_->open(var_header_plain, as_u8(var_header_enc));
             r != fault::code::success)
         {
-            trace::warn("{} decrypt variable header failed: {}", tag, fault::describe(r));
+            trace::warn<flt::conn | flt::protocol>("decrypt variable header failed: {}", fault::describe(r));
             co_return fault::code::auth_failed;
         }
 
@@ -215,7 +215,7 @@ namespace psm::protocol::shadowsocks
             std::span<const std::uint8_t>(var_header_plain));
         if (addr_ec != fault::code::success)
         {
-            trace::warn("{} address parse failed: {}", tag, fault::describe(addr_ec));
+            trace::warn<flt::conn | flt::protocol>("address parse failed: {}", fault::describe(addr_ec));
             co_return addr_ec;
         }
 
@@ -238,7 +238,7 @@ namespace psm::protocol::shadowsocks
 
             if (offset + padding_len > var_header_plain.size())
             {
-                trace::error("[SS2022] padding_len ({}) 超出剩余数据 ({})", padding_len, var_header_plain.size() - offset);
+                trace::error<flt::conn | flt::protocol>("padding_len ({}) exceeds remaining data ({})", padding_len, var_header_plain.size() - offset);
                 co_return fault::code::protocol_error;
             }
             offset += padding_len;
@@ -294,7 +294,7 @@ namespace psm::protocol::shadowsocks
         if (const auto r = encrypt_ctx_->seal(resp_fixed_enc, resp_fixed_plain);
             r != fault::code::success)
         {
-            trace::error("{} encrypt response fixed header failed", tag);
+            trace::error<flt::conn | flt::protocol>("encrypt response fixed header failed");
             co_return fault::code::crypto_error;
         }
 
@@ -304,7 +304,7 @@ namespace psm::protocol::shadowsocks
         if (const auto r = encrypt_ctx_->seal(empty_payload_enc, {});
             r != fault::code::success)
         {
-            trace::error("{} encrypt empty payload chunk failed", tag);
+            trace::error<flt::conn | flt::protocol>("encrypt empty payload chunk failed");
             co_return fault::code::crypto_error;
         }
 
@@ -323,7 +323,7 @@ namespace psm::protocol::shadowsocks
         co_await transport::async_write(*next_layer_, resp_combined, ec);
         if (ec)
         {
-            trace::warn("{} write response failed: {}", tag, ec.message());
+            trace::warn<flt::conn | flt::protocol>("write response failed: {}", ec.message());
             co_return fault::code::connection_reset;
         }
 
@@ -339,7 +339,7 @@ namespace psm::protocol::shadowsocks
 
         if (psk_.empty())
         {
-            trace::error("{} PSK not configured", tag);
+            trace::error<flt::conn | flt::protocol>("PSK not configured");
             co_return std::pair{fault::code::invalid_psk, req};
         }
 
@@ -353,8 +353,8 @@ namespace psm::protocol::shadowsocks
 
         std::error_code ec;
 
-        trace::debug("{} handshake start: method={}, key_salt_len={}, psk_size={}",
-                    tag, static_cast<int>(method_), key_salt_len_, psk_.size());
+        trace::debug<flt::conn | flt::protocol>("handshake start: method={}, key_salt_len={}, psk_size={}",
+                    static_cast<int>(method_), key_salt_len_, psk_.size());
 
         // 1. 读取 client salt
         memory::vector<std::uint8_t> client_salt(key_salt_len_);
@@ -362,7 +362,7 @@ namespace psm::protocol::shadowsocks
         if (ec)
         {
             deadline.cancel();
-            trace::warn("{} read client salt failed: {}", tag, ec.message());
+            trace::warn<flt::conn | flt::protocol>("read client salt failed: {}", ec.message());
             if (ec == std::make_error_code(std::errc::operation_canceled))
             {
                 co_return std::pair{fault::code::timeout, req};
@@ -374,7 +374,7 @@ namespace psm::protocol::shadowsocks
         if (salt_pool_ && !salt_pool_->check_and_insert(client_salt))
         {
             deadline.cancel();
-            trace::warn("{} salt replay detected", tag);
+            trace::warn<flt::conn | flt::protocol>("salt replay detected");
             co_return std::pair{fault::code::replay_detected, req};
         }
 
@@ -383,7 +383,7 @@ namespace psm::protocol::shadowsocks
 
         // 3. 派生解密上下文
         decrypt_ctx_ = derive_aead_context(client_salt);
-        trace::debug("{} derived decrypt context from salt", tag);
+        trace::debug<flt::conn | flt::protocol>("derived decrypt context from salt");
 
         // 4. 读取并验证固定头
         auto [header_ec, var_header_len, now] = co_await read_fixed_hdr();
@@ -463,9 +463,9 @@ namespace psm::protocol::shadowsocks
         if (ec)
         {
             if (ec == fault::code::eof || ec == fault::code::canceled)
-                trace::debug("{} async_read_some: client disconnected", tag);
+                trace::debug<flt::conn | flt::protocol>("async_read_some: client disconnected");
             else
-                trace::warn("{} async_read_some: fetch_chunk failed: {}", tag, ec.message());
+                trace::warn<flt::conn | flt::protocol>("async_read_some: fetch_chunk failed: {}", ec.message());
             co_return 0;
         }
 
@@ -528,7 +528,7 @@ namespace psm::protocol::shadowsocks
         if (const auto r = decrypt_ctx_->open(as_u8_mut(decrypted_), as_u8(chunk_buf_));
             r != fault::code::success)
         {
-            trace::warn("{} decrypt payload block failed", tag);
+            trace::warn<flt::conn | flt::protocol>("decrypt payload block failed");
             ec = std::make_error_code(std::errc::protocol_error);
             decrypted_.clear();
             co_return;
@@ -549,7 +549,7 @@ namespace psm::protocol::shadowsocks
         ec.clear();
         const auto chunk_len = std::min(data.size(), static_cast<std::size_t>(max_chunk_size));
 
-        trace::debug("{} send_chunk: chunk_len={}, data_size={}", tag, chunk_len, data.size());
+        trace::debug<flt::conn | flt::protocol>("send_chunk: chunk_len={}, data_size={}", chunk_len, data.size());
 
         // 加密长度块
         std::array len_plain{
@@ -560,7 +560,7 @@ namespace psm::protocol::shadowsocks
         if (const auto r = encrypt_ctx_->seal(len_enc, len_plain);
             r != fault::code::success)
         {
-            trace::warn("{} encrypt length block failed", tag);
+            trace::warn<flt::conn | flt::protocol>("encrypt length block failed");
             ec = std::make_error_code(std::errc::protocol_error);
             co_return 0;
         }
@@ -570,13 +570,13 @@ namespace psm::protocol::shadowsocks
         if (const auto r = encrypt_ctx_->seal(payload_enc_buf_, as_u8(data.first(chunk_len)));
             r != fault::code::success)
         {
-            trace::warn("{} encrypt payload block failed", tag);
+            trace::warn<flt::conn | flt::protocol>("encrypt payload block failed");
             ec = std::make_error_code(std::errc::protocol_error);
             co_return 0;
         }
 
-        trace::debug("{} send_chunk: len_enc_size={}, payload_enc_size={}, calling transport::async_write",
-                    tag, len_enc.size(), payload_enc_buf_.size());
+        trace::debug<flt::conn | flt::protocol>("send_chunk: len_enc_size={}, payload_enc_size={}, calling transport::async_write",
+                    len_enc.size(), payload_enc_buf_.size());
 
         // 合并写入：加密长度块 + 加密 payload
         const std::size_t chunk_total = len_enc.size() + payload_enc_buf_.size();
@@ -597,8 +597,8 @@ namespace psm::protocol::shadowsocks
         {
             logged_len = chunk_len;
         }
-        trace::debug("{} send_chunk: transport::async_write completed, ec={}, returned {}",
-                    tag, ec_msg, logged_len);
+        trace::debug<flt::conn | flt::protocol>("send_chunk: transport::async_write completed, ec={}, returned {}",
+                    ec_msg, logged_len);
 
         std::size_t sent;
         if (ec)

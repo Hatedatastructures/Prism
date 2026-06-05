@@ -32,13 +32,13 @@ namespace psm::instance::session
     namespace detail
     {
 
-        // 全局会话 ID 计数器，使用原子操作保证线程安全
-        inline std::atomic<std::uint64_t> sid_counter{0};
+        // 全局连接 ID 计数器，使用原子操作保证线程安全
+        inline std::atomic<std::uint64_t> conn_counter{0};
 
-        // 生成新的会话 ID，性能优化：单次原子递增
-        [[nodiscard]] inline auto next_sid() noexcept -> std::uint64_t
+        // 生成新的连接 ID，性能优化：单次原子递增
+        [[nodiscard]] inline auto next_conn_id() noexcept -> std::uint64_t
         {
-            return ++sid_counter;
+            return ++conn_counter;
         }
     } // namespace detail
 
@@ -209,9 +209,9 @@ namespace psm::instance::session
         }
 
         /**
-         * @brief 获取会话 ID
-         * @return 会话的唯一标识符
-         * @details 会话 ID 是全局唯一的 64 位整数，从 1 开始递增。
+         * @brief 获取连接 ID
+         * @return 连接的唯一标识符
+         * @details 连接 ID 是全局唯一的 64 位整数，从 1 开始递增。
          * 用于日志追踪和问题定位。
          */
         [[nodiscard]] auto id() const noexcept -> std::uint64_t
@@ -255,7 +255,7 @@ namespace psm::instance::session
          */
         void release_resources() noexcept;
 
-        std::uint64_t id_;                // 会话唯一标识符
+        std::uint64_t id_;                // 连接唯一标识符
         memory::frame_arena frame_arena_; // 帧内存池
         state state_{state::active};      // 会话状态（单线程 io_context，无需原子）
         std::function<void()> on_closed_; // 关闭回调

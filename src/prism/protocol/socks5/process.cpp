@@ -10,7 +10,7 @@
 
 #include <charconv>
 
-constexpr std::string_view Socks5Str = "[Protocol.Socks5]";
+using namespace psm::trace;
 
 namespace psm::protocol::socks5
 {
@@ -23,7 +23,7 @@ namespace psm::protocol::socks5
         ctx.inbound = nullptr;
         if (!inbound)
         {
-            trace::warn("{} inbound missing", Socks5Str);
+            trace::warn<flt::conn | flt::protocol>("inbound missing");
             co_return;
         }
 
@@ -36,7 +36,7 @@ namespace psm::protocol::socks5
         auto [ec, request] = co_await agent->handshake();
         if (fault::failed(ec))
         {
-            trace::error("{} handshake failed: {}", Socks5Str, fault::cached_message(ec));
+            trace::error<flt::conn | flt::protocol>("handshake failed: {}", fault::cached_message(ec));
             co_return;
         }
 
@@ -52,7 +52,7 @@ namespace psm::protocol::socks5
             const auto [pe, pec] = std::to_chars(port_buf, port_buf + sizeof(port_buf), request.destination_port);
             target.port.assign(port_buf, std::distance(port_buf, pe));
             target.positive = true;
-            trace::info("{} CONNECT -> {}:{}", Socks5Str, target.host, target.port);
+            trace::info<flt::conn | flt::protocol>("CONNECT -> {}:{}", target.host, target.port);
 
             // 先拨号上游 — 失败时返回 SOCKS5 错误码（RFC 1928 语义）
             std::pair<fault::code, psm::connect::shared_transmission> dial_result;
@@ -72,13 +72,13 @@ namespace psm::protocol::socks5
             {
                 if (dial_ec == fault::code::ipv6_disabled)
                 {
-                    trace::debug("{} IPv6 disabled: {}:{}", Socks5Str, target.host, target.port);
+                    trace::debug<flt::conn | flt::protocol>("IPv6 disabled: {}:{}", target.host, target.port);
                     co_await agent->send_error(reply_code::network_unreachable);
                 }
                 else
                 {
                     auto err_desc = fault::describe(dial_ec);
-                    trace::warn("{} dial failed: {}, target: {}:{}", Socks5Str, err_desc, target.host, target.port);
+                    trace::warn<flt::conn | flt::protocol>("dial failed: {}, target: {}:{}", err_desc, target.host, target.port);
                     co_await agent->send_error(reply_code::host_unreachable);
                 }
                 co_return;
@@ -101,7 +101,7 @@ namespace psm::protocol::socks5
             char udp_port_buf[8];
             const auto [upe, upec] = std::to_chars(udp_port_buf, udp_port_buf + sizeof(udp_port_buf), request.destination_port);
             const auto target_port = std::string_view(udp_port_buf, std::distance(udp_port_buf, upe));
-            trace::info("{} UDP_ASSOCIATE -> {}:{}", Socks5Str, target_host, target_port);
+            trace::info<flt::conn | flt::protocol>("UDP_ASSOCIATE -> {}:{}", target_host, target_port);
 
             // 启动 UDP 关联处理
             psm::outbound::router_fn datagram_router;
@@ -116,13 +116,13 @@ namespace psm::protocol::socks5
             const auto associate_ec = co_await agent->async_associate(request, std::move(datagram_router));
             if (fault::failed(associate_ec))
             {
-                trace::warn("{} UDP_ASSOCIATE failed: {}", Socks5Str, fault::describe(associate_ec));
+                trace::warn<flt::conn | flt::protocol>("UDP_ASSOCIATE failed: {}", fault::describe(associate_ec));
             }
             break;
         }
         default:
             // BIND 命令不支持
-            trace::warn("{} BIND not supported", Socks5Str);
+            trace::warn<flt::conn | flt::protocol>("BIND not supported");
             co_await agent->send_error(reply_code::cmd_unsupported);
             break;
         }

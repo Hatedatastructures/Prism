@@ -11,7 +11,7 @@ namespace psm::tls
     namespace
     {
 
-        constexpr std::string_view tag = "[TLS.ClientHello]";
+
 
         [[nodiscard]] auto read_u16(const std::span<const std::uint8_t> data, const std::size_t offset)
             -> std::uint16_t

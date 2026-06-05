@@ -21,6 +21,7 @@
 namespace
 {
     using namespace psm::stealth::shadowtls;
+    using stls_config = psm::stealth::shadowtls::config;
 
     /**
      * @brief 构造带合法 HMAC 的 ClientHello 帧数据
@@ -80,7 +81,7 @@ namespace
 
     TEST(ShadowtlsHandshakeDeep, VerifyClientV3MatchFirstUser)
     {
-        config cfg;
+        stls_config cfg;
         cfg.version = 3;
         cfg.users.push_back(user{psm::memory::string("alice"), psm::memory::string("pass_alice")});
         cfg.users.push_back(user{psm::memory::string("bob"), psm::memory::string("pass_bob")});
@@ -99,7 +100,7 @@ namespace
 
     TEST(ShadowtlsHandshakeDeep, VerifyClientV3MatchSecondUser)
     {
-        config cfg;
+        stls_config cfg;
         cfg.version = 3;
         cfg.users.push_back(user{psm::memory::string("alice"), psm::memory::string("pass_alice")});
         cfg.users.push_back(user{psm::memory::string("bob"), psm::memory::string("pass_bob")});
@@ -118,7 +119,7 @@ namespace
 
     TEST(ShadowtlsHandshakeDeep, VerifyClientV3NoMatch)
     {
-        config cfg;
+        stls_config cfg;
         cfg.version = 3;
         cfg.users.push_back(user{psm::memory::string("alice"), psm::memory::string("pass_alice")});
 
@@ -131,7 +132,7 @@ namespace
 
     TEST(ShadowtlsHandshakeDeep, VerifyClientV3EmptyPasswordSkipped)
     {
-        config cfg;
+        stls_config cfg;
         cfg.version = 3;
         cfg.users.push_back(user{psm::memory::string("empty"), psm::memory::string("")});
         cfg.users.push_back(user{psm::memory::string("alice"), psm::memory::string("pass_alice")});
@@ -149,7 +150,7 @@ namespace
 
     TEST(ShadowtlsHandshakeDeep, VerifyClientV3AllEmptyPasswords)
     {
-        config cfg;
+        stls_config cfg;
         cfg.version = 3;
         cfg.users.push_back(user{psm::memory::string("a"), psm::memory::string("")});
         cfg.users.push_back(user{psm::memory::string("b"), psm::memory::string("")});
@@ -163,7 +164,7 @@ namespace
 
     TEST(ShadowtlsHandshakeDeep, VerifyClientV3EmptyUsers)
     {
-        config cfg;
+        stls_config cfg;
         cfg.version = 3;
 
         auto hello = make_client_hello("some_pass");
@@ -177,7 +178,7 @@ namespace
 
     TEST(ShadowtlsHandshakeDeep, VerifyClientV2Match)
     {
-        config cfg;
+        stls_config cfg;
         cfg.version = 2;
         cfg.password = psm::memory::string("shared_secret");
 
@@ -195,7 +196,7 @@ namespace
 
     TEST(ShadowtlsHandshakeDeep, VerifyClientV2NoMatch)
     {
-        config cfg;
+        stls_config cfg;
         cfg.version = 2;
         cfg.password = psm::memory::string("shared_secret");
 
@@ -208,7 +209,7 @@ namespace
 
     TEST(ShadowtlsHandshakeDeep, VerifyClientV2EmptyPassword)
     {
-        config cfg;
+        stls_config cfg;
         cfg.version = 2;
         cfg.password = psm::memory::string("");
 
@@ -221,7 +222,7 @@ namespace
 
     TEST(ShadowtlsHandshakeDeep, VerifyClientV1Match)
     {
-        config cfg;
+        stls_config cfg;
         cfg.version = 1;
         cfg.password = psm::memory::string("v1_pass");
 

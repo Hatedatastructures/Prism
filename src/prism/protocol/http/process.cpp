@@ -12,7 +12,7 @@
 
 #include <string_view>
 
-constexpr std::string_view HttpStr = "[Protocol.Http]";
+using namespace psm::trace;
 
 namespace psm::protocol::http
 {
@@ -32,13 +32,13 @@ namespace psm::protocol::http
         auto [ec, req] = co_await relay->handshake();
         if (fault::failed(ec))
         {
-            trace::warn("{} handshake failed: {}", HttpStr, fault::describe(ec));
+            trace::warn<flt::conn | flt::protocol>("handshake failed: {}", fault::describe(ec));
             co_return;
         }
 
         // 解析目标地址
         const auto target = recognition::resolve(req);
-        trace::info("{} {} {} -> {}:{}", HttpStr, req.method, req.target, target.host, target.port);
+        trace::info<flt::conn | flt::protocol>("{} {} -> {}:{}", req.method, req.target, target.host, target.port);
 
         // 连接目标服务器
         psm::transport::shared_transmission outbound;
@@ -59,7 +59,7 @@ namespace psm::protocol::http
         }
         if (fault::failed(dial_ec) || !outbound)
         {
-            trace::warn("{} dial failed: {}:{}", HttpStr, target.host, target.port);
+            trace::warn<flt::conn | flt::protocol>("dial failed: {}:{}", target.host, target.port);
             co_await relay->send_gateway_err();
             co_return;
         }

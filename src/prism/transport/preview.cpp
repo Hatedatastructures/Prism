@@ -6,6 +6,8 @@
 
 #include <cstring>
 
+using namespace psm::trace;
+
 namespace psm::transport
 {
 
@@ -19,7 +21,7 @@ namespace psm::transport
     {
         if (!inner_)
         {
-            trace::error("[Transport] preview::executor() called with null inner transport");
+            trace::error("preview::executor() called with null inner transport");
             return executor_type{};
         }
         return inner_->executor();

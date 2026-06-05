@@ -12,6 +12,8 @@
 
 #include <boost/asio.hpp>
 
+using namespace psm::trace;
+
 namespace psm::stealth::restls
 {
 
@@ -58,7 +60,7 @@ namespace psm::stealth::restls
         auto *rel = ctx.inbound->lowest_layer<transport::reliable>();
         if (!rel)
         {
-            trace::debug("[Restls] Cannot access reliable transport, pass to next scheme");
+            trace::debug<flt::conn | flt::protocol>("cannot access reliable transport, pass to next scheme");
             result.detected = protocol::protocol_type::tls;
             result.transport = std::move(ctx.inbound);
             co_return result;
@@ -78,17 +80,17 @@ namespace psm::stealth::restls
             result.detected = protocol::protocol_type::tls;
             result.error = hs_result.error;
             result.polluted = hs_result.polluted;
-            trace::debug("[Restls] handshake failed, pass to next scheme");
+            trace::debug<flt::conn | flt::protocol>("handshake failed, pass to next scheme");
             co_return result;
         }
 
-        trace::debug("[Restls] handshake succeeded, tls13={}", detail.version == tls_version::v13);
+        trace::debug<flt::conn | flt::protocol>("handshake succeeded, tls13={}", detail.version == tls_version::v13);
 
         // 释放底层 socket
         auto raw_socket_opt = rel->release_socket();
         if (!raw_socket_opt)
         {
-            trace::warn("[Restls] Cannot release socket from reliable transport");
+            trace::warn<flt::conn | flt::protocol>("cannot release socket from reliable transport");
             result.detected = protocol::protocol_type::tls;
             result.transport = std::move(ctx.inbound);
             co_return result;
@@ -103,13 +105,13 @@ namespace psm::stealth::restls
                 std::span<const std::uint8_t, 32>(detail.server_random),
                 std::span<const std::uint8_t>(detail.client_finished),
                 std::move(detail.script),
-                std::span<const std::byte>(), // 无初始预读数据
+                std::span<const std::byte>(),
                 [&]() {
                     return detail.version;
                 }()
             });
 
-        // 从 restls_transport 预读内层数据，供 executor 做二次探测
+        // 从 restls_transport 预读内层数据
         std::array<std::byte, 128> inner_buf{};
         std::size_t inner_n = 0;
         constexpr std::size_t min_probe = 32;
@@ -121,7 +123,7 @@ namespace psm::stealth::restls
             const auto n = co_await restls_trans->async_read_some(buf_span, probe_ec);
             if (probe_ec)
             {
-                trace::warn("[Restls] Inner probe read failed: {}", probe_ec.message());
+                trace::warn<flt::conn | flt::protocol>("inner probe read failed: {}", probe_ec.message());
                 break;
             }
             inner_n += n;
@@ -140,7 +142,7 @@ namespace psm::stealth::restls
         result.transport = restls_trans;
         result.scheme = "restls";
 
-        trace::debug("[Restls] restls_transport created, inner protocol: {}",
+        trace::debug<flt::conn | flt::protocol>("restls_transport created, inner protocol: {}",
                      protocol::to_string_view(result.detected));
 
         co_return result;

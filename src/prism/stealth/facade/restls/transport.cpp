@@ -8,12 +8,13 @@
 #include <cstring>
 #include <openssl/crypto.h>
 
+using namespace psm::trace;
+
 namespace psm::stealth::restls
 {
 
     namespace
     {
-        constexpr std::string_view tag = "[Restls.Transport]";
         constexpr std::uint8_t content_type_appdata = 0x17;
 
         struct tls_record
@@ -122,7 +123,7 @@ namespace psm::stealth::restls
 
             if (CRYPTO_memcmp(received_mac.data(), expected_mac.data(), appdata_maclen) != 0)
             {
-                trace::warn("{} auth_mac verification failed, counter={}", tag, opts.counter);
+                trace::warn<flt::conn | flt::protocol>("auth_mac verification failed, counter={}", opts.counter);
                 ec = std::make_error_code(std::errc::permission_denied);
                 return std::nullopt;
             }
@@ -146,8 +147,9 @@ namespace psm::stealth::restls
         {
             initial_buffer_.assign(handover.initial_data.begin(), handover.initial_data.end());
         }
-        trace::debug("{} created, initial_data={}, tls13={}, client_finished={}",
-                     tag, handover.initial_data.size(), (handover.version == tls_version::v13), handover.client_finished.size());
+
+        trace::debug<flt::conn | flt::protocol>("created, initial_data={}, tls13={}, client_finished={}",
+                     handover.initial_data.size(), (handover.version == tls_version::v13), handover.client_finished.size());
     }
 
     restls_transport::~restls_transport() = default;
@@ -244,7 +246,7 @@ namespace psm::stealth::restls
 
         if (decoded_opt->cmd == cmd_randresp)
         {
-            trace::debug("{} received random_response command, count={}", tag, decoded_opt->data_len);
+            trace::debug<flt::conn | flt::protocol>("received random_response command, count={}", decoded_opt->data_len);
             if (decoded_opt->data_len > 0)
             {
                 co_await send_random_response(static_cast<std::uint8_t>(decoded_opt->data_len), ec);
@@ -266,8 +268,8 @@ namespace psm::stealth::restls
 
         auto &payload = record.payload;
         memory::vector<std::byte> result(payload.begin() + data_start, payload.begin() + data_end);
-        trace::debug("{} frame decoded: data_len={}, cmd={}, counter={}",
-                     tag, decoded_opt->data_len, decoded_opt->cmd, read_counter_ - 1);
+        trace::debug<flt::conn | flt::protocol>("frame decoded: data_len={}, cmd={}, counter={}",
+                     decoded_opt->data_len, decoded_opt->cmd, read_counter_ - 1);
         co_return result;
     }
 
@@ -389,8 +391,8 @@ namespace psm::stealth::restls
             write_pending_ = true;
         }
 
-        trace::debug("{} frame sent: data_len={}, payload={}, counter={}",
-                     tag, copy_len, total_payload, write_counter_ - 1);
+        trace::debug<flt::conn | flt::protocol>("frame sent: data_len={}, payload={}, counter={}",
+                     copy_len, total_payload, write_counter_ - 1);
         co_return copy_len;
     }
 

@@ -18,6 +18,8 @@
 
 #include <cstring>
 
+using namespace psm::trace;
+
 namespace psm::stealth::reality
 {
 
@@ -25,9 +27,6 @@ namespace psm::stealth::reality
 
     namespace
     {
-        constexpr std::string_view tag = "[Stealth.ServerHello]";
-
-
         auto make_handshake_message(std::uint8_t msg_type, std::span<const std::uint8_t> body)
             -> memory::vector<std::uint8_t>
         {
@@ -103,7 +102,7 @@ namespace psm::stealth::reality
 
             if (auth_key.size() != 32)
             {
-                trace::error("{} invalid auth_key length: {}", tag, auth_key.size());
+                trace::error("invalid auth_key length: {}", auth_key.size());
                 return {cert_der, ed_keypair};
             }
 
@@ -111,7 +110,7 @@ namespace psm::stealth::reality
             if (std::all_of(ed_keypair.public_key.begin(), ed_keypair.public_key.end(),
                             [](std::uint8_t b) { return b == 0; }))
             {
-                trace::error("{} ED25519_keypair returned zero public key", tag);
+                trace::error("ED25519_keypair returned zero public key");
                 return {cert_der, ed_keypair};
             }
             ERR_clear_error();
@@ -122,8 +121,8 @@ namespace psm::stealth::reality
             if (!pkey)
             {
                 auto err = ERR_get_error();
-                trace::error("{} EVP_PKEY_from_raw_public_key failed, err=0x{:x}:{}",
-                             tag, err, ERR_error_string(err, nullptr));
+                trace::error("EVP_PKEY_from_raw_public_key failed, err=0x{:x}:{}",
+                             err, ERR_error_string(err, nullptr));
                 return {cert_der, ed_keypair};
             }
             ERR_clear_error();
@@ -169,8 +168,8 @@ namespace psm::stealth::reality
             if (sig_rc != 1)
             {
                 auto err = ERR_get_error();
-                trace::error("{} X509_set1_signature_value failed, rc={} err=0x{:x}",
-                             tag, sig_rc, err);
+                trace::error("X509_set1_signature_value failed, rc={} err=0x{:x}",
+                             sig_rc, err);
             }
 
             auto *bio = BIO_new(BIO_s_mem());
@@ -187,7 +186,7 @@ namespace psm::stealth::reality
             }
 
             X509_free(x509);
-            trace::debug("{} generated Reality Ed25519 cert ({} bytes)", tag, cert_der.size());
+            trace::debug("generated Reality Ed25519 cert ({} bytes)", cert_der.size());
             return {std::move(cert_der), std::move(ed_keypair)};
         }
 
@@ -205,7 +204,7 @@ namespace psm::stealth::reality
             if (cert_der.empty())
             {
                 cert_der.assign(cert_chain_der.begin(), cert_chain_der.end());
-                trace::debug("{} using dest certificate: {} bytes", tag, cert_der.size());
+                trace::debug("using dest certificate: {} bytes", cert_der.size());
             }
 
             memory::vector<std::uint8_t> body;
@@ -286,7 +285,7 @@ namespace psm::stealth::reality
         const auto ec = aead.seal(crypto::seal_input{ciphertext, inner, nonce_span, ad_span});
         if (fault::failed(ec))
         {
-            trace::error("{} AEAD seal failed", tag);
+            trace::error("AEAD seal failed");
             return {fault::code::crypto_error, {}};
         }
 
@@ -350,13 +349,12 @@ namespace psm::stealth::reality
 
         if (fault::failed(enc_ec))
         {
-            trace::error("{} failed to encrypt handshake record", tag);
             return {enc_ec, result};
         }
 
         result.enc_hs_record = std::move(encrypted_record);
 
-        trace::debug("{} generated ServerHello + encrypted handshake", tag);
+        trace::debug("generated ServerHello + encrypted handshake");
         return {fault::code::success, std::move(result)};
     }
 } // namespace psm::stealth::reality

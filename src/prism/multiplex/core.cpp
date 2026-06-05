@@ -4,13 +4,14 @@
 #include <prism/multiplex/parcel.hpp>
 #include <prism/stats/traffic.hpp>
 #include <prism/trace.hpp>
+#include <prism/trace/context.hpp>
 
 #include <boost/asio/co_spawn.hpp>
 
 #include <ranges>
 #include <span>
 
-constexpr std::string_view tag = "[Mux.Core]";
+using namespace psm::trace;
 
 namespace
 {
@@ -68,11 +69,11 @@ namespace psm::multiplex
             }
             catch (const std::exception &e)
             {
-                trace::error("{} session exception: {}", tag, e.what());
+                trace::error<flt::conn | flt::protocol>("session exception: {}", e.what());
             }
             catch (...)
             {
-                trace::error("{} session unknown exception", tag);
+                trace::error<flt::conn | flt::protocol>("session unknown exception");
             }
         }
         close();
@@ -116,7 +117,7 @@ namespace psm::multiplex
 
         transport_->close();
 
-        trace::debug("{} session closed", tag);
+        trace::debug<flt::conn | flt::protocol>("session closed");
     }
 
 

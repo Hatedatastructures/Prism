@@ -4,6 +4,7 @@
 #include <prism/multiplex/core.hpp>
 #include <prism/multiplex/smux/frame.hpp>
 #include <prism/trace.hpp>
+#include <prism/trace/context.hpp>
 
 #include <boost/asio/co_spawn.hpp>
 
@@ -11,10 +12,7 @@
 #include <charconv>
 #include <optional>
 
-namespace
-{
-    constexpr std::string_view tag = "[Mux.Parcel]";
-} // namespace
+using namespace psm::trace;
 
 namespace psm::multiplex
 {
@@ -60,11 +58,11 @@ namespace psm::multiplex
             }
             catch (const std::exception &e)
             {
-                trace::debug("{} stream {} UDP uplink error: {}", tag, id_, e.what());
+                trace::debug<flt::conn | flt::protocol>("stream {} UDP uplink error: {}", id_, e.what());
             }
             catch (...)
             {
-                trace::error("{} stream {} UDP uplink unknown error", tag, id_);
+                trace::error<flt::conn | flt::protocol>("stream {} UDP uplink unknown error", id_);
             }
         }
         close();
@@ -116,7 +114,7 @@ namespace psm::multiplex
             }
             break;
         }
-        trace::debug("{} stream {} UDP idle timeout", tag, id_);
+        trace::debug<flt::conn | flt::protocol>("stream {} UDP idle timeout", id_);
         co_return;
     }
 
@@ -154,7 +152,7 @@ namespace psm::multiplex
         }
         catch (const std::exception &e)
         {
-            trace::warn("{} stream {} UDP socket create failed: {}", tag, id_, e.what());
+            trace::warn<flt::conn | flt::protocol>("stream {} UDP socket create failed: {}", id_, e.what());
             co_return false;
         }
     }
@@ -264,11 +262,11 @@ namespace psm::multiplex
         }
         catch (const std::exception &e)
         {
-            trace::debug("{} stream {} process_buffer error: {}", tag, id_, e.what());
+            trace::debug<flt::conn | flt::protocol>("stream {} process_buffer error: {}", id_, e.what());
         }
         catch (...)
         {
-            trace::error("{} stream {} process_buffer unknown error", tag, id_);
+            trace::error<flt::conn | flt::protocol>("stream {} process_buffer unknown error", id_);
         }
         processing_.store(false, std::memory_order_release);
     }
@@ -315,8 +313,8 @@ namespace psm::multiplex
                                                target_ep, token);
         if (ec)
         {
-            trace::debug("{} stream {} UDP send to {}:{} failed: {}",
-                         tag, id_, target_host, target_port, ec.message());
+            trace::debug<flt::conn | flt::protocol>("stream {} UDP send to {}:{} failed: {}",
+                         id_, target_host, target_port, ec.message());
         }
         else
         {
@@ -344,7 +342,7 @@ namespace psm::multiplex
                 {
                     if (ec != net::error::operation_aborted && ec != net::error::bad_descriptor)
                     {
-                        trace::debug("{} stream {} UDP recv error: {}", tag, id_, ec.message());
+                        trace::debug<flt::conn | flt::protocol>("stream {} UDP recv error: {}", id_, ec.message());
                     }
                     break;
                 }
@@ -380,11 +378,11 @@ namespace psm::multiplex
         }
         catch (const std::exception &e)
         {
-            trace::debug("{} stream {} downlink_loop error: {}", tag, id_, e.what());
+            trace::debug<flt::conn | flt::protocol>("stream {} downlink_loop error: {}", id_, e.what());
         }
         catch (...)
         {
-            trace::error("{} stream {} downlink_loop unknown error", tag, id_);
+            trace::error<flt::conn | flt::protocol>("stream {} downlink_loop unknown error", id_);
         }
         recv_running_.store(false, std::memory_order_release);
     }
@@ -421,7 +419,7 @@ namespace psm::multiplex
         {
             owner->remove_parcel(id_);
         }
-        trace::debug("{} stream {} UDP parcel closed", tag, id_);
+        trace::debug<flt::conn | flt::protocol>("stream {} UDP parcel closed", id_);
     }
 
 } // namespace psm::multiplex

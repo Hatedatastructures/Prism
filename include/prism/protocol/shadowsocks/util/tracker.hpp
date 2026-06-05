@@ -49,7 +49,7 @@ namespace psm::protocol::shadowsocks
      */
     struct session_create_opts
     {
-        const std::array<std::uint8_t, session_id_len> &session_id; ///< 8 字节 SessionID
+        const std::array<std::uint8_t, session_id_len> &relay_id; ///< SS2022 8-byte relay session identifier
         const net::ip::udp::endpoint &endpoint;                     ///< 客户端端点
         const memory::vector<std::uint8_t> &psk;                    ///< PSK 字节
         cipher_method method;                                        ///< 加密方法
@@ -95,7 +95,7 @@ namespace psm::protocol::shadowsocks
          * @brief 查找或创建会话
          * @details 如果会话已存在则更新端点和活跃时间并返回，
          * 否则创建新会话。AES-GCM 变体需要派生会话子密钥
-         * @param opts 创建选项（session_id + endpoint + psk + method）
+         * @param opts 创建选项（relay_id + endpoint + psk + method）
          * @return 会话条目共享指针
          */
         [[nodiscard]] auto get_or_create(const session_create_opts &opts)
@@ -109,7 +109,7 @@ namespace psm::protocol::shadowsocks
                 last_cleanup_ = now;
             }
 
-            if (const auto it = sessions_.find(opts.session_id); it != sessions_.end())
+            if (const auto it = sessions_.find(opts.relay_id); it != sessions_.end())
             {
                 it->second->client_endpoint = opts.endpoint;
                 it->second->last_seen = now;
@@ -123,22 +123,22 @@ namespace psm::protocol::shadowsocks
             // AES-GCM 变体需要派生会话子密钥
             if (opts.method != cipher_method::chacha20_poly1305)
             {
-                entry->aead_ctx = derive_aead(opts.session_id, opts.psk, opts.method);
+                entry->aead_ctx = derive_aead(opts.relay_id, opts.psk, opts.method);
             }
 
-            sessions_.emplace(opts.session_id, entry);
+            sessions_.emplace(opts.relay_id, entry);
             return entry;
         }
 
         /**
          * @brief 查找已有会话（不创建）
-         * @param session_id 8 字节 SessionID
+         * @param relay_id 8-byte SS2022 relay session identifier
          * @return 会话条目共享指针，不存在则返回 nullptr
          */
-        [[nodiscard]] auto find(const std::array<std::uint8_t, session_id_len> &session_id)
+        [[nodiscard]] auto find(const std::array<std::uint8_t, session_id_len> &relay_id)
             -> std::shared_ptr<udp_session>
         {
-            if (const auto it = sessions_.find(session_id); it != sessions_.end())
+            if (const auto it = sessions_.find(relay_id); it != sessions_.end())
             {
                 return it->second;
             }
@@ -169,19 +169,19 @@ namespace psm::protocol::shadowsocks
         /**
          * @brief 为 AES-GCM 会话派生 AEAD 上下文
          * @details 密钥材料为 PSK + SessionID，使用 BLAKE3 KDF 派生
-         * @param session_id 8 字节 SessionID
+         * @param relay_id 8-byte SS2022 relay session identifier
          * @param psk PSK 字节
          * @param method 加密方法
          * @return AEAD 上下文智能指针
          */
-        [[nodiscard]] static auto derive_aead(const std::array<std::uint8_t, session_id_len> &session_id, const memory::vector<std::uint8_t> &psk, cipher_method method)
+        [[nodiscard]] static auto derive_aead(const std::array<std::uint8_t, session_id_len> &relay_id, const memory::vector<std::uint8_t> &psk, cipher_method method)
             -> std::unique_ptr<crypto::aead_context>
         {
-            // 密钥材料：PSK + SessionID（栈分配避免堆分配）
-            std::array<std::uint8_t, 64> material{}; // 足够容纳最大 PSK(32) + SessionID(8)
+            // 密钥材料：PSK + relay session ID（栈分配避免堆分配）
+            std::array<std::uint8_t, 64> material{}; // 足够容纳最大 PSK(32) + relay_id(8)
             const auto total = psk.size() + session_id_len;
             std::memcpy(material.data(), psk.data(), psk.size());
-            std::memcpy(material.data() + psk.size(), session_id.data(), session_id_len);
+            std::memcpy(material.data() + psk.size(), relay_id.data(), session_id_len);
 
             constexpr auto ctx_str = kdf_context; // SIP022: "shadowsocks 2022 session subkey"
             const auto key_len = format::keysalt_len(method);

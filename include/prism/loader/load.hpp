@@ -23,6 +23,7 @@
 
 namespace psm::loader
 {
+    using namespace psm::trace;
 
     /**
      * @brief 加载外部配置
@@ -34,7 +35,7 @@ namespace psm::loader
      * @note 配置文件必须是有效的 JSON 格式，且符合 psm::config 的结构定义
      */
     [[nodiscard]] inline auto load(const std::string_view path)
-        -> config
+        -> psm::config
     {
         std::ifstream file(path.data(), std::ios::binary);
         if (!file.is_open())
@@ -47,7 +48,7 @@ namespace psm::loader
         memory::string content(size, '\0');
         file.read(content.data(), size);
 
-        config cfg;
+        psm::config cfg;
         try
         {
             if (transformer::json::deserialize({content.data(), content.size()}, cfg))
@@ -57,12 +58,12 @@ namespace psm::loader
         }
         catch (const std::exception &e)
         {
-            trace::error("[Loader] configuration parse error: {}", e.what());
+            trace::error("configuration parse error: {}", e.what());
             throw exception::network(fault::code::parse_error);
         }
         catch (...)
         {
-            trace::error("[Loader] unknown configuration parse error");
+            trace::error("unknown configuration parse error");
             throw exception::network(fault::code::parse_error);
         }
         throw exception::network(fault::code::parse_error);

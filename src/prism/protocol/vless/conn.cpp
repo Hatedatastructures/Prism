@@ -16,6 +16,8 @@
 #include <cstdint>
 #include <string>
 
+using namespace psm::trace;
+
 namespace psm::protocol::vless
 {
 
@@ -284,7 +286,7 @@ namespace psm::protocol::vless
             if (!verifier_(uuid_str))
             {
                 deadline.cancel();
-                trace::warn("[Vless] UUID verification failed");
+                trace::warn<flt::conn | flt::protocol>("UUID verification failed");
                 co_return fault::code::auth_failed;
             }
         }
@@ -408,7 +410,6 @@ namespace psm::protocol::vless
             },
             protocol::common::loop_cfg{
                 idle_timer,
-                "[Vless.UDP]",
                 config_.idle_timeout,
                 config_.max_dgram,
                 [](void *ctx, std::uint64_t up, std::uint64_t down) noexcept {

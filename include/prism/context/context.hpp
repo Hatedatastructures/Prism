@@ -133,7 +133,7 @@ namespace psm::context
      */
     struct session_opts
     {
-        std::uint64_t session_id = 0;                                  ///< 会话唯一标识符
+        std::uint64_t conn_id = 0;                                    ///< 连接唯一标识符
         server &server_ctx;                                            ///< 服务器上下文引用
         worker &worker_ctx;                                            ///< 工作线程上下文引用
         memory::frame_arena &arena;                                    ///< 帧内存池引用
@@ -159,11 +159,11 @@ namespace psm::context
         auto operator=(session &&) -> session & = delete;
 
         explicit session(session_opts opts)
-            : session_id(opts.session_id), server_ctx(opts.server_ctx), worker_ctx(opts.worker_ctx),
+            : conn_id(opts.conn_id), server_ctx(opts.server_ctx), worker_ctx(opts.worker_ctx),
               frame_arena(opts.arena), credential_verifier(std::move(opts.verifier)),
               buffer_size(opts.buffer_size), inbound(std::move(opts.inbound)) {}
 
-        std::uint64_t session_id{0};                                    // 会话唯一标识符
+        std::uint64_t conn_id{0};                                        // 连接唯一标识符
         server &server_ctx;                                             // 服务器上下文引用
         worker &worker_ctx;                                             // 工作线程上下文引用
         memory::frame_arena &frame_arena;                               // 帧内存池引用

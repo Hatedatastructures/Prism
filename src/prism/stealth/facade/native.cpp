@@ -11,6 +11,7 @@
 #include <prism/transport/encrypted.hpp>
 #include <prism/transport/preview.hpp>
 
+using namespace psm::trace;
 
 namespace psm::stealth::native
 {
@@ -47,21 +48,21 @@ namespace psm::stealth::native
 
         if (!ctx.session)
         {
-            trace::warn("[Native] No session context, aborting");
+            trace::warn<flt::conn | flt::protocol>("No session context, aborting");
             result.error = fault::code::not_supported;
             co_return result;
         }
 
         if (!ctx.session->server_ctx.ssl_ctx)
         {
-            trace::warn("[Native] No SSL context configured, aborting");
+            trace::warn<flt::conn | flt::protocol>("No SSL context configured, aborting");
             result.error = fault::code::not_supported;
             co_return result;
         }
 
         if (!ctx.inbound)
         {
-            trace::warn("[Native] No inbound transport, aborting");
+            trace::warn<flt::conn | flt::protocol>("No inbound transport, aborting");
             result.error = fault::code::not_supported;
             co_return result;
         }
@@ -72,12 +73,12 @@ namespace psm::stealth::native
 
         if (!raw)
         {
-            trace::warn("[Native] Unwrap exhausted all layers, no raw transport");
+            trace::warn<flt::conn | flt::protocol>("Unwrap exhausted all layers, no raw transport");
             result.error = fault::code::not_supported;
             co_return result;
         }
 
-        trace::debug("[Native] Unwrap complete, preread={} bytes, raw={}",
+        trace::debug<flt::conn | flt::protocol>("Unwrap complete, preread={} bytes, raw={}",
                      ctx.preread.size(), fmt::ptr(raw.get()));
 
         // 用 preread（ClientHello 完整数据）创建干净的 preview 包装
@@ -85,14 +86,14 @@ namespace psm::stealth::native
         auto clean_inbound = transport::wrap_with_preview(
             std::move(raw), preread_span, ctx.session->frame_arena.get());
 
-        trace::debug("[Native] Starting SSL handshake");
+        trace::debug<flt::conn | flt::protocol>("Starting SSL handshake");
         auto [ssl_ec, ssl_stream, recovered] = co_await transport::encrypted::ssl_handshake(
             std::move(clean_inbound), *ctx.session->server_ctx.ssl_ctx);
         if (fault::failed(ssl_ec) || !ssl_stream)
         {
             ctx.inbound = std::move(recovered);
             result.error = ssl_ec;
-            trace::warn("[Native] TLS handshake failed: {}", fault::describe(ssl_ec));
+            trace::warn<flt::conn | flt::protocol>("TLS handshake failed: {}", fault::describe(ssl_ec));
             co_return result;
         }
 
@@ -115,7 +116,7 @@ namespace psm::stealth::native
             if (ec)
             {
                 result.error = fault::to_code(ec);
-                trace::warn("[Native] Inner probe read failed: {}", ec.message());
+                trace::warn<flt::conn | flt::protocol>("Inner probe read failed: {}", ec.message());
                 co_return result;
             }
             inner_n += n;
@@ -132,7 +133,7 @@ namespace psm::stealth::native
         // 60+ 字节仍无法识别，由 executor 统一做二次探测
         result.detected = protocol::protocol_type::unknown;
 
-        trace::debug("[Native] Inner protocol: {}",
+        trace::debug<flt::conn | flt::protocol>("Inner protocol: {}",
                     protocol::to_string_view(result.detected));
 
         result.transport = std::move(encrypted_trans);
