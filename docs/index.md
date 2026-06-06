@@ -1,22 +1,14 @@
 # Prism 文档
 
-欢迎使用 Prism 文档！
-
-## 导航
-
-### 用户教程
-
-面向 Prism 使用者的入门和配置指南。
+## 用户指南
 
 - [快速开始](tutorial/getting-started.md)
 - [配置详解](tutorial/configuration.md)
 - [部署指南](tutorial/deployment.md)
-- [故障排除](tutorial/troubleshooting.md)
+- [故障排查](tutorial/troubleshooting.md)
 - [常见问题](tutorial/faq.md)
 
-### 开发者文档
+## 参考
 
-面向代码贡献者和深度开发者的技术文档，按源码模块组织。
-
-- [开发者文档入口](prism/) — 按模块分层：instance、recognition、connect、transport、resolve、protocol、stealth、multiplex、memory、crypto、stats、context 等
-- [性能基准测试报告](prism/performance-report.md) — 协议握手、吞吐量、内存分配等详细性能数据
+- [性能基准测试报告](performance-report.md)
+- [配置示例](clash/config.yaml) · [完整参考](clash/reference.yaml)
