@@ -24,7 +24,7 @@
 
 namespace psm::outbound
 {
-    using namespace psm::trace;
+    using namespace psm::trace; // NOLINT(google-build-using-namespace)
 
     /**
      * @class direct

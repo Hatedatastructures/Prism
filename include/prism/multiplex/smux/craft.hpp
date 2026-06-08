@@ -137,7 +137,7 @@ namespace psm::multiplex::smux
          */
         [[nodiscard]] auto executor() const -> net::any_io_executor override;
 
-    private:
+    protected:
         /**
          * @brief 协议主循环（纯虚，由 core::start() 通过 co_spawn 启动）
          * @details 依次执行协议协商和帧循环。

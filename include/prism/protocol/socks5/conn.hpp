@@ -412,7 +412,7 @@ namespace psm::protocol::socks5
          * 提供的解码器解析地址。适用于 IPv4 和 IPv6 地址类型。
          */
         template <std::size_t N, typename Decoder>
-        [[nodiscard]] auto read_address(Decoder &&decoder)
+        [[nodiscard]] auto read_address(const Decoder &decoder)
             -> net::awaitable<std::tuple<fault::code, address, std::uint16_t>>
         {
             std::array<std::uint8_t, N + 2> buffer{};
@@ -505,7 +505,7 @@ namespace psm::protocol::socks5
          * @details 循环调用底层传输层的 async_write_some 方法，直到
          * 所有数据写入完成或发生错误。确保完整写入缓冲区内容。
          */
-        [[nodiscard]] auto send_impl(const std::span<const std::byte> buffer, std::error_code &ec) const
+        [[nodiscard]] auto send_impl(std::span<const std::byte> buffer, std::error_code &ec) const
             -> net::awaitable<std::size_t>;
 
         shared_transmission next_layer_;                    // 底层传输层指针，所有权通过 unique_ptr 管理

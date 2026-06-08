@@ -42,7 +42,7 @@ namespace psm::protocol::trojan::format
      * @param buffer 包含凭据的缓冲区，至少 56 字节
      * @return 错误码和凭据数组
      */
-    [[nodiscard]] auto parse_credential(const std::span<const std::uint8_t> buffer)
+    [[nodiscard]] auto parse_credential(std::span<const std::uint8_t> buffer)
         -> std::pair<fault::code, std::array<char, 56>>;
 
     /**
@@ -50,7 +50,7 @@ namespace psm::protocol::trojan::format
      * @param buffer 包含 CRLF 的缓冲区，至少 2 字节
      * @return 验证结果错误码
      */
-    [[nodiscard]] auto parse_crlf(const std::span<const std::uint8_t> buffer)
+    [[nodiscard]] auto parse_crlf(std::span<const std::uint8_t> buffer)
         -> fault::code;
 
     /**

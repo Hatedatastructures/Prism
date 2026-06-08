@@ -82,38 +82,38 @@ namespace psm::trace
             }
 
             using executor_type =
-                typename net::associated_executor<Handler>::type;
+                net::associated_executor<Handler>::type;
 
-            auto get_executor() const noexcept
-                -> typename net::associated_executor<Handler>::type
+            [[nodiscard]] auto get_executor() const noexcept
+                -> net::associated_executor<Handler>::type
             {
                 return net::get_associated_executor(handler_);
             }
 
             using allocator_type =
-                typename net::associated_allocator<Handler>::type;
+                net::associated_allocator<Handler>::type;
 
-            auto get_allocator() const noexcept
-                -> typename net::associated_allocator<Handler>::type
+            [[nodiscard]] auto get_allocator() const noexcept
+                -> net::associated_allocator<Handler>::type
             {
                 return net::get_associated_allocator(handler_);
             }
 
             using cancellation_slot_type =
-                typename net::associated_cancellation_slot<Handler>::type;
+                net::associated_cancellation_slot<Handler>::type;
 
-            auto get_cancellation_slot() const noexcept
-                -> typename net::associated_cancellation_slot<Handler>::type
+            [[nodiscard]] auto get_cancellation_slot() const noexcept
+                -> net::associated_cancellation_slot<Handler>::type
             {
                 return net::get_associated_cancellation_slot(handler_);
             }
 
             using immediate_executor_type =
-                typename net::associated_immediate_executor<Handler,
+                net::associated_immediate_executor<Handler,
                     executor_type>::type;
 
-            auto get_immediate_executor() const noexcept
-                -> typename net::associated_immediate_executor<Handler,
+            [[nodiscard]] auto get_immediate_executor() const noexcept
+                -> net::associated_immediate_executor<Handler,
                     executor_type>::type
             {
                 return net::get_associated_immediate_executor(

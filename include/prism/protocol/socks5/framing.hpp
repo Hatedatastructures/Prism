@@ -357,14 +357,14 @@ namespace psm::protocol::socks5::wire
         const auto username = std::string_view{
             reinterpret_cast<const char *>(data.data() + 2), ulen};
 
-        const auto plen_offset = 2 + ulen;
-        if (data.size() < static_cast<std::size_t>(plen_offset + 1))
+        const auto plen_offset = std::size_t{2} + ulen;
+        if (data.size() < (plen_offset + 1))
         {
             return {fault::code::bad_message, {}};
         }
 
         const auto plen = data[plen_offset];
-        if (plen == 0 || data.size() < static_cast<std::size_t>(plen_offset + 1 + plen))
+        if (plen == 0 || data.size() < (plen_offset + 1 + plen))
         {
             return {fault::code::bad_message, {}};
         }

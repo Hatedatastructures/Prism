@@ -206,7 +206,7 @@ namespace psm::multiplex::h2mux
         [[nodiscard]] auto activate_stream(std::uint32_t stream_id)
             -> net::awaitable<void>;
 
-    private:
+    protected:
         auto run()
             -> net::awaitable<void> override;
 

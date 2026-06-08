@@ -17,6 +17,8 @@
 #include <prism/trace.hpp>
 #include <prism/transport/transmission.hpp>
 
+#include <cassert>
+
 #include <boost/asio.hpp>
 #include <boost/asio/any_completion_handler.hpp>
 
@@ -255,6 +257,7 @@ namespace psm::transport
             {
                 return *pooled_.get();
             }
+            assert(socket_.has_value());
             return *socket_;
         }
 
@@ -270,6 +273,7 @@ namespace psm::transport
             {
                 return *pooled_.get();
             }
+            assert(socket_.has_value());
             return *socket_;
         }
 

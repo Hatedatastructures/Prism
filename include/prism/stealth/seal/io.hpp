@@ -30,7 +30,7 @@ namespace psm::stealth::seal_io
      * @param ec 错误码输出
      */
     template <typename OpenFn>
-    [[nodiscard]] auto read_sealed(transport::transmission &trans, OpenFn &&open_fn, std::error_code &ec)
+    [[nodiscard]] auto read_sealed(transport::transmission &trans, const OpenFn &open_fn, std::error_code &ec)
         -> net::awaitable<std::size_t>
     {
         auto [read_ec, rec] = co_await tls::record::read(trans);
@@ -48,7 +48,7 @@ namespace psm::stealth::seal_io
      * @brief 从 tcp::socket 读取加密记录并解密
      */
     template <typename OpenFn>
-    [[nodiscard]] auto read_sealed(net::ip::tcp::socket &sock, OpenFn &&open_fn, std::error_code &ec)
+    [[nodiscard]] auto read_sealed(net::ip::tcp::socket &sock, const OpenFn &open_fn, std::error_code &ec)
         -> net::awaitable<std::size_t>
     {
         auto [read_ec, rec] = co_await tls::record::read(sock);

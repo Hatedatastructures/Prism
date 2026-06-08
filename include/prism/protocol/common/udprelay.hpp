@@ -28,7 +28,7 @@
 
 namespace psm::protocol::common
 {
-    using namespace psm::trace;
+    using namespace psm::trace; // NOLINT(google-build-using-namespace)
 
     namespace net = boost::asio;
 

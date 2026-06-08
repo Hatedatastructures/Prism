@@ -23,7 +23,7 @@
 
 namespace psm::stealth::anytls
 {
-    using namespace psm::trace;
+    using namespace psm::trace; // NOLINT(google-build-using-namespace)
 
     namespace net = boost::asio;
 
@@ -124,7 +124,7 @@ namespace psm::stealth::anytls
                 channel_->try_send(
                     boost::system::errc::make_error_code(boost::system::errc::connection_reset),
                     memory::vector<std::uint8_t>{});
-                channel_.reset();
+                channel_ = nullptr;
             }
             // 发送 FIN
             auto self = session_;

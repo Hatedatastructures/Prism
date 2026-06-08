@@ -184,7 +184,7 @@ namespace psm::protocol::shadowsocks
          * @param req 请求结构，解析结果填充到此对象
          * @return 错误码
          */
-        [[nodiscard]] auto read_var_hdr(std::uint16_t var_hdr_len, request &req)
+        [[nodiscard]] auto read_var_hdr(std::uint16_t var_header_len, request &req)
             -> net::awaitable<fault::code>;
 
         /**

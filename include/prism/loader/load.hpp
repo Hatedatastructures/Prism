@@ -23,7 +23,7 @@
 
 namespace psm::loader
 {
-    using namespace psm::trace;
+    using psm::trace::error;
 
     /**
      * @brief 加载外部配置
@@ -37,7 +37,7 @@ namespace psm::loader
     [[nodiscard]] inline auto load(const std::string_view path)
         -> psm::config
     {
-        std::ifstream file(path.data(), std::ios::binary);
+        std::ifstream file(std::string(path), std::ios::binary);
         if (!file.is_open())
         {
             throw exception::security("system error : {}", "file open failed");
@@ -58,12 +58,12 @@ namespace psm::loader
         }
         catch (const std::exception &e)
         {
-            trace::error("configuration parse error: {}", e.what());
+            error("configuration parse error: {}", e.what());
             throw exception::network(fault::code::parse_error);
         }
         catch (...)
         {
-            trace::error("unknown configuration parse error");
+            error("unknown configuration parse error");
             throw exception::network(fault::code::parse_error);
         }
         throw exception::network(fault::code::parse_error);

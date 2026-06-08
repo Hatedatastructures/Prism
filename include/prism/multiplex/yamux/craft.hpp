@@ -155,6 +155,7 @@ namespace psm::multiplex::yamux
          */
         [[nodiscard]] auto executor() const -> net::any_io_executor override;
 
+    public:
         /**
          * @brief 移除 TCP 管道并清理窗口状态
          * @param stream_id 要移除的流标识符
@@ -178,7 +179,7 @@ namespace psm::multiplex::yamux
          */
         void close() override;
 
-    private:
+    protected:
         /**
          * @brief 协议主循环（由 core::start() 通过 co_spawn 启动）
          * @details 启动 send_loop 后进入 frame_loop，frame_loop 退出后取消 channel_。

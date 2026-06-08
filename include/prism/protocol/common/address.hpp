@@ -72,7 +72,7 @@ namespace psm::protocol::common
          * @details 根据指定的内存资源创建域名字符串，支持自定义
          * 内存分配器。返回的字符串包含有效的域名内容。
          */
-        [[nodiscard]] auto to_string(const memory::resource_pointer mr = memory::current_resource()) const
+        [[nodiscard]] auto to_string(memory::resource_pointer mr = memory::current_resource()) const
             -> memory::string
         {
             return memory::string(value.data(), length, mr);

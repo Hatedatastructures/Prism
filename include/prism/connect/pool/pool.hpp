@@ -240,7 +240,7 @@ namespace psm::connect
          * @param resource 内存资源指针（通常为线程局部池）
          * @param config 连接池配置，默认为 config{}
          */
-        explicit connection_pool(net::io_context &ioc, const memory::resource_pointer resource = memory::current_resource(),
+        explicit connection_pool(net::io_context &ioc, memory::resource_pointer resource = memory::current_resource(),
                                  const config &config = {})
             : ioc_(ioc), cache_(resource), config_(config) {}
 
@@ -250,7 +250,13 @@ namespace psm::connect
          */
         ~connection_pool() noexcept
         {
-            clear();
+            try
+            {
+                clear();
+            }
+            catch (...)
+            {
+            }
         }
 
         connection_pool(const connection_pool &) = delete;
