@@ -58,8 +58,11 @@ namespace psm::connect
                 const auto transferred = co_await opts.from->async_read_some(opts.scratch, ec);
                 if (ec || transferred == 0)
                 {
-                    trace::debug<flt::conn | flt::protocol>("forward[{}]: read done, transferred={}, ec={}",
-                                                                dir, transferred, ec.message());
+                    if (transferred > 0)
+                    {
+                        trace::debug<flt::conn | flt::protocol>("forward[{}]: read done, transferred={}, ec={}",
+                                                                    dir, transferred, ec.message());
+                    }
                     co_return;
                 }
 

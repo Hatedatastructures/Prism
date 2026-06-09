@@ -45,7 +45,8 @@ namespace psm::trace
 
         void restore() noexcept
         {
-            active_prefix = prefix_;
+            if (prefix_->is_alive())
+                active_prefix = prefix_;
         }
 
     private:

@@ -257,9 +257,15 @@ namespace psm::trace
      * TLS 方案、用户名、阶段标注、处理单元名）。每个字段的渲染逻辑
      * 由对应的 field tag struct 的 static render() 方法实现，
      * 由 render_ordered 编译期展开。没有值的字段不渲染。
+     * magic 字段用于检测悬垂指针：构造时写入活体标记，
+     * scope_guard 析构时置零，prefix_restore_handler 恢复前
+     * 校验 magic，防止从已释放的 session_prefix 读取垃圾数据。
      */
     struct session_prefix
     {
+        static constexpr std::uint64_t live_magic = 0xC0FFEE'BEEFCAFEULL;
+
+        std::uint64_t magic{live_magic};
         std::uint64_t conn_id = 0;
         char client[48] = {};
         std::uint16_t client_port = 0;
@@ -271,6 +277,16 @@ namespace psm::trace
         char user[32] = {};
 
         phase_slot phase;
+
+        [[nodiscard]] auto is_alive() const noexcept -> bool
+        {
+            return magic == live_magic;
+        }
+
+        auto invalidate() noexcept -> void
+        {
+            magic = 0;
+        }
     };
 
     // ─── 字段 active + render 实现 ──────────────
@@ -418,8 +434,9 @@ namespace psm::trace
      * @class scope_guard
      * @brief 会话前缀 RAII 守卫
      * @details 构造时设置 active_prefix 为当前会话的前缀，
-     * 析构时仅在 active_prefix 仍指向此前缀时清除为 nullptr。
-     * 不保存/恢复旧值，避免多协程环境下产生悬垂指针。
+     * 析构时将 magic 置零并清除 active_prefix。
+     * magic 置零使后续 prefix_restore_handler 校验时检测到
+     * session_prefix 已失效，避免从已释放内存读取垃圾数据。
      */
     class scope_guard
     {
@@ -432,6 +449,7 @@ namespace psm::trace
 
         ~scope_guard() noexcept
         {
+            prefix_->invalidate();
             if (active_prefix == prefix_)
                 active_prefix = nullptr;
         }
@@ -454,7 +472,7 @@ namespace psm::trace
     template <typename Chain>
     auto render_prefix(scratch_pad &buf) noexcept -> void
     {
-        if (active_prefix)
+        if (active_prefix && active_prefix->is_alive())
             render_ordered(*active_prefix, buf, Chain{});
     }
 

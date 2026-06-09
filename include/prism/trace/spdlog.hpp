@@ -119,7 +119,7 @@ namespace psm::trace
                 }
                 else
                 {
-                    rec->log(lvl, spdlog::fmt_lib::runtime("{}" + std::string(fmt)),
+                    rec->log(lvl, spdlog::fmt_lib::runtime("{} " + std::string(fmt)),
                              std::string_view(buf.c_str(),
                                               static_cast<std::size_t>(buf.pos)),
                              std::forward<decltype(args)>(args)...);

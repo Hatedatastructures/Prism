@@ -44,8 +44,7 @@ namespace psm::trace
     template <typename Executor>
     inline constexpr use_prefix_awaitable_t<Executor> use_prefix_awaitable_v{};
 
-    inline constexpr use_prefix_awaitable_t<> use_prefix_awaitable =
-        use_prefix_awaitable_v<net::any_io_executor>;
+    inline constexpr use_prefix_awaitable_t<> use_prefix_awaitable = use_prefix_awaitable_v<net::any_io_executor>;
 
     namespace detail
     {
@@ -76,7 +75,7 @@ namespace psm::trace
             template <typename... Args>
             void operator()(Args &&...args)
             {
-                if (captured_prefix_)
+                if (captured_prefix_ && captured_prefix_->is_alive())
                     active_prefix = captured_prefix_;
                 std::move(handler_)(std::forward<Args>(args)...);
             }
@@ -90,8 +89,7 @@ namespace psm::trace
                 return net::get_associated_executor(handler_);
             }
 
-            using allocator_type =
-                net::associated_allocator<Handler>::type;
+            using allocator_type = net::associated_allocator<Handler>::type;
 
             [[nodiscard]] auto get_allocator() const noexcept
                 -> net::associated_allocator<Handler>::type
@@ -99,8 +97,7 @@ namespace psm::trace
                 return net::get_associated_allocator(handler_);
             }
 
-            using cancellation_slot_type =
-                net::associated_cancellation_slot<Handler>::type;
+            using cancellation_slot_type = net::associated_cancellation_slot<Handler>::type;
 
             [[nodiscard]] auto get_cancellation_slot() const noexcept
                 -> net::associated_cancellation_slot<Handler>::type
@@ -108,16 +105,12 @@ namespace psm::trace
                 return net::get_associated_cancellation_slot(handler_);
             }
 
-            using immediate_executor_type =
-                net::associated_immediate_executor<Handler,
-                    executor_type>::type;
+            using immediate_executor_type = net::associated_immediate_executor<Handler, executor_type>::type;
 
             [[nodiscard]] auto get_immediate_executor() const noexcept
-                -> net::associated_immediate_executor<Handler,
-                    executor_type>::type
+                -> net::associated_immediate_executor<Handler, executor_type>::type
             {
-                return net::get_associated_immediate_executor(
-                    handler_, net::get_associated_executor(handler_));
+                return net::get_associated_immediate_executor(handler_, net::get_associated_executor(handler_));
             }
 
         private:
@@ -134,8 +127,7 @@ class boost::asio::async_result<psm::trace::use_prefix_awaitable_t<Executor>, R(
 {
 public:
     using handler_type = psm::trace::detail::prefix_restore_handler<
-        typename boost::asio::async_result<
-            boost::asio::use_awaitable_t<Executor>, R(Args...)>::handler_type>;
+        typename boost::asio::async_result<boost::asio::use_awaitable_t<Executor>, R(Args...)>::handler_type>;
 
     using return_type =
         typename boost::asio::async_result<boost::asio::use_awaitable_t<Executor>,

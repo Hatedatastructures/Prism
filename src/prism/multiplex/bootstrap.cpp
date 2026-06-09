@@ -103,7 +103,7 @@ namespace psm::multiplex
                     std::shared_ptr<core> session = std::make_shared<yamux::craft>(
                         core_options{std::move(ctx.transport), ctx.router, ctx.cfg, ctx.mr});
                     session->set_traffic(ctx.traffic, ctx.proto);
-                    if (trace::active_prefix) session->set_prefix(*trace::active_prefix);
+                    if (trace::active_prefix && trace::active_prefix->is_alive()) session->set_prefix(*trace::active_prefix);
                     trace::info<flt::conn | flt::protocol>("yamux session constructed");
                     co_return session;
                 }
@@ -121,7 +121,7 @@ namespace psm::multiplex
                         core_options{std::move(ctx.transport), ctx.router, ctx.cfg, ctx.mr},
                         h2mux::craft_init{ctx.router, ctx.cfg, singmux_resolver});
                     session->set_traffic(ctx.traffic, ctx.proto);
-                    if (trace::active_prefix) session->set_prefix(*trace::active_prefix);
+                    if (trace::active_prefix && trace::active_prefix->is_alive()) session->set_prefix(*trace::active_prefix);
                     trace::info<flt::conn | flt::protocol>("h2mux session constructed");
                     co_return session;
                 }
@@ -133,7 +133,7 @@ namespace psm::multiplex
                     std::shared_ptr<core> session = std::make_shared<smux::craft>(
                         core_options{std::move(ctx.transport), ctx.router, ctx.cfg, ctx.mr});
                     session->set_traffic(ctx.traffic, ctx.proto);
-                    if (trace::active_prefix) session->set_prefix(*trace::active_prefix);
+                    if (trace::active_prefix && trace::active_prefix->is_alive()) session->set_prefix(*trace::active_prefix);
                     trace::info<flt::conn | flt::protocol>("smux session constructed");
                     co_return session;
                 }
