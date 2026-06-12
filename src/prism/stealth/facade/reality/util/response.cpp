@@ -140,7 +140,7 @@ namespace psm::stealth::reality
             X509_gmtime_adj(X509_get_notAfter(x509), 3600);
 
             auto *name = X509_NAME_new();
-            // safe: OpenSSL X509 API requires uint8_t*, string literal is read-only for CN assignment
+            // 安全：OpenSSL X509 API 要求 uint8_t*，字符串字面量仅读取，不修改
             X509_NAME_add_entry_by_txt(name, "CN", MBSTRING_ASC,
                                         reinterpret_cast<const std::uint8_t *>("Reality"), -1, -1, 0);
             X509_set_subject_name(x509, name);
@@ -178,7 +178,7 @@ namespace psm::stealth::reality
                 i2d_X509_bio(bio, x509);
                 char *data = nullptr;
                 const auto len = BIO_get_mem_data(bio, &data);
-                // safe: BIO returns char* to internal memory, casting to uint8_t for DER certificate extraction
+                // 安全：BIO 返回 char* 指向内部内存，转为 uint8_t 用于提取 DER 证书
                 cert_der.insert(cert_der.end(),
                                 reinterpret_cast<std::uint8_t *>(data),
                                 reinterpret_cast<std::uint8_t *>(data + len));

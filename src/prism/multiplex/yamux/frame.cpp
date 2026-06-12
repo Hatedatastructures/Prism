@@ -9,19 +9,19 @@ namespace psm::multiplex::yamux
         -> std::array<std::byte, frame_hdrsize>
     {
         return {
-            // Version (1B)
+            // 版本号（1 字节）
             std::byte{hdr.version},
-            // Type (1B)
+            // 帧类型（1 字节）
             static_cast<std::byte>(hdr.type),
-            // Flags (2B BE)
+            // 标志位（2 字节大端序）
             static_cast<std::byte>(static_cast<std::uint16_t>(hdr.flag) >> 8 & 0xFF),
             static_cast<std::byte>(static_cast<std::uint16_t>(hdr.flag) & 0xFF),
-            // StreamID (4B BE)
+            // 流 ID（4 字节大端序）
             static_cast<std::byte>(hdr.stream_id >> 24 & 0xFF),
             static_cast<std::byte>(hdr.stream_id >> 16 & 0xFF),
             static_cast<std::byte>(hdr.stream_id >> 8 & 0xFF),
             static_cast<std::byte>(hdr.stream_id & 0xFF),
-            // Length (4B BE)
+            // 载荷长度（4 字节大端序）
             static_cast<std::byte>(hdr.length >> 24 & 0xFF),
             static_cast<std::byte>(hdr.length >> 16 & 0xFF),
             static_cast<std::byte>(hdr.length >> 8 & 0xFF),
@@ -39,14 +39,14 @@ namespace psm::multiplex::yamux
 
         frame_header hdr{};
 
-        // Version (1B)
+        // 版本号（1 字节）
         hdr.version = static_cast<std::uint8_t>(buffer[0]);
         if (hdr.version != protocol_version)
         {
             return std::nullopt;
         }
 
-        // Type (1B)
+        // 帧类型（1 字节）
         hdr.type = static_cast<message_type>(buffer[1]);
         switch (hdr.type)
         {
@@ -59,19 +59,19 @@ namespace psm::multiplex::yamux
             return std::nullopt;
         }
 
-        // Flags (2B BE)
+        // 标志位（2 字节大端序）
         hdr.flag = static_cast<flags>(
             static_cast<std::uint16_t>(buffer[2]) << 8 |
             static_cast<std::uint16_t>(buffer[3]));
 
-        // StreamID (4B BE)
+        // 流 ID（4 字节大端序）
         hdr.stream_id =
             static_cast<std::uint32_t>(buffer[4]) << 24 |
             static_cast<std::uint32_t>(buffer[5]) << 16 |
             static_cast<std::uint32_t>(buffer[6]) << 8 |
             static_cast<std::uint32_t>(buffer[7]);
 
-        // Length (4B BE)
+        // 载荷长度（4 字节大端序）
         hdr.length =
             static_cast<std::uint32_t>(buffer[8]) << 24 |
             static_cast<std::uint32_t>(buffer[9]) << 16 |

@@ -19,7 +19,7 @@ using namespace psm::trace;
 namespace psm::resolve::dns
 {
 
-    // ─── concrete implementation of resolver ───────────────────
+    // ─── resolver 具体实现 ──────────────────────────────────────
 
     class resolver_impl : public resolver
     {
@@ -470,7 +470,7 @@ namespace psm::resolve::dns
         net::steady_timer eviction_timer_;
     };
 
-    // ─── factory ───────────────────────────────────────────────────
+    // ─── 工厂函数 ──────────────────────────────────────────────
 
     auto make_resolver(net::io_context &ioc, config cfg, memory::resource_pointer mr)
         -> std::unique_ptr<resolver>

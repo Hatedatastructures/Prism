@@ -77,7 +77,7 @@ namespace psm::protocol::http
 
         // 写入新请求行到上游
         std::error_code ec;
-        // safe: casting string data to byte span for wire transmission
+        // 安全：字符串数据转字节 span 用于网络传输
         auto line_span = std::span(reinterpret_cast<const std::byte *>(new_line.data()), new_line.size());
         co_await transport::async_write(*outbound, line_span, ec);
         if (ec)
@@ -88,7 +88,7 @@ namespace psm::protocol::http
         // 写入请求行之后的剩余数据（headers + \r\n\r\n + body data）
         if (used_ > req.line_end)
         {
-            // safe: casting char buffer to byte span for remaining HTTP data forwarding
+            // 安全：字符缓冲区转字节 span 用于剩余 HTTP 数据转发
             std::span span = std::span(reinterpret_cast<const std::byte *>(buffer_.data() + req.line_end), used_ - req.line_end);
             co_await transport::async_write(*outbound, span, ec);
         }
@@ -123,7 +123,7 @@ namespace psm::protocol::http
 
             // 从传输层读取数据
             std::error_code ec;
-            // safe: casting char buffer region to mutable byte span for async read
+            // 安全：字符缓冲区转可写字节 span 用于异步读取
             std::span span = std::span(reinterpret_cast<std::byte *>(buffer_.data() + used_), buffer_.size() - used_);
             const auto n = co_await transport_->async_read_some(span, ec);
             if (ec || n == 0)
@@ -138,7 +138,7 @@ namespace psm::protocol::http
         -> net::awaitable<fault::code>
     {
         std::error_code ec;
-        // safe: casting string_view to byte span for wire transmission
+        // 安全：string_view 转字节 span 用于网络传输
         std::span span = std::span(reinterpret_cast<const std::byte *>(data.data()), data.size());
         co_await transport::async_write(*transport_, span, ec);
         fault::code result;

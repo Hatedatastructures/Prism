@@ -29,7 +29,7 @@ namespace psm::protocol::shadowsocks
         [[nodiscard]] auto as_u8_mut(std::vector<std::byte> &v) noexcept
             -> std::span<std::uint8_t>
         {
-            // safe: casting byte vector to uint8_t span, same memory representation
+            // 安全：字节 vector 转 uint8_t span，内存表示相同
             return {reinterpret_cast<std::uint8_t *>(v.data()), v.size()};
         }
 
@@ -37,7 +37,7 @@ namespace psm::protocol::shadowsocks
         [[nodiscard]] auto as_u8_mut(memory::vector<std::byte> &v) noexcept
             -> std::span<std::uint8_t>
         {
-            // safe: casting PMR byte vector to uint8_t span, same memory representation
+            // 安全：PMR 字节 vector 转 uint8_t span，内存表示相同
             return {reinterpret_cast<std::uint8_t *>(v.data()), v.size()};
         }
 
@@ -262,7 +262,7 @@ namespace psm::protocol::shadowsocks
 
         // 生成随机 server salt（使用密码学安全随机数生成器）
         memory::vector<std::uint8_t> server_salt(key_salt_len_);
-        // safe: RAND_bytes writes to a uint8_t vector's data buffer, same memory layout as unsigned char
+        // 安全：RAND_bytes 写入 uint8_t vector 缓冲区，与 unsigned char 布局相同
         if (RAND_bytes(reinterpret_cast<std::uint8_t *>(server_salt.data()),
                        static_cast<int>(server_salt.size())) != 1)
         {

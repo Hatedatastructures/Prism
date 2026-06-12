@@ -34,7 +34,9 @@ namespace psm::connect
             std::size_t idx;
         };
 
-        // 单向转发循环，从 from 读取数据写入 to
+        // 单向转发循环：从 from 持续读取数据写入 to
+        // 支持 complete（全量写）和 partial（可能分片写）两种策略
+        // 每次成功读写后重置空闲定时器，超时则双向关闭
         auto relay_loop(relay_options opts)
             -> net::awaitable<void>
         {
@@ -86,6 +88,8 @@ namespace psm::connect
                 }
                 else
                 {
+                    // partial 策略：TCP async_write_some 可能只写入部分数据，
+                    // 需要循环直到所有数据写完或出错
                     auto remaining = data;
                     while (!remaining.empty())
                     {
@@ -134,6 +138,9 @@ namespace psm::connect
         auto *mr = memory::system::local_pool();
         const auto array_size = (std::max)(ctx.buffer_size, 2U);
         memory::vector<std::byte> buffer(array_size, memory::effective_mr(mr));
+        // PMR 缓冲区一次性分配，按半切分为两个独立 span
+        // 左半给上行（client→upstream），右半给下行（upstream→client）
+        // 避免两个方向的转发循环各自分配内存
         const auto half = buffer.size() / 2;
         const auto left = std::span(buffer).first(half);
         const auto right = std::span(buffer).last(half);
@@ -143,6 +150,8 @@ namespace psm::connect
         // 空闲超时: 300 秒无数据传输则关闭隧道
         constexpr auto idle_timeout = std::chrono::seconds(300);
         auto idle_timer = std::make_shared<net::steady_timer>(co_await net::this_coro::executor);
+        // idle_handler lambda 按值捕获 inbound/outbound（shared_ptr），
+        // 确保定时器回调触发时传输对象仍然存活，可安全调用 cancel()
         std::function<void(const boost::system::error_code &)> idle_handler =
             [inbound, outbound](const boost::system::error_code &ec)
         {

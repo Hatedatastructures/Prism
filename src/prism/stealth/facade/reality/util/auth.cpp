@@ -131,10 +131,14 @@ namespace psm::stealth::reality
             return {fault::code::kexfail, result};
         }
 
+        // HKDF-Extract: 以 ClientHello.random 前 20 字节为 salt，X25519 共享密钥为 IKM
+        // 派生出伪随机密钥 PRK，用于后续的认证密钥扩展
         const auto prk = crypto::hkdf_extract(
             std::span<const std::uint8_t>(client_hello.random.data(), 20),
             std::span<const std::uint8_t>(shared_secret.data(), shared_secret.size()));
 
+        // HKDF-Expand: 以 PRK 为输入，info 为 "REALITY"，扩展出 32 字节认证密钥
+        // 用于后续 AEAD 解密 ClientHello.session_id 中嵌入的认证数据
         constexpr std::array<std::uint8_t, 7> reality_info{'R', 'E', 'A', 'L', 'I', 'T', 'Y'};
         const auto [expand_ec, auth_key_vec] = crypto::hkdf_expand(
             std::span<const std::uint8_t>(prk.data(), prk.size()),
@@ -147,13 +151,18 @@ namespace psm::stealth::reality
             return {fault::code::unauth, result};
         }
 
+        // session_id 偏移：hs_type(1)+hs_len(3)+version(2)+random(32)+sid_len(1)=39
         constexpr std::size_t sid_offset = 39;
+        // AAD 构造：复制 ClientHello 原始消息，将 session_id 区域清零
+        // 因为 session_id 是被 Reality 加密封装的，清零后作为 AEAD 的附加认证数据
         memory::vector<std::uint8_t> aad(client_hello.raw_msg.begin(), client_hello.raw_msg.end());
         if (aad.size() >= sid_offset + tls::SESSION_ID_MAX_LEN)
         {
             std::memset(aad.data() + sid_offset, 0, tls::SESSION_ID_MAX_LEN);
         }
 
+        // AEAD 解密：用认证密钥解密 ClientHello.session_id
+        // nonce 取 ClientHello.random 的第 20~32 字节（跳过 HKDF 用掉的前 20 字节）
         crypto::aead_context aead(crypto::aead_cipher::aes_256_gcm,
                                   std::span<const std::uint8_t>(auth_key_vec.data(), auth_key_vec.size()));
 

@@ -46,21 +46,21 @@ namespace psm::recognition
         const std::vector<stealth::shared_scheme> &matched_schemes) const
         -> pipeline_result
     {
-        // === Tier 0: 零成本检测 ===
+        // === 层级 0：零成本检测 ===
         auto tier0_result = detect_tier0(input.bitmap, input.features, input.cfg);
         if (tier0_result.deterministic_hit)
         {
             return tier0_result;
         }
 
-        // === Tier 1: 有成本检测 ===
+        // === 层级 1：有成本检测 ===
         auto tier1_result = detect_tier1(input.features, input.raw, input.cfg);
         if (tier1_result.deterministic_hit)
         {
             return tier1_result;
         }
 
-        // === Tier 2: 模糊检测 ===
+        // === 层级 2：模糊检测 ===
         return detect_tier2(input.cfg, matched_schemes);
     }
 

@@ -422,7 +422,7 @@ namespace psm::protocol::vless
 
         if (!tc)
         {
-            // No traffic callback, UDP loop won't report stats
+            // 无流量回调，UDP 不报告统计
         }
         co_return fault::code::success;
     }

@@ -57,7 +57,7 @@ namespace psm::stealth::anytls
         {
             protocol::target target(mr);
 
-            // safe: casting byte span to uint8_t span for protocol frame parsing, same memory layout
+            // 安全：将 byte span 转为 uint8_t span 用于协议帧解析，内存布局相同
             auto buf = std::span<const std::uint8_t>(
                 reinterpret_cast<const std::uint8_t *>(data.data()), data.size());
 
@@ -129,7 +129,7 @@ namespace psm::stealth::anytls
             for (const auto &u : users)
             {
                 std::array<std::uint8_t, SHA256_DIGEST_LENGTH> digest{};
-                // safe: SSL API requires unsigned char*, string data is not modified by SHA256
+                // 安全：SSL API 要求 unsigned char*，字符串数据不会被 SHA256 修改
                 SHA256(reinterpret_cast<const std::uint8_t *>(u.password.data()),
                        u.password.size(), digest.data());
                 map[digest] = memory::string(u.username.data(), u.username.size());
@@ -250,7 +250,7 @@ namespace psm::stealth::anytls
                 co_return;
             }
 
-            // safe: casting byte buffer to const byte span for SOCKS target parsing
+            // 安全：将 byte 缓冲区转为 const byte span 用于 SOCKS 目标解析
             auto preread_span = std::span<const std::byte>(
                 reinterpret_cast<const std::byte *>(preread_data.data()),
                 preread_data.size());
@@ -324,7 +324,7 @@ namespace psm::stealth::anytls
                 co_return fault::code::success;
             }
 
-            // safe: casting byte buffer to const byte span for SOCKS target parsing
+            // 安全：将 byte 缓冲区转为 const byte span 用于 SOCKS 目标解析
             auto preread_span = std::span<const std::byte>(
                 reinterpret_cast<const std::byte *>(preread_data.data()),
                 preread_data.size());

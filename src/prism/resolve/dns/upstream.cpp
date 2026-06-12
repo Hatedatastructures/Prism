@@ -557,7 +557,7 @@ namespace psm::resolve::dns
                     {
                         break;
                     }
-                    // safe: casting mutable buffer to const char* for string append, data is read from socket
+                    // 安全：将可变缓冲区转为 const char* 追加到字符串，数据来自 socket 读取
                     header_data.append(reinterpret_cast<const char *>(recv_buf.data()), n);
                     if (header_data.size() > 65536) [[unlikely]]
                     {

@@ -50,7 +50,7 @@ namespace psm::stealth::reality
         auto derive_and_encrypt_finished(const key_material &keys, shello_result &sh_result, std::span<const std::uint8_t> chello_raw)
             -> fault::code
         {
-            constexpr std::size_t FINISHED_MSG_SIZE = 36; // Type(1) + Length(3) + verify_data(32)
+            constexpr std::size_t FINISHED_MSG_SIZE = 36; // 类型(1) + 长度(3) + verify_data(32)
             const auto &old_plaintext = sh_result.enc_hs_plain;
 
             if (old_plaintext.size() < FINISHED_MSG_SIZE)
@@ -280,7 +280,7 @@ namespace psm::stealth::reality
 
             out.raw_record = std::move(raw_record);
             out.ch_features = std::move(ch_features);
-            // safe: decoded_privkey 现在拥有数据所有权（memory::vector）
+            // 安全：decoded_privkey 现在拥有数据所有权（memory::vector），类型转换安全
             out.decoded_privkey.assign(
                 reinterpret_cast<const std::uint8_t *>(decoded_key_str.data()),
                 reinterpret_cast<const std::uint8_t *>(decoded_key_str.data() + decoded_key_str.size()));
@@ -290,7 +290,7 @@ namespace psm::stealth::reality
             if (!auth_res.authenticated)
             {
                 args.deadline.cancel();
-                // safe: casting uint8_t record data to byte iterators for preread buffer assignment
+                // 安全：将 uint8_t 记录数据转为 byte 迭代器用于 preread 赋值，二进制兼容
                 auto set_preread = [&](stealth::handshake_result &r)
                 {
                     r.transport = args.inbound;
@@ -615,7 +615,7 @@ namespace psm::stealth::reality
                 i2d_X509_bio(bio, peer_cert);
                 char *data = nullptr;
                 const auto len = BIO_get_mem_data(bio, &data);
-                // safe: BIO returns char* to internal memory, casting to uint8_t for DER certificate extraction
+                // 安全：BIO 返回 char* 指向内部内存，转为 uint8_t 用于提取 DER 证书
                 cert_der.insert(cert_der.end(),
                                 reinterpret_cast<std::uint8_t *>(data),
                                 reinterpret_cast<std::uint8_t *>(data + len));

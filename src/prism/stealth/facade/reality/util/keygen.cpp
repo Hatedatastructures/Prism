@@ -97,7 +97,7 @@ namespace psm::stealth::reality
         copy_key(c_hs_key, keys.client_hskey);
         copy_key(c_hs_iv, keys.client_hsiv);
 
-        // server finished_key
+        // 服务端 Finished 密钥
         auto [ec9, finished_key] = crypto::expand_label(
             {s_hs_traffic, "finished", {}, crypto::sha256_len});
         if (fault::failed(ec9))

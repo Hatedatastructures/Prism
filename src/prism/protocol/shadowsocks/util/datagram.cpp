@@ -246,7 +246,7 @@ namespace psm::protocol::shadowsocks
         std::memcpy(result.data(), header_enc.data(), separate_hdr_len);
 
         // 将 body 密文直接写入 result 的 body 区间
-        // safe: casting byte vector region to uint8_t span for AEAD seal output
+        // 安全：字节 vector 区域转 uint8_t span 用于 AEAD 加密输出
         const auto body_out = std::span<std::uint8_t>(
             reinterpret_cast<std::uint8_t *>(result.data() + separate_hdr_len), body_enc_len);
         if (const auto r = entry->aead_ctx->seal(body_out, plain, nonce_span);
@@ -390,7 +390,7 @@ namespace psm::protocol::shadowsocks
         std::memcpy(result.data() + session_id_len, packet_id.data(), packet_id_len);
 
         // 将加密 body 直接写入 result 的 body 区间
-        // safe: casting byte vector region to uint8_t span for AEAD seal output
+        // 安全：字节 vector 区域转 uint8_t span 用于 AEAD 加密输出
         const auto body_out = std::span<std::uint8_t>(
             reinterpret_cast<std::uint8_t *>(result.data() + session_id_len + packet_id_len),
             body_enc_len);

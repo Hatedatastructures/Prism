@@ -42,6 +42,7 @@ namespace psm::connect
         -> net::awaitable<std::pair<fault::code, pooled_connection>>
     {
         {
+            // 尝试解析为 IP 字面量，成功则跳过 DNS
             boost::system::error_code ec;
             const auto addr = net::ip::make_address(host, ec);
             if (!ec)
@@ -63,6 +64,7 @@ namespace psm::connect
             }
         }
 
+        // DNS 返回多结果，Happy Eyeballs 竞速连接
         auto [resolve_ec, endpoints] = co_await rt.dns().resolve_tcp(host, port);
         if (fault::failed(resolve_ec) || endpoints.empty())
         {
@@ -128,6 +130,10 @@ namespace psm::connect
         co_return co_await rt.dns().resolve_udp(host, port);
     }
 
+    // 核心拨号入口：根据 dial_options 决定连接方式
+    // 1. 反向路由（allow_reverse）：查反向映射表，将目标地址映射到预配置的上游
+    // 2. 正向路由（async_forward）：DNS 解析 → Happy Eyeballs 竞速 → 连接池复用
+    // 连接成功后包装为 transport::reliable 返回
     auto dial(router &rt, dial_options opts)
         -> net::awaitable<std::pair<fault::code, shared_transmission>>
     {
@@ -142,6 +148,8 @@ namespace psm::connect
 
         fault::code ec;
         pooled_connection conn;
+        // 反向路由查找：非 no_reverse/neither 且目标非正向代理时查反向映射表
+        // 反向路由允许将特定目标域名映射到预配置的上游，用于负载均衡或路由策略
         const auto allow_reverse = opts.routing != dial_options::flag::no_reverse
             && opts.routing != dial_options::flag::neither;
         if (allow_reverse && !target.positive)

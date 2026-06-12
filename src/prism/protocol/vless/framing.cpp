@@ -9,7 +9,7 @@ namespace
     auto u8_sub(std::span<const std::byte> buf, std::size_t offset, std::size_t count)
         -> std::span<const std::uint8_t>
     {
-        // safe: casting byte span to uint8_t span for protocol sub-range extraction, same memory layout
+        // 安全：字节 span 转 uint8_t span 用于协议子区间提取，内存布局相同
         return {reinterpret_cast<const std::uint8_t*>(buf.data()) + offset, count};
     }
 } // namespace
@@ -227,7 +227,7 @@ namespace psm::protocol::vless::format
             if constexpr (std::is_same_v<Address, ipv4_address>)
             {
                 out.push_back(static_cast<std::byte>(address_type::ipv4));
-                // safe: casting IPv4 address bytes (array<uint8_t,4>) to byte span for serialization
+                // 安全：IPv4 地址字节数组转字节 span 用于序列化
                 out.insert(out.end(),
                            reinterpret_cast<const std::byte*>(addr.bytes.data()),
                            reinterpret_cast<const std::byte*>(addr.bytes.data()) + 4);
@@ -235,7 +235,7 @@ namespace psm::protocol::vless::format
             else if constexpr (std::is_same_v<Address, ipv6_address>)
             {
                 out.push_back(static_cast<std::byte>(address_type::ipv6));
-                // safe: casting IPv6 address bytes (array<uint8_t,16>) to byte span for serialization
+                // 安全：IPv6 地址字节数组转字节 span 用于序列化
                 out.insert(out.end(),
                            reinterpret_cast<const std::byte*>(addr.bytes.data()),
                            reinterpret_cast<const std::byte*>(addr.bytes.data()) + 16);
@@ -244,7 +244,7 @@ namespace psm::protocol::vless::format
             {
                 out.push_back(static_cast<std::byte>(address_type::domain));
                 out.push_back(static_cast<std::byte>(addr.length));
-                // safe: casting domain string bytes to byte span for wire serialization
+                // 安全：域名字符串字节转字节 span 用于序列化
                 out.insert(out.end(),
                            reinterpret_cast<const std::byte*>(addr.value.data()),
                            reinterpret_cast<const std::byte*>(addr.value.data()) + addr.length);

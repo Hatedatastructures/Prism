@@ -10,12 +10,15 @@ using namespace psm::trace;
 namespace psm::connect
 {
 
+    // 协议级转发入口：有出站代理走代理连接上游，否则通过路由器直连
+    // 建立出站连接后调用 tunnel() 进行双向数据转发
     auto forward(context::session &ctx, forward_options opts)
         -> net::awaitable<void>
     {
         const auto &label = opts.label;
         const auto &target = opts.target;
 
+        // 有出站代理走代理，否则走路由器直连
         if (ctx.outbound_proxy)
         {
             auto [ec, outbound] = co_await dial(*ctx.outbound_proxy, target,

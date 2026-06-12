@@ -62,7 +62,7 @@ namespace psm::protocol::trojan::format
         if constexpr (std::is_same_v<Address, ipv4_address>)
         {
             out.push_back(static_cast<std::byte>(0x01));
-            // safe: casting IPv4 address bytes (array<uint8_t,4>) to byte span for wire serialization
+            // 安全：IPv4 地址字节数组转字节 span 用于序列化
             out.insert(out.end(),
                 reinterpret_cast<const std::byte*>(addr.bytes.data()),
                 reinterpret_cast<const std::byte*>(addr.bytes.data()) + 4);
@@ -70,7 +70,7 @@ namespace psm::protocol::trojan::format
         else if constexpr (std::is_same_v<Address, ipv6_address>)
         {
             out.push_back(static_cast<std::byte>(0x04));
-            // safe: casting IPv6 address bytes (array<uint8_t,16>) to byte span for wire serialization
+            // 安全：IPv6 地址字节数组转字节 span 用于序列化
             out.insert(out.end(),
                 reinterpret_cast<const std::byte*>(addr.bytes.data()),
                 reinterpret_cast<const std::byte*>(addr.bytes.data()) + 16);
@@ -79,7 +79,7 @@ namespace psm::protocol::trojan::format
         {
             out.push_back(static_cast<std::byte>(0x03));
             out.push_back(static_cast<std::byte>(addr.length));
-            // safe: casting domain string bytes to byte span for wire serialization
+            // 安全：域名字符串字节转字节 span 用于序列化
             out.insert(out.end(),
                 reinterpret_cast<const std::byte*>(addr.value.data()),
                 reinterpret_cast<const std::byte*>(addr.value.data()) + addr.length);
@@ -127,7 +127,7 @@ namespace psm::protocol::trojan::format
             {
                 return {fault::code::bad_message, {}};
             }
-            // safe: casting byte buffer region to uint8_t span for IPv4 address parsing
+            // 安全：字节缓冲区转 uint8_t span 用于 IPv4 地址解析
             const auto addr_span = std::span(reinterpret_cast<const std::uint8_t *>(buffer.data() + offset), 4);
             auto [ec, addr] = parse_ipv4(addr_span);
             if (fault::failed(ec))
@@ -144,7 +144,7 @@ namespace psm::protocol::trojan::format
             {
                 return {fault::code::bad_message, {}};
             }
-            // safe: casting byte buffer region to uint8_t span for IPv6 address parsing
+            // 安全：字节缓冲区转 uint8_t span 用于 IPv6 地址解析
             auto addr_span = std::span(reinterpret_cast<const std::uint8_t *>(buffer.data() + offset), 16);
             auto [ec, addr] = parse_ipv6(addr_span);
             if (fault::failed(ec))
@@ -166,7 +166,7 @@ namespace psm::protocol::trojan::format
             {
                 return {fault::code::bad_message, {}};
             }
-            // safe: casting byte buffer region to uint8_t span for domain address parsing
+            // 安全：字节缓冲区转 uint8_t span 用于域名地址解析
             const auto domain_span = std::span(
                 reinterpret_cast<const std::uint8_t *>(buffer.data() + offset), 1 + domain_len);
             auto [ec, addr] = parse_domain(domain_span);
@@ -185,7 +185,7 @@ namespace psm::protocol::trojan::format
         offset += addr_size;
 
         // 解析端口
-        // safe: casting byte buffer region to uint8_t span for port field parsing
+        // 安全：字节缓冲区转 uint8_t span 用于端口字段解析
         const auto port_span = std::span(reinterpret_cast<const std::uint8_t *>(buffer.data() + offset), 2);
         auto [port_ec, port] = parse_port(port_span);
         if (fault::failed(port_ec))

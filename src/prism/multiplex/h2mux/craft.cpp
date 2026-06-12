@@ -140,7 +140,7 @@ namespace psm::multiplex::h2mux
                 break;
             }
 
-            // safe: nghttp2 API requires uint8_t*, recv_buf data is read-only input
+            // 安全：nghttp2 API 要求 uint8_t*，recv_buf 仅作只读输入
             const auto recv_len = nghttp2_session_mem_recv(
                 session_,
                 reinterpret_cast<const std::uint8_t *>(recv_buf.data()),
@@ -178,7 +178,7 @@ namespace psm::multiplex::h2mux
             }
 
             std::error_code write_ec;
-            // safe: casting nghttp2 output data (uint8_t*) to byte span for wire transmission
+            // 安全：将 nghttp2 输出数据 (uint8_t*) 转为 byte span 写入传输层
             co_await transport::async_write(*transport_,
                 std::span<const std::byte>(
                     reinterpret_cast<const std::byte *>(data), len),
@@ -359,10 +359,10 @@ namespace psm::multiplex::h2mux
             bool is_connect = false;
             for (std::size_t i = 0; i < frame->headers.nvlen; ++i)
             {
-                // safe: casting nghttp2 header name/value (uint8_t*) to string_view for HTTP/2 header parsing
+                // 安全：将 nghttp2 头部名 (uint8_t*) 转为 string_view 解析 HTTP/2 头
                 const auto name = std::string_view(
                     reinterpret_cast<const char *>(nv[i].name), nv[i].namelen);
-                // safe: casting nghttp2 header value (uint8_t*) to string_view for HTTP/2 header parsing
+                // 安全：将 nghttp2 头部值 (uint8_t*) 转为 string_view 解析 HTTP/2 头
                 const auto value = std::string_view(
                     reinterpret_cast<const char *>(nv[i].value), nv[i].valuelen);
 
@@ -399,7 +399,7 @@ namespace psm::multiplex::h2mux
             return 0;
         }
 
-        // safe: casting nghttp2 header name/value (uint8_t*) to string_view for header field dispatch
+        // 安全：将 nghttp2 头部名/值 (uint8_t*) 转为 string_view 分发头部字段
         const auto hname = std::string_view(reinterpret_cast<const char *>(name), namelen);
         const auto hvalue = std::string_view(reinterpret_cast<const char *>(value), valuelen);
 
@@ -463,7 +463,7 @@ namespace psm::multiplex::h2mux
         if (const auto dit = self->ducts_.find(id); dit != self->ducts_.end() && dit->second)
         {
             auto dp = dit->second;
-            // safe: casting nghttp2 data frame payload (uint8_t*) to byte vector for duct dispatch
+            // 安全：将 nghttp2 数据帧载荷 (uint8_t*) 转为 byte vector 分发到 duct
             auto payload = memory::vector<std::byte>(
                 reinterpret_cast<const std::byte *>(data),
                 reinterpret_cast<const std::byte *>(data) + len, self->mr_);
@@ -490,7 +490,7 @@ namespace psm::multiplex::h2mux
         if (const auto uit = self->parcels_.find(id); uit != self->parcels_.end() && uit->second)
         {
             auto dp = uit->second;
-            // safe: casting nghttp2 data frame payload (uint8_t*) to byte vector for parcel dispatch
+            // 安全：将 nghttp2 数据帧载荷 (uint8_t*) 转为 byte vector 分发到 parcel
             memory::vector<std::byte> payload(
                 reinterpret_cast<const std::byte *>(data),
                 reinterpret_cast<const std::byte *>(data) + len, self->mr_);
@@ -703,7 +703,7 @@ namespace psm::multiplex::h2mux
         const char *status_str = "407";
         if (status == 200)
             status_str = "200";
-        // safe: nghttp2 requires mutable uint8_t* for nv pairs, string literals are cast to non-const for API compat
+        // 安全：nghttp2 要求可变 uint8_t*，字符串字面量经 const_cast 满足 API 兼容
         auto status_name = const_cast<std::uint8_t *>(reinterpret_cast<const std::uint8_t *>(":status"));
         auto status_val = const_cast<std::uint8_t *>(reinterpret_cast<const std::uint8_t *>(status_str));
         nghttp2_nv hdrs[] = {

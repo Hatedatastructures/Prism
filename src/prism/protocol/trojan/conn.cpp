@@ -205,7 +205,7 @@ namespace psm::protocol::trojan
     {
         // 缓冲区足够容纳最大请求
         std::array<std::uint8_t, 320> buffer{};
-        // safe: casting uint8_t array to byte span for async read, same memory layout
+        // 安全：uint8_t 数组转字节 span 用于异步读取，内存布局相同
         const auto byte_span = std::span(reinterpret_cast<std::byte *>(buffer.data()), buffer.size());
         const auto data_span = std::span<const std::uint8_t>(buffer.data(), buffer.size());
 
@@ -383,7 +383,7 @@ namespace psm::protocol::trojan
 
         if (!tc)
         {
-            // No traffic callback, UDP loop won't report stats
+            // 无流量回调，UDP 不报告统计
         }
         co_return fault::code::success;
     }

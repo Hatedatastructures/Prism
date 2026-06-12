@@ -80,7 +80,7 @@ namespace psm::stealth::restls
 
             const auto record_length = payload.size();
 
-            // safe: byte buffer 转 uint8_t 以就地处理 Restls payload
+            // 安全：byte buffer 转 uint8_t 以就地处理 Restls payload
             auto *payload_raw = reinterpret_cast<std::uint8_t *>(payload.data());
 
             std::array<std::uint8_t, appdata_maclen> received_mac{};

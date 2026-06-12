@@ -65,7 +65,7 @@ namespace psm::stealth::restls
                 return std::nullopt;
             }
 
-            // safe: casting byte buffer to uint8_t to parse TLS ServerHello for server random extraction
+            // 安全：将 byte 缓冲区转为 uint8_t 解析 TLS ServerHello 提取 server_random，二进制兼容
             const auto *raw = reinterpret_cast<const std::uint8_t *>(server_hello.data());
             std::array<std::uint8_t, 32> random{};
             std::memcpy(random.data(), raw + tls_hdrsize + 1 + 3 + 2, 32);
@@ -80,7 +80,7 @@ namespace psm::stealth::restls
                 return false;
             }
 
-            // safe: casting byte buffer to uint8_t to parse TLS ServerHello for version detection
+            // 安全：将 byte 缓冲区转为 uint8_t 解析 TLS ServerHello 做版本检测，二进制兼容
             const auto *raw = reinterpret_cast<const std::uint8_t *>(server_hello.data());
             std::size_t offset = tls_hdrsize + 1 + 3 + 2 + 32;
 
@@ -155,7 +155,7 @@ namespace psm::stealth::restls
                 }
 
                 auto &frame = *frame_opt;
-                // safe: casting byte frame buffer to uint8_t for TLS content type inspection and XOR processing
+                // 安全：将 byte 帧缓冲区转为 uint8_t 检查 TLS 内容类型并做 XOR 处理
                 const auto *raw = reinterpret_cast<const std::uint8_t *>(frame.data());
 
                 if (first_app_data && raw[0] == 0x17 && frame.size() > tls_hdrsize)
@@ -163,7 +163,7 @@ namespace psm::stealth::restls
                     std::size_t xor_offset = tls_hdrsize;
                     if (!is_tls13)
                         xor_offset = tls_hdrsize + 8;
-                    // safe: casting mutable byte buffer region to uint8_t span for in-place XOR masking
+                    // 安全：将可变 byte 缓冲区区域转为 uint8_t span 用于原地 XOR 掩码
                     auto payload = std::span<std::uint8_t>(
                         reinterpret_cast<std::uint8_t *>(frame.data()) + xor_offset,
                         frame.size() - xor_offset);
@@ -201,12 +201,12 @@ namespace psm::stealth::restls
                 }
 
                 auto &frame = *frame_opt;
-                // safe: casting byte frame buffer to uint8_t pointer for TLS record parsing
+                // 安全：将 byte 帧缓冲区转为 uint8_t 指针用于 TLS 记录解析，二进制兼容
                 const auto *raw = reinterpret_cast<const std::uint8_t *>(frame.data());
 
                 if (first_app_data && raw[0] == 0x17 && frame.size() > tls_hdrsize)
                 {
-                    // safe: casting byte frame buffer to uint8_t iterators for clientFinished capture
+                    // 安全：将 byte 帧缓冲区转为 uint8_t 迭代器用于捕获 clientFinished
                     opts.client_finished.assign(
                         reinterpret_cast<const std::uint8_t *>(frame.data()),
                         reinterpret_cast<const std::uint8_t *>(frame.data()) + frame.size());

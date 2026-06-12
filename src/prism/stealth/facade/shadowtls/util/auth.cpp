@@ -22,7 +22,7 @@ namespace psm::stealth::shadowtls
         std::array<std::uint8_t, EVP_MAX_MD_SIZE> md{};
         std::uint32_t len = 0;
 
-        // safe: SSL HMAC API requires uint8_t*, byte data is read-only for computation
+        // 安全：SSL HMAC API 要求 uint8_t*，byte 数据仅读取用于计算
         HMAC(EVP_sha1(),
              key.data(), static_cast<int>(key.size()),
              reinterpret_cast<const std::uint8_t *>(data), data_len,
@@ -45,7 +45,7 @@ namespace psm::stealth::shadowtls
             return false;
         }
 
-        // safe: casting byte buffer to uint8_t for ClientHello field parsing
+        // 安全：将 byte 缓冲区转为 uint8_t 解析 ClientHello 字段，二进制兼容
         const auto *raw = reinterpret_cast<const std::uint8_t *>(client_hello.data());
 
         if (raw[0] != content_handshake)
@@ -74,7 +74,7 @@ namespace psm::stealth::shadowtls
         constexpr std::size_t hmac_offset_in_data = session_id_len_idx + 1 + tls_session_id_sz - hmac_size - tls_hdrsize;
         std::memset(hmac_data.data() + hmac_offset_in_data, 0, hmac_size);
 
-        // safe: casting uint8_t HMAC data array to byte pointer for compute_hmac function
+        // 安全：将 uint8_t HMAC 数据数组转为 byte 指针传给 compute_hmac，二进制兼容
         const auto expected = compute_hmac(password, reinterpret_cast<const std::byte *>(hmac_data.data()), hmac_data.size());
 
         constexpr std::size_t client_hmac_offset = session_id_len_idx + 1 + tls_session_id_sz - hmac_size;
@@ -105,13 +105,13 @@ namespace psm::stealth::shadowtls
         }
 
         HMAC_Init_ex(ctx, password.data(), static_cast<int>(password.size()), EVP_sha1(), nullptr);
-        // safe: SSL HMAC API requires uint8_t*, byte span data is read-only
+        // 安全：SSL HMAC API 要求 uint8_t*，byte span 数据仅读取
         HMAC_Update(ctx, reinterpret_cast<const std::uint8_t *>(server_random.data()), server_random.size());
 
         constexpr std::uint8_t tag_c = 'C';
         HMAC_Update(ctx, &tag_c, 1);
 
-        // safe: SSL HMAC API requires uint8_t*, byte span data is read-only
+        // 安全：SSL HMAC API 要求 uint8_t*，byte span 数据仅读取
         HMAC_Update(ctx, reinterpret_cast<const std::uint8_t *>(payload.data()), payload.size());
 
         std::array<std::uint8_t, EVP_MAX_MD_SIZE> md{};
@@ -135,13 +135,13 @@ namespace psm::stealth::shadowtls
         }
 
         HMAC_Init_ex(ctx, password.data(), static_cast<int>(password.size()), EVP_sha1(), nullptr);
-        // safe: SSL HMAC API requires uint8_t*, byte span data is read-only
+        // 安全：SSL HMAC API 要求 uint8_t*，byte span 数据仅读取
         HMAC_Update(ctx, reinterpret_cast<const std::uint8_t *>(server_random.data()), server_random.size());
 
         constexpr std::uint8_t tag_s = 'S';
         HMAC_Update(ctx, &tag_s, 1);
 
-        // safe: SSL HMAC API requires uint8_t*, byte span data is read-only
+        // 安全：SSL HMAC API 要求 uint8_t*，byte span 数据仅读取
         HMAC_Update(ctx, reinterpret_cast<const std::uint8_t *>(payload.data()), payload.size());
 
         std::array<std::uint8_t, EVP_MAX_MD_SIZE> md{};

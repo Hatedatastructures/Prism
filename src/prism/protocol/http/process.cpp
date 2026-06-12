@@ -66,7 +66,7 @@ namespace psm::protocol::http
 
         // 按方法分发
         if (req.method == "CONNECT")
-        {   // https
+        {   // HTTPS 分支
             // CONNECT：发送 200 响应，释放传输层，进入隧道
             if (fault::failed(co_await relay->send_ok()))
             {

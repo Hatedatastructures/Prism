@@ -351,21 +351,21 @@ namespace psm::resolve::dns::detail
                 // NAME（复用压缩表）
                 (void)encode_name(r.name, buf, buf.size(), compression);
 
-                // TYPE (16 bit)
+                // 类型字段（16 位）
                 buf.push_back(static_cast<std::uint8_t>(static_cast<std::uint16_t>(r.type) >> 8));
                 buf.push_back(static_cast<std::uint8_t>(static_cast<std::uint16_t>(r.type) & 0xFF));
 
-                // CLASS (16 bit)
+                // 类字段（16 位）
                 buf.push_back(static_cast<std::uint8_t>(r.rclass >> 8));
                 buf.push_back(static_cast<std::uint8_t>(r.rclass & 0xFF));
 
-                // TTL (32 bit)
+                // 生存时间（32 位）
                 buf.push_back(static_cast<std::uint8_t>(r.ttl >> 24));
                 buf.push_back(static_cast<std::uint8_t>((r.ttl >> 16) & 0xFF));
                 buf.push_back(static_cast<std::uint8_t>((r.ttl >> 8) & 0xFF));
                 buf.push_back(static_cast<std::uint8_t>(r.ttl & 0xFF));
 
-                // RDLENGTH (16 bit) + RDATA
+                // RDATA 长度（16 位）+ 内容
                 const auto rdlen = static_cast<std::uint16_t>(r.rdata.size());
                 buf.push_back(static_cast<std::uint8_t>(rdlen >> 8));
                 buf.push_back(static_cast<std::uint8_t>(rdlen & 0xFF));

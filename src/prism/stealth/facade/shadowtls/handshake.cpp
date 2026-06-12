@@ -36,7 +36,7 @@ namespace psm::stealth::shadowtls
             return std::nullopt;
         }
 
-        // safe: casting byte buffer to uint8_t to parse TLS ServerHello header for validation
+        // 安全：将 byte 缓冲区转为 uint8_t 解析 TLS ServerHello 头部做验证，二进制兼容
         const auto *raw = reinterpret_cast<const std::uint8_t *>(server_hello.data());
         if (raw[0] != content_handshake || raw[5] != hs_type_serverhello)
         {
@@ -56,7 +56,7 @@ namespace psm::stealth::shadowtls
             return false;
         }
 
-        // safe: casting byte buffer to uint8_t to parse TLS ServerHello for version detection
+        // 安全：将 byte 缓冲区转为 uint8_t 解析 TLS ServerHello 做版本检测，二进制兼容
         const auto *raw = reinterpret_cast<const std::uint8_t *>(server_hello.data());
         std::size_t offset = session_id_len_idx + 1;
         const std::uint8_t session_id_len = raw[session_id_len_idx];
@@ -64,7 +64,7 @@ namespace psm::stealth::shadowtls
 
         if (offset + 3 > server_hello.size())
             return false;
-        offset += 3; // cipher_suite(2) + legacy_compression_method(1)
+        offset += 3; // 密码套件(2) + legacy_compression_method(1)
 
         if (offset + 2 > server_hello.size())
             return false;
@@ -144,7 +144,7 @@ namespace psm::stealth::shadowtls
     auto read_hmac_match(const hmac_read_args &args)
         -> net::awaitable<std::optional<memory::vector<std::byte>>>
     {
-        // safe: SSL HMAC API requires unsigned char*, byte span data is read-only
+        // 安全：SSL HMAC API 要求 unsigned char*，byte span 数据仅读取，不修改
         auto sr_data = reinterpret_cast<const std::uint8_t *>(args.server_random.data());
         constexpr std::uint8_t tag_c = 'C';
 
@@ -159,7 +159,7 @@ namespace psm::stealth::shadowtls
             }
 
             auto &frame = *frame_opt;
-            // safe: casting byte frame buffer to uint8_t for TLS content type inspection and HMAC extraction
+            // 安全：将 byte 帧缓冲区转为 uint8_t 检查 TLS 内容类型并提取 HMAC，二进制兼容
             const auto *raw = reinterpret_cast<const std::uint8_t *>(frame.data());
             if (raw[0] == content_appdata &&
                 frame.size() > tls_hmac_hdrsize)
@@ -178,7 +178,7 @@ namespace psm::stealth::shadowtls
                     HMAC_Init_ex(h, args.password.data(), static_cast<int>(args.password.size()), EVP_sha1(), nullptr);
                     HMAC_Update(h, sr_data, args.server_random.size());
                     HMAC_Update(h, &tag_c, 1);
-                    // safe: SSL HMAC API requires unsigned char*, payload data is read-only
+                    // 安全：SSL HMAC API 要求 unsigned char*，payload 数据仅读取
                     HMAC_Update(h, reinterpret_cast<const std::uint8_t *>(payload.data()), payload.size());
                     HMAC_Final(h, md.data(), &md_len);
                     HMAC_CTX_free(h);
@@ -199,7 +199,7 @@ namespace psm::stealth::shadowtls
                         HMAC_Update(hmac_verify.get(), sr_data, args.server_random.size());
                         HMAC_Update(hmac_verify.get(), &tag_c, 1);
                         HMAC_Update(hmac_verify.get(),
-                                    // safe: SSL HMAC API requires unsigned char*, payload data is read-only
+                                    // 安全：SSL HMAC API 要求 unsigned char*，payload 数据仅读取
                                     reinterpret_cast<const std::uint8_t *>(payload.data()),
                                     payload.size());
                         HMAC_Update(hmac_verify.get(), client_hmac.data(), hmac_size);
@@ -235,7 +235,7 @@ namespace psm::stealth::shadowtls
     auto send_modified(const modified_frame_args &args)
         -> net::awaitable<bool>
     {
-        // safe: casting byte payload to uint8_t pointer for HMAC update, binary-compatible types
+        // 安全：将 byte payload 转为 uint8_t 指针用于 HMAC 更新，二进制兼容类型
         HMAC_Update(args.hmac_main.get(), reinterpret_cast<const std::uint8_t *>(args.payload.data()), args.payload.size());
 
         std::array<std::uint8_t, EVP_MAX_MD_SIZE> md{};
@@ -299,7 +299,7 @@ namespace psm::stealth::shadowtls
     {
         auto write_key = compute_write_key(args.password, args.server_random);
 
-        // safe: SSL HMAC API requires unsigned char*, server_random byte data is read-only
+        // 安全：SSL HMAC API 要求 unsigned char*，server_random byte 数据仅读取
         auto sr_bytes = reinterpret_cast<const std::uint8_t *>(args.server_random.data());
 
         auto hmac_main = std::shared_ptr<HMAC_CTX>(HMAC_CTX_new(), HMAC_CTX_free);
@@ -328,7 +328,7 @@ namespace psm::stealth::shadowtls
             }
 
             auto &frame = *frame_opt;
-            // safe: casting byte frame buffer to uint8_t for TLS content type inspection
+            // 安全：将 byte 帧缓冲区转为 uint8_t 检查 TLS 内容类型，二进制兼容
             const auto *raw = reinterpret_cast<const std::uint8_t *>(frame.data());
 
             trace::debug<flt::conn | flt::protocol>("read backend frame #{}: type=0x{:02x}, size={}",
@@ -656,7 +656,7 @@ namespace psm::stealth::shadowtls
             co_return result;
         }
 
-        // Write authenticated user to prefix
+        // 将已认证用户写入前缀
         auto *pfx = trace::active_prefix;
         if (pfx)
         {
@@ -691,7 +691,7 @@ namespace psm::stealth::shadowtls
         detail.matched_password = std::string(auth->password);
         detail.server_random = relay->server_random;
 
-        // safe: SSL HMAC API requires unsigned char*, server_random byte data is read-only
+        // 安全：SSL HMAC API 要求 unsigned char*，server_random 数据仅读取，类型转换安全
         auto sr_data = reinterpret_cast<const std::uint8_t *>(detail.server_random.data());
         constexpr std::uint8_t tag_s = 'S';
         auto hmac_write_transport = std::shared_ptr<HMAC_CTX>(HMAC_CTX_new(), HMAC_CTX_free);

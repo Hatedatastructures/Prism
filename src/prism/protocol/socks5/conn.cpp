@@ -161,7 +161,7 @@ namespace psm::protocol::socks5
         std::array<std::uint8_t, 258> methods_buffer{};
 
         std::error_code ec;
-        // safe: casting uint8_t array to byte span for SOCKS5 method negotiation read
+        // 安全：uint8_t 数组转字节 span 用于 SOCKS5 方法协商读取
         co_await recv_impl(std::span(reinterpret_cast<std::byte *>(methods_buffer.data()), 2), ec);
         if (ec)
         {
@@ -175,7 +175,7 @@ namespace psm::protocol::socks5
 
         const std::uint8_t nmethods = methods_buffer[1];
 
-        // safe: casting uint8_t array region to byte span for reading method list
+        // 安全：uint8_t 数组区域转字节 span 用于读取方法列表
         co_await recv_impl(std::span(reinterpret_cast<std::byte *>(methods_buffer.data() + 2), nmethods), ec);
         if (ec)
         {
@@ -201,7 +201,7 @@ namespace psm::protocol::socks5
         if (config_.enable_auth && acct_dir_ && password_supported)
         {
             constexpr std::uint8_t response[] = {0x05, static_cast<std::uint8_t>(auth_method::password)};
-            // safe: casting uint8_t array to byte span for SOCKS5 method selection write
+            // 安全：uint8_t 数组转字节 span 用于 SOCKS5 方法选择写入
             co_await send_impl(std::span(reinterpret_cast<const std::byte *>(response), 2), ec);
             if (ec)
             {
@@ -220,7 +220,7 @@ namespace psm::protocol::socks5
         if (no_auth_supported && !config_.enable_auth)
         {
             constexpr std::uint8_t response[] = {0x05, 0x00};
-            // safe: casting uint8_t array to byte span for SOCKS5 no-auth response write
+            // 安全：uint8_t 数组转字节 span 用于 SOCKS5 无认证响应写入
             co_await send_impl(std::span(reinterpret_cast<const std::byte *>(response), 2), ec);
             if (ec)
             {
@@ -231,7 +231,7 @@ namespace psm::protocol::socks5
 
         // 启用了认证但客户端不支持，或无可用方法
         constexpr std::uint8_t response[] = {0x05, 0xFF};
-        // safe: casting uint8_t array to byte span for SOCKS5 method rejection write
+        // 安全：uint8_t 数组转字节 span 用于 SOCKS5 方法拒绝写入
         co_await send_impl(std::span(reinterpret_cast<const std::byte *>(response), 2), ec);
         if (ec)
         {
@@ -247,7 +247,7 @@ namespace psm::protocol::socks5
         std::array<std::uint8_t, 513> auth_buffer{};
 
         std::error_code ec;
-        // safe: casting uint8_t array to byte span for RFC 1929 auth version/ulen read
+        // 安全：uint8_t 数组转字节 span 用于 RFC 1929 认证版本/ulen 读取
         co_await recv_impl(std::span(reinterpret_cast<std::byte *>(auth_buffer.data()), 2), ec);
         if (ec)
         {
@@ -258,14 +258,14 @@ namespace psm::protocol::socks5
         if (ulen == 0)
         {
             const auto response = wire::build_pw_auth_response(wire::auth_result::failed);
-            // safe: casting uint8_t vector to byte span for auth rejection write
+            // 安全：uint8_t vector 转字节 span 用于认证拒绝写入
             co_await send_impl(std::span(reinterpret_cast<const std::byte *>(response.data()), response.size()), ec);
             co_return std::pair{fault::code::bad_message, false};
         }
 
         // 读取用户名 + PLEN
         const auto uname_and_plen = static_cast<std::size_t>(ulen + 1);
-        // safe: casting uint8_t array region to byte span for remaining auth fields read
+        // 安全：uint8_t 数组区域转字节 span 用于剩余认证字段读取
         co_await recv_impl(std::span(reinterpret_cast<std::byte *>(auth_buffer.data() + 2), uname_and_plen), ec);
         if (ec)
         {
@@ -287,7 +287,7 @@ namespace psm::protocol::socks5
         if (fault::failed(parse_ec))
         {
             const auto response = wire::build_pw_auth_response(wire::auth_result::failed);
-            // safe: casting uint8_t vector to byte span for auth rejection write
+            // 安全：uint8_t vector 转字节 span 用于认证解析失败写入
             co_await send_impl(std::span(reinterpret_cast<const std::byte *>(response.data()), response.size()), ec);
             co_return std::pair{parse_ec, false};
         }
@@ -299,7 +299,7 @@ namespace psm::protocol::socks5
         if (!lease)
         {
             const auto response = wire::build_pw_auth_response(wire::auth_result::failed);
-            // safe: casting uint8_t vector to byte span for auth failure write
+            // 安全：uint8_t vector 转字节 span 用于认证失败写入
             co_await send_impl(std::span(reinterpret_cast<const std::byte *>(response.data()), response.size()), ec);
             co_return std::pair{fault::code::success, false};
         }
@@ -308,7 +308,7 @@ namespace psm::protocol::socks5
         account_lease_ = std::move(lease);
 
         const auto response = wire::build_pw_auth_response(wire::auth_result::success);
-        // safe: casting uint8_t vector to byte span for auth success write
+        // 安全：uint8_t vector 转字节 span 用于认证成功写入
         co_await send_impl(std::span(reinterpret_cast<const std::byte *>(response.data()), response.size()), ec);
         if (ec)
         {
@@ -323,7 +323,7 @@ namespace psm::protocol::socks5
                                       const net::ip::udp::endpoint &client_endpoint) const
         -> net::awaitable<void>
     {
-        // safe: casting byte span to uint8_t span for SOCKS5 UDP header decoding
+        // 安全：字节 span 转 uint8_t span 用于 SOCKS5 UDP 头部解码
         const auto ingress_bytes = std::span<const std::uint8_t>(
             reinterpret_cast<const std::uint8_t *>(ingress_packet.data()), ingress_packet.size());
         const auto [decode_ec, parsed] = wire::decode_hdr(ingress_bytes);
@@ -384,7 +384,7 @@ namespace psm::protocol::socks5
 
         memory::vector<std::uint8_t> response_datagram(memory::current_resource());
         response_datagram.reserve(target_n + 64);
-        // safe: casting byte buffer to uint8_t span for UDP datagram payload encoding
+        // 安全：字节缓冲区转 uint8_t span 用于 UDP 数据报载荷编码
         const auto target_payload = std::span<const std::uint8_t>(
             reinterpret_cast<const std::uint8_t *>(ctx.target_buf.data()), target_n);
         if (fault::failed(wire::encode_dgram(response_header, target_payload, response_datagram)))
@@ -495,7 +495,7 @@ namespace psm::protocol::socks5
     {
         std::array<std::uint8_t, 4> request_header{};
         std::error_code ec;
-        // safe: casting uint8_t array to byte span for SOCKS5 request header read
+        // 安全：uint8_t 数组转字节 span 用于 SOCKS5 请求头读取
         co_await recv_impl(std::span(reinterpret_cast<std::byte *>(request_header.data()), 4), ec);
 
         if (ec)
@@ -516,7 +516,7 @@ namespace psm::protocol::socks5
     {
         std::uint8_t len = 0;
         std::error_code io_ec;
-        // safe: casting uint8_t to byte span for domain length read, single byte has no alignment issue
+        // 安全：uint8_t 转字节 span 用于域名长度读取，单字节无对齐问题
         co_await recv_impl(std::span(reinterpret_cast<std::byte *>(&len), 1), io_ec);
         if (io_ec)
         {
@@ -526,7 +526,7 @@ namespace psm::protocol::socks5
         std::array<std::uint8_t, 258> buffer{};
         buffer[0] = len;
 
-        // safe: casting uint8_t array region to byte span for domain address + port read
+        // 安全：uint8_t 数组区域转字节 span 用于域名地址 + 端口读取
         co_await recv_impl(std::span(reinterpret_cast<std::byte *>(buffer.data() + 1), len + 2), io_ec);
         if (io_ec)
         {
@@ -646,7 +646,7 @@ namespace psm::protocol::socks5
         std::array<std::uint8_t, 262> buffer{};
         const std::size_t len = build_ok_resp(info, buffer);
         std::error_code ec;
-        // safe: casting uint8_t array to byte span for SOCKS5 success response write
+        // 安全：uint8_t 数组转字节 span 用于 SOCKS5 成功响应写入
         co_await send_impl(std::span(reinterpret_cast<const std::byte *>(buffer.data()), len), ec);
         co_return fault::to_code(ec);
     }
@@ -659,7 +659,7 @@ namespace psm::protocol::socks5
             0x00, 0x00, 0x00, 0x00,
             0x00, 0x00};
         std::error_code ec;
-        // safe: casting uint8_t array to byte span for SOCKS5 error response write
+        // 安全：uint8_t 数组转字节 span 用于 SOCKS5 错误响应写入
         co_await send_impl(std::span(reinterpret_cast<const std::byte *>(response.data()), response.size()), ec);
         co_return fault::to_code(ec);
     }

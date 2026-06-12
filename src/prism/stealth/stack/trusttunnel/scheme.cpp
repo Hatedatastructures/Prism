@@ -54,13 +54,13 @@ namespace psm::stealth::trusttunnel
                 }
 
                 std::array<std::uint8_t, 256> encode_buf{};
-                // safe: SSL API requires uint8_t*, string data is read-only for base64 encoding
+                // 安全：SSL API 要求 uint8_t*，字符串数据仅读取用于 Base64 编码
                 auto encoded_len = EVP_EncodeBlock(
                     encode_buf.data(),
                     reinterpret_cast<const std::uint8_t *>(creds_view.data()),
                     static_cast<int>(creds_view.size()));
 
-                // safe: casting uint8_t base64 output buffer to string_view for comparison
+                // 安全：将 uint8_t Base64 输出缓冲区转为 string_view 用于比较
                 auto encoded_str = std::string_view(
                     reinterpret_cast<const char *>(encode_buf.data()),
                     static_cast<std::size_t>(encoded_len));

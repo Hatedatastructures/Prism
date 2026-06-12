@@ -60,7 +60,7 @@ namespace psm::recognition::tls
 
                 if (offset + name_len > ext_data.size())
                     break;
-                // safe: casting uint8_t SNI extension data to char* for server name extraction
+                // 安全：将 uint8_t SNI 扩展数据转为 char* 用于提取服务器名称
                 features.server_name.assign(
                     reinterpret_cast<const char *>(ext_data.data() + offset),
                     name_len);
@@ -203,7 +203,7 @@ namespace psm::recognition::tls
             co_return co_await read_tls_record(transport);
         }
 
-        // safe: casting byte preread buffer to uint8_t to parse TLS record header fields
+        // 安全：将 byte 预读缓冲区转为 uint8_t 以解析 TLS 记录头字段
         const auto *raw = reinterpret_cast<const std::uint8_t *>(preread.data());
         if (const auto content_type = raw[0]; content_type != tls_proto::CT_HANDSHAKE)
         {
@@ -238,7 +238,7 @@ namespace psm::recognition::tls
         while (read_offset < total)
         {
             std::error_code ec;
-            // safe: casting uint8_t vector region to mutable byte span for async read
+            // 安全：将 uint8_t 向量区域转为可变 byte span 用于异步读取
             const auto buf_span = std::span(reinterpret_cast<std::byte *>(buffer.data() + read_offset), total - read_offset);
             const auto n = co_await transport.async_read_some(buf_span, ec);
             if (ec || n == 0)

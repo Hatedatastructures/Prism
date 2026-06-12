@@ -47,7 +47,7 @@ namespace psm::recognition
             co_return result;
         }
 
-        // Phase 3: SNI 路由
+        // Phase 3: SNI 路由匹配
         auto route_table = route_table::build(*ctx.cfg);
         auto matched_scheme_names = route_table.lookup(features.server_name);
 

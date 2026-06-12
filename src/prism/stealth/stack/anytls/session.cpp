@@ -69,7 +69,7 @@ namespace psm::stealth::anytls
                     break;
                 }
 
-                // safe: casting byte buffer to uint8_t span for frame header parsing, same memory layout
+                // 安全：将 byte 缓冲区转为 uint8_t span 用于帧头解析，内存布局相同
                 auto header = frame_header::parse(
                     std::span<const std::uint8_t>(
                         reinterpret_cast<const std::uint8_t *>(header_buf.data()),
@@ -84,7 +84,7 @@ namespace psm::stealth::anytls
                 memory::vector<std::uint8_t> payload(header->length);
                 if (header->length > 0)
                 {
-                    // safe: casting uint8_t vector to mutable byte span for async read
+                    // 安全：将 uint8_t vector 转为可变 byte span 用于异步读取
                     if (!co_await read_exact(
                         std::span<std::byte>(
                             reinterpret_cast<std::byte *>(payload.data()),
@@ -193,7 +193,7 @@ namespace psm::stealth::anytls
     {
         received_settings_ = true;
 
-        // safe: casting uint8_t payload to string_view for text protocol parsing
+        // 安全：将 uint8_t payload 转为 string_view 用于文本协议解析
         auto text = std::string_view(
             reinterpret_cast<const char *>(payload.data()), payload.size());
 
@@ -227,7 +227,7 @@ namespace psm::stealth::anytls
                     trace::debug<flt::conn | flt::protocol>("client padding-md5 mismatch, sending update");
                     std::error_code up_ec;
                     co_await write_frame(frame_input{command::update_padding, 0,
-                        // safe: casting string data to byte span for frame transmission
+                        // 安全：将字符串数据转为 byte span 用于帧传输
                         std::span<const std::byte>(
                             reinterpret_cast<const std::byte *>(padding_->raw_scheme_.data()),
                             padding_->raw_scheme_.size()), up_ec});
@@ -241,7 +241,7 @@ namespace psm::stealth::anytls
             auto settings_text = std::string("v=2\nserver=prism\n");
             std::error_code wr_ec;
             co_await write_frame(frame_input{command::server_settings, 0,
-                // safe: casting string data to byte span for frame transmission
+                // 安全：将字符串数据转为 byte span 用于帧传输
                 std::span<const std::byte>(
                     reinterpret_cast<const std::byte *>(settings_text.data()),
                     settings_text.size()), wr_ec});
@@ -400,7 +400,7 @@ namespace psm::stealth::anytls
         auto serialized = hdr.serialize();
 
         // 写入 header
-        // safe: casting serialized header vector to byte span for wire transmission
+        // 安全：将序列化帧头 vector 转为 byte span 用于网络传输
         co_await transport::async_write(*transport_,
             std::span<const std::byte>(
                 reinterpret_cast<const std::byte *>(serialized.data()),
@@ -442,7 +442,7 @@ namespace psm::stealth::anytls
 
             memory::vector<std::uint8_t> waste_data(size, 0);
             co_await write_frame(frame_input{command::waste, 0,
-                // safe: casting uint8_t vector to byte span for waste frame transmission
+                // 安全：将 uint8_t vector 转为 byte span 用于 waste 帧传输
                 std::span<const std::byte>(
                     reinterpret_cast<const std::byte *>(waste_data.data()),
                     waste_data.size()), ec});

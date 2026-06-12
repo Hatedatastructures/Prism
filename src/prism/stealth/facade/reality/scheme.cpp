@@ -39,7 +39,7 @@ namespace psm::stealth::reality
                 .note = "Reality marker [01:08:02] detected"};
         }
 
-        // 有 X25519 + session_id=32 → high confidence candidate
+        // 有 X25519 + session_id=32 → 高置信度候选
         // 不独占，可能被 ShadowTLS HMAC 验证后抢走
         if (rec_tls::has_all(bitmap, rec_tls::feature_bit::has_x25519 | rec_tls::feature_bit::full_session))
         {
@@ -51,7 +51,7 @@ namespace psm::stealth::reality
                 .note = "Has X25519 + session_id=32"};
         }
 
-        // 有 X25519 + session_id 非标准 → medium confidence
+        // 有 X25519 + session_id 非标准 → 中等置信度
         // Reality 客户端可能使用非标准 session_id
         const bool has_x25519 = rec_tls::has_feature(bitmap, rec_tls::feature_bit::has_x25519);
         const bool has_nonstd_session = rec_tls::has_feature(bitmap, rec_tls::feature_bit::nonstd_session);
@@ -65,7 +65,7 @@ namespace psm::stealth::reality
                 .note = "Has X25519 + non-standard session_id"};
         }
 
-        // 有 X25519 但 session_id 标准长度（无标记）→ medium-low
+        // 有 X25519 但 session_id 标准长度（无标记）→ 中低置信度
         if (rec_tls::has_feature(bitmap, rec_tls::feature_bit::has_x25519))
         {
             trace::debug<flt::conn | flt::protocol>("Sniff: has X25519 only");
@@ -76,7 +76,7 @@ namespace psm::stealth::reality
                 .note = "Has X25519"};
         }
 
-        // 无 X25519 但有 SNI + session_id=32 → low confidence
+        // 无 X25519 但有 SNI + session_id=32 → 低置信度
         // 需要 SNI 匹配（在 route_table 层检查）
         if (rec_tls::has_all(bitmap, rec_tls::feature_bit::has_sni | rec_tls::feature_bit::full_session))
         {
@@ -88,7 +88,7 @@ namespace psm::stealth::reality
                 .note = "Has SNI + session_id=32"};
         }
 
-        // 只有 SNI → low confidence (SNI 匹配已在上层检查)
+        // 只有 SNI → 低置信度 (SNI 匹配已在上层检查)
         if (rec_tls::has_feature(bitmap, rec_tls::feature_bit::has_sni))
         {
             trace::debug<flt::conn | flt::protocol>("Sniff: has SNI only");

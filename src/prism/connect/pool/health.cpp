@@ -28,7 +28,7 @@ namespace psm::connect
 #else
         socklen_t len = sizeof(error);
 #endif
-        // safe: getsockopt requires char* for error value, int and char have compatible layout on POSIX/Win32
+        // 安全：getsockopt 要求 char*，int 与 char 布局兼容
         if (::getsockopt(fd, SOL_SOCKET, SO_ERROR, reinterpret_cast<char *>(&error), &len) != 0)
         {
             return socket_state::error;
@@ -97,7 +97,7 @@ namespace psm::connect
 #else
         socklen_t len = sizeof(error);
 #endif
-        // safe: getsockopt requires char* for error value, int and char have compatible layout on POSIX/Win32
+        // 安全：getsockopt 要求 char*，int 与 char 布局兼容
         if (::getsockopt(fd, SOL_SOCKET, SO_ERROR, reinterpret_cast<char *>(&error), &len) != 0)
         {
             return false;
