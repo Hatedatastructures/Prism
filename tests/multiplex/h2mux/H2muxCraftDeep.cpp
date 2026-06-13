@@ -8,16 +8,16 @@
  *          避免同步 start() + poll()/run_for() 导致的 Access violation。
  */
 
-#include <prism/memory.hpp>
+#include <prism/core/core.hpp>
 #include <prism/trace/spdlog.hpp>
 
 #include "common/MockTransport.hpp"
 
-#include <prism/connect/pool/pool.hpp>
-#include <prism/connect/dial/router.hpp>
-#include <prism/resolve/dns/dns.hpp>
-#include <prism/multiplex/h2mux/craft.hpp>
-#include <prism/stats/traffic.hpp>
+#include <prism/net/connect/pool/pool.hpp>
+#include <prism/net/connect/dial/router.hpp>
+#include <prism/net/resolve/dns/dns.hpp>
+#include <prism/proto/multiplex/h2mux/craft.hpp>
+#include <prism/account/stats/traffic.hpp>
 
 using MockTransport = psm::testing::MockTransport;
 namespace multiplex = psm::multiplex;
@@ -243,7 +243,7 @@ namespace
 } // namespace
 
 // #include 源文件以覆盖 log_spawn_error 匿名命名空间函数
-#include "../src/prism/multiplex/h2mux/craft.cpp"
+#include "../src/prism/proto/multiplex/h2mux/craft.cpp"
 
 namespace
 {

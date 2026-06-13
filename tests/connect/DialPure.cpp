@@ -5,16 +5,16 @@
  *          以及 racer.cpp 中 address_racer 构造函数。
  */
 
-#include <prism/memory.hpp>
+#include <prism/core/core.hpp>
 #include <prism/trace/spdlog.hpp>
 
 
-#include <prism/connect/dial/dial.hpp>
+#include <prism/net/connect/dial/dial.hpp>
 
 #include <gtest/gtest.h>
 
 #define private public
-#include "../../src/prism/connect/dial/racer.cpp"
+#include "../../src/prism/net/connect/dial/racer.cpp"
 #undef private
 
 namespace

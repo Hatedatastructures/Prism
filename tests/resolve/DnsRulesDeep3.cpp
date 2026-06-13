@@ -6,7 +6,7 @@
  *          rules_engine 的 add_addr_rule/add_neg_rule/add_cname/match 全分支。
  */
 
-#include <prism/memory.hpp>
+#include <prism/core/core.hpp>
 #include <prism/trace/spdlog.hpp>
 
 
@@ -19,11 +19,11 @@
 #include <string_view>
 
 #define private public
-#include <prism/resolve/dns/detail/rules.hpp>
+#include <prism/net/resolve/dns/detail/rules.hpp>
 #undef private
 
 // 包含源文件以获得 gcov 覆盖
-#include "../../src/prism/resolve/dns/detail/rules.cpp"
+#include "../../src/prism/net/resolve/dns/detail/rules.cpp"
 
 namespace
 {

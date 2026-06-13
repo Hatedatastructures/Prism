@@ -8,18 +8,18 @@
  *       对 frame_loop 的阻塞，否则 ioc.run() 不会返回。
  */
 
-#include <prism/memory.hpp>
+#include <prism/core/core.hpp>
 #include <prism/trace/spdlog.hpp>
 
 #include "common/MockTransport.hpp"
 
 #define private public
 #define protected public
-#include <prism/connect/pool/pool.hpp>
-#include <prism/connect/dial/router.hpp>
-#include <prism/resolve/dns/dns.hpp>
-#include <prism/multiplex/h2mux/craft.hpp>
-#include <prism/stats/traffic.hpp>
+#include <prism/net/connect/pool/pool.hpp>
+#include <prism/net/connect/dial/router.hpp>
+#include <prism/net/resolve/dns/dns.hpp>
+#include <prism/proto/multiplex/h2mux/craft.hpp>
+#include <prism/account/stats/traffic.hpp>
 #undef protected
 #undef private
 

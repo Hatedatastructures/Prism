@@ -16,17 +16,17 @@
  *          target_readloop 中可能还有引用 mr_ 的挂起操作。
  */
 
-#include <prism/memory.hpp>
+#include <prism/core/core.hpp>
 #include <prism/trace/spdlog.hpp>
 
 #include "common/MockTransport.hpp"
 
-#include <prism/connect/pool/pool.hpp>
-#include <prism/connect/dial/router.hpp>
-#include <prism/resolve/dns/dns.hpp>
-#include <prism/multiplex/core.hpp>
-#include <prism/multiplex/duct.hpp>
-#include <prism/stats/traffic.hpp>
+#include <prism/net/connect/pool/pool.hpp>
+#include <prism/net/connect/dial/router.hpp>
+#include <prism/net/resolve/dns/dns.hpp>
+#include <prism/proto/multiplex/core.hpp>
+#include <prism/proto/multiplex/duct.hpp>
+#include <prism/account/stats/traffic.hpp>
 
 using MockTransport = psm::testing::MockTransport;
 namespace multiplex = psm::multiplex;
@@ -274,4 +274,4 @@ namespace
 } // namespace
 
 // #include 源文件以覆盖 duct 全部实现
-#include "../src/prism/multiplex/duct.cpp"
+#include "../src/prism/proto/multiplex/duct.cpp"

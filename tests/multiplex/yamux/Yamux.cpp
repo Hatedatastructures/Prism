@@ -8,8 +8,8 @@
  * 4. 截断数据与版本不匹配的容错处理
  */
 
-#include <prism/multiplex/yamux/frame.hpp>
-#include <prism/memory.hpp>
+#include <prism/proto/multiplex/yamux/frame.hpp>
+#include <prism/core/core.hpp>
 #include <prism/trace/spdlog.hpp>
 
 #include <array>

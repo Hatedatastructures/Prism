@@ -12,7 +12,7 @@
  */
 #pragma once
 
-#include <prism/memory/container.hpp>
+#include <prism/core/memory/container.hpp>
 #include <prism/stealth/scheme.hpp>
 #include <prism/stealth/facade/shadowtls/config.hpp>
 

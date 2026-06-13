@@ -12,10 +12,10 @@
  */
 #pragma once
 
-#include <prism/memory/container.hpp>
+#include <prism/core/memory/container.hpp>
 #include <prism/stealth/facade/restls/crypto.hpp>
 #include <prism/stealth/facade/restls/script.hpp>
-#include <prism/transport/transmission.hpp>
+#include <prism/net/transport/transmission.hpp>
 
 #include <boost/asio.hpp>
 

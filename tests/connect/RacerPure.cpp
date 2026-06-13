@@ -6,7 +6,7 @@
  *          依赖真实网络连接，此处仅覆盖纯同步逻辑路径。
  */
 
-#include <prism/memory.hpp>
+#include <prism/core/core.hpp>
 #include <prism/trace/spdlog.hpp>
 
 #include <boost/asio.hpp>
@@ -16,7 +16,7 @@
 
 // 通过预处理器 hack 访问 private 内部类型 race_context（仅限测试翻译单元）
 #define private public
-#include "../../src/prism/connect/dial/racer.cpp"
+#include "../../src/prism/net/connect/dial/racer.cpp"
 #undef private
 
 namespace

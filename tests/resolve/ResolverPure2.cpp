@@ -6,15 +6,15 @@
  *          通过 #include 源文件访问 resolver_impl 内部方法。
  */
 
-#include <prism/memory.hpp>
-#include <prism/resolve/dns/dns.hpp>
+#include <prism/core/core.hpp>
+#include <prism/net/resolve/dns/dns.hpp>
 #include <prism/trace/spdlog.hpp>
 
 
 #include <gtest/gtest.h>
 
 // #include 源文件获取 resolver_impl 定义
-#include "../../src/prism/resolve/dns/resolver.cpp"
+#include "../../src/prism/net/resolve/dns/resolver.cpp"
 
 namespace
 {

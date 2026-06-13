@@ -5,17 +5,17 @@
  * 的幂等性——多次调用不应崩溃或抛异常。
  */
 
-#include <prism/config.hpp>
+#include <prism/config/config.hpp>
 #include <prism/context/context.hpp>
 #include <prism/account/directory.hpp>
 #include <prism/instance/front/listener.hpp>
 #include <prism/instance/front/balancer.hpp>
 #include <prism/instance/worker/worker.hpp>
 #include <prism/instance/session/session.hpp>
-#include <prism/connect/pool/pool.hpp>
-#include <prism/connect/dial/router.hpp>
-#include <prism/transport/reliable.hpp>
-#include <prism/memory.hpp>
+#include <prism/net/connect/pool/pool.hpp>
+#include <prism/net/connect/dial/router.hpp>
+#include <prism/net/transport/reliable.hpp>
+#include <prism/core/core.hpp>
 #include <prism/trace/spdlog.hpp>
 #include <gtest/gtest.h>
 

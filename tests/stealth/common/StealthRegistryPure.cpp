@@ -6,7 +6,7 @@
 
 #include <gtest/gtest.h>
 
-#include <prism/memory.hpp>
+#include <prism/core/core.hpp>
 #include <prism/stealth/registry.hpp>
 
 namespace

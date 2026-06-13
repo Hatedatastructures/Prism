@@ -8,11 +8,11 @@
 
 #include <gtest/gtest.h>
 
-#include <prism/memory.hpp>
-#include <prism/config.hpp>
+#include <prism/core/core.hpp>
+#include <prism/config/config.hpp>
 
 // 直接 include 源文件以访问 anonymous namespace 函数
-#include <prism/multiplex/h2mux/craft.hpp>
+#include <prism/proto/multiplex/h2mux/craft.hpp>
 
 // 拉入源文件中 anonymous namespace 的函数定义
 // 注意：必须在所有头文件之后 include

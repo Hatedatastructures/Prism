@@ -1,6 +1,6 @@
 #include <prism/stealth/common.hpp>
 
-#include <prism/protocol/tls/record.hpp>
+#include <prism/proto/protocol/tls/record.hpp>
 
 #include <cstring>
 

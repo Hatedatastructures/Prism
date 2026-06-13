@@ -8,8 +8,8 @@
 
 #pragma once
 
-#include <prism/memory/container.hpp>
-#include <prism/transport/transmission.hpp>
+#include <prism/core/memory/container.hpp>
+#include <prism/net/transport/transmission.hpp>
 
 #include <boost/asio.hpp>
 #include <openssl/hmac.h>

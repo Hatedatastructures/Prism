@@ -4,8 +4,8 @@
  * @details 测试 parse_req/rel_path/build_fwd 全分支
  */
 
-#include <prism/memory.hpp>
-#include <prism/protocol/http/parser.hpp>
+#include <prism/core/core.hpp>
+#include <prism/proto/protocol/http/parser.hpp>
 #include <prism/trace/spdlog.hpp>
 
 

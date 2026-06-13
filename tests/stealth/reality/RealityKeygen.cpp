@@ -6,10 +6,10 @@
 
 #include <gtest/gtest.h>
 
-#include <prism/memory.hpp>
+#include <prism/core/core.hpp>
 #include <prism/stealth/facade/reality/util/keygen.hpp>
 #include <prism/crypto/x25519.hpp>
-#include <prism/fault.hpp>
+#include <prism/core/core.hpp>
 
 #include <array>
 #include <cstdint>

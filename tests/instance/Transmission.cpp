@@ -5,10 +5,10 @@
  * 验证构造、异步读写、关闭、远端端点等操作的正确性。
  */
 
-#include <prism/transport/transmission.hpp>
-#include <prism/transport/reliable.hpp>
-#include <prism/transport/unreliable.hpp>
-#include <prism/memory.hpp>
+#include <prism/net/transport/transmission.hpp>
+#include <prism/net/transport/reliable.hpp>
+#include <prism/net/transport/unreliable.hpp>
+#include <prism/core/core.hpp>
 #include <prism/trace/spdlog.hpp>
 #include <gtest/gtest.h>
 

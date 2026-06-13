@@ -7,11 +7,11 @@
  */
 #pragma once
 
-#include <prism/fault/code.hpp>
-#include <prism/memory/container.hpp>
+#include <prism/core/fault/code.hpp>
+#include <prism/core/memory/container.hpp>
 #include <prism/stealth/stack/anytls/mux/frame.hpp>
 #include <prism/stealth/stack/anytls/padding.hpp>
-#include <prism/transport/transmission.hpp>
+#include <prism/net/transport/transmission.hpp>
 
 #include <boost/asio.hpp>
 #include <boost/asio/experimental/concurrent_channel.hpp>

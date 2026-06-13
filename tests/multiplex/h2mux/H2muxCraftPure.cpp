@@ -6,12 +6,12 @@
  *          静态回调函数，以及 respond_connect 公开接口。
  */
 
-#include <prism/memory.hpp>
+#include <prism/core/core.hpp>
 #include <prism/trace/spdlog.hpp>
-#include <prism/multiplex/h2mux/craft.hpp>
-#include <prism/multiplex/config.hpp>
-#include <prism/connect/dial/router.hpp>
-#include <prism/transport/transmission.hpp>
+#include <prism/proto/multiplex/h2mux/craft.hpp>
+#include <prism/proto/multiplex/config.hpp>
+#include <prism/net/connect/dial/router.hpp>
+#include <prism/net/transport/transmission.hpp>
 
 #include <nghttp2/nghttp2.h>
 

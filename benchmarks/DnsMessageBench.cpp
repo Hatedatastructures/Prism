@@ -5,9 +5,9 @@
  */
 
 #include <benchmark/benchmark.h>
-#include <prism/memory.hpp>
-#include <prism/resolve/dns/detail/format.hpp>
-#include <prism/resolve/dns/detail/cache.hpp>
+#include <prism/core/core.hpp>
+#include <prism/net/resolve/dns/detail/format.hpp>
+#include <prism/net/resolve/dns/detail/cache.hpp>
 
 #include <boost/asio.hpp>
 #include <cstdint>

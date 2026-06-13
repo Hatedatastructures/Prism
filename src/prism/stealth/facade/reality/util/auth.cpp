@@ -2,7 +2,7 @@
 
 #include <prism/crypto/aead.hpp>
 #include <prism/crypto/hkdf.hpp>
-#include <prism/trace.hpp>
+#include <prism/trace/trace.hpp>
 
 #include <openssl/crypto.h>
 

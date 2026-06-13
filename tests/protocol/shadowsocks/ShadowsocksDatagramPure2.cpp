@@ -6,14 +6,14 @@
  *          同时测试匿名命名空间的 parse_body_after_timestamp。
  */
 
-#include <prism/memory.hpp>
+#include <prism/core/core.hpp>
 #include <prism/trace/spdlog.hpp>
 
 
 #include <gtest/gtest.h>
 
 // #include 源文件增加覆盖率计数，并访问 private/anonymous 函数
-#include "../../src/prism/protocol/shadowsocks/util/datagram.cpp"
+#include "../../src/prism/proto/protocol/shadowsocks/util/datagram.cpp"
 
 namespace
 {

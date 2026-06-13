@@ -6,13 +6,13 @@
  *          所有被测函数均为纯函数或仅操作 PMR 内存，无 I/O 和协程依赖。
  */
 
-#include <prism/memory.hpp>
+#include <prism/core/core.hpp>
 #include <prism/trace/spdlog.hpp>
 
 
 #include <gtest/gtest.h>
 
-#include <prism/resolve/dns/detail/format.hpp>
+#include <prism/net/resolve/dns/detail/format.hpp>
 
 #include <array>
 #include <cstring>
@@ -722,4 +722,4 @@ namespace
 } // namespace
 
 // #include 源文件以覆盖 format.cpp 全部实现
-#include "../../src/prism/resolve/dns/detail/format.cpp"
+#include "../../src/prism/net/resolve/dns/detail/format.cpp"

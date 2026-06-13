@@ -1,5 +1,5 @@
 #include <prism/crypto/x25519.hpp>
-#include <prism/trace.hpp>
+#include <prism/trace/trace.hpp>
 #include <prism/trace/context.hpp>
 
 #include <openssl/curve25519.h>

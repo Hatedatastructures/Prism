@@ -24,6 +24,13 @@ target_sources(${PROJECT_NAME}_static_library
         stack/anytls/session.cpp
         stack/trusttunnel/scheme.cpp
         ech/util/decrypt.cpp
+
+        recognition/recognition.cpp
+        recognition/routes.cpp
+        recognition/pipeline.cpp
+        recognition/target.cpp
+        recognition/probe/analyzer.cpp
+        recognition/tls/signal.cpp
 )
 
 target_sources(${PROJECT_NAME}_static_library
@@ -31,7 +38,7 @@ target_sources(${PROJECT_NAME}_static_library
         FILE_SET public_headers TYPE HEADERS
         BASE_DIRS ${PROJECT_SOURCE_DIR}/include
         FILES
-            ${PROJECT_SOURCE_DIR}/include/prism/stealth.hpp
+            ${PROJECT_SOURCE_DIR}/include/prism/stealth/stealth.hpp
             ${PROJECT_SOURCE_DIR}/include/prism/stealth/common.hpp
             ${PROJECT_SOURCE_DIR}/include/prism/stealth/scheme.hpp
             ${PROJECT_SOURCE_DIR}/include/prism/stealth/registry.hpp
@@ -69,4 +76,15 @@ target_sources(${PROJECT_NAME}_static_library
             ${PROJECT_SOURCE_DIR}/include/prism/stealth/ech/config.hpp
             ${PROJECT_SOURCE_DIR}/include/prism/stealth/ech/util/decrypt.hpp
             ${PROJECT_SOURCE_DIR}/include/prism/stealth/serialize.hpp
+
+            ${PROJECT_SOURCE_DIR}/include/prism/stealth/recognition/recognition.hpp
+            ${PROJECT_SOURCE_DIR}/include/prism/stealth/recognition/confidence.hpp
+            ${PROJECT_SOURCE_DIR}/include/prism/stealth/recognition/pipeline.hpp
+            ${PROJECT_SOURCE_DIR}/include/prism/stealth/recognition/result.hpp
+            ${PROJECT_SOURCE_DIR}/include/prism/stealth/recognition/routes.hpp
+            ${PROJECT_SOURCE_DIR}/include/prism/stealth/recognition/target.hpp
+            ${PROJECT_SOURCE_DIR}/include/prism/stealth/recognition/probe/probe.hpp
+            ${PROJECT_SOURCE_DIR}/include/prism/stealth/recognition/probe/analyzer.hpp
+            ${PROJECT_SOURCE_DIR}/include/prism/stealth/recognition/tls/features.hpp
+            ${PROJECT_SOURCE_DIR}/include/prism/stealth/recognition/tls/signal.hpp
 )

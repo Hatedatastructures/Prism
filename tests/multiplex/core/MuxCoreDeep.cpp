@@ -7,20 +7,20 @@
  *          使用 TestCore 具体子类 + MockTransport 验证核心逻辑。
  */
 
-#include <prism/memory.hpp>
+#include <prism/core/core.hpp>
 #include <prism/trace/spdlog.hpp>
 
 #include <boost/asio/co_spawn.hpp>
 
 #include "common/MockTransport.hpp"
 
-#include <prism/connect/pool/pool.hpp>
-#include <prism/connect/dial/router.hpp>
-#include <prism/resolve/dns/dns.hpp>
-#include <prism/multiplex/core.hpp>
-#include <prism/multiplex/duct.hpp>
-#include <prism/multiplex/parcel.hpp>
-#include <prism/stats/traffic.hpp>
+#include <prism/net/connect/pool/pool.hpp>
+#include <prism/net/connect/dial/router.hpp>
+#include <prism/net/resolve/dns/dns.hpp>
+#include <prism/proto/multiplex/core.hpp>
+#include <prism/proto/multiplex/duct.hpp>
+#include <prism/proto/multiplex/parcel.hpp>
+#include <prism/account/stats/traffic.hpp>
 
 using MockTransport = psm::testing::MockTransport;
 namespace multiplex = psm::multiplex;
@@ -275,7 +275,7 @@ namespace
 
 // #include 源文件以覆盖 resolve_mr 匿名命名空间函数
 // 放在 TestCore 定义之后，确保所有类型完整
-#include "../src/prism/multiplex/core.cpp"
+#include "../src/prism/proto/multiplex/core.cpp"
 
 namespace
 {

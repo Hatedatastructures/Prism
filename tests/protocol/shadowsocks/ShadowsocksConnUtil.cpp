@@ -6,23 +6,23 @@
  *          通过 #include 源文件确保 gcov 计入覆盖行。
  */
 
-#include <prism/memory.hpp>
+#include <prism/core/core.hpp>
 #include <prism/trace/spdlog.hpp>
 
 // 在 #define private public 之前预包含所有传递依赖，防止类布局破坏
 #include <prism/crypto/aead.hpp>
 #include <prism/crypto/blake3.hpp>
 #include <prism/crypto/base64.hpp>
-#include <prism/fault.hpp>
-#include <prism/protocol/common/address.hpp>
-#include <prism/protocol/common/target.hpp>
-#include <prism/protocol/shadowsocks/config.hpp>
-#include <prism/protocol/shadowsocks/constants.hpp>
-#include <prism/protocol/shadowsocks/framing.hpp>
-#include <prism/protocol/shadowsocks/packet.hpp>
-#include <prism/protocol/shadowsocks/util/salts.hpp>
-#include <prism/protocol/shadowsocks/util/cast.hpp>
-#include <prism/transport/transmission.hpp>
+#include <prism/core/core.hpp>
+#include <prism/proto/protocol/common/address.hpp>
+#include <prism/proto/protocol/common/target.hpp>
+#include <prism/proto/protocol/shadowsocks/config.hpp>
+#include <prism/proto/protocol/shadowsocks/constants.hpp>
+#include <prism/proto/protocol/shadowsocks/framing.hpp>
+#include <prism/proto/protocol/shadowsocks/packet.hpp>
+#include <prism/proto/protocol/shadowsocks/util/salts.hpp>
+#include <prism/proto/protocol/shadowsocks/util/cast.hpp>
+#include <prism/net/transport/transmission.hpp>
 #include <boost/asio.hpp>
 #include <openssl/rand.h>
 
@@ -32,11 +32,11 @@
 
 // 所有传递依赖已包含，现在仅打开 conn.hpp 的 private
 #define private public
-#include <prism/protocol/shadowsocks/conn.hpp>
+#include <prism/proto/protocol/shadowsocks/conn.hpp>
 #undef private
 
 // 包含源文件以获得 gcov 覆盖
-#include "../../src/prism/protocol/shadowsocks/conn.cpp"
+#include "../../src/prism/proto/protocol/shadowsocks/conn.cpp"
 
 using psm::testing::MockTransport;
 

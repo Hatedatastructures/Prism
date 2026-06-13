@@ -18,7 +18,7 @@
  *   Bytes 5-8: Stream ID (31-bit, MSB reserved)
  */
 
-#include <prism/memory.hpp>
+#include <prism/core/core.hpp>
 #include <prism/trace/spdlog.hpp>
 
 #include <array>

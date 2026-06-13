@@ -6,13 +6,13 @@
  */
 
 #include <benchmark/benchmark.h>
-#include <prism/multiplex/smux/frame.hpp>
-#include <prism/multiplex/yamux/frame.hpp>
-#include <prism/multiplex/smux/craft.hpp>
-#include <prism/multiplex/yamux/craft.hpp>
-#include <prism/memory/pool.hpp>
-#include <prism/memory/container.hpp>
-#include <prism/config.hpp>
+#include <prism/proto/multiplex/smux/frame.hpp>
+#include <prism/proto/multiplex/yamux/frame.hpp>
+#include <prism/proto/multiplex/smux/craft.hpp>
+#include <prism/proto/multiplex/yamux/craft.hpp>
+#include <prism/core/memory/pool.hpp>
+#include <prism/core/memory/container.hpp>
+#include <prism/config/config.hpp>
 #include <boost/asio.hpp>
 #include <array>
 #include <cstddef>

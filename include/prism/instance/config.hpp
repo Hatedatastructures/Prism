@@ -8,11 +8,11 @@
  */
 #pragma once
 
-#include <prism/memory/container.hpp>
-#include <prism/protocol/shadowsocks/config.hpp>
-#include <prism/protocol/socks5/config.hpp>
-#include <prism/protocol/trojan/config.hpp>
-#include <prism/protocol/vless/config.hpp>
+#include <prism/core/memory/container.hpp>
+#include <prism/proto/protocol/shadowsocks/config.hpp>
+#include <prism/proto/protocol/socks5/config.hpp>
+#include <prism/proto/protocol/trojan/config.hpp>
+#include <prism/proto/protocol/vless/config.hpp>
 #include <prism/stealth/stack/anytls/config.hpp>
 #include <prism/stealth/facade/native/config.hpp>
 #include <prism/stealth/facade/reality/config.hpp>

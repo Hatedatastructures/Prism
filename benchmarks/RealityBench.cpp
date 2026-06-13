@@ -8,9 +8,9 @@
 #include <benchmark/benchmark.h>
 #include <prism/crypto/x25519.hpp>
 #include <prism/crypto/hkdf.hpp>
-#include <prism/memory/pool.hpp>
-#include <prism/memory/container.hpp>
-#include <prism/fault.hpp>
+#include <prism/core/memory/pool.hpp>
+#include <prism/core/memory/container.hpp>
+#include <prism/core/core.hpp>
 #include <array>
 #include <cstddef>
 #include <cstring>

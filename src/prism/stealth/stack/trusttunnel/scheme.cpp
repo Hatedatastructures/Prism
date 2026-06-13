@@ -1,15 +1,15 @@
 #include <prism/stealth/stack/trusttunnel/scheme.hpp>
 
-#include <prism/config.hpp>
-#include <prism/connect/util.hpp>
+#include <prism/config/config.hpp>
+#include <prism/net/connect/util.hpp>
 #include <prism/context/context.hpp>
-#include <prism/fault/handling.hpp>
-#include <prism/memory/container.hpp>
-#include <prism/multiplex/h2mux/craft.hpp>
-#include <prism/protocol/types.hpp>
-#include <prism/trace.hpp>
-#include <prism/transport/encrypted.hpp>
-#include <prism/transport/preview.hpp>
+#include <prism/core/fault/handling.hpp>
+#include <prism/core/memory/container.hpp>
+#include <prism/proto/multiplex/h2mux/craft.hpp>
+#include <prism/proto/protocol/types.hpp>
+#include <prism/trace/trace.hpp>
+#include <prism/net/transport/encrypted.hpp>
+#include <prism/net/transport/preview.hpp>
 
 #include <boost/asio.hpp>
 #include <openssl/evp.h>

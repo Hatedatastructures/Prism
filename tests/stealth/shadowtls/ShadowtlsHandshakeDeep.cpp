@@ -8,7 +8,7 @@
 
 #include <gtest/gtest.h>
 
-#include <prism/memory.hpp>
+#include <prism/core/core.hpp>
 #include <prism/stealth/facade/shadowtls/config.hpp>
 #include <prism/stealth/facade/shadowtls/util/auth.hpp>
 #include <prism/stealth/facade/shadowtls/util/constants.hpp>

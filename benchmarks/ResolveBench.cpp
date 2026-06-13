@@ -8,11 +8,11 @@
  */
 
 #include <benchmark/benchmark.h>
-#include <prism/resolve/dns/detail/cache.hpp>
-#include <prism/resolve/dns/detail/coalescer.hpp>
-#include <prism/resolve/dns/detail/transparent.hpp>
-#include <prism/resolve/dns/detail/format.hpp>
-#include <prism/memory/container.hpp>
+#include <prism/net/resolve/dns/detail/cache.hpp>
+#include <prism/net/resolve/dns/detail/coalescer.hpp>
+#include <prism/net/resolve/dns/detail/transparent.hpp>
+#include <prism/net/resolve/dns/detail/format.hpp>
+#include <prism/core/memory/container.hpp>
 
 #include <cstdint>
 #include <string>

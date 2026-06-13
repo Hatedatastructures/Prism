@@ -14,10 +14,10 @@
 #undef private
 
 #include <prism/account/directory.hpp>
-#include <prism/config.hpp>
-#include <prism/memory.hpp>
-#include <prism/stats/runtime.hpp>
-#include <prism/stats/traffic.hpp>
+#include <prism/config/config.hpp>
+#include <prism/core/core.hpp>
+#include <prism/account/stats/runtime.hpp>
+#include <prism/account/stats/traffic.hpp>
 
 #include <chrono>
 #include <memory>

@@ -5,7 +5,7 @@
  *          覆盖 prime、migrate_executor。
  */
 
-#include <prism/memory.hpp>
+#include <prism/core/core.hpp>
 #include <prism/trace/spdlog.hpp>
 
 #include <gtest/gtest.h>

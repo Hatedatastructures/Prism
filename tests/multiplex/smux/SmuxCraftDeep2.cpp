@@ -10,7 +10,7 @@
  *          通过 #include 源文件确保 gcov 计入覆盖行。
  */
 
-#include <prism/memory.hpp>
+#include <prism/core/core.hpp>
 #include <prism/trace/spdlog.hpp>
 
 #include "common/MockTransport.hpp"
@@ -18,23 +18,23 @@
 #include <gtest/gtest.h>
 
 // 预包含依赖头文件（不打开 private）
-#include <prism/connect/pool/pool.hpp>
-#include <prism/connect/dial/router.hpp>
-#include <prism/resolve/dns/dns.hpp>
-#include <prism/multiplex/smux/frame.hpp>
-#include <prism/stats/traffic.hpp>
+#include <prism/net/connect/pool/pool.hpp>
+#include <prism/net/connect/dial/router.hpp>
+#include <prism/net/resolve/dns/dns.hpp>
+#include <prism/proto/multiplex/smux/frame.hpp>
+#include <prism/account/stats/traffic.hpp>
 #include <boost/asio.hpp>
 #include <boost/asio/experimental/concurrent_channel.hpp>
 
 // 打开 craft 及其传递依赖的非公开访问
 #define private public
 #define protected public
-#include <prism/multiplex/smux/craft.hpp>
+#include <prism/proto/multiplex/smux/craft.hpp>
 #undef protected
 #undef private
 
 // 包含源文件以获得 gcov 覆盖
-#include "../../src/prism/multiplex/smux/craft.cpp"
+#include "../../src/prism/proto/multiplex/smux/craft.cpp"
 
 using MockTransport = psm::testing::MockTransport;
 namespace multiplex = psm::multiplex;

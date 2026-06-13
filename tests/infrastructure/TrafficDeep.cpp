@@ -7,12 +7,12 @@
  *          register_instance、unregister_instance、aggregate。
  */
 
-#include <prism/memory.hpp>
+#include <prism/core/core.hpp>
 #include <prism/trace/spdlog.hpp>
 
 #include <gtest/gtest.h>
 
-#include "../../src/prism/stats/traffic.cpp"
+#include "../../src/prism/account/stats/traffic.cpp"
 
 namespace
 {

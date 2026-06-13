@@ -6,7 +6,7 @@
  *          测试域名规范化和 IP 黑名单匹配逻辑。
  */
 
-#include <prism/memory.hpp>
+#include <prism/core/core.hpp>
 #include <prism/trace/spdlog.hpp>
 
 #include <boost/asio.hpp>
@@ -16,7 +16,7 @@
 
 // 通过预处理器 hack 访问 private 成员
 #define private public
-#include "../../src/prism/resolve/dns/resolver.cpp"
+#include "../../src/prism/net/resolve/dns/resolver.cpp"
 #undef private
 
 namespace

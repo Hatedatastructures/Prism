@@ -1,25 +1,25 @@
 #include <prism/stealth/facade/reality/handshake.hpp>
 
-#include <prism/config.hpp>
-#include <prism/connect.hpp>
-#include <prism/connect/dial/dial.hpp>
-#include <prism/connect/dial/router.hpp>
-#include <prism/connect/tunnel/tunnel.hpp>
+#include <prism/config/config.hpp>
+#include <prism/net/net.hpp>
+#include <prism/net/connect/dial/dial.hpp>
+#include <prism/net/connect/dial/router.hpp>
+#include <prism/net/connect/tunnel/tunnel.hpp>
 #include <prism/crypto/aead.hpp>
 #include <prism/crypto/base64.hpp>
 #include <prism/crypto/hkdf.hpp>
 #include <prism/crypto/x25519.hpp>
-#include <prism/memory/container.hpp>
-#include <prism/protocol/tls/record.hpp>
-#include <prism/recognition/tls/signal.hpp>
+#include <prism/core/memory/container.hpp>
+#include <prism/proto/protocol/tls/record.hpp>
+#include <prism/stealth/recognition/tls/signal.hpp>
 #include <prism/stealth/facade/reality/config.hpp>
 #include <prism/stealth/facade/reality/seal.hpp>
 #include <prism/stealth/facade/reality/util/auth.hpp>
 #include <prism/stealth/facade/reality/util/keygen.hpp>
 #include <prism/stealth/facade/reality/util/response.hpp>
-#include <prism/trace.hpp>
-#include <prism/transport/reliable.hpp>
-#include <prism/transport/transmission.hpp>
+#include <prism/trace/trace.hpp>
+#include <prism/net/transport/reliable.hpp>
+#include <prism/net/transport/transmission.hpp>
 
 #include <boost/asio/ssl.hpp>
 #include <boost/asio/steady_timer.hpp>

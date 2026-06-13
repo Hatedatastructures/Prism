@@ -5,9 +5,9 @@
  *          两个无副作用纯函数，覆盖 IPv4/IPv6 地址族、哈希一致性/区分性。
  */
 
-#include <prism/memory.hpp>
+#include <prism/core/core.hpp>
 #include <prism/trace/spdlog.hpp>
-#include <prism/connect/pool/pool.hpp>
+#include <prism/net/connect/pool/pool.hpp>
 
 
 #include <gtest/gtest.h>

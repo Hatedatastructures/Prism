@@ -1,9 +1,9 @@
 #include <prism/stealth/facade/reality/scheme.hpp>
 
-#include <prism/config.hpp>
-#include <prism/recognition/tls/features.hpp>
+#include <prism/config/config.hpp>
+#include <prism/stealth/recognition/tls/features.hpp>
 #include <prism/stealth/facade/reality/handshake.hpp>
-#include <prism/trace.hpp>
+#include <prism/trace/trace.hpp>
 
 using namespace psm::trace;
 

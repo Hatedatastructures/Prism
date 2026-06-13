@@ -4,7 +4,7 @@
  * @details 测试 IPv4/IPv6 亲和性计算逻辑。直接复制实现进行测试。
  */
 
-#include <prism/memory.hpp>
+#include <prism/core/core.hpp>
 #include <prism/trace/spdlog.hpp>
 #include <gtest/gtest.h>
 

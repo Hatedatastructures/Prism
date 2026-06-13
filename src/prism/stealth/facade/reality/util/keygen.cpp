@@ -1,6 +1,6 @@
 #include <prism/stealth/facade/reality/util/keygen.hpp>
 
-#include <prism/trace.hpp>
+#include <prism/trace/trace.hpp>
 
 #include <cstring>
 

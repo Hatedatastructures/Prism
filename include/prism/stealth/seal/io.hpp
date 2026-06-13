@@ -6,9 +6,9 @@
  */
 #pragma once
 
-#include <prism/fault/code.hpp>
-#include <prism/protocol/tls/record.hpp>
-#include <prism/transport/transmission.hpp>
+#include <prism/core/fault/code.hpp>
+#include <prism/proto/protocol/tls/record.hpp>
+#include <prism/net/transport/transmission.hpp>
 
 #include <boost/asio.hpp>
 

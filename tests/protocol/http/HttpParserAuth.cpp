@@ -4,8 +4,8 @@
  * @details 覆盖 authenticate_proxy 和 build_fwd 两个未测试函数。
  */
 
-#include <prism/memory.hpp>
-#include <prism/protocol/http/parser.hpp>
+#include <prism/core/core.hpp>
+#include <prism/proto/protocol/http/parser.hpp>
 #include <prism/account/directory.hpp>
 #include <prism/crypto/sha224.hpp>
 #include <prism/crypto/base64.hpp>

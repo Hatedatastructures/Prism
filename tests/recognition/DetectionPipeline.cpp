@@ -5,10 +5,10 @@
  *          的构造分组、三级检测逻辑、early-out 和 native 兜底。
  */
 
-#include <prism/memory.hpp>
-#include <prism/recognition/pipeline.hpp>
+#include <prism/core/core.hpp>
+#include <prism/stealth/recognition/pipeline.hpp>
 #include <prism/stealth/scheme.hpp>
-#include <prism/config.hpp>
+#include <prism/config/config.hpp>
 #include <prism/trace/spdlog.hpp>
 #include <gtest/gtest.h>
 

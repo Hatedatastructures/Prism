@@ -3,7 +3,7 @@
  * @brief 负载均衡器纯函数测试 — select 分支覆盖
  */
 
-#include <prism/memory.hpp>
+#include <prism/core/core.hpp>
 #include <prism/trace/spdlog.hpp>
 #include <gtest/gtest.h>
 

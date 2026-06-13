@@ -7,11 +7,11 @@
  *          此测试覆盖其依赖的类型定义和配置对象。
  */
 
-#include <prism/memory.hpp>
-#include <prism/protocol/trojan/process.hpp>
-#include <prism/protocol/trojan/config.hpp>
-#include <prism/protocol/trojan/packet.hpp>
-#include <prism/protocol/trojan/constants.hpp>
+#include <prism/core/core.hpp>
+#include <prism/proto/protocol/trojan/process.hpp>
+#include <prism/proto/protocol/trojan/config.hpp>
+#include <prism/proto/protocol/trojan/packet.hpp>
+#include <prism/proto/protocol/trojan/constants.hpp>
 #include <prism/trace/spdlog.hpp>
 
 #include <array>

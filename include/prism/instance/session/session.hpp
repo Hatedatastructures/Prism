@@ -10,9 +10,9 @@
 #pragma once
 
 #include <prism/context/context.hpp>
-#include <prism/memory/pool.hpp>
+#include <prism/core/memory/pool.hpp>
 #include <prism/trace/context.hpp>
-#include <prism/transport/transmission.hpp>
+#include <prism/net/transport/transmission.hpp>
 
 #include <boost/asio.hpp>
 

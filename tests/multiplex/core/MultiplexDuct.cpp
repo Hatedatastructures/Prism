@@ -8,10 +8,10 @@
  * 4. multiplex::config 默认值
  */
 
-#include <prism/memory.hpp>
+#include <prism/core/core.hpp>
 #include <prism/trace/spdlog.hpp>
-#include <prism/multiplex/config.hpp>
-#include <prism/multiplex/duct.hpp>
+#include <prism/proto/multiplex/config.hpp>
+#include <prism/proto/multiplex/duct.hpp>
 
 #include <gtest/gtest.h>
 

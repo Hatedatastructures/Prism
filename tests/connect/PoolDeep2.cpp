@@ -6,7 +6,7 @@
  *          pooled_connection RAII 完整路径、stats 累加器。
  */
 
-#include <prism/memory.hpp>
+#include <prism/core/core.hpp>
 #include <prism/trace/spdlog.hpp>
 
 
@@ -14,7 +14,7 @@
 
 #include <set>
 
-#include "../../src/prism/connect/pool/pool.cpp"
+#include "../../src/prism/net/connect/pool/pool.cpp"
 
 namespace
 {

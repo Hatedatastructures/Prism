@@ -8,10 +8,10 @@
 
 #include <gtest/gtest.h>
 
-#include <prism/memory.hpp>
+#include <prism/core/core.hpp>
 #include <prism/crypto/x25519.hpp>
 #include <prism/crypto/hkdf.hpp>
-#include <prism/protocol/tls/types.hpp>
+#include <prism/proto/protocol/tls/types.hpp>
 
 #include "../../src/prism/stealth/facade/reality/handshake.cpp"
 

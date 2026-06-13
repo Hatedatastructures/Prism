@@ -3,9 +3,9 @@
  * @brief Stats 模块扩展测试 — counter/gauge/traffic_state/worker_load 分支覆盖
  */
 
-#include <prism/memory.hpp>
-#include <prism/protocol/types.hpp>
-#include <prism/stats/stats.hpp>
+#include <prism/core/core.hpp>
+#include <prism/proto/protocol/types.hpp>
+#include <prism/account/stats/stats.hpp>
 #include <prism/trace/spdlog.hpp>
 
 #include <gtest/gtest.h>

@@ -10,9 +10,9 @@
  * 6. WindowUpdate 帧通过 TCP socket pair 的实际传输与解析
  */
 
-#include <prism/memory.hpp>
+#include <prism/core/core.hpp>
 #include <prism/trace/spdlog.hpp>
-#include <prism/multiplex/yamux/craft.hpp>
+#include <prism/proto/multiplex/yamux/craft.hpp>
 
 #include <boost/asio.hpp>
 #include <boost/asio/co_spawn.hpp>

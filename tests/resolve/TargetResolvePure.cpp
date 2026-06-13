@@ -3,9 +3,9 @@
  * @brief 目标地址解析测试 — parse/resolve 各分支覆盖
  */
 
-#include <prism/memory.hpp>
-#include <prism/protocol/http/parser.hpp>
-#include <prism/recognition/target.hpp>
+#include <prism/core/core.hpp>
+#include <prism/proto/protocol/http/parser.hpp>
+#include <prism/stealth/recognition/target.hpp>
 #include <prism/trace/spdlog.hpp>
 
 

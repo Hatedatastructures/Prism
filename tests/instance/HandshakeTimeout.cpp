@@ -7,12 +7,12 @@
  */
 
 #include <prism/stealth/common.hpp>
-#include <prism/transport/reliable.hpp>
-#include <prism/protocol/vless/conn.hpp>
-#include <prism/protocol/trojan/conn.hpp>
-#include <prism/memory.hpp>
-#include <prism/trace.hpp>
-#include <prism/fault.hpp>
+#include <prism/net/transport/reliable.hpp>
+#include <prism/proto/protocol/vless/conn.hpp>
+#include <prism/proto/protocol/trojan/conn.hpp>
+#include <prism/core/core.hpp>
+#include <prism/trace/trace.hpp>
+#include <prism/core/core.hpp>
 #include <gtest/gtest.h>
 
 #include <boost/asio.hpp>

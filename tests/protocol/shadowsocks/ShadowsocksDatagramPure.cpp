@@ -8,16 +8,16 @@
  *          的独立函数进行测试，覆盖核心字节操作的正确性。
  */
 
-#include <prism/memory.hpp>
-#include <prism/protocol/shadowsocks/constants.hpp>
+#include <prism/core/core.hpp>
+#include <prism/proto/protocol/shadowsocks/constants.hpp>
 #include <prism/trace/spdlog.hpp>
-#include <prism/fault.hpp>
+#include <prism/core/core.hpp>
 
 
 #include <gtest/gtest.h>
 
 // #include 源文件获取 parse_body_after_timestamp（匿名命名空间 -> 内部链接）
-#include "../../src/prism/protocol/shadowsocks/util/datagram.cpp"
+#include "../../src/prism/proto/protocol/shadowsocks/util/datagram.cpp"
 
 namespace
 {

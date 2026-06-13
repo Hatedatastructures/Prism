@@ -4,10 +4,10 @@
  * @details 测试 parse_request、make_response、build_udp_pkt、parse_udp_pkt。
  */
 
-#include <prism/memory.hpp>
-#include <prism/protocol/vless/framing.hpp>
+#include <prism/core/core.hpp>
+#include <prism/proto/protocol/vless/framing.hpp>
 #include <prism/trace/spdlog.hpp>
-#include <prism/fault.hpp>
+#include <prism/core/core.hpp>
 
 #include <array>
 #include <cstdint>

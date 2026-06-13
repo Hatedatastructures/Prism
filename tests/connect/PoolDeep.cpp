@@ -6,13 +6,13 @@
  *          stats、cleanup、clear、recycle、delete_socket。
  */
 
-#include <prism/memory.hpp>
+#include <prism/core/core.hpp>
 #include <prism/trace/spdlog.hpp>
 
 
 #include <gtest/gtest.h>
 
-#include "../../src/prism/connect/pool/pool.cpp"
+#include "../../src/prism/net/connect/pool/pool.cpp"
 
 namespace
 {

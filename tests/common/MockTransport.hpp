@@ -17,8 +17,8 @@
 #include <system_error>
 #include <vector>
 
-#include <prism/memory.hpp>
-#include <prism/transport/transmission.hpp>
+#include <prism/core/core.hpp>
+#include <prism/net/transport/transmission.hpp>
 
 namespace psm::testing
 {

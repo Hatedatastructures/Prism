@@ -3,7 +3,7 @@
  * @brief Google Test 全局入口 — 初始化 PMR 内存池 + spdlog 日志
  */
 
-#include <prism/memory.hpp>
+#include <prism/core/core.hpp>
 #include <prism/trace/spdlog.hpp>
 #include <gtest/gtest.h>
 

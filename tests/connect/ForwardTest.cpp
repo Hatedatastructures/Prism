@@ -8,17 +8,17 @@
 
 #include <gtest/gtest.h>
 
-#include <prism/config.hpp>
-#include <prism/connect/dial/router.hpp>
-#include <prism/connect/pool/pool.hpp>
-#include <prism/connect/tunnel/forward.hpp>
-#include <prism/connect/tunnel/tunnel.hpp>
+#include <prism/config/config.hpp>
+#include <prism/net/connect/dial/router.hpp>
+#include <prism/net/connect/pool/pool.hpp>
+#include <prism/net/connect/tunnel/forward.hpp>
+#include <prism/net/connect/tunnel/tunnel.hpp>
 #include <prism/context/context.hpp>
-#include <prism/fault/handling.hpp>
-#include <prism/memory.hpp>
-#include <prism/protocol/common/form.hpp>
-#include <prism/protocol/common/target.hpp>
-#include <prism/transport/transmission.hpp>
+#include <prism/core/fault/handling.hpp>
+#include <prism/core/core.hpp>
+#include <prism/proto/protocol/common/form.hpp>
+#include <prism/proto/protocol/common/target.hpp>
+#include <prism/net/transport/transmission.hpp>
 
 #include <boost/asio.hpp>
 

@@ -11,14 +11,14 @@
 // Deep test: 包含源文件以测试内部函数
 // 注意：不能与其他包含 conn.cpp 的测试编译到同一可执行文件
 #define private public
-#include "../../src/prism/protocol/socks5/conn.cpp"
+#include "../../src/prism/proto/protocol/socks5/conn.cpp"
 #undef private
 
-#include <prism/fault/handling.hpp>
-#include <prism/memory.hpp>
-#include <prism/protocol/socks5/config.hpp>
-#include <prism/protocol/socks5/constants.hpp>
-#include <prism/protocol/socks5/packet.hpp>
+#include <prism/core/fault/handling.hpp>
+#include <prism/core/core.hpp>
+#include <prism/proto/protocol/socks5/config.hpp>
+#include <prism/proto/protocol/socks5/constants.hpp>
+#include <prism/proto/protocol/socks5/packet.hpp>
 
 #include <boost/asio.hpp>
 

@@ -9,9 +9,9 @@
  */
 
 #include <benchmark/benchmark.h>
-#include <prism/protocol/socks5/framing.hpp>
-#include <prism/protocol/common/framing.hpp>
-#include <prism/memory/container.hpp>
+#include <prism/proto/protocol/socks5/framing.hpp>
+#include <prism/proto/protocol/common/framing.hpp>
+#include <prism/core/memory/container.hpp>
 
 #include <cstdint>
 

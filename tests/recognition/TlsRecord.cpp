@@ -5,11 +5,11 @@
  *          以及使用 MockTransport 测试 record::read(transmission&) 和 record::write(transmission&) 异步 I/O。
  */
 
-#include <prism/memory.hpp>
-#include <prism/protocol/tls/record.hpp>
-#include <prism/protocol/tls/types.hpp>
+#include <prism/core/core.hpp>
+#include <prism/proto/protocol/tls/record.hpp>
+#include <prism/proto/protocol/tls/types.hpp>
 #include <prism/trace/spdlog.hpp>
-#include <prism/transport/transmission.hpp>
+#include <prism/net/transport/transmission.hpp>
 
 #include <array>
 #include <cstdint>

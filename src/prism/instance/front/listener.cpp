@@ -1,5 +1,5 @@
 #include <prism/instance/front/listener.hpp>
-#include <prism/trace.hpp>
+#include <prism/trace/trace.hpp>
 
 #include <array>
 

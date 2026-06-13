@@ -1,6 +1,6 @@
 #include <prism/crypto/aead.hpp>
 
-#include <prism/trace.hpp>
+#include <prism/trace/trace.hpp>
 
 #include <openssl/evp.h>
 

@@ -1,16 +1,16 @@
 #include <prism/stealth/facade/shadowtls/scheme.hpp>
 
-#include <prism/connect/util.hpp>
-#include <prism/protocol/types.hpp>
-#include <prism/recognition/probe/analyzer.hpp>
-#include <prism/recognition/tls/features.hpp>
+#include <prism/net/connect/util.hpp>
+#include <prism/proto/protocol/types.hpp>
+#include <prism/stealth/recognition/probe/analyzer.hpp>
+#include <prism/stealth/recognition/tls/features.hpp>
 #include <prism/stealth/facade/shadowtls/handshake.hpp>
 #include <prism/stealth/facade/shadowtls/transport.hpp>
 #include <prism/stealth/facade/shadowtls/util/auth.hpp>
-#include <prism/trace.hpp>
-#include <prism/transport/preview.hpp>
-#include <prism/transport/reliable.hpp>
-#include <prism/transport/snapshot.hpp>
+#include <prism/trace/trace.hpp>
+#include <prism/net/transport/preview.hpp>
+#include <prism/net/transport/reliable.hpp>
+#include <prism/net/transport/snapshot.hpp>
 
 using namespace psm::trace;
 

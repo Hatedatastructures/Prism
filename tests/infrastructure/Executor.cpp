@@ -9,14 +9,14 @@
 #include <prism/stealth/executor.hpp>
 #include <prism/stealth/registry.hpp>
 #include <prism/stealth/scheme.hpp>
-#include <prism/recognition/result.hpp>
-#include <prism/protocol/types.hpp>
-#include <prism/fault/code.hpp>
-#include <prism/fault/handling.hpp>
-#include <prism/memory.hpp>
-#include <prism/trace.hpp>
-#include <prism/config.hpp>
-#include <prism/transport/transmission.hpp>
+#include <prism/stealth/recognition/result.hpp>
+#include <prism/proto/protocol/types.hpp>
+#include <prism/core/fault/code.hpp>
+#include <prism/core/fault/handling.hpp>
+#include <prism/core/core.hpp>
+#include <prism/trace/trace.hpp>
+#include <prism/config/config.hpp>
+#include <prism/net/transport/transmission.hpp>
 #include <gtest/gtest.h>
 
 #include <boost/asio.hpp>

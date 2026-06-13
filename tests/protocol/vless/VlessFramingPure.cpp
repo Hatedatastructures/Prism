@@ -4,9 +4,9 @@
  * @details 测试 parse_request/parse_udp_pkt/build_udp_pkt/make_response 全分支
  */
 
-#include <prism/memory.hpp>
-#include <prism/protocol/vless/framing.hpp>
-#include <prism/protocol/vless/constants.hpp>
+#include <prism/core/core.hpp>
+#include <prism/proto/protocol/vless/framing.hpp>
+#include <prism/proto/protocol/vless/constants.hpp>
 #include <prism/trace/spdlog.hpp>
 
 #include <gtest/gtest.h>

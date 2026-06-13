@@ -7,9 +7,9 @@
 
 #include <gtest/gtest.h>
 
-#include <prism/memory.hpp>
-#include <prism/stealth.hpp>
-#include <prism/config.hpp>
+#include <prism/core/core.hpp>
+#include <prism/stealth/stealth.hpp>
+#include <prism/config/config.hpp>
 
 namespace
 {

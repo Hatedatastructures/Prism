@@ -7,11 +7,11 @@
  *          此测试覆盖其依赖的类型定义和配置对象。
  */
 
-#include <prism/memory.hpp>
-#include <prism/protocol/shadowsocks/process.hpp>
-#include <prism/protocol/shadowsocks/config.hpp>
-#include <prism/protocol/shadowsocks/packet.hpp>
-#include <prism/protocol/shadowsocks/constants.hpp>
+#include <prism/core/core.hpp>
+#include <prism/proto/protocol/shadowsocks/process.hpp>
+#include <prism/proto/protocol/shadowsocks/config.hpp>
+#include <prism/proto/protocol/shadowsocks/packet.hpp>
+#include <prism/proto/protocol/shadowsocks/constants.hpp>
 #include <prism/trace/spdlog.hpp>
 
 #include <cstdint>

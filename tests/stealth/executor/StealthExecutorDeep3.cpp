@@ -9,17 +9,17 @@
  *          - execute 委托到 execute_pipeline
  */
 
-#include <prism/memory.hpp>
+#include <prism/core/core.hpp>
 #include <prism/trace/spdlog.hpp>
 
 #include "common/MockTransport.hpp"
 
 #define private public
-#include <prism/transport/snapshot.hpp>
+#include <prism/net/transport/snapshot.hpp>
 #include <prism/stealth/executor.hpp>
 #undef private
 
-#include <prism/config.hpp>
+#include <prism/config/config.hpp>
 
 #include <gtest/gtest.h>
 

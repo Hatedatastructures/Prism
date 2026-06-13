@@ -9,9 +9,9 @@
  */
 
 #include <benchmark/benchmark.h>
-#include <prism/recognition/tls/features.hpp>
-#include <prism/recognition/target.hpp>
-#include <prism/memory/container.hpp>
+#include <prism/stealth/recognition/tls/features.hpp>
+#include <prism/stealth/recognition/target.hpp>
+#include <prism/core/memory/container.hpp>
 
 #include <cstdint>
 #include <string>

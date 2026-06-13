@@ -6,10 +6,10 @@
  *          register_instance/unregister_instance、aggregate。
  */
 
-#include <prism/memory.hpp>
-#include <prism/stats/traffic.hpp>
+#include <prism/core/core.hpp>
+#include <prism/account/stats/traffic.hpp>
 #include <prism/trace/spdlog.hpp>
-#include <prism/protocol/types.hpp>
+#include <prism/proto/protocol/types.hpp>
 
 #include <gtest/gtest.h>
 

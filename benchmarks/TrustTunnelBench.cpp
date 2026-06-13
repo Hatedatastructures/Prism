@@ -5,9 +5,9 @@
  */
 
 #include <benchmark/benchmark.h>
-#include <prism/memory.hpp>
+#include <prism/core/core.hpp>
 #include <prism/stealth/stack/trusttunnel/config.hpp>
-#include <prism/multiplex/h2mux/craft.hpp>
+#include <prism/proto/multiplex/h2mux/craft.hpp>
 
 #include <openssl/evp.h>
 #include <string_view>

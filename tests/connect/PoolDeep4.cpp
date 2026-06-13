@@ -6,7 +6,7 @@
  *          connection_pool::stats()、pool_stats 默认值。
  */
 
-#include <prism/memory.hpp>
+#include <prism/core/core.hpp>
 #include <prism/trace/spdlog.hpp>
 
 
@@ -18,11 +18,11 @@
 #include <cstring>
 
 #define private public
-#include <prism/connect/pool/pool.hpp>
+#include <prism/net/connect/pool/pool.hpp>
 #undef private
 
 // 包含源文件以获得 gcov 覆盖
-#include "../../src/prism/connect/pool/pool.cpp"
+#include "../../src/prism/net/connect/pool/pool.cpp"
 
 namespace
 {

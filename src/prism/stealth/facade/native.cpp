@@ -1,15 +1,15 @@
 #include <prism/stealth/facade/native.hpp>
 
-#include <prism/config.hpp>
-#include <prism/connect.hpp>
-#include <prism/connect/util.hpp>
-#include <prism/fault/handling.hpp>
-#include <prism/protocol/types.hpp>
-#include <prism/protocol/tls/types.hpp>
-#include <prism/recognition/probe/analyzer.hpp>
-#include <prism/trace.hpp>
-#include <prism/transport/encrypted.hpp>
-#include <prism/transport/preview.hpp>
+#include <prism/config/config.hpp>
+#include <prism/net/net.hpp>
+#include <prism/net/connect/util.hpp>
+#include <prism/core/fault/handling.hpp>
+#include <prism/proto/protocol/types.hpp>
+#include <prism/proto/protocol/tls/types.hpp>
+#include <prism/stealth/recognition/probe/analyzer.hpp>
+#include <prism/trace/trace.hpp>
+#include <prism/net/transport/encrypted.hpp>
+#include <prism/net/transport/preview.hpp>
 
 using namespace psm::trace;
 

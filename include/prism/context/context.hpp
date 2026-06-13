@@ -8,8 +8,8 @@
 #pragma once
 
 #include <prism/account/entry.hpp>
-#include <prism/protocol/types.hpp>
-#include <prism/transport/transmission.hpp>
+#include <prism/proto/protocol/types.hpp>
+#include <prism/net/transport/transmission.hpp>
 
 #include <boost/asio.hpp>
 #include <boost/asio/ssl.hpp>

@@ -3,8 +3,8 @@
  * @brief DNS 缓存扩展测试 — 交叉覆盖/批量淘汰/过期清理
  */
 
-#include <prism/memory.hpp>
-#include <prism/resolve/dns/detail/cache.hpp>
+#include <prism/core/core.hpp>
+#include <prism/net/resolve/dns/detail/cache.hpp>
 #include <prism/trace/spdlog.hpp>
 
 #include <chrono>

@@ -10,8 +10,8 @@
  * 5. 边界情况（空载荷、大 stream_id、多字节载荷）
  */
 
-#include <prism/multiplex/yamux/frame.hpp>
-#include <prism/memory.hpp>
+#include <prism/proto/multiplex/yamux/frame.hpp>
+#include <prism/core/core.hpp>
 #include <prism/trace/spdlog.hpp>
 
 #include <array>

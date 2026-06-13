@@ -11,8 +11,8 @@
  * 6. 未映射错误码 fallback → fault::code::io_error
  */
 
-#include <prism/fault/handling.hpp>
-#include <prism/memory.hpp>
+#include <prism/core/fault/handling.hpp>
+#include <prism/core/core.hpp>
 #include <prism/trace/spdlog.hpp>
 #include <gtest/gtest.h>
 

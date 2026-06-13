@@ -7,18 +7,18 @@
  *          select_best_result 全分支、get_ssl_ctx 缓存命中/未命中。
  */
 
-#include <prism/memory.hpp>
-#include <prism/resolve/dns/config.hpp>
+#include <prism/core/core.hpp>
+#include <prism/net/resolve/dns/config.hpp>
 #include <prism/trace/spdlog.hpp>
-#include <prism/fault.hpp>
+#include <prism/core/core.hpp>
 
 
 #include <gtest/gtest.h>
 
 // 通过预处理器 hack 访问 private 成员（仅限测试翻译单元）
 #define private public
-#include <prism/resolve/dns/upstream.hpp>
-#include "../../src/prism/resolve/dns/upstream.cpp"
+#include <prism/net/resolve/dns/upstream.hpp>
+#include "../../src/prism/net/resolve/dns/upstream.cpp"
 #undef private
 
 namespace

@@ -9,10 +9,10 @@
  * @note 当前 wildcard 断言以仓库现实现行为准：`*.example.com` 也会命中 `example.com`。
  */
 
-#include <prism/resolve/dns/detail/rules.hpp>
-#include <prism/resolve/dns/detail/utility.hpp>
-#include <prism/resolve/dns/detail/transparent.hpp>
-#include <prism/memory.hpp>
+#include <prism/net/resolve/dns/detail/rules.hpp>
+#include <prism/net/resolve/dns/detail/utility.hpp>
+#include <prism/net/resolve/dns/detail/transparent.hpp>
+#include <prism/core/core.hpp>
 #include <prism/trace/spdlog.hpp>
 
 

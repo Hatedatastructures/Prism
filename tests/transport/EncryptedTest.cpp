@@ -6,11 +6,11 @@
 
 #include <gtest/gtest.h>
 
-#include <prism/fault/handling.hpp>
-#include <prism/memory.hpp>
-#include <prism/transport/adapter/connector.hpp>
-#include <prism/transport/encrypted.hpp>
-#include <prism/transport/reliable.hpp>
+#include <prism/core/fault/handling.hpp>
+#include <prism/core/core.hpp>
+#include <prism/net/transport/adapter/connector.hpp>
+#include <prism/net/transport/encrypted.hpp>
+#include <prism/net/transport/reliable.hpp>
 
 #include <boost/asio.hpp>
 #include <boost/asio/ssl.hpp>

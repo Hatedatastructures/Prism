@@ -5,12 +5,12 @@
  *          以及公开的 make_data_frame、make_syn、make_fin。
  */
 
-#include <prism/memory.hpp>
+#include <prism/core/core.hpp>
 #include <prism/trace/spdlog.hpp>
 
 #include <gtest/gtest.h>
 
-#include "../../src/prism/multiplex/smux/craft.cpp"
+#include "../../src/prism/proto/multiplex/smux/craft.cpp"
 
 namespace
 {

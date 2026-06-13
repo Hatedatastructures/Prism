@@ -6,11 +6,11 @@
  *          三种加密方法，以及 format 命名空间的 decode_psk/resolve_method/keysalt_len。
  */
 
-#include <prism/protocol/shadowsocks/constants.hpp>
-#include <prism/protocol/shadowsocks/framing.hpp>
+#include <prism/proto/protocol/shadowsocks/constants.hpp>
+#include <prism/proto/protocol/shadowsocks/framing.hpp>
 #include <prism/crypto/aead.hpp>
 #include <prism/crypto/blake3.hpp>
-#include <prism/memory.hpp>
+#include <prism/core/core.hpp>
 #include <prism/trace/spdlog.hpp>
 
 #include <array>

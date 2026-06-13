@@ -6,10 +6,10 @@
  *          store_cache、check_rules、check_cache。
  */
 
-#include <prism/memory.hpp>
-#include <prism/resolve/dns/dns.hpp>
-#include <prism/resolve/dns/detail/cache.hpp>
-#include <prism/resolve/dns/detail/rules.hpp>
+#include <prism/core/core.hpp>
+#include <prism/net/resolve/dns/dns.hpp>
+#include <prism/net/resolve/dns/detail/cache.hpp>
+#include <prism/net/resolve/dns/detail/rules.hpp>
 #include <prism/trace/spdlog.hpp>
 
 #include <any>
@@ -23,7 +23,7 @@
 
 // 预包含完成后，通过预处理器 hack 访问 private 成员
 #define private public
-#include "../../src/prism/resolve/dns/resolver.cpp"
+#include "../../src/prism/net/resolve/dns/resolver.cpp"
 #undef private
 
 namespace

@@ -4,11 +4,11 @@
  * @details 测试 from(record) 重载 + 内部解析器边界条件
  */
 
-#include <prism/memory.hpp>
-#include <prism/protocol/tls/hello.hpp>
-#include <prism/protocol/tls/record.hpp>
+#include <prism/core/core.hpp>
+#include <prism/proto/protocol/tls/hello.hpp>
+#include <prism/proto/protocol/tls/record.hpp>
 #include <prism/trace/spdlog.hpp>
-#include <prism/fault.hpp>
+#include <prism/core/core.hpp>
 
 #include <gtest/gtest.h>
 

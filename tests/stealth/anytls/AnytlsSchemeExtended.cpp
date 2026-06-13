@@ -5,8 +5,8 @@
 
 #include <gtest/gtest.h>
 
-#include <prism/config.hpp>
-#include <prism/memory.hpp>
+#include <prism/config/config.hpp>
+#include <prism/core/core.hpp>
 #include <prism/stealth/stack/anytls/scheme.hpp>
 #include <prism/stealth/scheme.hpp>
 

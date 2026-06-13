@@ -1,5 +1,5 @@
 #include <prism/crypto/hkdf.hpp>
-#include <prism/trace.hpp>
+#include <prism/trace/trace.hpp>
 #include <prism/trace/context.hpp>
 
 #include <openssl/evp.h>

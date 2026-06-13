@@ -3,8 +3,8 @@
  * @brief TLS ClientHello 特征位图单元测试
  */
 
-#include <prism/recognition/tls/features.hpp>
-#include <prism/protocol/tls/types.hpp>
+#include <prism/stealth/recognition/tls/features.hpp>
+#include <prism/proto/protocol/tls/types.hpp>
 #include <gtest/gtest.h>
 
 using fb = psm::recognition::tls::feature_bit;

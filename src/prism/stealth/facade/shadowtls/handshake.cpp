@@ -1,11 +1,11 @@
 #include <prism/stealth/facade/shadowtls/handshake.hpp>
 
-#include <prism/fault/code.hpp>
-#include <prism/protocol/tls/record.hpp>
+#include <prism/core/fault/code.hpp>
+#include <prism/proto/protocol/tls/record.hpp>
 #include <prism/stealth/common.hpp>
 #include <prism/stealth/facade/shadowtls/util/auth.hpp>
 #include <prism/stealth/facade/shadowtls/util/constants.hpp>
-#include <prism/trace.hpp>
+#include <prism/trace/trace.hpp>
 
 #include <boost/asio.hpp>
 #include <openssl/crypto.h>

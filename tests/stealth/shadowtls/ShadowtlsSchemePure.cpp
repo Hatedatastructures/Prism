@@ -6,11 +6,11 @@
 
 #include <gtest/gtest.h>
 
-#include <prism/memory.hpp>
-#include <prism/config.hpp>
+#include <prism/core/core.hpp>
+#include <prism/config/config.hpp>
 #include <prism/stealth/facade/shadowtls/scheme.hpp>
-#include <prism/recognition/tls/features.hpp>
-#include <prism/protocol/tls/types.hpp>
+#include <prism/stealth/recognition/tls/features.hpp>
+#include <prism/proto/protocol/tls/types.hpp>
 
 namespace
 {

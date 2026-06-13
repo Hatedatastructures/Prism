@@ -9,8 +9,8 @@
  */
 
 #include <benchmark/benchmark.h>
-#include <prism/connect/pool/pool.hpp>
-#include <prism/memory/container.hpp>
+#include <prism/net/connect/pool/pool.hpp>
+#include <prism/core/memory/container.hpp>
 
 #include <cstdint>
 

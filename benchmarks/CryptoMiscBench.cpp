@@ -11,7 +11,7 @@
 #include <benchmark/benchmark.h>
 #include <prism/crypto/base64.hpp>
 #include <prism/crypto/block.hpp>
-#include <prism/memory/container.hpp>
+#include <prism/core/memory/container.hpp>
 
 #include <array>
 #include <cstdint>

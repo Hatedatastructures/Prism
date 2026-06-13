@@ -6,7 +6,7 @@
 #include <gtest/gtest.h>
 
 #include <prism/stealth/facade/shadowtls/util/auth.hpp>
-#include <prism/memory.hpp>
+#include <prism/core/core.hpp>
 
 #include <openssl/hmac.h>
 

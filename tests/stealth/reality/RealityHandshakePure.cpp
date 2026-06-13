@@ -7,7 +7,7 @@
 
 #include <gtest/gtest.h>
 
-#include <prism/memory.hpp>
+#include <prism/core/core.hpp>
 
 #include <cstdint>
 #include <string>

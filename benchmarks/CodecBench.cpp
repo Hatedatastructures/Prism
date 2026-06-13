@@ -7,11 +7,11 @@
  */
 
 #include <benchmark/benchmark.h>
-#include <prism/protocol/http/parser.hpp>
-#include <prism/protocol/trojan/framing.hpp>
-#include <prism/protocol/shadowsocks/framing.hpp>
-#include <prism/resolve/dns/detail/format.hpp>
-#include <prism/resolve/dns/detail/rules.hpp>
+#include <prism/proto/protocol/http/parser.hpp>
+#include <prism/proto/protocol/trojan/framing.hpp>
+#include <prism/proto/protocol/shadowsocks/framing.hpp>
+#include <prism/net/resolve/dns/detail/format.hpp>
+#include <prism/net/resolve/dns/detail/rules.hpp>
 #include <prism/crypto/sha224.hpp>
 #include <prism/crypto/base64.hpp>
 #include <array>

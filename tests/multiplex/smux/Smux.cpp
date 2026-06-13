@@ -5,9 +5,9 @@
  * 帧头反序列化、地址解析、UDP 数据报编解码、length-prefixed 编解码等。
  */
 
-#include <prism/memory.hpp>
-#include <prism/multiplex/parcel.hpp>
-#include <prism/multiplex/smux/frame.hpp>
+#include <prism/core/core.hpp>
+#include <prism/proto/multiplex/parcel.hpp>
+#include <prism/proto/multiplex/smux/frame.hpp>
 #include <prism/trace/spdlog.hpp>
 
 #include <gtest/gtest.h>

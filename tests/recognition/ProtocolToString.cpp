@@ -7,8 +7,8 @@
  * 3. 测试覆盖率验证，确保枚举值数量与测试用例一致
  */
 
-#include <prism/memory.hpp>
-#include <prism/protocol/types.hpp>
+#include <prism/core/core.hpp>
+#include <prism/proto/protocol/types.hpp>
 #include <prism/trace/spdlog.hpp>
 
 #include <gtest/gtest.h>

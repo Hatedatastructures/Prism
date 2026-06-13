@@ -5,8 +5,8 @@
  *          system_state 的 mark_started/snapshot，无 I/O 依赖。
  */
 
-#include <prism/memory.hpp>
-#include <prism/stats/runtime.hpp>
+#include <prism/core/core.hpp>
+#include <prism/account/stats/runtime.hpp>
 #include <prism/trace/spdlog.hpp>
 
 #include <gtest/gtest.h>

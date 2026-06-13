@@ -8,7 +8,7 @@
 
 #include <gtest/gtest.h>
 
-#include <prism/memory.hpp>
+#include <prism/core/core.hpp>
 
 #include <boost/asio.hpp>
 #include <cstdint>

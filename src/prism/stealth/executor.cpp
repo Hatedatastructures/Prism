@@ -1,11 +1,11 @@
 #include <prism/stealth/executor.hpp>
 
-#include <prism/connect/util.hpp>
+#include <prism/net/connect/util.hpp>
 #include <prism/context/context.hpp>
-#include <prism/recognition/probe/analyzer.hpp>
-#include <prism/trace.hpp>
-#include <prism/transport/preview.hpp>
-#include <prism/transport/snapshot.hpp>
+#include <prism/stealth/recognition/probe/analyzer.hpp>
+#include <prism/trace/trace.hpp>
+#include <prism/net/transport/preview.hpp>
+#include <prism/net/transport/snapshot.hpp>
 
 #include <algorithm>
 

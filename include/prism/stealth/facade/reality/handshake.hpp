@@ -8,10 +8,10 @@
 #pragma once
 
 #include <prism/context/context.hpp>
-#include <prism/fault/code.hpp>
-#include <prism/memory/container.hpp>
+#include <prism/core/fault/code.hpp>
+#include <prism/core/memory/container.hpp>
 #include <prism/stealth/scheme.hpp>
-#include <prism/transport/transmission.hpp>
+#include <prism/net/transport/transmission.hpp>
 
 #include <boost/asio.hpp>
 

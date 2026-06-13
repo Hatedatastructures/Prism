@@ -4,8 +4,8 @@
  * @details 多线程高频率分配/释放，专门测试全局内存池在极端竞争下的表现。
  */
 
-#include <prism/memory/pool.hpp>
-#include <prism/memory/container.hpp>
+#include <prism/core/memory/pool.hpp>
+#include <prism/core/memory/container.hpp>
 
 #include "CountingResource.hpp"
 

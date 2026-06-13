@@ -8,8 +8,8 @@
  */
 
 #include <benchmark/benchmark.h>
-#include <prism/multiplex/h2mux/craft.hpp>
-#include <prism/memory/container.hpp>
+#include <prism/proto/multiplex/h2mux/craft.hpp>
+#include <prism/core/memory/container.hpp>
 #include <nghttp2/nghttp2.h>
 
 #include <cstdint>

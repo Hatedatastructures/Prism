@@ -8,14 +8,14 @@
 
 #include <gtest/gtest.h>
 
-#include <prism/memory.hpp>
+#include <prism/core/core.hpp>
 
 #include "common/MockTransport.hpp"
 
 // ── 关键：在 connect/util.hpp 等传递依赖之前，先以 private=open 包含 snapshot + executor ──
 // 这样 snapshot.hpp 的 #pragma once 会确保 private 成员对外开放
 #define private public
-#include <prism/transport/snapshot.hpp>
+#include <prism/net/transport/snapshot.hpp>
 #include <prism/stealth/executor.hpp>
 #undef private
 

@@ -4,8 +4,8 @@
  * @details 测试 uuid_to_string 格式化
  */
 
-#include <prism/memory.hpp>
-#include "../../src/prism/protocol/vless/conn.cpp"
+#include <prism/core/core.hpp>
+#include "../../src/prism/proto/protocol/vless/conn.cpp"
 #include <prism/trace/spdlog.hpp>
 
 #include <gtest/gtest.h>

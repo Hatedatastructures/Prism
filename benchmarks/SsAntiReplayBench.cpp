@@ -9,10 +9,10 @@
  */
 
 #include <benchmark/benchmark.h>
-#include <prism/protocol/shadowsocks/util/replay.hpp>
-#include <prism/protocol/shadowsocks/util/salts.hpp>
-#include <prism/protocol/shadowsocks/util/tracker.hpp>
-#include <prism/memory/container.hpp>
+#include <prism/proto/protocol/shadowsocks/util/replay.hpp>
+#include <prism/proto/protocol/shadowsocks/util/salts.hpp>
+#include <prism/proto/protocol/shadowsocks/util/tracker.hpp>
+#include <prism/core/memory/container.hpp>
 
 #include <array>
 #include <cstdint>

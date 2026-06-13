@@ -10,7 +10,7 @@
 
 #include <prism/crypto/sha224.hpp>
 #include <prism/crypto/base64.hpp>
-#include <prism/memory.hpp>
+#include <prism/core/core.hpp>
 #include <prism/trace/spdlog.hpp>
 
 #include <string>

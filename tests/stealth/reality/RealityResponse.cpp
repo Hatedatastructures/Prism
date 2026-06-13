@@ -7,11 +7,11 @@
 
 #include <gtest/gtest.h>
 
-#include <prism/memory.hpp>
+#include <prism/core/core.hpp>
 #include <prism/stealth/facade/reality/util/response.hpp>
 #include <prism/stealth/facade/reality/util/keygen.hpp>
-#include <prism/protocol/tls/types.hpp>
-#include <prism/fault.hpp>
+#include <prism/proto/protocol/tls/types.hpp>
+#include <prism/core/core.hpp>
 
 #include <cstdint>
 #include <cstring>

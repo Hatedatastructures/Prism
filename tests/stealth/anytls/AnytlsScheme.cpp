@@ -8,8 +8,8 @@
 
 #include <gtest/gtest.h>
 
-#include <prism/memory.hpp>
-#include <prism/config.hpp>
+#include <prism/core/core.hpp>
+#include <prism/config/config.hpp>
 
 // 拉入源文件中 anonymous namespace 的函数定义
 // 注意：必须在所有头文件之后 include

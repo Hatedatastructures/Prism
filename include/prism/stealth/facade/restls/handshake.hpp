@@ -13,7 +13,7 @@
  */
 #pragma once
 
-#include <prism/memory/container.hpp>
+#include <prism/core/memory/container.hpp>
 #include <prism/stealth/facade/restls/config.hpp>
 #include <prism/stealth/facade/restls/script.hpp>
 #include <prism/stealth/facade/restls/transport.hpp>

@@ -6,7 +6,7 @@
  *          使用 BoringSSL API 动态生成自签名证书进行测试。
  */
 
-#include <prism/memory.hpp>
+#include <prism/core/core.hpp>
 #include <prism/trace/spdlog.hpp>
 
 #include <gtest/gtest.h>

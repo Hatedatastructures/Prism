@@ -1,19 +1,19 @@
 #include <prism/instance/session/session.hpp>
 
-#include <prism/config.hpp>
-#include <prism/connect/tunnel/tunnel.hpp>
-#include <prism/exception.hpp>
-#include <prism/fault/code.hpp>
-#include <prism/protocol/http/process.hpp>
-#include <prism/protocol/shadowsocks/process.hpp>
-#include <prism/protocol/socks5/process.hpp>
-#include <prism/protocol/trojan/process.hpp>
-#include <prism/protocol/types.hpp>
-#include <prism/protocol/vless/process.hpp>
-#include <prism/recognition/recognition.hpp>
-#include <prism/stats/traffic.hpp>
-#include <prism/trace.hpp>
-#include <prism/transport/reliable.hpp>
+#include <prism/config/config.hpp>
+#include <prism/net/connect/tunnel/tunnel.hpp>
+#include <prism/core/core.hpp>
+#include <prism/core/fault/code.hpp>
+#include <prism/proto/protocol/http/process.hpp>
+#include <prism/proto/protocol/shadowsocks/process.hpp>
+#include <prism/proto/protocol/socks5/process.hpp>
+#include <prism/proto/protocol/trojan/process.hpp>
+#include <prism/proto/protocol/types.hpp>
+#include <prism/proto/protocol/vless/process.hpp>
+#include <prism/stealth/recognition/recognition.hpp>
+#include <prism/account/stats/traffic.hpp>
+#include <prism/trace/trace.hpp>
+#include <prism/net/transport/reliable.hpp>
 
 #include <boost/asio/experimental/awaitable_operators.hpp>
 

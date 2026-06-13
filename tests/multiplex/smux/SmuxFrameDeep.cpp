@@ -7,9 +7,9 @@
  *          所有函数均为纯同步，无 I/O、无协程。
  */
 
-#include <prism/memory.hpp>
+#include <prism/core/core.hpp>
 #include <prism/trace/spdlog.hpp>
-#include <prism/multiplex/smux/frame.hpp>
+#include <prism/proto/multiplex/smux/frame.hpp>
 
 #include <gtest/gtest.h>
 
@@ -1124,4 +1124,4 @@ TEST(SmuxFrameDeep, ParseAddrIpv6OneBytePort)
 }
 
 // #include 源文件以覆盖 frame.cpp 全部实现
-#include "../../src/prism/multiplex/smux/frame.cpp"
+#include "../../src/prism/proto/multiplex/smux/frame.cpp"

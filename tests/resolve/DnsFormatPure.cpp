@@ -5,8 +5,8 @@
  *          extract_ips/min_ttl/unpack_tcp 公共接口
  */
 
-#include <prism/memory.hpp>
-#include <prism/resolve/dns/detail/format.hpp>
+#include <prism/core/core.hpp>
+#include <prism/net/resolve/dns/detail/format.hpp>
 #include <prism/trace/spdlog.hpp>
 
 

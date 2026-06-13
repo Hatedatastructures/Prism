@@ -3,9 +3,9 @@
  * @brief Connect 模块纯函数测试 — to_key/endpoint_hash/is_ipv6/is_mux
  */
 
-#include <prism/connect/dial/dial.hpp>
-#include <prism/connect/pool/pool.hpp>
-#include <prism/connect/util.hpp>
+#include <prism/net/connect/dial/dial.hpp>
+#include <prism/net/connect/pool/pool.hpp>
+#include <prism/net/connect/util.hpp>
 
 
 #include <gtest/gtest.h>

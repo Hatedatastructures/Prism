@@ -6,13 +6,13 @@
  *          使用真实 io_context + tcp::socket 测试各种 socket 状态。
  */
 
-#include <prism/memory.hpp>
+#include <prism/core/core.hpp>
 #include <prism/trace/spdlog.hpp>
 
 
 #include <gtest/gtest.h>
 
-#include "../../src/prism/connect/pool/health.cpp"
+#include "../../src/prism/net/connect/pool/health.cpp"
 
 namespace
 {

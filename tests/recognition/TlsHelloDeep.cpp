@@ -7,16 +7,16 @@
  *          通过 #include 源文件覆盖编译行。
  */
 
-#include <prism/memory.hpp>
-#include <prism/protocol/tls/hello.hpp>
-#include <prism/protocol/tls/record.hpp>
+#include <prism/core/core.hpp>
+#include <prism/proto/protocol/tls/hello.hpp>
+#include <prism/proto/protocol/tls/record.hpp>
 #include <prism/trace/spdlog.hpp>
-#include <prism/fault.hpp>
+#include <prism/core/core.hpp>
 
 #include <gtest/gtest.h>
 
 // #include 源文件增加覆盖率计数
-#include "../../src/prism/protocol/tls/hello.cpp"
+#include "../../src/prism/proto/protocol/tls/hello.cpp"
 
 namespace
 {

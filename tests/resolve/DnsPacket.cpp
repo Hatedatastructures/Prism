@@ -14,8 +14,8 @@
  * 8. TCP 帧封装与解析 (TestPackUnpackTcp)
  */
 
-#include <prism/memory.hpp>
-#include <prism/resolve/dns/detail/format.hpp>
+#include <prism/core/core.hpp>
+#include <prism/net/resolve/dns/detail/format.hpp>
 #include <prism/trace/spdlog.hpp>
 
 

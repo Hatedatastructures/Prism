@@ -6,8 +6,8 @@
 #include <cstring>
 
 #include <boost/asio.hpp>
-#include <prism/protocol/http/parser.hpp>
-#include <prism/trace.hpp>
+#include <prism/proto/protocol/http/parser.hpp>
+#include <prism/trace/trace.hpp>
 
 namespace srv
 {

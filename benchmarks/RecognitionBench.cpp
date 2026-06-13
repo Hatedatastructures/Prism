@@ -7,10 +7,10 @@
  */
 
 #include <benchmark/benchmark.h>
-#include <prism/recognition/probe/analyzer.hpp>
-#include <prism/recognition/tls/signal.hpp>
-#include <prism/protocol/tls/types.hpp>
-#include <prism/memory/container.hpp>
+#include <prism/stealth/recognition/probe/analyzer.hpp>
+#include <prism/stealth/recognition/tls/signal.hpp>
+#include <prism/proto/protocol/tls/types.hpp>
+#include <prism/core/memory/container.hpp>
 
 #include <array>
 #include <cstdint>

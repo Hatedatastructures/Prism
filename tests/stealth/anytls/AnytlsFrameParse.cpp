@@ -5,7 +5,7 @@
 
 #include <gtest/gtest.h>
 
-#include <prism/memory.hpp>
+#include <prism/core/core.hpp>
 #include <prism/stealth/stack/anytls/mux/frame.hpp>
 
 #include <array>

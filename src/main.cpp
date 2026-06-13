@@ -9,19 +9,19 @@
 #include <boost/asio/signal_set.hpp>
 
 #include <prism/context/context.hpp>
-#include <prism/instance.hpp>
+#include <prism/instance/instance.hpp>
 #include <prism/account/directory.hpp>
-#include <prism/stats/stats.hpp>
-#include <prism/stats/runtime.hpp>
+#include <prism/account/stats/stats.hpp>
+#include <prism/account/stats/runtime.hpp>
 #include <prism/instance/front/balancer.hpp>
 #include <prism/instance/front/listener.hpp>
-#include <prism/memory.hpp>
-#include <prism/memory/pool.hpp>
-#include <prism/exception.hpp>
-#include <prism/config.hpp>
-#include <prism/loader/load.hpp>
+#include <prism/core/core.hpp>
+#include <prism/core/memory/pool.hpp>
+#include <prism/core/core.hpp>
+#include <prism/config/config.hpp>
+#include <prism/config/loader/load.hpp>
 #include <prism/stealth/registry.hpp>
-#include <prism/trace.hpp>
+#include <prism/trace/trace.hpp>
 
 namespace instance = psm::instance;
 

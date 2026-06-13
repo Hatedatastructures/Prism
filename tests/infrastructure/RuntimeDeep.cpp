@@ -7,12 +7,12 @@
  *          observe() 协程不在本测试范围。
  */
 
-#include <prism/memory.hpp>
+#include <prism/core/core.hpp>
 #include <prism/trace/spdlog.hpp>
 
 #include <gtest/gtest.h>
 
-#include "../../src/prism/stats/runtime.cpp"
+#include "../../src/prism/account/stats/runtime.cpp"
 
 namespace
 {

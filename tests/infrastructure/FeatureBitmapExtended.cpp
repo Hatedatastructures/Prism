@@ -3,9 +3,9 @@
  * @brief TLS 特征位图扩展测试 — build_bitmap/has_feature/has_all 分支覆盖
  */
 
-#include <prism/memory.hpp>
-#include <prism/protocol/tls/types.hpp>
-#include <prism/recognition/tls/features.hpp>
+#include <prism/core/core.hpp>
+#include <prism/proto/protocol/tls/types.hpp>
+#include <prism/stealth/recognition/tls/features.hpp>
 #include <prism/trace/spdlog.hpp>
 
 #include <gtest/gtest.h>

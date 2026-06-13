@@ -5,7 +5,7 @@
  *          测试 add_route/lookup/matches_any/registered_snis/empty
  */
 
-#include <prism/memory.hpp>
+#include <prism/core/core.hpp>
 #include <prism/trace/spdlog.hpp>
 
 
@@ -13,7 +13,7 @@
 
 // 通过预处理器 hack 访问 private 方法
 #define private public
-#include <prism/recognition/routes.hpp>
+#include <prism/stealth/recognition/routes.hpp>
 #undef private
 
 namespace

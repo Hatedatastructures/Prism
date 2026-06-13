@@ -5,7 +5,7 @@
  *          覆盖 mix_hash、score、refresh_state、select、构造函数、size。
  */
 
-#include <prism/memory.hpp>
+#include <prism/core/core.hpp>
 #include <prism/trace/spdlog.hpp>
 
 #include <gtest/gtest.h>

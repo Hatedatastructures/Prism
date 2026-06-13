@@ -5,10 +5,10 @@
  * 验证构造、异步读写、预读回放、关闭等操作的正确性。
  */
 
-#include <prism/transport/reliable.hpp>
-#include <prism/transport/preview.hpp>
-#include <prism/transport/encrypted.hpp>
-#include <prism/memory.hpp>
+#include <prism/net/transport/reliable.hpp>
+#include <prism/net/transport/preview.hpp>
+#include <prism/net/transport/encrypted.hpp>
+#include <prism/core/core.hpp>
 #include <prism/trace/spdlog.hpp>
 
 #include <gtest/gtest.h>

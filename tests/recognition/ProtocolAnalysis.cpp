@@ -6,11 +6,11 @@
  * 边界条件和排除法 fallback 逻辑。
  */
 
-#include <prism/protocol/types.hpp>
-#include <prism/protocol/common/target.hpp>
-#include <prism/recognition/target.hpp>
-#include <prism/recognition/probe/analyzer.hpp>
-#include <prism/memory.hpp>
+#include <prism/proto/protocol/types.hpp>
+#include <prism/proto/protocol/common/target.hpp>
+#include <prism/stealth/recognition/target.hpp>
+#include <prism/stealth/recognition/probe/analyzer.hpp>
+#include <prism/core/core.hpp>
 #include <prism/trace/spdlog.hpp>
 #include <gtest/gtest.h>
 

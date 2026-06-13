@@ -14,12 +14,12 @@
  */
 #pragma once
 
-#include <prism/fault/code.hpp>
-#include <prism/memory/container.hpp>
-#include <prism/protocol/tls/types.hpp>
-#include <prism/protocol/types.hpp>
-#include <prism/recognition/tls/features.hpp>
-#include <prism/transport/transmission.hpp>
+#include <prism/core/fault/code.hpp>
+#include <prism/core/memory/container.hpp>
+#include <prism/proto/protocol/tls/types.hpp>
+#include <prism/proto/protocol/types.hpp>
+#include <prism/stealth/recognition/tls/features.hpp>
+#include <prism/net/transport/transmission.hpp>
 
 #include <boost/asio.hpp>
 

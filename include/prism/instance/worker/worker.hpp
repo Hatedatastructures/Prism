@@ -8,15 +8,15 @@
  */
 #pragma once
 
-#include <prism/config.hpp>
-#include <prism/connect/dial/router.hpp>
-#include <prism/connect/pool/pool.hpp>
+#include <prism/config/config.hpp>
+#include <prism/net/connect/dial/router.hpp>
+#include <prism/net/connect/pool/pool.hpp>
 #include <prism/context/context.hpp>
 #include <prism/instance/front/balancer.hpp>
 #include <prism/instance/worker/tls.hpp>
-#include <prism/outbound/direct.hpp>
-#include <prism/stats/runtime.hpp>
-#include <prism/stats/traffic.hpp>
+#include <prism/instance/outbound/direct.hpp>
+#include <prism/account/stats/runtime.hpp>
+#include <prism/account/stats/traffic.hpp>
 
 #include <boost/asio.hpp>
 

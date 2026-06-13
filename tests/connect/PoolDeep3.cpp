@@ -8,7 +8,7 @@
  *          通过 #include 源文件确保 gcov 计入覆盖行。
  */
 
-#include <prism/memory.hpp>
+#include <prism/core/core.hpp>
 #include <prism/trace/spdlog.hpp>
 
 
@@ -16,10 +16,10 @@
 
 // 打开 private 以访问 cache_, stat_*, cleanup(), clear(), apply_opts()
 // 先预包含所有依赖头文件（不打开 private），再重新包含 pool.hpp（打开 private）
-#include <prism/connect/pool/config.hpp>
-#include <prism/connect/pool/health.hpp>
-#include <prism/fault.hpp>
-#include <prism/trace.hpp>
+#include <prism/net/connect/pool/config.hpp>
+#include <prism/net/connect/pool/health.hpp>
+#include <prism/core/core.hpp>
+#include <prism/trace/trace.hpp>
 #include <boost/asio.hpp>
 #include <boost/asio/experimental/awaitable_operators.hpp>
 #include <ranges>
@@ -28,12 +28,12 @@
 
 #define private public
 #define protected public
-#include <prism/connect/pool/pool.hpp>
+#include <prism/net/connect/pool/pool.hpp>
 #undef protected
 #undef private
 
 // 包含源文件以获得 gcov 覆盖
-#include "../../src/prism/connect/pool/pool.cpp"
+#include "../../src/prism/net/connect/pool/pool.cpp"
 
 namespace
 {

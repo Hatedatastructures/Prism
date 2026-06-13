@@ -10,8 +10,8 @@
 #pragma once
 
 #include <prism/account/entry.hpp>
-#include <prism/memory/container.hpp>
-#include <prism/memory/pool.hpp>
+#include <prism/core/memory/container.hpp>
+#include <prism/core/memory/pool.hpp>
 
 #include <atomic>
 #include <cstddef>

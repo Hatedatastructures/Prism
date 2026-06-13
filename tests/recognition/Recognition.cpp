@@ -10,14 +10,14 @@
  * 6. 结构体默认值验证
  */
 
-#include <prism/recognition/probe/probe.hpp>
-#include <prism/recognition/routes.hpp>
-#include <prism/recognition/tls/features.hpp>
-#include <prism/protocol/tls/types.hpp>
+#include <prism/stealth/recognition/probe/probe.hpp>
+#include <prism/stealth/recognition/routes.hpp>
+#include <prism/stealth/recognition/tls/features.hpp>
+#include <prism/proto/protocol/tls/types.hpp>
 #include <prism/stealth/facade/reality/scheme.hpp>
 #include <prism/stealth/registry.hpp>
-#include <prism/config.hpp>
-#include <prism/memory.hpp>
+#include <prism/config/config.hpp>
+#include <prism/core/core.hpp>
 #include <prism/trace/spdlog.hpp>
 #include <gtest/gtest.h>
 

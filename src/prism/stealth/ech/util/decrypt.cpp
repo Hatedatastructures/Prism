@@ -1,6 +1,6 @@
 #include <prism/stealth/ech/util/decrypt.hpp>
 
-#include <prism/trace.hpp>
+#include <prism/trace/trace.hpp>
 
 using namespace psm::trace;
 

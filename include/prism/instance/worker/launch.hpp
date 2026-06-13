@@ -10,8 +10,8 @@
 #pragma once
 
 #include <prism/context/context.hpp>
-#include <prism/stats/runtime.hpp>
-#include <prism/stats/traffic.hpp>
+#include <prism/account/stats/runtime.hpp>
+#include <prism/account/stats/traffic.hpp>
 
 #include <boost/asio.hpp>
 

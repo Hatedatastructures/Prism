@@ -5,8 +5,8 @@
  * 模拟随机大小的内存分配与释放，验证 OOM 处理和内存回收机制。
  */
 
-#include <prism/memory/pool.hpp>
-#include <prism/memory/container.hpp>
+#include <prism/core/memory/pool.hpp>
+#include <prism/core/memory/container.hpp>
 
 #include "CountingResource.hpp"
 

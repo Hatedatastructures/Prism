@@ -8,7 +8,7 @@
 #include <prism/stealth/facade/restls/config.hpp>
 #include <prism/stealth/facade/restls/crypto.hpp>
 #include <prism/stealth/facade/shadowtls/util/constants.hpp>
-#include <prism/memory.hpp>
+#include <prism/core/core.hpp>
 
 namespace
 {

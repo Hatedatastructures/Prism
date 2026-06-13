@@ -11,7 +11,7 @@
 
 #include <gtest/gtest.h>
 
-#include <prism/memory.hpp>
+#include <prism/core/core.hpp>
 
 // #include 源文件增加覆盖率计数
 #include "../../src/prism/stealth/facade/reality/util/response.cpp"

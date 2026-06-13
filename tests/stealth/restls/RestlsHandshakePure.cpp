@@ -9,7 +9,7 @@
 
 #include <gtest/gtest.h>
 
-#include <prism/memory.hpp>
+#include <prism/core/core.hpp>
 #include <prism/stealth/facade/restls/crypto.hpp>
 
 #include <array>

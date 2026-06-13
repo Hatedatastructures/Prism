@@ -1,8 +1,8 @@
 #include <prism/stealth/stack/anytls/mux/session.hpp>
 
-#include <prism/fault/handling.hpp>
+#include <prism/core/fault/handling.hpp>
 #include <prism/stealth/stack/anytls/mux/transport.hpp>
-#include <prism/trace.hpp>
+#include <prism/trace/trace.hpp>
 
 #include <cstring>
 

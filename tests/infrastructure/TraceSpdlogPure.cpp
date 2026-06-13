@@ -5,9 +5,9 @@
  *          build_mdc_prefix 空/非空、mdc_set/mdc_remove/mdc_clear。
  */
 
-#include <prism/memory.hpp>
+#include <prism/core/core.hpp>
 #include <prism/trace/spdlog.hpp>
-#include <prism/config.hpp>
+#include <prism/config/config.hpp>
 
 #include <gtest/gtest.h>
 

@@ -10,8 +10,8 @@
 
 #pragma once
 
-#include <prism/memory/container.hpp>
-#include <prism/stats/snapshot.hpp>
+#include <prism/core/memory/container.hpp>
+#include <prism/account/stats/snapshot.hpp>
 
 #include <boost/asio.hpp>
 

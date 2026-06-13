@@ -9,9 +9,9 @@
 #include <gtest/gtest.h>
 
 #include <prism/crypto/aead.hpp>
-#include <prism/memory.hpp>
+#include <prism/core/core.hpp>
 #include <prism/trace/spdlog.hpp>
-#include <prism/fault.hpp>
+#include <prism/core/core.hpp>
 #include <array>
 #include <cstdint>
 #include <cstring>

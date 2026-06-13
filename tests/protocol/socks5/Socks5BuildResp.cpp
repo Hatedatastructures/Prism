@@ -5,17 +5,17 @@
  *          build_ok_resp 定义在静态库中，ep_to_addr 内联在头文件中。
  */
 
-#include <prism/memory.hpp>
+#include <prism/core/core.hpp>
 #include <prism/trace/spdlog.hpp>
 
 #include <boost/asio.hpp>
 
 // 通过预处理器 hack 访问 private static 方法
 #define private public
-#include <prism/protocol/socks5/conn.hpp>
+#include <prism/proto/protocol/socks5/conn.hpp>
 #undef private
 
-#include <prism/protocol/socks5/constants.hpp>
+#include <prism/proto/protocol/socks5/constants.hpp>
 
 
 #include <gtest/gtest.h>

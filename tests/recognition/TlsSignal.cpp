@@ -6,12 +6,12 @@
  * 同时使用 MockTransport 测试 read_tls_record 异步 I/O 路径。
  */
 
-#include <prism/memory.hpp>
-#include <prism/recognition/tls/signal.hpp>
-#include <prism/protocol/tls/types.hpp>
+#include <prism/core/core.hpp>
+#include <prism/stealth/recognition/tls/signal.hpp>
+#include <prism/proto/protocol/tls/types.hpp>
 #include <prism/trace/spdlog.hpp>
-#include <prism/fault.hpp>
-#include <prism/transport/transmission.hpp>
+#include <prism/core/core.hpp>
+#include <prism/net/transport/transmission.hpp>
 #include <gtest/gtest.h>
 
 #include <array>

@@ -1,14 +1,14 @@
 #include <prism/stealth/facade/restls/scheme.hpp>
 
-#include <prism/config.hpp>
-#include <prism/connect/util.hpp>
-#include <prism/fault/code.hpp>
-#include <prism/protocol/types.hpp>
-#include <prism/recognition/probe/analyzer.hpp>
+#include <prism/config/config.hpp>
+#include <prism/net/connect/util.hpp>
+#include <prism/core/fault/code.hpp>
+#include <prism/proto/protocol/types.hpp>
+#include <prism/stealth/recognition/probe/analyzer.hpp>
 #include <prism/stealth/facade/restls/handshake.hpp>
 #include <prism/stealth/facade/restls/transport.hpp>
-#include <prism/trace.hpp>
-#include <prism/transport/reliable.hpp>
+#include <prism/trace/trace.hpp>
+#include <prism/net/transport/reliable.hpp>
 
 #include <boost/asio.hpp>
 

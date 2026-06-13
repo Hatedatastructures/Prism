@@ -1,5 +1,5 @@
 #include <prism/instance/front/balancer.hpp>
-#include <prism/stats/snapshot.hpp>
+#include <prism/account/stats/snapshot.hpp>
 
 #include <algorithm>
 #include <limits>

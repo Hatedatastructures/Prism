@@ -9,7 +9,7 @@
  */
 #pragma once
 
-#include <prism/fault/code.hpp>
+#include <prism/core/fault/code.hpp>
 
 #include <array>
 #include <cstddef>

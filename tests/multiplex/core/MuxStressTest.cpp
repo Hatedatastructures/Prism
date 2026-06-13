@@ -8,11 +8,11 @@
  * 测试在纯帧编解码层面进行，不需要完整的 craft/core 会话。
  */
 
-#include <prism/memory.hpp>
+#include <prism/core/core.hpp>
 #include <prism/trace/spdlog.hpp>
-#include <prism/multiplex/smux/frame.hpp>
-#include <prism/multiplex/smux/craft.hpp>
-#include <prism/multiplex/yamux/frame.hpp>
+#include <prism/proto/multiplex/smux/frame.hpp>
+#include <prism/proto/multiplex/smux/craft.hpp>
+#include <prism/proto/multiplex/yamux/frame.hpp>
 
 #include <gtest/gtest.h>
 

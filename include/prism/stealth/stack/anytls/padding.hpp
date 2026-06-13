@@ -15,7 +15,7 @@
  */
 #pragma once
 
-#include <prism/memory/container.hpp>
+#include <prism/core/memory/container.hpp>
 
 #include <cstdint>
 #include <span>

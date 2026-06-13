@@ -4,9 +4,9 @@
  * @details 测试 DNS 缓存的 LRU 淘汰、TTL 过期、serve-stale、负向缓存等核心逻辑。
  */
 
-#include <prism/resolve/dns/detail/cache.hpp>
-#include <prism/resolve/dns/detail/format.hpp>
-#include <prism/memory.hpp>
+#include <prism/net/resolve/dns/detail/cache.hpp>
+#include <prism/net/resolve/dns/detail/format.hpp>
+#include <prism/core/core.hpp>
 #include <prism/trace/spdlog.hpp>
 
 #include <chrono>

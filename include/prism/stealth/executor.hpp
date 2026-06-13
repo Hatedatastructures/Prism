@@ -9,7 +9,7 @@
 
 #pragma once
 
-#include <prism/recognition/result.hpp>
+#include <prism/stealth/recognition/result.hpp>
 #include <prism/stealth/registry.hpp>
 #include <prism/stealth/scheme.hpp>
 

@@ -13,9 +13,9 @@
 #include <prism/stealth/facade/reality/util/keygen.hpp>
 #include <prism/stealth/facade/reality/util/response.hpp>
 #include <prism/stealth/facade/reality/config.hpp>
-#include <prism/protocol/tls/types.hpp>
+#include <prism/proto/protocol/tls/types.hpp>
 #include <prism/crypto/x25519.hpp>
-#include <prism/memory/container.hpp>
+#include <prism/core/memory/container.hpp>
 
 #include <array>
 #include <cstdint>

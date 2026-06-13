@@ -9,7 +9,7 @@
 
 #include "common/TestRunner.hpp"
 
-#include <prism/memory.hpp>
+#include <prism/core/core.hpp>
 #include <prism/trace/spdlog.hpp>
 #include <prism/crypto/aead.hpp>
 #include <prism/crypto/x25519.hpp>

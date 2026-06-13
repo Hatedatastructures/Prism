@@ -8,16 +8,16 @@
  */
 
 #include <prism/instance/config.hpp>
-#include <prism/config.hpp>
+#include <prism/config/config.hpp>
 #include <prism/context/context.hpp>
 #include <prism/account/directory.hpp>
 #include <prism/instance/session/session.hpp>
-#include <prism/connect/pool/pool.hpp>
-#include <prism/transport/reliable.hpp>
-#include <prism/connect/dial/router.hpp>
-#include <prism/exception/network.hpp>
-#include <prism/fault/code.hpp>
-#include <prism/memory.hpp>
+#include <prism/net/connect/pool/pool.hpp>
+#include <prism/net/transport/reliable.hpp>
+#include <prism/net/connect/dial/router.hpp>
+#include <prism/core/exception/network.hpp>
+#include <prism/core/fault/code.hpp>
+#include <prism/core/core.hpp>
 #include <prism/trace/spdlog.hpp>
 #include <gtest/gtest.h>
 

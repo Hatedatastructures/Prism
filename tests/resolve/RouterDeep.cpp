@@ -6,13 +6,13 @@
  *          string_equal 和所有访问器方法。
  */
 
-#include <prism/memory.hpp>
+#include <prism/core/core.hpp>
 #include <prism/trace/spdlog.hpp>
 
 
 #include <gtest/gtest.h>
 
-#include "../../src/prism/connect/dial/router.cpp"
+#include "../../src/prism/net/connect/dial/router.cpp"
 
 namespace
 {

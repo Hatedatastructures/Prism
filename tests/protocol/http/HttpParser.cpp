@@ -7,8 +7,8 @@
  * 空白修剪、畸形输入、偏移量精度、路径提取等场景。
  */
 
-#include <prism/protocol/http/parser.hpp>
-#include <prism/memory.hpp>
+#include <prism/proto/protocol/http/parser.hpp>
+#include <prism/core/core.hpp>
 #include <prism/trace/spdlog.hpp>
 #include <string>
 #include <string_view>

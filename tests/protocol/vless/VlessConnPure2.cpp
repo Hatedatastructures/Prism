@@ -5,14 +5,14 @@
  *          通过 #include 源文件覆盖编译行。
  */
 
-#include <prism/memory.hpp>
+#include <prism/core/core.hpp>
 #include <prism/trace/spdlog.hpp>
 
 
 #include <gtest/gtest.h>
 
 // #include 源文件增加覆盖率计数
-#include "../../src/prism/protocol/vless/conn.cpp"
+#include "../../src/prism/proto/protocol/vless/conn.cpp"
 
 namespace
 {

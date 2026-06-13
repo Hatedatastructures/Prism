@@ -6,8 +6,8 @@
  *          add_cname/match 全组合。
  */
 
-#include <prism/memory.hpp>
-#include <prism/resolve/dns/detail/rules.hpp>
+#include <prism/core/core.hpp>
+#include <prism/net/resolve/dns/detail/rules.hpp>
 #include <prism/trace/spdlog.hpp>
 
 

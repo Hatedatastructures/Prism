@@ -10,7 +10,7 @@
 
 #pragma once
 
-#include <prism/config.hpp>
+#include <prism/config/config.hpp>
 #include <prism/instance/config.hpp>
 #include <prism/instance/front/balancer.hpp>
 

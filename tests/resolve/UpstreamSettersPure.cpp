@@ -5,16 +5,16 @@
  *          select_best_result 通过等价逻辑间接测试。
  */
 
-#include <prism/memory.hpp>
-#include <prism/resolve/dns/upstream.hpp>
-#include <prism/resolve/dns/config.hpp>
+#include <prism/core/core.hpp>
+#include <prism/net/resolve/dns/upstream.hpp>
+#include <prism/net/resolve/dns/config.hpp>
 #include <prism/trace/spdlog.hpp>
-#include <prism/fault.hpp>
+#include <prism/core/core.hpp>
 
 #include <gtest/gtest.h>
 
 // #include 源文件增加覆盖率计数
-#include "../../src/prism/resolve/dns/upstream.cpp"
+#include "../../src/prism/net/resolve/dns/upstream.cpp"
 
 namespace
 {

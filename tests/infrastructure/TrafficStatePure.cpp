@@ -3,9 +3,9 @@
  * @brief 流量统计纯函数测试 — traffic_state 操作与快照
  */
 
-#include <prism/memory.hpp>
-#include <prism/protocol/types.hpp>
-#include <prism/stats/traffic.hpp>
+#include <prism/core/core.hpp>
+#include <prism/proto/protocol/types.hpp>
+#include <prism/account/stats/traffic.hpp>
 #include <prism/trace/spdlog.hpp>
 
 #include <gtest/gtest.h>

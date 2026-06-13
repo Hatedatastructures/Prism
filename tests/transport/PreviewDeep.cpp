@@ -6,14 +6,14 @@
  *          next_layer、wrap_with_preview 以及 completion-handler 重载。
  */
 
-#include <prism/memory.hpp>
+#include <prism/core/core.hpp>
 #include <prism/trace/spdlog.hpp>
 
 
 #include <gtest/gtest.h>
 #include "common/MockTransport.hpp"
 
-#include "../../src/prism/transport/preview.cpp"
+#include "../../src/prism/net/transport/preview.cpp"
 
 using psm::testing::MockTransport;
 

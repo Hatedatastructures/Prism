@@ -10,14 +10,14 @@
  * server-side craft session 与模拟客户端
  */
 
-#include <prism/memory.hpp>
+#include <prism/core/core.hpp>
 #include <prism/trace/spdlog.hpp>
-#include <prism/multiplex.hpp>
-#include <prism/transport/reliable.hpp>
-#include <prism/connect/pool/pool.hpp>
-#include <prism/connect/dial/router.hpp>
-#include <prism/resolve/dns/dns.hpp>
-#include <prism/fault/code.hpp>
+#include <prism/proto/proto.hpp>
+#include <prism/net/transport/reliable.hpp>
+#include <prism/net/connect/pool/pool.hpp>
+#include <prism/net/connect/dial/router.hpp>
+#include <prism/net/resolve/dns/dns.hpp>
+#include <prism/core/fault/code.hpp>
 
 #include <gtest/gtest.h>
 

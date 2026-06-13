@@ -5,16 +5,16 @@
  *          以及完整的 AES-GCM / ChaCha20 解密成功路径。
  */
 
-#include <prism/memory.hpp>
+#include <prism/core/core.hpp>
 #include <prism/trace/spdlog.hpp>
-#include <prism/fault.hpp>
+#include <prism/core/core.hpp>
 #include <prism/crypto/aead.hpp>
 #include <prism/crypto/block.hpp>
 
 
 #include <gtest/gtest.h>
 
-#include "../../src/prism/protocol/shadowsocks/util/datagram.cpp"
+#include "../../src/prism/proto/protocol/shadowsocks/util/datagram.cpp"
 
 namespace
 {

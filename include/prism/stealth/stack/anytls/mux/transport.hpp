@@ -7,10 +7,10 @@
  */
 #pragma once
 
-#include <prism/memory/container.hpp>
+#include <prism/core/memory/container.hpp>
 #include <prism/stealth/stack/anytls/mux/session.hpp>
-#include <prism/trace.hpp>
-#include <prism/transport/transmission.hpp>
+#include <prism/trace/trace.hpp>
+#include <prism/net/transport/transmission.hpp>
 
 #include <boost/asio.hpp>
 #include <boost/asio/experimental/concurrent_channel.hpp>

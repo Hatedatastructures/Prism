@@ -7,7 +7,7 @@
 #include <gtest/gtest.h>
 
 #include <prism/stealth/facade/native.hpp>
-#include <prism/config.hpp>
+#include <prism/config/config.hpp>
 
 #include <string_view>
 

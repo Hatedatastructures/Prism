@@ -8,8 +8,8 @@
  *          extract_ips 遍历 authority/additional 段。
  */
 
-#include <prism/memory.hpp>
-#include <prism/resolve/dns/detail/format.hpp>
+#include <prism/core/core.hpp>
+#include <prism/net/resolve/dns/detail/format.hpp>
 #include <prism/trace/spdlog.hpp>
 
 #include <cstdint>

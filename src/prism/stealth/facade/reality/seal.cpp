@@ -1,9 +1,9 @@
 #include <prism/stealth/facade/reality/seal.hpp>
 
-#include <prism/protocol/tls/record.hpp>
+#include <prism/proto/protocol/tls/record.hpp>
 #include <prism/stealth/common.hpp>
-#include <prism/trace.hpp>
-#include <prism/transport/transmission.hpp>
+#include <prism/trace/trace.hpp>
+#include <prism/net/transport/transmission.hpp>
 
 #include <algorithm>
 #include <cstring>

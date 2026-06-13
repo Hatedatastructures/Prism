@@ -7,10 +7,10 @@
  */
 
 #include <benchmark/benchmark.h>
-#include <prism/stats/counter.hpp>
+#include <prism/account/stats/counter.hpp>
 #include <prism/account/entry.hpp>
 #include <prism/account/directory.hpp>
-#include <prism/memory/pool.hpp>
+#include <prism/core/memory/pool.hpp>
 
 #include <cstdint>
 #include <memory>

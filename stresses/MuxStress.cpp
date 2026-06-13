@@ -5,10 +5,10 @@
  * 包括帧解码风暴、并发编解码、地址解析覆盖和 UDP 数据报往返验证。
  */
 
-#include <prism/multiplex/smux/frame.hpp>
-#include <prism/multiplex/yamux/frame.hpp>
-#include <prism/memory/pool.hpp>
-#include <prism/memory/container.hpp>
+#include <prism/proto/multiplex/smux/frame.hpp>
+#include <prism/proto/multiplex/yamux/frame.hpp>
+#include <prism/core/memory/pool.hpp>
+#include <prism/core/memory/container.hpp>
 
 #include "CountingResource.hpp"
 

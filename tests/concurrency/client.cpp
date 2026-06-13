@@ -10,9 +10,9 @@
 #include <boost/asio.hpp>
 #include <boost/beast/core/flat_buffer.hpp>
 
-#include <prism/memory.hpp>
-#include <prism/transformer.hpp>
-#include <prism/trace.hpp>
+#include <prism/core/core.hpp>
+#include <prism/config/transformer.hpp>
+#include <prism/trace/trace.hpp>
 
 #include <algorithm>
 #include <atomic>

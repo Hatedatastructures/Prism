@@ -1,7 +1,7 @@
 #include <prism/instance/worker/worker.hpp>
 #include <prism/account/directory.hpp>
 #include <prism/instance/worker/launch.hpp>
-#include <prism/trace.hpp>
+#include <prism/trace/trace.hpp>
 
 using namespace psm::trace;
 

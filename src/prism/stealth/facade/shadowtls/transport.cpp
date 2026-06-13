@@ -1,8 +1,8 @@
 #include <prism/stealth/facade/shadowtls/transport.hpp>
 
-#include <prism/protocol/tls/record.hpp>
+#include <prism/proto/protocol/tls/record.hpp>
 #include <prism/stealth/common.hpp>
-#include <prism/trace.hpp>
+#include <prism/trace/trace.hpp>
 
 #include <openssl/crypto.h>
 #include <openssl/hmac.h>

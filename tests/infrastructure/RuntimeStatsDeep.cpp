@@ -6,7 +6,7 @@
  *          跳过 observe() 协程（需要 io_context 运行）。
  */
 
-#include <prism/memory.hpp>
+#include <prism/core/core.hpp>
 #include <prism/trace/spdlog.hpp>
 
 #include <gtest/gtest.h>
@@ -14,7 +14,7 @@
 #include <cstdint>
 
 // 包含源文件以获得 gcov 覆盖
-#include "../../src/prism/stats/runtime.cpp"
+#include "../../src/prism/account/stats/runtime.cpp"
 
 namespace
 {

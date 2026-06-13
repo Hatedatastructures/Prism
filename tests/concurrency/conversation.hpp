@@ -2,9 +2,9 @@
 
 #include <chrono>
 #include <boost/asio.hpp>
-#include <prism/memory.hpp>
-#include <prism/protocol/http/parser.hpp>
-#include <prism/trace.hpp>
+#include <prism/core/core.hpp>
+#include <prism/proto/protocol/http/parser.hpp>
+#include <prism/trace/trace.hpp>
 #include "handler.hpp"
 
 namespace srv

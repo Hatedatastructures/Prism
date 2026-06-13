@@ -10,7 +10,7 @@
 #include <prism/crypto/blake3.hpp>
 #include <prism/crypto/block.hpp>
 #include <prism/crypto/hkdf.hpp>
-#include <prism/memory.hpp>
+#include <prism/core/core.hpp>
 #include <prism/trace/spdlog.hpp>
 
 #include <array>

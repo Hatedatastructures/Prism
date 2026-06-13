@@ -6,9 +6,9 @@
  *          不 #include 源文件，仅使用公共 API。
  */
 
-#include <prism/memory.hpp>
+#include <prism/core/core.hpp>
 #include <prism/trace/spdlog.hpp>
-#include <prism/connect/pool/pool.hpp>
+#include <prism/net/connect/pool/pool.hpp>
 
 
 #include <gtest/gtest.h>

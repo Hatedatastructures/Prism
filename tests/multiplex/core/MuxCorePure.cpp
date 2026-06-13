@@ -6,13 +6,13 @@
  *          枚举值，确认 core.hpp 头文件可正确 include。
  */
 
-#include <prism/memory.hpp>
+#include <prism/core/core.hpp>
 #include <prism/trace/spdlog.hpp>
 
 #include <gtest/gtest.h>
 
 // #include 源文件以访问匿名命名空间中的 resolve_mr 纯辅助函数
-#include "../src/prism/multiplex/core.cpp"
+#include "../src/prism/proto/multiplex/core.cpp"
 
 namespace
 {

@@ -7,9 +7,9 @@
  *          不 #include 源文件（含大量协程模板，会导致对象文件过大链接失败）。
  */
 
-#include <prism/memory.hpp>
+#include <prism/core/core.hpp>
 #include <prism/trace/spdlog.hpp>
-#include <prism/fault.hpp>
+#include <prism/core/core.hpp>
 
 
 #include <gtest/gtest.h>
@@ -19,7 +19,7 @@
 #include <cstring>
 
 #define private public
-#include <prism/resolve/dns/upstream.hpp>
+#include <prism/net/resolve/dns/upstream.hpp>
 #undef private
 
 namespace

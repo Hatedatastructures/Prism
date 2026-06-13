@@ -3,8 +3,8 @@
  * @brief SNI 路由表单元测试
  */
 
-#include <prism/recognition/routes.hpp>
-#include <prism/config.hpp>
+#include <prism/stealth/recognition/routes.hpp>
+#include <prism/config/config.hpp>
 #include <gtest/gtest.h>
 
 namespace

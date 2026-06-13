@@ -5,10 +5,10 @@
  * 测试使用回显服务器作为测试桩，通过协程驱动所有异步操作。
  */
 
-#include <prism/connect/pool/pool.hpp>
-#include <prism/memory/pool.hpp>
-#include <prism/connect/dial/router.hpp>
-#include <prism/resolve/dns/config.hpp>
+#include <prism/net/connect/pool/pool.hpp>
+#include <prism/core/memory/pool.hpp>
+#include <prism/net/connect/dial/router.hpp>
+#include <prism/net/resolve/dns/config.hpp>
 #include <prism/trace/spdlog.hpp>
 #include <gtest/gtest.h>
 

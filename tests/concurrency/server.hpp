@@ -4,7 +4,7 @@
 #include <thread>
 
 #include <boost/asio.hpp>
-#include <prism/trace.hpp>
+#include <prism/trace/trace.hpp>
 
 #include "conversation.hpp"
 

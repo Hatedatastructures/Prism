@@ -1,11 +1,11 @@
 #include <prism/instance/worker/launch.hpp>
 
 #include <prism/account/directory.hpp>
-#include <prism/config.hpp>
+#include <prism/config/config.hpp>
 #include <prism/context/context.hpp>
 #include <prism/instance/session/session.hpp>
-#include <prism/trace.hpp>
-#include <prism/transport/reliable.hpp>
+#include <prism/trace/trace.hpp>
+#include <prism/net/transport/reliable.hpp>
 
 using namespace psm::trace;
 

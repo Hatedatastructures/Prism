@@ -4,8 +4,8 @@
  * @details 测试 frame_arena 在大量分配/重置循环下的延迟稳定性和吞吐量。
  */
 
-#include <prism/memory/pool.hpp>
-#include <prism/memory/container.hpp>
+#include <prism/core/memory/pool.hpp>
+#include <prism/core/memory/container.hpp>
 
 #include <atomic>
 #include <chrono>

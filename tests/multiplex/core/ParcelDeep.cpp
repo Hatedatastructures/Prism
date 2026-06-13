@@ -10,17 +10,17 @@
  *          start() 相关路径在已有的 MuxParcel.cpp 集成测试中间接覆盖。
  */
 
-#include <prism/memory.hpp>
+#include <prism/core/core.hpp>
 #include <prism/trace/spdlog.hpp>
 
 #include "common/MockTransport.hpp"
 
-#include <prism/connect/pool/pool.hpp>
-#include <prism/connect/dial/router.hpp>
-#include <prism/resolve/dns/dns.hpp>
-#include <prism/multiplex/core.hpp>
-#include <prism/multiplex/parcel.hpp>
-#include <prism/stats/traffic.hpp>
+#include <prism/net/connect/pool/pool.hpp>
+#include <prism/net/connect/dial/router.hpp>
+#include <prism/net/resolve/dns/dns.hpp>
+#include <prism/proto/multiplex/core.hpp>
+#include <prism/proto/multiplex/parcel.hpp>
+#include <prism/account/stats/traffic.hpp>
 
 using MockTransport = psm::testing::MockTransport;
 namespace multiplex = psm::multiplex;
@@ -234,4 +234,4 @@ namespace
 } // namespace
 
 // #include 源文件以覆盖 parcel 全部实现
-#include "../src/prism/multiplex/parcel.cpp"
+#include "../src/prism/proto/multiplex/parcel.cpp"

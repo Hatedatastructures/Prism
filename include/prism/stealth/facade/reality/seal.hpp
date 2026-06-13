@@ -9,10 +9,10 @@
 #pragma once
 
 #include <prism/crypto/aead.hpp>
-#include <prism/memory/container.hpp>
-#include <prism/protocol/tls/types.hpp>
+#include <prism/core/memory/container.hpp>
+#include <prism/proto/protocol/tls/types.hpp>
 #include <prism/stealth/facade/reality/util/keygen.hpp>
-#include <prism/transport/transmission.hpp>
+#include <prism/net/transport/transmission.hpp>
 
 #include <boost/asio.hpp>
 

@@ -9,16 +9,16 @@
  * 5. 无效协议号兜底到 smux::craft（default 分支）
  */
 
-#include <prism/memory.hpp>
+#include <prism/core/core.hpp>
 #include <prism/trace/spdlog.hpp>
-#include <prism/multiplex/bootstrap.hpp>
-#include <prism/multiplex/smux/craft.hpp>
-#include <prism/multiplex/yamux/craft.hpp>
-#include <prism/multiplex/h2mux/craft.hpp>
-#include <prism/connect/dial/router.hpp>
-#include <prism/connect/pool/pool.hpp>
-#include <prism/resolve/dns/dns.hpp>
-#include <prism/transport/transmission.hpp>
+#include <prism/proto/multiplex/bootstrap.hpp>
+#include <prism/proto/multiplex/smux/craft.hpp>
+#include <prism/proto/multiplex/yamux/craft.hpp>
+#include <prism/proto/multiplex/h2mux/craft.hpp>
+#include <prism/net/connect/dial/router.hpp>
+#include <prism/net/connect/pool/pool.hpp>
+#include <prism/net/resolve/dns/dns.hpp>
+#include <prism/net/transport/transmission.hpp>
 
 #include <gtest/gtest.h>
 
