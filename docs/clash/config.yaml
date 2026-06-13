@@ -634,32 +634,28 @@ proxies:
       protocol: yamux
       only-tcp: false
 
-  # TrustTunnel (Mihomo 支持)
-  # 使用标准 TLS 证书，支持 TCP 和 UDP 传输
+  # TrustTunnel (Mihomo 原生支持 type: trusttunnel)
+  # 协议本质：HTTP/2 CONNECT（默认）或 HTTP/3 over QUIC（quic: true 时）
+  # Prism 当前只实现 h2 路径，所以不能勾 quic
+  # 字段是 username/password (Basic Auth)，不是 tuic 的 uuid/password
   # SNI 必须与服务端 server_names 配置一致: www.amazon.com
   - name: "TrustTunnel TCP"
-    type: tuic                           # Mihomo 使用 tuic 类型作为 TrustTunnel 客户端
+    type: trusttunnel
     server: 127.0.0.1
     port: 8081
-    uuid: "123e4567-e89b-12d3-a456-426614174000"
-    password: "trusttunnel_password"     # 认证密码: 与服务端 users.password 一致
-    alpn:
-      - h3
-    congestion-controller: bbr           # 拥塞控制: 与服务端 congestion 一致
+    username: "user1"                    # 与服务端 users.username 一致
+    password: "trusttunnel_password"     # 与服务端 users.password 一致
     sni: "www.amazon.com"                # SNI: 与服务端 server_names 一致
     skip-cert-verify: true
     udp: false
 
   - name: "TrustTunnel UDP"
-    type: tuic
+    type: trusttunnel
     server: 127.0.0.1
     port: 8081
-    uuid: "123e4567-e89b-12d3-a456-426614174000"
+    username: "user1"
     password: "trusttunnel_password"
-    alpn:
-      - h3
-    congestion-controller: bbr
-    sni: "www.amazon.com"                # SNI: 与服务端 server_names 一致
+    sni: "www.amazon.com"
     skip-cert-verify: true
     udp: true
 

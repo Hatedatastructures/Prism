@@ -38,7 +38,7 @@ Prism 是从零构建的服务端代理引擎，用 C++23 协程替代回调、P
 - **ShadowTLS v3** — TLS 握手代理，规避主动探测
 - **Restls** — TLS 探测抵抗，自定义脚本认证
 - **AnyTLS** — 标准 TLS + 应用层认证 + 内部多路复用
-- **TrustTunnel** — HTTP/2 CONNECT 代理，Basic Auth 认证
+- **TrustTunnel** — HTTP/2 CONNECT 代理，Basic Auth 认证（仅 h2 路径，不支持 QUIC）
 - **Native** — 原生 TLS 兜底
 
 **多路复用**
@@ -115,9 +115,9 @@ proxies:
 |------|------|
 | Reality | 已完成 — TLS 指纹伪装，可叠加任意内层协议 |
 | ShadowTLS v3 | 已完成 — TLS 握手代理，可叠加 SS2022/任意内层协议 |
-| Restls | 已完成 — TLS 探测抵抗，可叠加 SS2022/任意内层协议 未测试|
-| AnyTLS | 已完成 — 标准 TLS + 应用层认证 + 内部多路复用 未测试|
-| TrustTunnel | 已完成 — HTTP/2 CONNECT 代理，Basic Auth 认证 未测试|
+| Restls | 已完成 — TLS 探测抵抗，可叠加 SS2022/任意内层协议 |
+| AnyTLS | 已完成 — 标准 TLS + 应用层认证 + 内部多路复用 |
+| TrustTunnel | 已完成 — HTTP/2 CONNECT 代理，Basic Auth 认证（仅 h2，不支持 QUIC）|
 | Native | 已完成 — 原生 TLS 兜底 |
 
 ---
