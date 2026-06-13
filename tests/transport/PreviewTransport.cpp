@@ -29,7 +29,7 @@ namespace
     {
         auto mock = std::make_shared<MockTransport>();
         std::array<std::byte, 4> preread{std::byte{0x01}, std::byte{0x02}, std::byte{0x03}, std::byte{0x04}};
-        auto pv = std::make_shared<transport::preview>(mock, preread, psm::memory::current_resource());
+        auto pv = std::make_shared<transport::preview>(mock, preread);
 
         EXPECT_TRUE(pv->transport_type() == transport::transmission::type::tcp)
             << "preview: transport_type == tcp";

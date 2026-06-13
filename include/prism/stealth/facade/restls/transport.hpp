@@ -124,10 +124,6 @@ namespace psm::stealth::restls
         [[nodiscard]] auto send_random_response(std::uint8_t count, std::error_code &ec)
             -> net::awaitable<void>;
 
-        /// flush 待发送缓冲区
-        [[nodiscard]] auto flush_pending(std::error_code &ec)
-            -> net::awaitable<void>;
-
         net::ip::tcp::socket socket_;
         std::array<std::uint8_t, 32> secret_;
         std::array<std::uint8_t, 32> server_random_;
@@ -140,9 +136,10 @@ namespace psm::stealth::restls
         std::uint64_t write_counter_{0};
         bool first_write_{true};
 
-        // 写阻塞机制
+        // 写阻塞机制：write_pending_ 时 write 协程挂起在 write_waiter_，
+        // 由 async_read_some 收到响应帧后 cancel 唤醒
         bool write_pending_{false};
-        memory::vector<std::byte> send_buf_;
+        net::steady_timer write_waiter_;
 
         // 预读缓冲区
         memory::vector<std::byte> initial_buffer_;

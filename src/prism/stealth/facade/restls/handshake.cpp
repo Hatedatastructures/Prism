@@ -7,9 +7,9 @@
 #include <prism/trace/trace.hpp>
 
 #include <boost/asio.hpp>
+#include <boost/asio/experimental/awaitable_operators.hpp>
 
 #include <algorithm>
-#include <atomic>
 #include <cstring>
 
 using namespace psm::trace;
@@ -20,9 +20,12 @@ namespace psm::stealth::restls
     namespace net = boost::asio;
 
 
+    // backend_sock 用 shared_ptr 真所有权，避免 handshake() 返回后 detached 协程访问悬挂栈变量。
+    // client_sock 仍为引用：reliable transport 的 socket 生命周期由 ctx.inbound 管理，
+    // 覆盖整个 handshake 协程，run_duplex_relay 在 handshake 返回前同步结束（用 || 替代 detached）。
     struct backend_relay_opts
     {
-        net::ip::tcp::socket &backend_sock;
+        std::shared_ptr<net::ip::tcp::socket> backend_sock;
         net::ip::tcp::socket &client_sock;
         std::span<const std::uint8_t, hs_maclen> auth_mask;
         tls_version version;
@@ -32,7 +35,7 @@ namespace psm::stealth::restls
     struct client_relay_opts
     {
         net::ip::tcp::socket &client_sock;
-        net::ip::tcp::socket &backend_sock;
+        std::shared_ptr<net::ip::tcp::socket> backend_sock;
         tls_version version;
         memory::vector<std::uint8_t> &client_finished;
     };
@@ -40,7 +43,7 @@ namespace psm::stealth::restls
     struct duplex_relay_opts
     {
         net::ip::tcp::socket &client_sock;
-        net::ip::tcp::socket &backend_sock;
+        std::shared_ptr<net::ip::tcp::socket> backend_sock;
         tls_version version;
         std::array<std::uint8_t, hs_maclen> auth_mask;
         memory::vector<std::uint8_t> &client_finished;
@@ -148,7 +151,7 @@ namespace psm::stealth::restls
             while (true)
             {
                 std::error_code frame_ec;
-                auto frame_opt = co_await common::read_tls_frame(opts.backend_sock, frame_ec);
+                auto frame_opt = co_await common::read_tls_frame(*opts.backend_sock, frame_ec);
                 if (frame_ec || !frame_opt)
                 {
                     co_return true;
@@ -215,7 +218,7 @@ namespace psm::stealth::restls
 
                 boost::system::error_code write_ec;
                 co_await net::async_write(
-                    opts.backend_sock,
+                    *opts.backend_sock,
                     net::buffer(frame.data(), frame.size()),
                     net::redirect_error(trace::use_prefix_awaitable, write_ec));
                 if (write_ec)
@@ -230,15 +233,15 @@ namespace psm::stealth::restls
             net::ip::tcp::socket::executor_type executor,
             const std::string &host,
             std::uint16_t port)
-            -> net::awaitable<std::optional<net::ip::tcp::socket>>
+            -> net::awaitable<std::optional<std::shared_ptr<net::ip::tcp::socket>>>
         {
             net::ip::tcp::resolver resolver(executor);
             auto endpoints = co_await resolver.async_resolve(host, std::to_string(port));
 
-            net::ip::tcp::socket backend_sock(executor);
+            auto backend_sock = std::make_shared<net::ip::tcp::socket>(executor);
             boost::system::error_code connect_ec;
             co_await net::async_connect(
-                backend_sock, endpoints,
+                *backend_sock, endpoints,
                 net::redirect_error(trace::use_prefix_awaitable, connect_ec));
 
             if (connect_ec)
@@ -277,58 +280,32 @@ namespace psm::stealth::restls
                 .version = version};
         }
 
+        // 双工转发：用 awaitable_operators::operator|| 并发跑两个方向，
+        // 任意一个完成即取消另一个。同步等待全部退出后再返回，保证
+        // handshake() 返回时无 detached 协程残留、无悬挂引用。
         auto run_duplex_relay(const duplex_relay_opts &opts)
             -> net::awaitable<void>
         {
-            auto executor = opts.client_sock.get_executor();
-            auto relay_done = std::make_shared<std::atomic<bool>>(false);
-            auto cancel_signal = std::make_shared<net::cancellation_signal>();
-
-            auto cf_out_ptr = std::make_shared<memory::vector<std::uint8_t>>();
-            auto client_relay = [csock_ptr = std::shared_ptr<net::ip::tcp::socket>(&opts.client_sock, [](auto *) {}),
-                                 bsock_ptr = std::shared_ptr<net::ip::tcp::socket>(&opts.backend_sock, [](auto *) {}),
-                                 ver = opts.version,
-                                 cf_out_ptr,
-                                 relay_done]()
-                -> net::awaitable<void>
-            {
-                memory::vector<std::uint8_t> cf;
-                co_await relay_client_to_backend(client_relay_opts{
-                    *csock_ptr, *bsock_ptr, ver, cf});
-                *cf_out_ptr = std::move(cf);
-                relay_done->store(true);
-            };
-
-            net::co_spawn(executor, std::move(client_relay),
-                          net::bind_cancellation_slot(cancel_signal->slot(), net::detached));
-
+            // 本地持有 backend_sock 共享所有权，确保 shutdown 可调用非 const 方法
+            auto backend_sock = opts.backend_sock;
+            memory::vector<std::uint8_t> cf;
             auto auth_span = std::span<const std::uint8_t, hs_maclen>(opts.auth_mask);
-            co_await relay_backend_to_client(backend_relay_opts{
-                opts.backend_sock, opts.client_sock,
-                auth_span, opts.version, opts.first_encrypted});
+
+            using boost::asio::experimental::awaitable_operators::operator||;
+            co_await (
+                relay_client_to_backend(client_relay_opts{
+                    opts.client_sock, backend_sock, opts.version, cf}) ||
+                relay_backend_to_client(backend_relay_opts{
+                    backend_sock, opts.client_sock,
+                    auth_span, opts.version, opts.first_encrypted}));
 
             {
                 boost::system::error_code close_ec;
-                opts.backend_sock.shutdown(net::ip::tcp::socket::shutdown_both, close_ec);
-                opts.backend_sock.close(close_ec);
+                backend_sock->shutdown(net::ip::tcp::socket::shutdown_both, close_ec);
+                backend_sock->close(close_ec);
             }
 
-            cancel_signal->emit(net::cancellation_type::all);
-
-            {
-                net::steady_timer exit_timer(executor);
-                exit_timer.expires_after(std::chrono::milliseconds(500));
-                boost::system::error_code wait_ec;
-                co_await exit_timer.async_wait(net::redirect_error(trace::use_prefix_awaitable, wait_ec));
-            }
-
-            if (!relay_done->load())
-            {
-                trace::warn<flt::conn | flt::protocol>("client relay did not exit within timeout");
-            }
-
-            // 将 detached 协程产出的 client_finished 写回调用方
-            opts.client_finished = std::move(*cf_out_ptr);
+            opts.client_finished = std::move(cf);
         }
     } // namespace
 
@@ -369,7 +346,7 @@ namespace psm::stealth::restls
         {
             boost::system::error_code write_ec;
             co_await net::async_write(
-                backend_sock,
+                *backend_sock,
                 net::buffer(opts.client_hello.data(), opts.client_hello.size()),
                 net::redirect_error(trace::use_prefix_awaitable, write_ec));
             if (write_ec)
@@ -381,7 +358,7 @@ namespace psm::stealth::restls
         }
 
         std::error_code sh_ec;
-        auto server_hello_opt = co_await common::read_tls_frame(backend_sock, sh_ec);
+        auto server_hello_opt = co_await common::read_tls_frame(*backend_sock, sh_ec);
         if (sh_ec || !server_hello_opt)
         {
             trace::warn<flt::conn | flt::protocol>("failed to read ServerHello");

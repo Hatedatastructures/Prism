@@ -217,7 +217,7 @@ namespace psm::stealth::trusttunnel
 
         auto preread_span = std::span<const std::byte>(ctx.preread.data(), ctx.preread.size());
         auto clean_inbound = transport::wrap_with_preview(
-            std::move(raw), preread_span, ctx.session->frame_arena.get());
+            std::move(raw), preread_span);
 
         auto [ssl_ec, ssl_stream, recovered] = co_await transport::encrypted::ssl_handshake(
             std::move(clean_inbound), *tt_ssl_ctx);

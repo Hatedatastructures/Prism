@@ -14,7 +14,7 @@ namespace psm::protocol::shadowsocks
         -> net::awaitable<void>
     {
         // 包装传输层（data 通过 preview 重放）
-        auto inbound = psm::transport::wrap_with_preview(std::move(ctx.inbound), data, ctx.frame_arena.get());
+        auto inbound = psm::transport::wrap_with_preview(std::move(ctx.inbound), data);
         ctx.inbound = nullptr;
 
         // worker 线程独占 salt pool（thread_local 保证每个工作线程独立实例，无需锁）

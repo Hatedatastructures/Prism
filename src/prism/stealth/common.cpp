@@ -28,7 +28,13 @@ namespace psm::stealth::common
             deadline->async_wait(std::move(on_timeout));
         }
 
-        auto [read_ec, rec] = co_await tls::record::read(sock);
+        // 注意：避免使用 structured binding (auto [a, b] = co_await ...)
+        // 实测 GCC 16 + Boost.Asio 1.89 awaitable 协程帧内存对齐存在 bug，
+        // structured binding 临时对象的 pmr::vector 字段会读到上一轮残留数据，
+        // 导致析构时 deallocate 跳转到无效 memory_resource 虚表 → 段错误。
+        auto result = co_await tls::record::read(sock);
+        const auto &read_ec = result.first;
+        const auto &rec = result.second;
 
         if (deadline)
         {

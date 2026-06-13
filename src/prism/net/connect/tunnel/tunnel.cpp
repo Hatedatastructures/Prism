@@ -51,8 +51,6 @@ namespace psm::connect
             {
                 pol = "complete";
             }
-            trace::debug<flt::conn | flt::protocol>("forward[{}]: started, policy={}",
-                                                        dir, pol);
 
             std::error_code ec;
             while (true)
@@ -60,17 +58,10 @@ namespace psm::connect
                 const auto transferred = co_await opts.from->async_read_some(opts.scratch, ec);
                 if (ec || transferred == 0)
                 {
-                    if (transferred > 0)
-                    {
-                        trace::debug<flt::conn | flt::protocol>("forward[{}]: read done, transferred={}, ec={}",
-                                                                    dir, transferred, ec.message());
-                    }
                     co_return;
                 }
 
                 opts.total_bytes[opts.idx] += transferred;
-                trace::debug<flt::conn | flt::protocol>("forward[{}]: read {} bytes, total now {}",
-                                                            dir, transferred, opts.total_bytes[opts.idx]);
 
                 // 重置空闲超时
                 opts.idle_timer->expires_after(opts.idle_timeout);
@@ -80,11 +71,7 @@ namespace psm::connect
                 std::size_t written;
                 if (opts.policy == write_policy::complete)
                 {
-                    trace::debug<flt::conn | flt::protocol>("forward[{}]: calling async_write({} bytes)",
-                                                                dir, data.size());
                     written = co_await transport::async_write(*opts.to, data, ec);
-                    trace::debug<flt::conn | flt::protocol>("forward[{}]: async_write returned written={}, ec={}",
-                                                                dir, written, ec.message());
                 }
                 else
                 {
@@ -96,14 +83,10 @@ namespace psm::connect
                         written = co_await opts.to->async_write_some(remaining, ec);
                         if (ec)
                         {
-                            trace::debug<flt::conn | flt::protocol>("forward[{}]: partial write failed, written={}",
-                                                                dir, written);
                             co_return;
                         }
                         if (written == 0)
                         {
-                            trace::debug<flt::conn | flt::protocol>("forward[{}]: partial write returned 0 bytes",
-                                                                dir);
                             co_return;
                         }
                         remaining = remaining.subspan(written);
@@ -113,8 +96,6 @@ namespace psm::connect
 
                 if (ec || (opts.policy == write_policy::complete && written < transferred))
                 {
-                    trace::debug<flt::conn | flt::protocol>("forward[{}]: write done/failed, written={}, expected={}",
-                                                                dir, written, transferred);
                     co_return;
                 }
 
@@ -183,7 +164,7 @@ namespace psm::connect
         const auto end_time = std::chrono::steady_clock::now();
         if (const auto up = total_bytes[0], down = total_bytes[1]; up > 0 || down > 0)
         {
-            trace::info<flt::conn | flt::protocol>("Transfer: ↑{} B ↓{} B, {} ms",
+            trace::info<flt::conn | flt::protocol>("Transfer: up={}B down={}B, {}ms",
                                                         up, down,
                                                         std::chrono::duration_cast<std::chrono::milliseconds>(end_time - start_time).count());
         }

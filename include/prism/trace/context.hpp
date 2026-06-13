@@ -21,6 +21,7 @@
 #include <cstdint>
 #include <cstdio>
 #include <cstring>
+#include <memory>
 #include <string>
 #include <type_traits>
 
@@ -257,12 +258,19 @@ namespace psm::trace
      * TLS 方案、用户名、阶段标注、处理单元名）。每个字段的渲染逻辑
      * 由对应的 field tag struct 的 static render() 方法实现，
      * 由 render_ordered 编译期展开。没有值的字段不渲染。
-     * magic 字段用于检测悬垂指针：构造时写入活体标记，
-     * scope_guard 析构时置零，prefix_restore_handler 恢复前
-     * 校验 magic，防止从已释放的 session_prefix 读取垃圾数据。
+     * @note 必须通过 std::shared_ptr 管理（继承 enable_shared_from_this）。
+     * 原因：prefix_restore_handler 在 IOCP 回调时通过 shared_ptr 副本
+     * 保活 session_prefix，防止协程挂起期间 session/core 析构导致
+     * captured_prefix_ 悬垂。magic 字段用于辅助检测双重析构和顺序问题，
+     * 但悬垂保护主要靠 shared_ptr 引用计数。
      */
-    struct session_prefix
+    struct session_prefix : public std::enable_shared_from_this<session_prefix>
     {
+        // 显式 public 默认构造：std::enable_shared_from_this 的默认构造是 protected，
+        // 但派生类内部访问合法。此处显式声明为 public，让 std::array<session_prefix, N>
+        // 等聚合容器能正确构造（容器不是派生类，不能访问 protected 基类构造）
+        session_prefix() = default;
+
         static constexpr std::uint64_t live_magic = 0xC0FFEE'BEEFCAFEULL;
 
         std::uint64_t magic{live_magic};
@@ -435,23 +443,46 @@ namespace psm::trace
      * @brief 会话前缀 RAII 守卫
      * @details 构造时设置 active_prefix 为当前会话的前缀，
      * 析构时将 magic 置零并清除 active_prefix。
-     * magic 置零使后续 prefix_restore_handler 校验时检测到
-     * session_prefix 已失效，避免从已释放内存读取垃圾数据。
+     * @note 提供两个构造重载：
+     *   - shared_ptr 版本（推荐）：持有 shared_ptr 副本保活 session_prefix，
+     *     即使 session/core 在 scope_guard 析构前被释放，session_prefix 内存
+     *     仍由 shared_ptr 持有，不会悬垂。生产代码必须用此形式（session::prefix_
+     *     和 core::prefix_ 都是 shared_ptr）。
+     *   - 引用版本（仅测试/向后兼容）：不保活，caller 必须保证 pfx 在 scope_guard
+     *     生命周期内活着。仅供测试代码使用（栈对象 + 短作用域）。
      */
     class scope_guard
     {
     public:
+        // 生产用：保活（shared_ptr 引用计数管理）
+        explicit scope_guard(std::shared_ptr<session_prefix> pfx) noexcept
+            : prefix_shared_(std::move(pfx)), prefix_raw_(nullptr)
+        {
+            if (prefix_shared_)
+                active_prefix = prefix_shared_.get();
+        }
+
+        // 测试/兼容用：不保活，caller 保证 pfx 生命周期
         explicit scope_guard(session_prefix &pfx) noexcept
-            : prefix_(&pfx)
+            : prefix_shared_(nullptr), prefix_raw_(&pfx)
         {
             active_prefix = &pfx;
         }
 
         ~scope_guard() noexcept
         {
-            prefix_->invalidate();
-            if (active_prefix == prefix_)
-                active_prefix = nullptr;
+            if (prefix_shared_)
+            {
+                prefix_shared_->invalidate();
+                if (active_prefix == prefix_shared_.get())
+                    active_prefix = nullptr;
+            }
+            else if (prefix_raw_)
+            {
+                prefix_raw_->invalidate();
+                if (active_prefix == prefix_raw_)
+                    active_prefix = nullptr;
+            }
         }
 
         scope_guard(const scope_guard &) = delete;
@@ -460,7 +491,8 @@ namespace psm::trace
         auto operator=(scope_guard &&) -> scope_guard & = delete;
 
     private:
-        session_prefix *prefix_;
+        std::shared_ptr<session_prefix> prefix_shared_;
+        session_prefix *prefix_raw_;
     };
 
     /**

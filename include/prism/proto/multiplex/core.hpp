@@ -122,13 +122,14 @@ namespace psm::multiplex
 
         /**
          * @brief 设置会话日志前缀
-         * @param p 调用方的 session_prefix 引用
-         * @details mux craft 的所有 detached 协程通过 scope_guard
-         * 恢复此前缀，防止 thread_local active_prefix 被其他会话覆盖。
+         * @param p 调用方的 session_prefix shared_ptr
+         * @details mux craft 的所有 detached 协程通过 scope_guard 恢复此前缀，
+         * 防止 thread_local active_prefix 被其他会话覆盖。prefix_ 用 shared_ptr
+         * 管理，prefix_restore_handler 持有副本保活，避免 IOCP 回调时悬垂。
          */
-        void set_prefix(const trace::session_prefix &p) noexcept
+        void set_prefix(std::shared_ptr<trace::session_prefix> p) noexcept
         {
-            prefix_ = p;
+            prefix_ = std::move(p);
         }
 
         /**
@@ -213,7 +214,7 @@ namespace psm::multiplex
         std::atomic<bool> active_{false};                   // 会话活跃标志
         stats::traffic::traffic_state *traffic_{nullptr};   // per-worker 流量统计指针
         protocol::protocol_type proto_{protocol::protocol_type::unknown}; // 归属的外层协议类型
-        trace::session_prefix prefix_;                                     // 会话日志前缀副本
+        std::shared_ptr<trace::session_prefix> prefix_;    // 会话日志前缀（shared_ptr 管理，防 IOCP 回调悬垂）
         std::atomic<std::uint64_t> mux_uplink_{0};          // 子流累加上行字节
         std::atomic<std::uint64_t> mux_downlink_{0};        // 子流累加下行字节
 

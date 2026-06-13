@@ -31,32 +31,33 @@ namespace psm::trace
     /**
      * @class savepoint
      * @brief 协程挂起/恢复时的前缀保存点
-     * @details 在构造时记录目标前缀指针，提供 restore() 方法。
+     * @details 在构造时记录目标前缀 shared_ptr，提供 restore() 方法。
      * 用法：在 co_await 表达式外创建 savepoint，
      * await_ready=false 时在 await_resume 中调用 restore()。
+     * @note 持有 shared_ptr 副本保活，即使源对象在挂起期间析构，prefix 内存不释放。
      */
     class savepoint
     {
     public:
-        explicit savepoint(session_prefix &pfx) noexcept
-            : prefix_(&pfx)
+        explicit savepoint(std::shared_ptr<session_prefix> pfx) noexcept
+            : prefix_(std::move(pfx))
         {
         }
 
         void restore() noexcept
         {
-            if (prefix_->is_alive())
-                active_prefix = prefix_;
+            if (prefix_ && prefix_->is_alive())
+                active_prefix = prefix_.get();
         }
 
     private:
-        session_prefix *prefix_;
+        std::shared_ptr<session_prefix> prefix_;
     };
 
     /**
      * @brief 协程安全的前缀恢复包装器
      * @tparam T awaitable 返回值类型
-     * @param pfx 当前会话的前缀数据引用
+     * @param pfx 当前会话的前缀 shared_ptr
      * @param aw 待包装的 awaitable 对象
      * @return 包装后的 awaitable，结果与原始 aw 相同
      * @details 用法示例:
@@ -65,7 +66,7 @@ namespace psm::trace
      * @endcode
      */
     template <typename T>
-    auto with_prefix(session_prefix &pfx, net::awaitable<T> aw)
+    auto with_prefix(std::shared_ptr<session_prefix> pfx, net::awaitable<T> aw)
         -> net::awaitable<T>
     {
         savepoint sp(pfx);
@@ -79,7 +80,7 @@ namespace psm::trace
      * @brief with_prefix 的 void 返回值特化
      */
     template <>
-    inline auto with_prefix<void>(session_prefix &pfx, net::awaitable<void> aw)
+    inline auto with_prefix<void>(std::shared_ptr<session_prefix> pfx, net::awaitable<void> aw)
         -> net::awaitable<void>
     {
         savepoint sp(pfx);
@@ -92,14 +93,14 @@ namespace psm::trace
      * @brief awaitable_operators::operator|| 的前缀恢复包装
      * @tparam L 左操作数返回类型
      * @tparam R 右操作数返回类型
-     * @param pfx 当前会话的前缀数据引用
+     * @param pfx 当前会话的前缀 shared_ptr
      * @param left 左侧 awaitable
      * @param right 右侧 awaitable
      * @return net::awaitable<std::variant<L, R>>
      * @details 用于替代裸 co_await (a || b)，在并发操作恢复后还原前缀。
      */
     template <typename L, typename R>
-    auto with_prefix_or(session_prefix &pfx,
+    auto with_prefix_or(std::shared_ptr<session_prefix> pfx,
                         net::awaitable<L> left,
                         net::awaitable<R> right)
         -> net::awaitable<std::variant<L, R>>

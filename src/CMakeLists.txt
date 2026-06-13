@@ -22,7 +22,7 @@ target_link_libraries(${PROJECT_NAME}_static_library
 )
 
 if(WIN32)
-    target_link_libraries(${PROJECT_NAME}_static_library PUBLIC ws2_32 mswsock crypt32)
+    target_link_libraries(${PROJECT_NAME}_static_library PUBLIC ws2_32 mswsock crypt32 dbghelp)
 endif()
 
 target_compile_definitions(${PROJECT_NAME}_static_library

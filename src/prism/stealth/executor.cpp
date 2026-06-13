@@ -52,10 +52,7 @@ namespace psm::stealth
         if (!res.preread.empty() && ctx.inbound)
         {
             auto preread_span = std::span(res.preread.data(), res.preread.size());
-            memory::resource_pointer mr = nullptr;
-            if (ctx.session)
-                mr = ctx.session->frame_arena.get();
-            ctx.inbound = std::make_shared<transport::preview>(ctx.inbound, preread_span, mr);
+            ctx.inbound = std::make_shared<transport::preview>(ctx.inbound, preread_span);
         }
     }
 

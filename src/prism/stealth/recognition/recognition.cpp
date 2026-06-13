@@ -73,16 +73,11 @@ namespace psm::recognition
 
         // Phase 5: 构建 preview transport
         auto preread_span = std::span(reinterpret_cast<const std::byte *>(raw_record.data()), raw_record.size());
-        auto arena_mr = memory::current_resource();
-        if (ctx.frame_arena)
-        {
-            arena_mr = ctx.frame_arena->get();
-        }
         auto preview_transport = std::make_shared<transport::preview>(
-            ctx.transport, preread_span, arena_mr);
+            ctx.transport, preread_span);
 
         // Phase 6: 按候选顺序执行 scheme
-        memory::vector<std::byte> preread_bytes(raw_record.size(), arena_mr);
+        memory::vector<std::byte> preread_bytes(raw_record.size());
         std::transform(raw_record.begin(), raw_record.end(), preread_bytes.begin(),
                        [](std::uint8_t b)
                        { return static_cast<std::byte>(b); });
@@ -150,7 +145,7 @@ namespace psm::recognition
                              sizeof(pfx->scheme_name) - 1);
             }
             trace::debug<flt::conn | flt::protocol>(
-                "identify succeeded: {} → {}",
+                "identify succeeded: {} -> {}",
                 result.executed_scheme,
                 protocol::to_string_view(result.detected));
         }
@@ -211,7 +206,7 @@ namespace psm::recognition
                 result.success = true;
 
                 trace::info<flt::conn | flt::protocol>(
-                    "recognized: {} → {}",
+                    "recognized: {} -> {}",
                     result.executed_scheme,
                     protocol::to_string_view(result.detected));
             }

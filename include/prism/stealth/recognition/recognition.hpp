@@ -70,7 +70,9 @@ namespace psm::recognition
         /** @brief 会话上下文（供方案使用） */
         context::session *session{nullptr};
 
-        /** @brief session 保活（stack 方案 detached 协程持有） */
+        /** @brief session 保活（caller 必须赋值为 shared_ptr&lt;instance::session::session&gt;）。
+         *  类型用 shared_ptr&lt;void&gt; 避免 stealth → instance 循环依赖，运行时引用计数正确。
+         *  详见 docs/ARCHITECTURE.md */
         std::shared_ptr<void> session_keepalive;
 
         /** @brief 帧内存池（用于预读数据分配） */
@@ -145,7 +147,9 @@ namespace psm::recognition
         /** @brief 会话上下文（可选，供方案使用） */
         context::session *session{nullptr};
 
-        /** @brief session 保活（stack 方案 detached 协程持有） */
+        /** @brief session 保活（caller 必须赋值为 shared_ptr&lt;instance::session::session&gt;）。
+         *  类型用 shared_ptr&lt;void&gt; 避免 stealth → instance 循环依赖，运行时引用计数正确。
+         *  详见 docs/ARCHITECTURE.md */
         std::shared_ptr<void> session_keepalive;
 
         /** @brief 帧内存池（用于预读数据分配） */

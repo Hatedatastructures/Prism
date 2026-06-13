@@ -34,6 +34,11 @@ namespace psm::transport
      * @brief 预读数据回放包装器
      * @details 继承 transmission 抽象基类，在内部传输层外包装一层
      * 预读数据。优先从内部缓冲区返回数据，耗完后委托给内部传输。
+     * @note preread_buffer_ 强制使用 global_pool（永生 PMR pool），不接受外部
+     * allocator。原因：preview 可能被 detached 协程（multiplex::core）持有，
+     * 生命周期脱离 session；若用 session.frame_arena 作为 allocator，session
+     * 析构后 frame_arena 失效，preview 析构时 m_resource 悬垂。详见
+     * docs/ARCHITECTURE.md "资源所有权模型"。
      */
     class preview final : public transmission
     {
@@ -42,11 +47,11 @@ namespace psm::transport
          * @brief 构造预读回放包装器
          * @param inner 被包装的内部传输对象
          * @param preread 协议嗅探期间捕获的预读数据
-         * @param mr 内存资源，用于预读缓冲区分配
-         * @details 构造时会将预读数据复制到内部缓冲区，确保数据所有权安全。
+         * @details 构造时会将预读数据复制到内部缓冲区。preread_buffer_ 使用
+         * global_pool 分配（永生），保证 preview 即使被 detached 协程长期持有，
+         * 析构时也不会因 m_resource 悬垂崩溃。
          */
-        explicit preview(shared_transmission inner, std::span<const std::byte> preread,
-                         memory::resource_pointer mr = memory::current_resource());
+        explicit preview(shared_transmission inner, std::span<const std::byte> preread);
 
         /**
          * @brief 获取内层传输
@@ -162,18 +167,19 @@ namespace psm::transport
      * @brief 将入站传输包装为带预读数据的传输
      * @param inbound 入站传输（所有权转移）
      * @param data 协议嗅探期间捕获的预读数据
-     * @param mr 内存资源，用于预读缓冲区分配
      * @return 包装后的传输对象；若 data 为空则直接返回原始入站传输
      * @details 若 data 不为空，将 inbound 的所有权转移到 preview 包装器中，
-     * 在后续读取时优先重放预读数据。
+     * 在后续读取时优先重放预读数据。preview 内部 preread_buffer_ 用 global_pool
+     * 分配（永生），不接受外部 PMR allocator，避免 session 级资源外流到 detached
+     * 协程（详见 docs/ARCHITECTURE.md）。
      * @note 调用后入站传输所有权转移至返回值。
      */
-    [[nodiscard]] inline auto wrap_with_preview(shared_transmission inbound, std::span<const std::byte> data, memory::resource_pointer mr = memory::current_resource())
+    [[nodiscard]] inline auto wrap_with_preview(shared_transmission inbound, std::span<const std::byte> data)
         -> shared_transmission
     {
         if (!data.empty())
         {
-            inbound = std::make_shared<preview>(std::move(inbound), data, mr);
+            inbound = std::make_shared<preview>(std::move(inbound), data);
         }
         return inbound;
     }

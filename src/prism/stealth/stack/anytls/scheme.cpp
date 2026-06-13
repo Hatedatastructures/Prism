@@ -7,6 +7,7 @@
 #include <prism/core/fault/handling.hpp>
 #include <prism/core/memory/container.hpp>
 #include <prism/core/memory/pool.hpp>
+#include <prism/proto/multiplex/bootstrap.hpp>
 #include <prism/proto/protocol/common/address.hpp>
 #include <prism/proto/protocol/common/framing.hpp>
 #include <prism/proto/protocol/common/target.hpp>
@@ -164,7 +165,7 @@ namespace psm::stealth::anytls
 
             auto preread_span = std::span<const std::byte>(ctx.preread.data(), ctx.preread.size());
             auto clean_inbound = transport::wrap_with_preview(
-                std::move(raw), preread_span, ctx.session->frame_arena.get());
+                std::move(raw), preread_span);
 
             auto [ssl_ec, ssl_stream, recovered] = co_await transport::encrypted::ssl_handshake(
                 std::move(clean_inbound), *ctx.session->server_ctx.ssl_ctx);
@@ -265,6 +266,46 @@ namespace psm::stealth::anytls
             }
 
             trace::info<flt::conn | flt::protocol>("-> {}:{}", target.host, target.port);
+
+            // sing-mux 检测：客户端用 .mux.sing-box.arpa 标记地址触发多路复用
+            auto mux_sw = psm::connect::mux_switch::off;
+            if (session_ptr->server_ctx.config().mux.enabled)
+                mux_sw = psm::connect::mux_switch::on;
+
+            if (psm::connect::is_mux(target.host, mux_sw))
+            {
+                trace::info<flt::conn | flt::protocol>("anytls mux session started (subsequent stream)");
+                try
+                {
+                    auto muxprotocol = co_await multiplex::bootstrap(
+                        multiplex::bootstrap_context{
+                            .transport = inbound,
+                            .router = session_ptr->worker_ctx.router,
+                            .cfg = session_ptr->server_ctx.config().mux,
+                            .traffic = session_ptr->worker_ctx.traffic,
+                            .proto = session_ptr->detected_protocol,
+                        });
+                    if (muxprotocol)
+                    {
+                        muxprotocol->start();
+                    }
+                    else
+                    {
+                        trace::warn<flt::conn | flt::protocol>("anytls mux bootstrap failed, closing stream");
+                        inbound->close();
+                    }
+                }
+                catch (const std::exception &e)
+                {
+                    trace::error<flt::conn | flt::protocol>("anytls mux bootstrap exception: {}", e.what());
+                }
+                catch (...)
+                {
+                    trace::error<flt::conn | flt::protocol>("anytls mux bootstrap unknown exception");
+                }
+                co_return;
+            }
+
             co_await psm::connect::forward(
                 *session_ptr, {"AnyTLS", target, std::move(inbound)});
         }
@@ -304,7 +345,8 @@ namespace psm::stealth::anytls
         auto handle_first_stream(std::shared_ptr<anytls_session> anytls_sess,
                                   context::session *session_ptr,
                                   memory::resource_pointer frame_arena_mr,
-                                  std::shared_ptr<void> keepalive)
+                                  std::shared_ptr<void> keepalive,
+                                  const psm::config *cfg)
             -> net::awaitable<fault::code>
         {
             auto [wait_ec, stream_info] = co_await anytls_sess->wait_first_stream();
@@ -352,6 +394,53 @@ namespace psm::stealth::anytls
             auto channel = anytls_sess->get_stream_channel(stream_id);
             auto stream_transport = std::make_shared<anytls_stream_transport>(
                 anytls_sess, stream_id, channel);
+
+            // sing-mux 检测：客户端用 .mux.sing-box.arpa 标记地址触发多路复用
+            auto mux_sw = psm::connect::mux_switch::off;
+            if (cfg && cfg->mux.enabled)
+                mux_sw = psm::connect::mux_switch::on;
+
+            if (psm::connect::is_mux(target.host, mux_sw))
+            {
+                trace::info<flt::conn | flt::protocol>("anytls mux session started");
+                auto mux_task = [session_ptr, keepalive = std::move(keepalive),
+                                 cfg_ptr = cfg,
+                                 stream_transport,
+                                 proto = session_ptr->detected_protocol]() -> net::awaitable<void>
+                {
+                    try
+                    {
+                        auto muxprotocol = co_await multiplex::bootstrap(
+                            multiplex::bootstrap_context{
+                                .transport = stream_transport,
+                                .router = session_ptr->worker_ctx.router,
+                                .cfg = cfg_ptr->mux,
+                                .traffic = session_ptr->worker_ctx.traffic,
+                                .proto = proto,
+                            });
+                        if (muxprotocol)
+                        {
+                            muxprotocol->start();
+                        }
+                        else
+                        {
+                            trace::warn<flt::conn | flt::protocol>("anytls mux bootstrap failed, closing stream");
+                            stream_transport->close();
+                        }
+                    }
+                    catch (const std::exception &e)
+                    {
+                        trace::error<flt::conn | flt::protocol>("anytls mux bootstrap exception: {}", e.what());
+                    }
+                    catch (...)
+                    {
+                        trace::error<flt::conn | flt::protocol>("anytls mux bootstrap unknown exception");
+                    }
+                };
+                net::co_spawn(session_ptr->worker_ctx.io_context.get_executor(),
+                              std::move(mux_task), net::detached);
+                co_return fault::code::success;
+            }
 
             auto forward_task = [session_ptr, keepalive = std::move(keepalive),
                                   target = std::move(target),
@@ -498,7 +587,7 @@ namespace psm::stealth::anytls
         anytls_sess->start();
 
         auto stream_ec = co_await handle_first_stream(
-            anytls_sess, ctx.session, ctx.session->frame_arena.get(), std::move(keepalive_copy));
+            anytls_sess, ctx.session, ctx.session->frame_arena.get(), std::move(keepalive_copy), ctx.cfg);
         if (fault::failed(stream_ec))
         {
             result.polluted = true;

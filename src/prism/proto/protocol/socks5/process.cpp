@@ -19,7 +19,7 @@ namespace psm::protocol::socks5
         -> net::awaitable<void>
     {
         // 取出入站传输对象
-        auto inbound = psm::transport::wrap_with_preview(std::move(ctx.inbound), data, ctx.frame_arena.get());
+        auto inbound = psm::transport::wrap_with_preview(std::move(ctx.inbound), data);
         ctx.inbound = nullptr;
         if (!inbound)
         {

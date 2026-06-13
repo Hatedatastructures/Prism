@@ -29,6 +29,7 @@ namespace psm::instance::session
 
     session::session(session_params params)
         : id_(detail::next_conn_id()),
+          prefix_(std::make_shared<trace::session_prefix>()),
           ctx_{context::session_opts{id_, params.server, params.worker, frame_arena_, {},
               params.server.config().buffer.size, std::move(params.inbound)}}
     {
@@ -41,11 +42,11 @@ namespace psm::instance::session
 
     void session::init_prefix(const trace::session_prefix &pfx) noexcept
     {
-        prefix_.conn_id = id_;
-        std::memcpy(prefix_.client, pfx.client, sizeof(prefix_.client));
-        prefix_.client_port = pfx.client_port;
-        std::memcpy(prefix_.listen, pfx.listen, sizeof(prefix_.listen));
-        prefix_.listen_port = pfx.listen_port;
+        prefix_->conn_id = id_;
+        std::memcpy(prefix_->client, pfx.client, sizeof(prefix_->client));
+        prefix_->client_port = pfx.client_port;
+        std::memcpy(prefix_->listen, pfx.listen, sizeof(prefix_->listen));
+        prefix_->listen_port = pfx.listen_port;
     }
 
     void session::start()
@@ -158,9 +159,9 @@ namespace psm::instance::session
         }
 
         trace::info<flt::conn | flt::protocol>(
-            "session established, {}:{} → {}:{}",
-            prefix_.client, prefix_.client_port,
-            prefix_.listen, prefix_.listen_port);
+            "session established, {}:{} -> {}:{}",
+            prefix_->client, prefix_->client_port,
+            prefix_->listen, prefix_->listen_port);
 
         // 1. 完整识别流程
         handshake_deadline_ = std::make_unique<net::steady_timer>(
@@ -205,10 +206,10 @@ namespace psm::instance::session
         if (timed_out)
         {
             ctx_.inbound->cancel();
-            prefix_.phase.set("handshake");
+            prefix_->phase.set("handshake");
             trace::warn<flt::conn | flt::protocol>(
                 "handshake deadline exceeded, aborting");
-            prefix_.phase.clear();
+            prefix_->phase.clear();
             co_return;
         }
 
@@ -222,7 +223,7 @@ namespace psm::instance::session
         // 记录识别出的协议类型并通知流量统计
         ctx_.detected_protocol = result.detected;
         auto proto_view = psm::protocol::to_string_view(result.detected);
-        std::strncpy(prefix_.protocol, proto_view.data(), sizeof(prefix_.protocol) - 1);
+        std::strncpy(prefix_->protocol, proto_view.data(), sizeof(prefix_->protocol) - 1);
         if (ctx_.worker_ctx.traffic)
         {
             ctx_.worker_ctx.traffic->on_protocol_detected(result.detected);

@@ -24,7 +24,7 @@ namespace psm::protocol::trojan
         -> net::awaitable<void>
     {
         // 包装传输层（data 通过 preview 重放）
-        auto inbound = psm::transport::wrap_with_preview(std::move(ctx.inbound), data, ctx.frame_arena.get());
+        auto inbound = psm::transport::wrap_with_preview(std::move(ctx.inbound), data);
         ctx.inbound = nullptr;
 
         // 创建凭证验证器，检查账户目录和连接限制

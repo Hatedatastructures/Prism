@@ -25,7 +25,7 @@ namespace psm::protocol::vless
         -> net::awaitable<void>
     {
         // 包装传输层（data 通过 preview 重放）
-        auto inbound = psm::transport::wrap_with_preview(std::move(ctx.inbound), data, ctx.frame_arena.get());
+        auto inbound = psm::transport::wrap_with_preview(std::move(ctx.inbound), data);
         ctx.inbound = nullptr;
 
         // 创建 UUID 验证回调，通过 account::directory 统一认证和连接数限制

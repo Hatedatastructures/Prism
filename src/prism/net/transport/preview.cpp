@@ -11,8 +11,8 @@ using namespace psm::trace;
 namespace psm::transport
 {
 
-    preview::preview(shared_transmission inner, std::span<const std::byte> preread, memory::resource_pointer mr)
-        : inner_(std::move(inner)), preread_buffer_(preread.begin(), preread.end(), memory::effective_mr(mr))
+    preview::preview(shared_transmission inner, std::span<const std::byte> preread)
+        : inner_(std::move(inner)), preread_buffer_(preread.begin(), preread.end())
     {
     }
 

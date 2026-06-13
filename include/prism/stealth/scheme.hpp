@@ -137,7 +137,14 @@ namespace psm::stealth
         const psm::config *cfg{nullptr};          ///< 服务器配置
         connect::router *router{nullptr};         ///< 路由器（fallback 用）
         context::session *session{nullptr};       ///< 会话上下文
-        std::shared_ptr<void> session_keepalive;  ///< session 保活（stack 方案 detached 协程持有）
+        // session 保活：caller 必须赋值为 shared_ptr<psm::instance::session::session>。
+        // 类型用 shared_ptr<void> 是为避免 stealth → instance 循环依赖（stealth 模块
+        // 不能直接引用 instance::session::session 类型）。运行时 shared_ptr<void> 通过
+        // aliasing constructor 正确持有引用计数，功能等价 shared_ptr<session>。
+        // 详见 docs/ARCHITECTURE.md "anytls scheme.cpp 的 detached task"。
+        // 注意：detached task 捕获此字段时必须真正持有它（move 进 lambda），
+        // 否则 session 会在 task 期间析构，导致 session_ptr 悬垂。
+        std::shared_ptr<void> session_keepalive;
         memory::vector<std::byte> preread;        ///< 来自 identify 的 preread 数据（完整 ClientHello）
     };
 

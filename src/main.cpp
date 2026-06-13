@@ -5,8 +5,15 @@
 #include <iostream>
 #include <fstream>
 #include <filesystem>
+#include <cstdio>
+#include <ctime>
 
 #include <boost/asio/signal_set.hpp>
+
+#ifdef _WIN32
+#include <windows.h>
+#include <dbghelp.h>
+#endif
 
 #include <prism/context/context.hpp>
 #include <prism/instance/instance.hpp>
@@ -25,9 +32,74 @@
 
 namespace instance = psm::instance;
 
+#ifdef _WIN32
+namespace
+{
+    // 未处理异常回调：崩溃时写 minidump 到可执行文件同目录
+    // 事后用 cdb/WinDbg 打开 .dmp 文件即可看到精确崩溃栈
+    LONG WINAPI crash_dump_handler(EXCEPTION_POINTERS *ep)
+    {
+        std::fprintf(stderr,
+            "\n=== CRASH ===\n"
+            "exception code=0x%08X address=%p\n",
+            static_cast<unsigned>(ep->ExceptionRecord->ExceptionCode),
+            ep->ExceptionRecord->ExceptionAddress);
+        std::fflush(stderr);
+
+        char dump_name[MAX_PATH];
+        const auto pid = static_cast<unsigned long>(GetCurrentProcessId());
+        const auto now = static_cast<long long>(std::time(nullptr));
+        std::snprintf(dump_name, sizeof(dump_name),
+            "prism_crash_%lu_%lld.dmp", pid, now);
+
+        const HANDLE hFile = CreateFileA(
+            dump_name, GENERIC_WRITE, 0, nullptr,
+            CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
+
+        if (hFile != INVALID_HANDLE_VALUE)
+        {
+            MINIDUMP_EXCEPTION_INFORMATION mei;
+            mei.ThreadId = GetCurrentThreadId();
+            mei.ExceptionPointers = ep;
+            mei.ClientPointers = FALSE;
+
+            const BOOL ok = MiniDumpWriteDump(
+                GetCurrentProcess(),
+                GetCurrentProcessId(),
+                hFile,
+                static_cast<MINIDUMP_TYPE>(
+                    MiniDumpNormal |
+                    MiniDumpWithIndirectlyReferencedMemory |
+                    MiniDumpWithThreadInfo),
+                &mei, nullptr, nullptr);
+            CloseHandle(hFile);
+
+            if (ok)
+                std::fprintf(stderr, "minidump written: %s\n", dump_name);
+            else
+                std::fprintf(stderr, "MiniDumpWriteDump failed: error=%lu\n",
+                    static_cast<unsigned long>(GetLastError()));
+        }
+        else
+        {
+            std::fprintf(stderr, "CreateFile failed: error=%lu\n",
+                static_cast<unsigned long>(GetLastError()));
+        }
+
+        std::fflush(stderr);
+        return EXCEPTION_EXECUTE_HANDLER;
+    }
+}
+#endif
+
 // 启动流程：启用全局内存池 → 加载配置 → 注册处理器 → 构建 worker 线程池 → 绑定均衡器 → 启动监听
 int main(int argc, char *argv[])
 {
+#ifdef _WIN32
+    // 第一件事：注册崩溃处理器，确保后续任何异常都能写 minidump
+    SetUnhandledExceptionFilter(crash_dump_handler);
+#endif
+
     psm::memory::system::enable_pooling();
 
     // 注册所有 TLS 伪装方案

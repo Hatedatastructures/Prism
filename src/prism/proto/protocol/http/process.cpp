@@ -24,7 +24,7 @@ namespace psm::protocol::http
         ctx.frame_arena.reset();
 
         // 包装入站传输（如有预读数据则用 preview 装饰器重放）
-        auto inbound = psm::transport::wrap_with_preview(std::move(ctx.inbound), data, ctx.frame_arena.get());
+        auto inbound = psm::transport::wrap_with_preview(std::move(ctx.inbound), data);
         ctx.inbound = nullptr;
 
         // 创建 HTTP 中继并握手（读取请求头 + 解析 + 认证）

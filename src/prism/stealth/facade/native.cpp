@@ -84,7 +84,7 @@ namespace psm::stealth::native
         // 用 preread（ClientHello 完整数据）创建干净的 preview 包装
         auto preread_span = std::span<const std::byte>(ctx.preread.data(), ctx.preread.size());
         auto clean_inbound = transport::wrap_with_preview(
-            std::move(raw), preread_span, ctx.session->frame_arena.get());
+            std::move(raw), preread_span);
 
         trace::debug<flt::conn | flt::protocol>("Starting SSL handshake");
         auto [ssl_ec, ssl_stream, recovered] = co_await transport::encrypted::ssl_handshake(

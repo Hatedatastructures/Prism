@@ -18,7 +18,7 @@ namespace psm::multiplex
         // 执行 sing-mux 协议协商
         // 从 transport 读取 sing-mux 协议头并消费。Protocol 字段指示
         // 客户端选择的多路复用协议类型（0=smux, 1=yamux）。
-        auto negotiate(transmission &transport, const memory::resource_pointer mr)
+        auto negotiate(transmission &transport)
             -> net::awaitable<std::pair<std::error_code, protocol_type>>
         {
             std::error_code ec;
@@ -58,8 +58,8 @@ namespace psm::multiplex
                 const auto padding_len = static_cast<std::uint16_t>(hi | lo);
                 if (padding_len > 0)
                 {
-                    memory::vector<std::byte> padding(mr);
-                    padding.resize(padding_len);
+                    // padding 是 negotiate 协程内的临时对象，用默认 PMR 资源（global_pool）即可
+                    memory::vector<std::byte> padding(padding_len);
                     const auto padding_n = co_await transport::async_read(transport, padding, ec);
                     if (ec || padding_n < padding_len)
                     {
@@ -85,7 +85,7 @@ namespace psm::multiplex
         -> net::awaitable<std::shared_ptr<core>>
     {
         // 执行 sing-mux 协商，获取客户端选择的协议类型
-        auto [ec, protocol] = co_await negotiate(*ctx.transport, ctx.mr);
+        auto [ec, protocol] = co_await negotiate(*ctx.transport);
         if (ec)
         {
             trace::warn<flt::conn | flt::protocol>("sing-mux negotiate failed: {}", ec.message());
@@ -93,6 +93,7 @@ namespace psm::multiplex
         }
 
         // 根据协商结果创建对应协议实例
+        // core_options.mr 留空，core 内部用 effective_mr 回落到 global_pool（永生）
         try
         {
             switch (protocol)
@@ -101,9 +102,9 @@ namespace psm::multiplex
                 trace::info<flt::conn | flt::protocol>("constructing yamux session");
                 {
                     std::shared_ptr<core> session = std::make_shared<yamux::craft>(
-                        core_options{std::move(ctx.transport), ctx.router, ctx.cfg, ctx.mr});
+                        core_options{std::move(ctx.transport), ctx.router, ctx.cfg, {}});
                     session->set_traffic(ctx.traffic, ctx.proto);
-                    if (trace::active_prefix && trace::active_prefix->is_alive()) session->set_prefix(*trace::active_prefix);
+                    if (trace::active_prefix && trace::active_prefix->is_alive()) session->set_prefix(trace::active_prefix->shared_from_this());
                     trace::info<flt::conn | flt::protocol>("yamux session constructed");
                     co_return session;
                 }
@@ -118,10 +119,10 @@ namespace psm::multiplex
                         return {};
                     };
                     std::shared_ptr<core> session = std::make_shared<h2mux::craft>(
-                        core_options{std::move(ctx.transport), ctx.router, ctx.cfg, ctx.mr},
+                        core_options{std::move(ctx.transport), ctx.router, ctx.cfg, {}},
                         h2mux::craft_init{ctx.router, ctx.cfg, singmux_resolver});
                     session->set_traffic(ctx.traffic, ctx.proto);
-                    if (trace::active_prefix && trace::active_prefix->is_alive()) session->set_prefix(*trace::active_prefix);
+                    if (trace::active_prefix && trace::active_prefix->is_alive()) session->set_prefix(trace::active_prefix->shared_from_this());
                     trace::info<flt::conn | flt::protocol>("h2mux session constructed");
                     co_return session;
                 }
@@ -131,9 +132,9 @@ namespace psm::multiplex
                 trace::info<flt::conn | flt::protocol>("constructing smux session");
                 {
                     std::shared_ptr<core> session = std::make_shared<smux::craft>(
-                        core_options{std::move(ctx.transport), ctx.router, ctx.cfg, ctx.mr});
+                        core_options{std::move(ctx.transport), ctx.router, ctx.cfg, {}});
                     session->set_traffic(ctx.traffic, ctx.proto);
-                    if (trace::active_prefix && trace::active_prefix->is_alive()) session->set_prefix(*trace::active_prefix);
+                    if (trace::active_prefix && trace::active_prefix->is_alive()) session->set_prefix(trace::active_prefix->shared_from_this());
                     trace::info<flt::conn | flt::protocol>("smux session constructed");
                     co_return session;
                 }

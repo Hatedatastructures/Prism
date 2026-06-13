@@ -5,6 +5,7 @@
 #include <prism/trace/trace.hpp>
 
 #include <algorithm>
+#include <chrono>
 #include <cstring>
 #include <openssl/crypto.h>
 
@@ -139,7 +140,10 @@ namespace psm::stealth::restls
         : socket_(std::move(socket))
         , script_(std::move(handover.script))
         , tls_version_(handover.version)
+        , write_waiter_(socket_.get_executor())
     {
+        write_waiter_.expires_at(std::chrono::steady_clock::time_point::max());
+
         std::memcpy(secret_.data(), handover.secret.data(), 32);
         std::memcpy(server_random_.data(), handover.server_random.data(), 32);
         client_finished_.assign(handover.client_finished.begin(), handover.client_finished.end());
@@ -189,20 +193,12 @@ namespace psm::stealth::restls
             co_return 0;
         }
 
-        // 收到响应帧后，立即 flush 待发送缓冲区（解除写阻塞）
+        // 收到响应帧后，唤醒挂起的 write 协程（解除写阻塞）
         if (write_pending_)
         {
             write_pending_ = false;
-            if (!send_buf_.empty())
-            {
-                auto flush_data = std::move(send_buf_);
-                send_buf_.clear();
-                co_await write_restls_frame(flush_data, ec);
-                if (ec)
-                {
-                    co_return 0;
-                }
-            }
+            write_waiter_.cancel();
+            write_waiter_.expires_at(std::chrono::steady_clock::time_point::max());
         }
 
         auto &frame = *frame_opt;
@@ -291,10 +287,21 @@ namespace psm::stealth::restls
     {
         ec.clear();
 
-        if (write_pending_)
+        // 等待 write_pending_ 解除（被 async_read_some 收到响应帧后 cancel 唤醒）
+        while (write_pending_)
         {
-            send_buf_.insert(send_buf_.end(), data.begin(), data.end());
-            co_return 0;
+            boost::system::error_code wait_ec;
+            co_await write_waiter_.async_wait(
+                net::redirect_error(trace::use_prefix_awaitable, wait_ec));
+            // 醒来后若 write_pending_ 仍为 true，说明是外部 cancel
+            //（tunnel 的 || 操作符 cancel，或 transport 析构），而非 read 端解除
+            //（read 端和 close/cancel 都会先设 write_pending_=false 再 cancel timer）
+            // 此时必须退出，否则 write 协程永久挂起导致 tunnel 死锁
+            if (write_pending_)
+            {
+                ec = std::make_error_code(std::errc::operation_canceled);
+                co_return 0;
+            }
         }
 
         auto alloc = script_.allocate(write_counter_, data.size());
@@ -473,12 +480,16 @@ namespace psm::stealth::restls
 
     void restls_transport::close()
     {
+        write_pending_ = false;
+        write_waiter_.cancel();
         boost::system::error_code ec;
         socket_.close(ec);
     }
 
     void restls_transport::cancel()
     {
+        write_pending_ = false;
+        write_waiter_.cancel();
         socket_.cancel();
     }
 } // namespace psm::stealth::restls

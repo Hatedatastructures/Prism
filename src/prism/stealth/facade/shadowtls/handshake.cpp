@@ -8,10 +8,10 @@
 #include <prism/trace/trace.hpp>
 
 #include <boost/asio.hpp>
+#include <boost/asio/experimental/awaitable_operators.hpp>
 #include <openssl/crypto.h>
 #include <openssl/hmac.h>
 
-#include <atomic>
 #include <charconv>
 #include <cstdint>
 #include <cstring>
@@ -546,33 +546,33 @@ namespace psm::stealth::shadowtls
         trace::debug<flt::conn | flt::protocol>("ServerRandom extracted, TLS1.3={}",
                     is_tls13_hello(args.server_hello));
 
-        auto hmac_relay_ctx = std::make_shared<std::shared_ptr<HMAC_CTX>>(nullptr);
-        auto relay_done = std::make_shared<std::atomic<bool>>(false);
-        auto cancel_signal = std::make_shared<net::cancellation_signal>();
+        // 双工转发：用 awaitable_operators::operator|| 并发跑两个方向，
+        // 任意一个完成即取消另一个。同步等待全部退出后再返回，保证
+        // handshake() 返回时无 detached 协程残留、无悬挂引用。
+        // client_sock 仍为引用：reliable transport 的 socket 生命周期由 ctx.inbound 管理，
+        // 覆盖整个 handshake 协程。
+        std::shared_ptr<HMAC_CTX> hmac_out;
+        std::shared_ptr<HMAC_CTX> hmac_verify_ctx;
+        std::optional<memory::vector<std::byte>> first_frame_opt;
 
-        auto executor = args.client_sock.get_executor();
+        using boost::asio::experimental::awaitable_operators::operator||;
 
-        auto backend_relay = [relay_done, hmac_relay_ctx, backend_sock = args.backend_sock,
-                              client_sock_ptr = std::shared_ptr<net::ip::tcp::socket>(&args.client_sock, [](auto *) {}),
-                              password = args.password,
-                              server_random_span]() -> net::awaitable<void>
+        auto backend_to_client = [&]() -> net::awaitable<void>
         {
-            std::shared_ptr<HMAC_CTX> hmac_out;
             co_await relay_modified(
-                backend_relay_args{std::move(backend_sock), *client_sock_ptr, password, server_random_span, hmac_out});
-            *hmac_relay_ctx = std::move(hmac_out);
-            relay_done->store(true);
+                backend_relay_args{args.backend_sock, args.client_sock,
+                                   args.password, server_random_span, hmac_out});
         };
 
-        net::co_spawn(executor, std::move(backend_relay), net::bind_cancellation_slot(cancel_signal->slot(), net::detached));
+        auto client_to_backend = [&]() -> net::awaitable<void>
+        {
+            hmac_read_args read_args{
+                args.client_sock, args.backend_sock, args.password,
+                server_random_span, hmac_verify_ctx};
+            first_frame_opt = co_await read_hmac_match(read_args);
+        };
 
-        trace::debug<flt::conn | flt::protocol>("started backend relay coroutine");
-
-        std::shared_ptr<HMAC_CTX> hmac_verify_ctx;
-        hmac_read_args read_args{
-            args.client_sock, args.backend_sock, args.password,
-            server_random_span, hmac_verify_ctx};
-        auto first_frame_opt = co_await read_hmac_match(read_args);
+        co_await (backend_to_client() || client_to_backend());
 
         {
             boost::system::error_code close_ec;
@@ -592,24 +592,6 @@ namespace psm::stealth::shadowtls
         }
 
         trace::debug<flt::conn | flt::protocol>("closed backend socket");
-
-        cancel_signal->emit(net::cancellation_type::all);
-
-        {
-            net::steady_timer exit_timer(executor);
-            exit_timer.expires_after(std::chrono::milliseconds(500));
-            boost::system::error_code wait_ec;
-            co_await exit_timer.async_wait(net::redirect_error(trace::use_prefix_awaitable, wait_ec));
-        }
-
-        if (!relay_done->load())
-        {
-            trace::warn<flt::conn | flt::protocol>("relay coroutine did not exit within timeout, socket may be corrupted");
-        }
-        else
-        {
-            trace::debug<flt::conn | flt::protocol>("relay coroutine exited cleanly");
-        }
 
         if (!first_frame_opt || !hmac_verify_ctx)
         {
