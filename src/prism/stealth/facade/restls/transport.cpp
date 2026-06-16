@@ -306,11 +306,19 @@ namespace psm::stealth::restls
 
         auto *payload = record_data + tls_hdrsize;
 
-        // 写入明文 masked_len + masked_cmd
+        // 写入明文 masked_len + masked_cmd（根据 script 决定 command 类型）
         payload[appdata_lenoff] = static_cast<std::uint8_t>((data_len >> 8) & 0xFF);
         payload[appdata_lenoff + 1] = static_cast<std::uint8_t>(data_len & 0xFF);
-        payload[appdata_lenoff + 2] = static_cast<std::uint8_t>((cmd_data >> 8) & 0xFF);
-        payload[appdata_lenoff + 3] = static_cast<std::uint8_t>(cmd_data & 0xFF);
+        if (alloc.cmd == command_type::response)
+        {
+            payload[appdata_lenoff + 2] = cmd_type_response;
+            payload[appdata_lenoff + 3] = alloc.response_count;
+        }
+        else
+        {
+            payload[appdata_lenoff + 2] = cmd_type_noop;
+            payload[appdata_lenoff + 3] = 0;
+        }
 
         std::memcpy(payload + appdata_offset,
                     reinterpret_cast<const std::uint8_t *>(data.data()), data_len);

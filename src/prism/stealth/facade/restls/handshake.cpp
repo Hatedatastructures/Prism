@@ -185,17 +185,23 @@ namespace psm::stealth::restls
                     client_finished_out.assign(frame.begin(), frame.end());
                     first_app_data = false;
 
+                    // 先转发 clientFinished 到后端（让 nvidia.com 完成 TLS 状态机）
                     boost::system::error_code write_ec;
                     co_await net::async_write(
                         *backend_sock,
                         net::buffer(frame.data(), frame.size()),
                         net::redirect_error(trace::use_prefix_awaitable, write_ec));
 
-                    // 设置 flag，通知 relay_backend_to_client 停止转发后端数据
+                    // 立即关闭后端的 read 端，阻止 relay_backend_to_client 继续读
+                    // 这会让 relay_backend_to_client 的 read_tls_frame 立即返回 error
+                    // 避免读到 nvidia.com 的 NewSessionTicket 并转发给客户端
+                    boost::system::error_code shutdown_ec;
+                    backend_sock->shutdown(net::ip::tcp::socket::shutdown_receive, shutdown_ec);
+
                     client_finished_flag.store(true, std::memory_order_release);
 
                     trace::debug<flt::conn | flt::protocol>(
-                        "restls: clientFinished captured, payload_len={}", frame.size());
+                        "restls: clientFinished captured + backend recv shutdown, payload_len={}", frame.size());
                     co_return;
                 }
 

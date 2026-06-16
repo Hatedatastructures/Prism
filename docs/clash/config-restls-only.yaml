@@ -1,0 +1,71 @@
+mixed-port: 7890
+allow-lan: true
+bind-address: '*'
+mode: rule
+log-level: info
+external-controller: 127.0.0.1:9090
+global-client-fingerprint: none
+
+proxies:
+  - name: "SS2022 Restls TLS13 TCP"
+    type: ss
+    server: 127.0.0.1
+    port: 8081
+    cipher: 2022-blake3-aes-128-gcm
+    password: "5n5ESu953i/pjIp02oZvHA=="
+    plugin: restls
+    plugin-opts:
+      host: "www.nvidia.com"
+      password: "restls_password"
+      version-hint: "tls13"
+      restls-script: "300?100<1,400~100,350~100,600~100,300~200,300~100"
+
+  - name: "SS2022 Restls TLS13 UDP"
+    type: ss
+    server: 127.0.0.1
+    port: 8081
+    cipher: 2022-blake3-aes-128-gcm
+    password: "5n5ESu953i/pjIp02oZvHA=="
+    plugin: restls
+    plugin-opts:
+      host: "www.nvidia.com"
+      password: "restls_password"
+      version-hint: "tls13"
+      restls-script: "300?100<1,400~100,350~100,600~100,300~200,300~100"
+
+  - name: "SS2022 Restls TLS13 Smux TCP"
+    type: ss
+    server: 127.0.0.1
+    port: 8081
+    cipher: 2022-blake3-aes-128-gcm
+    password: "5n5ESu953i/pjIp02oZvHA=="
+    plugin: restls
+    plugin-opts:
+      host: "www.nvidia.com"
+      password: "restls_password"
+      version-hint: "tls13"
+      restls-script: "300?100<1,400~100,350~100,600~100,300~200,300~100"
+    smux:
+      enabled: true
+      protocol: smux
+      only-tcp: true
+
+proxy-groups:
+  - name: "Restls-Test"
+    type: select
+    proxies:
+      - "SS2022 Restls TLS13 TCP"
+      - "SS2022 Restls TLS13 UDP"
+      - "SS2022 Restls TLS13 Smux TCP"
+
+  - name: "Restls-Auto"
+    type: url-test
+    proxies:
+      - "SS2022 Restls TLS13 TCP"
+      - "SS2022 Restls TLS13 UDP"
+      - "SS2022 Restls TLS13 Smux TCP"
+    url: "http://connect.rom.miui.com/generate_204"
+    interval: 300
+
+rules:
+  - 'MATCH,Restls-Test'
