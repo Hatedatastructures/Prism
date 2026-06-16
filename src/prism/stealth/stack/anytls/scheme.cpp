@@ -86,6 +86,7 @@ namespace psm::stealth::anytls
                 inet_ntop(AF_INET, addr.bytes.data(), ip_str.data(), ip_str.size());
                 target.host.assign(ip_str.data());
                 target.port = memory::string(std::to_string(port), mr);
+                target.positive = true;  // AnyTLS 是正向代理请求，走 async_forward 而非 async_reverse
                 return {fault::code::success, std::move(target)};
             }
             case 0x03: // Domain
@@ -100,6 +101,7 @@ namespace psm::stealth::anytls
 
                 target.host = addr.to_string(mr);
                 target.port = memory::string(std::to_string(port), mr);
+                target.positive = true;  // AnyTLS 是正向代理请求，走 async_forward 而非 async_reverse
                 return {fault::code::success, std::move(target)};
             }
             case 0x04: // IPv6
@@ -116,6 +118,7 @@ namespace psm::stealth::anytls
                 inet_ntop(AF_INET6, addr.bytes.data(), ip_str.data(), ip_str.size());
                 target.host.assign(ip_str.data());
                 target.port = memory::string(std::to_string(port), mr);
+                target.positive = true;  // AnyTLS 是正向代理请求，走 async_forward 而非 async_reverse
                 return {fault::code::success, std::move(target)};
             }
             default:

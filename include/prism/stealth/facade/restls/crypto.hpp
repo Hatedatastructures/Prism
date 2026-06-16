@@ -58,10 +58,12 @@ namespace psm::stealth::restls
     // Restls 密钥派生上下文
     constexpr std::string_view secret_ctx = "restls-traffic-key";
 
-    // Restls 命令
-    constexpr std::uint16_t cmd_data = 0x0000;
-    constexpr std::uint16_t cmd_close = 0x0001;
-    constexpr std::uint16_t cmd_randresp = 0x0002;
+    // Restls 命令（2 字节 big-endian，第一字节是 type）
+    //   ActNoop:    [0x00, 0x00]   — 无操作
+    //   ActResponse:[0x01, count]  — 要求对端回 count 个 random-response 帧
+    constexpr std::uint8_t  cmd_type_noop     = 0x00;
+    constexpr std::uint8_t  cmd_type_response = 0x01;
+    constexpr std::uint16_t cmd_data = 0x0000;  // 兼容旧代码：等价于 ActNoop
 
     // magic 字符串用于随机响应帧
     constexpr std::string_view randresp_magic = "restls-random-response";

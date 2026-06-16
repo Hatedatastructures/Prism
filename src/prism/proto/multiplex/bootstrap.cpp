@@ -38,37 +38,55 @@ namespace psm::multiplex
             // 解析客户端选择的协议类型
             const auto protocol = static_cast<protocol_type>(header[1]);
 
-            // Version > 0 表示有 padding
+            // Version > 0 表示有 padding 选项，对齐 mihomo sing-mux v0.3.9 协议：
+            // [Version 1B][Protocol 1B][paddingEnabled 1B][paddingLen 2B BE][padding N bytes]
+            // paddingEnabled=0 时无 paddingLen 和 padding 字段
             if (const auto version = static_cast<std::uint8_t>(header[0]); version > 0)
             {
-                // 读取 2 字节 padding 长度（大端序）
-                std::array<std::byte, 2> padding_len_buf{};
-                const auto pn = co_await transport::async_read(transport, padding_len_buf, ec);
+                // 先读 1 字节 paddingEnabled bool
+                std::array<std::byte, 1> padding_enabled_buf{};
+                const auto pen = co_await transport::async_read(transport, padding_enabled_buf, ec);
                 if (ec)
                 {
                     co_return std::make_pair(ec, protocol_type::smux);
                 }
-                if (pn < 2)
+                if (pen < 1)
                 {
                     co_return std::make_pair(std::make_error_code(std::errc::connection_reset), protocol_type::smux);
                 }
 
-                const auto hi = static_cast<std::uint16_t>(padding_len_buf[0]) << 8;
-                const auto lo = static_cast<std::uint16_t>(padding_len_buf[1]);
-                const auto padding_len = static_cast<std::uint16_t>(hi | lo);
-                if (padding_len > 0)
+                if (padding_enabled_buf[0] != std::byte{0})
                 {
-                    // padding 是 negotiate 协程内的临时对象，用默认 PMR 资源（global_pool）即可
-                    memory::vector<std::byte> padding(padding_len);
-                    const auto padding_n = co_await transport::async_read(transport, padding, ec);
-                    if (ec || padding_n < padding_len)
+                    // paddingEnabled=true，读取 2 字节 padding 长度（大端序）
+                    std::array<std::byte, 2> padding_len_buf{};
+                    const auto pn = co_await transport::async_read(transport, padding_len_buf, ec);
+                    if (ec)
                     {
-                        std::error_code result_ec = std::make_error_code(std::errc::connection_reset);
-                        if (ec)
-                            result_ec = ec;
-                        co_return std::make_pair(result_ec, protocol_type::smux);
+                        co_return std::make_pair(ec, protocol_type::smux);
+                    }
+                    if (pn < 2)
+                    {
+                        co_return std::make_pair(std::make_error_code(std::errc::connection_reset), protocol_type::smux);
+                    }
+
+                    const auto hi = static_cast<std::uint16_t>(padding_len_buf[0]) << 8;
+                    const auto lo = static_cast<std::uint16_t>(padding_len_buf[1]);
+                    const auto padding_len = static_cast<std::uint16_t>(hi | lo);
+                    if (padding_len > 0)
+                    {
+                        // padding 是 negotiate 协程内的临时对象，用默认 PMR 资源（global_pool）即可
+                        memory::vector<std::byte> padding(padding_len);
+                        const auto padding_n = co_await transport::async_read(transport, padding, ec);
+                        if (ec || padding_n < padding_len)
+                        {
+                            std::error_code result_ec = std::make_error_code(std::errc::connection_reset);
+                            if (ec)
+                                result_ec = ec;
+                            co_return std::make_pair(result_ec, protocol_type::smux);
+                        }
                     }
                 }
+                // paddingEnabled=false，跳过 paddingLen 和 padding 字段
             }
 
             const auto *proto_name = "smux";

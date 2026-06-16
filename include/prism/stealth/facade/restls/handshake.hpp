@@ -1,19 +1,18 @@
 /**
  * @file handshake.hpp
- * @brief Restls 服务端握手
- * @details Restls 握手流程（Path C 代理，复用 ShadowTLS 双工转发架构）：
- * 1. 从客户端接收 ClientHello，转发到后端 TLS 服务器
- * 2. 读取 ServerHello，提取 server_random
+ * @brief Restls 服务端握手（中间人代理模式）
+ * @details Restls 握手流程（中间人代理）：
+ * 1. 转发客户端 ClientHello 到真实 TLS 后端（如 nvidia.com:443）
+ * 2. 读取后端 ServerHello，提取 server_random
  * 3. 双工转发握手数据：
- *    - 后端→客户端：XOR 第一个加密记录（server_mask）
+ *    - 后端→客户端：XOR 第一个加密记录（serverRandomMac auth 验证）
  *    - 客户端→后端：捕获 clientFinished（完整加密 TLS record）
- * 4. 认证成功后关闭后端连接，返回握手结果
- *
- * 认证基于 BLAKE3 keyed mode，非传统 HMAC。
+ * 4. 认证成功后关闭后端连接，把 raw socket 交给 restls_transport
  */
 #pragma once
 
 #include <prism/core/memory/container.hpp>
+#include <prism/net/transport/reliable.hpp>
 #include <prism/stealth/facade/restls/config.hpp>
 #include <prism/stealth/facade/restls/script.hpp>
 #include <prism/stealth/facade/restls/transport.hpp>
@@ -35,36 +34,33 @@ namespace psm::stealth::restls
     /**
      * @struct handshake_detail
      * @brief Restls 握手输出的额外数据
-     * @details 握手成功后，scheme.cpp 需要这些数据来创建 restls_transport。
      */
     struct handshake_detail
     {
-        std::array<std::uint8_t, 32> restls_secret{};     // RestlsSecret（BLAKE3 derive_key 派生）
-        std::array<std::uint8_t, 32> server_random{};     // ServerHello 的 server_random
-        memory::vector<std::uint8_t> client_finished;     // 客户端 Finished（完整加密 TLS record 含 header）
-        memory::vector<std::byte> first_frame;            // 认证后的首帧数据
-        tls_version version{tls_version::v13};            // 后端 TLS 版本
-        script_engine script;                             // Restls script 引擎
+        std::array<std::uint8_t, 32> restls_secret{};  ///< RestlsSecret
+        std::array<std::uint8_t, 32> server_random{};  ///< ServerHello 的 server_random
+        memory::vector<std::byte> client_finished;     ///< 客户端 Finished（完整加密 TLS record，含 5B header）
+        memory::vector<std::byte> first_encrypted;     ///< 后端第一个加密帧（XOR 后的内容，含 5B header）
+        tls_version version{tls_version::v13};         ///< TLS 版本
+        script_engine script;                          ///< Restls script 引擎
     };
 
     /**
      * @struct handshake_opts
      * @brief handshake 参数收敛
-     * @details 将 4 个参数收敛为单一结构体，遵守 Rule 1。
      */
     struct handshake_opts
     {
-        net::ip::tcp::socket &client_sock;
-        const config &cfg;
-        memory::vector<std::byte> client_hello;
-        handshake_detail &detail;
+        std::shared_ptr<transport::reliable> raw_trans;  ///< 客户端 raw TCP transport（所有权转移）
+        const config &cfg;                                ///< Restls 配置
+        memory::vector<std::byte> client_hello;           ///< 预读的 ClientHello
+        handshake_detail &detail;                         ///< 握手输出
     };
 
     /**
      * @brief Restls 服务端握手
-     * @param opts 握手参数（client_sock, cfg, client_hello, detail）
-     * @return 握手结果
      */
     [[nodiscard]] auto handshake(handshake_opts opts)
         -> net::awaitable<stealth::handshake_result>;
+
 } // namespace psm::stealth::restls

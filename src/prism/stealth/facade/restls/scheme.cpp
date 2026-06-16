@@ -1,7 +1,7 @@
 #include <prism/stealth/facade/restls/scheme.hpp>
 
 #include <prism/config/config.hpp>
-#include <prism/net/connect/util.hpp>
+#include <prism/context/context.hpp>
 #include <prism/core/fault/code.hpp>
 #include <prism/proto/protocol/types.hpp>
 #include <prism/stealth/recognition/probe/analyzer.hpp>
@@ -51,29 +51,36 @@ namespace psm::stealth::restls
     {
         stealth::handshake_result result;
 
-        if (!ctx.session)
-        {
-            result.error = fault::code::not_supported;
-            co_return result;
-        }
-
+        // 释放 raw TCP socket（去掉 inbound 上层包装）
         auto *rel = ctx.inbound->lowest_layer<transport::reliable>();
         if (!rel)
         {
-            trace::debug<flt::conn | flt::protocol>("cannot access reliable transport, pass to next scheme");
+            trace::debug<flt::conn | flt::protocol>("restls: cannot access reliable transport");
             result.detected = protocol::protocol_type::tls;
             result.transport = std::move(ctx.inbound);
             co_return result;
         }
 
-        // 执行 Restls 握手
+        auto raw_socket_opt = rel->release_socket();
+        if (!raw_socket_opt)
+        {
+            trace::warn<flt::conn | flt::protocol>("restls: cannot release socket");
+            result.detected = protocol::protocol_type::tls;
+            result.transport = std::move(ctx.inbound);
+            co_return result;
+        }
+
+        auto raw_trans = std::make_shared<transport::reliable>(std::move(*raw_socket_opt));
+
+        // 执行 Restls 握手（中间人代理模式：转发 ClientHello 到真实 TLS 后端）
         handshake_detail detail;
         auto hs_result = co_await restls::handshake(
             restls::handshake_opts{
-                rel->native_socket(),
-                ctx.cfg->stealth.restls,
-                std::move(ctx.preread),
-                detail});
+                .raw_trans = raw_trans,
+                .cfg = ctx.cfg->stealth.restls,
+                .client_hello = std::move(ctx.preread),
+                .detail = detail,
+            });
 
         if (!fault::succeeded(hs_result.error))
         {
@@ -84,34 +91,10 @@ namespace psm::stealth::restls
             co_return result;
         }
 
-        trace::debug<flt::conn | flt::protocol>("handshake succeeded, tls13={}", detail.version == tls_version::v13);
+        trace::debug<flt::conn | flt::protocol>(
+            "handshake succeeded, tls13={}", detail.version == tls_version::v13);
 
-        // 释放底层 socket
-        auto raw_socket_opt = rel->release_socket();
-        if (!raw_socket_opt)
-        {
-            trace::warn<flt::conn | flt::protocol>("cannot release socket from reliable transport");
-            result.detected = protocol::protocol_type::tls;
-            result.transport = std::move(ctx.inbound);
-            co_return result;
-        }
-        auto raw_socket = std::move(*raw_socket_opt);
-
-        // 创建 restls_transport
-        auto restls_trans = std::make_shared<restls_transport>(
-            std::move(raw_socket),
-            restls_handover{
-                std::span<const std::uint8_t, 32>(detail.restls_secret),
-                std::span<const std::uint8_t, 32>(detail.server_random),
-                std::span<const std::uint8_t>(detail.client_finished),
-                std::move(detail.script),
-                std::span<const std::byte>(),
-                [&]() {
-                    return detail.version;
-                }()
-            });
-
-        // 从 restls_transport 预读内层数据
+        // 从 restls_transport 预读内层数据，识别内层协议
         std::array<std::byte, 128> inner_buf{};
         std::size_t inner_n = 0;
         constexpr std::size_t min_probe = 32;
@@ -120,10 +103,11 @@ namespace psm::stealth::restls
         {
             std::error_code probe_ec;
             auto buf_span = std::span<std::byte>(inner_buf.data() + inner_n, inner_buf.size() - inner_n);
-            const auto n = co_await restls_trans->async_read_some(buf_span, probe_ec);
+            const auto n = co_await hs_result.transport->async_read_some(buf_span, probe_ec);
             if (probe_ec)
             {
-                trace::warn<flt::conn | flt::protocol>("inner probe read failed: {}", probe_ec.message());
+                trace::warn<flt::conn | flt::protocol>(
+                    "inner probe read failed: {}", probe_ec.message());
                 break;
             }
             inner_n += n;
@@ -138,12 +122,20 @@ namespace psm::stealth::restls
             }
         }
 
+        if (result.detected == protocol::protocol_type::unknown && inner_n >= 32)
+        {
+            result.detected = protocol::protocol_type::shadowsocks;
+            trace::debug<flt::conn | flt::protocol>(
+                "restls inner fallback to shadowsocks, inner_n={}", inner_n);
+        }
+
         result.preread.assign(inner_buf.begin(), inner_buf.begin() + static_cast<std::ptrdiff_t>(inner_n));
-        result.transport = restls_trans;
+        result.transport = hs_result.transport;
         result.scheme = "restls";
 
-        trace::debug<flt::conn | flt::protocol>("restls_transport created, inner protocol: {}",
-                     protocol::to_string_view(result.detected));
+        trace::debug<flt::conn | flt::protocol>(
+            "restls_transport created, inner protocol: {}",
+            protocol::to_string_view(result.detected));
 
         co_return result;
     }

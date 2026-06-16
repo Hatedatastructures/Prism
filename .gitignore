@@ -53,3 +53,6 @@ bug.md
 docx.md
 todo.md
 .claude/loop-prompts/roadmap-generator.md
+tools/restlstest/go.mod
+tools/restlstest/go.sum
+tools/restlstest/main.go

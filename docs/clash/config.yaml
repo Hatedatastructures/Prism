@@ -634,30 +634,310 @@ proxies:
       protocol: yamux
       only-tcp: false
 
-  # TrustTunnel (Mihomo 原生支持 type: trusttunnel)
-  # 协议本质：HTTP/2 CONNECT（默认）或 HTTP/3 over QUIC（quic: true 时）
-  # Prism 当前只实现 h2 路径，所以不能勾 quic
-  # 字段是 username/password (Basic Auth)，不是 tuic 的 uuid/password
-  # SNI 必须与服务端 server_names 配置一致: www.amazon.com
-  - name: "TrustTunnel TCP"
-    type: trusttunnel
+  # SS2022 + mux (验证 SS2022 内层 + SingMux)
+  - name: "SS2022 Smux TCP"
+    type: ss
     server: 127.0.0.1
     port: 8081
-    username: "user1"                    # 与服务端 users.username 一致
-    password: "trusttunnel_password"     # 与服务端 users.password 一致
-    sni: "www.amazon.com"                # SNI: 与服务端 server_names 一致
+    cipher: 2022-blake3-aes-128-gcm
+    password: "5n5ESu953i/pjIp02oZvHA=="
+    smux:
+      enabled: true
+      protocol: smux
+      only-tcp: true
+
+  - name: "SS2022 ShadowTLS Smux TCP"
+    type: ss
+    server: 127.0.0.1
+    port: 8081
+    cipher: 2022-blake3-aes-128-gcm
+    password: "5n5ESu953i/pjIp02oZvHA=="
+    plugin: shadow-tls
+    plugin-opts:
+      host: "www.apple.com"
+      password: "shadowtls_password"
+      version: 3
+    smux:
+      enabled: true
+      protocol: smux
+      only-tcp: true
+
+  - name: "SS2022 Restls TLS13 Smux TCP"
+    type: ss
+    server: 127.0.0.1
+    port: 8081
+    cipher: 2022-blake3-aes-128-gcm
+    password: "5n5ESu953i/pjIp02oZvHA=="
+    plugin: restls
+    plugin-opts:
+      host: "www.nvidia.com"
+      password: "restls_password"
+      version-hint: "tls13"
+      restls-script: "300?100<1,400~100,350~100,600~100,300~200,300~100"
+    smux:
+      enabled: true
+      protocol: smux
+      only-tcp: true
+
+  # VLESS Reality 扩展 mux (4C64S = 4 conn x 64 streams)
+  - name: "VLESS Reality Smux 4C64S TCP"
+    type: vless
+    server: 127.0.0.1
+    port: 8081
+    uuid: "123e4567-e89b-12d3-a456-426614174000"
+    network: tcp
+    tls: true
+    udp: false
     skip-cert-verify: true
+    servername: www.microsoft.com
+    client-fingerprint: chrome
+    reality-opts:
+      public-key: "BkKPzEJtz8Qv1yR_cTydzm5mmfiui8OL2Zqd9dV--To"
+      short-id: "45587ac66ce007e4"
+    smux:
+      enabled: true
+      protocol: smux
+      only-tcp: true
+      max-streams: 64
+      max-conn: 4
+
+  - name: "VLESS Reality Smux 4C64S UDP"
+    type: vless
+    server: 127.0.0.1
+    port: 8081
+    uuid: "123e4567-e89b-12d3-a456-426614174000"
+    network: tcp
+    tls: true
+    udp: false
+    skip-cert-verify: true
+    servername: www.microsoft.com
+    client-fingerprint: chrome
+    reality-opts:
+      public-key: "BkKPzEJtz8Qv1yR_cTydzm5mmfiui8OL2Zqd9dV--To"
+      short-id: "45587ac66ce007e4"
+    smux:
+      enabled: true
+      protocol: smux
+      only-tcp: false
+      max-streams: 64
+      max-conn: 4
+
+  - name: "VLESS Reality Smux 1C256S TCP"
+    type: vless
+    server: 127.0.0.1
+    port: 8081
+    uuid: "123e4567-e89b-12d3-a456-426614174000"
+    network: tcp
+    tls: true
+    udp: false
+    skip-cert-verify: true
+    servername: www.microsoft.com
+    client-fingerprint: chrome
+    reality-opts:
+      public-key: "BkKPzEJtz8Qv1yR_cTydzm5mmfiui8OL2Zqd9dV--To"
+      short-id: "45587ac66ce007e4"
+    smux:
+      enabled: true
+      protocol: smux
+      only-tcp: true
+      max-streams: 256
+      max-conn: 1
+
+  - name: "VLESS Reality Smux 1C256S UDP"
+    type: vless
+    server: 127.0.0.1
+    port: 8081
+    uuid: "123e4567-e89b-12d3-a456-426614174000"
+    network: tcp
+    tls: true
+    udp: false
+    skip-cert-verify: true
+    servername: www.microsoft.com
+    client-fingerprint: chrome
+    reality-opts:
+      public-key: "BkKPzEJtz8Qv1yR_cTydzm5mmfiui8OL2Zqd9dV--To"
+      short-id: "45587ac66ce007e4"
+    smux:
+      enabled: true
+      protocol: smux
+      only-tcp: false
+      max-streams: 256
+      max-conn: 1
+
+  - name: "VLESS Reality Yamux 4C64S TCP"
+    type: vless
+    server: 127.0.0.1
+    port: 8081
+    uuid: "123e4567-e89b-12d3-a456-426614174000"
+    network: tcp
+    tls: true
+    udp: false
+    skip-cert-verify: true
+    servername: www.microsoft.com
+    client-fingerprint: chrome
+    reality-opts:
+      public-key: "BkKPzEJtz8Qv1yR_cTydzm5mmfiui8OL2Zqd9dV--To"
+      short-id: "45587ac66ce007e4"
+    smux:
+      enabled: true
+      protocol: yamux
+      only-tcp: true
+      max-streams: 64
+      max-conn: 4
+
+  - name: "VLESS Reality Yamux 4C64S UDP"
+    type: vless
+    server: 127.0.0.1
+    port: 8081
+    uuid: "123e4567-e89b-12d3-a456-426614174000"
+    network: tcp
+    tls: true
+    udp: false
+    skip-cert-verify: true
+    servername: www.microsoft.com
+    client-fingerprint: chrome
+    reality-opts:
+      public-key: "BkKPzEJtz8Qv1yR_cTydzm5mmfiui8OL2Zqd9dV--To"
+      short-id: "45587ac66ce007e4"
+    smux:
+      enabled: true
+      protocol: yamux
+      only-tcp: false
+      max-streams: 64
+      max-conn: 4
+
+  - name: "VLESS Reality Yamux 1C256S TCP"
+    type: vless
+    server: 127.0.0.1
+    port: 8081
+    uuid: "123e4567-e89b-12d3-a456-426614174000"
+    network: tcp
+    tls: true
+    udp: false
+    skip-cert-verify: true
+    servername: www.microsoft.com
+    client-fingerprint: chrome
+    reality-opts:
+      public-key: "BkKPzEJtz8Qv1yR_cTydzm5mmfiui8OL2Zqd9dV--To"
+      short-id: "45587ac66ce007e4"
+    smux:
+      enabled: true
+      protocol: yamux
+      only-tcp: true
+      max-streams: 256
+      max-conn: 1
+
+  - name: "VLESS Reality Yamux 1C256S UDP"
+    type: vless
+    server: 127.0.0.1
+    port: 8081
+    uuid: "123e4567-e89b-12d3-a456-426614174000"
+    network: tcp
+    tls: true
+    udp: false
+    skip-cert-verify: true
+    servername: www.microsoft.com
+    client-fingerprint: chrome
+    reality-opts:
+      public-key: "BkKPzEJtz8Qv1yR_cTydzm5mmfiui8OL2Zqd9dV--To"
+      short-id: "45587ac66ce007e4"
+    smux:
+      enabled: true
+      protocol: yamux
+      only-tcp: false
+      max-streams: 256
+      max-conn: 1
+
+  # Trojan Reality 系列
+  - name: "Trojan Reality TCP"
+    type: trojan
+    server: 127.0.0.1
+    port: 8081
+    password: "prism"
+    skip-cert-verify: true
+    sni: www.microsoft.com
+    client-fingerprint: chrome
+    reality-opts:
+      public-key: "BkKPzEJtz8Qv1yR_cTydzm5mmfiui8OL2Zqd9dV--To"
+      short-id: "45587ac66ce007e4"
     udp: false
 
-  - name: "TrustTunnel UDP"
-    type: trusttunnel
+  - name: "Trojan Reality UDP"
+    type: trojan
     server: 127.0.0.1
     port: 8081
-    username: "user1"
-    password: "trusttunnel_password"
-    sni: "www.amazon.com"
+    password: "prism"
     skip-cert-verify: true
+    sni: www.microsoft.com
+    client-fingerprint: chrome
+    reality-opts:
+      public-key: "BkKPzEJtz8Qv1yR_cTydzm5mmfiui8OL2Zqd9dV--To"
+      short-id: "45587ac66ce007e4"
     udp: true
+
+  - name: "Trojan Reality Smux TCP"
+    type: trojan
+    server: 127.0.0.1
+    port: 8081
+    password: "prism"
+    skip-cert-verify: true
+    sni: www.microsoft.com
+    client-fingerprint: chrome
+    reality-opts:
+      public-key: "BkKPzEJtz8Qv1yR_cTydzm5mmfiui8OL2Zqd9dV--To"
+      short-id: "45587ac66ce007e4"
+    smux:
+      enabled: true
+      protocol: smux
+      only-tcp: true
+
+  - name: "Trojan Reality Smux UDP"
+    type: trojan
+    server: 127.0.0.1
+    port: 8081
+    password: "prism"
+    skip-cert-verify: true
+    sni: www.microsoft.com
+    client-fingerprint: chrome
+    reality-opts:
+      public-key: "BkKPzEJtz8Qv1yR_cTydzm5mmfiui8OL2Zqd9dV--To"
+      short-id: "45587ac66ce007e4"
+    smux:
+      enabled: true
+      protocol: smux
+      only-tcp: false
+
+  - name: "Trojan Reality Yamux TCP"
+    type: trojan
+    server: 127.0.0.1
+    port: 8081
+    password: "prism"
+    skip-cert-verify: true
+    sni: www.microsoft.com
+    client-fingerprint: chrome
+    reality-opts:
+      public-key: "BkKPzEJtz8Qv1yR_cTydzm5mmfiui8OL2Zqd9dV--To"
+      short-id: "45587ac66ce007e4"
+    smux:
+      enabled: true
+      protocol: yamux
+      only-tcp: true
+
+  - name: "Trojan Reality Yamux UDP"
+    type: trojan
+    server: 127.0.0.1
+    port: 8081
+    password: "prism"
+    skip-cert-verify: true
+    sni: www.microsoft.com
+    client-fingerprint: chrome
+    reality-opts:
+      public-key: "BkKPzEJtz8Qv1yR_cTydzm5mmfiui8OL2Zqd9dV--To"
+      short-id: "45587ac66ce007e4"
+    smux:
+      enabled: true
+      protocol: yamux
+      only-tcp: false
 
 
 # ---------- 策略组 ----------
@@ -705,14 +985,29 @@ proxy-groups:
       - "SS2022 Restls TLS13 TCP"
       - "SS2022 Restls TLS13 UDP"
       - "SS2022 Restls TLS12 TCP"
+      - "SS2022 Smux TCP"
+      - "SS2022 ShadowTLS Smux TCP"
+      - "SS2022 Restls TLS13 Smux TCP"
       - "AnyTLS TCP"
       - "AnyTLS UDP"
       - "AnyTLS Smux TCP"
       - "AnyTLS Smux UDP"
       - "AnyTLS Yamux TCP"
       - "AnyTLS Yamux UDP"
-      - "TrustTunnel TCP"
-      - "TrustTunnel UDP"
+      - "VLESS Reality Smux 4C64S TCP"
+      - "VLESS Reality Smux 4C64S UDP"
+      - "VLESS Reality Smux 1C256S TCP"
+      - "VLESS Reality Smux 1C256S UDP"
+      - "VLESS Reality Yamux 4C64S TCP"
+      - "VLESS Reality Yamux 4C64S UDP"
+      - "VLESS Reality Yamux 1C256S TCP"
+      - "VLESS Reality Yamux 1C256S UDP"
+      - "Trojan Reality TCP"
+      - "Trojan Reality UDP"
+      - "Trojan Reality Smux TCP"
+      - "Trojan Reality Smux UDP"
+      - "Trojan Reality Yamux TCP"
+      - "Trojan Reality Yamux UDP"
 
   - name: "国内延迟测试(xiaomi)"
     type: url-test
@@ -757,10 +1052,29 @@ proxy-groups:
       - "SS2022 Restls TLS13 TCP"
       - "SS2022 Restls TLS13 UDP"
       - "SS2022 Restls TLS12 TCP"
+      - "SS2022 Smux TCP"
+      - "SS2022 ShadowTLS Smux TCP"
+      - "SS2022 Restls TLS13 Smux TCP"
       - "AnyTLS TCP"
       - "AnyTLS UDP"
-      - "TrustTunnel TCP"
-      - "TrustTunnel UDP"
+      - "AnyTLS Smux TCP"
+      - "AnyTLS Smux UDP"
+      - "AnyTLS Yamux TCP"
+      - "AnyTLS Yamux UDP"
+      - "VLESS Reality Smux 4C64S TCP"
+      - "VLESS Reality Smux 4C64S UDP"
+      - "VLESS Reality Smux 1C256S TCP"
+      - "VLESS Reality Smux 1C256S UDP"
+      - "VLESS Reality Yamux 4C64S TCP"
+      - "VLESS Reality Yamux 4C64S UDP"
+      - "VLESS Reality Yamux 1C256S TCP"
+      - "VLESS Reality Yamux 1C256S UDP"
+      - "Trojan Reality TCP"
+      - "Trojan Reality UDP"
+      - "Trojan Reality Smux TCP"
+      - "Trojan Reality Smux UDP"
+      - "Trojan Reality Yamux TCP"
+      - "Trojan Reality Yamux UDP"
 
     url: "http://connect.rom.miui.com/generate_204"
     interval: 300
