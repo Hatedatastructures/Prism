@@ -275,6 +275,14 @@ namespace psm::stealth::restls
             co_await send_random_response(cmd_arg, resp_ec);
         }
 
+        // data_len=0 的空帧（ActNoop 心跳/stream close）：跳过，继续读下一个帧
+        if (data_len == 0)
+        {
+            trace::debug<flt::conn | flt::protocol>(
+                "restls read_frame: empty frame (data_len=0), skipping");
+            co_return co_await read_restls_frame(ec);
+        }
+
         trace::debug<flt::conn | flt::protocol>(
             "restls read_frame: data_len={}, cmd_type={}, cmd_arg={}, to_srv_ctr={}",
             data_len, cmd_type, cmd_arg, to_server_counter_);
