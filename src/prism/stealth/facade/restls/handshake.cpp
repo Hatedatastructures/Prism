@@ -89,7 +89,8 @@ namespace psm::stealth::restls
             std::shared_ptr<net::ip::tcp::socket> backend_sock,
             net::ip::tcp::socket &client_sock,
             std::span<const std::uint8_t> sr_mac,
-            memory::vector<std::byte> &first_encrypted_out)
+            memory::vector<std::byte> &first_encrypted_out,
+            std::atomic<bool> &client_finished_flag)
             -> net::awaitable<void>
         {
             bool first_app_data = true;
@@ -97,9 +98,18 @@ namespace psm::stealth::restls
 
             while (true)
             {
+                // 如果 clientFinished 已捕获，停止转发后端数据
+                // （避免 nvidia.com 发的 NewSessionTicket 被转发给客户端导致 restls authMac 失败）
+                if (client_finished_flag.load(std::memory_order_acquire))
+                    co_return;
+
                 std::error_code ec;
                 auto frame_opt = co_await common::read_tls_frame(*backend_sock, ec);
                 if (ec || !frame_opt)
+                    co_return;
+
+                // 读完后再次检查（NewSessionTicket 可能在 read 期间到达）
+                if (client_finished_flag.load(std::memory_order_acquire))
                     co_return;
 
                 auto &frame = *frame_opt;
@@ -107,7 +117,6 @@ namespace psm::stealth::restls
 
                 if (first_app_data && raw[0] == 0x17 && frame.size() > 5)
                 {
-                    // 只对 payload 前 hs_maclen 字节做 XOR（与 client 端 xorWithMac 行为一致）
                     const std::size_t payload_len = frame.size() - tls_hdrsize;
                     const std::size_t xor_len = std::min(hs_maclen, payload_len);
                     for (std::size_t i = 0; i < xor_len; ++i)
@@ -139,7 +148,8 @@ namespace psm::stealth::restls
         auto relay_client_to_backend(
             net::ip::tcp::socket &client_sock,
             std::shared_ptr<net::ip::tcp::socket> backend_sock,
-            memory::vector<std::byte> &client_finished_out)
+            memory::vector<std::byte> &client_finished_out,
+            std::atomic<bool> &client_finished_flag)
             -> net::awaitable<void>
         {
             bool first_app_data = true;
@@ -164,6 +174,9 @@ namespace psm::stealth::restls
                         *backend_sock,
                         net::buffer(frame.data(), frame.size()),
                         net::redirect_error(trace::use_prefix_awaitable, write_ec));
+
+                    // 设置 flag，通知 relay_backend_to_client 停止转发后端数据
+                    client_finished_flag.store(true, std::memory_order_release);
 
                     trace::debug<flt::conn | flt::protocol>(
                         "restls: clientFinished captured, payload_len={}", frame.size());
@@ -278,10 +291,11 @@ namespace psm::stealth::restls
         detail.script = script_engine(scheme_sv);
 
         // 9. 双工中继
+        auto client_finished_flag = std::make_shared<std::atomic<bool>>(false);
         using boost::asio::experimental::awaitable_operators::operator||;
         co_await (
-            relay_backend_to_client(backend_sock, client_sock, sr_mac, detail.first_encrypted) ||
-            relay_client_to_backend(client_sock, backend_sock, detail.client_finished));
+            relay_backend_to_client(backend_sock, client_sock, sr_mac, detail.first_encrypted, *client_finished_flag) ||
+            relay_client_to_backend(client_sock, backend_sock, detail.client_finished, *client_finished_flag));
 
         // 10. 关闭后端
         {

@@ -182,11 +182,12 @@ namespace psm::stealth::restls
         if (std::memcmp(payload, auth_mac.data(), appdata_maclen) != 0)
         {
             // 容错：SingMux 可能在 c.Write([]byte{}) 时隐含递增 restlsToServerCounter，
-            // 导致客户端 counter 和服务端 counter 产生 ±1 偏移。
-            // 尝试 counter±1 重新计算 authMac，如果匹配则修正 counter。
+            // 导致客户端/服务端 counter 产生偏移。
+            // 暴力搜索 counter（±5 范围），找到匹配值。
             bool recovered = false;
-            for (const auto delta : {std::int64_t{-1}, std::int64_t{+1}})
+            for (int delta = -5; delta <= 5; ++delta)
             {
+                if (delta == 0) continue;
                 const auto alt_counter = static_cast<std::uint64_t>(
                     static_cast<std::int64_t>(to_server_counter_) + delta);
                 auto alt_mac = compute_auth_mac(auth_mac_input{
@@ -213,7 +214,7 @@ namespace psm::stealth::restls
             if (!recovered)
             {
                 trace::warn<flt::conn | flt::protocol>(
-                    "restls read_frame: auth_mac mismatch: "
+                    "restls read_frame: auth_mac mismatch (±5 all failed): "
                     "got={:02x}{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}, "
                     "expected={:02x}{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}, "
                     "counter={}, payload_len={}, cf_size={}, sr[0..3]={:02x}{:02x}{:02x}{:02x}",
