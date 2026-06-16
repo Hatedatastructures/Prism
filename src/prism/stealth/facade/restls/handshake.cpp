@@ -95,11 +95,11 @@ namespace psm::stealth::restls
         {
             bool first_app_data = true;
             bool first_encrypted_captured = false;
+            int appdata_count = 0;  // CCS 后的 0x17 record 计数
 
             while (true)
             {
-                // 如果 clientFinished 已捕获，停止转发后端数据
-                // （避免 nvidia.com 发的 NewSessionTicket 被转发给客户端导致 restls authMac 失败）
+                // 双重保险：flag 检查 + 0x17 record 数量限制
                 if (client_finished_flag.load(std::memory_order_acquire))
                     co_return;
 
@@ -108,12 +108,28 @@ namespace psm::stealth::restls
                 if (ec || !frame_opt)
                     co_return;
 
-                // 读完后再次检查（NewSessionTicket 可能在 read 期间到达）
                 if (client_finished_flag.load(std::memory_order_acquire))
                     co_return;
 
                 auto &frame = *frame_opt;
                 auto *raw = reinterpret_cast<std::uint8_t *>(frame.data());
+
+                // 统计 CCS 之后的 0x17 record
+                if (raw[0] == 0x14)  // CCS
+                    appdata_count = 0;
+                else if (raw[0] == 0x17)
+                {
+                    ++appdata_count;
+                    // TLS 1.3 server handshake records: EE + Cert + CV + Finished = 最多 4 个
+                    // 第 5 个开始是 NewSessionTicket 等后端数据，不转发
+                    if (appdata_count > 4)
+                    {
+                        trace::debug<flt::conn | flt::protocol>(
+                            "restls: dropping backend record #{} (likely NewSessionTicket), payload_len={}",
+                            appdata_count, frame.size() - tls_hdrsize);
+                        continue;  // 读但丢弃，不转发
+                    }
+                }
 
                 if (first_app_data && raw[0] == 0x17 && frame.size() > 5)
                 {

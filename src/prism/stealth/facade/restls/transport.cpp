@@ -128,7 +128,7 @@ namespace psm::stealth::restls
     {
         ec.clear();
 
-        // 直接读 client→server 方向的下一个 TLS record（客户端握手后发的第一个 restls app data）
+        // 直接读 client→server 方向的下一个 TLS record
         auto &socket = raw_trans_->native_socket();
         auto frame_opt = co_await common::read_tls_frame(socket, ec);
         if (ec || !frame_opt)
@@ -213,19 +213,26 @@ namespace psm::stealth::restls
             }
             if (!recovered)
             {
+                // payload_len <= 30 是 TLS 1.3 加密 alert（close_notify = 2B+1B+16B=19B）
+                // 客户端收到后端 NewSessionTicket 后 restlsAuthed 解析失败 → 发 close_notify
+                // 不报错也不递归，直接返回 nullopt（EOF）
+                if (payload_len <= 30)
+                {
+                    trace::debug<flt::conn | flt::protocol>(
+                        "restls read_frame: ignoring likely TLS alert (payload_len={}), treating as EOF",
+                        payload_len);
+                    co_return std::nullopt;
+                }
                 trace::warn<flt::conn | flt::protocol>(
-                    "restls read_frame: auth_mac mismatch (±5 all failed): "
-                    "got={:02x}{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}, "
-                    "expected={:02x}{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}, "
-                    "counter={}, payload_len={}, cf_size={}, sr[0..3]={:02x}{:02x}{:02x}{:02x}",
-                    payload[0], payload[1], payload[2], payload[3], payload[4], payload[5], payload[6], payload[7],
-                    auth_mac[0], auth_mac[1], auth_mac[2], auth_mac[3], auth_mac[4], auth_mac[5], auth_mac[6], auth_mac[7],
-                    to_server_counter_, payload_len, cf_span.size(),
-                    server_random_[0], server_random_[1], server_random_[2], server_random_[3]);
+                    "restls read_frame: auth_mac mismatch: counter={}, payload_len={}",
+                    to_server_counter_, payload_len);
                 ec = std::make_error_code(std::errc::bad_message);
                 co_return std::nullopt;
             }
         }
+
+        // authMac 验证通过，重置跳过计数
+        skip_count_ = 0;
 
         auto mask = compute_mask(mask_input{
             .secret = std::span<const std::uint8_t, 32>(secret_),

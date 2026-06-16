@@ -132,6 +132,7 @@ namespace psm::stealth::restls
         std::uint64_t read_counter_{0};
         std::uint64_t write_counter_{0};
         bool first_write_{true};
+        int skip_count_{0};  // authMac 失败时跳过的帧计数
 
         // 写阻塞机制
         bool write_pending_{false};
