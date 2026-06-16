@@ -181,17 +181,49 @@ namespace psm::stealth::restls
 
         if (std::memcmp(payload, auth_mac.data(), appdata_maclen) != 0)
         {
-            trace::warn<flt::conn | flt::protocol>(
-                "restls read_frame: auth_mac mismatch: "
-                "got={:02x}{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}, "
-                "expected={:02x}{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}, "
-                "counter={}, payload_len={}, cf_size={}, sr[0..3]={:02x}{:02x}{:02x}{:02x}",
-                payload[0], payload[1], payload[2], payload[3], payload[4], payload[5], payload[6], payload[7],
-                auth_mac[0], auth_mac[1], auth_mac[2], auth_mac[3], auth_mac[4], auth_mac[5], auth_mac[6], auth_mac[7],
-                to_server_counter_, payload_len, cf_span.size(),
-                server_random_[0], server_random_[1], server_random_[2], server_random_[3]);
-            ec = std::make_error_code(std::errc::bad_message);
-            co_return std::nullopt;
+            // 容错：SingMux 可能在 c.Write([]byte{}) 时隐含递增 restlsToServerCounter，
+            // 导致客户端 counter 和服务端 counter 产生 ±1 偏移。
+            // 尝试 counter±1 重新计算 authMac，如果匹配则修正 counter。
+            bool recovered = false;
+            for (const auto delta : {std::int64_t{-1}, std::int64_t{+1}})
+            {
+                const auto alt_counter = static_cast<std::uint64_t>(
+                    static_cast<std::int64_t>(to_server_counter_) + delta);
+                auto alt_mac = compute_auth_mac(auth_mac_input{
+                    .secret = std::span<const std::uint8_t, 32>(secret_),
+                    .server_random = std::span<const std::uint8_t, 32>(server_random_),
+                    .direction = flow_direction::to_server,
+                    .counter = alt_counter,
+                    .client_finished = cf_span,
+                    .tls_header = tls_header_span,
+                    .payload_after_mac = std::span<const std::uint8_t>(
+                        payload + appdata_maclen, payload_len - appdata_maclen),
+                });
+                if (std::memcmp(payload, alt_mac.data(), appdata_maclen) == 0)
+                {
+                    trace::warn<flt::conn | flt::protocol>(
+                        "restls read_frame: counter corrected {}→{} (delta={:+d})",
+                        to_server_counter_, alt_counter, delta);
+                    to_server_counter_ = alt_counter;
+                    auth_mac = alt_mac;
+                    recovered = true;
+                    break;
+                }
+            }
+            if (!recovered)
+            {
+                trace::warn<flt::conn | flt::protocol>(
+                    "restls read_frame: auth_mac mismatch: "
+                    "got={:02x}{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}, "
+                    "expected={:02x}{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}, "
+                    "counter={}, payload_len={}, cf_size={}, sr[0..3]={:02x}{:02x}{:02x}{:02x}",
+                    payload[0], payload[1], payload[2], payload[3], payload[4], payload[5], payload[6], payload[7],
+                    auth_mac[0], auth_mac[1], auth_mac[2], auth_mac[3], auth_mac[4], auth_mac[5], auth_mac[6], auth_mac[7],
+                    to_server_counter_, payload_len, cf_span.size(),
+                    server_random_[0], server_random_[1], server_random_[2], server_random_[3]);
+                ec = std::make_error_code(std::errc::bad_message);
+                co_return std::nullopt;
+            }
         }
 
         auto mask = compute_mask(mask_input{
