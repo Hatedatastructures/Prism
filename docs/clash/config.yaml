@@ -200,14 +200,7 @@ proxies:
       max-conn: 1
 
 
-  # SOCKS5 代理
-  - name: "SOCKS5 UDP"
-    type: socks5
-    server: 127.0.0.1
-    port: 8081
-    udp: true
-
-  # 启用认证后无认证不可用，所以不单独测试无认证的情况了
+  # SOCKS5 代理（启用认证后无认证不可用，只测带认证）
   - name: "SOCKS5 UDP Cert"
     type: socks5
     server: 127.0.0.1
@@ -215,12 +208,6 @@ proxies:
     username: "admin"
     password: "prism"
     udp: true
-
-  - name: "SOCKS5 TCP"
-    type: socks5
-    server: 127.0.0.1
-    port: 8081
-    udp: false
 
   - name: "SOCKS5 TCP Cert"
     type: socks5
@@ -365,21 +352,6 @@ proxies:
       password: "restls_password"        # 认证密码: 与服务端 password 一致
       version-hint: "tls13"
       restls-script: "300?100<1,400~100,350~100,600~100,300~200,300~100"
-
-  # SS2022 + Restls TLS12 (使用 TLS 1.2 后端服务器)
-  # 注意: TLS12 版本需要不同的 restls-script
-  - name: "SS2022 Restls TLS12 TCP"
-    type: ss
-    server: 127.0.0.1
-    port: 8081
-    cipher: 2022-blake3-aes-128-gcm
-    password: "5n5ESu953i/pjIp02oZvHA=="
-    plugin: restls
-    plugin-opts:
-      host: "www.nvidia.com"             # SNI: 与服务端 server_names 一致
-      password: "restls_password"
-      version-hint: "tls12"
-      restls-script: "1000?100<1,500~100,350~100,600~100,400~200"
 
   # VLESS
   - name: "VLESS TCP"
@@ -957,9 +929,7 @@ proxy-groups:
       - "Yamux 4C64S UDP"
       - "Yamux 1C256S TCP"
       - "Yamux 1C256S UDP"
-      - "SOCKS5 TCP"
       - "SOCKS5 TCP Cert"
-      - "SOCKS5 UDP"
       - "SOCKS5 UDP Cert"
       - "Http"
       - "Https"
@@ -984,7 +954,6 @@ proxy-groups:
       - "Trojan ShadowTLS UDP"
       - "SS2022 Restls TLS13 TCP"
       - "SS2022 Restls TLS13 UDP"
-      - "SS2022 Restls TLS12 TCP"
       - "SS2022 Smux TCP"
       - "SS2022 ShadowTLS Smux TCP"
       - "SS2022 Restls TLS13 Smux TCP"
@@ -1024,9 +993,7 @@ proxy-groups:
       - "Yamux 4C64S UDP"
       - "Yamux 1C256S TCP"
       - "Yamux 1C256S UDP"
-      - "SOCKS5 TCP"
       - "SOCKS5 TCP Cert"
-      - "SOCKS5 UDP"
       - "SOCKS5 UDP Cert"
       - "Http"
       - "Https"
@@ -1051,7 +1018,6 @@ proxy-groups:
       - "Trojan ShadowTLS UDP"
       - "SS2022 Restls TLS13 TCP"
       - "SS2022 Restls TLS13 UDP"
-      - "SS2022 Restls TLS12 TCP"
       - "SS2022 Smux TCP"
       - "SS2022 ShadowTLS Smux TCP"
       - "SS2022 Restls TLS13 Smux TCP"

@@ -1,6 +1,8 @@
 #include <prism/proto/protocol/shadowsocks/process.hpp>
 #include <prism/config/config.hpp>
+#include <prism/net/connect/util.hpp>
 #include <prism/net/connect/tunnel/forward.hpp>
+#include <prism/proto/multiplex/bootstrap.hpp>
 #include <prism/proto/protocol/shadowsocks/conn.hpp>
 #include <prism/trace/spdlog.hpp>
 #include <prism/net/transport/preview.hpp>
@@ -47,6 +49,26 @@ namespace psm::protocol::shadowsocks
         if (fault::failed(ack_ec))
         {
             trace::warn<flt::conn | flt::protocol>("acknowledge failed: {}", fault::describe(ack_ec));
+            co_return;
+        }
+
+        // mux 检测：如果目标是 sing-mux 标记地址，交给 mux bootstrap 接管
+        auto mux_sw = psm::connect::mux_switch::off;
+        if (ctx.server_ctx.config().mux.enabled)
+            mux_sw = psm::connect::mux_switch::on;
+        if (psm::connect::is_mux(agent->target().host, mux_sw))
+        {
+            trace::info<flt::conn | flt::protocol>("mux session started");
+            auto muxprotocol = co_await multiplex::bootstrap(
+                multiplex::bootstrap_context{
+                    .transport = std::static_pointer_cast<transport::transmission>(agent),
+                    .router = ctx.worker_ctx.router,
+                    .cfg = ctx.server_ctx.config().mux,
+                    .traffic = ctx.worker_ctx.traffic,
+                    .proto = ctx.detected_protocol,
+                });
+            if (muxprotocol)
+                muxprotocol->start();
             co_return;
         }
 
