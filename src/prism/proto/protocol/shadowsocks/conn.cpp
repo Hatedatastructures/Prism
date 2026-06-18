@@ -299,6 +299,12 @@ namespace psm::protocol::shadowsocks
         }
 
         // 加密空初始 payload（SIP022 要求固定头后必须跟一个 AEAD 块）
+        // 客户端 readResponse 流程：
+        //   1) ReadFixedBuffer(27) 读 43B = seal(fixed_header 27B plain)
+        //   2) binary.Read(reader, &length) 从 fixed_header buffer 末尾读 2B（padding length）
+        //   3) ReadFixedBuffer(int(length)) 读 length+16B
+        //      length=0 时：读 0+16=16B = seal(0B plain)
+        // 总：16(salt) + 43 + 16 = 75B
         static_assert(aead_tag_len == 16);
         std::array<std::uint8_t, aead_tag_len> empty_payload_enc{};
         if (const auto r = encrypt_ctx_->seal(empty_payload_enc, {});
@@ -549,7 +555,8 @@ namespace psm::protocol::shadowsocks
         ec.clear();
         const auto chunk_len = std::min(data.size(), static_cast<std::size_t>(max_chunk_size));
 
-        trace::debug<flt::conn | flt::protocol>("send_chunk: chunk_len={}, data_size={}", chunk_len, data.size());
+        trace::debug<flt::conn | flt::protocol>("send_chunk: chunk_len={}, data_size={}, conn={}",
+            chunk_len, data.size(), reinterpret_cast<void*>(this));
 
         // 加密长度块
         std::array len_plain{

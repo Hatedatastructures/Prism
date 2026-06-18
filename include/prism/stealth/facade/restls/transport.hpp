@@ -21,6 +21,7 @@
 #include <boost/asio.hpp>
 
 #include <array>
+#include <atomic>
 #include <cstdint>
 #include <memory>
 #include <optional>
@@ -112,12 +113,20 @@ namespace psm::stealth::restls
             -> net::awaitable<std::optional<memory::vector<std::byte>>>;
 
         /// 写入一个 Restls 应用数据记录（封装为 TLS ApplicationData record）
-        [[nodiscard]] auto write_restls_frame(std::span<const std::byte> data, std::error_code &ec)
+        /// @param force_noop 强制 cmd=ActNoop（用于 random-response，避免误触发 client 回 random-response）
+        [[nodiscard]] auto write_restls_frame(std::span<const std::byte> data, std::error_code &ec, bool force_noop = false)
             -> net::awaitable<std::size_t>;
 
         /// 发送随机响应帧
         [[nodiscard]] auto send_random_response(std::uint8_t count, std::error_code &ec)
             -> net::awaitable<void>;
+
+        /// 获取 s→c write 互斥锁（协程级 mutex）
+        /// write_restls_frame 入口 acquire，co_return 时由 write_lock_guard RAII 释放
+        [[nodiscard]] auto acquire_write_lock() -> net::awaitable<void>;
+
+        /// 释放 s→c write 互斥锁
+        void release_write_lock() noexcept;
 
         std::shared_ptr<transport::reliable> raw_trans_;
         std::array<std::uint8_t, 32> secret_;
@@ -137,6 +146,13 @@ namespace psm::stealth::restls
         // 写阻塞机制
         bool write_pending_{false};
         net::steady_timer write_waiter_;
+
+        // s→c write 互斥锁：read 路径(send_random_response)和 write 路径(send_loop)
+        // 都会调 write_restls_frame，两者交错会导致 counter 与 TCP 发送顺序不一致，
+        // client authMac 验证失败。此锁保证 write_restls_frame 从读 counter 到
+        // co_await async_write 到 ++counter 整个过程串行。
+        std::atomic<bool> write_busy_{false};
+        net::steady_timer write_signal_;
 
         // 预读缓冲区
         memory::vector<std::byte> pending_buffer_;

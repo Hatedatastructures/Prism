@@ -87,6 +87,11 @@ namespace psm::stealth::restls
             result.detected = protocol::protocol_type::tls;
             result.error = hs_result.error;
             result.polluted = hs_result.polluted;
+            // 关键：socket 所有权已从 ctx.inbound 转移到 raw_trans，
+            // 必须把 raw_trans 交给 result.transport，否则 pass_through 会保留
+            // 旧的 ctx.inbound（socket_ 已被 release 走），下一个 scheme 调
+            // native_socket() 触发 assert(socket_.has_value()) 崩溃。
+            result.transport = raw_trans;
             trace::debug<flt::conn | flt::protocol>("handshake failed, pass to next scheme");
             co_return result;
         }
@@ -94,7 +99,12 @@ namespace psm::stealth::restls
         trace::debug<flt::conn | flt::protocol>(
             "handshake succeeded, tls13={}", detail.version == tls_version::v13);
 
-        // 从 restls_transport 预读内层数据，识别内层协议
+        // 从 restls_transport 预读内层数据（SS2022 加密流），无需做 TLS 识别
+        // 早期实现调 detect_tls 试图区分内层协议，但 SS2022 salt 是随机的 16B，
+        // 偶然匹配 TLS record header 字节模式（0x17 0x03 0x03 ...）会被误判为 tls，
+        // 触发 Scheme 'restls' returned TLS → identify failed: not_supported
+        // 实测命中率约 57%，导致成功率从 100% 跌到 ~40%
+        // restls 内层只可能是 shadowsocks（协议设计如此），强制 fallback
         std::array<std::byte, 128> inner_buf{};
         std::size_t inner_n = 0;
         constexpr std::size_t min_probe = 32;
@@ -111,18 +121,9 @@ namespace psm::stealth::restls
                 break;
             }
             inner_n += n;
-
-            auto inner_view = std::string_view(
-                reinterpret_cast<const char *>(inner_buf.data()), inner_n);
-            auto detected = recognition::probe::detect_tls(inner_view);
-            if (detected != protocol::protocol_type::unknown)
-            {
-                result.detected = detected;
-                break;
-            }
         }
 
-        if (result.detected == protocol::protocol_type::unknown && inner_n >= 32)
+        if (inner_n >= 32)
         {
             result.detected = protocol::protocol_type::shadowsocks;
             trace::debug<flt::conn | flt::protocol>(

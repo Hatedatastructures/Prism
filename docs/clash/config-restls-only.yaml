@@ -3,69 +3,191 @@ allow-lan: true
 bind-address: '*'
 mode: rule
 log-level: info
-external-controller: 127.0.0.1:9090
-global-client-fingerprint: none
+external-controller: '127.0.0.1:9090'
 
 proxies:
-  - name: "SS2022 Restls TLS13 TCP"
+  # ====== SS2022 + Restls TLS13 + Chrome 指纹 ======
+  # 上游：www.apple.com（Apple CDN，全球边缘节点，国内访问 ~20ms RTT）
+  - name: "SS2022-Restls-Chrome-TCP"
     type: ss
     server: 127.0.0.1
     port: 8081
     cipher: 2022-blake3-aes-128-gcm
     password: "5n5ESu953i/pjIp02oZvHA=="
+    client-fingerprint: chrome
     plugin: restls
     plugin-opts:
-      host: "www.nvidia.com"
+      host: "www.apple.com"
       password: "restls_password"
       version-hint: "tls13"
+      skip-cert-verify: true
       restls-script: "300?100<1,400~100,350~100,600~100,300~200,300~100"
 
-  - name: "SS2022 Restls TLS13 UDP"
+  - name: "SS2022-Restls-Chrome-UDP"
     type: ss
     server: 127.0.0.1
     port: 8081
     cipher: 2022-blake3-aes-128-gcm
     password: "5n5ESu953i/pjIp02oZvHA=="
+    client-fingerprint: chrome
     plugin: restls
     plugin-opts:
-      host: "www.nvidia.com"
+      host: "www.apple.com"
       password: "restls_password"
       version-hint: "tls13"
+      skip-cert-verify: true
       restls-script: "300?100<1,400~100,350~100,600~100,300~200,300~100"
 
-  - name: "SS2022 Restls TLS13 Smux TCP"
+  - name: "SS2022-Restls-Chrome-Smux"
     type: ss
     server: 127.0.0.1
     port: 8081
     cipher: 2022-blake3-aes-128-gcm
     password: "5n5ESu953i/pjIp02oZvHA=="
+    client-fingerprint: chrome
     plugin: restls
     plugin-opts:
-      host: "www.nvidia.com"
+      host: "www.apple.com"
       password: "restls_password"
       version-hint: "tls13"
+      skip-cert-verify: true
       restls-script: "300?100<1,400~100,350~100,600~100,300~200,300~100"
     smux:
       enabled: true
       protocol: smux
       only-tcp: true
 
+  # ====== SS2022 + Restls TLS13 + Firefox 指纹 ======
+  - name: "SS2022-Restls-Firefox-TCP"
+    type: ss
+    server: 127.0.0.1
+    port: 8081
+    cipher: 2022-blake3-aes-128-gcm
+    password: "5n5ESu953i/pjIp02oZvHA=="
+    client-fingerprint: firefox
+    plugin: restls
+    plugin-opts:
+      host: "www.apple.com"
+      password: "restls_password"
+      version-hint: "tls13"
+      skip-cert-verify: true
+      restls-script: "300?100<1,400~100,350~100,600~100,300~200,300~100"
+
+  # ====== SS2022 + Restls TLS13 + Safari 指纹 ======
+  - name: "SS2022-Restls-Safari-TCP"
+    type: ss
+    server: 127.0.0.1
+    port: 8081
+    cipher: 2022-blake3-aes-128-gcm
+    password: "5n5ESu953i/pjIp02oZvHA=="
+    client-fingerprint: safari
+    plugin: restls
+    plugin-opts:
+      host: "www.apple.com"
+      password: "restls_password"
+      version-hint: "tls13"
+      skip-cert-verify: true
+      restls-script: "300?100<1,400~100,350~100,600~100,300~200,300~100"
+
+  # ====== SS2022 + Restls TLS13 + iOS 指纹 ======
+  - name: "SS2022-Restls-IOS-TCP"
+    type: ss
+    server: 127.0.0.1
+    port: 8081
+    cipher: 2022-blake3-aes-128-gcm
+    password: "5n5ESu953i/pjIp02oZvHA=="
+    client-fingerprint: ios
+    plugin: restls
+    plugin-opts:
+      host: "www.apple.com"
+      password: "restls_password"
+      version-hint: "tls13"
+      skip-cert-verify: true
+      restls-script: "300?100<1,400~100,350~100,600~100,300~200,300~100"
+
+  # ====== SS2022 + Restls TLS13 + Random 指纹 ======
+  - name: "SS2022-Restls-Random-TCP"
+    type: ss
+    server: 127.0.0.1
+    port: 8081
+    cipher: 2022-blake3-aes-128-gcm
+    password: "5n5ESu953i/pjIp02oZvHA=="
+    client-fingerprint: random
+    plugin: restls
+    plugin-opts:
+      host: "www.apple.com"
+      password: "restls_password"
+      version-hint: "tls13"
+      skip-cert-verify: true
+      restls-script: "300?100<1,400~100,350~100,600~100,300~200,300~100"
+
+  # ====== SS2022 + Restls TLS13 + 无指纹（对照组）======
+  - name: "SS2022-Restls-NoFP-TCP"
+    type: ss
+    server: 127.0.0.1
+    port: 8081
+    cipher: 2022-blake3-aes-128-gcm
+    password: "5n5ESu953i/pjIp02oZvHA=="
+    plugin: restls
+    plugin-opts:
+      host: "www.apple.com"
+      password: "restls_password"
+      version-hint: "tls13"
+      skip-cert-verify: true
+      restls-script: "300?100<1,400~100,350~100,600~100,300~200,300~100"
+
 proxy-groups:
   - name: "Restls-Test"
     type: select
     proxies:
-      - "SS2022 Restls TLS13 TCP"
-      - "SS2022 Restls TLS13 UDP"
-      - "SS2022 Restls TLS13 Smux TCP"
+      - "SS2022-Restls-Chrome-TCP"
+      - "SS2022-Restls-Chrome-UDP"
+      - "SS2022-Restls-Chrome-Smux"
+      - "SS2022-Restls-Firefox-TCP"
+      - "SS2022-Restls-Safari-TCP"
+      - "SS2022-Restls-IOS-TCP"
+      - "SS2022-Restls-Random-TCP"
+      - "SS2022-Restls-NoFP-TCP"
 
   - name: "Restls-Auto"
     type: url-test
+    lazy: true
     proxies:
-      - "SS2022 Restls TLS13 TCP"
-      - "SS2022 Restls TLS13 UDP"
-      - "SS2022 Restls TLS13 Smux TCP"
+      - "SS2022-Restls-Chrome-TCP"
+      - "SS2022-Restls-Chrome-UDP"
+      - "SS2022-Restls-Chrome-Smux"
+      - "SS2022-Restls-Firefox-TCP"
+      - "SS2022-Restls-Safari-TCP"
+      - "SS2022-Restls-IOS-TCP"
+      - "SS2022-Restls-Random-TCP"
+      - "SS2022-Restls-NoFP-TCP"
     url: "http://connect.rom.miui.com/generate_204"
-    interval: 300
+    interval: 600
+    timeout: 5
+    tolerance: 100
 
 rules:
+  # ===== Google 类直连（服务器端不可达，避免占用代理资源） =====
+  - 'DOMAIN-SUFFIX,googleapis.com,DIRECT'
+  - 'DOMAIN-SUFFIX,google.com,DIRECT'
+  - 'DOMAIN-SUFFIX,google.com.hk,DIRECT'
+  - 'DOMAIN-SUFFIX,gstatic.com,DIRECT'
+  - 'DOMAIN-SUFFIX,googleusercontent.com,DIRECT'
+  - 'DOMAIN-SUFFIX,googlevideo.com,DIRECT'
+  - 'DOMAIN-SUFFIX,google-analytics.com,DIRECT'
+  - 'DOMAIN-SUFFIX,doubleclick.net,DIRECT'
+  - 'DOMAIN-SUFFIX,googletagmanager.com,DIRECT'
+  - 'DOMAIN-SUFFIX,googlesyndication.com,DIRECT'
+  - 'DOMAIN-SUFFIX,ggpht.com,DIRECT'
+  - 'DOMAIN-SUFFIX,youtube.com,DIRECT'
+  - 'DOMAIN-SUFFIX,ytimg.com,DIRECT'
+  # Google IP 段（GFE / Google Front End）
+  - 'IP-CIDR,216.239.32.0/19,DIRECT,no-resolve'
+  - 'IP-CIDR,142.250.0.0/15,DIRECT,no-resolve'
+  - 'IP-CIDR,172.217.0.0/16,DIRECT,no-resolve'
+  - 'IP-CIDR,142.250.0.0/15,DIRECT,no-resolve'
+  # 其他常见 IPv6-only 站点（如 DeepSeek CDN 走华为云 WAF）→ 直连避免代理失败
+  - 'DOMAIN-SUFFIX,deepseek.com,DIRECT'
+  - 'DOMAIN-SUFFIX,huaweicloudwaf.com,DIRECT'
+  # 其他
   - 'MATCH,Restls-Test'

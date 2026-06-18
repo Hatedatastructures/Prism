@@ -113,8 +113,8 @@
             "handshake_timeout_ms": 5000
         },
         "restls": {
-            "server_names": ["www.nvidia.com"],
-            "host": "www.nvidia.com:443",
+            "server_names": ["www.apple.com"],
+            "host": "www.apple.com:443",
             "password": "restls_password",
             "version_hint": "tls13",
             "restls_script": "300?100<1,400~100,350~100,600~100,300~200,300~100",

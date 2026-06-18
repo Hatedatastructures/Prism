@@ -17,6 +17,7 @@
 #include <prism/trace/trace.hpp>
 
 #include <algorithm>
+#include <cstdlib>
 #include <cstring>
 
 using namespace psm::trace;
@@ -34,6 +35,26 @@ namespace psm::stealth::restls
                 dst[i] ^= mask[i % mask.size()];
         }
 
+        /// 将字节序列格式化为 hex 字符串（仅 debug 用）
+        inline auto to_hex_string(const std::uint8_t *data, std::size_t len) -> memory::string
+        {
+            static constexpr auto hexd = "0123456789abcdef";
+            memory::string s;
+            s.reserve(len * 2);
+            for (std::size_t i = 0; i < len; ++i)
+            {
+                s.push_back(hexd[data[i] >> 4]);
+                s.push_back(hexd[data[i] & 0xf]);
+            }
+            return s;
+        }
+
+        /// 判断是否启用 restls debug 日志
+        inline auto restls_debug_enabled() noexcept -> bool
+        {
+            return std::getenv("PRISM_RESTLS_DEBUG") != nullptr;
+        }
+
     } // namespace
 
 
@@ -46,11 +67,27 @@ namespace psm::stealth::restls
           script_(std::move(handover.script)),
           tls_version_(handover.version),
           client_finished_(std::move(handover.client_finished)),
-          write_waiter_(raw_trans_->executor())
+          write_waiter_(raw_trans_->executor()),
+          write_signal_(raw_trans_->executor())
     {
         std::memcpy(secret_.data(), handover.secret.data(), 32);
         std::memcpy(server_random_.data(), handover.server_random.data(), 32);
         write_waiter_.expires_at(std::chrono::steady_clock::time_point::max());
+        write_signal_.expires_at(std::chrono::steady_clock::time_point::max());
+
+        // DEBUG: dump 连接级密钥参数（受环境变量 PRISM_RESTLS_DEBUG 控制，仅构造时一次）
+        if (restls_debug_enabled())
+        {
+            const auto secret_hex = to_hex_string(secret_.data(), secret_.size());
+            const auto sr_hex = to_hex_string(server_random_.data(), server_random_.size());
+            const auto cf_hex = to_hex_string(
+                reinterpret_cast<const std::uint8_t *>(client_finished_.data()),
+                client_finished_.size());
+            trace::info<flt::conn | flt::protocol>(
+                "[DBG] restls_transport init: secret={} server_random={} client_finished_len={} "
+                "client_finished_hex={}",
+                secret_hex, sr_hex, client_finished_.size(), cf_hex);
+        }
     }
 
 
@@ -215,12 +252,14 @@ namespace psm::stealth::restls
             {
                 // payload_len <= 30 是 TLS 1.3 加密 alert（close_notify = 2B+1B+16B=19B）
                 // 客户端收到后端 NewSessionTicket 后 restlsAuthed 解析失败 → 发 close_notify
-                // 不报错也不递归，直接返回 nullopt（EOF）
+                // 必须设 ec，否则 async_read_some 返回 0+ec=clear，async_read 当作
+                // 部分读取成功，SS2022 fetch_chunk 用不完整 18B 做 AEAD open → protocol_error
                 if (payload_len <= 30)
                 {
                     trace::debug<flt::conn | flt::protocol>(
-                        "restls read_frame: ignoring likely TLS alert (payload_len={}), treating as EOF",
+                        "restls read_frame: client sent close_notify (payload_len={}), closing",
                         payload_len);
+                    ec = std::make_error_code(std::errc::connection_aborted);
                     co_return std::nullopt;
                 }
                 trace::warn<flt::conn | flt::protocol>(
@@ -234,14 +273,31 @@ namespace psm::stealth::restls
         // authMac 验证通过，重置跳过计数
         skip_count_ = 0;
 
+        const auto c2s_sample_len = std::min<std::size_t>(32, payload_len - appdata_offset);
         auto mask = compute_mask(mask_input{
             .secret = std::span<const std::uint8_t, 32>(secret_),
             .server_random = std::span<const std::uint8_t, 32>(server_random_),
             .direction = flow_direction::to_server,
             .counter = to_server_counter_,
             .plaintext_sample = std::span<const std::uint8_t>(payload + appdata_offset,
-                std::min<std::size_t>(32, payload_len - appdata_offset)),
+                c2s_sample_len),
         });
+
+        // DEBUG: dump c→s mask 输入/输出
+        if (restls_debug_enabled())
+        {
+            const auto sample_hex = to_hex_string(payload + appdata_offset, c2s_sample_len);
+            const auto mask_hex = to_hex_string(mask.data(), mask.size());
+            const auto pload_hex = to_hex_string(payload + appdata_maclen, payload_len - appdata_maclen);
+            const auto cf_hex_part = cf_span.empty()
+                ? memory::string("(none)")
+                : to_hex_string(cf_span.data(), cf_span.size());
+            trace::info<flt::conn | flt::protocol>(
+                "[DBG] c2s verify: ctr={} cf_len={} cf_hex={} "
+                "tls_hdr={} pload_after_mac={} sample_hex={} mask_hex={}",
+                to_server_counter_, cf_span.size(), cf_hex_part,
+                to_hex_string(record, tls_hdrsize), pload_hex, sample_hex, mask_hex);
+        }
 
         xor_len_cmd(payload + appdata_lenoff, mask);
 
@@ -284,22 +340,75 @@ namespace psm::stealth::restls
         }
 
         trace::debug<flt::conn | flt::protocol>(
-            "restls read_frame: data_len={}, cmd_type={}, cmd_arg={}, to_srv_ctr={}",
-            data_len, cmd_type, cmd_arg, to_server_counter_);
+            "restls read_frame: data_len={}, cmd_type={}, cmd_arg={}, to_srv_ctr={}, transport={}",
+            data_len, cmd_type, cmd_arg, to_server_counter_,
+            reinterpret_cast<void*>(this));
 
         co_return data;
     }
 
 
-    auto restls_transport::write_restls_frame(std::span<const std::byte> data, std::error_code &ec)
+    auto restls_transport::acquire_write_lock() -> net::awaitable<void>
+    {
+        // CAS 自旋：成功交换为 true 表示获得锁；否则等待 write_signal_ 被唤醒后重试
+        while (write_busy_.exchange(true, std::memory_order_acq_rel))
+        {
+            write_signal_.expires_at(std::chrono::steady_clock::time_point::max());
+            boost::system::error_code wait_ec;
+            co_await write_signal_.async_wait(
+                net::redirect_error(trace::use_prefix_awaitable, wait_ec));
+            // wait_ec 无论成功还是 aborted 都无所谓，循环再次尝试 CAS
+        }
+        co_return;
+    }
+
+
+    void restls_transport::release_write_lock() noexcept
+    {
+        write_busy_.store(false, std::memory_order_release);
+        // 唤醒所有等待者（cancel 让 async_wait 返回 aborted，等待者循环重试 CAS）
+        write_signal_.cancel();
+        write_signal_.expires_at(std::chrono::steady_clock::time_point::max());
+    }
+
+
+    auto restls_transport::write_restls_frame(std::span<const std::byte> data, std::error_code &ec, bool /*force_noop*/)
         -> net::awaitable<std::size_t>
     {
         ec.clear();
 
+        // 互斥：保证 read 路径（send_random_response）和 write 路径（send_loop）
+        // 不会同时进入 write_restls_frame，避免 counter 与 TCP 发送顺序不一致。
+        co_await acquire_write_lock();
+
+        // RAII 释放：协程帧销毁时（co_return 后）析构，自动 release
+        struct write_lock_guard
+        {
+            restls_transport *self;
+            explicit write_lock_guard(restls_transport *s) noexcept : self(s) {}
+            ~write_lock_guard() noexcept { if (self) self->release_write_lock(); }
+            write_lock_guard(const write_lock_guard &) = delete;
+            auto operator=(const write_lock_guard &) = delete;
+        };
+        write_lock_guard guard{this};
+
         auto alloc = script_.allocate(write_counter_, data.size());
 
         const auto data_len = data.size();
-        const auto padding_len = (alloc.data_len > data_len) ? (alloc.data_len - data_len) : 0;
+        // 空 data 帧（random-response）：必须使用 script 算的 padding（19-118B），
+        // 否则 client 认为协议异常，立即发 TLS alert 关闭连接，
+        // 导致后续 SS2022 handshake 读不到数据 → decrypt variable header failed
+        // 非空 data 帧：padding=0（client 不验证 padding 长度，且 padding>0 实测会触发 alert）
+        std::size_t padding_len;
+        if (data_len == 0)
+        {
+            padding_len = static_cast<std::size_t>(
+                std::max<std::int16_t>(0, alloc.padding_len));
+        }
+        else
+        {
+            padding_len = (alloc.data_len > data_len) ? (alloc.data_len - data_len) : 0;
+        }
         const auto payload_size = auth_hdrlen + data_len + padding_len;
 
         memory::vector<std::uint8_t> record(tls_hdrsize + payload_size, memory::current_resource());
@@ -335,14 +444,26 @@ namespace psm::stealth::restls
             std::memset(payload + appdata_offset + data_len, 0, padding_len);
 
         // 计算 mask（基于明文 data 区域）
+        const auto plaintext_sample_len = std::min<std::size_t>(32, payload_size - appdata_offset);
         auto mask = compute_mask(mask_input{
             .secret = std::span<const std::uint8_t, 32>(secret_),
             .server_random = std::span<const std::uint8_t, 32>(server_random_),
             .direction = flow_direction::to_client,
             .counter = to_client_counter_,
             .plaintext_sample = std::span<const std::uint8_t>(payload + appdata_offset,
-                std::min<std::size_t>(32, payload_size - appdata_offset)),
+                plaintext_sample_len),
         });
+
+        // DEBUG: dump mask 计算输入（受环境变量 PRISM_RESTLS_DEBUG 控制）
+        if (restls_debug_enabled())
+        {
+            const auto sample_hex = to_hex_string(payload + appdata_offset, plaintext_sample_len);
+            const auto mask_hex = to_hex_string(mask.data(), mask.size());
+            trace::info<flt::conn | flt::protocol>(
+                "[DBG] s2c mask: ctr={} sample_len={} sample_hex={} mask={}",
+                to_client_counter_, plaintext_sample_len,
+                sample_hex, mask_hex);
+        }
 
         xor_len_cmd(payload + appdata_lenoff, mask);
 
@@ -359,6 +480,18 @@ namespace psm::stealth::restls
         });
 
         std::memcpy(payload, auth_mac.data(), appdata_maclen);
+
+        // DEBUG: dump 完整 frame bytes + authMac 输入
+        if (restls_debug_enabled())
+        {
+            const auto frame_hex = to_hex_string(record_data, record.size());
+            const auto pload_hex = to_hex_string(payload + appdata_maclen, payload_size - appdata_maclen);
+            trace::info<flt::conn | flt::protocol>(
+                "[DBG] s2c frame: ctr={} data_len={} padding={} payload_size={} "
+                "pload_after_mac={} frame_hex={}",
+                to_client_counter_, data_len, padding_len, payload_size,
+                pload_hex, frame_hex);
+        }
 
         // 通过 reliable transport 写入完整 TLS record
         auto written = co_await transport::async_write(
@@ -380,8 +513,9 @@ namespace psm::stealth::restls
             write_pending_ = true;
 
         trace::debug<flt::conn | flt::protocol>(
-            "restls write_frame: data_len={}, payload={}, to_cli_ctr={}, blocking={}",
-            data_len, payload_size, to_client_counter_, alloc.write_blocking);
+            "restls write_frame: data_len={}, payload={}, to_cli_ctr={}, blocking={}, transport={}",
+            data_len, payload_size, to_client_counter_, alloc.write_blocking,
+            reinterpret_cast<void*>(this));
 
         co_return data_len;
     }
@@ -391,13 +525,14 @@ namespace psm::stealth::restls
         -> net::awaitable<void>
     {
         ec.clear();
+        // 协议要求：random-response 帧的 data 必须为空，仅 padding。
+        // 客户端收到 dataLen=0 时会在 readRecordOrCCS 中 retryReadRecord 丢弃该帧，
+        // 不污染上层 SS2022 流。若写 magic 字符串作为 data，会被 SS2022 当作
+        // salt/header 读取，导致 AEAD message authentication failed。
+        // 参考 restls-client-go conn.go:1461 fakeResponse 把 dataNew 设为空 []byte{}。
         for (std::uint8_t i = 0; i < count; ++i)
         {
-            memory::vector<std::byte> randresp(randresp_magic.size(), memory::current_resource());
-            std::memcpy(randresp.data(),
-                        reinterpret_cast<const std::byte *>(randresp_magic.data()),
-                        randresp_magic.size());
-            co_await write_restls_frame(randresp, ec);
+            co_await write_restls_frame({}, ec);
             if (ec)
                 co_return;
         }
