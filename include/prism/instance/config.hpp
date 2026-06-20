@@ -13,6 +13,8 @@
 #include <prism/proto/protocol/socks5/config.hpp>
 #include <prism/proto/protocol/trojan/config.hpp>
 #include <prism/proto/protocol/vless/config.hpp>
+#include <prism/net/transport/pad.hpp>
+#include <prism/stealth/tracker.hpp>
 #include <prism/stealth/stack/anytls/config.hpp>
 #include <prism/stealth/facade/native/config.hpp>
 #include <prism/stealth/facade/reality/config.hpp>
@@ -163,6 +165,8 @@ namespace psm::instance
             psm::stealth::anytls::config anytls;
             psm::stealth::trusttunnel::config trusttunnel;
             psm::stealth::native::config native_tls;
+            psm::transport::pad_config pad;
+            psm::stealth::probe_defense_config probe;
         };
     }
 

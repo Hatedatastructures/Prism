@@ -2,6 +2,7 @@
 
 #include <prism/net/connect/util.hpp>
 #include <prism/context/context.hpp>
+#include <prism/stealth/tracker.hpp>
 #include <prism/stealth/recognition/probe/analyzer.hpp>
 #include <prism/trace/trace.hpp>
 #include <prism/net/transport/preview.hpp>
@@ -175,6 +176,42 @@ namespace psm::stealth
 
             if (fault::failed(exec_result.error))
             {
+                // RFC-065: 认证失败时记录探测行为
+                if (tracker_ && !exec_result.polluted)
+                {
+                    address_hash src_ip;
+                    std::memcpy(src_ip.bytes.data(), ctx.src_ip_raw.data(), 16);
+                    tracker_->record(src_ip, scheme->tier());
+
+                    // 探测次数达到阈值时触发挑战-响应
+                    if (tracker_->should_challenge(src_ip))
+                    {
+                        trace::debug<flt::conn | flt::protocol>(
+                            "triggering challenge for scheme '{}'", name);
+                        auto ch_result = co_await scheme->challenge(handshake_context{ctx});
+                        if (ch_result.triggered && ch_result.success)
+                        {
+                            trace::debug<flt::conn | flt::protocol>(
+                                "challenge passed, retrying handshake");
+                            tracker_->reset(src_ip);
+                            exec_result = co_await execute_single(scheme, handshake_context{ctx});
+                            if (exec_result.transport && !fault::failed(exec_result.error))
+                            {
+                                if (!exec_result.preread.empty())
+                                    exec_result.detected = secondary_probe(exec_result.preread);
+                                trace::debug<flt::conn | flt::protocol>(
+                                    "Facade scheme '{}' succeeded after challenge", name);
+                                co_return exec_result;
+                            }
+                        }
+                        else if (ch_result.triggered)
+                        {
+                            trace::warn<flt::conn | flt::protocol>(
+                                "challenge failed for scheme '{}'", name);
+                        }
+                    }
+                }
+
                 rewind_mode rw_mode;
                 if (exec_result.polluted)
                 {

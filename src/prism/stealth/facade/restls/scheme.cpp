@@ -51,32 +51,11 @@ namespace psm::stealth::restls
     {
         stealth::handshake_result result;
 
-        // 释放 raw TCP socket（去掉 inbound 上层包装）
-        auto *rel = ctx.inbound->lowest_layer<transport::reliable>();
-        if (!rel)
-        {
-            trace::debug<flt::conn | flt::protocol>("restls: cannot access reliable transport");
-            result.detected = protocol::protocol_type::tls;
-            result.transport = std::move(ctx.inbound);
-            co_return result;
-        }
-
-        auto raw_socket_opt = rel->release_socket();
-        if (!raw_socket_opt)
-        {
-            trace::warn<flt::conn | flt::protocol>("restls: cannot release socket");
-            result.detected = protocol::protocol_type::tls;
-            result.transport = std::move(ctx.inbound);
-            co_return result;
-        }
-
-        auto raw_trans = std::make_shared<transport::reliable>(std::move(*raw_socket_opt));
-
         // 执行 Restls 握手（中间人代理模式：转发 ClientHello 到真实 TLS 后端）
         handshake_detail detail;
         auto hs_result = co_await restls::handshake(
             restls::handshake_opts{
-                .raw_trans = raw_trans,
+                .raw_trans = ctx.inbound,
                 .cfg = ctx.cfg->stealth.restls,
                 .client_hello = std::move(ctx.preread),
                 .detail = detail,
@@ -87,11 +66,7 @@ namespace psm::stealth::restls
             result.detected = protocol::protocol_type::tls;
             result.error = hs_result.error;
             result.polluted = hs_result.polluted;
-            // 关键：socket 所有权已从 ctx.inbound 转移到 raw_trans，
-            // 必须把 raw_trans 交给 result.transport，否则 pass_through 会保留
-            // 旧的 ctx.inbound（socket_ 已被 release 走），下一个 scheme 调
-            // native_socket() 触发 assert(socket_.has_value()) 崩溃。
-            result.transport = raw_trans;
+            result.transport = ctx.inbound;
             trace::debug<flt::conn | flt::protocol>("handshake failed, pass to next scheme");
             co_return result;
         }

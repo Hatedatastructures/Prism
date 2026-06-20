@@ -1,6 +1,7 @@
 #include <prism/stealth/facade/shadowtls/handshake.hpp>
 
 #include <prism/core/fault/code.hpp>
+#include <prism/net/transport/reliable.hpp>
 #include <prism/proto/protocol/tls/record.hpp>
 #include <prism/stealth/common.hpp>
 #include <prism/stealth/facade/shadowtls/util/auth.hpp>
@@ -98,8 +99,8 @@ namespace psm::stealth::shadowtls
 
     struct hmac_read_args
     {
-        net::ip::tcp::socket &client_sock;
-        std::shared_ptr<net::ip::tcp::socket> backend_sock;
+        transport::shared_transmission client_trans;
+        transport::shared_transmission backend_trans;
         std::string_view password;
         std::span<const std::byte> server_random;
         std::shared_ptr<HMAC_CTX> &hmac_verify_out;
@@ -107,8 +108,8 @@ namespace psm::stealth::shadowtls
 
     struct backend_relay_args
     {
-        std::shared_ptr<net::ip::tcp::socket> backend_sock;
-        net::ip::tcp::socket &client_sock;
+        transport::shared_transmission backend_trans;
+        transport::shared_transmission client_trans;
         std::string_view password;
         std::span<const std::byte> server_random;
         std::shared_ptr<HMAC_CTX> &hmac_out;
@@ -116,8 +117,8 @@ namespace psm::stealth::shadowtls
 
     struct relay_args
     {
-        net::ip::tcp::socket &client_sock;
-        std::shared_ptr<net::ip::tcp::socket> backend_sock;
+        transport::shared_transmission client_trans;
+        transport::shared_transmission backend_trans;
         const config &cfg;
         std::string_view password;
         std::span<const std::byte> server_hello;
@@ -125,7 +126,7 @@ namespace psm::stealth::shadowtls
 
     struct modified_frame_args
     {
-        net::ip::tcp::socket &client_sock;
+        transport::shared_transmission client_trans;
         const std::shared_ptr<HMAC_CTX> &hmac_main;
         std::span<std::byte> payload;
         std::size_t frame_idx;
@@ -134,7 +135,7 @@ namespace psm::stealth::shadowtls
 
     struct passthrough_frame_args
     {
-        net::ip::tcp::socket &client_sock;
+        transport::shared_transmission client_trans;
         std::span<const std::byte> frame;
         const std::uint8_t *raw;
         std::size_t frame_idx;
@@ -151,7 +152,7 @@ namespace psm::stealth::shadowtls
         while (true)
         {
             std::error_code frame_ec;
-            auto frame_opt = co_await common::read_tls_frame(args.client_sock, frame_ec);
+            auto frame_opt = co_await common::read_tls_frame(*args.client_trans, frame_ec);
             if (frame_ec || !frame_opt)
             {
                 trace::warn<flt::conn | flt::protocol>("read_tls_frame from client returned nullopt");
@@ -217,11 +218,11 @@ namespace psm::stealth::shadowtls
             }
 
             trace::debug<flt::conn | flt::protocol>("forwarding client frame to backend, type=0x{:02x}, size={}", raw[0], frame.size());
-            boost::system::error_code write_ec;
-            co_await net::async_write(
-                *args.backend_sock,
-                net::buffer(frame.data(), frame.size()),
-                net::redirect_error(trace::use_prefix_awaitable, write_ec));
+            std::error_code write_ec;
+            co_await transport::async_write(
+                *args.backend_trans,
+                std::span<const std::byte>(frame.data(), frame.size()),
+                write_ec);
 
             if (write_ec)
             {
@@ -262,9 +263,11 @@ namespace psm::stealth::shadowtls
                          .build();
         auto frame_bytes = frame.serialize();
 
-        boost::system::error_code write_ec;
-        co_await net::async_write(args.client_sock, net::buffer(frame_bytes.data(), frame_bytes.size()),
-            net::redirect_error(trace::use_prefix_awaitable, write_ec));
+        std::error_code write_ec;
+        co_await transport::async_write(
+            *args.client_trans,
+            std::span<const std::byte>(frame_bytes.data(), frame_bytes.size()),
+            write_ec);
         if (write_ec)
         {
             trace::warn<flt::conn | flt::protocol>("write to client failed: {}", write_ec.message());
@@ -279,9 +282,11 @@ namespace psm::stealth::shadowtls
     auto send_passthrough(const passthrough_frame_args &args)
         -> net::awaitable<bool>
     {
-        boost::system::error_code write_ec;
-        co_await net::async_write(args.client_sock, net::buffer(args.frame.data(), args.frame.size()),
-            net::redirect_error(trace::use_prefix_awaitable, write_ec));
+        std::error_code write_ec;
+        co_await transport::async_write(
+            *args.client_trans,
+            std::span<const std::byte>(args.frame.data(), args.frame.size()),
+            write_ec);
         if (write_ec)
         {
             trace::warn<flt::conn | flt::protocol>("write passthrough failed: {}", write_ec.message());
@@ -319,7 +324,7 @@ namespace psm::stealth::shadowtls
         while (true)
         {
             std::error_code frame_ec;
-            auto frame_opt = co_await common::read_tls_frame(*args.backend_sock, frame_ec);
+            auto frame_opt = co_await common::read_tls_frame(*args.backend_trans, frame_ec);
             if (frame_ec || !frame_opt)
             {
                 trace::warn<flt::conn | flt::protocol>("backend closed (nullopt), total_frames={}", frame_count);
@@ -344,7 +349,7 @@ namespace psm::stealth::shadowtls
                 common::xor_key(payload, write_key);
 
                 bool ok = co_await send_modified(
-                    modified_frame_args{args.client_sock, hmac_main, payload, frame_count, write_key});
+                    modified_frame_args{args.client_trans, hmac_main, payload, frame_count, write_key});
                 if (!ok)
                 {
                     args.hmac_out = hmac_main;
@@ -354,7 +359,7 @@ namespace psm::stealth::shadowtls
             else
             {
                 bool ok = co_await send_passthrough(
-                    passthrough_frame_args{args.client_sock, frame, raw, frame_count});
+                    passthrough_frame_args{args.client_trans, frame, raw, frame_count});
                 if (!ok)
                 {
                     args.hmac_out = hmac_main;
@@ -427,8 +432,8 @@ namespace psm::stealth::shadowtls
 
     struct backend_opts
     {
-        net::ip::tcp::socket &client_sock;
-        std::shared_ptr<net::ip::tcp::socket> backend_sock;
+        transport::shared_transmission client_trans;
+        transport::shared_transmission backend_trans;
         const config &cfg;
         memory::vector<std::byte> &client_hello;
     };
@@ -437,7 +442,6 @@ namespace psm::stealth::shadowtls
         -> net::awaitable<backend_result>
     {
         backend_result res;
-        auto executor = opts.client_sock.get_executor();
 
         memory::string backend_host(opts.cfg.handshake_dest.begin(), opts.cfg.handshake_dest.end());
         std::uint16_t backend_port = 443;
@@ -458,12 +462,15 @@ namespace psm::stealth::shadowtls
 
         trace::debug<flt::conn | flt::protocol>("connecting to backend: {}:{}", backend_host, backend_port);
 
+        auto executor = opts.client_trans->executor();
         net::ip::tcp::resolver resolver(executor);
         auto endpoints = co_await resolver.async_resolve(backend_host, std::to_string(backend_port));
 
+        auto &backend_sock = opts.backend_trans->lowest_layer<transport::reliable>()->native_socket();
+
         boost::system::error_code connect_ec;
         auto connected_endpoint = co_await net::async_connect(
-            *opts.backend_sock, endpoints,
+            backend_sock, endpoints,
             net::redirect_error(trace::use_prefix_awaitable, connect_ec));
         (void)connected_endpoint;
 
@@ -477,11 +484,11 @@ namespace psm::stealth::shadowtls
         trace::debug<flt::conn | flt::protocol>("backend connected");
 
         {
-            boost::system::error_code write_ec;
-            co_await net::async_write(
-                *opts.backend_sock,
-                net::buffer(opts.client_hello.data(), opts.client_hello.size()),
-                net::redirect_error(trace::use_prefix_awaitable, write_ec));
+            std::error_code write_ec;
+            co_await transport::async_write(
+                *opts.backend_trans,
+                std::span<const std::byte>(opts.client_hello.data(), opts.client_hello.size()),
+                write_ec);
             if (write_ec)
             {
                 trace::warn<flt::conn | flt::protocol>("write ClientHello to backend failed: {}", write_ec.message());
@@ -493,7 +500,7 @@ namespace psm::stealth::shadowtls
         trace::debug<flt::conn | flt::protocol>("sent ClientHello to backend");
 
         std::error_code server_hello_ec;
-        auto server_hello_opt = co_await common::read_tls_frame(*opts.backend_sock, server_hello_ec);
+        auto server_hello_opt = co_await common::read_tls_frame(*opts.backend_trans, server_hello_ec);
         if (server_hello_ec || !server_hello_opt)
         {
             trace::warn<flt::conn | flt::protocol>("Failed to read ServerHello from backend");
@@ -504,11 +511,11 @@ namespace psm::stealth::shadowtls
         trace::debug<flt::conn | flt::protocol>("received ServerHello from backend, size={}", server_hello_opt->size());
 
         {
-            boost::system::error_code write_ec;
-            co_await net::async_write(
-                opts.client_sock,
-                net::buffer(server_hello_opt->data(), server_hello_opt->size()),
-                net::redirect_error(trace::use_prefix_awaitable, write_ec));
+            std::error_code write_ec;
+            co_await transport::async_write(
+                *opts.client_trans,
+                std::span<const std::byte>(server_hello_opt->data(), server_hello_opt->size()),
+                write_ec);
             if (write_ec)
             {
                 trace::warn<flt::conn | flt::protocol>("write ServerHello to client failed: {}", write_ec.message());
@@ -560,14 +567,14 @@ namespace psm::stealth::shadowtls
         auto backend_to_client = [&]() -> net::awaitable<void>
         {
             co_await relay_modified(
-                backend_relay_args{args.backend_sock, args.client_sock,
+                backend_relay_args{args.backend_trans, args.client_trans,
                                    args.password, server_random_span, hmac_out});
         };
 
         auto client_to_backend = [&]() -> net::awaitable<void>
         {
             hmac_read_args read_args{
-                args.client_sock, args.backend_sock, args.password,
+                args.client_trans, args.backend_trans, args.password,
                 server_random_span, hmac_verify_ctx};
             first_frame_opt = co_await read_hmac_match(read_args);
         };
@@ -575,20 +582,8 @@ namespace psm::stealth::shadowtls
         co_await (backend_to_client() || client_to_backend());
 
         {
-            boost::system::error_code close_ec;
-            if (args.backend_sock->is_open())
-            {
-                args.backend_sock->shutdown(net::ip::tcp::socket::shutdown_both, close_ec);
-                if (close_ec)
-                {
-                    trace::debug<flt::conn | flt::protocol>("backend shutdown error: {}", close_ec.message());
-                }
-                args.backend_sock->close(close_ec);
-                if (close_ec)
-                {
-                    trace::debug<flt::conn | flt::protocol>("backend close error: {}", close_ec.message());
-                }
-            }
+            args.backend_trans->close();
+            trace::debug<flt::conn | flt::protocol>("backend transport closed");
         }
 
         trace::debug<flt::conn | flt::protocol>("closed backend socket");
@@ -615,7 +610,6 @@ namespace psm::stealth::shadowtls
     auto handshake(handshake_opts opts)
         -> net::awaitable<stealth::handshake_result>
     {
-        auto &client_sock = opts.client_sock;
         auto &cfg = opts.cfg;
         auto &detail = opts.detail;
 
@@ -629,7 +623,8 @@ namespace psm::stealth::shadowtls
         }
 
         trace::debug<flt::conn | flt::protocol>("handshake start, client_hello size={}", opts.client_hello.size());
-        auto executor = client_sock.get_executor();
+
+        auto executor = opts.inbound->executor();
 
         auto auth = verify_client(cfg, std::span<const std::byte>(opts.client_hello.data(), opts.client_hello.size()));
         if (!auth)
@@ -638,16 +633,16 @@ namespace psm::stealth::shadowtls
             co_return result;
         }
 
-        // 将已认证用户写入前缀
         auto *pfx = trace::active_prefix;
         if (pfx)
         {
             std::strncpy(pfx->user, auth->matched_user.c_str(), sizeof(pfx->user) - 1);
         }
 
-        auto backend_sock = std::make_shared<net::ip::tcp::socket>(executor);
+        auto backend_trans = std::make_shared<transport::reliable>(
+            net::ip::tcp::socket(executor));
         auto backend = co_await connect_backend(
-            backend_opts{client_sock, backend_sock, cfg, opts.client_hello});
+            backend_opts{opts.inbound, backend_trans, cfg, opts.client_hello});
         if (backend.error != fault::code::success)
         {
             result.error = backend.error;
@@ -659,7 +654,7 @@ namespace psm::stealth::shadowtls
         auto server_hello_span = std::span<const std::byte>(
             backend.server_hello.data(), backend.server_hello.size());
         auto relay = co_await run_relay(
-            relay_args{client_sock, backend_sock, cfg, auth->password, server_hello_span});
+            relay_args{opts.inbound, backend_trans, cfg, auth->password, server_hello_span});
         if (!relay)
         {
             result.error = fault::code::protocol_error;

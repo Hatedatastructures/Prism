@@ -14,6 +14,10 @@
 #include <boost/asio.hpp>
 #include <boost/asio/ssl.hpp>
 
+#include <array>
+
+namespace psm::stealth { class probe_tracker; }
+
 #include <atomic>
 #include <cstdint>
 #include <functional>
@@ -121,6 +125,7 @@ namespace psm::context
         memory::resource_pointer memory_pool;  // 内存池资源指针
         outbound::proxy *outbound{nullptr};    // 出站代理指针（由 worker 拥有）
         stats::traffic::traffic_state *traffic{nullptr}; // 流量统计状态指针
+        stealth::probe_tracker *tracker{nullptr}; // 探测行为追踪器（per-worker）
     };
 
     // session — 会话状态（每连接一个）
@@ -140,6 +145,7 @@ namespace psm::context
         std::function<bool(std::string_view)> verifier;                ///< 凭据验证函数
         std::uint32_t buffer_size = 0;                                 ///< 数据传输缓冲区大小（字节）
         shared_transmission inbound;                                   ///< 入站传输对象
+        std::array<std::byte, 16> src_ip_raw{};                        ///< 来源 IP 哈希（stealth 层用）
     };
 
     /**
@@ -161,7 +167,8 @@ namespace psm::context
         explicit session(session_opts opts)
             : conn_id(opts.conn_id), server_ctx(opts.server_ctx), worker_ctx(opts.worker_ctx),
               frame_arena(opts.arena), credential_verifier(std::move(opts.verifier)),
-              buffer_size(opts.buffer_size), inbound(std::move(opts.inbound)) {}
+              buffer_size(opts.buffer_size), inbound(std::move(opts.inbound)),
+              src_ip_raw(opts.src_ip_raw) {}
 
         std::uint64_t conn_id{0};                                        // 连接唯一标识符
         server &server_ctx;                                             // 服务器上下文引用
@@ -181,6 +188,7 @@ namespace psm::context
         // transport 的 cancel()/close() 操作，无需额外回调。
         // 保留字段以便 mux handler 清空（向后兼容），但 session 不再读取它们。
         std::function<void()> stream_cancel;                          // [已废弃] 活跃流取消回调
+        std::array<std::byte, 16> src_ip_raw{};                        // 来源 IP 哈希（stealth 层用）
         std::function<void()> stream_close;                           // [已废弃] 活跃流关闭回调
     };
 

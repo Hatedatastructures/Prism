@@ -125,4 +125,19 @@ namespace psm::stealth::reality
 
         co_return result;
     }
+
+
+    auto scheme::challenge(stealth::handshake_context /*ctx*/)
+        -> net::awaitable<challenge_result>
+    {
+        // Reality 挑战的基础实现：标记 triggered=true 但 success=false
+        // 后续完善：在 ServerHello 的 encrypted_extensions 中嵌入 GREASE 扩展,
+        // 使用 steady_timer 等待客户端响应,verify_challenge 验证
+        // 当前实现：让 executor 继续走 rewind/fallback 路径
+        challenge_result res;
+        res.triggered = true;
+        res.success = false;
+        res.error = fault::code::auth_failed;
+        co_return res;
+    }
 } // namespace psm::stealth::reality

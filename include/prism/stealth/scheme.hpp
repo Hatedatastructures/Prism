@@ -18,6 +18,7 @@
 #include <prism/core/memory/container.hpp>
 #include <prism/proto/protocol/tls/types.hpp>
 #include <prism/proto/protocol/types.hpp>
+#include <prism/stealth/challenge.hpp>
 #include <prism/stealth/recognition/tls/features.hpp>
 #include <prism/net/transport/transmission.hpp>
 
@@ -145,6 +146,7 @@ namespace psm::stealth
         // 注意：detached task 捕获此字段时必须真正持有它（move 进 lambda），
         // 否则 session 会在 task 期间析构，导致 session_ptr 悬垂。
         std::shared_ptr<void> session_keepalive;
+        std::array<std::byte, 16> src_ip_raw{};          ///< 来源 IP 哈希(RFC-065 探测追踪用)
         memory::vector<std::byte> preread;        ///< 来自 identify 的 preread 数据（完整 ClientHello）
     };
 
@@ -264,6 +266,18 @@ namespace psm::stealth
          */
         [[nodiscard]] virtual auto handshake(handshake_context ctx)
             -> net::awaitable<handshake_result> = 0;
+
+        /**
+         * @brief 可选:挑战-响应阶段(RFC-065 探测防御)
+         * @details 默认实现返回 triggered=false(无挑战)。
+         *          需要挑战的方案(如 Reality)覆盖此方法。
+         *          executor 在认证失败 + should_challenge 时调用。
+         */
+        [[nodiscard]] virtual auto challenge(handshake_context /*ctx*/)
+            -> net::awaitable<challenge_result>
+        {
+            co_return challenge_result{};
+        }
 
     protected:
         /// 权重分（Tier 2 使用）

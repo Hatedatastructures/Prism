@@ -18,7 +18,7 @@ namespace psm::instance::worker
           ssl_ctx_(tls::make(cfg.instance)),
           outbound_direct_(std::make_unique<outbound::direct>(router_)),
           server_ctx_{std::atomic<std::shared_ptr<const psm::config>>{}, ssl_ctx_, std::move(account_store)},
-          worker_ctx_{ioc_, router_, memory::system::local_pool(), outbound_direct_.get(), &traffic_}
+          worker_ctx_{ioc_, router_, memory::system::local_pool(), outbound_direct_.get(), &traffic_, &probe_tracker_}
     {
         server_ctx_.cfg.store(std::make_shared<const psm::config>(cfg));
         // 注册反向代理路由：将虚拟域名映射到实际后端地址。

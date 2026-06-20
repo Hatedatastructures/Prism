@@ -49,4 +49,38 @@ namespace psm::stealth::common
 
         co_return rec.serialize();
     }
+
+
+    auto read_tls_frame(transport::transmission &trans, std::error_code &ec_out,
+                            net::steady_timer *deadline)
+        -> net::awaitable<std::optional<memory::vector<std::byte>>>
+    {
+        ec_out.clear();
+
+        if (deadline)
+        {
+            deadline->expires_after(std::chrono::seconds(30));
+            auto on_timeout = [&trans](const boost::system::error_code &timer_ec)
+            {
+                if (!timer_ec)
+                    trans.cancel();
+            };
+            deadline->async_wait(std::move(on_timeout));
+        }
+
+        auto result = co_await tls::record::read(trans);
+        const auto &read_ec = result.first;
+        const auto &rec = result.second;
+
+        if (deadline)
+            deadline->cancel();
+
+        if (fault::failed(read_ec))
+        {
+            ec_out = std::make_error_code(std::errc::connection_reset);
+            co_return std::nullopt;
+        }
+
+        co_return rec.serialize();
+    }
 } // namespace psm::stealth::common

@@ -72,7 +72,7 @@ namespace psm::stealth::restls
          * @param handover 握手阶段产出的参数包（secret, server_random, script, version, client_finished, first_encrypted）
          */
         explicit restls_transport(
-            std::shared_ptr<transport::reliable> raw_trans,
+            transport::shared_transmission raw_trans,
             restls_handover handover);
 
         ~restls_transport() noexcept override;
@@ -128,7 +128,7 @@ namespace psm::stealth::restls
         /// 释放 s→c write 互斥锁
         void release_write_lock() noexcept;
 
-        std::shared_ptr<transport::reliable> raw_trans_;
+        transport::shared_transmission raw_trans_;
         std::array<std::uint8_t, 32> secret_;
         std::array<std::uint8_t, 32> server_random_;
         script_engine script_;

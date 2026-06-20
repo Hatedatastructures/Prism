@@ -23,6 +23,8 @@ namespace psm::stealth
 
     namespace net = boost::asio;
 
+    class probe_tracker;  ///< 前向声明（RFC-065 探测追踪）
+
     /**
      * @brief 传输层回绕模式
      * @details 控制方案执行失败后是否可以回绕传输层到握手前状态
@@ -68,8 +70,12 @@ namespace psm::stealth
         [[nodiscard]] auto execute(const memory::vector<memory::string> &candidates, handshake_context ctx) const
             -> net::awaitable<handshake_result>;
 
+        /// 设置探测行为追踪器（RFC-065）
+        void set_probe_tracker(probe_tracker *t) noexcept { tracker_ = t; }
+
     private:
         std::vector<shared_scheme> schemes_;
+        probe_tracker *tracker_{nullptr};
 
         [[nodiscard]] auto find_scheme(std::string_view name) const
             -> shared_scheme;

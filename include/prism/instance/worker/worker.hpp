@@ -17,6 +17,7 @@
 #include <prism/instance/outbound/direct.hpp>
 #include <prism/account/stats/runtime.hpp>
 #include <prism/account/stats/traffic.hpp>
+#include <prism/stealth/tracker.hpp>
 
 #include <boost/asio.hpp>
 
@@ -128,5 +129,6 @@ namespace psm::instance::worker
         stats::traffic::traffic_state traffic_;                             // 流量统计状态
         ctx::server server_ctx_;                          // 服务端全局上下文，包含配置和共享资源
         ctx::worker worker_ctx_;                          // worker 线程局部上下文，包含事件循环和内存池
+        psm::stealth::probe_tracker probe_tracker_;        // 探测行为追踪器（RFC-065）
     };
 }

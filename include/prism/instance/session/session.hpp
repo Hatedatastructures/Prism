@@ -57,6 +57,7 @@ namespace psm::instance::session
         psm::context::server &server;      // 服务器全局上下文引用
         psm::context::worker &worker;      // 工作线程上下文引用
         shared_transmission inbound; // 入站传输层所有权
+        std::array<std::byte, 16> src_ip_raw{}; // 来源 IP 哈希(RFC-065 探测追踪)
     };
 
     /**

@@ -1,5 +1,7 @@
 #include <prism/stealth/facade/shadowtls/transport.hpp>
 
+#include <prism/net/transport/reliable.hpp>
+#include <prism/net/transport/transmission.hpp>
 #include <prism/proto/protocol/tls/record.hpp>
 #include <prism/stealth/common.hpp>
 #include <prism/trace/trace.hpp>
@@ -19,7 +21,7 @@ namespace psm::stealth::shadowtls
 
     namespace
     {
-        // 计算 XOR 密钥：SHA256(password + serverRandom)
+        /// 计算 XOR 密钥：SHA256(password + serverRandom)
         [[nodiscard]] auto compute_write_key(std::string_view password, std::span<const std::byte> server_random)
             -> memory::vector<std::uint8_t>
         {
@@ -34,9 +36,9 @@ namespace psm::stealth::shadowtls
         }
     } // namespace
 
-    shadowtls_transport::shadowtls_transport(net::ip::tcp::socket socket,
+    shadowtls_transport::shadowtls_transport(transport::shared_transmission lower,
                                              shadowtls_handover handover)
-        : socket_(std::move(socket))
+        : lower_(std::move(lower))
         , write_key_(compute_write_key(handover.password, handover.server_random))
         , initial_buffer_(handover.initial_data.begin(), handover.initial_data.end())
         , hmac_write_ctx_(std::move(handover.hmac_write_ctx))
@@ -125,7 +127,7 @@ namespace psm::stealth::shadowtls
     {
         trace::debug<flt::conn | flt::protocol>("read_tls_frame: starting to read TLS header");
 
-        auto [read_ec, rec] = co_await ::psm::tls::record::read(socket_);
+        auto [read_ec, rec] = co_await ::psm::tls::record::read(*lower_);
         if (fault::failed(read_ec))
         {
             ec = std::make_error_code(std::errc::connection_reset);
@@ -244,15 +246,16 @@ namespace psm::stealth::shadowtls
                              .build();
         auto frame_bytes = frame_rec.serialize();
 
-        boost::system::error_code boost_ec;
-        auto written = co_await net::async_write(
-            socket_, net::buffer(frame_bytes.data(), frame_bytes.size()),
-            net::redirect_error(trace::use_prefix_awaitable, boost_ec));
+        std::error_code write_ec;
+        co_await transport::async_write(
+            *lower_,
+            std::span<const std::byte>(frame_bytes.data(), frame_bytes.size()),
+            write_ec);
 
-        if (boost_ec)
+        if (write_ec)
         {
-            ec = std::make_error_code(std::errc::connection_reset);
-            trace::warn<flt::conn | flt::protocol>("write TLS frame failed: {}", boost_ec.message());
+            ec = write_ec;
+            trace::warn<flt::conn | flt::protocol>("write TLS frame failed: {}", write_ec.message());
             co_return 0;
         }
 
@@ -261,15 +264,21 @@ namespace psm::stealth::shadowtls
     }
 
 
+    void shadowtls_transport::shutdown_write()
+    {
+        if (auto *rel = lowest_layer<transport::reliable>())
+            rel->shutdown_write();
+    }
+
+
     void shadowtls_transport::close()
     {
-        boost::system::error_code ec;
-        socket_.close(ec);
+        lower_->close();
     }
 
 
     void shadowtls_transport::cancel()
     {
-        socket_.cancel();
+        lower_->cancel();
     }
 } // namespace psm::stealth::shadowtls

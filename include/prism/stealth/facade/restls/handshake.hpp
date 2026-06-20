@@ -12,7 +12,7 @@
 #pragma once
 
 #include <prism/core/memory/container.hpp>
-#include <prism/net/transport/reliable.hpp>
+#include <prism/net/transport/transmission.hpp>
 #include <prism/stealth/facade/restls/config.hpp>
 #include <prism/stealth/facade/restls/script.hpp>
 #include <prism/stealth/facade/restls/transport.hpp>
@@ -51,7 +51,7 @@ namespace psm::stealth::restls
      */
     struct handshake_opts
     {
-        std::shared_ptr<transport::reliable> raw_trans;  ///< 客户端 raw TCP transport（所有权转移）
+        transport::shared_transmission raw_trans;  ///< 客户端传输层（装饰器链,所有权转移）
         const config &cfg;                                ///< Restls 配置
         memory::vector<std::byte> client_hello;           ///< 预读的 ClientHello
         handshake_detail &detail;                         ///< 握手输出

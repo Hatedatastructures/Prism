@@ -6,6 +6,7 @@
 #include <prism/core/memory/pool.hpp>
 #include <prism/account/stats/traffic.hpp>
 #include <prism/trace/trace.hpp>
+#include <prism/net/transport/pad.hpp>
 #include <prism/net/transport/transmission.hpp>
 
 #include <boost/asio/experimental/awaitable_operators.hpp>
@@ -114,6 +115,12 @@ namespace psm::connect
         auto outbound = std::move(opts.outbound);
         const auto &ctx = opts.ctx;
         const auto policy = opts.policy;
+
+        // 如果配置了填充,包装 inbound（仅影响下载方向 server→client 的 TLS 记录大小分布）
+        if (opts.pad_cfg && opts.pad_cfg->enabled())
+        {
+            inbound = std::make_shared<transport::pad_transport>(inbound, *opts.pad_cfg);
+        }
         const auto start_time = std::chrono::steady_clock::now();
 
         auto *mr = memory::system::local_pool();

@@ -31,7 +31,7 @@ namespace psm::instance::session
         : id_(detail::next_conn_id()),
           prefix_(std::make_shared<trace::session_prefix>()),
           ctx_{context::session_opts{id_, params.server, params.worker, frame_arena_, {},
-              params.server.config().buffer.size, std::move(params.inbound)}}
+              params.server.config().buffer.size, std::move(params.inbound), params.src_ip_raw}}
     {
     }
 
@@ -267,7 +267,12 @@ namespace psm::instance::session
         default:
             if (ctx_.inbound && ctx_.outbound)
             {
-                co_await connect::tunnel({std::move(ctx_.inbound), std::move(ctx_.outbound), ctx_});
+                connect::tunnel_options t_opts{
+                    std::move(ctx_.inbound), std::move(ctx_.outbound), ctx_};
+                // 传递 pad 配置(RFC-009)
+                if (ctx_.server_ctx.config().stealth.pad.enabled())
+                    t_opts.pad_cfg = &ctx_.server_ctx.config().stealth.pad;
+                co_await connect::tunnel(std::move(t_opts));
             }
             break;
         }

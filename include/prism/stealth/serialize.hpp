@@ -16,7 +16,9 @@
 #include <prism/stealth/facade/reality/config.hpp>
 #include <prism/stealth/facade/restls/config.hpp>
 #include <prism/stealth/facade/shadowtls/config.hpp>
+#include <prism/stealth/tracker.hpp>
 #include <prism/stealth/stack/trusttunnel/config.hpp>
+#include <prism/net/transport/pad.hpp>
 
 #include <glaze/glaze.hpp>
 
@@ -187,4 +189,33 @@ struct glz::meta<psm::stealth::native::config>
     using T = psm::stealth::native::config;
     static constexpr auto value = glz::object(
         "enabled", &T::enabled);
+};
+
+// ============================================================================
+// pad_config (RFC-009)
+// ============================================================================
+
+template <>
+struct glz::meta<psm::transport::pad_config>
+{
+    using T = psm::transport::pad_config;
+    static constexpr auto value = glz::object(
+        "pad_targets",  &T::pad_targets,
+        "stop_after",   &T::stop_after,
+        "max_pad_bytes", &T::max_pad_bytes);
+};
+
+// ============================================================================
+// probe_defense_config (RFC-065)
+// ============================================================================
+
+template <>
+struct glz::meta<psm::stealth::probe_defense_config>
+{
+    using T = psm::stealth::probe_defense_config;
+    static constexpr auto value = glz::object(
+        "challenge_timeout_ms", &T::challenge_timeout_ms,
+        "track_window_sec",     &T::track_window_sec,
+        "fail_threshold",       &T::fail_threshold,
+        "max_records",          &T::max_records);
 };

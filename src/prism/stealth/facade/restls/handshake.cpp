@@ -10,9 +10,12 @@
 #include <prism/stealth/facade/restls/handshake.hpp>
 
 #include <prism/core/fault/code.hpp>
+#include <prism/crypto/blake3.hpp>
+#include <prism/net/transport/reliable.hpp>
 #include <prism/stealth/common.hpp>
 #include <prism/stealth/facade/restls/crypto.hpp>
 #include <prism/stealth/facade/restls/script.hpp>
+#include <prism/stealth/recognition/tls/signal.hpp>
 #include <prism/stealth/facade/restls/transport.hpp>
 #include <prism/trace/trace.hpp>
 
@@ -224,12 +227,24 @@ namespace psm::stealth::restls
         stealth::handshake_result result;
         auto &raw_trans = opts.raw_trans;
         auto &cfg = opts.cfg;
-        auto &client_sock = raw_trans->native_socket();
         auto &detail = opts.detail;
+
+        // 通过装饰器链导航到 reliable 获取裸 socket（中间人握手需要 raw TCP）
+        auto *rel = raw_trans->lowest_layer<transport::reliable>();
+        if (!rel)
+        {
+            result.error = fault::code::not_supported;
+            co_return result;
+        }
+        auto &client_sock = rel->native_socket();
 
         // 1. 派生 RestlsSecret
         auto password_sv = std::string_view(cfg.password.data(), cfg.password.size());
         detail.restls_secret = derive_secret(password_sv);
+
+        // 注：session_id 反探测验证(RFC-065 Phase 1)已移除
+        // 原因：mihomo restls-client-go 未实现此特性,session_id 为随机值,
+        // 验证会导致所有合法连接被拒绝。仅在 Rust 参考服务器中实现。
 
         // 2. 解析后端地址
         auto host_port_sv = std::string_view(cfg.host.data(), cfg.host.size());

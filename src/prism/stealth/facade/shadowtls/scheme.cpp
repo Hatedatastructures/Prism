@@ -113,21 +113,12 @@ namespace psm::stealth::shadowtls
             co_return result;
         }
 
-        auto *rel = ctx.inbound->lowest_layer<transport::reliable>();
-
-        if (!rel)
-        {
-            trace::info<flt::conn | flt::protocol>("cannot access reliable transport, pass to next scheme");
-            result.detected = protocol::protocol_type::tls;
-            result.transport = std::move(ctx.inbound);
-            co_return result;
-        }
-
         handshake_detail detail;
         auto hs_result = co_await stealth::shadowtls::handshake(
             stealth::shadowtls::handshake_opts{
-                rel->native_socket(),
+                ctx.inbound,
                 ctx.cfg->stealth.shadowtls,
+                ctx.router,
                 std::move(ctx.preread),
                 detail});
 
@@ -143,23 +134,11 @@ namespace psm::stealth::shadowtls
 
                 trace::debug<flt::conn | flt::protocol>("first_frame TLS header stripped, payload_size={}", payload.size());
 
-                auto inner_view = std::string_view(
-                    reinterpret_cast<const char *>(payload.data()), payload.size());
                 result.preread.assign(payload.begin(), payload.end());
                 result.detected = protocol::protocol_type::unknown;
 
-                auto raw_socket_opt = rel->release_socket();
-                if (!raw_socket_opt)
-                {
-                    trace::warn<flt::conn | flt::protocol>("cannot release socket from reliable transport");
-                    result.detected = protocol::protocol_type::tls;
-                    result.transport = std::move(ctx.inbound);
-                    co_return result;
-                }
-                auto raw_socket = std::move(*raw_socket_opt);
-
                 auto shadowtls_trans = std::make_shared<shadowtls_transport>(
-                    std::move(raw_socket),
+                    std::move(ctx.inbound),
                     shadowtls_handover{
                         detail.matched_password,
                         std::span<const std::byte>(detail.server_random.data(), detail.server_random.size()),
@@ -171,7 +150,6 @@ namespace psm::stealth::shadowtls
                 result.transport = shadowtls_trans;
                 result.scheme = "shadowtls";
 
-                // 认证成功写入 user
                 auto *pfx = trace::active_prefix;
                 if (pfx && !detail.matched_user.empty())
                 {
@@ -192,6 +170,7 @@ namespace psm::stealth::shadowtls
             result.detected = protocol::protocol_type::tls;
             result.error = hs_result.error;
             result.polluted = hs_result.polluted;
+            result.transport = ctx.inbound;
             trace::debug<flt::conn | flt::protocol>("not ShadowTLS, pass to next scheme");
         }
 

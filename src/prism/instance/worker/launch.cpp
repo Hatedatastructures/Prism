@@ -4,8 +4,11 @@
 #include <prism/config/config.hpp>
 #include <prism/context/context.hpp>
 #include <prism/instance/session/session.hpp>
+#include <prism/stealth/tracker.hpp>
 #include <prism/trace/trace.hpp>
 #include <prism/net/transport/reliable.hpp>
+
+#include <cstring>
 
 using namespace psm::trace;
 
@@ -68,8 +71,9 @@ namespace psm::instance::worker::launch
         auto &worker = params.worker;
         auto &metrics = params.metrics;
 
-        // 在 socket 被移动前提取端点信息
+        // 在 socket 被动前提取端点信息
         trace::session_prefix pfx;
+        std::array<std::byte, 16> src_ip_raw{};
         boost::system::error_code ep_ec;
         auto remote_ep = params.socket.remote_endpoint(ep_ec);
         if (!ep_ec)
@@ -77,6 +81,20 @@ namespace psm::instance::worker::launch
             auto addr_str = remote_ep.address().to_string();
             std::strncpy(pfx.client, addr_str.c_str(), sizeof(pfx.client) - 1);
             pfx.client_port = remote_ep.port();
+
+            // 构造 address_hash 用于探测追踪(RFC-065)
+            const auto &addr = remote_ep.address();
+            if (addr.is_v4())
+            {
+                src_ip_raw = psm::stealth::address_hash::from_v4(addr.to_v4().to_uint()).bytes;
+            }
+            else if (addr.is_v6())
+            {
+                auto v6_bytes = addr.to_v6().to_bytes();
+                std::array<std::byte, 16> raw{};
+                std::memcpy(raw.data(), v6_bytes.data(), 16);
+                src_ip_raw = psm::stealth::address_hash::from_v6(raw).bytes;
+            }
         }
         auto local_ep = params.socket.local_endpoint(ep_ec);
         if (!ep_ec)
@@ -95,7 +113,7 @@ namespace psm::instance::worker::launch
 
         // 将原始 socket 封装为可靠传输，创建会话对象
         auto inbound = psm::transport::make_reliable(std::move(params.socket));
-        session::session_params sess_params{server, worker, std::move(inbound)};
+        session::session_params sess_params{server, worker, std::move(inbound), src_ip_raw};
         const auto shared_session = psm::instance::session::make_session(std::move(sess_params));
 
         // 填充日志前缀的端点信息

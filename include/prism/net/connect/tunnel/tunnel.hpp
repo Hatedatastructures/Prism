@@ -12,6 +12,11 @@
 
 #include <cstdint>
 
+namespace psm::transport
+{
+    struct pad_config;
+}
+
 
 namespace psm::connect
 {
@@ -40,6 +45,7 @@ namespace psm::connect
         shared_transmission outbound;                           ///< 出站流对象
         const context::session &ctx;                            ///< 会话上下文
         write_policy policy{write_policy::complete};            ///< 写入策略
+        const transport::pad_config *pad_cfg{nullptr};          ///< 填充配置（可选,启用 tunnel relay 填充混淆）
     };
 
     /**
