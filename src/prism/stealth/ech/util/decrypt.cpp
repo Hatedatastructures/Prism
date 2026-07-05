@@ -17,7 +17,6 @@ namespace psm::stealth::ech
         if (outer_payload.size() < 7)
         {
             result.error = fault::code::badpayload;
-            trace::debug("Payload too small: {} bytes", outer_payload.size());
             return result;
         }
 
@@ -28,7 +27,6 @@ namespace psm::stealth::ech
         if (version != 0xfe0d)
         {
             result.error = fault::code::badver;
-            trace::debug("Version mismatch: expected 0xfe0d, got 0x{:04x}", version);
             return result;
         }
 
@@ -40,7 +38,6 @@ namespace psm::stealth::ech
         // 5. 使用 AEAD Open 解密 payload
         // 6. 解析 inner ClientHello
 
-        trace::debug("Decryption not implemented, ech_key configured");
 
         // 当前返回失败（未实现）
         result.error = fault::code::not_supported;

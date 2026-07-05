@@ -3,6 +3,8 @@ target_sources(${PROJECT_NAME}_static_library
         registry.cpp
         common.cpp
         executor.cpp
+        tracker.cpp
+        challenge.cpp
 
         facade/native.cpp
         facade/reality/util/auth.cpp
@@ -43,6 +45,8 @@ target_sources(${PROJECT_NAME}_static_library
             ${PROJECT_SOURCE_DIR}/include/prism/stealth/scheme.hpp
             ${PROJECT_SOURCE_DIR}/include/prism/stealth/registry.hpp
             ${PROJECT_SOURCE_DIR}/include/prism/stealth/executor.hpp
+            ${PROJECT_SOURCE_DIR}/include/prism/stealth/tracker.hpp
+            ${PROJECT_SOURCE_DIR}/include/prism/stealth/challenge.hpp
             ${PROJECT_SOURCE_DIR}/include/prism/stealth/seal/io.hpp
             ${PROJECT_SOURCE_DIR}/include/prism/stealth/facade/native.hpp
             ${PROJECT_SOURCE_DIR}/include/prism/stealth/facade/native/config.hpp

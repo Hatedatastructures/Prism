@@ -5,9 +5,9 @@
  *          以及完整的 AES-GCM / ChaCha20 解密成功路径。
  */
 
-#include <prism/core/core.hpp>
+#include <prism/foundation/foundation.hpp>
 #include <prism/trace/spdlog.hpp>
-#include <prism/core/core.hpp>
+#include <prism/foundation/foundation.hpp>
 #include <prism/crypto/aead.hpp>
 #include <prism/crypto/block.hpp>
 

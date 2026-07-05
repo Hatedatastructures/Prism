@@ -7,7 +7,7 @@
 
 #include <gtest/gtest.h>
 
-#include <prism/core/core.hpp>
+#include <prism/foundation/foundation.hpp>
 
 #include "../../src/prism/stealth/registry.cpp"
 

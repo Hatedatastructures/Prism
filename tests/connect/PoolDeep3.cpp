@@ -8,7 +8,7 @@
  *          通过 #include 源文件确保 gcov 计入覆盖行。
  */
 
-#include <prism/core/core.hpp>
+#include <prism/foundation/foundation.hpp>
 #include <prism/trace/spdlog.hpp>
 
 
@@ -18,7 +18,7 @@
 // 先预包含所有依赖头文件（不打开 private），再重新包含 pool.hpp（打开 private）
 #include <prism/net/connect/pool/config.hpp>
 #include <prism/net/connect/pool/health.hpp>
-#include <prism/core/core.hpp>
+#include <prism/foundation/foundation.hpp>
 #include <prism/trace/trace.hpp>
 #include <boost/asio.hpp>
 #include <boost/asio/experimental/awaitable_operators.hpp>

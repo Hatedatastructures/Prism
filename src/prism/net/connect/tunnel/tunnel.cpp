@@ -2,10 +2,11 @@
 
 #include <prism/account/entry.hpp>
 #include <prism/net/connect/util.hpp>
-#include <prism/core/memory/container.hpp>
-#include <prism/core/memory/pool.hpp>
+#include <prism/foundation/memory/container.hpp>
+#include <prism/foundation/memory/pool.hpp>
 #include <prism/account/stats/traffic.hpp>
 #include <prism/trace/trace.hpp>
+#include <prism/net/transport/pad.hpp>
 #include <prism/net/transport/transmission.hpp>
 
 #include <boost/asio/experimental/awaitable_operators.hpp>
@@ -112,12 +113,17 @@ namespace psm::connect
     {
         auto inbound = std::move(opts.inbound);
         auto outbound = std::move(opts.outbound);
-        const auto &ctx = opts.ctx;
         const auto policy = opts.policy;
+
+        // 如果配置了填充,包装 inbound（仅影响下载方向 server→client 的 TLS 记录大小分布）
+        if (opts.pad_cfg && opts.pad_cfg->enabled())
+        {
+            inbound = std::make_shared<transport::pad_transport>(inbound, *opts.pad_cfg);
+        }
         const auto start_time = std::chrono::steady_clock::now();
 
         auto *mr = memory::system::local_pool();
-        const auto array_size = (std::max)(ctx.buffer_size, 2U);
+        const auto array_size = (std::max)(opts.buffer_size, 2U);
         memory::vector<std::byte> buffer(array_size, memory::effective_mr(mr));
         // PMR 缓冲区一次性分配，按半切分为两个独立 span
         // 左半给上行（client→upstream），右半给下行（upstream→client）
@@ -134,11 +140,11 @@ namespace psm::connect
         // idle_handler lambda 按值捕获 inbound/outbound（shared_ptr），
         // 确保定时器回调触发时传输对象仍然存活，可安全调用 cancel()
         std::function<void(const boost::system::error_code &)> idle_handler =
-            [inbound, outbound](const boost::system::error_code &ec)
+            [inbound, outbound, trace = opts.trace](const boost::system::error_code &ec)
         {
             if (!ec)
             {
-                trace::info<flt::conn | flt::protocol>("idle timeout, closing tunnel");
+                trace::info<flt::conn | flt::protocol>(trace, "idle timeout, closing tunnel");
                 inbound->cancel();
                 outbound->cancel();
             }
@@ -164,27 +170,27 @@ namespace psm::connect
         const auto end_time = std::chrono::steady_clock::now();
         if (const auto up = total_bytes[0], down = total_bytes[1]; up > 0 || down > 0)
         {
-            trace::info<flt::conn | flt::protocol>("Transfer: up={}B down={}B, {}ms",
+            trace::info<flt::conn | flt::protocol>(opts.trace, "Transfer: up={}B down={}B, {}ms",
                                                         up, down,
                                                         std::chrono::duration_cast<std::chrono::milliseconds>(end_time - start_time).count());
         }
 
         // 刷写流量统计并累加账户用量
-        if (ctx.worker_ctx.traffic)
+        if (opts.traffic)
         {
-            ctx.worker_ctx.traffic->flush_traffic(
-                ctx.detected_protocol, total_bytes[0], total_bytes[1]);
+            opts.traffic->flush_traffic(
+                opts.detected, total_bytes[0], total_bytes[1]);
         }
 
-        if (ctx.account_lease)
+        if (opts.lease)
         {
             if (total_bytes[0] > 0)
             {
-                account::accumulate_uplink(ctx.account_lease.get(), total_bytes[0]);
+                account::accumulate_uplink(opts.lease->get(), total_bytes[0]);
             }
             if (total_bytes[1] > 0)
             {
-                account::accumulate_downlink(ctx.account_lease.get(), total_bytes[1]);
+                account::accumulate_downlink(opts.lease->get(), total_bytes[1]);
             }
         }
 

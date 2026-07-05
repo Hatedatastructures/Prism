@@ -14,10 +14,13 @@
  */
 #pragma once
 
-#include <prism/core/fault/code.hpp>
-#include <prism/core/memory/container.hpp>
+#include <prism/context/flow_opts.hpp>
+#include <prism/foundation/fault/code.hpp>
+#include <prism/foundation/memory/container.hpp>
+#include <prism/foundation/memory/pool.hpp>
 #include <prism/proto/protocol/tls/types.hpp>
 #include <prism/proto/protocol/types.hpp>
+#include <prism/stealth/challenge.hpp>
 #include <prism/stealth/recognition/tls/features.hpp>
 #include <prism/net/transport/transmission.hpp>
 
@@ -126,27 +129,24 @@ namespace psm::stealth
     };
 
     /**
-     * @struct handshake_context
-     * @brief 伪装方案执行上下文
-     * @details 封装 handshake() 所需的所有参数，避免参数过长。
-     * 调用方应在调用前用 preview 包装 inbound（如有预读数据）。
+     * @struct stealth_opts
+     * @brief Stealth 层统一传参（替代 recognize_context / identify_context / handshake_context）
+     * @details 继承 flow_opts 获取 meta/trace/cfg/rt 通用字段，添加 stealth 层专用的
+     * transport、session_keepalive、frame_arena、src_ip_raw、preread 字段。
+     * 调用方应在调用前用 preview 包装 transport（如有预读数据）。
      */
-    struct handshake_context
+    struct stealth_opts : public psm::context::flow_opts
     {
-        shared_transmission inbound;              ///< 当前传输层（应包含预读数据）
-        const psm::config *cfg{nullptr};          ///< 服务器配置
-        connect::router *router{nullptr};         ///< 路由器（fallback 用）
-        context::session *session{nullptr};       ///< 会话上下文
-        // session 保活：caller 必须赋值为 shared_ptr<psm::instance::session::session>。
-        // 类型用 shared_ptr<void> 是为避免 stealth → instance 循环依赖（stealth 模块
-        // 不能直接引用 instance::session::session 类型）。运行时 shared_ptr<void> 通过
-        // aliasing constructor 正确持有引用计数，功能等价 shared_ptr<session>。
-        // 详见 docs/ARCHITECTURE.md "anytls scheme.cpp 的 detached task"。
-        // 注意：detached task 捕获此字段时必须真正持有它（move 进 lambda），
-        // 否则 session 会在 task 期间析构，导致 session_ptr 悬垂。
-        std::shared_ptr<void> session_keepalive;
-        memory::vector<std::byte> preread;        ///< 来自 identify 的 preread 数据（完整 ClientHello）
+        shared_transmission transport;              ///< 传输层（合并 inbound 语义）
+        context::session *session{nullptr};         ///< 会话上下文
+        std::shared_ptr<void> session_keepalive;    ///< session 保活（shared_ptr<void> 避免循环依赖）
+        memory::frame_arena *frame_arena{nullptr};  ///< 帧内存池
+        std::array<std::byte, 16> src_ip_raw{};     ///< 来源 IP 哈希(RFC-065 探测追踪用)
+        memory::vector<std::byte> preread;          ///< 预读数据（ClientHello 等）
     };
+
+    /// @brief handshake_context 别名（过渡期兼容，Step 4 删除）
+    using handshake_context = stealth_opts;
 
     // 方案基类
 
@@ -163,6 +163,11 @@ namespace psm::stealth
     {
     public:
         virtual ~stealth_scheme() noexcept = default;
+
+        auto set_prefix(std::shared_ptr<trace::trace_context> p) noexcept -> void
+        {
+            prefix_ = std::move(p);
+        }
 
         // === 身份 ===
 
@@ -265,7 +270,21 @@ namespace psm::stealth
         [[nodiscard]] virtual auto handshake(handshake_context ctx)
             -> net::awaitable<handshake_result> = 0;
 
+        /**
+         * @brief 可选:挑战-响应阶段(RFC-065 探测防御)
+         * @details 默认实现返回 triggered=false(无挑战)。
+         *          需要挑战的方案(如 Reality)覆盖此方法。
+         *          executor 在认证失败 + should_challenge 时调用。
+         */
+        [[nodiscard]] virtual auto challenge(stealth_opts /*ctx*/)
+            -> net::awaitable<challenge_result>
+        {
+            co_return challenge_result{};
+        }
+
     protected:
+        std::shared_ptr<trace::trace_context> prefix_; ///< trace 前缀
+
         /// 权重分（Tier 2 使用）
         [[nodiscard]] virtual auto weight() const noexcept
             -> std::uint16_t

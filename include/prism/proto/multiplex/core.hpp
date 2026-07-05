@@ -13,7 +13,7 @@
  */
 #pragma once
 
-#include <prism/core/memory/container.hpp>
+#include <prism/foundation/memory/container.hpp>
 #include <prism/proto/multiplex/config.hpp>
 #include <prism/proto/protocol/types.hpp>
 #include <prism/trace/context.hpp>
@@ -27,10 +27,11 @@
 
 
 // 前向声明
-namespace psm::connect
+namespace psm::outbound
 {
 
-    class router;
+    class proxy;
+
 }
 
 namespace psm::stats::traffic
@@ -50,15 +51,15 @@ namespace psm::multiplex
     /**
      * @struct core_options
      * @brief core 构造参数聚合
-     * @details 将 core 构造函数的传输层连接、路由器、配置和内存资源
+     * @details 将 core 构造函数的传输层连接、出站代理、配置和内存资源
      * 聚合为单一结构体，将构造函数参数降至 1 个。
      */
     struct core_options
     {
         transport::shared_transmission transport; ///< 已建立的传输层连接（通常是 TLS 隧道）
-        connect::router &router;                 ///< 路由器引用，用于解析地址并连接目标
-        const config &cfg;                       ///< 多路复用配置参数
-        memory::resource_pointer mr = {};        ///< PMR 内存资源，为空时使用默认资源
+        outbound::proxy *outbound{nullptr};       ///< 出站代理接口（非拥有，worker 生命周期）
+        const config &cfg;                        ///< 多路复用配置参数
+        memory::resource_pointer mr = {};         ///< PMR 内存资源，为空时使用默认资源
     };
 
     /**
@@ -122,12 +123,12 @@ namespace psm::multiplex
 
         /**
          * @brief 设置会话日志前缀
-         * @param p 调用方的 session_prefix shared_ptr
-         * @details mux craft 的所有 detached 协程通过 scope_guard 恢复此前缀，
-         * 防止 thread_local active_prefix 被其他会话覆盖。prefix_ 用 shared_ptr
+         * @param p 调用方的 trace_context shared_ptr
+         * @details mux craft 的 detached 协程通过 shared_ptr 捕获 prefix_，
+         * prefix_ 用 shared_ptr 管理防悬垂。prefix_ 用 shared_ptr
          * 管理，prefix_restore_handler 持有副本保活，避免 IOCP 回调时悬垂。
          */
-        void set_prefix(std::shared_ptr<trace::session_prefix> p) noexcept
+        void set_prefix(std::shared_ptr<trace::trace_context> p) noexcept
         {
             prefix_ = std::move(p);
         }
@@ -208,13 +209,13 @@ namespace psm::multiplex
         void on_exception(const std::exception_ptr &ep);
 
         transport::shared_transmission transport_; // 底层传输连接
-        connect::router &router_;                           // 路由器引用
+        outbound::proxy *outbound_{nullptr};                     // 出站代理接口（非拥有，worker 生命周期）
         const config &config_;                              // mux 配置
         memory::resource_pointer mr_;                       // PMR 内存资源
         std::atomic<bool> active_{false};                   // 会话活跃标志
         stats::traffic::traffic_state *traffic_{nullptr};   // per-worker 流量统计指针
         protocol::protocol_type proto_{protocol::protocol_type::unknown}; // 归属的外层协议类型
-        std::shared_ptr<trace::session_prefix> prefix_;    // 会话日志前缀（shared_ptr 管理，防 IOCP 回调悬垂）
+        std::shared_ptr<trace::trace_context> prefix_;    // 会话日志前缀（shared_ptr 管理，防 IOCP 回调悬垂）
         std::atomic<std::uint64_t> mux_uplink_{0};          // 子流累加上行字节
         std::atomic<std::uint64_t> mux_downlink_{0};        // 子流累加下行字节
 

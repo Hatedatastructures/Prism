@@ -29,7 +29,6 @@ namespace psm::stealth::reality
     {
         if (!transport_)
         {
-            trace::error("executor called with null transport");
             throw std::runtime_error("seal::executor() called with null transport");
         }
         return transport_->executor();
@@ -130,28 +129,24 @@ namespace psm::stealth::reality
 
         if (content_type == tls::CT_ALERT)
         {
-            trace::debug("received TLS alert record");
             ec = std::make_error_code(std::errc::connection_reset);
             co_return 0;
         }
 
         if (content_type != tls::CT_APPLICATION_DATA)
         {
-            trace::warn("unexpected content type: 0x{:02x}", content_type);
             ec = std::make_error_code(std::errc::protocol_error);
             co_return 0;
         }
 
         if (record_len < tls::AEAD_TAG_LEN)
         {
-            trace::error("record too short for AEAD tag");
             ec = std::make_error_code(std::errc::protocol_error);
             co_return 0;
         }
 
         if (read_seq_ >= UINT64_MAX - 1)
         {
-            trace::error("read sequence number overflow: {}", read_seq_);
             ec = fault::code::crypto_error;
             co_return 0;
         }
@@ -178,12 +173,9 @@ namespace psm::stealth::reality
         if (!first_read_log_)
         {
             first_read_log_ = true;
-            trace::debug("first decrypt: seq={}, cipher_len={}",
-                        read_seq_ - 1, ciphertext.size());
         }
         if (fault::failed(dec_ec))
         {
-            trace::error("AEAD decrypt failed");
             ec = std::make_error_code(std::errc::protocol_error);
             co_return 0;
         }
@@ -229,7 +221,6 @@ namespace psm::stealth::reality
         // 序列号溢出检测
         if (write_seq_ >= UINT64_MAX - 1)
         {
-            trace::error("write sequence number overflow: {}", write_seq_);
             ec = fault::code::crypto_error;
             co_return 0;
         }
@@ -256,11 +247,9 @@ namespace psm::stealth::reality
         if (!first_write_log_)
         {
             first_write_log_ = true;
-            trace::debug("first encrypt: seq={}, plain_len={}", write_seq_ - 1, inner.size());
         }
         if (fault::failed(enc_ec))
         {
-            trace::error("AEAD encrypt failed");
             ec = std::make_error_code(std::errc::protocol_error);
             co_return 0;
         }

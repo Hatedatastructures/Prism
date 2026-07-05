@@ -8,7 +8,8 @@
 
 #include <gtest/gtest.h>
 
-#include <prism/core/core.hpp>
+#include <prism/foundation/foundation.hpp>
+#include <prism/net/transport/reliable.hpp>
 
 #include <boost/asio.hpp>
 #include <cstdint>
@@ -61,7 +62,7 @@ namespace
             read_ctx
         };
 
-        shadowtls_transport transport(std::move(sock), std::move(handover));
+        auto reliable = std::make_shared<psm::transport::reliable>(std::move(sock)); shadowtls_transport transport(std::move(reliable), std::move(handover));
 
         EXPECT_TRUE(!transport.write_key_.empty()) << "hmac: write_key not empty";
         EXPECT_TRUE(transport.write_key_.size() == 32) << "hmac: write_key 32 bytes";
@@ -94,7 +95,7 @@ namespace
             nullptr
         };
 
-        shadowtls_transport transport(std::move(sock), std::move(handover));
+        auto reliable = std::make_shared<psm::transport::reliable>(std::move(sock)); shadowtls_transport transport(std::move(reliable), std::move(handover));
 
         EXPECT_TRUE(transport.initial_buffer_.size() == 4) << "init: size=4";
         EXPECT_TRUE(transport.initial_buffer_[0] == std::byte{0x01}) << "init: [0]=0x01";
@@ -117,7 +118,7 @@ namespace
             nullptr
         };
 
-        shadowtls_transport transport(std::move(sock), std::move(handover));
+        auto reliable = std::make_shared<psm::transport::reliable>(std::move(sock)); shadowtls_transport transport(std::move(reliable), std::move(handover));
 
         EXPECT_TRUE(transport.hmac_write_ctx_ == nullptr) << "null: write ctx null";
         EXPECT_TRUE(transport.hmac_read_ctx_ == nullptr) << "null: read ctx null";
@@ -139,10 +140,10 @@ namespace
             nullptr
         };
 
-        shadowtls_transport transport(std::move(sock), std::move(handover));
+        auto reliable = std::make_shared<psm::transport::reliable>(std::move(sock)); shadowtls_transport transport(std::move(reliable), std::move(handover));
 
         EXPECT_TRUE(transport.transport_type() == psm::transport::transmission::type::tcp) << "type: tcp";
-        EXPECT_TRUE(transport.next_layer() == nullptr) << "layer: null";
+        EXPECT_TRUE(transport.next_layer() != nullptr) << "layer: reliable";
     }
 
     TEST(ShadowtlsTransportDeep, Close)
@@ -161,7 +162,7 @@ namespace
             nullptr
         };
 
-        shadowtls_transport transport(std::move(sock), std::move(handover));
+        auto reliable = std::make_shared<psm::transport::reliable>(std::move(sock)); shadowtls_transport transport(std::move(reliable), std::move(handover));
         transport.close();
         transport.close();
         EXPECT_TRUE(true) << "close: idempotent, double close safe";
@@ -183,7 +184,7 @@ namespace
             nullptr
         };
 
-        shadowtls_transport transport(std::move(sock), std::move(handover));
+        auto reliable = std::make_shared<psm::transport::reliable>(std::move(sock)); shadowtls_transport transport(std::move(reliable), std::move(handover));
         try
         {
             transport.cancel();
@@ -211,7 +212,7 @@ namespace
             nullptr
         };
 
-        shadowtls_transport transport(std::move(sock), std::move(handover));
+        auto reliable = std::make_shared<psm::transport::reliable>(std::move(sock)); shadowtls_transport transport(std::move(reliable), std::move(handover));
         transport.shutdown_write();
         transport.shutdown_write();
         EXPECT_TRUE(true) << "shutdown_write: idempotent on unconnected socket";

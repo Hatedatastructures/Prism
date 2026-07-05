@@ -22,9 +22,9 @@
 #include <prism/account/stats/runtime.hpp>
 #include <prism/instance/front/balancer.hpp>
 #include <prism/instance/front/listener.hpp>
-#include <prism/core/core.hpp>
-#include <prism/core/memory/pool.hpp>
-#include <prism/core/core.hpp>
+#include <prism/foundation/foundation.hpp>
+#include <prism/foundation/memory/pool.hpp>
+#include <prism/foundation/foundation.hpp>
 #include <prism/config/config.hpp>
 #include <prism/config/loader/load.hpp>
 #include <prism/stealth/registry.hpp>
@@ -39,11 +39,29 @@ namespace
     // 事后用 cdb/WinDbg 打开 .dmp 文件即可看到精确崩溃栈
     LONG WINAPI crash_dump_handler(EXCEPTION_POINTERS *ep)
     {
+        const auto crash_addr = reinterpret_cast<std::uintptr_t>(ep->ExceptionRecord->ExceptionAddress);
+        const auto module_base = reinterpret_cast<std::uintptr_t>(GetModuleHandleA(NULL));
+        const auto offset = crash_addr - module_base;
+
         std::fprintf(stderr,
             "\n=== CRASH ===\n"
-            "exception code=0x%08X address=%p\n",
+            "exception code=0x%08X address=%p\n"
+            "module_base=0x%llx offset=0x%llx\n",
             static_cast<unsigned>(ep->ExceptionRecord->ExceptionCode),
-            ep->ExceptionRecord->ExceptionAddress);
+            ep->ExceptionRecord->ExceptionAddress,
+            static_cast<unsigned long long>(module_base),
+            static_cast<unsigned long long>(offset));
+
+        // Backtrace
+        void *stack[32];
+        const USHORT frames = CaptureStackBackTrace(0, 32, stack, NULL);
+        std::fprintf(stderr, "Backtrace (%u frames):\n", frames);
+        for (USHORT i = 0; i < frames; i++)
+        {
+            const auto frame_offset = reinterpret_cast<std::uintptr_t>(stack[i]) - module_base;
+            std::fprintf(stderr, "  [%u] offset=0x%llx\n", i,
+                static_cast<unsigned long long>(frame_offset));
+        }
         std::fflush(stderr);
 
         char dump_name[MAX_PATH];
@@ -95,12 +113,13 @@ namespace
 // 启动流程：启用全局内存池 → 加载配置 → 注册处理器 → 构建 worker 线程池 → 绑定均衡器 → 启动监听
 int main(int argc, char *argv[])
 {
+    std::cerr << "DBG: main start\n";
 #ifdef _WIN32
-    // 第一件事：注册崩溃处理器，确保后续任何异常都能写 minidump
     SetUnhandledExceptionFilter(crash_dump_handler);
 #endif
 
     psm::memory::system::enable_pooling();
+    std::cerr << "DBG: pooling enabled\n";
 
     // 注册所有 TLS 伪装方案
     psm::stealth::register_schemes();
@@ -158,7 +177,7 @@ int main(int argc, char *argv[])
         // 标记系统启动，初始化运行时统计数据
         psm::stats::runtime::system_state::instance().mark_started(workers_count);
 
-        // 将 worker 绑定到负载均衡器，提供连接分发和负载快照回调
+        // 将 worker 绑定到负载均衡器，提供连接分发、负载快照与健康检查回调
         psm::memory::vector<instance::front::balancer::worker_binding> bindings;
         bindings.reserve(workers_count);
         for (const auto &worker_ptr : workers)
@@ -172,7 +191,11 @@ int main(int argc, char *argv[])
             {
                 return worker_ref->load_snapshot();
             };
-            bindings.emplace_back(delivery_function, snapshot_function);
+            auto alive_function = [worker_ref]() -> bool
+            {
+                return worker_ref->alive();
+            };
+            bindings.emplace_back(delivery_function, snapshot_function, alive_function);
         }
 
         instance::front::balancer dispatcher(std::move(bindings));
@@ -245,9 +268,11 @@ int main(int argc, char *argv[])
 
                 psm::trace::info("all threads stopped, shutting down logger");
                 psm::trace::shutdown();
+                std::cerr << "DBG: trace shutdown done\n";
 
                 // 停止信号 io_context 自身
                 signal_ioc.stop();
+                std::cerr << "DBG: signal_ioc stopped\n";
             });
 
         // 在独立线程中运行信号 io_context，阻塞直到 signal_ioc.stop() 被调用
@@ -256,8 +281,18 @@ int main(int argc, char *argv[])
             signal_ioc.run();
         });
 
-        // 等待信号处理完成（信号线程退出意味着停机流程已结束）
         signal_thread.join();
+
+        // 关键：跳过所有局部变量析构。
+        // worker_resources 析构时 Boost.Asio concurrent_channel（yamux/smux）
+        // 的 pending operations 存在 use-after-free（try_send 访问已销毁的
+        // channel_receive → ACCESS_VIOLATION）。这是 Asio channel 的已知
+        // 析构竞态，无法通过调整析构顺序解决（channel receiver 和 sender
+        // 在不同成员中，析构顺序无法同时满足两者）。
+        // 进程即将退出，析构是多余的——直接 ExitProcess 跳过。
+        std::cerr << "DBG: exiting process\n";
+        std::fflush(stderr);
+        ExitProcess(0);
     }
     catch (const psm::exception::security &e)
     {

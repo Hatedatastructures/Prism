@@ -3,8 +3,8 @@
 #include <prism/config/config.hpp>
 #include <prism/net/connect/util.hpp>
 #include <prism/context/context.hpp>
-#include <prism/core/fault/handling.hpp>
-#include <prism/core/memory/container.hpp>
+#include <prism/foundation/fault/handling.hpp>
+#include <prism/foundation/memory/container.hpp>
 #include <prism/proto/multiplex/h2mux/craft.hpp>
 #include <prism/proto/protocol/types.hpp>
 #include <prism/trace/trace.hpp>
@@ -48,7 +48,7 @@ namespace psm::stealth::trusttunnel
                 constexpr std::size_t max_cred_len = 192;
                 if (creds_view.size() > max_cred_len)
                 {
-                    trace::warn<flt::conn | flt::protocol>("凭据长度 {} 超过安全阈值 {}，跳过该用户",
+                    trace::warn<flt::conn | flt::protocol>(std::shared_ptr<trace::trace_context>{}, "凭据长度 {} 超过安全阈值 {}，跳过该用户",
                         creds_view.size(), max_cred_len);
                     continue;
                 }
@@ -156,7 +156,7 @@ namespace psm::stealth::trusttunnel
             .note = "TrustTunnel: rely on SNI match"};
     }
 
-    auto scheme::handshake(stealth::handshake_context ctx)
+    auto scheme::handshake(stealth::stealth_opts ctx)
         -> net::awaitable<stealth::handshake_result>
     {
         stealth::handshake_result result;
@@ -169,17 +169,17 @@ namespace psm::stealth::trusttunnel
 
         if (!ctx.session->server_ctx.ssl_ctx)
         {
-            trace::warn<flt::conn | flt::protocol>("No SSL context configured");
+            trace::warn<flt::conn | flt::protocol>(prefix_, "No SSL context configured");
             result.error = fault::code::not_supported;
             co_return result;
         }
 
         const auto &cfg = ctx.cfg->stealth.trusttunnel;
 
-        auto raw = connect::peel(std::move(ctx.inbound));
+        auto raw = connect::peel(std::move(ctx.transport));
         if (!raw)
         {
-            trace::warn<flt::conn | flt::protocol>("Cannot unwrap transport layers");
+            trace::warn<flt::conn | flt::protocol>(prefix_, "Cannot unwrap transport layers");
             result.error = fault::code::not_supported;
             co_return result;
         }
@@ -224,20 +224,20 @@ namespace psm::stealth::trusttunnel
 
         if (fault::failed(ssl_ec) || !ssl_stream)
         {
-            ctx.inbound = std::move(recovered);
+            ctx.transport = std::move(recovered);
             result.error = ssl_ec;
-            trace::warn<flt::conn | flt::protocol>("TLS handshake failed: {}", fault::describe(ssl_ec));
+            trace::warn<flt::conn | flt::protocol>(prefix_, "TLS handshake failed: {}", fault::describe(ssl_ec));
             co_return result;
         }
 
-        trace::debug<flt::conn | flt::protocol>("TLS handshake succeeded");
+        trace::debug<flt::conn | flt::protocol>(prefix_, "TLS handshake succeeded");
 
         const std::uint8_t *alpn = nullptr;
         std::uint32_t alpn_len = 0;
         SSL_get0_alpn_selected(ssl_stream->native_handle(), &alpn, &alpn_len);
         if (!alpn || alpn_len != 2 || alpn[0] != 'h' || alpn[1] != '2')
         {
-            trace::warn<flt::conn | flt::protocol>("ALPN did not select h2");
+            trace::warn<flt::conn | flt::protocol>(prefix_, "ALPN did not select h2");
             result.detected = protocol::protocol_type::tls;
             result.transport = std::make_shared<transport::encrypted>(ssl_stream);
             co_return result;
@@ -245,10 +245,19 @@ namespace psm::stealth::trusttunnel
 
         auto encrypted_trans = std::make_shared<transport::encrypted>(ssl_stream);
 
+        auto tt_wr = ctx.session->worker_ctx.resources.lock();
+        if (!tt_wr)
+        {
+            trace::warn<flt::conn | flt::protocol>(prefix_, "worker resources expired before trusttunnel mux");
+            result.detected = protocol::protocol_type::tls;
+            result.transport = encrypted_trans;
+            co_return result;
+        }
+
         auto mux_cfg = ctx.cfg->mux;
-        multiplex::core_options core_opts{encrypted_trans, ctx.session->worker_ctx.router, mux_cfg};
+        multiplex::core_options core_opts{encrypted_trans, &tt_wr->outbound(), mux_cfg};
         multiplex::h2mux::craft_init craft_init_args{
-            ctx.session->worker_ctx.router,
+            &tt_wr->outbound(),
             mux_cfg,
             resolve_stream_target};
         auto craft = std::make_shared<multiplex::h2mux::craft>(core_opts, craft_init_args);
@@ -258,7 +267,7 @@ namespace psm::stealth::trusttunnel
         auto first_opt = co_await craft->wait_first_connect();
         if (!first_opt)
         {
-            trace::warn<flt::conn | flt::protocol>("No CONNECT request received");
+            trace::warn<flt::conn | flt::protocol>(prefix_, "No CONNECT request received");
             result.detected = protocol::protocol_type::tls;
             result.transport = std::move(encrypted_trans);
             co_return result;
@@ -270,14 +279,14 @@ namespace psm::stealth::trusttunnel
             first.proxy_auth.data(), first.proxy_auth.size());
         if (cfg.users.empty() || !verify_basic_auth(auth_view, cfg.users))
         {
-            trace::warn<flt::conn | flt::protocol>("Authentication failed");
+            trace::warn<flt::conn | flt::protocol>(prefix_, "Authentication failed");
             (void)craft->respond_connect(first.stream_id, 407);
             co_await craft->send_pending();
             result.error = fault::code::auth_failed;
             co_return result;
         }
 
-        trace::debug<flt::conn | flt::protocol>("Authenticated, authority={}", first.authority);
+        trace::debug<flt::conn | flt::protocol>(prefix_, "Authenticated, authority={}", first.authority);
 
         co_await craft->activate_stream(first.stream_id);
         (void)craft->respond_connect(first.stream_id, 200);

@@ -8,7 +8,7 @@
 
 #pragma once
 
-#include <prism/core/memory/container.hpp>
+#include <prism/foundation/memory/container.hpp>
 #include <prism/net/transport/transmission.hpp>
 
 #include <boost/asio.hpp>
@@ -41,8 +41,8 @@ namespace psm::stealth::shadowtls
 
     /**
      * @class shadowtls_transport
-     * @brief ShadowTLS v3 传输层包装器
-     * @details 包装原始 TCP socket，持续处理 ShadowTLS 协议：
+     * @brief ShadowTLS v3 传输层装饰器
+     * @details 包装下层 transport::transmission，持续处理 ShadowTLS 协议：
      * - 客户端→服务端：读取 TLS ApplicationData frame，验证累积 HMAC 标签，剥离 TLS header 和 HMAC 后返回 payload
      *   HMAC 验证：累积 HMAC-SHA1(password, SR + "C" + all_payloads + all_HMACs)[:4]
      *   参照 sing-shadowtls verifyApplicationData，验证后将 HMAC[:4] 加入累积状态
@@ -57,11 +57,11 @@ namespace psm::stealth::shadowtls
     {
     public:
         /**
-         * @brief 构造 ShadowTLS 传输层包装器
-         * @param socket 原始 TCP socket（所有权转移）
+         * @brief 构造 ShadowTLS 传输层装饰器
+         * @param lower 下层传输（shared_transmission，装饰器链模式）
          * @param handover 握手阶段产出的参数包（password, server_random, initial_data, HMAC 上下文）
          */
-        explicit shadowtls_transport(net::ip::tcp::socket socket,
+        explicit shadowtls_transport(transport::shared_transmission lower,
                                      shadowtls_handover handover);
 
         ~shadowtls_transport() noexcept override;
@@ -74,18 +74,17 @@ namespace psm::stealth::shadowtls
 
         [[nodiscard]] auto next_layer() noexcept -> transmission * override
         {
-            return nullptr;
+            return lower_.get();
         }
 
         [[nodiscard]] auto next_layer() const noexcept -> const transmission * override
         {
-            return nullptr;
+            return lower_.get();
         }
 
         [[nodiscard]] auto executor() const -> executor_type override
         {
-            // socket_ 是 mutable，因为 get_executor() 是非 const 的
-            return const_cast<net::ip::tcp::socket &>(socket_).get_executor();
+            return lower_->executor();
         }
 
         [[nodiscard]] auto async_read_some(std::span<std::byte> buffer, std::error_code &ec)
@@ -99,31 +98,26 @@ namespace psm::stealth::shadowtls
 
         /**
          * @brief 半关闭写方向
-         * @details 关闭底层 TCP socket 的写半端，通知对端不再发送数据。
-         * 读取方向仍可继续接收数据。
-         * @note 非 virtual，仅 shadowtls_transport 自身持有此能力
+         * @details 通过装饰器链导航到 reliable 层执行 shutdown_write，
+         * 穿透 preview/snapshot 中间层。
          */
-        void shutdown_write()
-        {
-            boost::system::error_code ec;
-            socket_.shutdown(net::ip::tcp::socket::shutdown_send, ec);
-        }
+        void shutdown_write();
 
         void close() override;
         void cancel() override;
 
     private:
-        /// [[nodiscard]] 读取一个完整的 TLS frame 并验证累积 HMAC
+        /// 读取一个完整的 TLS frame 并验证累积 HMAC
         [[nodiscard]] auto read_tls_frame(std::error_code &ec)
             -> net::awaitable<std::optional<memory::vector<std::byte>>>;
 
-        /// [[nodiscard]] 写入一个带累积 HMAC 标签的 TLS frame
+        /// 写入一个带累积 HMAC 标签的 TLS frame
         [[nodiscard]] auto write_tls_frame(std::span<const std::byte> payload, std::error_code &ec)
             -> net::awaitable<std::size_t>;
 
-        net::ip::tcp::socket socket_;
+        transport::shared_transmission lower_;
         std::array<std::byte, 32> server_random_;
-        memory::vector<std::uint8_t> write_key_; // XOR 密钥：SHA256(password + serverRandom)
+        memory::vector<std::uint8_t> write_key_; ///< XOR 密钥：SHA256(password + serverRandom)
 
         // 初始数据缓冲区（handshake 期间已读取的第一帧）
         memory::vector<std::byte> initial_buffer_;

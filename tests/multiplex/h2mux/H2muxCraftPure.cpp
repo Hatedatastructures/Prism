@@ -6,7 +6,7 @@
  *          静态回调函数，以及 respond_connect 公开接口。
  */
 
-#include <prism/core/core.hpp>
+#include <prism/foundation/foundation.hpp>
 #include <prism/trace/spdlog.hpp>
 #include <prism/proto/multiplex/h2mux/craft.hpp>
 #include <prism/proto/multiplex/config.hpp>

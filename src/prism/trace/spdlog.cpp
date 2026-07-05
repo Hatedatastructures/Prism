@@ -209,6 +209,9 @@ namespace psm::trace
 
         const auto log_level = parse_spdlog_level({effective_cfg.log_level.data(), effective_cfg.log_level.size()});
         logger->set_level(log_level);
+        // 关键：异步 logger 必须显式 flush_on，否则 buffer 不会自动刷盘，
+        // taskkill /F 或异常终止时会丢失所有日志
+        logger->flush_on(spdlog::level::info);
         logger->set_pattern(std::string(effective_cfg.pattern.c_str()));
 
         spdlog::set_default_logger(logger);

@@ -6,7 +6,7 @@
  *          store_cache、check_rules、check_cache。
  */
 
-#include <prism/core/core.hpp>
+#include <prism/foundation/foundation.hpp>
 #include <prism/net/resolve/dns/dns.hpp>
 #include <prism/net/resolve/dns/detail/cache.hpp>
 #include <prism/net/resolve/dns/detail/rules.hpp>

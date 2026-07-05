@@ -4,7 +4,7 @@
  * @details 测试 parse_credential/parse_crlf/parse_cmd_atyp/build_udp_pkt/parse_udp_pkt 全分支
  */
 
-#include <prism/core/core.hpp>
+#include <prism/foundation/foundation.hpp>
 #include <prism/proto/protocol/trojan/framing.hpp>
 #include <prism/proto/protocol/trojan/constants.hpp>
 #include <prism/trace/spdlog.hpp>

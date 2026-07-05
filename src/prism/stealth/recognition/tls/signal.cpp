@@ -1,6 +1,6 @@
 #include <prism/stealth/recognition/tls/signal.hpp>
 
-#include <prism/core/fault/handling.hpp>
+#include <prism/foundation/fault/handling.hpp>
 #include <prism/proto/protocol/tls/record.hpp>
 #include <prism/trace/trace.hpp>
 #include <prism/net/transport/transmission.hpp>
@@ -93,7 +93,6 @@ namespace psm::recognition::tls
                 {
                     std::memcpy(features.x25519_key.data(), ext_data.data() + offset, tls_proto::REALITY_KEY_LEN);
                     features.has_x25519 = true;
-                    trace::debug<flt::conn | flt::protocol>("using pure X25519 key_share");
                     return;
                 }
 
@@ -101,7 +100,6 @@ namespace psm::recognition::tls
                 {
                     std::memcpy(features.x25519_key.data(), ext_data.data() + offset, tls_proto::REALITY_KEY_LEN);
                     features.has_x25519 = true;
-                    trace::debug<flt::conn | flt::protocol>("using X25519MLKEM768 hybrid key_share");
                     return;
                 }
 
@@ -178,13 +176,11 @@ namespace psm::recognition::tls
         auto [ec, rec] = co_await ::psm::tls::record::read(transport);
         if (fault::failed(ec))
         {
-            trace::error<flt::conn | flt::protocol>("read record failed");
             co_return std::pair{ec, memory::vector<std::uint8_t>{}};
         }
 
         if (rec.header().content_type != tls_proto::CT_HANDSHAKE)
         {
-            trace::error<flt::conn | flt::protocol>("unexpected content type: 0x{:02x}", rec.header().content_type);
             co_return std::pair{fault::code::recorderr, memory::vector<std::uint8_t>{}};
         }
 
@@ -207,7 +203,6 @@ namespace psm::recognition::tls
         const auto *raw = reinterpret_cast<const std::uint8_t *>(preread.data());
         if (const auto content_type = raw[0]; content_type != tls_proto::CT_HANDSHAKE)
         {
-            trace::error<flt::conn | flt::protocol>("not a handshake record: 0x{:02x}", content_type);
             co_return std::pair{fault::code::recorderr, memory::vector<std::uint8_t>{}};
         }
 
@@ -215,7 +210,6 @@ namespace psm::recognition::tls
 
         if (record_length > tls_proto::MAX_RECORD_PAYLOAD)
         {
-            trace::error<flt::conn | flt::protocol>("record too large: {}", record_length);
             co_return std::pair{fault::code::recorderr, memory::vector<std::uint8_t>{}};
         }
 
@@ -223,13 +217,11 @@ namespace psm::recognition::tls
 
         if (preread.size() >= total)
         {
-            trace::debug<flt::conn | flt::protocol>("preread contains full ClientHello ({} bytes)", total);
             memory::vector<std::uint8_t> buffer(total);
             std::memcpy(buffer.data(), raw, total);
             co_return std::pair{fault::code::success, std::move(buffer)};
         }
 
-        trace::debug<flt::conn | flt::protocol>("preread partial ({} bytes), need {} total", preread.size(), total);
 
         memory::vector<std::uint8_t> buffer(total);
         std::memcpy(buffer.data(), raw, preread.size());
@@ -243,7 +235,6 @@ namespace psm::recognition::tls
             const auto n = co_await transport.async_read_some(buf_span, ec);
             if (ec || n == 0)
             {
-                trace::error<flt::conn | flt::protocol>("read remaining failed at offset {}: {}", read_offset, ec.message());
                 co_return std::pair{fault::to_code(ec), memory::vector<std::uint8_t>{}};
             }
             read_offset += n;
@@ -260,20 +251,17 @@ namespace psm::recognition::tls
 
         if (record.size() < 44)
         {
-            trace::error<flt::conn | flt::protocol>("record too short: {}", record.size());
             return {fault::code::recorderr, std::move(features)};
         }
 
         if (record[0] != tls_proto::CT_HANDSHAKE)
         {
-            trace::error<flt::conn | flt::protocol>("not a handshake record: 0x{:02x}", record[0]);
             return {fault::code::recorderr, std::move(features)};
         }
 
         const auto record_body_len = read_u16(record, 3);
         if (tls_proto::RECORD_HDR_LEN + record_body_len > record.size())
         {
-            trace::error<flt::conn | flt::protocol>("record body truncated");
             return {fault::code::recorderr, std::move(features)};
         }
 
@@ -282,7 +270,6 @@ namespace psm::recognition::tls
         const auto handshake_type = record[offset];
         if (handshake_type != tls_proto::HS_CLIENT_HELLO)
         {
-            trace::error<flt::conn | flt::protocol>("not ClientHello: 0x{:02x}", handshake_type);
             return {fault::code::recorderr, std::move(features)};
         }
         ++offset;
@@ -294,7 +281,6 @@ namespace psm::recognition::tls
         const auto msg_len = 4 + handshake_len;
         if (msg_start + msg_len > record.size())
         {
-            trace::error<flt::conn | flt::protocol>("handshake message truncated");
             return {fault::code::recorderr, std::move(features)};
         }
         features.raw_msg.assign(record.data() + msg_start, record.data() + msg_start + msg_len);
@@ -312,7 +298,6 @@ namespace psm::recognition::tls
         ++offset;
         if (offset + session_id_len > record.size() || session_id_len > tls_proto::SESSION_ID_MAX_LEN)
         {
-            trace::error<flt::conn | flt::protocol>("session_id length invalid: {}", session_id_len);
             return {fault::code::recorderr, std::move(features)};
         }
         features.session_id.assign(record.data() + offset, record.data() + offset + session_id_len);
@@ -325,7 +310,6 @@ namespace psm::recognition::tls
         offset += 2;
         if (offset + cipher_len > record.size() || cipher_len % 2 != 0)
         {
-            trace::error<flt::conn | flt::protocol>("cipher_suites length invalid: {}", cipher_len);
             return {fault::code::recorderr, std::move(features)};
         }
         offset += cipher_len;
@@ -346,9 +330,6 @@ namespace psm::recognition::tls
 
         features.raw_record.resize(record.size());
         std::memcpy(features.raw_record.data(), record.data(), record.size());
-
-        trace::debug<flt::conn | flt::protocol>("parsed result: SNI='{}', has_key={}, versions={}",
-                     features.server_name, features.has_x25519, features.versions.size());
 
         return {fault::code::success, std::move(features)};
     }

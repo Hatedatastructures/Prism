@@ -6,7 +6,7 @@
  *          跳过 observe() 协程（需要 io_context 运行）。
  */
 
-#include <prism/core/core.hpp>
+#include <prism/foundation/foundation.hpp>
 #include <prism/trace/spdlog.hpp>
 
 #include <gtest/gtest.h>

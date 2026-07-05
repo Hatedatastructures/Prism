@@ -31,7 +31,7 @@ namespace psm::trace
 
     // ─── 前向声明 ────────────────────────────────
 
-    struct session_prefix;
+    struct trace_context;
     struct scratch_pad;
 
     // ─── 字段类型系统 ────────────────────────────
@@ -47,7 +47,7 @@ namespace psm::trace
     {
         /// 字段类型约束：必须含 static constexpr bit 和 static active()
         template <typename T>
-        concept field_type = requires(const session_prefix &p) {
+        concept field_type = requires(const trace_context &p) {
             { T::bit } -> std::convertible_to<unsigned>;
             { T::active(p) } -> std::convertible_to<bool>;
         };
@@ -57,43 +57,43 @@ namespace psm::trace
         struct conn_t
         {
             static constexpr unsigned bit = 1u << 0;
-            static auto active(const session_prefix &p) noexcept -> bool;
-            static auto render(const session_prefix &p, scratch_pad &buf) noexcept -> void;
+            static auto active(const trace_context &p) noexcept -> bool;
+            static auto render(const trace_context &p, scratch_pad &buf) noexcept -> void;
         };
 
         struct protocol_t
         {
             static constexpr unsigned bit = 1u << 1;
-            static auto active(const session_prefix &p) noexcept -> bool;
-            static auto render(const session_prefix &p, scratch_pad &buf) noexcept -> void;
+            static auto active(const trace_context &p) noexcept -> bool;
+            static auto render(const trace_context &p, scratch_pad &buf) noexcept -> void;
         };
 
         struct stream_t
         {
             static constexpr unsigned bit = 1u << 2;
-            static auto active(const session_prefix &p) noexcept -> bool;
-            static auto render(const session_prefix &p, scratch_pad &buf) noexcept -> void;
+            static auto active(const trace_context &p) noexcept -> bool;
+            static auto render(const trace_context &p, scratch_pad &buf) noexcept -> void;
         };
 
         struct scheme_t
         {
             static constexpr unsigned bit = 1u << 3;
-            static auto active(const session_prefix &p) noexcept -> bool;
-            static auto render(const session_prefix &p, scratch_pad &buf) noexcept -> void;
+            static auto active(const trace_context &p) noexcept -> bool;
+            static auto render(const trace_context &p, scratch_pad &buf) noexcept -> void;
         };
 
         struct user_t
         {
             static constexpr unsigned bit = 1u << 4;
-            static auto active(const session_prefix &p) noexcept -> bool;
-            static auto render(const session_prefix &p, scratch_pad &buf) noexcept -> void;
+            static auto active(const trace_context &p) noexcept -> bool;
+            static auto render(const trace_context &p, scratch_pad &buf) noexcept -> void;
         };
 
         struct phase_t
         {
             static constexpr unsigned bit = 1u << 5;
-            static auto active(const session_prefix &p) noexcept -> bool;
-            static auto render(const session_prefix &p, scratch_pad &buf) noexcept -> void;
+            static auto active(const trace_context &p) noexcept -> bool;
+            static auto render(const trace_context &p, scratch_pad &buf) noexcept -> void;
         };
 
         // ---- constexpr 值 ----
@@ -180,7 +180,7 @@ namespace psm::trace
     /**
      * @struct scratch_pad
      * @brief 栈上格式化缓冲区
-     * @details 640 字节栈分配，零堆开销。用于 session_prefix
+     * @details 640 字节栈分配，零堆开销。用于 trace_context
      * 渲染前缀字符串，避免热路径上的堆分配。
      */
     struct scratch_pad
@@ -252,48 +252,63 @@ namespace psm::trace
     };
 
     /**
-     * @struct session_prefix
-     * @brief 会话前缀数据
-     * @details 承载单个会话的诊断上下文（连接 ID、协议名、流 ID、
-     * TLS 方案、用户名、阶段标注、处理单元名）。每个字段的渲染逻辑
-     * 由对应的 field tag struct 的 static render() 方法实现，
-     * 由 render_ordered 编译期展开。没有值的字段不渲染。
+     * @struct trace_context
+     * @brief 诊断上下文（trace 用的会话/流/传输层标签载体）
+     * @details 承载单条诊断链路的日志渲染字段（conn_id、stream_id、
+     * scheme、protocol、user、phase）。每个字段的渲染逻辑由对应的
+     * field tag struct 的 static render() 方法实现，由 render_ordered
+     * 编译期展开。没有值的字段不渲染。
+     *
+     * 业务数据（端点/目标/路由决策）不在 trace_context，由
+     * @ref psm::context::request_metadata 承载。trace_context 与
+     * metadata 并行流转，但职责分离。
+     *
+     * 不只用于 session：mux stream、transport 装饰器、protocol handler
+     * 都可以持有 shared_ptr<trace_context>，在任意作用域内传递。
+     *
      * @note 必须通过 std::shared_ptr 管理（继承 enable_shared_from_this）。
-     * 原因：prefix_restore_handler 在 IOCP 回调时通过 shared_ptr 副本
-     * 保活 session_prefix，防止协程挂起期间 session/core 析构导致
-     * captured_prefix_ 悬垂。magic 字段用于辅助检测双重析构和顺序问题，
-     * 但悬垂保护主要靠 shared_ptr 引用计数。
+     * 原因：IOCP 回调通过 shared_ptr 副本
+     * 保活 trace_context，防止协程挂起期间 session/core 析构导致
+     * captured_prefix_ 悬垂。
+     *
+     * active 字段：retire() 标记退出。
+     * 用于让 detached 协程检测"主上下文已退出"，跳过 trace 渲染。
+     * 单线程内访问（worker-per-thread io_context），无需原子。
+     *
+     * 字段顺序：hot 字段（active/conn_id）前置，提升缓存命中率。
      */
-    struct session_prefix : public std::enable_shared_from_this<session_prefix>
+    struct trace_context : public std::enable_shared_from_this<trace_context>
     {
         // 显式 public 默认构造：std::enable_shared_from_this 的默认构造是 protected，
-        // 但派生类内部访问合法。此处显式声明为 public，让 std::array<session_prefix, N>
+        // 但派生类内部访问合法。此处显式声明为 public，让 std::array<trace_context, N>
         // 等聚合容器能正确构造（容器不是派生类，不能访问 protected 基类构造）
-        session_prefix() = default;
+        trace_context() = default;
 
-        static constexpr std::uint64_t live_magic = 0xC0FFEE'BEEFCAFEULL;
+        // ── hot 字段（每次 trace 调用都读）──────────
+        bool active{true};                 ///< 上下文是否活跃（retire() 标记退出）
+        std::uint64_t conn_id{0};          ///< 连接唯一标识符（渲染最高频字段）
+        std::uint32_t stream_id{0};        ///< mux 流 ID
 
-        std::uint64_t magic{live_magic};
-        std::uint64_t conn_id = 0;
-        char client[48] = {};
-        std::uint16_t client_port = 0;
-        char listen[48] = {};
-        std::uint16_t listen_port = 0;
-        char protocol[16] = {};
-        std::uint32_t stream_id = 0;
-        char scheme_name[16] = {};
-        char user[32] = {};
+        // ── 日志专用字段（flt::tag 渲染用）─────────
+        char scheme_name[16]{};            ///< TLS 伪装方案名（flt::scheme_t::render）
+        char protocol[16]{};               ///< 协议名（flt::protocol_t::render）
+        char user[32]{};                   ///< 用户名（flt::user_t::render）
 
-        phase_slot phase;
+        phase_slot phase;                  ///< 阶段标注
 
-        [[nodiscard]] auto is_alive() const noexcept -> bool
+        // 端点字段（client/listen/client_port/listen_port）已移到
+        // psm::context::request_metadata::src/dst
+
+        /// 上下文是否仍活跃（未被 retire）
+        [[nodiscard]] constexpr auto alive() const noexcept -> bool
         {
-            return magic == live_magic;
+            return active;
         }
 
-        auto invalidate() noexcept -> void
+        /// 标记上下文退役（手动调用或 RAII）
+        constexpr auto retire() noexcept -> void
         {
-            magic = 0;
+            active = false;
         }
     };
 
@@ -302,65 +317,65 @@ namespace psm::trace
     namespace flt
     {
 
-        inline auto conn_t::active(const session_prefix &p) noexcept -> bool
+        inline auto conn_t::active(const trace_context &p) noexcept -> bool
         {
             return p.conn_id != 0;
         }
 
-        inline auto conn_t::render(const session_prefix &p, scratch_pad &buf) noexcept -> void
+        inline auto conn_t::render(const trace_context &p, scratch_pad &buf) noexcept -> void
         {
             buf.append("conn=");
             buf.append(p.conn_id);
         }
 
-        inline auto protocol_t::active(const session_prefix &p) noexcept -> bool
+        inline auto protocol_t::active(const trace_context &p) noexcept -> bool
         {
             return p.protocol[0] != '\0';
         }
 
-        inline auto protocol_t::render(const session_prefix &p, scratch_pad &buf) noexcept -> void
+        inline auto protocol_t::render(const trace_context &p, scratch_pad &buf) noexcept -> void
         {
             buf.append(p.protocol);
         }
 
-        inline auto stream_t::active(const session_prefix &p) noexcept -> bool
+        inline auto stream_t::active(const trace_context &p) noexcept -> bool
         {
             return p.stream_id != 0;
         }
 
-        inline auto stream_t::render(const session_prefix &p, scratch_pad &buf) noexcept -> void
+        inline auto stream_t::render(const trace_context &p, scratch_pad &buf) noexcept -> void
         {
             buf.append("stream=");
             buf.append(p.stream_id);
         }
 
-        inline auto scheme_t::active(const session_prefix &p) noexcept -> bool
+        inline auto scheme_t::active(const trace_context &p) noexcept -> bool
         {
             return p.scheme_name[0] != '\0';
         }
 
-        inline auto scheme_t::render(const session_prefix &p, scratch_pad &buf) noexcept -> void
+        inline auto scheme_t::render(const trace_context &p, scratch_pad &buf) noexcept -> void
         {
             buf.append(p.scheme_name);
         }
 
-        inline auto user_t::active(const session_prefix &p) noexcept -> bool
+        inline auto user_t::active(const trace_context &p) noexcept -> bool
         {
             return p.user[0] != '\0';
         }
 
-        inline auto user_t::render(const session_prefix &p, scratch_pad &buf) noexcept -> void
+        inline auto user_t::render(const trace_context &p, scratch_pad &buf) noexcept -> void
         {
             buf.append("user=");
             buf.append(p.user);
         }
 
-        inline auto phase_t::active(const session_prefix &p) noexcept -> bool
+        inline auto phase_t::active(const trace_context &p) noexcept -> bool
         {
             return p.phase.active();
         }
 
-        inline auto phase_t::render(const session_prefix &p, scratch_pad &buf) noexcept -> void
+        inline auto phase_t::render(const trace_context &p, scratch_pad &buf) noexcept -> void
         {
             buf.append("phase=");
             buf.append(p.phase.label);
@@ -375,7 +390,7 @@ namespace psm::trace
      * @details 先检查 active()，为 false 时跳过渲染。
      */
     template <typename F>
-    auto render_one(const session_prefix &p, scratch_pad &buf) noexcept -> bool
+    auto render_one(const trace_context &p, scratch_pad &buf) noexcept -> bool
     {
         if (!F::active(p))
             return false;
@@ -394,7 +409,7 @@ namespace psm::trace
      * @param ch 字段链（仅用于模板参数推导）
      */
     template <typename... Fs>
-    auto render_ordered(const session_prefix &p, scratch_pad &buf,
+    auto render_ordered(const trace_context &p, scratch_pad &buf,
                         flt::chain<Fs...> /*ch*/) noexcept -> void
     {
         bool sep = false;
@@ -433,79 +448,21 @@ namespace psm::trace
         }
     }
 
-    // ─── thread_local 上下文 ────────────────────
-
-    // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
-    inline thread_local session_prefix *active_prefix = nullptr;
+    // ─── 显式 prefix 渲染 ────────────────────
 
     /**
-     * @class scope_guard
-     * @brief 会话前缀 RAII 守卫
-     * @details 构造时设置 active_prefix 为当前会话的前缀，
-     * 析构时将 magic 置零并清除 active_prefix。
-     * @note 提供两个构造重载：
-     *   - shared_ptr 版本（推荐）：持有 shared_ptr 副本保活 session_prefix，
-     *     即使 session/core 在 scope_guard 析构前被释放，session_prefix 内存
-     *     仍由 shared_ptr 持有，不会悬垂。生产代码必须用此形式（session::prefix_
-     *     和 core::prefix_ 都是 shared_ptr）。
-     *   - 引用版本（仅测试/向后兼容）：不保活，caller 必须保证 pfx 在 scope_guard
-     *     生命周期内活着。仅供测试代码使用（栈对象 + 短作用域）。
-     */
-    class scope_guard
-    {
-    public:
-        // 生产用：保活（shared_ptr 引用计数管理）
-        explicit scope_guard(std::shared_ptr<session_prefix> pfx) noexcept
-            : prefix_shared_(std::move(pfx)), prefix_raw_(nullptr)
-        {
-            if (prefix_shared_)
-                active_prefix = prefix_shared_.get();
-        }
-
-        // 测试/兼容用：不保活，caller 保证 pfx 生命周期
-        explicit scope_guard(session_prefix &pfx) noexcept
-            : prefix_shared_(nullptr), prefix_raw_(&pfx)
-        {
-            active_prefix = &pfx;
-        }
-
-        ~scope_guard() noexcept
-        {
-            if (prefix_shared_)
-            {
-                prefix_shared_->invalidate();
-                if (active_prefix == prefix_shared_.get())
-                    active_prefix = nullptr;
-            }
-            else if (prefix_raw_)
-            {
-                prefix_raw_->invalidate();
-                if (active_prefix == prefix_raw_)
-                    active_prefix = nullptr;
-            }
-        }
-
-        scope_guard(const scope_guard &) = delete;
-        auto operator=(const scope_guard &) -> scope_guard & = delete;
-        scope_guard(scope_guard &&) = delete;
-        auto operator=(scope_guard &&) -> scope_guard & = delete;
-
-    private:
-        std::shared_ptr<session_prefix> prefix_shared_;
-        session_prefix *prefix_raw_;
-    };
-
-    /**
-     * @brief 渲染当前线程的会话前缀到 scratch_pad
-     * @tparam Chain 字段链类型（由 level_default 或用户 pipe 生成）
-     * @param buf 栈缓冲区，由调用方持有
-     * @details 无活跃前缀时 buf 不变。零堆分配。
+     * @brief 从显式 prefix 渲染到 scratch_pad（不读 thread_local）
+     * @tparam Chain 字段链类型
+     * @param buf 栈缓冲区
+     * @param pfx 显式传入的会话前缀
+     * @details 不渲染前缀（区别于 render_prefix_from），此版本从参数取 prefix，
+     * 不依赖 thread_local（已删除）。
      */
     template <typename Chain>
-    auto render_prefix(scratch_pad &buf) noexcept -> void
+    auto render_prefix_from(scratch_pad &buf, const trace_context &pfx) noexcept -> void
     {
-        if (active_prefix && active_prefix->is_alive())
-            render_ordered(*active_prefix, buf, Chain{});
+        if (pfx.alive())
+            render_ordered(pfx, buf, Chain{});
     }
 
 } // namespace psm::trace

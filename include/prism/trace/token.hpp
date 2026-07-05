@@ -1,20 +1,11 @@
 /**
  * @file token.hpp
- * @brief 协程安全的自定义 Completion Token
- * @details 通过包装 Boost 内置 awaitable_handler，在 I/O 回调时
- * 自动恢复捕获的 prefix，解决 thread_local active_prefix 在
- * 同一线程多协程间被覆盖导致的日志前缀错乱问题。
+ * @brief 自定义 Completion Token（thread_local 已移除后的兼容包装）
+ * @details use_prefix_awaitable 作为 Boost.Asio 的 completion token，
+ * 内部等同于 use_awaitable。保留是为了避免大规模替换调用方代码。
  *
- * 核心思路：
- *   co_await timer.async_wait(trace::use_prefix_awaitable)
- *                        ↓
- *   async_result::initiate() 捕获当前 active_prefix → 存入 wrapper handler
- *                        ↓
- *   I/O 完成，wrapper handler 先恢复 active_prefix 再调用底层 awaitable_handler
- *                        ↓
- *   协程恢复时 active_prefix 已经正确
- *
- * @note header-only，依赖 context.hpp（active_prefix）和 Boost.Asio。
+ * @note thread_local 已删除，本文件不再做 prefix 恢复。
+ * 所有 trace 调用通过显式 prefix 参数传递。
  */
 
 #pragma once
@@ -32,9 +23,7 @@ namespace psm::trace
 
     /**
      * @class use_prefix_awaitable_t
-     * @brief 自定义 Completion Token 类型
-     * @details 空 struct，作为 CompletionToken 传递给 Asio 异步操作。
-     * 通过 async_result 特化注入 prefix 恢复逻辑。
+     * @brief 兼容 Completion Token（等同 use_awaitable_t）
      */
     template <typename Executor = net::any_io_executor>
     struct use_prefix_awaitable_t
@@ -51,19 +40,16 @@ namespace psm::trace
 
         /**
          * @class prefix_restore_handler
-         * @brief 前缀恢复包装 handler
-         * @details 构造时捕获 active_prefix 对应的 shared_ptr 副本，
-         * 在 operator() 调用时先恢复 active_prefix 再转发给底层 awaitable_handler。
-         * @note 持有 shared_ptr 副本保活 session_prefix。即使 session/core 在
-         * 协程挂起期间析构（释放对 prefix 的 shared_ptr 引用），handler 仍持有
-         * 最后一个引用，prefix 内存不释放。这是 IOCP 回调路径防悬垂的关键。
+         * @brief 兼容 wrapper handler（no-op passthrough）
+         * @details 不再做 prefix 恢复，直接转发给底层 handler。
+         *         保留 shared_ptr 副本用于 IOCP 回调防悬垂。
          */
         template <typename Handler>
         class prefix_restore_handler
         {
         public:
             explicit prefix_restore_handler(Handler &&h,
-                std::shared_ptr<session_prefix> captured)
+                std::shared_ptr<trace_context> captured)
                 : handler_(std::move(h)), captured_prefix_(std::move(captured))
             {
             }
@@ -78,10 +64,6 @@ namespace psm::trace
             template <typename... Args>
             void operator()(Args &&...args)
             {
-                // captured_prefix_ 持有 shared_ptr 副本，必不为 nullptr（除非原本就 null）
-                // 但仍检查 is_alive() 以处理 scope_guard 析构后的状态（magic 置零）
-                if (captured_prefix_ && captured_prefix_->is_alive())
-                    active_prefix = captured_prefix_.get();
                 std::move(handler_)(std::forward<Args>(args)...);
             }
 
@@ -120,7 +102,7 @@ namespace psm::trace
 
         private:
             Handler handler_;
-            std::shared_ptr<session_prefix> captured_prefix_;
+            std::shared_ptr<trace_context> captured_prefix_;
         };
 
     } // namespace detail
@@ -142,13 +124,9 @@ public:
     static return_type initiate(Initiation initiation,
         psm::trace::use_prefix_awaitable_t<Executor>, InitArgs... args)
     {
-        // 捕获 active_prefix 对应的 shared_ptr 副本（通过 shared_from_this）
-        // 这样 handler 持有 prefix 的引用计数，prefix 不会在协程挂起期间析构
-        std::shared_ptr<psm::trace::session_prefix> captured;
-        if (psm::trace::active_prefix)
-        {
-            captured = psm::trace::active_prefix->shared_from_this();
-        }
+        // thread_local 已删除，不再捕获 active_prefix
+        // captured 始终为 nullptr，handler passthrough 不做 prefix 恢复
+        std::shared_ptr<psm::trace::trace_context> captured;
         co_await [&](auto *frame) -> boost::asio::detail::awaitable_thread<Executor> *
         {
             typename boost::asio::async_result<

@@ -6,7 +6,7 @@
  *          覆盖精确匹配、通配符匹配、后缀匹配、CNAME、否定规则等分支。
  */
 
-#include <prism/core/core.hpp>
+#include <prism/foundation/foundation.hpp>
 #include <prism/net/resolve/dns/detail/rules.hpp>
 #include <prism/trace/spdlog.hpp>
 

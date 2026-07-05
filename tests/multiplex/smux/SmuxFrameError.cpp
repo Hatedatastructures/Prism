@@ -3,7 +3,7 @@
  * @brief smux 帧格式错误路径与边界条件测试
  */
 
-#include <prism/core/core.hpp>
+#include <prism/foundation/foundation.hpp>
 #include <prism/proto/multiplex/smux/frame.hpp>
 #include <prism/trace/spdlog.hpp>
 

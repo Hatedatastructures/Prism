@@ -13,7 +13,7 @@
 #include <prism/net/connect/dial/dial.hpp>
 #include <prism/net/connect/dial/router.hpp>
 #include <prism/net/connect/pool/pool.hpp>
-#include <prism/core/fault/code.hpp>
+#include <prism/foundation/fault/code.hpp>
 #include <prism/instance/outbound/proxy.hpp>
 #include <prism/trace/trace.hpp>
 #include <prism/net/transport/reliable.hpp>
@@ -115,6 +115,18 @@ namespace psm::outbound
             -> std::string_view override
         {
             return "DIRECT";
+        }
+
+        [[nodiscard]] auto ipv6_disabled() const
+            -> bool override
+        {
+            return router_.ipv6_disabled();
+        }
+
+        [[nodiscard]] auto executor() const
+            -> net::any_io_executor override
+        {
+            return router_.executor();
         }
 
     private:

@@ -11,10 +11,10 @@
  * 7. std 错误码双向转换 (to_code)
  */
 
-#include <prism/core/fault/code.hpp>
-#include <prism/core/fault/compatible.hpp>
-#include <prism/core/fault/handling.hpp>
-#include <prism/core/core.hpp>
+#include <prism/foundation/fault/code.hpp>
+#include <prism/foundation/fault/compatible.hpp>
+#include <prism/foundation/fault/handling.hpp>
+#include <prism/foundation/foundation.hpp>
 #include <prism/trace/spdlog.hpp>
 
 #include <gtest/gtest.h>

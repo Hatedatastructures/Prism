@@ -9,7 +9,8 @@
  * 5. 无效协议号兜底到 smux::craft（default 分支）
  */
 
-#include <prism/core/core.hpp>
+#include <prism/foundation/foundation.hpp>
+#include <prism/instance/outbound/direct.hpp>
 #include <prism/trace/spdlog.hpp>
 #include <prism/proto/multiplex/bootstrap.hpp>
 #include <prism/proto/multiplex/smux/craft.hpp>
@@ -124,6 +125,7 @@ namespace
         net::io_context ioc;
         psm::connect::connection_pool pool(ioc);
         psm::connect::router rtr({pool, ioc, psm::resolve::dns::config{}});
+        psm::outbound::direct ob(rtr);
         psm::multiplex::config mux_cfg;
 
         auto transport = std::make_shared<mock_transport>(ioc);
@@ -131,7 +133,7 @@ namespace
 
         psm::multiplex::bootstrap_context ctx{
             .transport = transport,
-            .router = rtr,
+            .outbound = &ob,
             .cfg = mux_cfg,
         };
 
@@ -173,6 +175,7 @@ namespace
         net::io_context ioc;
         psm::connect::connection_pool pool(ioc);
         psm::connect::router rtr({pool, ioc, psm::resolve::dns::config{}});
+        psm::outbound::direct ob(rtr);
         psm::multiplex::config mux_cfg;
 
         auto transport = std::make_shared<mock_transport>(ioc);
@@ -180,7 +183,7 @@ namespace
 
         psm::multiplex::bootstrap_context ctx{
             .transport = transport,
-            .router = rtr,
+            .outbound = &ob,
             .cfg = mux_cfg,
         };
 
@@ -222,6 +225,7 @@ namespace
         net::io_context ioc;
         psm::connect::connection_pool pool(ioc);
         psm::connect::router rtr({pool, ioc, psm::resolve::dns::config{}});
+        psm::outbound::direct ob(rtr);
         psm::multiplex::config mux_cfg;
 
         auto transport = std::make_shared<mock_transport>(ioc);
@@ -229,7 +233,7 @@ namespace
 
         psm::multiplex::bootstrap_context ctx{
             .transport = transport,
-            .router = rtr,
+            .outbound = &ob,
             .cfg = mux_cfg,
         };
 
@@ -272,6 +276,7 @@ namespace
         net::io_context ioc;
         psm::connect::connection_pool pool(ioc);
         psm::connect::router rtr({pool, ioc, psm::resolve::dns::config{}});
+        psm::outbound::direct ob(rtr);
         psm::multiplex::config mux_cfg;
 
         auto transport = std::make_shared<mock_transport>(ioc);
@@ -280,7 +285,7 @@ namespace
 
         psm::multiplex::bootstrap_context ctx{
             .transport = transport,
-            .router = rtr,
+            .outbound = &ob,
             .cfg = mux_cfg,
         };
 
@@ -320,6 +325,7 @@ namespace
         net::io_context ioc;
         psm::connect::connection_pool pool(ioc);
         psm::connect::router rtr({pool, ioc, psm::resolve::dns::config{}});
+        psm::outbound::direct ob(rtr);
         psm::multiplex::config mux_cfg;
 
         auto transport = std::make_shared<mock_transport>(ioc);
@@ -328,7 +334,7 @@ namespace
 
         psm::multiplex::bootstrap_context ctx{
             .transport = transport,
-            .router = rtr,
+            .outbound = &ob,
             .cfg = mux_cfg,
         };
 

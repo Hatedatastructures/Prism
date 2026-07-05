@@ -8,14 +8,16 @@
 #pragma once
 
 #include <prism/context/context.hpp>
-#include <prism/core/fault/code.hpp>
-#include <prism/core/memory/container.hpp>
+#include <prism/foundation/fault/code.hpp>
+#include <prism/foundation/memory/container.hpp>
 #include <prism/stealth/scheme.hpp>
 #include <prism/net/transport/transmission.hpp>
+#include <prism/trace/context.hpp>
 
 #include <boost/asio.hpp>
 
 #include <cstdint>
+#include <memory>
 #include <span>
 
 
@@ -37,9 +39,12 @@ namespace psm::stealth::reality
      * @param inbound 入站传输层（不转移所有权，仅使用）
      * @param cfg 服务器配置
      * @param session 会话上下文（用于 fallback 等需要 router 的场景）
+     * @param trace 日志上下文（显式传参，替代 thread_local）
      * @return net::awaitable<stealth::handshake_result> 异步操作，返回握手结果
      */
-    [[nodiscard]] auto handshake(transport::shared_transmission inbound, const psm::config &cfg, psm::context::session &session)
+    [[nodiscard]] auto handshake(transport::shared_transmission inbound, const psm::config &cfg,
+                                 psm::context::session &session,
+                                 std::shared_ptr<trace::trace_context> trace)
         -> net::awaitable<stealth::handshake_result>;
 
     /**
@@ -51,7 +56,8 @@ namespace psm::stealth::reality
      * @param raw_record 原始 ClientHello TLS 记录字节
      * @return net::awaitable<fault::code> 异步操作，返回错误码
      */
-    [[nodiscard]] auto fallback_dest(psm::context::session &session, transport::shared_transmission inbound, std::span<const std::uint8_t> raw_record)
+    [[nodiscard]] auto fallback_dest(psm::context::session &session, transport::shared_transmission inbound, std::span<const std::uint8_t> raw_record,
+                                    std::shared_ptr<trace::trace_context> trace)
         -> net::awaitable<fault::code>;
 
     /**

@@ -7,7 +7,8 @@
 
 #pragma once
 
-#include <prism/core/memory/container.hpp>
+#include <prism/foundation/memory/container.hpp>
+#include <prism/net/transport/transmission.hpp>
 #include <prism/proto/protocol/tls/types.hpp>
 
 #include <boost/asio.hpp>
@@ -84,6 +85,15 @@ namespace psm::stealth::common
      * @return 完整 TLS 帧数据，读取失败时返回 std::nullopt
      */
     [[nodiscard]] auto read_tls_frame(net::ip::tcp::socket &sock, std::error_code &ec,
+                            net::steady_timer *deadline = nullptr)
+        -> net::awaitable<std::optional<memory::vector<std::byte>>>;
+
+    /**
+     * @brief 从 transport::transmission 读取一帧完整的 TLS 记录（重载）
+     * @details 通过 transport 抽象读取，供装饰器化后的 handshake 使用。
+     *          内部调用 tls::record::read(transmission&) 重载。
+     */
+    [[nodiscard]] auto read_tls_frame(transport::transmission &trans, std::error_code &ec,
                             net::steady_timer *deadline = nullptr)
         -> net::awaitable<std::optional<memory::vector<std::byte>>>;
 

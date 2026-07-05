@@ -8,7 +8,7 @@
 
 #include <gtest/gtest.h>
 
-#include <prism/core/core.hpp>
+#include <prism/foundation/foundation.hpp>
 #include <prism/config/config.hpp>
 
 // 拉入源文件中 anonymous namespace 的函数定义
@@ -190,7 +190,7 @@ namespace
                std::strlen(pw),
                reinterpret_cast<std::uint8_t *>(frame.password_hash.data()));
 
-        auto result = verify_user(frame, users);
+        auto result = verify_user(frame, users, nullptr);
         EXPECT_TRUE(result != nullptr)
             << "verify_user: 正确密码 → 非 nullptr";
         EXPECT_TRUE(*result == "admin")
@@ -215,7 +215,7 @@ namespace
                std::strlen(pw),
                reinterpret_cast<std::uint8_t *>(frame.password_hash.data()));
 
-        auto result = verify_user(frame, users);
+        auto result = verify_user(frame, users, nullptr);
         EXPECT_TRUE(result == nullptr)
             << "verify_user: 错误密码 → nullptr";
     }

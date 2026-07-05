@@ -6,7 +6,7 @@
  *          mdc 操作完整路径、recorder 状态。
  */
 
-#include <prism/core/core.hpp>
+#include <prism/foundation/foundation.hpp>
 #include <prism/trace/spdlog.hpp>
 #include <prism/config/config.hpp>
 

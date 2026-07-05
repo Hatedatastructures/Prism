@@ -3,7 +3,7 @@
  * @brief yamux 帧格式错误路径与往返测试
  */
 
-#include <prism/core/core.hpp>
+#include <prism/foundation/foundation.hpp>
 #include <prism/proto/multiplex/yamux/frame.hpp>
 #include <prism/trace/spdlog.hpp>
 

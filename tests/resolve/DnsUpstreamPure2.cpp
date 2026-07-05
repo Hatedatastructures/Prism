@@ -7,10 +7,10 @@
  *          select_best_result 全分支、get_ssl_ctx 缓存命中/未命中。
  */
 
-#include <prism/core/core.hpp>
+#include <prism/foundation/foundation.hpp>
 #include <prism/net/resolve/dns/config.hpp>
 #include <prism/trace/spdlog.hpp>
-#include <prism/core/core.hpp>
+#include <prism/foundation/foundation.hpp>
 
 
 #include <gtest/gtest.h>

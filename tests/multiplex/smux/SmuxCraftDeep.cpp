@@ -5,7 +5,7 @@
  *          以及公开的 make_data_frame、make_syn、make_fin。
  */
 
-#include <prism/core/core.hpp>
+#include <prism/foundation/foundation.hpp>
 #include <prism/trace/spdlog.hpp>
 
 #include <gtest/gtest.h>

@@ -5,7 +5,7 @@
  *          使用 socket pair 而非 acceptor，避免阻塞在 accept()。
  */
 
-#include <prism/core/core.hpp>
+#include <prism/foundation/foundation.hpp>
 #include <prism/trace/spdlog.hpp>
 #include <prism/instance/worker/launch.hpp>
 #include <gtest/gtest.h>

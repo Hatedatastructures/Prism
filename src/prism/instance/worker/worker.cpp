@@ -1,100 +1,87 @@
 #include <prism/instance/worker/worker.hpp>
+
 #include <prism/account/directory.hpp>
+#include <prism/foundation/coroutine/registry.hpp>
 #include <prism/instance/worker/launch.hpp>
 #include <prism/trace/trace.hpp>
+
+#include <boost/asio/co_spawn.hpp>
+
+#include <memory>
+#include <string_view>
+#include <utility>
 
 using namespace psm::trace;
 
 namespace psm::instance::worker
 {
+    namespace ctx = psm::context;
 
-    // 构造 Worker：初始化所有子系统的单例资源。
-    // ioc_(1) 表示这个 io_context 只跑在一个线程上（hint=1），
-    // 这是实现"每线程一个事件循环"的关键——不需要锁。
+    // 构造 worker：先创建 SSL 上下文（由 tls::make 加载证书），随后构造
+    // worker::resources（资源伞对象，内部初始化所有 per-worker 资源），
+    // 再组装服务端/worker 上下文对象（ctx::server / ctx::worker）。
+    // ctx::worker 持有的 router& / outbound* / traffic* / tracker* / tasks*
+    // 全部指向 resources_ 内部成员，resources_ 必须在 worker_ctx_ 之前析构
+    // 由成员声明顺序自然保证。
     worker::worker(const psm::config &cfg, std::shared_ptr<account::directory> account_store)
-        : ioc_(1),
-          pool_(ioc_, memory::system::local_pool(), cfg.pool),
-          router_({pool_, ioc_, cfg.dns, memory::system::local_pool()}),
-          ssl_ctx_(tls::make(cfg.instance)),
-          outbound_direct_(std::make_unique<outbound::direct>(router_)),
+        : resources_(std::make_shared<psm::worker::resources>(
+              psm::worker::options{
+                  cfg,
+                  account_store,
+                  tls::make(cfg.instance),
+                  memory::system::local_pool()})),
+          ssl_ctx_(resources_->ssl_ctx()),
           server_ctx_{std::atomic<std::shared_ptr<const psm::config>>{}, ssl_ctx_, std::move(account_store)},
-          worker_ctx_{ioc_, router_, memory::system::local_pool(), outbound_direct_.get(), &traffic_}
+          worker_ctx_{resources_->ioc(), resources_->borrow(), memory::system::local_pool()}
     {
         server_ctx_.cfg.store(std::make_shared<const psm::config>(cfg));
-        // 注册反向代理路由：将虚拟域名映射到实际后端地址。
-        // 反向代理模式下，客户端连接代理的 443 端口，代理根据 SNI
-        // 将流量透明转发到配置的后端服务。
-        for (const auto &[host, endpoint_config] : server_ctx_.config().instance.reverse_map)
-        {
-            boost::system::error_code ec;
-            const auto addr = net::ip::make_address(endpoint_config.host, ec);
-            if (!ec && endpoint_config.port != 0)
-            {
-                router_.add_route(host, tcp::endpoint(addr, endpoint_config.port));
-            }
-            else
-            {
-                trace::warn("Invalid reverse route config for host: {}", host);
-            }
-        }
-
-        // 设置正向代理上游（positive）：如果配置了上游代理服务器，
-        // 所有出站流量都通过这个上游代理转发（级联代理）。
-        const auto &positive = server_ctx_.config().instance.positive;
-        if (!positive.host.empty() && positive.port != 0)
-        {
-            auto positive_host = std::string_view(positive.host.data(), positive.host.size());
-            router_.set_endpoint(positive_host, positive.port);
-        }
-
-        // 注册流量统计实例，供全局聚合查询
-        stats::traffic::traffic_state::register_instance(&traffic_);
     }
 
 
-    // 启动 Worker 事件循环。此方法会阻塞调用线程。
-    // 1. 启动连接池（开始池化连接的生命周期管理）
-    // 2. 派生一个协程用于定时采集负载指标（活跃会话数、事件循环延迟等）
-    // 3. 进入 io_context::run() —— 阻塞在这里，驱动所有异步操作
+    // 启动 worker：先 spawn metrics 观测协程到 resources_->tasks()，
+    // 随后调 resources_->run() 进入事件循环阻塞。resources_->run() 内部
+    // 启动连接池后台清理 + ioc_.run()，异常时标记 alive_=false 后重抛。
     void worker::run()
     {
-        pool_.start();
-        net::co_spawn(ioc_, metrics_.observe(ioc_), net::detached);
-        ioc_.run();
+        resources_->tasks().spawn_tracked("metrics.observe", metrics_.observe(resources_->ioc()));
+        resources_->run();
     }
 
 
-    // 停止 Worker 事件循环，实现优雅停机。
-    // 停止 io_context，使阻塞在 run() 的线程正常退出。
-    // 连接池会在 worker 析构时自动清理所有缓存连接。
+    // 停止 worker：触发 ioc_.stop() 使阻塞在 run() 的线程退出。
+    // 实际的 detached 协程清理在 worker::resources 析构时完成。
     void worker::stop()
     {
-        ioc_.stop();
-    }
-
-    worker::~worker()
-    {
-        stats::traffic::traffic_state::unregister_instance(&traffic_);
+        resources_->stop();
     }
 
 
-    // 接收来自 Listener 的新连接，投递到本 Worker 的 io_context。
-    // 由 Balancer 调用——当 Listener 收到新连接后，Balancer 根据
-    // 负载情况选出一个 Worker，然后调用这个方法把 socket 传过来。
-    // launch::dispatch 内部会创建会话对象，开始协议探测和处理。
+    worker::~worker() = default;
+
+
+    // 接收来自 Listener 的新连接，投递到本 worker 的 io_context。
+    // 由 Balancer 调用：当 listener 收到新连接后，balancer 根据负载情况
+    // 选出 worker，然后调用本方法把 socket 传过来。launch::dispatch 内部
+    // 创建会话对象，开始协议探测和处理。
     void worker::dispatch_socket(tcp::socket socket)
     {
         launch::dispatch(launch::launch_params{server_ctx_, worker_ctx_, metrics_, std::move(socket)});
     }
 
 
-    // 采集当前 Worker 的负载快照，供 Balancer 做调度决策。
-    // 返回的快照包含：活跃会话数、待处理连接数、事件循环延迟。
-    // 这些指标是 Balancer 判断是否过载、是否需要全局背压的依据。
+    // 采集当前 worker 的负载快照，供 Balancer 做调度决策。
+    // 聚合 metrics（活跃会话/待分发/事件循环延迟）和 resources_->stats()
+    // （协程/连接池/流量/健康度）。
     auto worker::load_snapshot() const noexcept
         -> ::psm::stats::worker_snapshot
     {
-        return metrics_.snapshot();
+        auto snapshot = metrics_.snapshot();
+        const auto res_stats = resources_->stats();
+        snapshot.active_tasks = res_stats.tasks.active;
+        snapshot.spawned_total = res_stats.tasks.total_spawned;
+        snapshot.cancelled_total = res_stats.tasks.total_cancelled;
+        snapshot.alive = res_stats.alive;
+        return snapshot;
     }
 
 } // namespace psm::instance::worker

@@ -8,7 +8,7 @@
  *       对 frame_loop 的阻塞，否则 ioc.run() 不会返回。
  */
 
-#include <prism/core/core.hpp>
+#include <prism/foundation/foundation.hpp>
 #include <prism/trace/spdlog.hpp>
 
 #include "common/MockTransport.hpp"
@@ -75,8 +75,8 @@ namespace
             psm::resolve::dns::config dns_cfg;
             psm::connect::router_options ropts{*pool, *ioc, dns_cfg};
             router_ptr = std::make_unique<psm::connect::router>(std::move(ropts));
-            multiplex::core_options opts{transport, *router_ptr, g_cfg, nullptr};
-            h2mux::craft_init init{*router_ptr, g_cfg, std::move(resolver)};
+            multiplex::core_options opts{transport, nullptr, g_cfg, nullptr};
+            h2mux::craft_init init{nullptr, g_cfg, std::move(resolver)};
             craft_obj = std::make_shared<h2mux::craft>(std::move(opts), std::move(init));
         }
     };

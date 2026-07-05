@@ -8,7 +8,7 @@
  *          避免同步 start() + poll()/run_for() 导致的 Access violation。
  */
 
-#include <prism/core/core.hpp>
+#include <prism/foundation/foundation.hpp>
 #include <prism/trace/spdlog.hpp>
 
 #include "common/MockTransport.hpp"
@@ -61,8 +61,8 @@ namespace
             psm::resolve::dns::config dns_cfg;
             psm::connect::router_options ropts{*pool, *ioc, dns_cfg};
             router_ptr = std::make_unique<psm::connect::router>(std::move(ropts));
-            multiplex::core_options opts{transport, *router_ptr, g_cfg, nullptr};
-            h2mux::craft_init init{*router_ptr, g_cfg, make_resolver()};
+            multiplex::core_options opts{transport, nullptr, g_cfg, nullptr};
+            h2mux::craft_init init{nullptr, g_cfg, make_resolver()};
             craft_obj = std::make_shared<h2mux::craft>(std::move(opts), std::move(init));
         }
     };
@@ -84,8 +84,8 @@ namespace
         psm::connect::router_options ropts{*pool, *ioc, dns_cfg};
         auto router_ptr = std::make_unique<psm::connect::router>(std::move(ropts));
         psm::memory::unsynchronized_pool mr;
-        multiplex::core_options opts{transport, *router_ptr, g_cfg, &mr};
-        h2mux::craft_init init{*router_ptr, g_cfg, make_resolver()};
+        multiplex::core_options opts{transport, nullptr, g_cfg, &mr};
+        h2mux::craft_init init{nullptr, g_cfg, make_resolver()};
         auto c = std::make_shared<h2mux::craft>(std::move(opts), std::move(init));
         EXPECT_TRUE(!c->is_active()) << "constructor: with mr -> inactive";
     }

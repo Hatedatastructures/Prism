@@ -14,8 +14,8 @@
 #include "../../src/prism/proto/protocol/socks5/conn.cpp"
 #undef private
 
-#include <prism/core/fault/handling.hpp>
-#include <prism/core/core.hpp>
+#include <prism/foundation/fault/handling.hpp>
+#include <prism/foundation/foundation.hpp>
 #include <prism/proto/protocol/socks5/config.hpp>
 #include <prism/proto/protocol/socks5/constants.hpp>
 #include <prism/proto/protocol/socks5/packet.hpp>

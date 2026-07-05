@@ -49,7 +49,7 @@ namespace psm::connect
             co_return std::make_pair(fault::code::bad_gateway, pooled_connection{});
         }
 
-        auto [code, conn] = co_await pool_.async_acquire(route->second);
+        auto [code, conn] = co_await pool_.async_acquire(route->second, nullptr);
         if (!conn.valid())
         {
             co_return std::make_pair(fault::code::bad_gateway, pooled_connection{});

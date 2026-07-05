@@ -2,6 +2,7 @@ target_sources(${PROJECT_NAME}_static_library
         PRIVATE
         dns/upstream.cpp
         dns/resolver.cpp
+        dns/gateway.cpp
         dns/detail/format.cpp
         dns/detail/cache.cpp
         dns/detail/rules.cpp
@@ -14,6 +15,7 @@ target_sources(${PROJECT_NAME}_static_library
         FILES
             ${PROJECT_SOURCE_DIR}/include/prism/net/resolve/dns/dns.hpp
             ${PROJECT_SOURCE_DIR}/include/prism/net/resolve/dns/config.hpp
+            ${PROJECT_SOURCE_DIR}/include/prism/net/resolve/dns/gateway.hpp
             ${PROJECT_SOURCE_DIR}/include/prism/net/resolve/dns/upstream.hpp
             ${PROJECT_SOURCE_DIR}/include/prism/net/resolve/dns/detail/cache.hpp
             ${PROJECT_SOURCE_DIR}/include/prism/net/resolve/dns/detail/coalescer.hpp

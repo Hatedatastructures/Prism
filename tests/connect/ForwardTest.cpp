@@ -11,11 +11,11 @@
 #include <prism/config/config.hpp>
 #include <prism/net/connect/dial/router.hpp>
 #include <prism/net/connect/pool/pool.hpp>
-#include <prism/net/connect/tunnel/forward.hpp>
+#include <prism/net/connect/tunnel/forward/basic.hpp>
 #include <prism/net/connect/tunnel/tunnel.hpp>
 #include <prism/context/context.hpp>
-#include <prism/core/fault/handling.hpp>
-#include <prism/core/core.hpp>
+#include <prism/foundation/fault/handling.hpp>
+#include <prism/foundation/foundation.hpp>
 #include <prism/proto/protocol/common/form.hpp>
 #include <prism/proto/protocol/common/target.hpp>
 #include <prism/net/transport/transmission.hpp>
@@ -46,10 +46,7 @@ TEST(Forward, OptionsStructure)
     tgt.host = "example.com";
     tgt.port = "443";
 
-    forward_options opts{
-        .label = "test",
-        .target = tgt,
-        .inbound = inbound};
+    forward_options opts{"test", tgt, inbound};
 
     EXPECT_EQ(opts.label, "test");
     EXPECT_EQ(opts.target.host, "example.com");
@@ -66,10 +63,7 @@ TEST(Forward, OptionsMoveSemantics)
     tgt.host = "test.org";
     tgt.port = "80";
 
-    forward_options opts{
-        .label = "move_test",
-        .target = tgt,
-        .inbound = inbound};
+    forward_options opts{"move_test", tgt, inbound};
 
     auto moved_inbound = std::move(opts.inbound);
     EXPECT_TRUE(moved_inbound);
@@ -93,14 +87,13 @@ TEST(Forward, TunnelOptionsStructure)
     static connection_pool pool{ioc, psm::memory::system::global_pool()};
     static psm::connect::router router_instance(
         psm::connect::router_options{pool, ioc, {}, psm::memory::system::global_pool()});
-    static worker worker_ctx{ioc, router_instance,
-                              psm::memory::system::global_pool(), nullptr, nullptr};
+    static psm::context::worker_ref worker_ctx{ioc, psm::worker::borrow{}, psm::memory::system::global_pool()};
     static psm::memory::frame_arena arena;
 
-    session_opts s_opts{1, server_ctx, worker_ctx, arena, {}, 8192, nullptr};
+    session_opts s_opts{1, server_ctx, worker_ctx, arena, 8192, nullptr, {}};
     session sess(std::move(s_opts));
 
-    tunnel_options opts{inbound, outbound, sess, write_policy::complete};
+    tunnel_options opts{inbound, outbound, sess.buffer_size, write_policy::complete};
 
     EXPECT_EQ(opts.policy, write_policy::complete);
     EXPECT_TRUE(opts.inbound);

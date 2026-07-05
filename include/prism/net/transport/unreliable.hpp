@@ -11,7 +11,7 @@
  */
 #pragma once
 
-#include <prism/core/fault/handling.hpp>
+#include <prism/foundation/fault/handling.hpp>
 #include <prism/trace/trace.hpp>
 #include <prism/net/transport/transmission.hpp>
 

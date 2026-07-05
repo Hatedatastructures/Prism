@@ -5,7 +5,7 @@
  *          build_ok_resp 定义在静态库中，ep_to_addr 内联在头文件中。
  */
 
-#include <prism/core/core.hpp>
+#include <prism/foundation/foundation.hpp>
 #include <prism/trace/spdlog.hpp>
 
 #include <boost/asio.hpp>

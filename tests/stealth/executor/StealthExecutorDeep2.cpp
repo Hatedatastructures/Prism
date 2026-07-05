@@ -8,7 +8,7 @@
 
 #include <gtest/gtest.h>
 
-#include <prism/core/core.hpp>
+#include <prism/foundation/foundation.hpp>
 
 #include "common/MockTransport.hpp"
 
@@ -72,32 +72,32 @@ namespace
     {
         auto mock = std::make_shared<psm::testing::MockTransport>();
         stealth::handshake_context ctx;
-        ctx.inbound = nullptr;
+        ctx.transport = nullptr;
 
         stealth::handshake_result res;
         res.transport = mock;
 
         stealth::scheme_executor::pass_through(ctx, res);
-        EXPECT_TRUE(ctx.inbound == mock) << "pass_through: sets transport";
+        EXPECT_TRUE(ctx.transport == mock) << "pass_through: sets transport";
     }
 
     TEST(StealthExecutorDeep2, PassThroughNoTransport)
     {
         stealth::handshake_context ctx;
-        ctx.inbound = nullptr;
+        ctx.transport = nullptr;
 
         stealth::handshake_result res;
         res.transport = nullptr;
 
         stealth::scheme_executor::pass_through(ctx, res);
-        EXPECT_TRUE(ctx.inbound == nullptr) << "pass_through: null transport keeps null";
+        EXPECT_TRUE(ctx.transport == nullptr) << "pass_through: null transport keeps null";
     }
 
     TEST(StealthExecutorDeep2, PassThroughWithPrereadAndTransport)
     {
         auto mock = std::make_shared<psm::testing::MockTransport>();
         stealth::handshake_context ctx;
-        ctx.inbound = nullptr;
+        ctx.transport = nullptr;
 
         stealth::handshake_result res;
         res.transport = mock;
@@ -106,9 +106,9 @@ namespace
         res.preread.push_back(std::byte{0x02});
 
         stealth::scheme_executor::pass_through(ctx, res);
-        EXPECT_TRUE(ctx.inbound != mock) << "pass_through: wraps with preview";
-        EXPECT_TRUE(ctx.inbound != nullptr) << "pass_through: not null after wrap";
-        auto *pv = dynamic_cast<transport::preview *>(ctx.inbound.get());
+        EXPECT_TRUE(ctx.transport != mock) << "pass_through: wraps with preview";
+        EXPECT_TRUE(ctx.transport != nullptr) << "pass_through: not null after wrap";
+        auto *pv = dynamic_cast<transport::preview *>(ctx.transport.get());
         EXPECT_TRUE(pv != nullptr) << "pass_through: is preview";
     }
 
@@ -116,25 +116,25 @@ namespace
     {
         auto mock = std::make_shared<psm::testing::MockTransport>();
         stealth::handshake_context ctx;
-        ctx.inbound = nullptr;
+        ctx.transport = nullptr;
 
         stealth::handshake_result res;
         res.transport = mock;
         stealth::scheme_executor::pass_through(ctx, res);
-        EXPECT_TRUE(ctx.inbound == mock) << "pass_through: empty preread no wrap";
+        EXPECT_TRUE(ctx.transport == mock) << "pass_through: empty preread no wrap";
     }
 
     TEST(StealthExecutorDeep2, PassThroughPrereadNoTransport)
     {
         stealth::handshake_context ctx;
-        ctx.inbound = nullptr;
+        ctx.transport = nullptr;
 
         stealth::handshake_result res;
         res.transport = nullptr;
         res.preread.push_back(std::byte{0xAA});
 
         stealth::scheme_executor::pass_through(ctx, res);
-        EXPECT_TRUE(ctx.inbound == nullptr) << "pass_through: preread but no transport stays null";
+        EXPECT_TRUE(ctx.transport == nullptr) << "pass_through: preread but no transport stays null";
     }
 
     // ─── ensure_snapshot ─────────────────────────────
@@ -142,9 +142,9 @@ namespace
     TEST(StealthExecutorDeep2, EnsureSnapshotNull)
     {
         stealth::handshake_context ctx;
-        ctx.inbound = nullptr;
+        ctx.transport = nullptr;
         stealth::scheme_executor::ensure_snapshot(ctx);
-        EXPECT_TRUE(ctx.inbound == nullptr) << "ensure_snapshot: null stays null";
+        EXPECT_TRUE(ctx.transport == nullptr) << "ensure_snapshot: null stays null";
     }
 
     TEST(StealthExecutorDeep2, EnsureSnapshotAlreadySnapshot)
@@ -152,21 +152,21 @@ namespace
         auto mock = std::make_shared<psm::testing::MockTransport>();
         auto snap = std::make_shared<transport::snapshot>(mock);
         stealth::handshake_context ctx;
-        ctx.inbound = snap;
+        ctx.transport = snap;
 
         stealth::scheme_executor::ensure_snapshot(ctx);
-        EXPECT_TRUE(ctx.inbound == snap) << "ensure_snapshot: already snapshot unchanged";
+        EXPECT_TRUE(ctx.transport == snap) << "ensure_snapshot: already snapshot unchanged";
     }
 
     TEST(StealthExecutorDeep2, EnsureSnapshotNotSnapshot)
     {
         auto mock = std::make_shared<psm::testing::MockTransport>();
         stealth::handshake_context ctx;
-        ctx.inbound = mock;
+        ctx.transport = mock;
 
         stealth::scheme_executor::ensure_snapshot(ctx);
-        EXPECT_TRUE(ctx.inbound != mock) << "ensure_snapshot: wraps non-snapshot";
-        auto *snap = dynamic_cast<transport::snapshot *>(ctx.inbound.get());
+        EXPECT_TRUE(ctx.transport != mock) << "ensure_snapshot: wraps non-snapshot";
+        auto *snap = dynamic_cast<transport::snapshot *>(ctx.transport.get());
         EXPECT_TRUE(snap != nullptr) << "ensure_snapshot: result is snapshot";
     }
 
@@ -175,7 +175,7 @@ namespace
     TEST(StealthExecutorDeep2, TryRewindPolluted)
     {
         stealth::handshake_context ctx;
-        ctx.inbound = std::make_shared<psm::testing::MockTransport>();
+        ctx.transport = std::make_shared<psm::testing::MockTransport>();
         auto result = stealth::scheme_executor::try_rewind(ctx, stealth::rewind_mode::polluted);
         EXPECT_TRUE(result == false) << "try_rewind: polluted returns false";
     }
@@ -183,7 +183,7 @@ namespace
     TEST(StealthExecutorDeep2, TryRewindNullInbound)
     {
         stealth::handshake_context ctx;
-        ctx.inbound = nullptr;
+        ctx.transport = nullptr;
         auto result = stealth::scheme_executor::try_rewind(ctx, stealth::rewind_mode::clean);
         EXPECT_TRUE(result == false) << "try_rewind: null inbound returns false";
     }
@@ -192,7 +192,7 @@ namespace
     {
         auto mock = std::make_shared<psm::testing::MockTransport>();
         stealth::handshake_context ctx;
-        ctx.inbound = mock;
+        ctx.transport = mock;
 
         auto result = stealth::scheme_executor::try_rewind(ctx, stealth::rewind_mode::clean);
         EXPECT_TRUE(result == false) << "try_rewind: non-snapshot returns false";
@@ -205,7 +205,7 @@ namespace
         // wrote_ 已通过 #define private public 开放（snapshot.hpp 首次包含时生效）
         snap->wrote_ = true;
         stealth::handshake_context ctx;
-        ctx.inbound = snap;
+        ctx.transport = snap;
 
         auto result = stealth::scheme_executor::try_rewind(ctx, stealth::rewind_mode::clean);
         EXPECT_TRUE(result == false) << "try_rewind: snapshot wrote_ returns false";
@@ -216,7 +216,7 @@ namespace
         auto mock = std::make_shared<psm::testing::MockTransport>();
         auto snap = std::make_shared<transport::snapshot>(mock);
         stealth::handshake_context ctx;
-        ctx.inbound = snap;
+        ctx.transport = snap;
 
         auto result = stealth::scheme_executor::try_rewind(ctx, stealth::rewind_mode::clean);
         EXPECT_TRUE(result == true) << "try_rewind: clean snapshot returns true";

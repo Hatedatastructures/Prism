@@ -7,7 +7,7 @@
  * 3. 测试覆盖率验证，确保枚举值数量与测试用例一致
  */
 
-#include <prism/core/core.hpp>
+#include <prism/foundation/foundation.hpp>
 #include <prism/proto/protocol/types.hpp>
 #include <prism/trace/spdlog.hpp>
 

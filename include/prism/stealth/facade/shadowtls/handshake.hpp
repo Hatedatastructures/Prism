@@ -12,7 +12,8 @@
  */
 #pragma once
 
-#include <prism/core/memory/container.hpp>
+#include <prism/foundation/memory/container.hpp>
+#include <prism/net/transport/transmission.hpp>
 #include <prism/stealth/scheme.hpp>
 #include <prism/stealth/facade/shadowtls/config.hpp>
 
@@ -23,6 +24,13 @@
 #include <memory>
 #include <vector>
 
+
+namespace psm::outbound
+{
+
+    class proxy;
+
+}
 
 namespace psm::stealth::shadowtls
 {
@@ -56,23 +64,28 @@ namespace psm::stealth::shadowtls
     /**
      * @struct handshake_opts
      * @brief handshake 参数收敛
-     * @details 将 4 个参数收敛为单一结构体，遵守 Rule 1。
+     * @details 将参数收敛为单一结构体，遵守 Rule 1。
+     * 使用 shared_transmission 替代裸 tcp::socket（RFC-033 装饰器化）。
      */
     struct handshake_opts
     {
-        net::ip::tcp::socket &client_sock;
+        transport::shared_transmission inbound;
         const config &cfg;
+        outbound::proxy *outbound{nullptr};
         memory::vector<std::byte> client_hello;
         handshake_detail &detail;
+        std::shared_ptr<trace::trace_context> prefix;
+        // 便捷访问：trace 等价于 prefix（P9 显式传参过渡）
+        std::shared_ptr<trace::trace_context> trace;
     };
 
     /**
      * @brief ShadowTLS v3 服务端握手
      * @details 执行完整的 ShadowTLS v3 握手流程：
      * 1. 使用已读取的 ClientHello 验证 HMAC
-     * 2. 转发到后端服务器
+     * 2. 转发到后端服务器（通过 connect::dial）
      * 3. 处理握手阶段数据帧
-     * @param opts 握手参数（client_sock, cfg, client_hello, detail）
+     * @param opts 握手参数（inbound, cfg, router, client_hello, detail）
      * @return 握手结果（使用 stealth 基类的 handshake_result）
      */
     [[nodiscard]] auto handshake(handshake_opts opts)

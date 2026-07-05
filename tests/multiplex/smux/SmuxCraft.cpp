@@ -4,7 +4,7 @@
  */
 
 #include <prism/proto/multiplex/smux/craft.hpp>
-#include <prism/core/core.hpp>
+#include <prism/foundation/foundation.hpp>
 #include <prism/trace/spdlog.hpp>
 #include <gtest/gtest.h>
 

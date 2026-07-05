@@ -102,11 +102,12 @@ namespace psm::multiplex
     auto bootstrap(bootstrap_context ctx)
         -> net::awaitable<std::shared_ptr<core>>
     {
+        const auto prefix_ = ctx.prefix;
         // 执行 sing-mux 协商，获取客户端选择的协议类型
         auto [ec, protocol] = co_await negotiate(*ctx.transport);
         if (ec)
         {
-            trace::warn<flt::conn | flt::protocol>("sing-mux negotiate failed: {}", ec.message());
+            trace::warn<flt::conn | flt::protocol>(prefix_, "sing-mux negotiate failed: {}", ec.message());
             co_return nullptr;
         }
 
@@ -117,18 +118,18 @@ namespace psm::multiplex
             switch (protocol)
             {
             case protocol_type::yamux:
-                trace::info<flt::conn | flt::protocol>("constructing yamux session");
+                trace::info<flt::conn | flt::protocol>(prefix_, "constructing yamux session");
                 {
                     std::shared_ptr<core> session = std::make_shared<yamux::craft>(
-                        core_options{std::move(ctx.transport), ctx.router, ctx.cfg, {}});
+                        core_options{std::move(ctx.transport), ctx.outbound, ctx.cfg, {}});
                     session->set_traffic(ctx.traffic, ctx.proto);
-                    if (trace::active_prefix && trace::active_prefix->is_alive()) session->set_prefix(trace::active_prefix->shared_from_this());
-                    trace::info<flt::conn | flt::protocol>("yamux session constructed");
+                    session->set_prefix(ctx.prefix);
+                    trace::info<flt::conn | flt::protocol>(prefix_, "yamux session constructed");
                     co_return session;
                 }
 
             case protocol_type::h2mux:
-                trace::info<flt::conn | flt::protocol>("constructing h2mux session");
+                trace::info<flt::conn | flt::protocol>(prefix_, "constructing h2mux session");
                 {
                     // h2mux bootstrap 路径：sing-mux resolver（等待 StreamRequest）
                     auto singmux_resolver = [](std::int32_t, const h2mux::h2_headers &) -> h2mux::stream_info
@@ -137,35 +138,35 @@ namespace psm::multiplex
                         return {};
                     };
                     std::shared_ptr<core> session = std::make_shared<h2mux::craft>(
-                        core_options{std::move(ctx.transport), ctx.router, ctx.cfg, {}},
-                        h2mux::craft_init{ctx.router, ctx.cfg, singmux_resolver});
+                        core_options{std::move(ctx.transport), ctx.outbound, ctx.cfg, {}},
+                        h2mux::craft_init{ctx.outbound, ctx.cfg, singmux_resolver});
                     session->set_traffic(ctx.traffic, ctx.proto);
-                    if (trace::active_prefix && trace::active_prefix->is_alive()) session->set_prefix(trace::active_prefix->shared_from_this());
-                    trace::info<flt::conn | flt::protocol>("h2mux session constructed");
+                    session->set_prefix(ctx.prefix);
+                    trace::info<flt::conn | flt::protocol>(prefix_, "h2mux session constructed");
                     co_return session;
                 }
 
             case protocol_type::smux:
             default:
-                trace::info<flt::conn | flt::protocol>("constructing smux session");
+                trace::info<flt::conn | flt::protocol>(prefix_, "constructing smux session");
                 {
                     std::shared_ptr<core> session = std::make_shared<smux::craft>(
-                        core_options{std::move(ctx.transport), ctx.router, ctx.cfg, {}});
+                        core_options{std::move(ctx.transport), ctx.outbound, ctx.cfg, {}});
                     session->set_traffic(ctx.traffic, ctx.proto);
-                    if (trace::active_prefix && trace::active_prefix->is_alive()) session->set_prefix(trace::active_prefix->shared_from_this());
-                    trace::info<flt::conn | flt::protocol>("smux session constructed");
+                    session->set_prefix(ctx.prefix);
+                    trace::info<flt::conn | flt::protocol>(prefix_, "smux session constructed");
                     co_return session;
                 }
             }
         }
         catch (const std::exception &e)
         {
-            trace::error<flt::conn | flt::protocol>("create_session exception: {}", e.what());
+            trace::error<flt::conn | flt::protocol>(prefix_, "create_session exception: {}", e.what());
             co_return nullptr;
         }
         catch (...)
         {
-            trace::error<flt::conn | flt::protocol>("create_session unknown exception");
+            trace::error<flt::conn | flt::protocol>(prefix_, "create_session unknown exception");
             co_return nullptr;
         }
     }

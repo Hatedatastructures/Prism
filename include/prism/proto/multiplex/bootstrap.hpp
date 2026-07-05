@@ -11,8 +11,9 @@
 
 #pragma once
 
-#include <prism/core/memory/pool.hpp>
+#include <prism/foundation/memory/pool.hpp>
 #include <prism/proto/multiplex/config.hpp>
+#include <prism/trace/context.hpp>
 #include <prism/proto/multiplex/core.hpp>
 #include <prism/proto/protocol/types.hpp>
 #include <prism/net/transport/transmission.hpp>
@@ -22,10 +23,10 @@
 #include <memory>
 
 
-namespace psm::connect
+namespace psm::outbound
 {
 
-    class router;
+    class proxy;
 }
 
 namespace psm::stats::traffic
@@ -51,10 +52,11 @@ namespace psm::multiplex
     struct bootstrap_context
     {
         transport::shared_transmission transport;                   ///< 已建立的传输层连接
-        connect::router &router;                                    ///< 路由器引用，用于解析地址并连接目标
+        outbound::proxy *outbound{nullptr};                         ///< 出站代理接口（非拥有，worker 生命周期）
         const config &cfg;                                          ///< 多路复用配置
         stats::traffic::traffic_state *traffic{nullptr};            ///< per-worker 流量统计指针
         protocol::protocol_type proto{protocol::protocol_type::unknown}; ///< 归属的外层协议类型
+        std::shared_ptr<trace::trace_context> prefix;              ///< trace 前缀（可选）
     };
 
     /**

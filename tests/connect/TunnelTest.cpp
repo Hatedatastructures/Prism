@@ -13,8 +13,8 @@
 #include <prism/net/connect/pool/pool.hpp>
 #include <prism/net/connect/tunnel/tunnel.hpp>
 #include <prism/context/context.hpp>
-#include <prism/core/fault/handling.hpp>
-#include <prism/core/core.hpp>
+#include <prism/foundation/fault/handling.hpp>
+#include <prism/foundation/foundation.hpp>
 #include <prism/proto/protocol/types.hpp>
 #include <prism/net/transport/transmission.hpp>
 
@@ -49,8 +49,7 @@ namespace
         static connection_pool pool{ioc, psm::memory::system::global_pool()};
         static psm::connect::router router_instance(
             psm::connect::router_options{pool, ioc, {}, psm::memory::system::global_pool()});
-        static worker worker_ctx{ioc, router_instance,
-                                  psm::memory::system::global_pool(), nullptr, nullptr};
+        static psm::context::worker_ref worker_ctx{ioc, psm::worker::borrow{}, psm::memory::system::global_pool()};
         static psm::memory::frame_arena arena;
 
         session_opts opts{
@@ -58,9 +57,9 @@ namespace
             server_ctx,
             worker_ctx,
             arena,
-            {},
             buffer_size,
-            nullptr};
+            nullptr,
+            {}};
         return session(std::move(opts));
     }
 } // anonymous namespace
@@ -87,8 +86,7 @@ TEST(Tunnel, BasicBidirectionalForward)
         ioc,
         [&]() -> net::awaitable<void>
         {
-            auto opts = tunnel_options{
-                inbound, outbound, sess, write_policy::complete};
+            auto opts = tunnel_options{inbound, outbound, sess.buffer_size, write_policy::complete};
             co_await tunnel(std::move(opts));
             done = true;
         },
@@ -134,7 +132,7 @@ TEST(Tunnel, PartialWritePolicy)
         [&]() -> net::awaitable<void>
         {
             auto opts = tunnel_options{
-                inbound, outbound, sess, write_policy::partial};
+                inbound, outbound, sess.buffer_size, write_policy::partial};
             co_await tunnel(std::move(opts));
             done = true;
         },
@@ -172,8 +170,7 @@ TEST(Tunnel, EmptyDataImmediateClose)
         ioc,
         [&]() -> net::awaitable<void>
         {
-            auto opts = tunnel_options{
-                inbound, outbound, sess, write_policy::complete};
+            auto opts = tunnel_options{inbound, outbound, sess.buffer_size, write_policy::complete};
             co_await tunnel(std::move(opts));
             done = true;
         },
@@ -202,8 +199,7 @@ TEST(Tunnel, ReadErrorTerminatesTunnel)
         ioc,
         [&]() -> net::awaitable<void>
         {
-            auto opts = tunnel_options{
-                inbound, outbound, sess, write_policy::complete};
+            auto opts = tunnel_options{inbound, outbound, sess.buffer_size, write_policy::complete};
             co_await tunnel(std::move(opts));
             done = true;
         },
@@ -234,8 +230,7 @@ TEST(Tunnel, WriteErrorTerminatesTunnel)
         ioc,
         [&]() -> net::awaitable<void>
         {
-            auto opts = tunnel_options{
-                inbound, outbound, sess, write_policy::complete};
+            auto opts = tunnel_options{inbound, outbound, sess.buffer_size, write_policy::complete};
             co_await tunnel(std::move(opts));
             done = true;
         },
@@ -266,8 +261,7 @@ TEST(Tunnel, MinimalBufferSize)
         ioc,
         [&]() -> net::awaitable<void>
         {
-            auto opts = tunnel_options{
-                inbound, outbound, sess, write_policy::complete};
+            auto opts = tunnel_options{inbound, outbound, sess.buffer_size, write_policy::complete};
             co_await tunnel(std::move(opts));
             done = true;
         },
@@ -299,8 +293,7 @@ TEST(Tunnel, CancelPropagation)
         ioc,
         [&]() -> net::awaitable<void>
         {
-            auto opts = tunnel_options{
-                inbound, outbound, sess, write_policy::complete};
+            auto opts = tunnel_options{inbound, outbound, sess.buffer_size, write_policy::complete};
             co_await tunnel(std::move(opts));
             done = true;
         },

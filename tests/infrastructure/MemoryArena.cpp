@@ -8,7 +8,7 @@
  * 4. 连续多次 reset() 调用的正确性
  */
 
-#include <prism/core/core.hpp>
+#include <prism/foundation/foundation.hpp>
 #include <prism/trace/spdlog.hpp>
 
 #include <gtest/gtest.h>

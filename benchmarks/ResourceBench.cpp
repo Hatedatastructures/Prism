@@ -5,8 +5,8 @@
  */
 
 #include <benchmark/benchmark.h>
-#include <prism/core/memory/pool.hpp>
-#include <prism/core/memory/container.hpp>
+#include <prism/foundation/memory/pool.hpp>
+#include <prism/foundation/memory/container.hpp>
 #include <cstddef>
 #include <cstring>
 #include <memory>

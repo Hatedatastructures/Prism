@@ -5,7 +5,7 @@
  *          验证预读缓冲区回放、耗尽后委托、空 inner 降级路径。
  */
 
-#include <prism/core/core.hpp>
+#include <prism/foundation/foundation.hpp>
 #include <prism/net/transport/preview.hpp>
 #include <prism/trace/spdlog.hpp>
 

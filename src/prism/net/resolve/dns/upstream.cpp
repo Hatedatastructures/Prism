@@ -1,5 +1,6 @@
 #include <prism/net/resolve/dns/upstream.hpp>
 
+#include <boost/asio/co_spawn.hpp>
 #include <prism/trace/trace.hpp>
 
 #include <openssl/ssl.h>

@@ -130,7 +130,9 @@ struct glz::meta<psm::instance::stealth::config>
         "restls",       &T::restls,
         "anytls",       &T::anytls,
         "trusttunnel",  &T::trusttunnel,
-        "native_tls",   &T::native_tls);
+        "native_tls",   &T::native_tls,
+        "pad",          &T::pad,
+        "probe",        &T::probe);
 };
 
 template <>

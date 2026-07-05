@@ -10,7 +10,7 @@
 
 #pragma once
 
-#include <prism/core/memory/container.hpp>
+#include <prism/foundation/memory/container.hpp>
 #include <prism/account/stats/snapshot.hpp>
 
 #include <boost/asio.hpp>
@@ -63,14 +63,17 @@ namespace psm::instance::front
         /**
          * @struct worker_binding
          * @brief 工作线程绑定信息
-         * @details 该结构体封装了工作线程的分发函数与负载快照获取函数。
-         * 分发函数负责将套接字移交至目标工作线程的事件循环，快照函数
-         * 返回该工作线程当前的负载状态。两个函数均由工作线程注册时提供。
+         * @details 该结构体封装了工作线程的分发函数、负载快照获取函数与
+         * 健康检查函数。分发函数负责将套接字移交至目标工作线程的事件循环，
+         * 快照函数返回该工作线程当前的负载状态，健康检查函数返回该工作
+         * 线程是否仍然存活。三个函数均由工作线程注册时提供。
+         * alive 字段为 nullptr 时视为始终健康（兼容未注册健康检查的场景）。
          */
         struct worker_binding
         {
-            std::function<void(tcp::socket)> dispatch;      // 连接分发函数
+            std::function<void(tcp::socket)> dispatch;        // 连接分发函数
             std::function<stats::worker_snapshot()> snapshot; // 负载快照获取函数
+            std::function<bool()> alive;                      // 健康检查函数，nullptr 视为始终健康
         };
 
         /**

@@ -6,7 +6,7 @@
  *          使用真实 io_context + tcp::socket 测试各种 socket 状态。
  */
 
-#include <prism/core/core.hpp>
+#include <prism/foundation/foundation.hpp>
 #include <prism/trace/spdlog.hpp>
 
 

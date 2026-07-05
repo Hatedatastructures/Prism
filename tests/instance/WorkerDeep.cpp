@@ -15,7 +15,7 @@
 
 #include <prism/account/directory.hpp>
 #include <prism/config/config.hpp>
-#include <prism/core/core.hpp>
+#include <prism/foundation/foundation.hpp>
 #include <prism/account/stats/runtime.hpp>
 #include <prism/account/stats/traffic.hpp>
 
@@ -40,14 +40,13 @@ TEST(WorkerDeep, ConstructMinimal)
     // 空 cert/key → null SSL context
     EXPECT_EQ(w.ssl_ctx_, nullptr);
 
-    // outbound_direct 已创建
-    EXPECT_NE(w.outbound_direct_, nullptr);
+    // resources 已创建（P1 后 outbound/traffic 在 worker::resources 内部）
+    EXPECT_NE(w.resources_, nullptr);
 
     // server config 已存储
     EXPECT_NE(w.server_ctx_.cfg.load(), nullptr);
 
-    // worker context 指向内部 traffic_state
-    EXPECT_EQ(w.worker_ctx_.traffic, &w.traffic_);
+    // worker_ref 不再直接持有 traffic（P1 后通过 resources->traffic() 访问）
 
     // 初始负载快照全零
     auto snap = w.load_snapshot();

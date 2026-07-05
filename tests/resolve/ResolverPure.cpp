@@ -6,7 +6,7 @@
  *          测试域名规范化和 IP 黑名单匹配逻辑。
  */
 
-#include <prism/core/core.hpp>
+#include <prism/foundation/foundation.hpp>
 #include <prism/trace/spdlog.hpp>
 
 #include <boost/asio.hpp>

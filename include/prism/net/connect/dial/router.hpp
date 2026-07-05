@@ -8,8 +8,8 @@
 #pragma once
 
 #include <prism/net/connect/pool/pool.hpp>
-#include <prism/core/fault/code.hpp>
-#include <prism/core/memory/container.hpp>
+#include <prism/foundation/fault/code.hpp>
+#include <prism/foundation/memory/container.hpp>
 #include <prism/net/resolve/dns/dns.hpp>
 
 #include <boost/asio.hpp>

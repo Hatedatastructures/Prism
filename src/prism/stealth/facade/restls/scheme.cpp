@@ -2,7 +2,7 @@
 
 #include <prism/config/config.hpp>
 #include <prism/context/context.hpp>
-#include <prism/core/fault/code.hpp>
+#include <prism/foundation/fault/code.hpp>
 #include <prism/proto/protocol/types.hpp>
 #include <prism/stealth/recognition/probe/analyzer.hpp>
 #include <prism/stealth/facade/restls/handshake.hpp>
@@ -46,37 +46,16 @@ namespace psm::stealth::restls
             .note = "Restls: rely on SNI match"};
     }
 
-    auto scheme::handshake(stealth::handshake_context ctx)
+    auto scheme::handshake(stealth::stealth_opts ctx)
         -> net::awaitable<stealth::handshake_result>
     {
         stealth::handshake_result result;
-
-        // 释放 raw TCP socket（去掉 inbound 上层包装）
-        auto *rel = ctx.inbound->lowest_layer<transport::reliable>();
-        if (!rel)
-        {
-            trace::debug<flt::conn | flt::protocol>("restls: cannot access reliable transport");
-            result.detected = protocol::protocol_type::tls;
-            result.transport = std::move(ctx.inbound);
-            co_return result;
-        }
-
-        auto raw_socket_opt = rel->release_socket();
-        if (!raw_socket_opt)
-        {
-            trace::warn<flt::conn | flt::protocol>("restls: cannot release socket");
-            result.detected = protocol::protocol_type::tls;
-            result.transport = std::move(ctx.inbound);
-            co_return result;
-        }
-
-        auto raw_trans = std::make_shared<transport::reliable>(std::move(*raw_socket_opt));
 
         // 执行 Restls 握手（中间人代理模式：转发 ClientHello 到真实 TLS 后端）
         handshake_detail detail;
         auto hs_result = co_await restls::handshake(
             restls::handshake_opts{
-                .raw_trans = raw_trans,
+                .raw_trans = ctx.transport,
                 .cfg = ctx.cfg->stealth.restls,
                 .client_hello = std::move(ctx.preread),
                 .detail = detail,
@@ -87,12 +66,8 @@ namespace psm::stealth::restls
             result.detected = protocol::protocol_type::tls;
             result.error = hs_result.error;
             result.polluted = hs_result.polluted;
-            // 关键：socket 所有权已从 ctx.inbound 转移到 raw_trans，
-            // 必须把 raw_trans 交给 result.transport，否则 pass_through 会保留
-            // 旧的 ctx.inbound（socket_ 已被 release 走），下一个 scheme 调
-            // native_socket() 触发 assert(socket_.has_value()) 崩溃。
-            result.transport = raw_trans;
-            trace::debug<flt::conn | flt::protocol>("handshake failed, pass to next scheme");
+            result.transport = ctx.transport;
+            trace::debug<flt::conn | flt::protocol>(prefix_, "handshake failed, pass to next scheme");
             co_return result;
         }
 
@@ -116,8 +91,7 @@ namespace psm::stealth::restls
             const auto n = co_await hs_result.transport->async_read_some(buf_span, probe_ec);
             if (probe_ec)
             {
-                trace::warn<flt::conn | flt::protocol>(
-                    "inner probe read failed: {}", probe_ec.message());
+                trace::warn<flt::conn | flt::protocol>(                    "inner probe read failed: {}", probe_ec.message());
                 break;
             }
             inner_n += n;
@@ -126,16 +100,14 @@ namespace psm::stealth::restls
         if (inner_n >= 32)
         {
             result.detected = protocol::protocol_type::shadowsocks;
-            trace::debug<flt::conn | flt::protocol>(
-                "restls inner fallback to shadowsocks, inner_n={}", inner_n);
+            trace::debug<flt::conn | flt::protocol>(                "restls inner fallback to shadowsocks, inner_n={}", inner_n);
         }
 
         result.preread.assign(inner_buf.begin(), inner_buf.begin() + static_cast<std::ptrdiff_t>(inner_n));
         result.transport = hs_result.transport;
         result.scheme = "restls";
 
-        trace::debug<flt::conn | flt::protocol>(
-            "restls_transport created, inner protocol: {}",
+        trace::debug<flt::conn | flt::protocol>(            "restls_transport created, inner protocol: {}",
             protocol::to_string_view(result.detected));
 
         co_return result;

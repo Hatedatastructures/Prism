@@ -10,7 +10,7 @@
 #pragma once
 
 #include <prism/crypto/hkdf.hpp>
-#include <prism/core/fault/code.hpp>
+#include <prism/foundation/fault/code.hpp>
 #include <prism/proto/protocol/tls/types.hpp>
 
 #include <array>

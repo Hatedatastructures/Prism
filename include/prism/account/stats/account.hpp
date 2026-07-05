@@ -8,7 +8,7 @@
 
 #include <prism/account/directory.hpp>
 #include <prism/account/entry.hpp>
-#include <prism/core/memory/container.hpp>
+#include <prism/foundation/memory/container.hpp>
 
 #include <cstdint>
 

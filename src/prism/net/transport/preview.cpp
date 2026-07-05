@@ -1,5 +1,5 @@
 #include <prism/net/transport/preview.hpp>
-#include <prism/core/memory/container.hpp>
+#include <prism/foundation/memory/container.hpp>
 #include <prism/trace/trace.hpp>
 
 #include <boost/asio/any_completion_handler.hpp>

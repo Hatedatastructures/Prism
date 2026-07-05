@@ -4,7 +4,7 @@
  * @details 覆盖 authenticate_proxy 和 build_fwd 两个未测试函数。
  */
 
-#include <prism/core/core.hpp>
+#include <prism/foundation/foundation.hpp>
 #include <prism/proto/protocol/http/parser.hpp>
 #include <prism/account/directory.hpp>
 #include <prism/crypto/sha224.hpp>

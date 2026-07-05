@@ -1,5 +1,5 @@
 #include <prism/instance/worker/tls.hpp>
-#include <prism/core/core.hpp>
+#include <prism/foundation/foundation.hpp>
 #include <prism/trace/trace.hpp>
 
 using namespace psm::trace;

@@ -19,7 +19,6 @@ namespace psm::crypto
 
         if (RAND_bytes(keypair.private_key.data(), static_cast<int>(x25519_klen)) != 1)
         {
-            trace::error("RAND_bytes failed");
             return keypair;
         }
 
@@ -35,7 +34,6 @@ namespace psm::crypto
 
         if (private_key.size() != x25519_klen)
         {
-            trace::error("invalid private key length: {}", private_key.size());
             return public_key;
         }
 
@@ -52,19 +50,16 @@ namespace psm::crypto
 
         if (private_key.size() != x25519_klen)
         {
-            trace::error("invalid private key length: {}", private_key.size());
             return {fault::code::invalid_argument, shared_secret};
         }
 
         if (peer_pubkey.size() != x25519_klen)
         {
-            trace::error("invalid peer pubkey length: {}", peer_pubkey.size());
             return {fault::code::invalid_argument, shared_secret};
         }
 
         if (X25519(shared_secret.data(), private_key.data(), peer_pubkey.data()) != 1)
         {
-            trace::error("X25519 key exchange failed");
             shared_secret.fill(0);
             return {fault::code::kexfail, shared_secret};
         }
@@ -81,7 +76,6 @@ namespace psm::crypto
         }
         if (all_zero)
         {
-            trace::error("X25519 shared secret all-zero (possible low-order point attack)");
             shared_secret.fill(0);
             return {fault::code::kexfail, shared_secret};
         }

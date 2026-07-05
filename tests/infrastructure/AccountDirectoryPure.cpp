@@ -5,7 +5,7 @@
  *          验证 COW（copy-on-write）语义和并发安全性。
  */
 
-#include <prism/core/core.hpp>
+#include <prism/foundation/foundation.hpp>
 #include <prism/account/directory.hpp>
 #include <prism/trace/spdlog.hpp>
 

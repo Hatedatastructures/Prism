@@ -7,7 +7,7 @@
 
 #include <gtest/gtest.h>
 
-#include <prism/core/core.hpp>
+#include <prism/foundation/foundation.hpp>
 #include <prism/stealth/facade/shadowtls/handshake.hpp>
 #include <prism/stealth/common.hpp>
 

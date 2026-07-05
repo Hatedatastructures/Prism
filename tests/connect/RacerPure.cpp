@@ -6,7 +6,7 @@
  *          依赖真实网络连接，此处仅覆盖纯同步逻辑路径。
  */
 
-#include <prism/core/core.hpp>
+#include <prism/foundation/foundation.hpp>
 #include <prism/trace/spdlog.hpp>
 
 #include <boost/asio.hpp>

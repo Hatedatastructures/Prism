@@ -7,12 +7,12 @@
 
 #include <gtest/gtest.h>
 
-#include <prism/core/core.hpp>
+#include <prism/foundation/foundation.hpp>
 #include <prism/crypto/blake3.hpp>
 #include <prism/crypto/block.hpp>
 #include <prism/crypto/x25519.hpp>
 #include <prism/trace/spdlog.hpp>
-#include <prism/core/core.hpp>
+#include <prism/foundation/foundation.hpp>
 
 #include <array>
 #include <cstdint>

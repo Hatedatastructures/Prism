@@ -10,9 +10,9 @@
 #include <prism/net/transport/reliable.hpp>
 #include <prism/proto/protocol/vless/conn.hpp>
 #include <prism/proto/protocol/trojan/conn.hpp>
-#include <prism/core/core.hpp>
+#include <prism/foundation/foundation.hpp>
 #include <prism/trace/trace.hpp>
-#include <prism/core/core.hpp>
+#include <prism/foundation/foundation.hpp>
 #include <gtest/gtest.h>
 
 #include <boost/asio.hpp>

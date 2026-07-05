@@ -8,7 +8,7 @@
 #include <gtest/gtest.h>
 
 #include <prism/crypto/blake3.hpp>
-#include <prism/core/core.hpp>
+#include <prism/foundation/foundation.hpp>
 #include <prism/trace/spdlog.hpp>
 #include <array>
 #include <cstdint>

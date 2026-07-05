@@ -3,12 +3,15 @@
  * @brief 连接拨号函数
  * @details 提供 TCP dial、UDP datagram 和路由回调等自由函数。
  * 整合了原 primitives::dial 和 resolve::router 的路由逻辑。
+ * @note P5：dial(outbound::proxy&, ...) 已迁移到 prism/instance/outbound/dial.hpp，
+ *       本文件仅保留 router 内部辅助函数。
  */
 #pragma once
 
 #include <prism/net/connect/dial/router.hpp>
 #include <prism/net/connect/pool/pool.hpp>
-#include <prism/core/fault/code.hpp>
+#include <prism/context/flow_opts.hpp>
+#include <prism/foundation/fault/code.hpp>
 #include <prism/proto/protocol/common/target.hpp>
 #include <prism/net/transport/transmission.hpp>
 
@@ -22,12 +25,6 @@
 #include <system_error>
 #include <utility>
 
-
-namespace psm::outbound
-{
-
-    class proxy;
-} // namespace psm::outbound
 
 namespace psm::connect
 {
@@ -55,7 +52,8 @@ namespace psm::connect
      * @param endpoints 候选端点列表
      * @return 成功连接的套接字，或无效 pooled_connection
      */
-    [[nodiscard]] auto retry_connect(router &rt, std::span<const tcp::endpoint> endpoints)
+    [[nodiscard]] auto retry_connect(router &rt, std::span<const tcp::endpoint> endpoints,
+                                     std::shared_ptr<trace::trace_context> trace = nullptr)
         -> net::awaitable<pooled_connection>;
 
     /**
@@ -64,7 +62,7 @@ namespace psm::connect
      * @param ep 目标 TCP 端点
      * @return 协程对象，返回结果码与 TCP 套接字的配对
      */
-    [[nodiscard]] auto async_direct(router &rt, tcp::endpoint ep)
+    [[nodiscard]] auto async_direct(router &rt, tcp::endpoint ep, std::shared_ptr<trace::trace_context> trace = nullptr)
         -> net::awaitable<std::pair<fault::code, pooled_connection>>;
 
     /**
@@ -75,7 +73,8 @@ namespace psm::connect
      * @param port 目标服务端口
      * @return 协程对象，返回结果码与 TCP 套接字的配对
      */
-    [[nodiscard]] auto async_forward(router &rt, std::string_view host, std::string_view port)
+    [[nodiscard]] auto async_forward(router &rt, std::string_view host, std::string_view port,
+                                     std::shared_ptr<trace::trace_context> trace = nullptr)
         -> net::awaitable<std::pair<fault::code, pooled_connection>>;
 
     /**
@@ -128,30 +127,13 @@ namespace psm::connect
     }
 
     /**
-     * @brief 创建 UDP 数据报路由回调
-     * @param rt 路由器引用
-     * @return UDP 路由回调函数
-     * @details 创建用于 UDP ASSOCIATE 的路由回调函数，避免每个协议重复构造。
-     * @warning 返回的回调持有 rt 的非拥有引用（空删除器 shared_ptr），
-     * 调用方必须确保 rt 的生命周期长于回调的使用期。
-     */
-    [[nodiscard]] inline auto make_router(router &rt)
-        -> std::function<net::awaitable<std::pair<fault::code, net::ip::udp::endpoint>>(std::string_view, std::string_view)>
-    {
-        const auto ptr = std::shared_ptr<router>(&rt, [](router *) {});
-        return [ptr](const std::string_view host, const std::string_view port)
-                   -> net::awaitable<std::pair<fault::code, net::ip::udp::endpoint>>
-        {
-            co_return co_await resolve_dgram(*ptr, host, port);
-        };
-    }
-
-    /**
      * @struct dial_options
      * @brief 拨号路由策略选项
      * @details 封装拨号时的路由策略标志和目标信息，将 dial 函数参数收敛到 2 个。
+     * 继承 flow_opts 持有 meta/trace/cfg/rt 通用字段。为兼容旧调用方，
+     * 保留 `prefix` 字段（deprecated），构造函数同步初始化 flow_opts::trace。
      */
-    struct dial_options
+    struct dial_options : public psm::context::flow_opts
     {
         std::string_view label;              ///< 协议标签，用于日志记录
         const protocol::target &target;      ///< 解析后的上游目标地址
@@ -169,25 +151,38 @@ namespace psm::connect
         };
 
         flag routing{flag::normal};          ///< 路由策略标志
+
+        /// @deprecated 改用 flow_opts::trace（P10 删除）
+        std::shared_ptr<trace::trace_context> prefix;
+
+        /// 兼容旧 4 参聚合初始化：{label, target, flag, prefix}
+        dial_options(std::string_view l, const protocol::target &t, flag f,
+                     std::shared_ptr<trace::trace_context> p)
+            : label(l), target(t), routing(f), prefix(std::move(p))
+        {
+            this->trace = prefix;
+        }
+
+        /// 默认构造（聚合初始化场景）
+        dial_options(std::string_view l, const protocol::target &t, flag f = flag::normal)
+            : label(l), target(t), routing(f)
+        {
+        }
+
+        /// 完整构造（新代码推荐）
+        dial_options(std::string_view l, const protocol::target &t, flag f,
+                     std::shared_ptr<psm::context::request_metadata> m,
+                     std::shared_ptr<trace::trace_context> tc)
+            : psm::context::flow_opts(std::move(m), std::move(tc), nullptr, nullptr),
+              label(l), target(t), routing(f)
+        {
+            this->prefix = this->trace;
+        }
+
+        dial_options() = delete;  // 必须提供 label + target
     };
 
-    /**
-     * @brief 拨号连接上游服务器并包装为可靠传输
-     * @param rt 路由器引用
-     * @param opts 路由策略选项（标签、目标地址、反向路由标志等）
-     * @return 协程对象，完成后返回结果码和传输对象的配对
-     */
-    [[nodiscard]] auto dial(router &rt, dial_options opts)
-        -> net::awaitable<std::pair<fault::code, shared_transmission>>;
-
-    /**
-     * @brief 通过出站代理拨号连接上游
-     * @param outbound_proxy 出站代理引用
-     * @param target 目标地址信息
-     * @param executor 用于创建连接的执行器
-     * @return 协程对象，完成后返回结果码和传输对象的配对
-     */
-    [[nodiscard]] auto dial(outbound::proxy &outbound_proxy, const protocol::target &target, const net::any_io_executor &executor)
-        -> net::awaitable<std::pair<fault::code, shared_transmission>>;
+    // P5: dial(outbound::proxy&, ...) 已迁移到 prism/instance/outbound/dial.hpp
+    // 消除 net/connect 对 instance/outbound 的反向依赖（循环依赖）
 
 } // namespace psm::connect

@@ -11,7 +11,7 @@
  */
 #pragma once
 
-#include <prism/core/fault/code.hpp>
+#include <prism/foundation/fault/code.hpp>
 #include <prism/proto/protocol/vless/config.hpp>
 #include <prism/proto/protocol/vless/packet.hpp>
 #include <prism/proto/protocol/types.hpp>

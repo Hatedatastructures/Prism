@@ -10,8 +10,8 @@
  * 6. 派生类类型标识 (network/protocol/security)
  */
 
-#include <prism/core/core.hpp>
-#include <prism/core/core.hpp>
+#include <prism/foundation/foundation.hpp>
+#include <prism/foundation/foundation.hpp>
 #include <prism/trace/spdlog.hpp>
 
 #include <gtest/gtest.h>

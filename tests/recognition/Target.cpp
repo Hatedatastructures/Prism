@@ -4,7 +4,7 @@
  * @details 测试 recognition::parse、resolve(proxy_request)、resolve(host:port) 等函数。
  */
 
-#include <prism/core/core.hpp>
+#include <prism/foundation/foundation.hpp>
 #include <prism/stealth/recognition/target.hpp>
 #include <prism/trace/spdlog.hpp>
 #include <gtest/gtest.h>

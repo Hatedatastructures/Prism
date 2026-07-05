@@ -4,10 +4,10 @@
  * @details 测试 parse_credential、parse_crlf、parse_cmd_atyp、build_udp_pkt、parse_udp_pkt。
  */
 
-#include <prism/core/core.hpp>
+#include <prism/foundation/foundation.hpp>
 #include <prism/proto/protocol/trojan/framing.hpp>
 #include <prism/trace/spdlog.hpp>
-#include <prism/core/core.hpp>
+#include <prism/foundation/foundation.hpp>
 
 #include <array>
 #include <cstdint>

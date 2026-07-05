@@ -1,6 +1,7 @@
 #include <prism/net/connect/dial/racer.hpp>
 
-#include <prism/core/memory/container.hpp>
+#include <prism/foundation/memory/container.hpp>
+#include <boost/asio/co_spawn.hpp>
 #include <prism/trace/trace.hpp>
 #include <prism/trace/context.hpp>
 
@@ -47,7 +48,7 @@ namespace psm::connect
     {
     }
 
-    auto address_racer::race(std::span<const tcp::endpoint> endpoints)
+    auto address_racer::race(std::span<const tcp::endpoint> endpoints, std::shared_ptr<trace::trace_context> trace)
         -> net::awaitable<pooled_connection>
     {
         if (endpoints.empty())
@@ -57,7 +58,7 @@ namespace psm::connect
 
         if (endpoints.size() == 1)
         {
-            auto [code, conn] = co_await pool_.async_acquire(endpoints[0]);
+            auto [code, conn] = co_await pool_.async_acquire(endpoints[0], trace);
             co_return conn;
         }
 
@@ -65,7 +66,7 @@ namespace psm::connect
         constexpr std::size_t max_racing = 6;
         const auto count = std::min(endpoints.size(), max_racing);
 
-        trace::debug<flt::conn | flt::protocol>("racing {} endpoints", count);
+        trace::debug<flt::conn | flt::protocol>(trace, "racing {} endpoints", count);
 
         auto executor = co_await net::this_coro::executor;
         auto ctx = std::make_shared<race_context>(count, executor);
@@ -75,11 +76,14 @@ namespace psm::connect
         // RFC 8305 Happy Eyeballs stagger 策略：
         // 首端点立即连接，后续端点按 secondary_delay 递增延迟，
         // 给 IPv4 优先机会但不会长时间阻塞在失败地址上
+        // trace 参数已显式传入（替代旧 active_prefix 获取）
+
         std::chrono::milliseconds delay{0};
             if (i > 0)
                 delay = secondary_delay * static_cast<long>(i);
 
-            net::co_spawn(executor, race_endpoint(endpoints[i], delay, ctx), net::detached);
+            net::co_spawn(executor,
+                race_endpoint(endpoints[i], delay, ctx, trace), net::detached);
         }
 
         boost::system::error_code ec;
@@ -87,12 +91,11 @@ namespace psm::connect
         co_return std::move(ctx->result);
     }
 
-    auto address_racer::race_endpoint(tcp::endpoint ep, std::chrono::milliseconds delay, std::shared_ptr<race_context> ctx)
+    auto address_racer::race_endpoint(tcp::endpoint ep, std::chrono::milliseconds delay, std::shared_ptr<race_context> ctx, std::shared_ptr<trace::trace_context> trace)
         -> net::awaitable<void>
     {
     // 子协程：每个端点一个，延迟到期后尝试连接
     // 清除父协程日志前缀，子协程不应该继承调用者的会话上下文
-    trace::active_prefix = nullptr;
 
         try
         {
@@ -117,11 +120,11 @@ namespace psm::connect
                 co_return;
             }
 
-            auto [code, conn] = co_await pool_.async_acquire(ep);
+            auto [code, conn] = co_await pool_.async_acquire(ep, trace);
 
             if (!conn.valid())
             {
-                trace::debug<flt::conn | flt::protocol>("endpoint {} failed: {}", ep.address().to_string(), static_cast<int>(code));
+                trace::debug<flt::conn | flt::protocol>(trace, "endpoint {} failed: {}", ep.address().to_string(), static_cast<int>(code));
                 ctx->complete();
                 co_return;
             }
@@ -132,13 +135,13 @@ namespace psm::connect
             {
                 ctx->result = std::move(conn);
 
-                trace::info<flt::conn | flt::protocol>("endpoint {} won the race", ep.address().to_string());
+                trace::info<flt::conn | flt::protocol>(trace, "endpoint {} won the race", ep.address().to_string());
 
                 ctx->signal.cancel();
             }
             else
             {
-                trace::debug<flt::conn | flt::protocol>("endpoint {} connected but not winner, returning to pool", ep.address().to_string());
+                trace::debug<flt::conn | flt::protocol>(trace, "endpoint {} connected but not winner, returning to pool", ep.address().to_string());
 
                 conn.reset();
             }
@@ -147,12 +150,12 @@ namespace psm::connect
         }
         catch (const std::exception &e)
         {
-            trace::debug<flt::conn | flt::protocol>("endpoint {} error: {}", ep.address().to_string(), e.what());
+            trace::debug<flt::conn | flt::protocol>(trace, "endpoint {} error: {}", ep.address().to_string(), e.what());
             ctx->complete();
         }
         catch (...)
         {
-            trace::error<flt::conn | flt::protocol>("endpoint {} unknown error", ep.address().to_string());
+            trace::error<flt::conn | flt::protocol>(trace, "endpoint {} unknown error", ep.address().to_string());
             ctx->complete();
         }
     }

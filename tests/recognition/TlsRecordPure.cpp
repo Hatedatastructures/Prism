@@ -4,7 +4,7 @@
  * @details 测试 record::serialize/builder 全部方法/getter
  */
 
-#include <prism/core/core.hpp>
+#include <prism/foundation/foundation.hpp>
 #include <prism/proto/protocol/tls/record.hpp>
 #include <prism/proto/protocol/tls/types.hpp>
 #include <prism/trace/spdlog.hpp>

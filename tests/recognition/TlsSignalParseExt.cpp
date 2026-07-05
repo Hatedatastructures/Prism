@@ -4,7 +4,7 @@
  * @details 直接测试 read_u16/read_u24/parse_sni/parse_key_share/parse_versions/parse_extensions
  */
 
-#include <prism/core/core.hpp>
+#include <prism/foundation/foundation.hpp>
 #include "../../src/prism/stealth/recognition/tls/signal.cpp"
 #include <prism/trace/spdlog.hpp>
 #include <gtest/gtest.h>

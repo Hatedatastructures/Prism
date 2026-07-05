@@ -6,6 +6,7 @@
  */
 #pragma once
 
+#include <cstddef>
 #include <cstdint>
 
 
@@ -15,13 +16,19 @@ namespace psm::stats
     /**
      * @struct worker_snapshot
      * @brief 单个 worker 的负载快照
-     * @details 松散一致，适用于监控面板和日志输出
+     * @details 松散一致，适用于监控面板和日志输出。P0 起新增协程级与
+     * 健康度字段，供 balancer 做崩溃隔离决策。
      */
     struct worker_snapshot
     {
         std::uint32_t active_sessions{0};       ///< 当前活跃会话数
         std::uint32_t pending_handoffs{0};      ///< 等待分发的连接数
         std::uint64_t lag_us{0};           ///< 事件循环延迟（微秒，EMA 平滑后）
+
+        std::size_t active_tasks{0};            ///< 当前活跃 detached 协程数
+        std::size_t spawned_total{0};     ///< 历史累计 spawned 协程数
+        std::size_t cancelled_total{0};   ///< 历史累计取消协程数
+        bool alive{true};                       ///< worker 健康标志（崩溃后置 false）
     };
 
     /**

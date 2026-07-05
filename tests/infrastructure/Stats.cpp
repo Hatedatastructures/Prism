@@ -4,7 +4,7 @@
  * @details 测试 worker_load、system_state、traffic_state 的原子计数器操作。
  */
 
-#include <prism/core/core.hpp>
+#include <prism/foundation/foundation.hpp>
 #include <prism/account/stats/runtime.hpp>
 #include <prism/account/stats/traffic.hpp>
 #include <prism/proto/protocol/types.hpp>

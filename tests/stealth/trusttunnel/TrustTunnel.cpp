@@ -8,7 +8,7 @@
 
 #include <gtest/gtest.h>
 
-#include <prism/core/core.hpp>
+#include <prism/foundation/foundation.hpp>
 #include <prism/config/config.hpp>
 
 // 直接 include 源文件以访问 anonymous namespace 函数

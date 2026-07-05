@@ -6,7 +6,7 @@
  *          验证 12 字节大端序编码正确性和往返一致性。
  */
 
-#include <prism/core/core.hpp>
+#include <prism/foundation/foundation.hpp>
 #include <prism/trace/spdlog.hpp>
 #include <prism/proto/multiplex/yamux/frame.hpp>
 

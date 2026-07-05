@@ -10,7 +10,8 @@
  * @note 使用 co_spawn + ioc.run() 协程模式驱动异步操作
  */
 
-#include <prism/core/core.hpp>
+#include <prism/foundation/foundation.hpp>
+#include <prism/instance/outbound/direct.hpp>
 #include <prism/trace/spdlog.hpp>
 #include <prism/proto/proto.hpp>
 #include <prism/net/transport/reliable.hpp>
@@ -94,11 +95,13 @@ struct mux_test_context
     net::io_context ioc;
     psm::connect::connection_pool pool;
     psm::connect::router router;
+    psm::outbound::direct outbound;
     psm::multiplex::config mux_config;
 
     explicit mux_test_context(const std::uint32_t max_streams = 32)
         : pool(ioc),
-          router({pool, ioc, psm::resolve::dns::config{}})
+          router({pool, ioc, psm::resolve::dns::config{}}),
+          outbound(router)
     {
         mux_config.smux.max_streams = max_streams;
         mux_config.yamux.max_streams = max_streams;
@@ -272,7 +275,7 @@ TEST(MuxMaxStreams, SmuxReject)
         auto [client_sock, server_sock] = co_await make_socket_pair(ex);
 
         auto server_transport = psm::transport::make_reliable(std::move(server_sock));
-        auto session = std::make_shared<smux::craft>(core_options{std::move(server_transport), ctx->router, ctx->mux_config});
+        auto session = std::make_shared<smux::craft>(core_options{std::move(server_transport), &ctx->outbound, ctx->mux_config});
         session->start();
 
         // 发送 3 个 SYN 帧（stream_id = 1, 2, 3）
@@ -329,7 +332,7 @@ TEST(MuxMaxStreams, SmuxOne)
         auto [client_sock, server_sock] = co_await make_socket_pair(ex);
 
         auto server_transport = psm::transport::make_reliable(std::move(server_sock));
-        auto session = std::make_shared<smux::craft>(core_options{std::move(server_transport), ctx->router, ctx->mux_config});
+        auto session = std::make_shared<smux::craft>(core_options{std::move(server_transport), &ctx->outbound, ctx->mux_config});
         session->start();
 
         std::vector<std::byte> all_data;
@@ -383,7 +386,7 @@ TEST(MuxMaxStreams, SmuxDefault)
         auto [client_sock, server_sock] = co_await make_socket_pair(ex);
 
         auto server_transport = psm::transport::make_reliable(std::move(server_sock));
-        auto session = std::make_shared<smux::craft>(core_options{std::move(server_transport), ctx->router, ctx->mux_config});
+        auto session = std::make_shared<smux::craft>(core_options{std::move(server_transport), &ctx->outbound, ctx->mux_config});
         session->start();
 
         std::vector<std::byte> all_data;
@@ -443,7 +446,7 @@ TEST(MuxMaxStreams, YamuxReject)
         auto [client_sock, server_sock] = co_await make_socket_pair(ex);
 
         auto server_transport = psm::transport::make_reliable(std::move(server_sock));
-        auto session = std::make_shared<yamux::craft>(core_options{std::move(server_transport), ctx->router, ctx->mux_config});
+        auto session = std::make_shared<yamux::craft>(core_options{std::move(server_transport), &ctx->outbound, ctx->mux_config});
         session->start();
 
         // 发送 3 个 WindowUpdate(SYN) 帧
@@ -512,7 +515,7 @@ TEST(MuxMaxStreams, YamuxDataSynReject)
         auto [client_sock, server_sock] = co_await make_socket_pair(ex);
 
         auto server_transport = psm::transport::make_reliable(std::move(server_sock));
-        auto session = std::make_shared<yamux::craft>(core_options{std::move(server_transport), ctx->router, ctx->mux_config});
+        auto session = std::make_shared<yamux::craft>(core_options{std::move(server_transport), &ctx->outbound, ctx->mux_config});
         session->start();
 
         // 注入 3 个 Data(SYN) 帧（空 payload）
@@ -579,7 +582,7 @@ TEST(MuxMaxStreams, YamuxExact)
         auto [client_sock, server_sock] = co_await make_socket_pair(ex);
 
         auto server_transport = psm::transport::make_reliable(std::move(server_sock));
-        auto session = std::make_shared<yamux::craft>(core_options{std::move(server_transport), ctx->router, ctx->mux_config});
+        auto session = std::make_shared<yamux::craft>(core_options{std::move(server_transport), &ctx->outbound, ctx->mux_config});
         session->start();
 
         // 注入恰好 4 个 WindowUpdate(SYN) 帧

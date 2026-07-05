@@ -7,7 +7,7 @@
  *          使用 TestCore 具体子类 + MockTransport 验证核心逻辑。
  */
 
-#include <prism/core/core.hpp>
+#include <prism/foundation/foundation.hpp>
 #include <prism/trace/spdlog.hpp>
 
 #include <boost/asio/co_spawn.hpp>
@@ -83,7 +83,7 @@ namespace
             psm::connect::router_options ropts{*pool, *ioc, dns_cfg};
             router_ptr = std::make_unique<psm::connect::router>(std::move(ropts));
             static multiplex::config cfg;
-            multiplex::core_options opts{transport, *router_ptr, cfg, nullptr};
+            multiplex::core_options opts{transport, nullptr, cfg, nullptr};
             core_obj = std::make_shared<TestCore>(std::move(opts));
         }
     };
@@ -106,7 +106,7 @@ namespace
         auto router_ptr = std::make_unique<psm::connect::router>(std::move(ropts));
         static multiplex::config cfg;
         psm::memory::unsynchronized_pool mr;
-        multiplex::core_options opts{transport, *router_ptr, cfg, &mr};
+        multiplex::core_options opts{transport, nullptr, cfg, &mr};
         auto c = std::make_shared<TestCore>(std::move(opts));
         EXPECT_TRUE(!c->is_active()) << "constructor: with mr -> inactive";
     }

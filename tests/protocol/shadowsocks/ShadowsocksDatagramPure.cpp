@@ -8,10 +8,10 @@
  *          的独立函数进行测试，覆盖核心字节操作的正确性。
  */
 
-#include <prism/core/core.hpp>
+#include <prism/foundation/foundation.hpp>
 #include <prism/proto/protocol/shadowsocks/constants.hpp>
 #include <prism/trace/spdlog.hpp>
-#include <prism/core/core.hpp>
+#include <prism/foundation/foundation.hpp>
 
 
 #include <gtest/gtest.h>

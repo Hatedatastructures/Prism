@@ -1,5 +1,7 @@
 #include <prism/stealth/facade/shadowtls/transport.hpp>
 
+#include <prism/net/transport/reliable.hpp>
+#include <prism/net/transport/transmission.hpp>
 #include <prism/proto/protocol/tls/record.hpp>
 #include <prism/stealth/common.hpp>
 #include <prism/trace/trace.hpp>
@@ -19,7 +21,7 @@ namespace psm::stealth::shadowtls
 
     namespace
     {
-        // 计算 XOR 密钥：SHA256(password + serverRandom)
+        /// 计算 XOR 密钥：SHA256(password + serverRandom)
         [[nodiscard]] auto compute_write_key(std::string_view password, std::span<const std::byte> server_random)
             -> memory::vector<std::uint8_t>
         {
@@ -34,9 +36,9 @@ namespace psm::stealth::shadowtls
         }
     } // namespace
 
-    shadowtls_transport::shadowtls_transport(net::ip::tcp::socket socket,
+    shadowtls_transport::shadowtls_transport(transport::shared_transmission lower,
                                              shadowtls_handover handover)
-        : socket_(std::move(socket))
+        : lower_(std::move(lower))
         , write_key_(compute_write_key(handover.password, handover.server_random))
         , initial_buffer_(handover.initial_data.begin(), handover.initial_data.end())
         , hmac_write_ctx_(std::move(handover.hmac_write_ctx))
@@ -50,7 +52,7 @@ namespace psm::stealth::shadowtls
         const auto *hr_str = "no";
         if (hmac_read_ctx_)
             hr_str = "yes";
-        trace::debug<flt::conn | flt::protocol>("shadowtls_transport created, initial_data_size={}, hmac_write_ctx={}, hmac_read_ctx={}",
+        trace::debug<flt::conn | flt::protocol>(prefix_, "shadowtls_transport created, initial_data_size={}, hmac_write_ctx={}, hmac_read_ctx={}",
                     handover.initial_data.size(), hw_str, hr_str);
     }
 
@@ -64,7 +66,7 @@ namespace psm::stealth::shadowtls
     {
         ec.clear();
 
-        trace::debug<flt::conn | flt::protocol>("async_read_some: buf={}, init_off={}, init_sz={}, pend_off={}, pend_sz={}",
+        trace::debug<flt::conn | flt::protocol>(prefix_, "async_read_some: buf={}, init_off={}, init_sz={}, pend_off={}, pend_sz={}",
                     buffer.size(), initial_offset_, initial_buffer_.size(), pending_offset_, pending_buffer_.size());
 
         if (initial_offset_ < initial_buffer_.size())
@@ -73,7 +75,7 @@ namespace psm::stealth::shadowtls
             const auto n = std::min(available, buffer.size());
             std::memcpy(buffer.data(), initial_buffer_.data() + initial_offset_, n);
             initial_offset_ += n;
-            trace::debug<flt::conn | flt::protocol>("returned {} from initial, off={}", n, initial_offset_);
+            trace::debug<flt::conn | flt::protocol>(prefix_, "returned {} from initial, off={}", n, initial_offset_);
             co_return n;
         }
 
@@ -90,20 +92,20 @@ namespace psm::stealth::shadowtls
                 pending_offset_ = 0;
             }
 
-            trace::debug<flt::conn | flt::protocol>("returned {} from pending, rem={}", n, pending_buffer_.size());
+            trace::debug<flt::conn | flt::protocol>(prefix_, "returned {} from pending, rem={}", n, pending_buffer_.size());
             co_return n;
         }
 
-        trace::debug<flt::conn | flt::protocol>("buffers empty, reading TLS frame");
+        trace::debug<flt::conn | flt::protocol>(prefix_, "buffers empty, reading TLS frame");
         auto frame_opt = co_await read_tls_frame(ec);
         if (ec || !frame_opt)
         {
-            trace::warn<flt::conn | flt::protocol>("read_tls_frame failed: {}", ec.message());
+            trace::warn<flt::conn | flt::protocol>(prefix_, "read_tls_frame failed: {}", ec.message());
             co_return 0;
         }
 
         auto &frame = *frame_opt;
-        trace::debug<flt::conn | flt::protocol>("TLS frame payload: {} bytes", frame.size());
+        trace::debug<flt::conn | flt::protocol>(prefix_, "TLS frame payload: {} bytes", frame.size());
 
         const auto n = std::min(frame.size(), buffer.size());
         std::memcpy(buffer.data(), frame.data(), n);
@@ -112,10 +114,10 @@ namespace psm::stealth::shadowtls
         {
             pending_buffer_.assign(frame.begin() + n, frame.end());
             pending_offset_ = 0;
-            trace::debug<flt::conn | flt::protocol>("stored {} pending", pending_buffer_.size());
+            trace::debug<flt::conn | flt::protocol>(prefix_, "stored {} pending", pending_buffer_.size());
         }
 
-        trace::debug<flt::conn | flt::protocol>("returned {} to user", n);
+        trace::debug<flt::conn | flt::protocol>(prefix_, "returned {} to user", n);
         co_return n;
     }
 
@@ -123,19 +125,19 @@ namespace psm::stealth::shadowtls
     auto shadowtls_transport::read_tls_frame(std::error_code &ec)
         -> net::awaitable<std::optional<memory::vector<std::byte>>>
     {
-        trace::debug<flt::conn | flt::protocol>("read_tls_frame: starting to read TLS header");
+        trace::debug<flt::conn | flt::protocol>(prefix_, "read_tls_frame: starting to read TLS header");
 
-        auto [read_ec, rec] = co_await ::psm::tls::record::read(socket_);
+        auto [read_ec, rec] = co_await ::psm::tls::record::read(*lower_);
         if (fault::failed(read_ec))
         {
             ec = std::make_error_code(std::errc::connection_reset);
-            trace::warn<flt::conn | flt::protocol>("read TLS record failed");
+            trace::warn<flt::conn | flt::protocol>(prefix_, "read TLS record failed");
             co_return std::nullopt;
         }
 
         if (rec.header().content_type != content_appdata)
         {
-            trace::warn<flt::conn | flt::protocol>("unexpected TLS record type: 0x{:02x}", rec.header().content_type);
+            trace::warn<flt::conn | flt::protocol>(prefix_, "unexpected TLS record type: 0x{:02x}", rec.header().content_type);
             ec = std::make_error_code(std::errc::protocol_error);
             co_return std::nullopt;
         }
@@ -144,7 +146,7 @@ namespace psm::stealth::shadowtls
 
         if (payload.size() < hmac_size)
         {
-            trace::warn<flt::conn | flt::protocol>("payload too small for HMAC: {}", payload.size());
+            trace::warn<flt::conn | flt::protocol>(prefix_, "payload too small for HMAC: {}", payload.size());
             ec = std::make_error_code(std::errc::protocol_error);
             co_return std::nullopt;
         }
@@ -157,7 +159,7 @@ namespace psm::stealth::shadowtls
 
         if (!hmac_read_ctx_)
         {
-            trace::warn<flt::conn | flt::protocol>("hmac_read_ctx is null, cannot verify HMAC");
+            trace::warn<flt::conn | flt::protocol>(prefix_, "hmac_read_ctx is null, cannot verify HMAC");
             ec = std::make_error_code(std::errc::protocol_error);
             co_return std::nullopt;
         }
@@ -180,14 +182,14 @@ namespace psm::stealth::shadowtls
 
         if (CRYPTO_memcmp(client_hmac.data(), expected_hmac.data(), hmac_size) != 0)
         {
-            trace::warn<flt::conn | flt::protocol>("HMAC mismatch in transport read_tls_frame");
+            trace::warn<flt::conn | flt::protocol>(prefix_, "HMAC mismatch in transport read_tls_frame");
             ec = std::make_error_code(std::errc::protocol_error);
             co_return std::nullopt;
         }
 
         HMAC_Update(hmac_read_ctx_.get(), client_hmac.data(), hmac_size);
 
-        trace::debug<flt::conn | flt::protocol>("TLS frame verified (cumulative HMAC), payload_size={}, added HMAC to cumulative state",
+        trace::debug<flt::conn | flt::protocol>(prefix_, "TLS frame verified (cumulative HMAC), payload_size={}, added HMAC to cumulative state",
                     actual_data.size());
 
         memory::vector<std::byte> result(actual_data.begin(), actual_data.end());
@@ -198,7 +200,7 @@ namespace psm::stealth::shadowtls
     auto shadowtls_transport::async_write_some(std::span<const std::byte> buffer, std::error_code &ec)
         -> net::awaitable<std::size_t>
     {
-        trace::debug<flt::conn | flt::protocol>("async_write_some: buffer_size={}, calling write_tls_frame", buffer.size());
+        trace::debug<flt::conn | flt::protocol>(prefix_, "async_write_some: buffer_size={}, calling write_tls_frame", buffer.size());
         return write_tls_frame(buffer, ec);
     }
 
@@ -206,7 +208,7 @@ namespace psm::stealth::shadowtls
     auto shadowtls_transport::async_write(std::span<const std::byte> data, std::error_code &ec)
         -> net::awaitable<std::size_t>
     {
-        trace::debug<flt::conn | flt::protocol>("async_write: data_size={}, calling write_tls_frame directly", data.size());
+        trace::debug<flt::conn | flt::protocol>(prefix_, "async_write: data_size={}, calling write_tls_frame directly", data.size());
         return write_tls_frame(data, ec);
     }
 
@@ -215,7 +217,7 @@ namespace psm::stealth::shadowtls
         -> net::awaitable<std::size_t>
     {
         ec.clear();
-        trace::debug<flt::conn | flt::protocol>("write_tls_frame: payload_size={}", payload.size());
+        trace::debug<flt::conn | flt::protocol>(prefix_, "write_tls_frame: payload_size={}", payload.size());
 
         HMAC_Update(hmac_write_ctx_.get(),
                    reinterpret_cast<const std::uint8_t *>(payload.data()),
@@ -244,32 +246,39 @@ namespace psm::stealth::shadowtls
                              .build();
         auto frame_bytes = frame_rec.serialize();
 
-        boost::system::error_code boost_ec;
-        auto written = co_await net::async_write(
-            socket_, net::buffer(frame_bytes.data(), frame_bytes.size()),
-            net::redirect_error(trace::use_prefix_awaitable, boost_ec));
+        std::error_code write_ec;
+        co_await transport::async_write(
+            *lower_,
+            std::span<const std::byte>(frame_bytes.data(), frame_bytes.size()),
+            write_ec);
 
-        if (boost_ec)
+        if (write_ec)
         {
-            ec = std::make_error_code(std::errc::connection_reset);
-            trace::warn<flt::conn | flt::protocol>("write TLS frame failed: {}", boost_ec.message());
+            ec = write_ec;
+            trace::warn<flt::conn | flt::protocol>(prefix_, "write TLS frame failed: {}", write_ec.message());
             co_return 0;
         }
 
-        trace::debug<flt::conn | flt::protocol>("wrote {} bytes (TLS frame size={})", payload.size(), frame_bytes.size());
+        trace::debug<flt::conn | flt::protocol>(prefix_, "wrote {} bytes (TLS frame size={})", payload.size(), frame_bytes.size());
         co_return payload.size();
+    }
+
+
+    void shadowtls_transport::shutdown_write()
+    {
+        if (auto *rel = lowest_layer<transport::reliable>())
+            rel->shutdown_write();
     }
 
 
     void shadowtls_transport::close()
     {
-        boost::system::error_code ec;
-        socket_.close(ec);
+        lower_->close();
     }
 
 
     void shadowtls_transport::cancel()
     {
-        socket_.cancel();
+        lower_->cancel();
     }
 } // namespace psm::stealth::shadowtls

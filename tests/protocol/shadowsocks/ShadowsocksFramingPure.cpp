@@ -4,7 +4,7 @@
  * @details 测试 parse_addr_port/decode_psk/resolve_method 全分支
  */
 
-#include <prism/core/core.hpp>
+#include <prism/foundation/foundation.hpp>
 #include <prism/proto/protocol/shadowsocks/framing.hpp>
 #include <prism/proto/protocol/shadowsocks/constants.hpp>
 #include <prism/trace/spdlog.hpp>

@@ -5,12 +5,24 @@
  */
 #pragma once
 
-#include <prism/context/context.hpp>
+#include <prism/context/flow_opts.hpp>
 #include <prism/net/transport/transmission.hpp>
+#include <prism/proto/protocol/types.hpp>
 
 #include <boost/asio.hpp>
 
 #include <cstdint>
+
+namespace psm
+{
+    namespace account { class lease; }
+    namespace stats::traffic { class traffic_state; }
+}
+
+namespace psm::transport
+{
+    struct pad_config;
+}
 
 
 namespace psm::connect
@@ -32,14 +44,27 @@ namespace psm::connect
     /**
      * @struct tunnel_options
      * @brief 隧道转发选项
-     * @details 组合双向隧道转发所需的全部参数。
+     * @details 继承 flow_opts 获取 trace/cfg/rt 通用字段，
+     * 组合双向隧道转发所需的全部参数。
      */
-    struct tunnel_options
+    struct tunnel_options : public psm::context::flow_opts
     {
         shared_transmission inbound;                            ///< 入站流对象
         shared_transmission outbound;                           ///< 出站流对象
-        const context::session &ctx;                            ///< 会话上下文
         write_policy policy{write_policy::complete};            ///< 写入策略
+        const transport::pad_config *pad_cfg{nullptr};          ///< 填充配置
+        stats::traffic::traffic_state *traffic{nullptr};        ///< 流量统计（替代 ctx.worker_ctx.traffic）
+        account::lease *lease{nullptr};                         ///< 账户租约（替代 ctx.account_lease）
+
+        /// 兼容旧测试：{inbound, outbound, buffer_size, policy}
+        tunnel_options(shared_transmission in, shared_transmission out,
+                       std::uint32_t buf_size, write_policy pol = write_policy::complete)
+            : inbound(std::move(in)), outbound(std::move(out)),
+              policy(pol), buffer_size(buf_size) {}
+
+        tunnel_options() = default;
+        protocol::protocol_type detected{protocol::protocol_type::unknown}; ///< 检测到的协议
+        std::uint32_t buffer_size{0};                            ///< 缓冲区大小（替代 ctx.buffer_size）
     };
 
     /**

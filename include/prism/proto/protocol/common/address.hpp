@@ -19,7 +19,7 @@
     #include <arpa/inet.h>
 #endif
 
-#include <prism/core/memory/container.hpp>
+#include <prism/foundation/memory/container.hpp>
 
 
 namespace psm::protocol::common

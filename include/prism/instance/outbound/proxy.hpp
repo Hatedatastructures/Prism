@@ -11,7 +11,7 @@
  */
 #pragma once
 
-#include <prism/core/fault/code.hpp>
+#include <prism/foundation/fault/code.hpp>
 #include <prism/proto/protocol/common/target.hpp>
 #include <prism/proto/protocol/types.hpp>
 #include <prism/net/transport/transmission.hpp>
@@ -87,6 +87,22 @@ namespace psm::outbound
          */
         [[nodiscard]] virtual auto supports_udp() const
             -> bool { return true; }
+
+        /**
+         * @brief 查询是否禁用了 IPv6
+         * @return 禁用 IPv6 返回 true，否则返回 false
+         * @details 委托给底层 router 配置，供调用方在不直接持有 router 的情况下查询。
+         */
+        [[nodiscard]] virtual auto ipv6_disabled() const
+            -> bool = 0;
+
+        /**
+         * @brief 获取执行器
+         * @return 底层 io_context 的执行器
+         * @details 用于创建独立 socket（如 UDP）或定时器，调用方无需直接访问 router。
+         */
+        [[nodiscard]] virtual auto executor() const
+            -> net::any_io_executor = 0;
     };
 
 } // namespace psm::outbound

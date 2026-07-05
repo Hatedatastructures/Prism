@@ -41,6 +41,10 @@ namespace psm::stealth::reality
         [[nodiscard]] auto handshake(stealth::handshake_context ctx)
             -> net::awaitable<stealth::handshake_result> override;
 
+        /// RFC-065: Reality 挑战-响应(默认实现,后续 GREASE 扩展完善)
+        [[nodiscard]] auto challenge(stealth::handshake_context ctx)
+            -> net::awaitable<challenge_result> override;
+
     protected:
         [[nodiscard]] auto weight() const noexcept
             -> std::uint16_t override { return 450; }

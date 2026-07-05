@@ -10,7 +10,7 @@
 #include <boost/asio.hpp>
 #include <boost/beast/core/flat_buffer.hpp>
 
-#include <prism/core/core.hpp>
+#include <prism/foundation/foundation.hpp>
 #include <prism/config/transformer.hpp>
 #include <prism/trace/trace.hpp>
 

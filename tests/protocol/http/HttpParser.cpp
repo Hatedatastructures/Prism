@@ -8,7 +8,7 @@
  */
 
 #include <prism/proto/protocol/http/parser.hpp>
-#include <prism/core/core.hpp>
+#include <prism/foundation/foundation.hpp>
 #include <prism/trace/spdlog.hpp>
 #include <string>
 #include <string_view>

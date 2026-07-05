@@ -3,9 +3,14 @@
 #include <prism/account/directory.hpp>
 #include <prism/config/config.hpp>
 #include <prism/context/context.hpp>
+#include <prism/context/metadata.hpp>
+#include <prism/worker/resources.hpp>
 #include <prism/instance/session/session.hpp>
+#include <prism/stealth/tracker.hpp>
 #include <prism/trace/trace.hpp>
 #include <prism/net/transport/reliable.hpp>
+
+#include <cstring>
 
 using namespace psm::trace;
 
@@ -68,22 +73,34 @@ namespace psm::instance::worker::launch
         auto &worker = params.worker;
         auto &metrics = params.metrics;
 
-        // 在 socket 被移动前提取端点信息
-        trace::session_prefix pfx;
+        // L1 入口层：构造 request_metadata（业务数据）+ trace_context（日志标签）
+        auto meta = std::make_shared<psm::context::request_metadata>();
+        auto trace_ctx = std::make_shared<trace::trace_context>();
+
         boost::system::error_code ep_ec;
         auto remote_ep = params.socket.remote_endpoint(ep_ec);
         if (!ep_ec)
         {
-            auto addr_str = remote_ep.address().to_string();
-            std::strncpy(pfx.client, addr_str.c_str(), sizeof(pfx.client) - 1);
-            pfx.client_port = remote_ep.port();
+            meta->src = remote_ep;
+
+            // 构造 address_hash 用于探测追踪(RFC-065)
+            const auto &addr = remote_ep.address();
+            if (addr.is_v4())
+            {
+                meta->src_ip_raw = psm::stealth::address_hash::from_v4(addr.to_v4().to_uint()).bytes;
+            }
+            else if (addr.is_v6())
+            {
+                auto v6_bytes = addr.to_v6().to_bytes();
+                std::array<std::byte, 16> raw{};
+                std::memcpy(raw.data(), v6_bytes.data(), 16);
+                meta->src_ip_raw = psm::stealth::address_hash::from_v6(raw).bytes;
+            }
         }
         auto local_ep = params.socket.local_endpoint(ep_ec);
         if (!ep_ec)
         {
-            auto addr_str = local_ep.address().to_string();
-            std::strncpy(pfx.listen, addr_str.c_str(), sizeof(pfx.listen) - 1);
-            pfx.listen_port = local_ep.port();
+            meta->dst = local_ep;
         }
 
         // 获取活跃会话计数器，用于会话关闭时递减
@@ -95,17 +112,16 @@ namespace psm::instance::worker::launch
 
         // 将原始 socket 封装为可靠传输，创建会话对象
         auto inbound = psm::transport::make_reliable(std::move(params.socket));
-        session::session_params sess_params{server, worker, std::move(inbound)};
+        session::session_params sess_params{server, worker, std::move(inbound),
+            std::move(meta), std::move(trace_ctx)};
         const auto shared_session = psm::instance::session::make_session(std::move(sess_params));
-
-        // 填充日志前缀的端点信息
-        shared_session->init_prefix(pfx);
 
         // 记录会话开启
         metrics.session_open();
-        if (worker.traffic)
+        auto wr = worker.resources.lock();
+        if (wr)
         {
-            worker.traffic->on_connect();
+            wr->traffic().on_connect();
         }
         try
         {
@@ -122,9 +138,9 @@ namespace psm::instance::worker::launch
             {
                 dir = account_store.get();
             }
-            shared_session->set_account_directory(dir);
 
-            auto credential_function = [auth_enabled, account_store, traffic = worker.traffic]
+            // 持有 wr 保活，credential_function 异步调用时 worker::resources 仍有效
+            auto credential_function = [auth_enabled, account_store, wr]
                 (const std::string_view credential)
                     -> bool
             {
@@ -134,34 +150,27 @@ namespace psm::instance::worker::launch
                 }
                 if (!account_store)
                 {
-                    if (traffic)
+                    if (wr)
                     {
-                        traffic->on_auth_failure();
+                        wr->traffic().on_auth_failure();
                     }
                     return false;
                 }
                 const auto result = psm::account::contains(*account_store, credential);
-                if (traffic)
+                if (wr)
                 {
                     if (result)
                     {
-                        traffic->on_auth_success();
+                        wr->traffic().on_auth_success();
                     }
                     else
                     {
-                        traffic->on_auth_failure();
+                        wr->traffic().on_auth_failure();
                     }
                 }
                 return result;
             };
             // 设置凭证验证器，根据认证开关决定是否校验
-            shared_session->set_credential_verifier(credential_function);
-
-            // 设置出站代理（通过 worker 的 outbound::direct 实例）
-            if (worker.outbound)
-            {
-                shared_session->set_outbound_proxy(worker.outbound);
-            }
 
             // 启动会话处理流程
             shared_session->start();

@@ -7,7 +7,7 @@
 
 #include <gtest/gtest.h>
 
-#include <prism/core/core.hpp>
+#include <prism/foundation/foundation.hpp>
 
 // 显式引入 scheme 子类（executor.cpp 不直接 include 它们）
 #include <prism/stealth/facade/native.hpp>

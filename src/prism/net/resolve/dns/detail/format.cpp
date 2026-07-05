@@ -1,6 +1,6 @@
 #include <prism/net/resolve/dns/detail/format.hpp>
 
-#include <prism/core/memory/container.hpp>
+#include <prism/foundation/memory/container.hpp>
 #include <prism/trace/trace.hpp>
 
 #include <algorithm>
@@ -189,7 +189,6 @@ namespace psm::resolve::dns::detail
                     ++jumps;
                     if (jumps > 255)
                     {
-                        trace::warn("domain name compression pointer loop detected");
                         return {};
                     }
 
@@ -228,7 +227,6 @@ namespace psm::resolve::dns::detail
                 else
                 {
                     // 保留标签类型（0x40/0x80），不支持
-                    trace::warn("unsupported label type 0x{:02X}", static_cast<unsigned>(len));
                     return {};
                 }
             }
@@ -385,7 +383,6 @@ namespace psm::resolve::dns::detail
     {
         if (data.size() < 12)
         {
-            trace::warn("data too short ({} bytes)", data.size());
             return std::nullopt;
         }
 
@@ -425,13 +422,11 @@ namespace psm::resolve::dns::detail
             q.name = decode_name(data, offset, jumps, msg.mr_);
             if (q.name.empty() && offset >= data.size())
             {
-                trace::warn("Question #{} domain decode failed", i);
                 return std::nullopt;
             }
 
             if (offset + 4 > data.size())
             {
-                trace::warn("Question #{} data insufficient", i);
                 return std::nullopt;
             }
 
@@ -451,14 +446,12 @@ namespace psm::resolve::dns::detail
                 r.name = decode_name(data, offset, jumps, msg.mr_);
                 if (r.name.empty() && offset >= data.size())
                 {
-                    trace::warn("Record #{} domain decode failed", i);
                     return false;
                 }
 
                 // TYPE(2) + CLASS(2) + TTL(4) + RDLENGTH(2) = 10 字节
                 if (offset + 10 > data.size())
                 {
-                    trace::warn("Record #{} header data insufficient", i);
                     return false;
                 }
 
@@ -470,8 +463,6 @@ namespace psm::resolve::dns::detail
 
                 if (offset + rdlength > data.size())
                 {
-                    trace::warn("Record #{} rdata out of bounds (need {}, remaining {})",
-                                i, rdlength, data.size() - offset);
                     return false;
                 }
 
@@ -600,7 +591,6 @@ namespace psm::resolve::dns::detail
     {
         if (data.size() < 2)
         {
-            trace::warn("data too short for TCP length prefix ({} bytes)", data.size());
             return std::nullopt;
         }
 
@@ -608,8 +598,6 @@ namespace psm::resolve::dns::detail
 
         if (data.size() < 2 + static_cast<std::size_t>(length))
         {
-            trace::warn("incomplete message (declared {} bytes, got {})",
-                        length, data.size() - 2);
             return std::nullopt;
         }
 

@@ -4,10 +4,10 @@
  * @details 测试 validate_command/parse_address_from_buffer/verify_credential/parse_request_target
  */
 
-#include <prism/core/core.hpp>
+#include <prism/foundation/foundation.hpp>
 #include "../src/prism/proto/protocol/trojan/conn.cpp"
 #include <prism/trace/spdlog.hpp>
-#include <prism/core/core.hpp>
+#include <prism/foundation/foundation.hpp>
 
 
 #include <gtest/gtest.h>

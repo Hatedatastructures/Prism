@@ -8,7 +8,7 @@
 
 #include <gtest/gtest.h>
 
-#include <prism/core/core.hpp>
+#include <prism/foundation/foundation.hpp>
 #include <prism/stealth/facade/shadowtls/config.hpp>
 #include <prism/stealth/facade/shadowtls/util/auth.hpp>
 #include <prism/stealth/facade/shadowtls/util/constants.hpp>
@@ -89,7 +89,7 @@ namespace
         auto hello = make_client_hello("pass_alice");
         auto span = std::span<const std::byte>(hello.data(), hello.size());
 
-        auto result = verify_client(cfg, span);
+        auto result = verify_client(cfg, span, nullptr);
         EXPECT_TRUE(result.has_value()) << "verify_client v3: first user match";
         if (result)
         {
@@ -108,7 +108,7 @@ namespace
         auto hello = make_client_hello("pass_bob");
         auto span = std::span<const std::byte>(hello.data(), hello.size());
 
-        auto result = verify_client(cfg, span);
+        auto result = verify_client(cfg, span, nullptr);
         EXPECT_TRUE(result.has_value()) << "verify_client v3: second user match";
         if (result)
         {
@@ -126,7 +126,7 @@ namespace
         auto hello = make_client_hello("unknown_password");
         auto span = std::span<const std::byte>(hello.data(), hello.size());
 
-        auto result = verify_client(cfg, span);
+        auto result = verify_client(cfg, span, nullptr);
         EXPECT_TRUE(!result.has_value()) << "verify_client v3: no match -> nullopt";
     }
 
@@ -140,7 +140,7 @@ namespace
         auto hello = make_client_hello("pass_alice");
         auto span = std::span<const std::byte>(hello.data(), hello.size());
 
-        auto result = verify_client(cfg, span);
+        auto result = verify_client(cfg, span, nullptr);
         EXPECT_TRUE(result.has_value()) << "verify_client v3: skip empty password user";
         if (result)
         {
@@ -158,7 +158,7 @@ namespace
         auto hello = make_client_hello("any_password");
         auto span = std::span<const std::byte>(hello.data(), hello.size());
 
-        auto result = verify_client(cfg, span);
+        auto result = verify_client(cfg, span, nullptr);
         EXPECT_TRUE(!result.has_value()) << "verify_client v3: all empty passwords -> nullopt";
     }
 
@@ -170,7 +170,7 @@ namespace
         auto hello = make_client_hello("some_pass");
         auto span = std::span<const std::byte>(hello.data(), hello.size());
 
-        auto result = verify_client(cfg, span);
+        auto result = verify_client(cfg, span, nullptr);
         EXPECT_TRUE(!result.has_value()) << "verify_client v3: empty user list -> nullopt";
     }
 
@@ -185,7 +185,7 @@ namespace
         auto hello = make_client_hello("shared_secret");
         auto span = std::span<const std::byte>(hello.data(), hello.size());
 
-        auto result = verify_client(cfg, span);
+        auto result = verify_client(cfg, span, nullptr);
         EXPECT_TRUE(result.has_value()) << "verify_client v2: password match";
         if (result)
         {
@@ -203,7 +203,7 @@ namespace
         auto hello = make_client_hello("wrong_password");
         auto span = std::span<const std::byte>(hello.data(), hello.size());
 
-        auto result = verify_client(cfg, span);
+        auto result = verify_client(cfg, span, nullptr);
         EXPECT_TRUE(!result.has_value()) << "verify_client v2: wrong password -> nullopt";
     }
 
@@ -216,7 +216,7 @@ namespace
         auto hello = make_client_hello("any_password");
         auto span = std::span<const std::byte>(hello.data(), hello.size());
 
-        auto result = verify_client(cfg, span);
+        auto result = verify_client(cfg, span, nullptr);
         EXPECT_TRUE(!result.has_value()) << "verify_client v2: empty password -> nullopt";
     }
 
@@ -229,7 +229,7 @@ namespace
         auto hello = make_client_hello("v1_pass");
         auto span = std::span<const std::byte>(hello.data(), hello.size());
 
-        auto result = verify_client(cfg, span);
+        auto result = verify_client(cfg, span, nullptr);
         EXPECT_TRUE(result.has_value()) << "verify_client v1: password match";
         if (result)
         {

@@ -6,7 +6,7 @@
  */
 
 #include <prism/net/connect/pool/pool.hpp>
-#include <prism/core/memory/pool.hpp>
+#include <prism/foundation/memory/pool.hpp>
 #include <prism/net/connect/dial/router.hpp>
 #include <prism/net/resolve/dns/config.hpp>
 #include <prism/trace/spdlog.hpp>

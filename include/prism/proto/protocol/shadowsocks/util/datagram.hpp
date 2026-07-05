@@ -8,8 +8,8 @@
 #pragma once
 
 #include <prism/crypto/aead.hpp>
-#include <prism/core/fault/code.hpp>
-#include <prism/core/core.hpp>
+#include <prism/foundation/fault/code.hpp>
+#include <prism/foundation/foundation.hpp>
 #include <prism/proto/protocol/shadowsocks/config.hpp>
 #include <prism/proto/protocol/shadowsocks/constants.hpp>
 #include <prism/proto/protocol/shadowsocks/framing.hpp>
@@ -59,6 +59,8 @@ namespace psm::protocol::shadowsocks
     class udp_relay : public std::enable_shared_from_this<udp_relay>
     {
     public:
+        void set_prefix(std::shared_ptr<trace::trace_context> p) noexcept { prefix_ = std::move(p); }
+
         /**
          * @brief 构造函数
          * @param cfg SS2022 协议配置
@@ -108,6 +110,7 @@ namespace psm::protocol::shadowsocks
 
     private:
         config config_;                                    // SS2022 协议配置
+        std::shared_ptr<trace::trace_context> prefix_;     // 日志前缀
         memory::vector<std::uint8_t> psk_;                    // 解码后的 PSK
         cipher_method method_{cipher_method::aes_128_gcm}; // 加密方法
         std::shared_ptr<session_tracker> sess_tracker_; // UDP 会话跟踪器

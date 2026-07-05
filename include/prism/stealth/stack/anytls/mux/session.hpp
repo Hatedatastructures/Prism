@@ -7,11 +7,12 @@
  */
 #pragma once
 
-#include <prism/core/fault/code.hpp>
-#include <prism/core/memory/container.hpp>
+#include <prism/foundation/fault/code.hpp>
+#include <prism/foundation/memory/container.hpp>
 #include <prism/stealth/stack/anytls/mux/frame.hpp>
 #include <prism/stealth/stack/anytls/padding.hpp>
 #include <prism/net/transport/transmission.hpp>
+#include <prism/trace/context.hpp>
 
 #include <boost/asio.hpp>
 #include <boost/asio/experimental/concurrent_channel.hpp>
@@ -52,6 +53,11 @@ namespace psm::stealth::anytls
     public:
         using channel_type = net::experimental::concurrent_channel<
             void(boost::system::error_code, memory::vector<std::uint8_t>)>;
+
+        auto set_prefix(std::shared_ptr<trace::trace_context> p) noexcept -> void
+        {
+            prefix_ = std::move(p);
+        }
 
         /**
          * @brief 新 stream 回调
@@ -158,5 +164,6 @@ namespace psm::stealth::anytls
         std::uint32_t init_id_{0};
         memory::vector<std::uint8_t> init_preread_;
         net::steady_timer init_waiter_;
+        std::shared_ptr<trace::trace_context> prefix_;
     };
 } // namespace psm::stealth::anytls

@@ -2,15 +2,13 @@
 
 #include <prism/config/config.hpp>
 #include <prism/net/connect/tunnel/tunnel.hpp>
-#include <prism/core/core.hpp>
-#include <prism/core/fault/code.hpp>
-#include <prism/proto/protocol/http/process.hpp>
-#include <prism/proto/protocol/shadowsocks/process.hpp>
-#include <prism/proto/protocol/socks5/process.hpp>
-#include <prism/proto/protocol/trojan/process.hpp>
+#include <prism/net/connect/tunnel/tunnel_relay.hpp>
+#include <prism/foundation/foundation.hpp>
+#include <prism/foundation/fault/code.hpp>
+#include <prism/proto/protocol/handler.hpp>
 #include <prism/proto/protocol/types.hpp>
-#include <prism/proto/protocol/vless/process.hpp>
 #include <prism/stealth/recognition/recognition.hpp>
+#include <prism/stealth/scheme.hpp>
 #include <prism/account/stats/traffic.hpp>
 #include <prism/trace/trace.hpp>
 #include <prism/net/transport/reliable.hpp>
@@ -29,10 +27,17 @@ namespace psm::instance::session
 
     session::session(session_params params)
         : id_(detail::next_conn_id()),
-          prefix_(std::make_shared<trace::session_prefix>()),
-          ctx_{context::session_opts{id_, params.server, params.worker, frame_arena_, {},
-              params.server.config().buffer.size, std::move(params.inbound)}}
+          prefix_(params.trace ? std::move(params.trace) : std::make_shared<trace::trace_context>()),
+          ctx_{context::session_opts{id_, params.server, params.worker, frame_arena_,
+              params.server.config().buffer.size, std::move(params.inbound),
+              params.meta ? params.meta->src_ip_raw : std::array<std::byte, 16>{}},
+              std::move(params.meta)}
     {
+        // 同步 conn_id 到 trace_context（若 launch 未填）
+        if (prefix_->conn_id == 0)
+            prefix_->conn_id = id_;
+        if (ctx_.meta)
+            ctx_.meta->conn_id = id_;
     }
 
     session::~session() noexcept
@@ -40,32 +45,28 @@ namespace psm::instance::session
         release_resources();
     }
 
-    void session::init_prefix(const trace::session_prefix &pfx) noexcept
+    void session::init_prefix(const trace::trace_context &pfx) noexcept
     {
-        prefix_->conn_id = id_;
-        std::memcpy(prefix_->client, pfx.client, sizeof(prefix_->client));
-        prefix_->client_port = pfx.client_port;
-        std::memcpy(prefix_->listen, pfx.listen, sizeof(prefix_->listen));
-        prefix_->listen_port = pfx.listen_port;
+        // trace_context 瘦身：仅同步 conn_id；端点信息已由 launch 填入 ctx_.meta
+        prefix_->conn_id = pfx.conn_id != 0 ? pfx.conn_id : id_;
     }
 
     void session::start()
     {
         auto process = [self = this->shared_from_this()]() -> net::awaitable<void>
         {
-            trace::scope_guard guard(self->prefix_);
             try
             {
                 co_await self->diversion();
             }
             catch (const std::exception &e)
             {
-                trace::error<flt::conn | flt::protocol>(
+                trace::error<flt::conn | flt::protocol>(*self->prefix_,
                     "unhandled exception in diversion: {}", e.what());
             }
             catch (...)
             {
-                trace::error<flt::conn | flt::protocol>(
+                trace::error<flt::conn | flt::protocol>(*self->prefix_,
                     "unknown exception in diversion");
             }
             self->release_resources();
@@ -75,24 +76,23 @@ namespace psm::instance::session
         {
             if (!ep)
                 return;
-            trace::scope_guard guard(self->prefix_);
             try
             {
                 std::rethrow_exception(ep);
             }
             catch (const ::psm::exception::deviant &e)
             {
-                trace::error<flt::conn | flt::protocol>(
+                trace::error<flt::conn | flt::protocol>(*self->prefix_,
                     "abnormal exception: {}", e.dump());
             }
             catch (const std::exception &e)
             {
-                trace::error<flt::conn | flt::protocol>(
+                trace::error<flt::conn | flt::protocol>(*self->prefix_,
                     "standard exception: {}", e.what());
             }
             catch (...)
             {
-                trace::error<flt::conn | flt::protocol>(
+                trace::error<flt::conn | flt::protocol>(*self->prefix_,
                     "unknown exception type");
             }
             self->release_resources();
@@ -106,7 +106,7 @@ namespace psm::instance::session
         if (state_ != state::active)
             return;
         state_ = state::closing;
-        trace::debug<flt::conn | flt::protocol>("session closing");
+        trace::debug<flt::conn | flt::protocol>(*prefix_, "session closing");
 
         if (ctx_.inbound)
             ctx_.inbound->cancel();
@@ -120,9 +120,9 @@ namespace psm::instance::session
             return;
         state_ = state::closed;
 
-        if (ctx_.worker_ctx.traffic)
+        if (auto wr = ctx_.worker_ctx.resources.lock())
         {
-            ctx_.worker_ctx.traffic->on_disconnect(ctx_.detected_protocol);
+            wr->traffic().on_disconnect(ctx_.detected_protocol);
         }
 
         if (ctx_.inbound)
@@ -145,7 +145,7 @@ namespace psm::instance::session
             on_closed_ = nullptr;
             callback();
         }
-        trace::info<flt::conn | flt::protocol>("session closed");
+        trace::info<flt::conn | flt::protocol>(*prefix_, "session closed");
     }
 
     auto session::diversion()
@@ -153,15 +153,25 @@ namespace psm::instance::session
     {
         if (!ctx_.inbound)
         {
-            trace::warn<flt::conn | flt::protocol>(
+            trace::warn<flt::conn | flt::protocol>(prefix_, 
                 "diversion aborted: missing inbound transmission");
             co_return;
         }
 
-        trace::info<flt::conn | flt::protocol>(
-            "session established, {}:{} -> {}:{}",
-            prefix_->client, prefix_->client_port,
-            prefix_->listen, prefix_->listen_port);
+        // 端点信息在 ctx_.meta（瘦身后 trace_context 不含 client/listen）
+        const auto *meta_ptr = ctx_.meta.get();
+        if (meta_ptr != nullptr)
+        {
+            trace::info<flt::conn | flt::protocol>(prefix_,
+                "session established, {} -> {}",
+                meta_ptr->src.address().to_string(),
+                meta_ptr->dst.address().to_string());
+        }
+        else
+        {
+            trace::info<flt::conn | flt::protocol>(prefix_,
+                "session established");
+        }
 
         // 1. 完整识别流程
         handshake_deadline_ = std::make_unique<net::steady_timer>(
@@ -176,14 +186,23 @@ namespace psm::instance::session
 
         auto do_recognize = [this, self = this->shared_from_this()]() -> net::awaitable<recognition::recognize_result>
         {
-            co_return co_await recognition::recognize(recognition::recognize_context{
-                .transport = ctx_.inbound,
-                .cfg = &ctx_.server_ctx.config(),
-                .router = &ctx_.worker_ctx.router,
-                .session = &ctx_,
-                .session_keepalive = std::move(self),
-                .frame_arena = &ctx_.frame_arena
-            });
+            auto wr = ctx_.worker_ctx.resources.lock();
+            if (!wr)
+            {
+                trace::warn<flt::conn | flt::protocol>(prefix_, "worker resources expired before recognize");
+                co_return recognition::recognize_result{};
+            }
+            ::psm::stealth::stealth_opts st_opts;
+            st_opts.meta = ctx_.meta;
+            st_opts.trace = prefix_;
+            st_opts.cfg = &ctx_.server_ctx.config();
+            st_opts.outbound = &wr->outbound();
+            st_opts.transport = ctx_.inbound;
+            st_opts.session = &ctx_;
+            st_opts.session_keepalive = std::move(self);
+            st_opts.frame_arena = &ctx_.frame_arena;
+            st_opts.src_ip_raw = ctx_.meta ? ctx_.meta->src_ip_raw : std::array<std::byte, 16>{};
+            co_return co_await recognition::recognize(st_opts);
         };
 
         using boost::asio::experimental::awaitable_operators::operator||;
@@ -207,7 +226,7 @@ namespace psm::instance::session
         {
             ctx_.inbound->cancel();
             prefix_->phase.set("handshake");
-            trace::warn<flt::conn | flt::protocol>(
+            trace::warn<flt::conn | flt::protocol>(prefix_, 
                 "handshake deadline exceeded, aborting");
             prefix_->phase.clear();
             co_return;
@@ -215,7 +234,7 @@ namespace psm::instance::session
 
         if (!result.success)
         {
-            trace::warn<flt::conn | flt::protocol>(
+            trace::warn<flt::conn | flt::protocol>(prefix_, 
                 "recognition failed: {}", fault::describe(result.error));
             co_return;
         }
@@ -224,12 +243,12 @@ namespace psm::instance::session
         ctx_.detected_protocol = result.detected;
         auto proto_view = psm::protocol::to_string_view(result.detected);
         std::strncpy(prefix_->protocol, proto_view.data(), sizeof(prefix_->protocol) - 1);
-        if (ctx_.worker_ctx.traffic)
+        if (auto wr = ctx_.worker_ctx.resources.lock())
         {
-            ctx_.worker_ctx.traffic->on_protocol_detected(result.detected);
+            wr->traffic().on_protocol_detected(result.detected);
         }
 
-        trace::info<flt::conn | flt::protocol>(
+        trace::info<flt::conn | flt::protocol>(prefix_, 
             "recognized as {}", proto_view);
 
         // 2. 更新传输层
@@ -238,7 +257,7 @@ namespace psm::instance::session
         // Stack 方案内部已处理连接
         if (!ctx_.inbound)
         {
-            trace::debug<flt::conn | flt::protocol>(
+            trace::debug<flt::conn | flt::protocol>(prefix_, 
                 "connection handled by stack scheme");
             co_return;
         }
@@ -246,30 +265,38 @@ namespace psm::instance::session
         auto preread_span = std::span<const std::byte>(
             result.preread.data(), result.preread.size());
 
-        // 3. 分发到协议处理器
-        switch (result.detected)
+        // 3. 分发到协议处理器（工厂模式，消除 switch-case）
+        auto wr = ctx_.worker_ctx.resources.lock();
+        if (!wr)
         {
-        case psm::protocol::protocol_type::http:
-            co_await psm::protocol::http::handle(ctx_, preread_span);
-            break;
-        case psm::protocol::protocol_type::socks5:
-            co_await psm::protocol::socks5::handle(ctx_, preread_span);
-            break;
-        case psm::protocol::protocol_type::trojan:
-            co_await psm::protocol::trojan::handle(ctx_, preread_span);
-            break;
-        case psm::protocol::protocol_type::vless:
-            co_await psm::protocol::vless::handle(ctx_, preread_span);
-            break;
-        case psm::protocol::protocol_type::shadowsocks:
-            co_await psm::protocol::shadowsocks::handle(ctx_, preread_span);
-            break;
-        default:
-            if (ctx_.inbound && ctx_.outbound)
-            {
-                co_await connect::tunnel({std::move(ctx_.inbound), std::move(ctx_.outbound), ctx_});
-            }
-            break;
+            trace::warn<flt::conn | flt::protocol>(prefix_, "worker resources expired before dispatch");
+            co_return;
+        }
+        psm::protocol::handler_params h_params(ctx_, preread_span);
+        h_params.meta = ctx_.meta;
+        h_params.trace = prefix_;
+        h_params.cfg = &ctx_.server_ctx.config();
+        h_params.outbound = &wr->outbound();
+        auto handler = psm::protocol::make_protocol_handler(result.detected, std::move(h_params));
+
+        if (handler)
+        {
+            co_await handler->run();
+        }
+        else if (ctx_.inbound && ctx_.outbound)
+        {
+            connect::tunnel_options t_opts;
+            t_opts.inbound = std::move(ctx_.inbound);
+            t_opts.outbound = std::move(ctx_.outbound);
+            t_opts.trace = prefix_;
+            t_opts.buffer_size = ctx_.buffer_size;
+            t_opts.traffic = &wr->traffic();
+            t_opts.detected = ctx_.detected_protocol;
+            t_opts.lease = &ctx_.account_lease;
+            if (ctx_.server_ctx.config().stealth.pad.enabled())
+                t_opts.pad_cfg = &ctx_.server_ctx.config().stealth.pad;
+            connect::tunnel_relay relay{std::move(t_opts)};
+            co_await relay.run();
         }
     }
 

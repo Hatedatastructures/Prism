@@ -13,9 +13,9 @@
 #include <prism/proto/protocol/shadowsocks/framing.hpp>
 #include <prism/crypto/sha224.hpp>
 #include <prism/crypto/base64.hpp>
-#include <prism/core/memory/pool.hpp>
-#include <prism/core/memory/container.hpp>
-#include <prism/core/core.hpp>
+#include <prism/foundation/memory/pool.hpp>
+#include <prism/foundation/memory/container.hpp>
+#include <prism/foundation/foundation.hpp>
 #include <array>
 #include <cstddef>
 #include <span>

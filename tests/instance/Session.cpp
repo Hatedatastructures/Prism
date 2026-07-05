@@ -15,9 +15,9 @@
 #include <prism/net/connect/pool/pool.hpp>
 #include <prism/net/transport/reliable.hpp>
 #include <prism/net/connect/dial/router.hpp>
-#include <prism/core/exception/network.hpp>
-#include <prism/core/fault/code.hpp>
-#include <prism/core/core.hpp>
+#include <prism/foundation/exception/network.hpp>
+#include <prism/foundation/fault/code.hpp>
+#include <prism/foundation/foundation.hpp>
 #include <prism/trace/spdlog.hpp>
 #include <gtest/gtest.h>
 
@@ -94,7 +94,7 @@ namespace
      * @return net::awaitable<void>
      */
     net::awaitable<void> ProxyAcceptOne(tcp::acceptor acceptor, psm::context::server &server_ctx,
-                                        psm::context::worker &worker_ctx)
+                                        psm::context::worker_ref &worker_ctx)
     {
         // 将错误码重定向到 accept_ec，避免 accept 失败时抛异常
         boost::system::error_code accept_ec;
@@ -450,7 +450,7 @@ namespace
      * @param worker_ctx 工作线程上下文
      * @return net::awaitable<void>
      */
-    net::awaitable<void> RunAllTests(psm::context::server &server_ctx, psm::context::worker &worker_ctx)
+    net::awaitable<void> RunAllTests(psm::context::server &server_ctx, psm::context::worker_ref &worker_ctx)
     {
         // 测试 1: CONNECT + echo 完整往返
         {
@@ -560,7 +560,7 @@ namespace
 
         // 构造工作线程上下文：io_context、DNS 路由、线程本地内存池
         auto mr = psm::memory::system::local_pool();
-        psm::context::worker worker_ctx{ioc, *dist, mr};
+        psm::context::worker_ref worker_ctx{ioc, psm::worker::borrow{}, mr};
 
         // 用于捕获协程中未处理的异常
         std::exception_ptr test_error;

@@ -12,8 +12,9 @@
 
 #include <prism/account/directory.hpp>
 #include <prism/config/config.hpp>
+#include <prism/config/validator.hpp>
 #include <prism/crypto/sha224.hpp>
-#include <prism/core/core.hpp>
+#include <prism/foundation/foundation.hpp>
 #include <prism/trace/trace.hpp>
 #include <prism/config/transformer.hpp>
 
@@ -53,8 +54,13 @@ namespace psm::loader
         {
             if (transformer::json::deserialize({content.data(), content.size()}, cfg))
             {
+                config_validator::validate_or_throw(cfg);
                 return cfg;
             }
+        }
+        catch (const psm::exception::security &)
+        {
+            throw;
         }
         catch (const std::exception &e)
         {

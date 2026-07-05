@@ -57,7 +57,7 @@ namespace psm::instance::worker::launch
     struct launch_params
     {
         psm::context::server &server;
-        psm::context::worker &worker;
+        psm::context::worker_ref &worker;
         stats::runtime::worker_load &metrics;
         tcp::socket socket;
     };

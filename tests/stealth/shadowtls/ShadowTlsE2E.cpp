@@ -11,7 +11,7 @@
 #include <prism/stealth/facade/shadowtls/util/constants.hpp>
 #include <prism/stealth/facade/shadowtls/config.hpp>
 #include <prism/stealth/facade/shadowtls/handshake.hpp>
-#include <prism/core/core.hpp>
+#include <prism/foundation/foundation.hpp>
 
 #include <openssl/hmac.h>
 

@@ -8,7 +8,7 @@
  *          通过 #include 源文件确保 gcov 计入覆盖行。
  */
 
-#include <prism/core/core.hpp>
+#include <prism/foundation/foundation.hpp>
 #include <prism/trace/spdlog.hpp>
 
 #include <boost/asio.hpp>
@@ -57,7 +57,7 @@ namespace
             psm::resolve::dns::config dns_cfg;
             psm::connect::router_options ropts{*pool, *ioc, dns_cfg};
             router_ptr = std::make_unique<psm::connect::router>(std::move(ropts));
-            multiplex::core_options opts{transport, *router_ptr, cfg, nullptr};
+            multiplex::core_options opts{transport, nullptr, cfg, nullptr};
             craft_obj = std::make_shared<yamux::craft>(std::move(opts));
         }
     };

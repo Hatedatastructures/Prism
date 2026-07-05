@@ -10,8 +10,8 @@
 
 #pragma once
 
-#include <prism/core/fault/code.hpp>
-#include <prism/core/memory/container.hpp>
+#include <prism/foundation/fault/code.hpp>
+#include <prism/foundation/memory/container.hpp>
 #include <prism/proto/protocol/common/framing.hpp>
 #include <prism/proto/protocol/socks5/constants.hpp>
 #include <prism/proto/protocol/socks5/packet.hpp>

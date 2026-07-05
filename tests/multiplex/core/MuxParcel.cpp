@@ -7,7 +7,7 @@
  * 无需构造完整的 core/router 协程环境。
  */
 
-#include <prism/core/core.hpp>
+#include <prism/foundation/foundation.hpp>
 #include <prism/trace/spdlog.hpp>
 #include <prism/proto/multiplex/smux/frame.hpp>
 

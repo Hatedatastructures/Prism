@@ -5,7 +5,7 @@
  */
 
 #include <benchmark/benchmark.h>
-#include <prism/core/core.hpp>
+#include <prism/foundation/foundation.hpp>
 #include <prism/stealth/stack/trusttunnel/config.hpp>
 #include <prism/proto/multiplex/h2mux/craft.hpp>
 

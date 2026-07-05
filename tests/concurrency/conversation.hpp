@@ -2,7 +2,7 @@
 
 #include <chrono>
 #include <boost/asio.hpp>
-#include <prism/core/core.hpp>
+#include <prism/foundation/foundation.hpp>
 #include <prism/proto/protocol/http/parser.hpp>
 #include <prism/trace/trace.hpp>
 #include "handler.hpp"

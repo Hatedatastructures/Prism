@@ -17,7 +17,7 @@
 #include <prism/stealth/facade/reality/scheme.hpp>
 #include <prism/stealth/registry.hpp>
 #include <prism/config/config.hpp>
-#include <prism/core/core.hpp>
+#include <prism/foundation/foundation.hpp>
 #include <prism/trace/spdlog.hpp>
 #include <gtest/gtest.h>
 

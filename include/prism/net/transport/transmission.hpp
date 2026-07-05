@@ -12,7 +12,8 @@
  */
 #pragma once
 
-#include <prism/core/fault/compatible.hpp>
+#include <prism/foundation/fault/compatible.hpp>
+#include <prism/trace/context.hpp>
 
 #include <boost/asio.hpp>
 #include <boost/asio/any_completion_handler.hpp>
@@ -71,6 +72,22 @@ namespace psm::transport
         };
 
         virtual ~transmission() noexcept = default;
+
+        /**
+         * @brief 设置 trace 前缀
+         * @details 显式传入 prefix，替代旧 thread_local 机制。
+         * 子类用 *prefix_ 做 trace::debug(*prefix_, "msg")。
+         */
+        auto set_prefix(std::shared_ptr<trace::trace_context> p) noexcept -> void
+        {
+            prefix_ = std::move(p);
+        }
+
+        [[nodiscard]] auto prefix() const noexcept
+            -> std::shared_ptr<trace::trace_context>
+        {
+            return prefix_;
+        }
 
         /**
          * @brief 获取传输层类型
@@ -235,6 +252,8 @@ namespace psm::transport
             return dynamic_cast<const T *>(current);
         }
 
+    protected:
+        std::shared_ptr<trace::trace_context> prefix_; ///< trace 前缀（显式传参，替代 thread_local）
     };
 
     /**

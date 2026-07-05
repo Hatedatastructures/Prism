@@ -6,7 +6,7 @@
 #include <gtest/gtest.h>
 
 #include <prism/config/config.hpp>
-#include <prism/core/core.hpp>
+#include <prism/foundation/foundation.hpp>
 #include <prism/stealth/facade/reality/scheme.hpp>
 #include <prism/stealth/facade/restls/scheme.hpp>
 #include <prism/stealth/facade/shadowtls/scheme.hpp>

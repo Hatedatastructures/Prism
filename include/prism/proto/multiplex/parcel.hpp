@@ -16,20 +16,24 @@
  */
 #pragma once
 
-#include <prism/core/memory/container.hpp>
+#include <prism/foundation/fault/code.hpp>
+#include <prism/foundation/memory/container.hpp>
 
 #include <boost/asio.hpp>
 
 #include <cstdint>
+#include <functional>
 #include <memory>
 #include <span>
+#include <utility>
 
 
 // 前向声明
-namespace psm::connect
+namespace psm::outbound
 {
 
-    class router;
+    class proxy;
+
 }
 
 namespace psm::multiplex
@@ -38,6 +42,10 @@ namespace psm::multiplex
     class core;
 
     namespace net = boost::asio;
+
+    /// UDP 路由回调类型（与 outbound::router_fn 等价，独立定义避免 parcel.hpp include proxy.hpp）
+    using parcel_router_fn = std::function<net::awaitable<std::pair<fault::code,
+                                                                    net::ip::udp::endpoint>>(std::string_view, std::string_view)>;
 
     /**
      * @brief 地址编码模式
@@ -90,7 +98,7 @@ namespace psm::multiplex
          * @brief 构造 parcel
          * @param config parcel 配置结构体，包含流标识符、UDP 参数、内存资源和地址编码模式
          * @param owner 所属 core 的共享指针，用于调用 send_data 发送 mux 帧
-         * @param router 路由器引用，用于 DNS 解析目标主机名
+         * @param outbound 出站代理接口（非拥有，worker 生命周期），用于 DNS 解析目标主机名
          * @details 构造后 parcel 处于就绪状态，需调用 start() 启动空闲超时监控。
          * egress_socket_ 延迟创建，首次发送数据报时按目标协议族（IPv4/IPv6）初始化。
          * packet_addr 模式时每帧使用 SOCKS5 地址格式，length_prefixed 模式时使用
@@ -98,7 +106,7 @@ namespace psm::multiplex
          * @note 方法定义在 parcel.cpp 中
          */
         explicit parcel(const parcel_config& config, const std::shared_ptr<core>& owner,
-               connect::router &router);
+               outbound::proxy *outbound);
 
         ~parcel() noexcept;
 
@@ -239,7 +247,8 @@ namespace psm::multiplex
 
         std::uint32_t id_;                   // 流标识符，由 mux SYN 帧分配
         std::weak_ptr<core> owner_;          // 所属 core 的弱引用，不构成循环引用
-        connect::router &router_;            // 路由器引用，用于 DNS 解析目标主机名
+        outbound::proxy *outbound_{nullptr}; // 出站代理接口（非拥有，worker 生命周期）
+        parcel_router_fn router_fn_;         // UDP 路由回调，构造时从 outbound->make_router() 获取
         net::any_io_executor executor_;      // 缓存的 executor，core 销毁后仍可用
         std::uint32_t idle_timeout_;  // UDP 管道空闲超时（毫秒）
         std::uint32_t max_dgram_;     // UDP 数据报最大长度（字节）
@@ -266,14 +275,14 @@ namespace psm::multiplex
      * @brief 创建 parcel 共享指针
      * @param config parcel 配置结构体
      * @param owner 所属 core 的共享指针
-     * @param router 路由器引用
+     * @param outbound 出站代理接口（非拥有，worker 生命周期）
      * @return parcel 的共享指针
      */
     [[nodiscard]] inline auto make_parcel(const parcel_config& config, const std::shared_ptr<core>& owner,
-                                          connect::router &router)
+                                          outbound::proxy *outbound)
         -> std::shared_ptr<parcel>
     {
-        return std::make_shared<parcel>(config, std::move(owner), router);
+        return std::make_shared<parcel>(config, std::move(owner), outbound);
     }
 
 } // namespace psm::multiplex

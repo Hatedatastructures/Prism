@@ -52,6 +52,11 @@ if(MINGW)
     target_link_options(${PROJECT_NAME} PRIVATE
             -static-libgcc
     )
+    # CMake 默认为 MinGW executable 加 --out-implib 生成导入库，与 --gc-sections
+    # 组合在某些 MinGW 版本上触发 "ld returned 5 exit status" 错误。
+    # 重写 link 命令，移除 --out-implib 与 --major/minor-image-version。
+    set(CMAKE_CXX_LINK_EXECUTABLE
+        "<CMAKE_CXX_COMPILER> <FLAGS> <CMAKE_CXX_LINK_FLAGS> <LINK_FLAGS> <OBJECTS> -o <TARGET> <LINK_LIBRARIES>")
 endif()
 
 if(CMAKE_BUILD_TYPE STREQUAL "Debug")

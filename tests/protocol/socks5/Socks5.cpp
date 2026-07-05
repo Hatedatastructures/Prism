@@ -9,10 +9,10 @@
  */
 
 #include <prism/proto/protocol/socks5.hpp>
-#include <prism/core/exception/network.hpp>
-#include <prism/core/fault/code.hpp>
+#include <prism/foundation/exception/network.hpp>
+#include <prism/foundation/fault/code.hpp>
 #include <prism/net/transport/reliable.hpp>
-#include <prism/core/core.hpp>
+#include <prism/foundation/foundation.hpp>
 #include <prism/trace/spdlog.hpp>
 #include <boost/asio.hpp>
 #include <iostream>
