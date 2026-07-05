@@ -12,8 +12,7 @@
  */
 #pragma once
 
-#include <prism/core/memory/container.hpp>
-#include <prism/net/connect/dial/router.hpp>
+#include <prism/foundation/memory/container.hpp>
 #include <prism/net/transport/transmission.hpp>
 #include <prism/stealth/scheme.hpp>
 #include <prism/stealth/facade/shadowtls/config.hpp>
@@ -25,6 +24,13 @@
 #include <memory>
 #include <vector>
 
+
+namespace psm::outbound
+{
+
+    class proxy;
+
+}
 
 namespace psm::stealth::shadowtls
 {
@@ -65,9 +71,12 @@ namespace psm::stealth::shadowtls
     {
         transport::shared_transmission inbound;
         const config &cfg;
-        connect::router *router{nullptr};
+        outbound::proxy *outbound{nullptr};
         memory::vector<std::byte> client_hello;
         handshake_detail &detail;
+        std::shared_ptr<trace::trace_context> prefix;
+        // 便捷访问：trace 等价于 prefix（P9 显式传参过渡）
+        std::shared_ptr<trace::trace_context> trace;
     };
 
     /**

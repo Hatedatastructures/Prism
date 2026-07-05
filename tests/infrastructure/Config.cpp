@@ -22,7 +22,7 @@
 #include <prism/proto/protocol/shadowsocks/config.hpp>
 #include <prism/stealth/facade/shadowtls/config.hpp>
 #include <prism/stealth/facade/reality/config.hpp>
-#include <prism/core/core.hpp>
+#include <prism/foundation/foundation.hpp>
 #include <prism/trace/spdlog.hpp>
 
 #include <gtest/gtest.h>

@@ -10,7 +10,7 @@
  *          start() 相关路径在已有的 MuxParcel.cpp 集成测试中间接覆盖。
  */
 
-#include <prism/core/core.hpp>
+#include <prism/foundation/foundation.hpp>
 #include <prism/trace/spdlog.hpp>
 
 #include "common/MockTransport.hpp"
@@ -89,7 +89,7 @@ namespace
             psm::resolve::dns::config dns_cfg;
             psm::connect::router_options ropts{*pool, *ioc, dns_cfg};
             router_ptr = std::make_unique<psm::connect::router>(std::move(ropts));
-            multiplex::core_options opts{mux_transport, *router_ptr, g_cfg, nullptr};
+            multiplex::core_options opts{mux_transport, nullptr, g_cfg, nullptr};
             core_obj = std::make_shared<TestCore>(std::move(opts));
 
             multiplex::parcel_config pcfg;
@@ -97,7 +97,7 @@ namespace
             pcfg.max_dgram = max_dgram;
             pcfg.mode = mode;
             pcfg.mr = psm::memory::current_resource();
-            parcel_obj = multiplex::make_parcel(pcfg, core_obj, *router_ptr);
+            parcel_obj = multiplex::make_parcel(pcfg, core_obj, nullptr);
         }
 
         ~ParcelFixture()
@@ -129,13 +129,13 @@ namespace
         auto router = std::make_unique<psm::connect::router>(std::move(ropts));
         static multiplex::config cfg;
         psm::memory::unsynchronized_pool mr;
-        multiplex::core_options opts{mux_t, *router, cfg, &mr};
+        multiplex::core_options opts{mux_t, nullptr, cfg, &mr};
         auto c = std::make_shared<TestCore>(std::move(opts));
 
         multiplex::parcel_config pcfg;
         pcfg.stream_id = 1;
         pcfg.mr = &mr;
-        auto p = multiplex::make_parcel(pcfg, c, *router);
+        auto p = multiplex::make_parcel(pcfg, c, nullptr);
         EXPECT_TRUE(p->stream_id() == 1) << "constructor: with mr -> stream_id = 1";
         p->close();
     }

@@ -5,7 +5,7 @@
  *          通过 #include 源文件覆盖编译行，本地实现等价逻辑验证算法正确性。
  */
 
-#include <prism/core/core.hpp>
+#include <prism/foundation/foundation.hpp>
 #include <prism/trace/spdlog.hpp>
 
 

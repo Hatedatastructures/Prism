@@ -33,7 +33,6 @@ namespace psm::stealth::reality
         auto [ec1, derived_secret] = crypto::expand_label({early_secret, "derived", empty_hash, crypto::sha256_len});
         if (fault::failed(ec1))
         {
-            trace::error("failed to derive 'derived' secret");
             return {fault::code::kdferr, keys};
         }
 
@@ -45,7 +44,6 @@ namespace psm::stealth::reality
             {handshake_secret, "c hs traffic", hello_hash, crypto::sha256_len});
         if (fault::failed(ec2))
         {
-            trace::error("failed to derive 'c hs traffic'");
             return {fault::code::kdferr, keys};
         }
 
@@ -53,33 +51,28 @@ namespace psm::stealth::reality
             {handshake_secret, "s hs traffic", hello_hash, crypto::sha256_len});
         if (fault::failed(ec3))
         {
-            trace::error("failed to derive 's hs traffic'");
             return {fault::code::kdferr, keys};
         }
 
         auto [ec4, s_hs_key] = crypto::expand_label({s_hs_traffic, "key", {}, tls::AES_128_KEY_LEN});
         if (fault::failed(ec4))
         {
-            trace::error("failed to derive server handshake key");
             return {fault::code::kdferr, keys};
         }
         auto [ec5, s_hs_iv] = crypto::expand_label({s_hs_traffic, "iv", {}, tls::AEAD_NONCE_LEN});
         if (fault::failed(ec5))
         {
-            trace::error("failed to derive server handshake iv");
             return {fault::code::kdferr, keys};
         }
 
         auto [ec6, c_hs_key] = crypto::expand_label({c_hs_traffic, "key", {}, tls::AES_128_KEY_LEN});
         if (fault::failed(ec6))
         {
-            trace::error("failed to derive client handshake key");
             return {fault::code::kdferr, keys};
         }
         auto [ec7, c_hs_iv] = crypto::expand_label({c_hs_traffic, "iv", {}, tls::AEAD_NONCE_LEN});
         if (fault::failed(ec7))
         {
-            trace::error("failed to derive client handshake iv");
             return {fault::code::kdferr, keys};
         }
 
@@ -87,7 +80,6 @@ namespace psm::stealth::reality
             {handshake_secret, "derived", empty_hash, crypto::sha256_len});
         if (fault::failed(ec8))
         {
-            trace::error("failed to derive master 'derived' secret");
             return {fault::code::kdferr, keys};
         }
         keys.master_secret = crypto::hkdf_extract(derived_master, zero_ikm);
@@ -102,7 +94,6 @@ namespace psm::stealth::reality
             {s_hs_traffic, "finished", {}, crypto::sha256_len});
         if (fault::failed(ec9))
         {
-            trace::error("failed to derive server finished key");
             return {fault::code::kdferr, keys};
         }
         std::memcpy(keys.server_finkey.data(), finished_key.data(), crypto::sha256_len);
@@ -118,7 +109,6 @@ namespace psm::stealth::reality
             {master_secret, "s ap traffic", server_finhash, crypto::sha256_len});
         if (fault::failed(ec1))
         {
-            trace::error("failed to derive 's ap traffic'");
             return fault::code::kdferr;
         }
 
@@ -126,33 +116,28 @@ namespace psm::stealth::reality
             {master_secret, "c ap traffic", server_finhash, crypto::sha256_len});
         if (fault::failed(ec2))
         {
-            trace::error("failed to derive 'c ap traffic'");
             return fault::code::kdferr;
         }
 
         auto [ec3, s_app_key] = crypto::expand_label({s_ap_traffic, "key", {}, tls::AES_128_KEY_LEN});
         if (fault::failed(ec3))
         {
-            trace::error("failed to derive server app key");
             return fault::code::kdferr;
         }
         auto [ec4, s_app_iv] = crypto::expand_label({s_ap_traffic, "iv", {}, tls::AEAD_NONCE_LEN});
         if (fault::failed(ec4))
         {
-            trace::error("failed to derive server app iv");
             return fault::code::kdferr;
         }
 
         auto [ec5, c_app_key] = crypto::expand_label({c_ap_traffic, "key", {}, tls::AES_128_KEY_LEN});
         if (fault::failed(ec5))
         {
-            trace::error("failed to derive client app key");
             return fault::code::kdferr;
         }
         auto [ec6, c_app_iv] = crypto::expand_label({c_ap_traffic, "iv", {}, tls::AEAD_NONCE_LEN});
         if (fault::failed(ec6))
         {
-            trace::error("failed to derive client app iv");
             return fault::code::kdferr;
         }
 

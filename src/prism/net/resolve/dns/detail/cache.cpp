@@ -1,6 +1,6 @@
 #include <prism/net/resolve/dns/detail/cache.hpp>
 
-#include <prism/core/memory/container.hpp>
+#include <prism/foundation/memory/container.hpp>
 #include <prism/trace/trace.hpp>
 
 #include <algorithm>
@@ -89,14 +89,12 @@ namespace psm::resolve::dns::detail
             }
 
             // 负缓存命中：返回空 vector
-            trace::debug("negative cache hit: {}", domain);
             return memory::vector<net::ip::address>(mr_);
         }
 
         // 已过期 + serve_stale：返回旧数据（调用方应触发后台刷新）
         if (serve_stale_)
         {
-            trace::debug("stale cache hit, refresh needed: {}", domain);
             // LRU 更新
             lru_order_.splice(lru_order_.begin(), lru_order_, lru_it);
 
@@ -108,7 +106,6 @@ namespace psm::resolve::dns::detail
         }
 
         // 已过期 + !serve_stale：删除条目并返回未命中
-        trace::debug("expired entry removed: {}", domain);
         lru_order_.erase(lru_it); // 同步删除 LRU 链表节点
         entries_.erase(it);
         return std::nullopt;
@@ -160,7 +157,6 @@ namespace psm::resolve::dns::detail
         while (entries_.size() > max_entries_)
         {
             const auto &oldest_key = lru_order_.back();
-            trace::debug("LRU eviction: {} entries, limit {}", entries_.size(), max_entries_);
             entries_.erase(oldest_key); // O(1) 哈希查找
             lru_order_.pop_back();      // O(1) 删除尾部
         }
@@ -205,7 +201,6 @@ namespace psm::resolve::dns::detail
         // 插入缓存表
         entries_.emplace(pmr_key, std::make_pair(std::move(entry), lru_it));
 
-        trace::debug("negative cache inserted: {} for {}s", domain, negative_ttl.count());
     }
 
     void cache::evict_expired()
@@ -231,7 +226,6 @@ namespace psm::resolve::dns::detail
 
         if (evicted > 0)
         {
-            trace::info("evicted {} expired entries, remaining {}", evicted, entries_.size());
         }
     }
 

@@ -6,8 +6,8 @@
  */
 #pragma once
 
-#include <prism/core/fault/code.hpp>
-#include <prism/core/memory/container.hpp>
+#include <prism/foundation/fault/code.hpp>
+#include <prism/foundation/memory/container.hpp>
 #include <prism/proto/protocol/tls/types.hpp>
 
 #include <span>

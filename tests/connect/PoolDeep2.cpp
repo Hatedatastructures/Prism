@@ -6,7 +6,7 @@
  *          pooled_connection RAII 完整路径、stats 累加器。
  */
 
-#include <prism/core/core.hpp>
+#include <prism/foundation/foundation.hpp>
 #include <prism/trace/spdlog.hpp>
 
 

@@ -3,7 +3,7 @@
  * @brief 协议检测纯函数测试 — detect/is_http_request/detect_tls
  */
 
-#include <prism/core/core.hpp>
+#include <prism/foundation/foundation.hpp>
 #include <prism/proto/protocol/types.hpp>
 #include <prism/stealth/recognition/probe/analyzer.hpp>
 #include <prism/trace/spdlog.hpp>

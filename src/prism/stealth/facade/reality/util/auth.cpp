@@ -63,13 +63,11 @@ namespace psm::stealth::reality
         if (!client_hello.server_name.empty() &&
             !match_sni(client_hello.server_name, cfg.server_names))
         {
-            trace::debug<flt::conn | flt::protocol>("SNI mismatch: {}", client_hello.server_name);
             return fault::code::badsni;
         }
 
         if (!client_hello.has_x25519)
         {
-            trace::debug<flt::conn | flt::protocol>("no X25519 public key in key_share");
             return fault::code::unauth;
         }
 
@@ -84,13 +82,11 @@ namespace psm::stealth::reality
         }
         if (!supports_tls13)
         {
-            trace::debug<flt::conn | flt::protocol>("client does not support TLS 1.3");
             return fault::code::unauth;
         }
 
         if (client_hello.session_id.size() < tls::SESSION_ID_MAX_LEN)
         {
-            trace::debug<flt::conn | flt::protocol>("session_id too short: {}", client_hello.session_id.size());
             return fault::code::unauth;
         }
 
@@ -112,7 +108,6 @@ namespace psm::stealth::reality
         auto [ec, shared_secret] = crypto::x25519(decoded_privkey, client_hello.x25519_key);
         if (fault::failed(ec))
         {
-            trace::warn<flt::conn | flt::protocol>("X25519 key exchange failed");
             return {fault::code::kexfail, result};
         }
 
@@ -127,7 +122,6 @@ namespace psm::stealth::reality
         }
         if (all_zero)
         {
-            trace::warn<flt::conn | flt::protocol>("shared secret is all zeros (low-order point)");
             return {fault::code::kexfail, result};
         }
 
@@ -147,7 +141,6 @@ namespace psm::stealth::reality
 
         if (fault::failed(expand_ec))
         {
-            trace::warn<flt::conn | flt::protocol>("HKDF-Expand failed");
             return {fault::code::unauth, result};
         }
 
@@ -178,20 +171,17 @@ namespace psm::stealth::reality
 
         if (fault::failed(decrypt_ec))
         {
-            trace::debug<flt::conn | flt::protocol>("session_id decryption failed");
             return {fault::code::unauth, result};
         }
 
         if (decrypted_sid[0] != 0x01)
         {
-            trace::debug<flt::conn | flt::protocol>("invalid version marker: 0x{:02x}", decrypted_sid[0]);
             return {fault::code::unauth, result};
         }
 
         const std::span<const std::uint8_t> cli_sid(decrypted_sid.data() + 8, 8);
         if (!match_shortid(cli_sid, cfg.short_ids))
         {
-            trace::debug<flt::conn | flt::protocol>("short_id mismatch");
             return {fault::code::unauth, result};
         }
 
@@ -200,7 +190,6 @@ namespace psm::stealth::reality
         std::copy(auth_key_vec.begin(), auth_key_vec.end(), result.auth_key.begin());
         result.authenticated = true;
 
-        trace::debug<flt::conn | flt::protocol>("authentication successful");
         return {fault::code::success, result};
     }
 

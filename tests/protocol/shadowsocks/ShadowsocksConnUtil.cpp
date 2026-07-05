@@ -6,14 +6,14 @@
  *          通过 #include 源文件确保 gcov 计入覆盖行。
  */
 
-#include <prism/core/core.hpp>
+#include <prism/foundation/foundation.hpp>
 #include <prism/trace/spdlog.hpp>
 
 // 在 #define private public 之前预包含所有传递依赖，防止类布局破坏
 #include <prism/crypto/aead.hpp>
 #include <prism/crypto/blake3.hpp>
 #include <prism/crypto/base64.hpp>
-#include <prism/core/core.hpp>
+#include <prism/foundation/foundation.hpp>
 #include <prism/proto/protocol/common/address.hpp>
 #include <prism/proto/protocol/common/target.hpp>
 #include <prism/proto/protocol/shadowsocks/config.hpp>

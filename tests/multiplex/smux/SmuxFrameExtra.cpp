@@ -5,7 +5,7 @@
  *          parse_address IPv6/domain 覆盖。
  */
 
-#include <prism/core/core.hpp>
+#include <prism/foundation/foundation.hpp>
 #include <prism/proto/multiplex/smux/frame.hpp>
 #include <prism/trace/spdlog.hpp>
 

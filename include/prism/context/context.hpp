@@ -8,6 +8,8 @@
 #pragma once
 
 #include <prism/account/entry.hpp>
+#include <prism/context/metadata.hpp>
+#include <prism/worker/resources.hpp>
 #include <prism/proto/protocol/types.hpp>
 #include <prism/net/transport/transmission.hpp>
 
@@ -56,6 +58,12 @@ namespace psm::stats::traffic
 {
 
     class traffic_state;
+}
+
+namespace psm::coroutine
+{
+
+    class task_registry;
 }
 
 namespace psm::memory
@@ -111,21 +119,21 @@ namespace psm::context
     // worker — 工作线程资源（每线程一个）
 
     /**
-     * @struct worker
-     * @brief 工作线程上下文
-     * @details 封装单个工作线程的独立资源，包括
-     * io_context 引用、路由器、内存池和出站代理。
-     * 每个工作线程拥有独立的 worker 实例，
-     * 实现线程间的资源隔离和避免锁竞争。
+     * @struct worker_ref
+     * @brief 工作线程上下文（借用视图）
+     * @details 封装单个工作线程对 psm::worker::resources 的借用关系。resources
+     * 是 weak_ptr，借用方使用前需 lock() 检查是否仍有效，nullptr 表示
+     * resources 已析构（worker 死亡），调用方应安全退出。
+     * io_context 引用仍保留，因为 session/handler 在 lock 检查前就需要
+     * 访问 executor 创建 socket 等资源。memory_pool 保留以兼容 PMR 容器。
+     * @note 改名为 worker_ref（原 worker），与 psm::worker::resources（资源伞）
+     *       区分：本 struct 是借用视图，resources 是拥有者。
      */
-    struct worker
+    struct worker_ref
     {
-        net::io_context &io_context;           // I/O 上下文引用
-        connect::router &router;               // 路由器引用
-        memory::resource_pointer memory_pool;  // 内存池资源指针
-        outbound::proxy *outbound{nullptr};    // 出站代理指针（由 worker 拥有）
-        stats::traffic::traffic_state *traffic{nullptr}; // 流量统计状态指针
-        stealth::probe_tracker *tracker{nullptr}; // 探测行为追踪器（per-worker）
+        net::io_context &io_context;            // I/O 上下文引用（psm::worker::resources 拥有）
+        psm::worker::borrow resources;          // psm::worker::resources 弱引用，调用方需 lock() 检查
+        memory::resource_pointer memory_pool;   // 内存池资源指针
     };
 
     // session — 会话状态（每连接一个）
@@ -140,13 +148,15 @@ namespace psm::context
     {
         std::uint64_t conn_id = 0;                                    ///< 连接唯一标识符
         server &server_ctx;                                            ///< 服务器上下文引用
-        worker &worker_ctx;                                            ///< 工作线程上下文引用
+        worker_ref &worker_ctx;                                            ///< 工作线程上下文引用
         memory::frame_arena &arena;                                    ///< 帧内存池引用
-        std::function<bool(std::string_view)> verifier;                ///< 凭据验证函数
         std::uint32_t buffer_size = 0;                                 ///< 数据传输缓冲区大小（字节）
         shared_transmission inbound;                                   ///< 入站传输对象
         std::array<std::byte, 16> src_ip_raw{};                        ///< 来源 IP 哈希（stealth 层用）
     };
+
+    // 前向声明（request_metadata 完整定义在 metadata.hpp）
+    // 已通过 #include <prism/context/metadata.hpp> 提供，此处保留注释作为索引
 
     /**
      * @struct session
@@ -166,30 +176,27 @@ namespace psm::context
 
         explicit session(session_opts opts)
             : conn_id(opts.conn_id), server_ctx(opts.server_ctx), worker_ctx(opts.worker_ctx),
-              frame_arena(opts.arena), credential_verifier(std::move(opts.verifier)),
+              frame_arena(opts.arena),
               buffer_size(opts.buffer_size), inbound(std::move(opts.inbound)),
               src_ip_raw(opts.src_ip_raw) {}
 
+        explicit session(session_opts opts, std::shared_ptr<request_metadata> meta)
+            : session(std::move(opts))
+        {
+            this->meta = std::move(meta);
+        }
+
         std::uint64_t conn_id{0};                                        // 连接唯一标识符
         server &server_ctx;                                             // 服务器上下文引用
-        worker &worker_ctx;                                             // 工作线程上下文引用
+        worker_ref &worker_ctx;                                             // 工作线程上下文引用
         memory::frame_arena &frame_arena;                               // 帧内存池引用
-        std::function<bool(std::string_view)> credential_verifier;      // 凭据验证函数
-        account::directory *account_directory{nullptr};                 // 账户注册表指针
         std::uint32_t buffer_size;                                      // 数据传输缓冲区大小（字节）
         shared_transmission inbound;                                    // 入站传输对象
         shared_transmission outbound;                                   // 出站传输对象
-        outbound::proxy *outbound_proxy{nullptr};                       // 出站代理指针
         protocol::protocol_type detected_protocol{protocol::protocol_type::unknown}; // 识别出的协议类型
         account::lease account_lease;                                   // 账户连接租约
-        // stream_cancel/stream_close 已废弃：原先由 native.cpp 设置，
-        // 在 session::close()/release_resources() 中绕过 encrypted 层直接操作 socket，
-        // 导致同一 socket 被 close/cancel 两次（UB → 崩溃）。现在 session 直接通过
-        // transport 的 cancel()/close() 操作，无需额外回调。
-        // 保留字段以便 mux handler 清空（向后兼容），但 session 不再读取它们。
-        std::function<void()> stream_cancel;                          // [已废弃] 活跃流取消回调
         std::array<std::byte, 16> src_ip_raw{};                        // 来源 IP 哈希（stealth 层用）
-        std::function<void()> stream_close;                           // [已废弃] 活跃流关闭回调
+        std::shared_ptr<request_metadata> meta;                         ///< 业务数据载体（L2 各层 fill/读）
     };
 
 } // namespace psm::context

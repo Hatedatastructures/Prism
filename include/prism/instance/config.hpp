@@ -8,7 +8,7 @@
  */
 #pragma once
 
-#include <prism/core/memory/container.hpp>
+#include <prism/foundation/memory/container.hpp>
 #include <prism/proto/protocol/shadowsocks/config.hpp>
 #include <prism/proto/protocol/socks5/config.hpp>
 #include <prism/proto/protocol/trojan/config.hpp>

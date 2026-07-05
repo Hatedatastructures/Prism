@@ -1,5 +1,5 @@
 #include <prism/proto/protocol/vless/conn.hpp>
-#include <prism/core/fault/handling.hpp>
+#include <prism/foundation/fault/handling.hpp>
 #include <prism/proto/protocol/common/read.hpp>
 #include <prism/proto/protocol/common/udprelay.hpp>
 #include <prism/proto/protocol/vless/framing.hpp>

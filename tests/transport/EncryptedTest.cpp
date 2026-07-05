@@ -6,8 +6,8 @@
 
 #include <gtest/gtest.h>
 
-#include <prism/core/fault/handling.hpp>
-#include <prism/core/core.hpp>
+#include <prism/foundation/fault/handling.hpp>
+#include <prism/foundation/foundation.hpp>
 #include <prism/net/transport/adapter/connector.hpp>
 #include <prism/net/transport/encrypted.hpp>
 #include <prism/net/transport/reliable.hpp>

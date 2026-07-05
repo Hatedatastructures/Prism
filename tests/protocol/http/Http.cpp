@@ -13,7 +13,7 @@
 #include <prism/account/directory.hpp>
 #include <prism/crypto/sha224.hpp>
 #include <prism/net/transport/reliable.hpp>
-#include <prism/core/core.hpp>
+#include <prism/foundation/foundation.hpp>
 #include <prism/trace/spdlog.hpp>
 #include <boost/asio.hpp>
 #include <string>

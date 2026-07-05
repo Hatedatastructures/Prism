@@ -7,7 +7,7 @@
  * 3. probe_result 探测结果辅助方法的正确性
  */
 
-#include <prism/core/core.hpp>
+#include <prism/foundation/foundation.hpp>
 #include <prism/net/connect/util.hpp>
 #include <prism/net/transport/preview.hpp>
 #include <prism/stealth/recognition/probe/probe.hpp>

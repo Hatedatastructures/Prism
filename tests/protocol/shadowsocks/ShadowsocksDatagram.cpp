@@ -7,14 +7,14 @@
  *          decrypt_inbound 期望 request_type (0x00) 包体。
  */
 
-#include <prism/core/core.hpp>
+#include <prism/foundation/foundation.hpp>
 #include <prism/proto/protocol/shadowsocks/util/datagram.hpp>
 #include <prism/proto/protocol/shadowsocks/util/tracker.hpp>
 #include <prism/proto/protocol/shadowsocks/constants.hpp>
 #include <prism/proto/protocol/shadowsocks/framing.hpp>
 #include <prism/crypto/block.hpp>
 #include <prism/trace/spdlog.hpp>
-#include <prism/core/core.hpp>
+#include <prism/foundation/foundation.hpp>
 
 #include <array>
 #include <cstdint>

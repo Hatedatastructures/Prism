@@ -5,7 +5,7 @@
  *          以及 build_header 的字节序正确性。
  */
 
-#include <prism/core/core.hpp>
+#include <prism/foundation/foundation.hpp>
 #include <prism/trace/spdlog.hpp>
 #include <prism/proto/multiplex/smux/craft.hpp>
 #include <prism/proto/multiplex/smux/frame.hpp>

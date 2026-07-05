@@ -12,7 +12,7 @@
 #include <prism/net/resolve/dns/detail/rules.hpp>
 #include <prism/net/resolve/dns/detail/utility.hpp>
 #include <prism/net/resolve/dns/detail/transparent.hpp>
-#include <prism/core/core.hpp>
+#include <prism/foundation/foundation.hpp>
 #include <prism/trace/spdlog.hpp>
 
 

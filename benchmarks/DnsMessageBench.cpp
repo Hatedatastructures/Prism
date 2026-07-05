@@ -5,7 +5,7 @@
  */
 
 #include <benchmark/benchmark.h>
-#include <prism/core/core.hpp>
+#include <prism/foundation/foundation.hpp>
 #include <prism/net/resolve/dns/detail/format.hpp>
 #include <prism/net/resolve/dns/detail/cache.hpp>
 

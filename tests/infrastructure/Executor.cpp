@@ -11,9 +11,9 @@
 #include <prism/stealth/scheme.hpp>
 #include <prism/stealth/recognition/result.hpp>
 #include <prism/proto/protocol/types.hpp>
-#include <prism/core/fault/code.hpp>
-#include <prism/core/fault/handling.hpp>
-#include <prism/core/core.hpp>
+#include <prism/foundation/fault/code.hpp>
+#include <prism/foundation/fault/handling.hpp>
+#include <prism/foundation/foundation.hpp>
 #include <prism/trace/trace.hpp>
 #include <prism/config/config.hpp>
 #include <prism/net/transport/transmission.hpp>
@@ -116,8 +116,8 @@ namespace
             result.detected = detected_;
             // 使用 mock transport 满足 executor 的成功条件检查
             // executor 要求 transport != nullptr 才认为执行成功
-            if (ctx.inbound)
-                result.transport = ctx.inbound;
+            if (ctx.transport)
+                result.transport = ctx.transport;
             else
                 result.transport = std::make_shared<mock_transport>(net::system_executor());
             result.scheme = psm::memory::string(name_);
@@ -166,9 +166,9 @@ TEST(Executor, EmptyCandidates)
     // candidates 为空
 
     psm::stealth::handshake_context ctx{
-        .inbound = nullptr,
+        .transport = nullptr,
         .cfg = nullptr,
-        .router = nullptr,
+        .outbound = nullptr,
         .session = nullptr};
 
     net::io_context ioc;
@@ -213,9 +213,9 @@ TEST(Executor, FindByOrder)
     analysis.candidates.emplace_back("mock_b");
 
     psm::stealth::handshake_context ctx{
-        .inbound = nullptr,
+        .transport = nullptr,
         .cfg = nullptr,
-        .router = nullptr,
+        .outbound = nullptr,
         .session = nullptr};
 
     net::io_context ioc;
@@ -306,9 +306,9 @@ TEST(Executor, NotFound)
     analysis.candidates.emplace_back("mock_b");
 
     psm::stealth::handshake_context ctx{
-        .inbound = nullptr,
+        .transport = nullptr,
         .cfg = nullptr,
-        .router = nullptr,
+        .outbound = nullptr,
         .session = nullptr};
 
     net::io_context ioc;
@@ -352,9 +352,9 @@ TEST(Executor, Passthrough)
     analysis.candidates.emplace_back("mock_b");
 
     psm::stealth::handshake_context ctx{
-        .inbound = nullptr,
+        .transport = nullptr,
         .cfg = nullptr,
-        .router = nullptr,
+        .outbound = nullptr,
         .session = nullptr};
 
     net::io_context ioc;

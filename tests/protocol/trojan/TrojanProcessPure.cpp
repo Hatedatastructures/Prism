@@ -7,8 +7,8 @@
  *          此测试覆盖其依赖的类型定义和配置对象。
  */
 
-#include <prism/core/core.hpp>
-#include <prism/proto/protocol/trojan/process.hpp>
+#include <prism/foundation/foundation.hpp>
+#include <prism/proto/protocol/trojan/handler.hpp>
 #include <prism/proto/protocol/trojan/config.hpp>
 #include <prism/proto/protocol/trojan/packet.hpp>
 #include <prism/proto/protocol/trojan/constants.hpp>

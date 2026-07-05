@@ -7,7 +7,7 @@
  *          所有函数均为纯同步，无 I/O、无协程。
  */
 
-#include <prism/core/core.hpp>
+#include <prism/foundation/foundation.hpp>
 #include <prism/trace/spdlog.hpp>
 #include <prism/proto/multiplex/smux/frame.hpp>
 

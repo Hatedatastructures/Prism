@@ -7,9 +7,9 @@
  *          不 #include 源文件（含大量协程模板，会导致对象文件过大链接失败）。
  */
 
-#include <prism/core/core.hpp>
+#include <prism/foundation/foundation.hpp>
 #include <prism/trace/spdlog.hpp>
-#include <prism/core/core.hpp>
+#include <prism/foundation/foundation.hpp>
 
 
 #include <gtest/gtest.h>

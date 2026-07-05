@@ -11,8 +11,9 @@
 
 #include <prism/net/connect/pool/config.hpp>
 #include <prism/net/connect/pool/health.hpp>
-#include <prism/core/fault/code.hpp>
-#include <prism/core/memory/container.hpp>
+#include <prism/foundation/fault/code.hpp>
+#include <prism/foundation/memory/container.hpp>
+#include <prism/trace/context.hpp>
 
 #include <boost/asio.hpp>
 
@@ -275,7 +276,7 @@ namespace psm::connect
          * @warning 连接包装器必须在 socket 不再需要前析构或显式 reset/release，
          * 否则连接不会被归还到池中。
          */
-        [[nodiscard]] auto async_acquire(tcp::endpoint endpoint)
+        [[nodiscard]] auto async_acquire(tcp::endpoint endpoint, std::shared_ptr<trace::trace_context> trace = nullptr)
             -> net::awaitable<std::pair<fault::code, pooled_connection>>;
 
         /**

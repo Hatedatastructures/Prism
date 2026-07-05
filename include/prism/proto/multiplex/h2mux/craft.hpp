@@ -10,7 +10,7 @@
  */
 #pragma once
 
-#include <prism/core/memory/container.hpp>
+#include <prism/foundation/memory/container.hpp>
 #include <prism/proto/multiplex/config.hpp>
 #include <prism/proto/multiplex/core.hpp>
 #include <prism/proto/multiplex/h2mux/config.hpp>
@@ -23,6 +23,13 @@
 #include <functional>
 #include <memory>
 
+
+namespace psm::outbound
+{
+
+    class proxy;
+
+}
 
 namespace psm::multiplex::h2mux
 {
@@ -121,14 +128,14 @@ namespace psm::multiplex::h2mux
     /**
      * @struct craft_init
      * @brief h2mux::craft 构造参数聚合
-     * @details 将 craft 构造函数中的 router、config、resolver 参数收敛到单结构体，
+     * @details 将 craft 构造函数中的出站代理、config、resolver 参数收敛到单结构体，
      * 将构造函数参数从 5 个降至 3 个（transport + init + mr）。
      */
     struct craft_init
     {
-        connect::router &router;          // 路由器引用，用于解析地址并连接目标
-        const multiplex::config &cfg;     // 多路复用配置参数（含 h2mux 子配置）
-        address_resolver resolver;        // 地址解析回调，决定如何从 CONNECT 请求提取目标地址
+        outbound::proxy *outbound{nullptr};  // 出站代理接口（非拥有，worker 生命周期）
+        const multiplex::config &cfg;        // 多路复用配置参数（含 h2mux 子配置）
+        address_resolver resolver;           // 地址解析回调，决定如何从 CONNECT 请求提取目标地址
     };
 
     /**

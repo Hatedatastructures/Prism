@@ -9,7 +9,7 @@
 
 #pragma once
 
-#include <prism/core/memory/container.hpp>
+#include <prism/foundation/memory/container.hpp>
 #include <prism/proto/protocol/tls/types.hpp>
 #include <prism/stealth/recognition/tls/features.hpp>
 #include <prism/stealth/scheme.hpp>

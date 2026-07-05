@@ -11,9 +11,9 @@
 #include <prism/proto/protocol/vless/constants.hpp>
 #include <prism/proto/protocol/vless/conn.hpp>
 #include <prism/net/transport/reliable.hpp>
-#include <prism/core/core.hpp>
+#include <prism/foundation/foundation.hpp>
 #include <prism/trace/spdlog.hpp>
-#include <prism/core/core.hpp>
+#include <prism/foundation/foundation.hpp>
 #include <boost/asio.hpp>
 #include <array>
 #include <cstdint>

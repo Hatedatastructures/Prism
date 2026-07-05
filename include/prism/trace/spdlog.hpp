@@ -96,22 +96,34 @@ namespace psm::trace
     {
 
         /**
-         * @brief 日志输出内部实现
-         * @tparam Fields 编译期字段链（NTTP）
-         * @param lvl spdlog 日志等级
-         * @param fmt 格式化字符串
-         * @param args 格式化参数
-         * @details 渲染前缀到栈上 scratch_pad，通过 std::string_view
-         * 传递给 spdlog，零堆分配。前缀为空时跳过拼接。
+         * @brief 日志输出内部实现（无 prefix）
+         * @details 不渲染前缀，直接输出消息。
          */
         template <auto Fields>
-        auto log_impl(spdlog::level::level_enum lvl,
+        auto log_impl_no_prefix(spdlog::level::level_enum lvl,
                       std::string_view fmt, auto &&...args) -> void
         {
             if (const auto rec = recorder())
             {
+                rec->log(lvl, spdlog::fmt_lib::runtime(fmt),
+                         std::forward<decltype(args)>(args)...);
+            }
+        }
+
+        /**
+         * @brief 日志输出内部实现（显式 prefix 版本）
+         * @details 与 log_impl 不同，此版本从参数取 prefix，
+         * 不依赖 thread_local（已删除）。
+         */
+        template <auto Fields>
+        auto log_impl_with_prefix(const trace_context &pfx,
+                                  spdlog::level::level_enum lvl,
+                                  std::string_view fmt, auto &&...args) -> void
+        {
+            if (const auto rec = recorder())
+            {
                 scratch_pad buf;
-                render_prefix<decltype(Fields)>(buf);
+                render_prefix_from<decltype(Fields)>(buf, pfx);
                 if (buf.empty())
                 {
                     rec->log(lvl, spdlog::fmt_lib::runtime(fmt),
@@ -129,6 +141,83 @@ namespace psm::trace
 
     } // namespace detail
 
+    // ─── shared_ptr prefix 版本（nullptr 安全，no-prefix fallback）──
+
+    /**
+     * @brief debug（shared_ptr prefix，nullptr 时 fallback）
+     */
+    template <typename... Args>
+    auto debug(const std::shared_ptr<trace_context>& pfx, std::string_view fmt, Args &&...args) -> void
+    {
+        if (pfx && pfx->alive())
+            detail::log_impl_with_prefix<level_default::debug>(*pfx, spdlog::level::debug, fmt, std::forward<Args>(args)...);
+        else
+            detail::log_impl_no_prefix<level_default::debug>(spdlog::level::debug, fmt, std::forward<Args>(args)...);
+    }
+
+    template <flt::field_or_chain auto Fields, typename... Args>
+    auto debug(const std::shared_ptr<trace_context>& pfx, std::string_view fmt, Args &&...args) -> void
+    {
+        if (pfx && pfx->alive())
+            detail::log_impl_with_prefix<flt::normalize(Fields)>(*pfx, spdlog::level::debug, fmt, std::forward<Args>(args)...);
+        else
+            detail::log_impl_no_prefix<flt::normalize(Fields)>(spdlog::level::debug, fmt, std::forward<Args>(args)...);
+    }
+
+    template <typename... Args>
+    auto info(const std::shared_ptr<trace_context>& pfx, std::string_view fmt, Args &&...args) -> void
+    {
+        if (pfx && pfx->alive())
+            detail::log_impl_with_prefix<level_default::info>(*pfx, spdlog::level::info, fmt, std::forward<Args>(args)...);
+        else
+            detail::log_impl_no_prefix<level_default::info>(spdlog::level::info, fmt, std::forward<Args>(args)...);
+    }
+
+    template <flt::field_or_chain auto Fields, typename... Args>
+    auto info(const std::shared_ptr<trace_context>& pfx, std::string_view fmt, Args &&...args) -> void
+    {
+        if (pfx && pfx->alive())
+            detail::log_impl_with_prefix<flt::normalize(Fields)>(*pfx, spdlog::level::info, fmt, std::forward<Args>(args)...);
+        else
+            detail::log_impl_no_prefix<flt::normalize(Fields)>(spdlog::level::info, fmt, std::forward<Args>(args)...);
+    }
+
+    template <typename... Args>
+    auto warn(const std::shared_ptr<trace_context>& pfx, std::string_view fmt, Args &&...args) -> void
+    {
+        if (pfx && pfx->alive())
+            detail::log_impl_with_prefix<level_default::warn>(*pfx, spdlog::level::warn, fmt, std::forward<Args>(args)...);
+        else
+            detail::log_impl_no_prefix<level_default::warn>(spdlog::level::warn, fmt, std::forward<Args>(args)...);
+    }
+
+    template <flt::field_or_chain auto Fields, typename... Args>
+    auto warn(const std::shared_ptr<trace_context>& pfx, std::string_view fmt, Args &&...args) -> void
+    {
+        if (pfx && pfx->alive())
+            detail::log_impl_with_prefix<flt::normalize(Fields)>(*pfx, spdlog::level::warn, fmt, std::forward<Args>(args)...);
+        else
+            detail::log_impl_no_prefix<flt::normalize(Fields)>(spdlog::level::warn, fmt, std::forward<Args>(args)...);
+    }
+
+    template <typename... Args>
+    auto error(const std::shared_ptr<trace_context>& pfx, std::string_view fmt, Args &&...args) -> void
+    {
+        if (pfx && pfx->alive())
+            detail::log_impl_with_prefix<level_default::error>(*pfx, spdlog::level::err, fmt, std::forward<Args>(args)...);
+        else
+            detail::log_impl_no_prefix<level_default::error>(spdlog::level::err, fmt, std::forward<Args>(args)...);
+    }
+
+    template <flt::field_or_chain auto Fields, typename... Args>
+    auto error(const std::shared_ptr<trace_context>& pfx, std::string_view fmt, Args &&...args) -> void
+    {
+        if (pfx && pfx->alive())
+            detail::log_impl_with_prefix<flt::normalize(Fields)>(*pfx, spdlog::level::err, fmt, std::forward<Args>(args)...);
+        else
+            detail::log_impl_no_prefix<flt::normalize(Fields)>(spdlog::level::err, fmt, std::forward<Args>(args)...);
+    }
+
     // ─── debug ──────────────────────────────────
 
     /**
@@ -140,7 +229,7 @@ namespace psm::trace
     template <typename... Args>
     auto debug(std::string_view fmt, Args &&...args) -> void
     {
-        detail::log_impl<level_default::debug>(
+        detail::log_impl_no_prefix<level_default::debug>(
             spdlog::level::debug, fmt, std::forward<Args>(args)...);
     }
 
@@ -154,8 +243,29 @@ namespace psm::trace
     template <flt::field_or_chain auto Fields, typename... Args>
     auto debug(std::string_view fmt, Args &&...args) -> void
     {
-        detail::log_impl<flt::normalize(Fields)>(
+        detail::log_impl_no_prefix<flt::normalize(Fields)>(
             spdlog::level::debug, fmt, std::forward<Args>(args)...);
+    }
+
+    /**
+     * @brief 记录调试日志（显式 prefix，默认字段）
+     * @details 从参数取 prefix，不依赖 thread_local（已删除）
+     */
+    template <typename... Args>
+    auto debug(const trace_context &pfx, std::string_view fmt, Args &&...args) -> void
+    {
+        detail::log_impl_with_prefix<level_default::debug>(
+            pfx, spdlog::level::debug, fmt, std::forward<Args>(args)...);
+    }
+
+    /**
+     * @brief 记录调试日志（显式 prefix，自定义字段）
+     */
+    template <flt::field_or_chain auto Fields, typename... Args>
+    auto debug(const trace_context &pfx, std::string_view fmt, Args &&...args) -> void
+    {
+        detail::log_impl_with_prefix<flt::normalize(Fields)>(
+            pfx, spdlog::level::debug, fmt, std::forward<Args>(args)...);
     }
 
     // ─── info ───────────────────────────────────
@@ -166,7 +276,7 @@ namespace psm::trace
     template <typename... Args>
     auto info(std::string_view fmt, Args &&...args) -> void
     {
-        detail::log_impl<level_default::info>(
+        detail::log_impl_no_prefix<level_default::info>(
             spdlog::level::info, fmt, std::forward<Args>(args)...);
     }
 
@@ -176,8 +286,28 @@ namespace psm::trace
     template <flt::field_or_chain auto Fields, typename... Args>
     auto info(std::string_view fmt, Args &&...args) -> void
     {
-        detail::log_impl<flt::normalize(Fields)>(
+        detail::log_impl_no_prefix<flt::normalize(Fields)>(
             spdlog::level::info, fmt, std::forward<Args>(args)...);
+    }
+
+    /**
+     * @brief 记录信息日志（显式 prefix，默认字段）
+     */
+    template <typename... Args>
+    auto info(const trace_context &pfx, std::string_view fmt, Args &&...args) -> void
+    {
+        detail::log_impl_with_prefix<level_default::info>(
+            pfx, spdlog::level::info, fmt, std::forward<Args>(args)...);
+    }
+
+    /**
+     * @brief 记录信息日志（显式 prefix，自定义字段）
+     */
+    template <flt::field_or_chain auto Fields, typename... Args>
+    auto info(const trace_context &pfx, std::string_view fmt, Args &&...args) -> void
+    {
+        detail::log_impl_with_prefix<flt::normalize(Fields)>(
+            pfx, spdlog::level::info, fmt, std::forward<Args>(args)...);
     }
 
     // ─── warn ───────────────────────────────────
@@ -188,7 +318,7 @@ namespace psm::trace
     template <typename... Args>
     auto warn(std::string_view fmt, Args &&...args) -> void
     {
-        detail::log_impl<level_default::warn>(
+        detail::log_impl_no_prefix<level_default::warn>(
             spdlog::level::warn, fmt, std::forward<Args>(args)...);
     }
 
@@ -198,8 +328,28 @@ namespace psm::trace
     template <flt::field_or_chain auto Fields, typename... Args>
     auto warn(std::string_view fmt, Args &&...args) -> void
     {
-        detail::log_impl<flt::normalize(Fields)>(
+        detail::log_impl_no_prefix<flt::normalize(Fields)>(
             spdlog::level::warn, fmt, std::forward<Args>(args)...);
+    }
+
+    /**
+     * @brief 记录警告日志（显式 prefix，默认字段）
+     */
+    template <typename... Args>
+    auto warn(const trace_context &pfx, std::string_view fmt, Args &&...args) -> void
+    {
+        detail::log_impl_with_prefix<level_default::warn>(
+            pfx, spdlog::level::warn, fmt, std::forward<Args>(args)...);
+    }
+
+    /**
+     * @brief 记录警告日志（显式 prefix，自定义字段）
+     */
+    template <flt::field_or_chain auto Fields, typename... Args>
+    auto warn(const trace_context &pfx, std::string_view fmt, Args &&...args) -> void
+    {
+        detail::log_impl_with_prefix<flt::normalize(Fields)>(
+            pfx, spdlog::level::warn, fmt, std::forward<Args>(args)...);
     }
 
     // ─── error ──────────────────────────────────
@@ -210,7 +360,7 @@ namespace psm::trace
     template <typename... Args>
     auto error(std::string_view fmt, Args &&...args) -> void
     {
-        detail::log_impl<level_default::error>(
+        detail::log_impl_no_prefix<level_default::error>(
             spdlog::level::err, fmt, std::forward<Args>(args)...);
     }
 
@@ -220,8 +370,28 @@ namespace psm::trace
     template <flt::field_or_chain auto Fields, typename... Args>
     auto error(std::string_view fmt, Args &&...args) -> void
     {
-        detail::log_impl<flt::normalize(Fields)>(
+        detail::log_impl_no_prefix<flt::normalize(Fields)>(
             spdlog::level::err, fmt, std::forward<Args>(args)...);
+    }
+
+    /**
+     * @brief 记录错误日志（显式 prefix，默认字段）
+     */
+    template <typename... Args>
+    auto error(const trace_context &pfx, std::string_view fmt, Args &&...args) -> void
+    {
+        detail::log_impl_with_prefix<level_default::error>(
+            pfx, spdlog::level::err, fmt, std::forward<Args>(args)...);
+    }
+
+    /**
+     * @brief 记录错误日志（显式 prefix，自定义字段）
+     */
+    template <flt::field_or_chain auto Fields, typename... Args>
+    auto error(const trace_context &pfx, std::string_view fmt, Args &&...args) -> void
+    {
+        detail::log_impl_with_prefix<flt::normalize(Fields)>(
+            pfx, spdlog::level::err, fmt, std::forward<Args>(args)...);
     }
 
     // ─── fatal ──────────────────────────────────
@@ -234,7 +404,7 @@ namespace psm::trace
     template <typename... Args>
     auto fatal(std::string_view fmt, Args &&...args) -> void
     {
-        detail::log_impl<level_default::error>(
+        detail::log_impl_no_prefix<level_default::error>(
             spdlog::level::critical, fmt, std::forward<Args>(args)...);
     }
 
@@ -244,7 +414,7 @@ namespace psm::trace
     template <flt::field_or_chain auto Fields, typename... Args>
     auto fatal(std::string_view fmt, Args &&...args) -> void
     {
-        detail::log_impl<flt::normalize(Fields)>(
+        detail::log_impl_no_prefix<flt::normalize(Fields)>(
             spdlog::level::critical, fmt, std::forward<Args>(args)...);
     }
 

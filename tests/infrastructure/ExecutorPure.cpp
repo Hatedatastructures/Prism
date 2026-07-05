@@ -6,7 +6,7 @@
  *          find_scheme 测试通过 registry::find 间接验证。
  */
 
-#include <prism/core/core.hpp>
+#include <prism/foundation/foundation.hpp>
 #include <prism/trace/spdlog.hpp>
 #include <prism/stealth/stealth.hpp>
 #include <prism/config/config.hpp>

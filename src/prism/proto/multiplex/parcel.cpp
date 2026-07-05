@@ -1,6 +1,5 @@
 #include <prism/proto/multiplex/parcel.hpp>
-#include <prism/net/connect/dial/dial.hpp>
-#include <prism/net/connect/dial/router.hpp>
+#include <prism/instance/outbound/proxy.hpp>
 #include <prism/proto/multiplex/core.hpp>
 #include <prism/proto/multiplex/smux/frame.hpp>
 #include <prism/trace/trace.hpp>
@@ -18,8 +17,9 @@ namespace psm::multiplex
 {
 
     parcel::parcel(const parcel_config& config, const std::shared_ptr<core>& owner,
-                   connect::router &router)
-        : id_(config.stream_id), owner_(owner), router_(router),
+                   outbound::proxy *outbound)
+        : id_(config.stream_id), owner_(owner), outbound_(outbound),
+          router_fn_(outbound ? outbound->make_router() : parcel_router_fn{}),
           executor_(owner->executor()),
           idle_timeout_(config.idle_timeout), max_dgram_(config.max_dgram),
           mr_(config.mr), idle_timer_(executor_), recv_buffer_(config.mr), addr_mode_(config.mode),
@@ -58,11 +58,11 @@ namespace psm::multiplex
             }
             catch (const std::exception &e)
             {
-                trace::debug<flt::conn | flt::protocol>("stream {} UDP uplink error: {}", id_, e.what());
+                trace::debug<flt::conn | flt::protocol>(owner_.lock()->prefix_, "stream {} UDP uplink error: {}", id_, e.what());
             }
             catch (...)
             {
-                trace::error<flt::conn | flt::protocol>("stream {} UDP uplink unknown error", id_);
+                trace::error<flt::conn | flt::protocol>(owner_.lock()->prefix_, "stream {} UDP uplink unknown error", id_);
             }
         }
         close();
@@ -74,7 +74,6 @@ namespace psm::multiplex
     {
         if (auto owner = owner_.lock())
         {
-            trace::scope_guard guard(owner->prefix_);
             co_await uplink_loop();
         }
         else
@@ -89,7 +88,6 @@ namespace psm::multiplex
     {
         if (auto owner = owner_.lock())
         {
-            trace::scope_guard guard(owner->prefix_);
             co_await downlink_loop();
         }
         else
@@ -114,7 +112,7 @@ namespace psm::multiplex
             }
             break;
         }
-        trace::debug<flt::conn | flt::protocol>("stream {} UDP idle timeout", id_);
+        trace::debug<flt::conn | flt::protocol>(owner_.lock()->prefix_, "stream {} UDP idle timeout", id_);
         co_return;
     }
 
@@ -152,7 +150,7 @@ namespace psm::multiplex
         }
         catch (const std::exception &e)
         {
-            trace::warn<flt::conn | flt::protocol>("stream {} UDP socket create failed: {}", id_, e.what());
+            trace::warn<flt::conn | flt::protocol>(owner_.lock()->prefix_, "stream {} UDP socket create failed: {}", id_, e.what());
             co_return false;
         }
     }
@@ -262,11 +260,11 @@ namespace psm::multiplex
         }
         catch (const std::exception &e)
         {
-            trace::debug<flt::conn | flt::protocol>("stream {} process_buffer error: {}", id_, e.what());
+            trace::debug<flt::conn | flt::protocol>(owner_.lock()->prefix_, "stream {} process_buffer error: {}", id_, e.what());
         }
         catch (...)
         {
-            trace::error<flt::conn | flt::protocol>("stream {} process_buffer unknown error", id_);
+            trace::error<flt::conn | flt::protocol>(owner_.lock()->prefix_, "stream {} process_buffer unknown error", id_);
         }
         processing_.store(false, std::memory_order_release);
     }
@@ -276,10 +274,10 @@ namespace psm::multiplex
                          std::span<const std::byte> payload)
         -> net::awaitable<void>
     {
-        // 通过路由器解析目标端点
+        // 通过 outbound 接口的 UDP 路由回调解析目标端点
         char port_buf[8];
         const auto [port_end, port_ec] = std::to_chars(port_buf, port_buf + sizeof(port_buf), target_port);
-        const auto [code, target_ep] = co_await connect::resolve_dgram(router_,
+        const auto [code, target_ep] = co_await router_fn_(
             target_host, std::string_view(port_buf, port_end - port_buf));
         if (code != fault::code::success)
         {
@@ -313,7 +311,7 @@ namespace psm::multiplex
                                                target_ep, token);
         if (ec)
         {
-            trace::debug<flt::conn | flt::protocol>("stream {} UDP send to {}:{} failed: {}",
+            trace::debug<flt::conn | flt::protocol>(owner_.lock()->prefix_, "stream {} UDP send to {}:{} failed: {}",
                          id_, target_host, target_port, ec.message());
         }
         else
@@ -342,7 +340,7 @@ namespace psm::multiplex
                 {
                     if (ec != net::error::operation_aborted && ec != net::error::bad_descriptor)
                     {
-                        trace::debug<flt::conn | flt::protocol>("stream {} UDP recv error: {}", id_, ec.message());
+                        trace::debug<flt::conn | flt::protocol>(owner_.lock()->prefix_, "stream {} UDP recv error: {}", id_, ec.message());
                     }
                     break;
                 }
@@ -378,11 +376,11 @@ namespace psm::multiplex
         }
         catch (const std::exception &e)
         {
-            trace::debug<flt::conn | flt::protocol>("stream {} downlink_loop error: {}", id_, e.what());
+            trace::debug<flt::conn | flt::protocol>(owner_.lock()->prefix_, "stream {} downlink_loop error: {}", id_, e.what());
         }
         catch (...)
         {
-            trace::error<flt::conn | flt::protocol>("stream {} downlink_loop unknown error", id_);
+            trace::error<flt::conn | flt::protocol>(owner_.lock()->prefix_, "stream {} downlink_loop unknown error", id_);
         }
         recv_running_.store(false, std::memory_order_release);
     }
@@ -419,7 +417,7 @@ namespace psm::multiplex
         {
             owner->remove_parcel(id_);
         }
-        trace::debug<flt::conn | flt::protocol>("stream {} UDP parcel closed", id_);
+        trace::debug<flt::conn | flt::protocol>(owner_.lock()->prefix_, "stream {} UDP parcel closed", id_);
     }
 
 } // namespace psm::multiplex

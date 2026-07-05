@@ -1,6 +1,6 @@
 #include <prism/proto/protocol/trojan/conn.hpp>
-#include <prism/core/fault/handling.hpp>
-#include <prism/core/memory/container.hpp>
+#include <prism/foundation/fault/handling.hpp>
+#include <prism/foundation/memory/container.hpp>
 #include <prism/proto/protocol/common/form.hpp>
 #include <prism/proto/protocol/common/read.hpp>
 #include <prism/proto/protocol/common/udprelay.hpp>

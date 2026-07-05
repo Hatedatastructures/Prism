@@ -10,7 +10,7 @@
 
 #include <prism/stealth/facade/restls/transport.hpp>
 
-#include <prism/core/memory/container.hpp>
+#include <prism/foundation/memory/container.hpp>
 #include <prism/net/transport/transmission.hpp>
 #include <prism/stealth/common.hpp>
 #include <prism/stealth/facade/restls/crypto.hpp>
@@ -83,7 +83,7 @@ namespace psm::stealth::restls
             const auto cf_hex = to_hex_string(
                 reinterpret_cast<const std::uint8_t *>(client_finished_.data()),
                 client_finished_.size());
-            trace::info<flt::conn | flt::protocol>(
+            trace::info<flt::conn | flt::protocol>(prefix_, 
                 "[DBG] restls_transport init: secret={} server_random={} client_finished_len={} "
                 "client_finished_hex={}",
                 secret_hex, sr_hex, client_finished_.size(), cf_hex);
@@ -186,7 +186,7 @@ namespace psm::stealth::restls
 
         if (frame.size() < tls_hdrsize + auth_hdrlen)
         {
-            trace::warn<flt::conn | flt::protocol>(
+            trace::warn<flt::conn | flt::protocol>(prefix_, 
                 "restls read_frame: frame too short, size={}", frame.size());
             ec = std::make_error_code(std::errc::bad_message);
             co_return std::nullopt;
@@ -195,7 +195,7 @@ namespace psm::stealth::restls
         auto *record = reinterpret_cast<std::uint8_t *>(frame.data());
         if (record[0] != 0x17)
         {
-            trace::warn<flt::conn | flt::protocol>(
+            trace::warn<flt::conn | flt::protocol>(prefix_, 
                 "restls read_frame: not ApplicationData record, type={:#x}", record[0]);
             ec = std::make_error_code(std::errc::bad_message);
             co_return std::nullopt;
@@ -250,7 +250,7 @@ namespace psm::stealth::restls
                 });
                 if (std::memcmp(payload, alt_mac.data(), appdata_maclen) == 0)
                 {
-                    trace::warn<flt::conn | flt::protocol>(
+                    trace::warn<flt::conn | flt::protocol>(prefix_, 
                         "restls read_frame: counter corrected {}→{} (delta={:+d})",
                         to_server_counter_, alt_counter, delta);
                     to_server_counter_ = alt_counter;
@@ -269,7 +269,7 @@ namespace psm::stealth::restls
                 // 后端 NewSessionTicket 已由转发拦截消除（commit 66ed663），
                 // 客户端不再会因此发 raw TLS alert，此兜底分支不再必要。
                 // 统一走 bad_message：若客户端确在关闭，上层 SS2022/mux 自然会 abort。
-                trace::warn<flt::conn | flt::protocol>(
+                trace::warn<flt::conn | flt::protocol>(prefix_, 
                     "restls read_frame: auth_mac mismatch: counter={}, payload_len={}",
                     to_server_counter_, payload_len);
                 ec = std::make_error_code(std::errc::bad_message);
@@ -299,7 +299,7 @@ namespace psm::stealth::restls
             const auto cf_hex_part = cf_span.empty()
                 ? memory::string("(none)")
                 : to_hex_string(cf_span.data(), cf_span.size());
-            trace::info<flt::conn | flt::protocol>(
+            trace::info<flt::conn | flt::protocol>(prefix_, 
                 "[DBG] c2s verify: ctr={} cf_len={} cf_hex={} "
                 "tls_hdr={} pload_after_mac={} sample_hex={} mask_hex={}",
                 to_server_counter_, cf_span.size(), cf_hex_part,
@@ -322,7 +322,7 @@ namespace psm::stealth::restls
 
         if (data_len > payload_len - appdata_offset)
         {
-            trace::warn<flt::conn | flt::protocol>(
+            trace::warn<flt::conn | flt::protocol>(prefix_, 
                 "restls read_frame: data_len={} exceeds payload={}", data_len, payload_len - appdata_offset);
             ec = std::make_error_code(std::errc::bad_message);
             co_return std::nullopt;
@@ -352,12 +352,12 @@ namespace psm::stealth::restls
         // data_len=0 的空帧（ActNoop 心跳/magic response）：不返回上层，loop 读下一帧
         if (data_len == 0)
         {
-            trace::debug<flt::conn | flt::protocol>(
+            trace::debug<flt::conn | flt::protocol>(prefix_, 
                 "restls read_frame: empty frame (data_len=0), write_pending_ cleared, continue");
             continue;
         }
 
-        trace::debug<flt::conn | flt::protocol>(
+        trace::debug<flt::conn | flt::protocol>(prefix_, 
             "restls read_frame: data_len={}, cmd_type={}, cmd_arg={}, to_srv_ctr={}, transport={}",
             data_len, cmd_type, cmd_arg, to_server_counter_,
             reinterpret_cast<void*>(this));
@@ -507,7 +507,7 @@ namespace psm::stealth::restls
             {
                 const auto sample_hex = to_hex_string(payload + appdata_offset, plaintext_sample_len);
                 const auto mask_hex = to_hex_string(mask.data(), mask.size());
-                trace::info<flt::conn | flt::protocol>(
+                trace::info<flt::conn | flt::protocol>(prefix_, 
                     "[DBG] s2c mask: ctr={} sample_len={} sample_hex={} mask={}",
                     to_client_counter_, plaintext_sample_len,
                     sample_hex, mask_hex);
@@ -534,7 +534,7 @@ namespace psm::stealth::restls
             {
                 const auto frame_hex = to_hex_string(record_data, record.size());
                 const auto pload_hex = to_hex_string(payload + appdata_maclen, payload_size - appdata_maclen);
-                trace::info<flt::conn | flt::protocol>(
+                trace::info<flt::conn | flt::protocol>(prefix_, 
                     "[DBG] s2c frame: ctr={} data_len={} padding={} payload_size={} "
                     "pload_after_mac={} frame_hex={}",
                     to_client_counter_, data_len, padding_len, payload_size,
@@ -549,7 +549,7 @@ namespace psm::stealth::restls
                 ec);
             if (ec)
             {
-                trace::warn<flt::conn | flt::protocol>(
+                trace::warn<flt::conn | flt::protocol>(prefix_, 
                     "restls write_frame: write failed, ec={}", ec.message());
                 break;
             }
@@ -561,7 +561,7 @@ namespace psm::stealth::restls
             if (alloc.write_blocking)
                 write_pending_ = true;
 
-            trace::debug<flt::conn | flt::protocol>(
+            trace::debug<flt::conn | flt::protocol>(prefix_, 
                 "restls write_frame: data_len={}, payload={}, to_cli_ctr={}, blocking={}, transport={}",
                 data_len, payload_size, to_client_counter_, alloc.write_blocking,
                 reinterpret_cast<void*>(this));

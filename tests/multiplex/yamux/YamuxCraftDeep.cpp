@@ -7,7 +7,7 @@
  *          直接构造 craft（final 类）对象验证核心逻辑。
  */
 
-#include <prism/core/core.hpp>
+#include <prism/foundation/foundation.hpp>
 #include <prism/trace/spdlog.hpp>
 
 #include <boost/asio/co_spawn.hpp>
@@ -48,7 +48,7 @@ namespace
             psm::resolve::dns::config dns_cfg;
             psm::connect::router_options ropts{*pool, *ioc, dns_cfg};
             router_ptr = std::make_unique<psm::connect::router>(std::move(ropts));
-            multiplex::core_options opts{transport, *router_ptr, cfg, nullptr};
+            multiplex::core_options opts{transport, nullptr, cfg, nullptr};
             craft_obj = std::make_shared<yamux::craft>(std::move(opts));
         }
     };
@@ -73,7 +73,7 @@ namespace
         auto router_ptr = std::make_unique<psm::connect::router>(std::move(ropts));
         static multiplex::config cfg;
         psm::memory::unsynchronized_pool mr;
-        multiplex::core_options opts{transport, *router_ptr, cfg, &mr};
+        multiplex::core_options opts{transport, nullptr, cfg, &mr};
         auto c = std::make_shared<yamux::craft>(std::move(opts));
         EXPECT_TRUE(!c->is_active()) << "constructor: with mr -> inactive";
     }
@@ -259,7 +259,7 @@ namespace
         }
         catch (...)
         {
-            psm::multiplex::yamux::log_spawn_error(std::current_exception(), 1, "test");
+            psm::multiplex::yamux::log_spawn_error(std::current_exception(), 1, "test", nullptr);
         }
     }
 
@@ -271,7 +271,7 @@ namespace
         }
         catch (...)
         {
-            psm::multiplex::yamux::log_spawn_error(std::current_exception(), 2, "test");
+            psm::multiplex::yamux::log_spawn_error(std::current_exception(), 2, "test", nullptr);
         }
     }
 } // namespace

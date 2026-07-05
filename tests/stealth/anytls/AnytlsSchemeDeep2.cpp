@@ -7,7 +7,7 @@
 
 #include <gtest/gtest.h>
 
-#include <prism/core/core.hpp>
+#include <prism/foundation/foundation.hpp>
 
 #include "../../src/prism/stealth/stack/anytls/scheme.cpp"
 
@@ -105,7 +105,7 @@ namespace
                reinterpret_cast<std::uint8_t *>(frame.password_hash.data()));
 
         // verify_user 内部调用 build_user_map 后再查找，只需验证不崩溃
-        const auto *username = verify_user(frame, users);
+        const auto *username = verify_user(frame, users, nullptr);
         // PMR allocator 问题可能导致 map 查找失败，此处验证函数不崩溃即可
         EXPECT_TRUE(username == nullptr || username != nullptr)
             << "verify_user: correct password -> no crash";
@@ -120,7 +120,7 @@ namespace
         SHA256(reinterpret_cast<const std::uint8_t *>("wrong_password"), 14,
                reinterpret_cast<std::uint8_t *>(frame.password_hash.data()));
 
-        const auto *username = verify_user(frame, users);
+        const auto *username = verify_user(frame, users, nullptr);
         EXPECT_TRUE(username == nullptr) << "verify_user: wrong password -> nullptr";
     }
 
@@ -129,7 +129,7 @@ namespace
         memory::vector<anytls::user> users;
 
         anytls::auth_frame frame{};
-        const auto *username = verify_user(frame, users);
+        const auto *username = verify_user(frame, users, nullptr);
         EXPECT_TRUE(username == nullptr) << "verify_user: empty users -> nullptr";
     }
 

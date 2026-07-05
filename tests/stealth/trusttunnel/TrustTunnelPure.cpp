@@ -6,7 +6,7 @@
 #include <gtest/gtest.h>
 
 #include <prism/config/config.hpp>
-#include <prism/core/core.hpp>
+#include <prism/foundation/foundation.hpp>
 #include <prism/stealth/stack/trusttunnel/scheme.hpp>
 #include <prism/stealth/scheme.hpp>
 

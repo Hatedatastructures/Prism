@@ -10,7 +10,7 @@
 #include <prism/proto/protocol/common/target.hpp>
 #include <prism/stealth/recognition/target.hpp>
 #include <prism/stealth/recognition/probe/analyzer.hpp>
-#include <prism/core/core.hpp>
+#include <prism/foundation/foundation.hpp>
 #include <prism/trace/spdlog.hpp>
 #include <gtest/gtest.h>
 

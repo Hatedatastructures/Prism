@@ -5,7 +5,7 @@
  *          以及 racer.cpp 中 address_racer 构造函数。
  */
 
-#include <prism/core/core.hpp>
+#include <prism/foundation/foundation.hpp>
 #include <prism/trace/spdlog.hpp>
 
 

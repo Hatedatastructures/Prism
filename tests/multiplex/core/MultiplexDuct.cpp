@@ -8,7 +8,7 @@
  * 4. multiplex::config 默认值
  */
 
-#include <prism/core/core.hpp>
+#include <prism/foundation/foundation.hpp>
 #include <prism/trace/spdlog.hpp>
 #include <prism/proto/multiplex/config.hpp>
 #include <prism/proto/multiplex/duct.hpp>

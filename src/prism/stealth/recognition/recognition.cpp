@@ -16,39 +16,39 @@ using namespace psm::trace;
 namespace psm::recognition
 {
 
-    auto identify(identify_context ctx)
+    auto identify(stealth::stealth_opts &opts)
         -> net::awaitable<identify_result>
     {
+        const auto prefix_ = opts.trace;
         identify_result result;
 
-        auto *pfx = trace::active_prefix;
+        auto *pfx = prefix_.get();
 
-        trace::debug<flt::conn | flt::protocol>("starting identify lifecycle");
+        trace::debug<flt::conn | flt::protocol>(prefix_, "starting identify lifecycle");
 
         // Phase 1: 读取完整 ClientHello
-        auto [read_ec, raw_record] = co_await recognition::tls::read_tls_record(*ctx.transport, ctx.preread);
+        auto cl_span = std::span<const std::byte>(opts.preread.data(), opts.preread.size());
+        auto [read_ec, raw_record] = co_await recognition::tls::read_tls_record(*opts.transport, cl_span);
         if (fault::failed(read_ec))
         {
-            trace::error<flt::conn | flt::protocol>(
-                "read_tls_record failed: {}", fault::describe(read_ec));
+            trace::error<flt::conn | flt::protocol>(prefix_, "read_tls_record failed: {}", fault::describe(read_ec));
             result.error = read_ec;
             co_return result;
         }
 
-        trace::debug<flt::conn | flt::protocol>("read {} bytes ClientHello", raw_record.size());
+        trace::debug<flt::conn | flt::protocol>(prefix_, "read {} bytes ClientHello", raw_record.size());
 
         // Phase 2: 解析 ClientHello 特征
         auto [parse_ec, features] = recognition::tls::parse_client_hello(raw_record);
         if (fault::failed(parse_ec))
         {
-            trace::error<flt::conn | flt::protocol>(
-                "parse_client_hello failed: {}", fault::describe(parse_ec));
+            trace::error<flt::conn | flt::protocol>(prefix_, "parse_client_hello failed: {}", fault::describe(parse_ec));
             result.error = parse_ec;
             co_return result;
         }
 
         // Phase 3: SNI 路由匹配
-        auto route_table = route_table::build(*ctx.cfg);
+        auto route_table = route_table::build(*opts.cfg);
         auto matched_scheme_names = route_table.lookup(features.server_name);
 
         // 从 registry 获取匹配的 scheme 实例
@@ -57,7 +57,7 @@ namespace psm::recognition
         for (const auto &name : matched_scheme_names)
         {
             auto scheme = registry.find(std::string_view(name));
-            if (scheme && scheme->active(*ctx.cfg))
+            if (scheme && scheme->active(*opts.cfg))
                 matched_schemes.push_back(scheme);
         }
 
@@ -68,39 +68,27 @@ namespace psm::recognition
 
         auto pipeline = layered_detection_pipeline(registry.all());
         auto pipeline_result = pipeline.detect(
-            detect_input{bitmap, features, raw_ch_span, *ctx.cfg},
+            detect_input{bitmap, features, raw_ch_span, *opts.cfg},
             matched_schemes);
 
-        // Phase 5: 构建 preview transport
+        // Phase 5: 构建 preview transport，直接修改 opts
         auto preread_span = std::span(reinterpret_cast<const std::byte *>(raw_record.data()), raw_record.size());
-        auto preview_transport = std::make_shared<transport::preview>(
-            ctx.transport, preread_span);
+        opts.transport = std::make_shared<transport::preview>(opts.transport, preread_span);
 
-        // Phase 6: 按候选顺序执行 scheme
-        memory::vector<std::byte> preread_bytes(raw_record.size());
-        std::transform(raw_record.begin(), raw_record.end(), preread_bytes.begin(),
-                       [](std::uint8_t b)
-                       { return static_cast<std::byte>(b); });
-
-        stealth::handshake_context scheme_ctx{
-            .inbound = preview_transport,
-            .cfg = ctx.cfg,
-            .router = ctx.router,
-            .session = ctx.session,
-            .session_keepalive = std::move(ctx.session_keepalive),
-            .preread = std::move(preread_bytes)};
+        // Phase 6: 将完整 ClientHello 存入 opts.preread
+        opts.preread.resize(raw_record.size());
+        std::memcpy(opts.preread.data(), raw_record.data(), raw_record.size());
 
         auto executor = stealth::scheme_executor(registry);
 
         // 确定性命中：直接执行
         if (pipeline_result.deterministic_hit)
         {
-            trace::debug<flt::conn | flt::protocol>(
-                "deterministic hit: {}", pipeline_result.exclusive_scheme);
+            trace::debug<flt::conn | flt::protocol>(prefix_, "deterministic hit: {}", pipeline_result.exclusive_scheme);
             memory::vector<memory::string> single_candidate;
             single_candidate.push_back(pipeline_result.exclusive_scheme);
 
-            auto scheme_result = co_await executor.execute(single_candidate, std::move(scheme_ctx));
+            auto scheme_result = co_await executor.execute(single_candidate, std::move(opts));
             result.transport = std::move(scheme_result.transport);
             result.detected = scheme_result.detected;
             result.preread = std::move(scheme_result.preread);
@@ -127,7 +115,7 @@ namespace psm::recognition
         analysis_result analysis;
         analysis.candidates = std::move(candidates);
 
-        auto scheme_result = co_await executor.execute_by_analysis(analysis, std::move(scheme_ctx));
+        auto scheme_result = co_await executor.execute_by_analysis(analysis, std::move(opts));
 
         result.transport = std::move(scheme_result.transport);
         result.detected = scheme_result.detected;
@@ -144,58 +132,51 @@ namespace psm::recognition
                 std::strncpy(pfx->scheme_name, result.executed_scheme.c_str(),
                              sizeof(pfx->scheme_name) - 1);
             }
-            trace::debug<flt::conn | flt::protocol>(
-                "identify succeeded: {} -> {}",
+            trace::debug<flt::conn | flt::protocol>(prefix_, "identify succeeded: {} -> {}",
                 result.executed_scheme,
                 protocol::to_string_view(result.detected));
         }
         else
         {
-            trace::warn<flt::conn | flt::protocol>(
-                "identify failed: {}", fault::describe(result.error));
+            trace::warn<flt::conn | flt::protocol>(prefix_, "identify failed: {}", fault::describe(result.error));
         }
 
         co_return result;
     }
 
-    auto recognize(const recognize_context ctx)
+    auto recognize(stealth::stealth_opts &opts)
         -> net::awaitable<recognize_result>
     {
+        const auto prefix_ = opts.trace;
         recognize_result result;
 
-        if (!ctx.transport)
+        if (!opts.transport)
         {
-            trace::error<flt::conn | flt::protocol>("transport is null");
+            trace::error<flt::conn | flt::protocol>(prefix_, "transport is null");
             result.error = fault::code::not_supported;
             co_return result;
         }
 
-        auto probe_res = co_await probe::probe(*ctx.transport, 24);
+        auto probe_res = co_await probe::probe(*opts.transport, 24);
         if (fault::failed(probe_res.ec))
         {
-            trace::warn<flt::conn | flt::protocol>(
-                "probe failed: {}", fault::describe(probe_res.ec));
+            trace::warn<flt::conn | flt::protocol>(prefix_, "probe failed: {}", fault::describe(probe_res.ec));
             result.error = probe_res.ec;
             co_return result;
         }
 
-        trace::debug<flt::conn | flt::protocol>("probe result: {}", protocol::to_string_view(probe_res.type));
+        trace::debug<flt::conn | flt::protocol>(prefix_, "probe result: {}", protocol::to_string_view(probe_res.type));
 
         result.detected = probe_res.type;
         result.preread.assign(probe_res.pre_read_data.begin(), probe_res.pre_read_data.begin() + probe_res.pre_read_size);
 
         if (probe_res.type == protocol::protocol_type::tls)
         {
-            const auto preread_span = probe_res.preload_bytes();
+            // 将 probe 预读数据存到 opts.preread，identify 内部使用
+            const auto probe_span = probe_res.preload_bytes();
+            opts.preread.assign(probe_span.begin(), probe_span.end());
 
-            auto id_result = co_await identify(identify_context{
-                .transport = ctx.transport,
-                .cfg = ctx.cfg,
-                .preread = preread_span,
-                .router = ctx.router,
-                .session = ctx.session,
-                .session_keepalive = std::move(ctx.session_keepalive),
-                .frame_arena = ctx.frame_arena});
+            auto id_result = co_await identify(opts);
 
             if (id_result.success)
             {
@@ -205,25 +186,22 @@ namespace psm::recognition
                 result.executed_scheme = std::move(id_result.executed_scheme);
                 result.success = true;
 
-                trace::info<flt::conn | flt::protocol>(
-                    "recognized: {} -> {}",
+                trace::info<flt::conn | flt::protocol>(prefix_, "recognized: {} -> {}",
                     result.executed_scheme,
                     protocol::to_string_view(result.detected));
             }
             else
             {
                 result.error = id_result.error;
-                trace::warn<flt::conn | flt::protocol>(
-                    "identify failed: {}", fault::describe(result.error));
+                trace::warn<flt::conn | flt::protocol>(prefix_, "identify failed: {}", fault::describe(result.error));
             }
         }
         else
         {
-            result.transport = ctx.transport;
+            result.transport = opts.transport;
             result.success = probe_res.success();
 
-            trace::debug<flt::conn | flt::protocol>(
-                "recognized (non-TLS): {}", protocol::to_string_view(result.detected));
+            trace::debug<flt::conn | flt::protocol>(prefix_, "recognized (non-TLS): {}", protocol::to_string_view(result.detected));
         }
 
         co_return result;

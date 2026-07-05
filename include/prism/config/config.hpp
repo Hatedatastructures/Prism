@@ -26,6 +26,7 @@ namespace psm
      */
     struct config
     {
+        std::uint32_t version{1};               // 配置版本号（schema 演进用）
         instance::config instance;              // 代理服务核心配置
         connect::config pool;                   // 连接池配置
         instance::buffer buffer;                // 缓冲区配置
@@ -92,6 +93,7 @@ struct glz::meta<psm::config>
 {
     using T = psm::config;
     static constexpr auto value = glz::object(
+        "version",  &T::version,
         "agent",    &T::instance,
         "pool",     &T::pool,
         "buffer",   &T::buffer,

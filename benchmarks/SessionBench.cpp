@@ -6,9 +6,9 @@
 #include <benchmark/benchmark.h>
 #include <prism/crypto/aead.hpp>
 #include <prism/crypto/base64.hpp>
-#include <prism/core/memory/pool.hpp>
-#include <prism/core/memory/container.hpp>
-#include <prism/core/core.hpp>
+#include <prism/foundation/memory/pool.hpp>
+#include <prism/foundation/memory/container.hpp>
+#include <prism/foundation/foundation.hpp>
 #include <boost/asio.hpp>
 #include <array>
 #include <cstddef>

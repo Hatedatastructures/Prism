@@ -16,7 +16,7 @@
  *          target_readloop 中可能还有引用 mr_ 的挂起操作。
  */
 
-#include <prism/core/core.hpp>
+#include <prism/foundation/foundation.hpp>
 #include <prism/trace/spdlog.hpp>
 
 #include "common/MockTransport.hpp"
@@ -95,7 +95,7 @@ namespace
             psm::resolve::dns::config dns_cfg;
             psm::connect::router_options ropts{*pool, *ioc, dns_cfg};
             router_ptr = std::make_unique<psm::connect::router>(std::move(ropts));
-            multiplex::core_options opts{mux_transport, *router_ptr, g_cfg, nullptr};
+            multiplex::core_options opts{mux_transport, nullptr, g_cfg, nullptr};
             core_obj = std::make_shared<TestCore>(std::move(opts));
 
             multiplex::stream_options sopts{buffer_size, nullptr};
@@ -148,7 +148,7 @@ namespace
         psm::connect::router_options ropts{*pool, *ioc, dns_cfg};
         auto router = std::make_unique<psm::connect::router>(std::move(ropts));
         static multiplex::config cfg;
-        multiplex::core_options opts{mux_t, *router, cfg, nullptr};
+        multiplex::core_options opts{mux_t, nullptr, cfg, nullptr};
         auto c = std::make_shared<TestCore>(std::move(opts));
 
         psm::memory::unsynchronized_pool mr;

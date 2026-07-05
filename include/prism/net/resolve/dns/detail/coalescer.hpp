@@ -9,7 +9,7 @@
 
 #pragma once
 
-#include <prism/core/memory/container.hpp>
+#include <prism/foundation/memory/container.hpp>
 #include <prism/net/resolve/dns/detail/transparent.hpp>
 
 #include <boost/asio.hpp>

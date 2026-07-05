@@ -9,7 +9,7 @@
 
 #include <gtest/gtest.h>
 
-#include <prism/core/core.hpp>
+#include <prism/foundation/foundation.hpp>
 
 // #include 源文件增加覆盖率计数
 #include "../../src/prism/stealth/stack/anytls/scheme.cpp"
@@ -136,7 +136,7 @@ namespace
                u.password.size(), digest.data());
         std::memcpy(frame.password_hash.data(), digest.data(), 32);
 
-        auto result = verify_user(frame, users);
+        auto result = verify_user(frame, users, nullptr);
         EXPECT_TRUE(result != nullptr) << "verify_user: correct password → found";
         EXPECT_TRUE(*result == "testuser") << "verify_user: username matches";
     }
@@ -156,7 +156,7 @@ namespace
                std::strlen(wrong), digest.data());
         std::memcpy(frame.password_hash.data(), digest.data(), 32);
 
-        auto result = verify_user(frame, users);
+        auto result = verify_user(frame, users, nullptr);
         EXPECT_TRUE(result == nullptr) << "verify_user: wrong password → nullptr";
     }
 
@@ -164,7 +164,7 @@ namespace
     {
         psm::memory::vector<user> users(psm::memory::current_resource());
         auth_frame frame{};
-        auto result = verify_user(frame, users);
+        auto result = verify_user(frame, users, nullptr);
         EXPECT_TRUE(result == nullptr) << "verify_user: empty users → nullptr";
     }
 

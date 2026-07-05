@@ -1,5 +1,5 @@
 #include <prism/proto/protocol/vless/framing.hpp>
-#include <prism/core/core.hpp>
+#include <prism/foundation/foundation.hpp>
 #include <prism/proto/protocol/common/framing.hpp>
 
 #include <cstring>

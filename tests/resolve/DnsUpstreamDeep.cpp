@@ -8,10 +8,10 @@
  *          以及 resolve() 空服务器路径和 query_via 的错误分类逻辑。
  */
 
-#include <prism/core/core.hpp>
+#include <prism/foundation/foundation.hpp>
 #include <prism/net/resolve/dns/config.hpp>
 #include <prism/trace/spdlog.hpp>
-#include <prism/core/core.hpp>
+#include <prism/foundation/foundation.hpp>
 
 #include <gtest/gtest.h>
 

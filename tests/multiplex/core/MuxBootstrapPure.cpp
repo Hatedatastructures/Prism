@@ -7,7 +7,7 @@
  *          此处仅验证同步可测的纯逻辑。
  */
 
-#include <prism/core/core.hpp>
+#include <prism/foundation/foundation.hpp>
 #include <prism/trace/spdlog.hpp>
 #include <prism/proto/multiplex/bootstrap.hpp>
 

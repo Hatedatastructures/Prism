@@ -5,7 +5,7 @@
  * 日志级别配置、各级别日志输出、重复初始化、空日志器安全调用等。
  */
 
-#include <prism/core/core.hpp>
+#include <prism/foundation/foundation.hpp>
 #include <prism/trace/spdlog.hpp>
 #include <prism/trace/config.hpp>
 

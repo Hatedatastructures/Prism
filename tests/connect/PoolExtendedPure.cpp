@@ -6,7 +6,7 @@
  *          不 #include 源文件，仅使用公共 API。
  */
 
-#include <prism/core/core.hpp>
+#include <prism/foundation/foundation.hpp>
 #include <prism/trace/spdlog.hpp>
 #include <prism/net/connect/pool/pool.hpp>
 

@@ -9,7 +9,7 @@
  */
 
 #include <prism/proto/multiplex/yamux/frame.hpp>
-#include <prism/core/core.hpp>
+#include <prism/foundation/foundation.hpp>
 #include <prism/trace/spdlog.hpp>
 
 #include <array>

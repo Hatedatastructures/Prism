@@ -6,7 +6,7 @@
 
 #include <gtest/gtest.h>
 
-#include <prism/core/core.hpp>
+#include <prism/foundation/foundation.hpp>
 #include <prism/config/config.hpp>
 #include <prism/stealth/facade/shadowtls/scheme.hpp>
 #include <prism/stealth/recognition/tls/features.hpp>

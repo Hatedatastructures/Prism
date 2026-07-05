@@ -10,7 +10,7 @@
  * 6. 辅助结构体与枚举测试
  */
 
-#include <prism/core/core.hpp>
+#include <prism/foundation/foundation.hpp>
 #include <prism/trace/spdlog.hpp>
 #include <prism/proto/multiplex/h2mux/craft.hpp>
 

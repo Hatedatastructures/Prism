@@ -10,6 +10,7 @@
 #pragma once
 
 #include <prism/net/connect/pool/pool.hpp>
+#include <prism/trace/context.hpp>
 
 #include <boost/asio.hpp>
 
@@ -54,7 +55,7 @@ namespace psm::connect
          * @return 成功连接，或空连接（全部失败时）
          * @note 如果 endpoints 为空，返回空连接
          */
-        [[nodiscard]] auto race(std::span<const tcp::endpoint> endpoints)
+        [[nodiscard]] auto race(std::span<const tcp::endpoint> endpoints, std::shared_ptr<trace::trace_context> trace = nullptr)
             -> net::awaitable<pooled_connection>;
 
     private:
@@ -72,7 +73,9 @@ namespace psm::connect
          * @param ctx 竞速共享状态
          * @return net::awaitable<void> 异步操作
          */
-        [[nodiscard]] auto race_endpoint(tcp::endpoint ep, std::chrono::milliseconds delay, std::shared_ptr<race_context> ctx)
+        [[nodiscard]] auto race_endpoint(tcp::endpoint ep, std::chrono::milliseconds delay,
+                                         std::shared_ptr<race_context> ctx,
+                                         std::shared_ptr<trace::trace_context> trace = nullptr)
             -> net::awaitable<void>;
     }; // class address_racer
 } // namespace psm::connect

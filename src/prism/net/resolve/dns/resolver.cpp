@@ -4,6 +4,7 @@
 #include <prism/net/resolve/dns/detail/coalescer.hpp>
 #include <prism/net/resolve/dns/detail/rules.hpp>
 #include <prism/net/resolve/dns/detail/utility.hpp>
+#include <boost/asio/co_spawn.hpp>
 #include <prism/trace/trace.hpp>
 
 #include <boost/asio/experimental/awaitable_operators.hpp>

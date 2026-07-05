@@ -6,7 +6,7 @@
  *          通过 #include 源文件访问 resolver_impl 内部方法。
  */
 
-#include <prism/core/core.hpp>
+#include <prism/foundation/foundation.hpp>
 #include <prism/net/resolve/dns/dns.hpp>
 #include <prism/trace/spdlog.hpp>
 

@@ -6,7 +6,7 @@
  *          rules_engine 的 add_addr_rule/add_neg_rule/add_cname/match 全分支。
  */
 
-#include <prism/core/core.hpp>
+#include <prism/foundation/foundation.hpp>
 #include <prism/trace/spdlog.hpp>
 
 

@@ -5,7 +5,7 @@
  *          build_mdc_prefix 空/非空、mdc_set/mdc_remove/mdc_clear。
  */
 
-#include <prism/core/core.hpp>
+#include <prism/foundation/foundation.hpp>
 #include <prism/trace/spdlog.hpp>
 #include <prism/config/config.hpp>
 

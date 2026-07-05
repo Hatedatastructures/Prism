@@ -2,7 +2,7 @@
 
 #include <prism/config/config.hpp>
 #include <prism/context/context.hpp>
-#include <prism/core/fault/code.hpp>
+#include <prism/foundation/fault/code.hpp>
 #include <prism/proto/protocol/types.hpp>
 #include <prism/stealth/recognition/probe/analyzer.hpp>
 #include <prism/stealth/facade/restls/handshake.hpp>
@@ -46,7 +46,7 @@ namespace psm::stealth::restls
             .note = "Restls: rely on SNI match"};
     }
 
-    auto scheme::handshake(stealth::handshake_context ctx)
+    auto scheme::handshake(stealth::stealth_opts ctx)
         -> net::awaitable<stealth::handshake_result>
     {
         stealth::handshake_result result;
@@ -55,7 +55,7 @@ namespace psm::stealth::restls
         handshake_detail detail;
         auto hs_result = co_await restls::handshake(
             restls::handshake_opts{
-                .raw_trans = ctx.inbound,
+                .raw_trans = ctx.transport,
                 .cfg = ctx.cfg->stealth.restls,
                 .client_hello = std::move(ctx.preread),
                 .detail = detail,
@@ -66,8 +66,8 @@ namespace psm::stealth::restls
             result.detected = protocol::protocol_type::tls;
             result.error = hs_result.error;
             result.polluted = hs_result.polluted;
-            result.transport = ctx.inbound;
-            trace::debug<flt::conn | flt::protocol>("handshake failed, pass to next scheme");
+            result.transport = ctx.transport;
+            trace::debug<flt::conn | flt::protocol>(prefix_, "handshake failed, pass to next scheme");
             co_return result;
         }
 
@@ -91,8 +91,7 @@ namespace psm::stealth::restls
             const auto n = co_await hs_result.transport->async_read_some(buf_span, probe_ec);
             if (probe_ec)
             {
-                trace::warn<flt::conn | flt::protocol>(
-                    "inner probe read failed: {}", probe_ec.message());
+                trace::warn<flt::conn | flt::protocol>(                    "inner probe read failed: {}", probe_ec.message());
                 break;
             }
             inner_n += n;
@@ -101,16 +100,14 @@ namespace psm::stealth::restls
         if (inner_n >= 32)
         {
             result.detected = protocol::protocol_type::shadowsocks;
-            trace::debug<flt::conn | flt::protocol>(
-                "restls inner fallback to shadowsocks, inner_n={}", inner_n);
+            trace::debug<flt::conn | flt::protocol>(                "restls inner fallback to shadowsocks, inner_n={}", inner_n);
         }
 
         result.preread.assign(inner_buf.begin(), inner_buf.begin() + static_cast<std::ptrdiff_t>(inner_n));
         result.transport = hs_result.transport;
         result.scheme = "restls";
 
-        trace::debug<flt::conn | flt::protocol>(
-            "restls_transport created, inner protocol: {}",
+        trace::debug<flt::conn | flt::protocol>(            "restls_transport created, inner protocol: {}",
             protocol::to_string_view(result.detected));
 
         co_return result;

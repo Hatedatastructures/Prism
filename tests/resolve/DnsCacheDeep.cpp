@@ -6,7 +6,7 @@
  *          make_key/key_view 辅助方法。
  */
 
-#include <prism/core/core.hpp>
+#include <prism/foundation/foundation.hpp>
 #include <prism/net/resolve/dns/detail/cache.hpp>
 #include <prism/trace/spdlog.hpp>
 

@@ -8,9 +8,9 @@
 
 #pragma once
 
-#include <prism/core/core.hpp>
-#include <prism/core/fault/handling.hpp>
-#include <prism/core/memory/container.hpp>
+#include <prism/foundation/foundation.hpp>
+#include <prism/foundation/fault/handling.hpp>
+#include <prism/foundation/memory/container.hpp>
 #include <prism/proto/protocol/common/address.hpp>
 #include <prism/proto/protocol/common/target.hpp>
 #include <prism/trace/trace.hpp>

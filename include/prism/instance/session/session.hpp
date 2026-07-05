@@ -10,7 +10,8 @@
 #pragma once
 
 #include <prism/context/context.hpp>
-#include <prism/core/memory/pool.hpp>
+#include <prism/context/metadata.hpp>
+#include <prism/foundation/memory/pool.hpp>
 #include <prism/trace/context.hpp>
 #include <prism/net/transport/transmission.hpp>
 
@@ -46,18 +47,21 @@ namespace psm::instance::session
      * @struct session_params
      * @brief 会话初始化参数集合
      * @details 该结构体封装了创建会话所需的所有外部依赖，
-     * 包括服务器级上下文、工作线程级上下文以及入站传输层。
+     * 包括服务器级上下文、工作线程级上下文、入站传输层以及
+     * 由 L1 入口层（launch::start）构造的 metadata 与 trace_context。
      * 采用结构体聚合参数可提高接口稳定性，便于后续扩展
      * 新参数而不破坏现有调用点。
      * @note server 和 worker 引用的生命周期必须长于会话
      * @warning inbound 的所有权将转移到会话对象内部
+     * @warning meta 和 trace 必须由 launch 预先构造为 shared_ptr
      */
     struct session_params
     {
-        psm::context::server &server;      // 服务器全局上下文引用
-        psm::context::worker &worker;      // 工作线程上下文引用
-        shared_transmission inbound; // 入站传输层所有权
-        std::array<std::byte, 16> src_ip_raw{}; // 来源 IP 哈希(RFC-065 探测追踪)
+        psm::context::server &server;                          // 服务器全局上下文引用
+        psm::context::worker_ref &worker;                          // 工作线程上下文引用
+        shared_transmission inbound;                           // 入站传输层所有权
+        std::shared_ptr<psm::context::request_metadata> meta;  // 业务数据载体（L1 构造）
+        std::shared_ptr<trace::trace_context> trace;           // 日志标签载体（L1 构造）
     };
 
     /**
@@ -157,10 +161,6 @@ namespace psm::instance::session
          * 将通过此代理建立上游连接。如果未设置，pipeline 回退到
          * 直接使用 router 的旧路径。
          */
-        void set_outbound_proxy(outbound::proxy *proxy) noexcept
-        {
-            ctx_.outbound_proxy = proxy;
-        }
 
         /**
          * @brief 设置用户凭证验证回调
@@ -174,10 +174,6 @@ namespace psm::instance::session
          *          应异步处理。
          * @warning 该方法不抛出异常。
          */
-        void set_credential_verifier(std::function<bool(std::string_view)> verifier)
-        {
-            ctx_.credential_verifier = std::move(verifier);
-        }
 
         /**
          * @brief 设置账户注册表指针
@@ -189,10 +185,6 @@ namespace psm::instance::session
          * @warning 验证器必须是线程安全的，因为可能被多个会话并发访问。
          * @warning 该方法不抛出异常（标记为 noexcept）。
          */
-        void set_account_directory(account::directory *account_directory) noexcept
-        {
-            ctx_.account_directory = account_directory;
-        }
 
         /**
          * @brief 设置会话关闭回调
@@ -222,11 +214,11 @@ namespace psm::instance::session
 
         /**
          * @brief 初始化日志前缀
-         * @param pfx 包含客户端/监听端点信息的前缀数据
-         * @details 在 socket 被移动前提取的端点信息填充到会话前缀中，
-         * 同时设置会话 ID。由 launch::start() 调用。
+         * @param pfx 包含 conn_id 的前缀数据（trace_context 瘦身后只含日志字段）
+         * @details 将 conn_id 同步到 prefix_，由 launch::start() 调用。
+         * 端点信息已在 session_params.meta 中，无需通过此函数传递。
          */
-        void init_prefix(const trace::session_prefix &pfx) noexcept;
+        void init_prefix(const trace::trace_context &pfx) noexcept;
 
     private:
         /**
@@ -261,7 +253,7 @@ namespace psm::instance::session
         state state_{state::active};      // 会话状态（单线程 io_context，无需原子）
         std::function<void()> on_closed_; // 关闭回调
         std::unique_ptr<net::steady_timer> handshake_deadline_; // 握手截止定时器
-        std::shared_ptr<trace::session_prefix> prefix_;  // 日志前缀数据（shared_ptr 管理，防 IOCP 回调悬垂）
+        std::shared_ptr<trace::trace_context> prefix_;  // 日志前缀数据（shared_ptr 管理，防 IOCP 回调悬垂）
 
         psm::context::session ctx_; // 会话上下文，持有所有状态
     };

@@ -10,7 +10,7 @@
 #include <prism/stealth/recognition/probe/analyzer.hpp>
 #include <prism/stealth/recognition/tls/signal.hpp>
 #include <prism/proto/protocol/tls/types.hpp>
-#include <prism/core/memory/container.hpp>
+#include <prism/foundation/memory/container.hpp>
 
 #include <array>
 #include <cstdint>

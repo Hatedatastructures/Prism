@@ -5,7 +5,7 @@
  *          测试 IPv4/IPv6/loopback/zero 地址的亲和性哈希计算。
  */
 
-#include <prism/core/core.hpp>
+#include <prism/foundation/foundation.hpp>
 #include <prism/trace/spdlog.hpp>
 #include <gtest/gtest.h>
 

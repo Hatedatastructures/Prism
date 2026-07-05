@@ -8,7 +8,7 @@
 
 #include <gtest/gtest.h>
 
-#include <prism/core/core.hpp>
+#include <prism/foundation/foundation.hpp>
 #include <prism/crypto/x25519.hpp>
 #include <prism/crypto/hkdf.hpp>
 #include <prism/proto/protocol/tls/types.hpp>
@@ -117,7 +117,7 @@ namespace
         sh_result.shello_record.assign(chello_raw.begin(), chello_raw.end());
         sh_result.ccs_record.assign(5, std::uint8_t{0});
 
-        auto ec = derive_and_encrypt_finished(keys, sh_result, chello_raw);
+        auto ec = derive_and_encrypt_finished(keys, sh_result, chello_raw, nullptr);
         EXPECT_TRUE(ec == psm::fault::code::success)
             << "derive_encrypt_fin: success with valid inputs";
         EXPECT_TRUE(sh_result.enc_hs_record.size() > 0)
@@ -138,7 +138,7 @@ namespace
         sh_result.enc_hs_plain.resize(20);
         sh_result.shello_msg = chello_raw;
 
-        auto ec = derive_and_encrypt_finished(keys, sh_result, chello_raw);
+        auto ec = derive_and_encrypt_finished(keys, sh_result, chello_raw, nullptr);
         EXPECT_TRUE(ec == psm::fault::code::kdferr)
             << "derive_encrypt_fin: too short -> kdferr";
     }
@@ -159,7 +159,7 @@ namespace
         sh_result.shello_record.assign(chello_raw.begin(), chello_raw.end());
         sh_result.ccs_record.assign(5, std::uint8_t{0});
 
-        auto ec = derive_and_encrypt_finished(keys, sh_result, chello_raw);
+        auto ec = derive_and_encrypt_finished(keys, sh_result, chello_raw, nullptr);
         EXPECT_TRUE(ec == psm::fault::code::success)
             << "derive_encrypt_fin: exact min size success";
     }
@@ -176,7 +176,7 @@ namespace
         sh_result.enc_hs_plain.resize(35);
         sh_result.shello_msg = chello_raw;
 
-        auto ec = derive_and_encrypt_finished(keys, sh_result, chello_raw);
+        auto ec = derive_and_encrypt_finished(keys, sh_result, chello_raw, nullptr);
         EXPECT_TRUE(ec == psm::fault::code::kdferr)
             << "derive_encrypt_fin: 35 bytes -> kdferr";
     }
@@ -191,7 +191,7 @@ namespace
         shello_result sh_result;
         sh_result.shello_msg = chello_raw;
 
-        auto ec = derive_and_encrypt_finished(keys, sh_result, chello_raw);
+        auto ec = derive_and_encrypt_finished(keys, sh_result, chello_raw, nullptr);
         EXPECT_TRUE(ec == psm::fault::code::kdferr)
             << "derive_encrypt_fin: empty plaintext -> kdferr";
     }
@@ -227,7 +227,7 @@ namespace
         net::io_context ioc;
         net::steady_timer timer(ioc);
 
-        auto result = negotiate_tls(features, auth_res, timer);
+        auto result = negotiate_tls(features, auth_res, timer, nullptr);
         EXPECT_TRUE(result.done) << "negotiate_tls: success -> done=true";
         EXPECT_TRUE(result.result.error == psm::fault::code::success)
             << "negotiate_tls: no error";
@@ -263,7 +263,7 @@ namespace
         net::io_context ioc;
         net::steady_timer timer(ioc);
 
-        auto result = negotiate_tls(features, auth_res, timer);
+        auto result = negotiate_tls(features, auth_res, timer, nullptr);
         // 全零公钥可能成功也可能失败，取决于 BoringSSL 实现
         // 但我们主要验证 negotiate_tls 不崩溃并返回有效结果
         EXPECT_TRUE(!result.done || result.done)
@@ -288,7 +288,7 @@ namespace
         net::io_context ioc;
         net::steady_timer timer(ioc);
 
-        auto result = negotiate_tls(features, auth_res, timer);
+        auto result = negotiate_tls(features, auth_res, timer, nullptr);
         // 短消息可能导致 generate_shello 或后续步骤失败
         EXPECT_TRUE(!result.done || result.result.error == psm::fault::code::success)
             << "negotiate_tls: short raw_msg handled";
@@ -319,7 +319,7 @@ namespace
         net::io_context ioc;
         net::steady_timer timer(ioc);
 
-        auto result = negotiate_tls(features, auth_res, timer);
+        auto result = negotiate_tls(features, auth_res, timer, nullptr);
         EXPECT_TRUE(result.done) << "negotiate_tls: with session_id success";
     }
 

@@ -10,7 +10,7 @@
 #include <prism/account/stats/counter.hpp>
 #include <prism/account/entry.hpp>
 #include <prism/account/directory.hpp>
-#include <prism/core/memory/pool.hpp>
+#include <prism/foundation/memory/pool.hpp>
 
 #include <cstdint>
 #include <memory>

@@ -5,7 +5,7 @@
  *          测试 add_route/lookup/matches_any/registered_snis/empty
  */
 
-#include <prism/core/core.hpp>
+#include <prism/foundation/foundation.hpp>
 #include <prism/trace/spdlog.hpp>
 
 

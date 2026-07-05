@@ -8,7 +8,7 @@
 
 #include <prism/crypto/aead.hpp>
 #include <prism/crypto/blake3.hpp>
-#include <prism/core/memory/container.hpp>
+#include <prism/foundation/memory/container.hpp>
 #include <prism/proto/protocol/shadowsocks/constants.hpp>
 #include <prism/proto/protocol/shadowsocks/framing.hpp>
 #include <prism/proto/protocol/shadowsocks/util/replay.hpp>

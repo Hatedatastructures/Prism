@@ -1,4 +1,4 @@
-#include <prism/core/memory/container.hpp>
+#include <prism/foundation/memory/container.hpp>
 #include <prism/proto/multiplex/core.hpp>
 #include <prism/proto/multiplex/duct.hpp>
 #include <prism/proto/multiplex/parcel.hpp>
@@ -27,7 +27,7 @@ namespace psm::multiplex
 {
 
     core::core(core_options opts)
-        : transport_(std::move(opts.transport)), router_(opts.router), config_(opts.cfg),
+        : transport_(std::move(opts.transport)), outbound_(opts.outbound), config_(opts.cfg),
           mr_(resolve_mr(opts.mr)),
           pending_(mr_), ducts_(mr_), parcels_(mr_)
     {
@@ -48,7 +48,6 @@ namespace psm::multiplex
 
         auto run_wrapper = [self]() -> net::awaitable<void>
         {
-            trace::scope_guard guard(self->prefix_);
             co_await self->run();
         };
         net::co_spawn(transport_->executor(), run_wrapper(),
@@ -69,11 +68,11 @@ namespace psm::multiplex
             }
             catch (const std::exception &e)
             {
-                trace::error<flt::conn | flt::protocol>("session exception: {}", e.what());
+                trace::error<flt::conn | flt::protocol>(prefix_, "session exception: {}", e.what());
             }
             catch (...)
             {
-                trace::error<flt::conn | flt::protocol>("session unknown exception");
+                trace::error<flt::conn | flt::protocol>(prefix_, "session unknown exception");
             }
         }
         close();
@@ -117,7 +116,7 @@ namespace psm::multiplex
 
         transport_->close();
 
-        trace::debug<flt::conn | flt::protocol>("session closed");
+        trace::debug<flt::conn | flt::protocol>(prefix_, "session closed");
     }
 
 

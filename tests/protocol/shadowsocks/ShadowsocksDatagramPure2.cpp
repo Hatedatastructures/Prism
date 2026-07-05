@@ -6,7 +6,7 @@
  *          同时测试匿名命名空间的 parse_body_after_timestamp。
  */
 
-#include <prism/core/core.hpp>
+#include <prism/foundation/foundation.hpp>
 #include <prism/trace/spdlog.hpp>
 
 

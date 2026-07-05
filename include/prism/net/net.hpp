@@ -26,7 +26,7 @@
 #include <prism/net/connect/pool/config.hpp>
 #include <prism/net/connect/pool/health.hpp>
 #include <prism/net/connect/pool/pool.hpp>
-#include <prism/net/connect/tunnel/forward.hpp>
+#include <prism/net/connect/tunnel/forward/basic.hpp>
 #include <prism/net/connect/tunnel/tunnel.hpp>
 #include <prism/net/connect/util.hpp>
 

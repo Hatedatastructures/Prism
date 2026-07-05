@@ -12,7 +12,7 @@
  */
 #pragma once
 
-#include <prism/core/memory/container.hpp>
+#include <prism/foundation/memory/container.hpp>
 #include <prism/net/transport/reliable.hpp>
 #include <prism/stealth/facade/restls/crypto.hpp>
 #include <prism/stealth/facade/restls/script.hpp>

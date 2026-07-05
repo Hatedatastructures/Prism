@@ -8,7 +8,7 @@
 
 #include <gtest/gtest.h>
 
-#include <prism/core/core.hpp>
+#include <prism/foundation/foundation.hpp>
 #include <prism/net/transport/reliable.hpp>
 
 #include <boost/asio.hpp>
@@ -143,7 +143,7 @@ namespace
         auto reliable = std::make_shared<psm::transport::reliable>(std::move(sock)); shadowtls_transport transport(std::move(reliable), std::move(handover));
 
         EXPECT_TRUE(transport.transport_type() == psm::transport::transmission::type::tcp) << "type: tcp";
-        EXPECT_TRUE(transport.next_layer() == nullptr) << "layer: null";
+        EXPECT_TRUE(transport.next_layer() != nullptr) << "layer: reliable";
     }
 
     TEST(ShadowtlsTransportDeep, Close)

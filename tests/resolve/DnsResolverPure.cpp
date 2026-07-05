@@ -10,7 +10,7 @@
  *          改为在测试中独立复现等价逻辑，保持与源码同步。
  */
 
-#include <prism/core/core.hpp>
+#include <prism/foundation/foundation.hpp>
 #include <prism/net/resolve/dns/detail/format.hpp>
 #include <prism/trace/spdlog.hpp>
 

@@ -10,7 +10,7 @@
 #include <benchmark/benchmark.h>
 #include <prism/stealth/facade/restls/script.hpp>
 #include <prism/stealth/stack/anytls/padding.hpp>
-#include <prism/core/memory/container.hpp>
+#include <prism/foundation/memory/container.hpp>
 
 #include <cstdint>
 #include <string>

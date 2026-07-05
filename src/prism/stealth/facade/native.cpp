@@ -3,7 +3,7 @@
 #include <prism/config/config.hpp>
 #include <prism/net/net.hpp>
 #include <prism/net/connect/util.hpp>
-#include <prism/core/fault/handling.hpp>
+#include <prism/foundation/fault/handling.hpp>
 #include <prism/proto/protocol/types.hpp>
 #include <prism/proto/protocol/tls/types.hpp>
 #include <prism/stealth/recognition/probe/analyzer.hpp>
@@ -41,44 +41,44 @@ namespace psm::stealth::native
     }
 
 
-    auto native::handshake(stealth::handshake_context ctx)
+    auto native::handshake(stealth::stealth_opts ctx)
         -> net::awaitable<stealth::handshake_result>
     {
         stealth::handshake_result result;
 
         if (!ctx.session)
         {
-            trace::warn<flt::conn | flt::protocol>("No session context, aborting");
+            trace::warn<flt::conn | flt::protocol>(prefix_, "No session context, aborting");
             result.error = fault::code::not_supported;
             co_return result;
         }
 
         if (!ctx.session->server_ctx.ssl_ctx)
         {
-            trace::warn<flt::conn | flt::protocol>("No SSL context configured, aborting");
+            trace::warn<flt::conn | flt::protocol>(prefix_, "No SSL context configured, aborting");
             result.error = fault::code::not_supported;
             co_return result;
         }
 
-        if (!ctx.inbound)
+        if (!ctx.transport)
         {
-            trace::warn<flt::conn | flt::protocol>("No inbound transport, aborting");
+            trace::warn<flt::conn | flt::protocol>(prefix_, "No inbound transport, aborting");
             result.error = fault::code::not_supported;
             co_return result;
         }
 
         // native 不能在 snapshot 上做 SSL 握手：snapshot 的回放机制与
         // BoringSSL SSL_accept 的读写交替流程冲突
-        auto raw = connect::peel(std::move(ctx.inbound));
+        auto raw = connect::peel(std::move(ctx.transport));
 
         if (!raw)
         {
-            trace::warn<flt::conn | flt::protocol>("Unwrap exhausted all layers, no raw transport");
+            trace::warn<flt::conn | flt::protocol>(prefix_, "Unwrap exhausted all layers, no raw transport");
             result.error = fault::code::not_supported;
             co_return result;
         }
 
-        trace::debug<flt::conn | flt::protocol>("Unwrap complete, preread={} bytes, raw={}",
+        trace::debug<flt::conn | flt::protocol>(prefix_, "Unwrap complete, preread={} bytes, raw={}",
                      ctx.preread.size(), fmt::ptr(raw.get()));
 
         // 用 preread（ClientHello 完整数据）创建干净的 preview 包装
@@ -86,14 +86,14 @@ namespace psm::stealth::native
         auto clean_inbound = transport::wrap_with_preview(
             std::move(raw), preread_span);
 
-        trace::debug<flt::conn | flt::protocol>("Starting SSL handshake");
+        trace::debug<flt::conn | flt::protocol>(prefix_, "Starting SSL handshake");
         auto [ssl_ec, ssl_stream, recovered] = co_await transport::encrypted::ssl_handshake(
             std::move(clean_inbound), *ctx.session->server_ctx.ssl_ctx);
         if (fault::failed(ssl_ec) || !ssl_stream)
         {
-            ctx.inbound = std::move(recovered);
+            ctx.transport = std::move(recovered);
             result.error = ssl_ec;
-            trace::warn<flt::conn | flt::protocol>("TLS handshake failed: {}", fault::describe(ssl_ec));
+            trace::warn<flt::conn | flt::protocol>(prefix_, "TLS handshake failed: {}", fault::describe(ssl_ec));
             co_return result;
         }
 
@@ -116,7 +116,7 @@ namespace psm::stealth::native
             if (ec)
             {
                 result.error = fault::to_code(ec);
-                trace::warn<flt::conn | flt::protocol>("Inner probe read failed: {}", ec.message());
+                trace::warn<flt::conn | flt::protocol>(prefix_, "Inner probe read failed: {}", ec.message());
                 co_return result;
             }
             inner_n += n;
@@ -133,7 +133,7 @@ namespace psm::stealth::native
         // 60+ 字节仍无法识别，由 executor 统一做二次探测
         result.detected = protocol::protocol_type::unknown;
 
-        trace::debug<flt::conn | flt::protocol>("Inner protocol: {}",
+        trace::debug<flt::conn | flt::protocol>(prefix_, "Inner protocol: {}",
                     protocol::to_string_view(result.detected));
 
         result.transport = std::move(encrypted_trans);

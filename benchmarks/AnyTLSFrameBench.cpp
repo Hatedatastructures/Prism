@@ -9,7 +9,7 @@
 
 #include <benchmark/benchmark.h>
 #include <prism/stealth/stack/anytls/mux/frame.hpp>
-#include <prism/core/memory/container.hpp>
+#include <prism/foundation/memory/container.hpp>
 
 #include <array>
 #include <cstdint>

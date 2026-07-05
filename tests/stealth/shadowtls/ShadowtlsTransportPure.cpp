@@ -8,7 +8,7 @@
 
 #include <gtest/gtest.h>
 
-#include <prism/core/core.hpp>
+#include <prism/foundation/foundation.hpp>
 
 // #include 源文件增加覆盖率计数
 #include "../../src/prism/stealth/facade/shadowtls/transport.cpp"

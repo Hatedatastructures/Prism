@@ -7,7 +7,7 @@
 
 #include <gtest/gtest.h>
 
-#include <prism/core/core.hpp>
+#include <prism/foundation/foundation.hpp>
 #include <prism/stealth/stealth.hpp>
 #include <prism/config/config.hpp>
 

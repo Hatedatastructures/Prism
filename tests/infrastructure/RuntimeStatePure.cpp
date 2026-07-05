@@ -4,7 +4,7 @@
  * @details 测试 worker_load 的原子操作快照和 system_state 的启动标记/快照
  */
 
-#include <prism/core/core.hpp>
+#include <prism/foundation/foundation.hpp>
 #include <prism/account/stats/runtime.hpp>
 #include <prism/trace/spdlog.hpp>
 

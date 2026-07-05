@@ -11,7 +11,7 @@
 #include <benchmark/benchmark.h>
 #include <prism/proto/protocol/socks5/framing.hpp>
 #include <prism/proto/protocol/common/framing.hpp>
-#include <prism/core/memory/container.hpp>
+#include <prism/foundation/memory/container.hpp>
 
 #include <cstdint>
 

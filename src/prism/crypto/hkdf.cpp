@@ -25,7 +25,6 @@ namespace psm::crypto
 
         if (!ret)
         {
-            trace::error("HMAC-SHA256 failed");
             result.fill(0);
         }
 
@@ -44,7 +43,6 @@ namespace psm::crypto
 
         if (!ret)
         {
-            trace::error("HMAC-SHA512 failed");
             result.fill(0);
         }
 
@@ -69,20 +67,17 @@ namespace psm::crypto
     {
         if (length > 255 * sha256_len)
         {
-            trace::error("HKDF-Expand length {} exceeds max {}", length, 255 * sha256_len);
             return {fault::code::invalid_argument, {}};
         }
 
         if (prk.size() < sha256_len)
         {
-            trace::error("HKDF-Expand PRK too short: {}", prk.size());
             return {fault::code::invalid_argument, {}};
         }
 
         constexpr std::size_t max_info_size = 514;
         if (info.size() > max_info_size)
         {
-            trace::error("HKDF-Expand info too long: {}", info.size());
             return {fault::code::invalid_argument, {}};
         }
 
@@ -136,13 +131,11 @@ namespace psm::crypto
 
         if (full_label_len > 255)
         {
-            trace::error("HKDF-Expand-Label label too long: {}", full_label_len);
             return {fault::code::invalid_argument, {}};
         }
 
         if (context.size() > 255)
         {
-            trace::error("HKDF-Expand-Label context too long: {}", context.size());
             return {fault::code::invalid_argument, {}};
         }
 

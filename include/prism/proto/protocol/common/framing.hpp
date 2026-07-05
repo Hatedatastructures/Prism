@@ -9,7 +9,7 @@
 
 #pragma once
 
-#include <prism/core/fault/code.hpp>
+#include <prism/foundation/fault/code.hpp>
 #include <prism/proto/protocol/common/address.hpp>
 
 #include <cstdint>

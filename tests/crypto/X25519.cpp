@@ -9,7 +9,7 @@
 #include <gtest/gtest.h>
 
 #include <prism/crypto/x25519.hpp>
-#include <prism/core/core.hpp>
+#include <prism/foundation/foundation.hpp>
 #include <prism/trace/spdlog.hpp>
 
 #include <array>

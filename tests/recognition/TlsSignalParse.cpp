@@ -3,7 +3,7 @@
  * @brief TLS ClientHello 解析器纯函数测试 — parse_client_hello 分支覆盖
  */
 
-#include <prism/core/core.hpp>
+#include <prism/foundation/foundation.hpp>
 #include <prism/proto/protocol/tls/types.hpp>
 #include <prism/stealth/recognition/tls/signal.hpp>
 #include <prism/trace/spdlog.hpp>

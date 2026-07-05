@@ -45,13 +45,11 @@ namespace psm::crypto
             nonce_len_ = 24;
             break;
         default:
-            trace::error("未知加密算法: {}", static_cast<std::int32_t>(cipher));
             return;
         }
 
         if (!aead)
         {
-            trace::error("获取 AEAD 算法失败");
             return;
         }
 
@@ -59,7 +57,6 @@ namespace psm::crypto
         EVP_AEAD_CTX_zero(raw_ctx);
         if (!EVP_AEAD_CTX_init(raw_ctx, aead, key.data(), key.size(), EVP_AEAD_DEFAULT_TAG_LENGTH, nullptr))
         {
-            trace::error("EVP_AEAD_CTX_init 失败");
             EVP_AEAD_CTX_cleanup(raw_ctx);
             delete raw_ctx;
             return;
@@ -104,7 +101,6 @@ namespace psm::crypto
 
         if (is_nonce_exhausted())
         {
-            trace::error("seal nonce 溢出");
             return fault::code::crypto_error;
         }
 
@@ -136,7 +132,6 @@ namespace psm::crypto
 
         if (is_nonce_exhausted())
         {
-            trace::error("open nonce 溢出");
             return fault::code::crypto_error;
         }
 

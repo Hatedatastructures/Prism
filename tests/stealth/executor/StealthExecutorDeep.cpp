@@ -9,7 +9,7 @@
 
 #include <gtest/gtest.h>
 
-#include <prism/core/core.hpp>
+#include <prism/foundation/foundation.hpp>
 
 // 不用匿名命名空间，因为我们 #include 的源文件里的 anonymous namespace
 // 在 psm::stealth 内，需要在同一命名空间或使用 using 声明

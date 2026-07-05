@@ -1,18 +1,19 @@
 target_sources(${PROJECT_NAME}_static_library
         PRIVATE
 
+        handler.cpp
         socks5/conn.cpp
-        socks5/process.cpp
+        socks5/handler.cpp
         trojan/conn.cpp
         trojan/framing.cpp
-        trojan/process.cpp
+        trojan/handler.cpp
         vless/conn.cpp
         vless/framing.cpp
-        vless/process.cpp
+        vless/handler.cpp
         shadowsocks/conn.cpp
         shadowsocks/framing.cpp
         shadowsocks/util/datagram.cpp
-        shadowsocks/process.cpp
+        shadowsocks/handler.cpp
         tls/record.cpp
         tls/hello.cpp
 )
@@ -23,6 +24,7 @@ target_sources(${PROJECT_NAME}_static_library
         BASE_DIRS ${PROJECT_SOURCE_DIR}/include
         FILES
             ${PROJECT_SOURCE_DIR}/include/prism/proto/protocol/types.hpp
+            ${PROJECT_SOURCE_DIR}/include/prism/proto/protocol/handler.hpp
             ${PROJECT_SOURCE_DIR}/include/prism/proto/protocol/common/target.hpp
             ${PROJECT_SOURCE_DIR}/include/prism/proto/protocol/common/mux.hpp
             ${PROJECT_SOURCE_DIR}/include/prism/proto/protocol/tls/types.hpp
@@ -40,27 +42,27 @@ target_sources(${PROJECT_NAME}_static_library
             ${PROJECT_SOURCE_DIR}/include/prism/proto/protocol/socks5/packet.hpp
             ${PROJECT_SOURCE_DIR}/include/prism/proto/protocol/socks5/conn.hpp
             ${PROJECT_SOURCE_DIR}/include/prism/proto/protocol/socks5/framing.hpp
-            ${PROJECT_SOURCE_DIR}/include/prism/proto/protocol/socks5/process.hpp
+            ${PROJECT_SOURCE_DIR}/include/prism/proto/protocol/socks5/handler.hpp
             ${PROJECT_SOURCE_DIR}/include/prism/proto/protocol/trojan/config.hpp
             ${PROJECT_SOURCE_DIR}/include/prism/proto/protocol/trojan/constants.hpp
             ${PROJECT_SOURCE_DIR}/include/prism/proto/protocol/trojan/packet.hpp
             ${PROJECT_SOURCE_DIR}/include/prism/proto/protocol/trojan/conn.hpp
             ${PROJECT_SOURCE_DIR}/include/prism/proto/protocol/trojan/framing.hpp
-            ${PROJECT_SOURCE_DIR}/include/prism/proto/protocol/trojan/process.hpp
+            ${PROJECT_SOURCE_DIR}/include/prism/proto/protocol/trojan/handler.hpp
             ${PROJECT_SOURCE_DIR}/include/prism/proto/protocol/vless.hpp
             ${PROJECT_SOURCE_DIR}/include/prism/proto/protocol/vless/config.hpp
             ${PROJECT_SOURCE_DIR}/include/prism/proto/protocol/vless/constants.hpp
             ${PROJECT_SOURCE_DIR}/include/prism/proto/protocol/vless/packet.hpp
             ${PROJECT_SOURCE_DIR}/include/prism/proto/protocol/vless/conn.hpp
             ${PROJECT_SOURCE_DIR}/include/prism/proto/protocol/vless/framing.hpp
-            ${PROJECT_SOURCE_DIR}/include/prism/proto/protocol/vless/process.hpp
+            ${PROJECT_SOURCE_DIR}/include/prism/proto/protocol/vless/handler.hpp
             ${PROJECT_SOURCE_DIR}/include/prism/proto/protocol/shadowsocks.hpp
             ${PROJECT_SOURCE_DIR}/include/prism/proto/protocol/shadowsocks/config.hpp
             ${PROJECT_SOURCE_DIR}/include/prism/proto/protocol/shadowsocks/constants.hpp
             ${PROJECT_SOURCE_DIR}/include/prism/proto/protocol/shadowsocks/packet.hpp
             ${PROJECT_SOURCE_DIR}/include/prism/proto/protocol/shadowsocks/conn.hpp
             ${PROJECT_SOURCE_DIR}/include/prism/proto/protocol/shadowsocks/framing.hpp
-            ${PROJECT_SOURCE_DIR}/include/prism/proto/protocol/shadowsocks/process.hpp
+            ${PROJECT_SOURCE_DIR}/include/prism/proto/protocol/shadowsocks/handler.hpp
             ${PROJECT_SOURCE_DIR}/include/prism/proto/protocol/shadowsocks/util/salts.hpp
             ${PROJECT_SOURCE_DIR}/include/prism/proto/protocol/shadowsocks/util/replay.hpp
             ${PROJECT_SOURCE_DIR}/include/prism/proto/protocol/shadowsocks/util/tracker.hpp

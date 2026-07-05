@@ -5,11 +5,11 @@
  * 覆盖正常解析和各种边界条件（截断缓冲区、无效字段、扩展解析等）。
  */
 
-#include <prism/core/core.hpp>
+#include <prism/foundation/foundation.hpp>
 #include <prism/proto/protocol/tls/hello.hpp>
 #include <prism/proto/protocol/tls/record.hpp>
 #include <prism/trace/spdlog.hpp>
-#include <prism/core/core.hpp>
+#include <prism/foundation/foundation.hpp>
 #include <gtest/gtest.h>
 
 #include <array>

@@ -15,7 +15,7 @@
  */
 #pragma once
 
-#include <prism/core/memory/container.hpp>
+#include <prism/foundation/memory/container.hpp>
 #include <prism/proto/multiplex/config.hpp>
 #include <prism/proto/multiplex/core.hpp>
 #include <prism/proto/multiplex/parcel.hpp>

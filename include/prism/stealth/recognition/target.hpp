@@ -8,7 +8,7 @@
  */
 #pragma once
 
-#include <prism/core/memory/container.hpp>
+#include <prism/foundation/memory/container.hpp>
 #include <prism/proto/protocol/common/target.hpp>
 #include <prism/proto/protocol/http/parser.hpp>
 

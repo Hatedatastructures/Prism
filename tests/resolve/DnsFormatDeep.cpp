@@ -6,7 +6,7 @@
  *          所有被测函数均为纯函数或仅操作 PMR 内存，无 I/O 和协程依赖。
  */
 
-#include <prism/core/core.hpp>
+#include <prism/foundation/foundation.hpp>
 #include <prism/trace/spdlog.hpp>
 
 

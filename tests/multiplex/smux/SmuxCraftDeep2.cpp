@@ -10,7 +10,8 @@
  *          通过 #include 源文件确保 gcov 计入覆盖行。
  */
 
-#include <prism/core/core.hpp>
+#include <prism/foundation/foundation.hpp>
+#include <prism/instance/outbound/direct.hpp>
 #include <prism/trace/spdlog.hpp>
 
 #include "common/MockTransport.hpp"
@@ -48,6 +49,7 @@ namespace
         std::shared_ptr<MockTransport> transport;
         std::unique_ptr<psm::connect::connection_pool> pool;
         std::unique_ptr<psm::connect::router> router_ptr;
+        std::unique_ptr<psm::outbound::direct> outbound_ptr;
         std::shared_ptr<smux::craft> craft_obj;
         static multiplex::config cfg;
 
@@ -59,7 +61,8 @@ namespace
             psm::resolve::dns::config dns_cfg;
             psm::connect::router_options ropts{*pool, ioc, dns_cfg};
             router_ptr = std::make_unique<psm::connect::router>(std::move(ropts));
-            multiplex::core_options opts{transport, *router_ptr, cfg, nullptr};
+            outbound_ptr = std::make_unique<psm::outbound::direct>(*router_ptr);
+            multiplex::core_options opts{transport, outbound_ptr.get(), cfg, nullptr};
             craft_obj = std::make_shared<smux::craft>(std::move(opts));
         }
 

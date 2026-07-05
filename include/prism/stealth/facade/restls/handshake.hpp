@@ -11,7 +11,7 @@
  */
 #pragma once
 
-#include <prism/core/memory/container.hpp>
+#include <prism/foundation/memory/container.hpp>
 #include <prism/net/transport/transmission.hpp>
 #include <prism/stealth/facade/restls/config.hpp>
 #include <prism/stealth/facade/restls/script.hpp>
@@ -55,6 +55,7 @@ namespace psm::stealth::restls
         const config &cfg;                                ///< Restls 配置
         memory::vector<std::byte> client_hello;           ///< 预读的 ClientHello
         handshake_detail &detail;                         ///< 握手输出
+        std::shared_ptr<trace::trace_context> prefix;
     };
 
     /**

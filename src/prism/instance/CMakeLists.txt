@@ -6,10 +6,9 @@ target_sources(${PROJECT_NAME}_static_library
             ${PROJECT_SOURCE_DIR}/include/prism/instance/instance.hpp
             ${PROJECT_SOURCE_DIR}/include/prism/instance/config.hpp
             ${PROJECT_SOURCE_DIR}/include/prism/instance/serialize.hpp
-            ${PROJECT_SOURCE_DIR}/include/prism/instance/outbound/direct.hpp
-            ${PROJECT_SOURCE_DIR}/include/prism/instance/outbound/proxy.hpp
 )
 
+add_subdirectory(outbound)
 add_subdirectory(session)
 add_subdirectory(front)
 add_subdirectory(worker)

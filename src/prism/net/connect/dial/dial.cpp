@@ -14,7 +14,8 @@ namespace psm::connect
 
     using resolve::dns::detail::parse_port;
 
-    auto retry_connect(router &rt, const std::span<const tcp::endpoint> endpoints)
+    auto retry_connect(router &rt, const std::span<const tcp::endpoint> endpoints,
+                       std::shared_ptr<trace::trace_context> trace)
         -> net::awaitable<pooled_connection>
     {
         if (endpoints.empty())
@@ -23,13 +24,13 @@ namespace psm::connect
         }
 
         address_racer racer(rt.pool());
-        co_return co_await racer.race(endpoints);
+        co_return co_await racer.race(endpoints, trace);
     }
 
-    auto async_direct(router &rt, const tcp::endpoint ep)
+    auto async_direct(router &rt, const tcp::endpoint ep, std::shared_ptr<trace::trace_context> trace)
         -> net::awaitable<std::pair<fault::code, pooled_connection>>
     {
-        auto [code, conn] = co_await rt.pool().async_acquire(ep);
+        auto [code, conn] = co_await rt.pool().async_acquire(ep, trace);
         if (!conn.valid())
         {
             co_return std::make_pair(fault::code::bad_gateway, pooled_connection{});
@@ -38,7 +39,7 @@ namespace psm::connect
         co_return std::make_pair(fault::code::success, std::move(conn));
     }
 
-    auto async_forward(router &rt, const std::string_view host, const std::string_view port)
+    auto async_forward(router &rt, const std::string_view host, const std::string_view port, std::shared_ptr<trace::trace_context> trace)
         -> net::awaitable<std::pair<fault::code, pooled_connection>>
     {
         {
@@ -49,13 +50,13 @@ namespace psm::connect
             {
                 if (addr.is_v6() && rt.ipv6_disabled())
                 {
-                    trace::debug<flt::conn | flt::protocol>("IPv6 disabled, rejected literal: {}", host);
+                    trace::debug<flt::conn | flt::protocol>(trace, "IPv6 disabled, rejected literal: {}", host);
                     co_return std::make_pair(fault::code::host_noreply, pooled_connection{});
                 }
                 const auto port_num = parse_port(port).value_or(0);
                 const tcp::endpoint ep(addr, port_num);
-                trace::debug<flt::conn | flt::protocol>("literal address, direct connect: {}", host);
-                auto [code, conn] = co_await rt.pool().async_acquire(ep);
+                trace::debug<flt::conn | flt::protocol>(trace, "literal address, direct connect: {}", host);
+                auto [code, conn] = co_await rt.pool().async_acquire(ep, trace);
                 if (conn.valid())
                 {
                     co_return std::make_pair(fault::code::success, std::move(conn));
@@ -68,11 +69,11 @@ namespace psm::connect
         auto [resolve_ec, endpoints] = co_await rt.dns().resolve_tcp(host, port);
         if (fault::failed(resolve_ec) || endpoints.empty())
         {
-            trace::warn<flt::conn | flt::protocol>("DNS resolve {}:{} failed", host, port);
+            trace::warn<flt::conn | flt::protocol>(trace, "DNS resolve {}:{} failed", host, port);
             co_return std::make_pair(fault::code::host_noreply, pooled_connection{});
         }
 
-        auto conn = co_await retry_connect(rt, endpoints);
+        auto conn = co_await retry_connect(rt, endpoints, trace);
         if (conn.valid())
         {
             co_return std::make_pair(fault::code::success, std::move(conn));
@@ -130,67 +131,13 @@ namespace psm::connect
         co_return co_await rt.dns().resolve_udp(host, port);
     }
 
-    // 核心拨号入口：根据 dial_options 决定连接方式
-    // 1. 反向路由（allow_reverse）：查反向映射表，将目标地址映射到预配置的上游
-    // 2. 正向路由（async_forward）：DNS 解析 → Happy Eyeballs 竞速 → 连接池复用
-    // 连接成功后包装为 transport::reliable 返回
-    auto dial(router &rt, dial_options opts)
-        -> net::awaitable<std::pair<fault::code, shared_transmission>>
-    {
-        const auto &label = opts.label;
-        const auto &target = opts.target;
-
-        if (rt.ipv6_disabled() && is_ipv6(target.host))
-        {
-            trace::debug<flt::conn | flt::protocol>("{} rejecting IPv6 literal: {}:{}", label, target.host, target.port);
-            co_return std::make_pair(fault::code::ipv6_disabled, nullptr);
-        }
-
-        fault::code ec;
-        pooled_connection conn;
-        // 反向路由查找：非 no_reverse/neither 且目标非正向代理时查反向映射表
-        // 反向路由允许将特定目标域名映射到预配置的上游，用于负载均衡或路由策略
-        const auto allow_reverse = opts.routing != dial_options::flag::no_reverse
-            && opts.routing != dial_options::flag::neither;
-        if (allow_reverse && !target.positive)
-        {
-            auto result = co_await rt.async_reverse(target.host);
-            ec = result.first;
-            conn = std::move(result.second);
-        }
-        else
-        {
-            auto result = co_await async_forward(rt, target.host, target.port);
-            ec = result.first;
-            conn = std::move(result.second);
-        }
-
-        if (fault::failed(ec))
-        {
-            trace::warn<flt::conn | flt::protocol>("{} route failed: {}, target: {}:{}", label,
-                                                    fault::describe(ec), target.host, target.port);
-            co_return std::make_pair(ec, nullptr);
-        }
-
-        const auto require_open = opts.routing != dial_options::flag::no_open
-            && opts.routing != dial_options::flag::neither;
-        if (require_open && !conn.valid())
-        {
-            trace::warn<flt::conn | flt::protocol>("{} socket not open, target: {}:{}", label, target.host, target.port);
-            co_return std::make_pair(fault::code::connection_refused, nullptr);
-        }
-
-        trace::info<flt::conn | flt::protocol>("{} success, target: {}:{}", label, target.host, target.port);
-        co_return std::make_pair(ec, transport::make_reliable(std::move(conn)));
-    }
-
-    auto dial(outbound::proxy &outbound_proxy, const protocol::target &target, const net::any_io_executor &executor)
+    auto dial(outbound::proxy &outbound_proxy, const protocol::target &target, const net::any_io_executor &executor, std::shared_ptr<trace::trace_context> trace)
         -> net::awaitable<std::pair<fault::code, shared_transmission>>
     {
         auto [ec, trans] = co_await outbound_proxy.async_connect(target, executor);
         if (fault::failed(ec) || !trans)
         {
-            trace::debug<flt::conn | flt::protocol>("outbound dial failed: {}, target: {}:{}",
+            trace::debug<flt::conn | flt::protocol>(trace, "outbound dial failed: {}, target: {}:{}",
                          fault::describe(ec), target.host, target.port);
         }
         co_return std::pair{ec, std::move(trans)};

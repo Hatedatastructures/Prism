@@ -17,11 +17,11 @@
 
 #include <gtest/gtest.h>
 
-#include <prism/core/core.hpp>
+#include <prism/foundation/foundation.hpp>
 
 #include "common/MockTransport.hpp"
 
-#include <prism/core/core.hpp>
+#include <prism/foundation/foundation.hpp>
 #include <prism/stealth/stack/anytls/mux/frame.hpp>
 #include <prism/stealth/stack/anytls/padding.hpp>
 #include <boost/asio.hpp>

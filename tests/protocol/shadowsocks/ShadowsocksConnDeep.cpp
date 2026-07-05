@@ -7,7 +7,7 @@
  *          acknowledge、async_read_some 等全部接口。
  */
 
-#include <prism/core/core.hpp>
+#include <prism/foundation/foundation.hpp>
 #include <prism/trace/spdlog.hpp>
 #include <prism/crypto/blake3.hpp>
 #include <prism/crypto/aead.hpp>

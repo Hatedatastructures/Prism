@@ -7,7 +7,7 @@
  */
 #pragma once
 
-#include <prism/core/memory/container.hpp>
+#include <prism/foundation/memory/container.hpp>
 #include <prism/stealth/stack/anytls/mux/session.hpp>
 #include <prism/trace/trace.hpp>
 #include <prism/net/transport/transmission.hpp>

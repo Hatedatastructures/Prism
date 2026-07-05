@@ -15,7 +15,7 @@
 #include <prism/net/connect/pool/pool.hpp>
 #include <prism/net/connect/dial/router.hpp>
 #include <prism/net/transport/reliable.hpp>
-#include <prism/core/core.hpp>
+#include <prism/foundation/foundation.hpp>
 #include <prism/trace/spdlog.hpp>
 #include <gtest/gtest.h>
 
@@ -117,7 +117,7 @@ namespace
 
         // 构造 worker 上下文
         auto mr = psm::memory::system::local_pool();
-        psm::context::worker worker_ctx{ioc, *router, mr};
+        psm::context::worker_ref worker_ctx{ioc, psm::worker::borrow{}, mr};
 
         // 创建一对已连接的 socket，模拟入站传输
         tcp::acceptor acceptor(ioc, tcp::endpoint(net::ip::make_address("127.0.0.1"), 0));

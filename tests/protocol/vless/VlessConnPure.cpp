@@ -4,7 +4,7 @@
  * @details 测试 uuid_to_string 格式化
  */
 
-#include <prism/core/core.hpp>
+#include <prism/foundation/foundation.hpp>
 #include "../../src/prism/proto/protocol/vless/conn.cpp"
 #include <prism/trace/spdlog.hpp>
 

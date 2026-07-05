@@ -6,9 +6,9 @@
  *          进行独立验证，覆盖最快响应选择、全失败回退、空结果集和混合成功/失败场景。
  */
 
-#include <prism/core/core.hpp>
+#include <prism/foundation/foundation.hpp>
 #include <prism/trace/spdlog.hpp>
-#include <prism/core/fault/handling.hpp>
+#include <prism/foundation/fault/handling.hpp>
 #include <prism/net/resolve/dns/upstream.hpp>
 
 

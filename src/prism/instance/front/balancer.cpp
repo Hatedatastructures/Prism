@@ -105,11 +105,18 @@ namespace psm::instance::front
         double min_score = std::numeric_limits<double>::max();
         std::size_t overloaded_count = 0;
 
-        // 遍历所有 worker：采集负载、更新过载状态、记录候选分数
+        // 遍历所有 worker：采集负载、更新过载状态、记录候选分数。
+        // 健康检查：alive() 返 false 的 worker 视为已死，评分置 max（必然过载），
+        // 跳过 snapshot 调用避免访问已销毁对象。
         for (std::size_t index = 0; index < workers_count; ++index)
         {
-            const ::psm::stats::worker_snapshot snapshot = bindings_[index].snapshot();
-            const double load_score = score(snapshot);
+            const bool is_alive = !bindings_[index].alive || bindings_[index].alive();
+            double load_score = std::numeric_limits<double>::max();
+            if (is_alive)
+            {
+                const ::psm::stats::worker_snapshot snapshot = bindings_[index].snapshot();
+                load_score = score(snapshot);
+            }
             refresh_state(index, load_score);
 
             if (index == primary)

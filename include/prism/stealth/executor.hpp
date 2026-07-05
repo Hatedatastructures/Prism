@@ -58,7 +58,7 @@ namespace psm::stealth
          * @details 候选为空时按注册顺序执行；全部失败则执行 native 兜底。
          * 每个方案返回 TLS 表示 "不是我"，transport 和 preread 数据传递给下一个方案。
          */
-        [[nodiscard]] auto execute_by_analysis(const recognition::analysis_result &analysis, handshake_context ctx) const
+        [[nodiscard]] auto execute_by_analysis(const recognition::analysis_result &analysis, stealth_opts ctx) const
             -> net::awaitable<handshake_result>;
 
         /**
@@ -67,7 +67,7 @@ namespace psm::stealth
          * @param ctx 方案执行上下文
          * @return 执行结果
          */
-        [[nodiscard]] auto execute(const memory::vector<memory::string> &candidates, handshake_context ctx) const
+        [[nodiscard]] auto execute(const memory::vector<memory::string> &candidates, stealth_opts ctx) const
             -> net::awaitable<handshake_result>;
 
         /// 设置探测行为追踪器（RFC-065）
@@ -80,17 +80,17 @@ namespace psm::stealth
         [[nodiscard]] auto find_scheme(std::string_view name) const
             -> shared_scheme;
 
-        [[nodiscard]] static auto execute_single(shared_scheme scheme, handshake_context ctx)
+        [[nodiscard]] static auto execute_single(shared_scheme scheme, stealth_opts ctx)
             -> net::awaitable<handshake_result>;
 
-        static void pass_through(handshake_context &ctx, const handshake_result &res);
+        static void pass_through(stealth_opts &ctx, const handshake_result &res);
 
-        static void ensure_snapshot(handshake_context &ctx);
+        static void ensure_snapshot(stealth_opts &ctx);
 
-        [[nodiscard]] static auto try_rewind(handshake_context &ctx, rewind_mode mode = rewind_mode::clean)
+        [[nodiscard]] static auto try_rewind(stealth_opts &ctx, rewind_mode mode = rewind_mode::clean)
             -> bool;
 
-        [[nodiscard]] auto execute_pipeline(const memory::vector<memory::string> &order, handshake_context ctx) const
+        [[nodiscard]] auto execute_pipeline(const memory::vector<memory::string> &order, stealth_opts ctx) const
             -> net::awaitable<handshake_result>;
     };
 

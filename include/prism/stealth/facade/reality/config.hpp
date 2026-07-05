@@ -9,7 +9,7 @@
 
 #pragma once
 
-#include <prism/core/memory/container.hpp>
+#include <prism/foundation/memory/container.hpp>
 
 
 namespace psm::stealth::reality

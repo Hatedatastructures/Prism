@@ -1,6 +1,7 @@
 #include <prism/net/connect/pool/pool.hpp>
 
 #include <prism/net/connect/pool/health.hpp>
+#include <boost/asio/co_spawn.hpp>
 #include <prism/trace/trace.hpp>
 
 #include <boost/asio/experimental/awaitable_operators.hpp>
@@ -152,7 +153,7 @@ namespace psm::connect
                 {
                     stat_idle_ -= 1;
                     stat_hits_ += 1;
-                    trace::debug<flt::conn | flt::protocol>("reused {}:{} (idle {}ms)", opts.endpoint.address().to_string(), opts.endpoint.port(),
+                    trace::debug<flt::conn | flt::protocol>(std::shared_ptr<trace::trace_context>{}, "reused {}:{} (idle {}ms)", opts.endpoint.address().to_string(), opts.endpoint.port(),
                                  std::chrono::duration_cast<std::chrono::milliseconds>(opts.now - last_used).count());
                     co_return std::make_pair(fault::code::success, pooled_connection(this, socket, opts.endpoint));
                 }
@@ -180,7 +181,7 @@ namespace psm::connect
             sock.set_option(tcp::no_delay(true), opt_ec);
             if (opt_ec)
             {
-                trace::warn<flt::conn | flt::protocol>("failed to set TCP_NODELAY: {}", opt_ec.message());
+
                 opt_ec.clear();
             }
         }
@@ -189,7 +190,7 @@ namespace psm::connect
             sock.set_option(tcp::socket::keep_alive(true), opt_ec);
             if (opt_ec)
             {
-                trace::warn<flt::conn | flt::protocol>("failed to set SO_KEEPALIVE: {}", opt_ec.message());
+
                 opt_ec.clear();
             }
         }
@@ -198,7 +199,7 @@ namespace psm::connect
             sock.set_option(net::socket_base::receive_buffer_size(config_.recv_bufsz), opt_ec);
             if (opt_ec)
             {
-                trace::warn<flt::conn | flt::protocol>("failed to set SO_RCVBUF: {}", opt_ec.message());
+
                 opt_ec.clear();
             }
         }
@@ -207,20 +208,20 @@ namespace psm::connect
             sock.set_option(net::socket_base::send_buffer_size(config_.send_bufsz), opt_ec);
             if (opt_ec)
             {
-                trace::warn<flt::conn | flt::protocol>("failed to set SO_SNDBUF: {}", opt_ec.message());
+
                 opt_ec.clear();
             }
         }
     }
 
-    auto connection_pool::async_acquire(tcp::endpoint endpoint)
+    auto connection_pool::async_acquire(tcp::endpoint endpoint, std::shared_ptr<trace::trace_context> trace)
         -> net::awaitable<std::pair<fault::code, pooled_connection>>
     {
         stat_acquires_ += 1;
 
         if (!started_)
         {
-            trace::debug<flt::conn | flt::protocol>("start() not called, background cleanup is disabled");
+            trace::debug<flt::conn | flt::protocol>(trace, "start() not called, background cleanup is disabled");
         }
 
         const auto key = to_key(endpoint);
@@ -253,14 +254,14 @@ namespace psm::connect
         if (result.index() == 1)
         {
             delete_socket(sock);
-            trace::warn<flt::conn | flt::protocol>("connect timed out to {}:{}", endpoint.address().to_string(), endpoint.port());
+            trace::warn<flt::conn | flt::protocol>(trace, "connect timed out to {}:{}", endpoint.address().to_string(), endpoint.port());
             co_return std::make_pair(fault::code::timeout, pooled_connection{});
         }
 
         if (connect_ec)
         {
             delete_socket(sock);
-            trace::warn<flt::conn | flt::protocol>("connect failed: {}", connect_ec.message());
+            trace::warn<flt::conn | flt::protocol>(trace, "connect failed: {}", connect_ec.message());
             co_return std::make_pair(fault::code::bad_gateway, pooled_connection{});
         }
 
@@ -268,7 +269,7 @@ namespace psm::connect
 
         stat_creates_ += 1;
 
-        trace::debug<flt::conn | flt::protocol>("new connection to {}:{}", endpoint.address().to_string(), endpoint.port());
+        trace::debug<flt::conn | flt::protocol>(trace, "new connection to {}:{}", endpoint.address().to_string(), endpoint.port());
         co_return std::make_pair(fault::code::success, pooled_connection(this, sock, endpoint));
     }
 
@@ -286,7 +287,7 @@ namespace psm::connect
         // IPv6 连接默认不缓存，受配置控制
         if (!config_.cache_ipv6 && endpoint.address().is_v6())
         {
-            trace::debug<flt::conn | flt::protocol>("IPv6 connection not cached");
+                    // IPv6 connection not cached (trace removed)
             delete_socket(s);
             stat_evictions_ += 1;
             return;

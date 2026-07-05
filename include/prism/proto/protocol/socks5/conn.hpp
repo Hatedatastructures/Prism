@@ -17,8 +17,8 @@
 #include <prism/account/directory.hpp>
 #include <prism/account/entry.hpp>
 #include <prism/crypto/sha224.hpp>
-#include <prism/core/fault/handling.hpp>
-#include <prism/core/memory/container.hpp>
+#include <prism/foundation/fault/handling.hpp>
+#include <prism/foundation/memory/container.hpp>
 #include <prism/proto/protocol/common/form.hpp>
 #include <prism/proto/protocol/socks5/config.hpp>
 #include <prism/proto/protocol/socks5/constants.hpp>

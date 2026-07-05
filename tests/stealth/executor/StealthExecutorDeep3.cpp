@@ -9,7 +9,7 @@
  *          - execute 委托到 execute_pipeline
  */
 
-#include <prism/core/core.hpp>
+#include <prism/foundation/foundation.hpp>
 #include <prism/trace/spdlog.hpp>
 
 #include "common/MockTransport.hpp"
@@ -104,7 +104,7 @@ auto make_mock(std::string_view name,
 auto make_context() -> stealth::handshake_context
 {
     stealth::handshake_context ctx;
-    ctx.inbound = std::make_shared<psm::testing::MockTransport>();
+    ctx.transport = std::make_shared<psm::testing::MockTransport>();
     ctx.cfg = nullptr;
     return ctx;
 }

@@ -7,9 +7,9 @@
 
 #pragma once
 
-#include <prism/core/fault/code.hpp>
-#include <prism/core/memory/container.hpp>
-#include <prism/core/memory/pool.hpp>
+#include <prism/foundation/fault/code.hpp>
+#include <prism/foundation/memory/container.hpp>
+#include <prism/foundation/memory/pool.hpp>
 #include <prism/proto/protocol/common/target.hpp>
 #include <prism/proto/protocol/types.hpp>
 #include <prism/stealth/recognition/confidence.hpp>
@@ -18,6 +18,7 @@
 #include <prism/stealth/recognition/probe/probe.hpp>
 #include <prism/stealth/recognition/result.hpp>
 #include <prism/stealth/recognition/routes.hpp>
+#include <prism/stealth/scheme.hpp>
 #include <prism/net/transport/transmission.hpp>
 
 #include <boost/asio.hpp>
@@ -52,34 +53,6 @@ namespace psm::recognition
     // 统一入口：recognize()（完整识别流程）
 
     /**
-     * @struct recognize_context
-     * @brief 完整识别流程输入上下文
-     * @details 包含识别所需的所有输入，统一入口使用。
-     */
-    struct recognize_context
-    {
-        /** @brief 传输层（socket 或已包装的传输） */
-        transport::shared_transmission transport;
-
-        /** @brief 全局配置 */
-        const psm::config *cfg{nullptr};
-
-        /** @brief 路由器（fallback 用） */
-        connect::router *router{nullptr};
-
-        /** @brief 会话上下文（供方案使用） */
-        context::session *session{nullptr};
-
-        /** @brief session 保活（caller 必须赋值为 shared_ptr&lt;instance::session::session&gt;）。
-         *  类型用 shared_ptr&lt;void&gt; 避免 stealth → instance 循环依赖，运行时引用计数正确。
-         *  详见 docs/ARCHITECTURE.md */
-        std::shared_ptr<void> session_keepalive;
-
-        /** @brief 帧内存池（用于预读数据分配） */
-        memory::frame_arena *frame_arena{nullptr};
-    };
-
-    /**
      * @struct recognize_result
      * @brief 完整识别流程输出结果
      * @details 包含识别完成后的所有输出，统一入口使用。
@@ -107,7 +80,7 @@ namespace psm::recognition
 
     /**
      * @brief 执行完整协议识别流程
-     * @param ctx 识别上下文
+     * @param opts Stealth 层统一传参（含 transport / meta / trace / cfg / rt / session_keepalive / frame_arena）
      * @return 识别结果
      * @details 封装外层探测 + TLS 伪装方案识别的完整流程：
      *
@@ -120,41 +93,10 @@ namespace psm::recognition
      * 特征分析
      * 方案执行
      */
-    [[nodiscard]] auto recognize(recognize_context ctx)
+    [[nodiscard]] auto recognize(stealth::stealth_opts &opts)
         -> net::awaitable<recognize_result>;
 
     // 伪装方案识别：identify()（仅 TLS）
-
-    /**
-     * @struct identify_context
-     * @brief 协议识别上下文（输入参数）
-     * @details 包含识别所需的所有输入：传输层、配置、预读数据。
-     */
-    struct identify_context
-    {
-        /** @brief 传输层（socket 或已包装的传输） */
-        transport::shared_transmission transport;
-
-        /** @brief 全局配置 */
-        const psm::config *cfg{nullptr};
-
-        /** @brief 已预读数据（来自 protocol::probe） */
-        std::span<const std::byte> preread;
-
-        /** @brief 路由器（fallback 用） */
-        connect::router *router{nullptr};
-
-        /** @brief 会话上下文（可选，供方案使用） */
-        context::session *session{nullptr};
-
-        /** @brief session 保活（caller 必须赋值为 shared_ptr&lt;instance::session::session&gt;）。
-         *  类型用 shared_ptr&lt;void&gt; 避免 stealth → instance 循环依赖，运行时引用计数正确。
-         *  详见 docs/ARCHITECTURE.md */
-        std::shared_ptr<void> session_keepalive;
-
-        /** @brief 帧内存池（用于预读数据分配） */
-        memory::frame_arena *frame_arena{nullptr};
-    };
 
     /**
      * @struct identify_result
@@ -184,7 +126,7 @@ namespace psm::recognition
 
     /**
      * @brief 执行完整的协议识别生命周期
-     * @param ctx 识别上下文
+     * @param opts Stealth 层统一传参引用（内部修改 transport / preread 字段）
      * @return 识别结果
      * @details 封装完整的识别流程：
      *
@@ -205,7 +147,7 @@ namespace psm::recognition
      * 成功则返回结果
      * 失败则继续下一个或 fallback
      */
-    [[nodiscard]] auto identify(identify_context ctx)
+    [[nodiscard]] auto identify(stealth::stealth_opts &opts)
         -> net::awaitable<identify_result>;
 
 } // namespace psm::recognition

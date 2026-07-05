@@ -164,7 +164,7 @@ namespace psm::multiplex::smux
             break;
         }
         default:
-            trace::warn<flt::conn | flt::protocol>("unknown address type: {}", atype);
+            trace::warn<flt::conn | flt::protocol>(std::shared_ptr<trace::trace_context>{}, "unknown address type: {}", atype);
             return std::nullopt;
         }
 
@@ -248,7 +248,7 @@ namespace psm::multiplex::smux
             break;
         }
         default:
-            trace::warn<flt::conn | flt::protocol>("unknown UDP address type: {}", atype);
+            trace::warn<flt::conn | flt::protocol>(std::shared_ptr<trace::trace_context>{}, "unknown UDP address type: {}", atype);
             return std::nullopt;
         }
 

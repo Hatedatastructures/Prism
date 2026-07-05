@@ -8,7 +8,7 @@
  */
 
 #include <benchmark/benchmark.h>
-#include <prism/core/memory/container.hpp>
+#include <prism/foundation/memory/container.hpp>
 #include <prism/proto/protocol/tls/hello.hpp>
 #include <prism/proto/protocol/tls/record.hpp>
 #include <prism/proto/protocol/tls/types.hpp>
