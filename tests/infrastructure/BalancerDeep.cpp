@@ -10,11 +10,11 @@
 
 #include <gtest/gtest.h>
 
-#include "../../src/prism/instance/front/balancer.cpp"
+#include "../../src/prism/runtime/front/balancer.cpp"
 
 namespace
 {
-    namespace front = psm::instance::front;
+    namespace front = psm::runtime::front;
     using front::balancer;
     using front::distribute_config;
     using psm::stats::worker_snapshot;

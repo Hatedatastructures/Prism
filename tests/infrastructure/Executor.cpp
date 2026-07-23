@@ -10,7 +10,7 @@
 #include <prism/stealth/registry.hpp>
 #include <prism/stealth/scheme.hpp>
 #include <prism/stealth/recognition/result.hpp>
-#include <prism/proto/protocol/types.hpp>
+#include <prism/net/connect/types.hpp>
 #include <prism/foundation/fault/code.hpp>
 #include <prism/foundation/fault/handling.hpp>
 #include <prism/foundation/foundation.hpp>
@@ -76,7 +76,7 @@ namespace
     class mock_scheme final : public psm::stealth::stealth_scheme
     {
     public:
-        mock_scheme(std::string name, psm::protocol::protocol_type detected,
+        mock_scheme(std::string name, psm::connect::protocol_type detected,
                     bool enabled = true) noexcept
             : name_(std::move(name)), detected_(detected), enabled_(enabled)
         {
@@ -126,7 +126,7 @@ namespace
 
     private:
         std::string name_;
-        psm::protocol::protocol_type detected_;
+        psm::connect::protocol_type detected_;
         bool enabled_;
     };
 
@@ -139,13 +139,13 @@ namespace
             return;
 
         // mock_a: 返回 TLS（表示"不是我"，executor 应跳过）
-        reg.add(std::make_shared<mock_scheme>("mock_a", psm::protocol::protocol_type::tls));
+        reg.add(std::make_shared<mock_scheme>("mock_a", psm::connect::protocol_type::tls));
         // mock_b: 返回 Trojan（表示成功匹配）
-        reg.add(std::make_shared<mock_scheme>("mock_b", psm::protocol::protocol_type::trojan));
+        reg.add(std::make_shared<mock_scheme>("mock_b", psm::connect::protocol_type::trojan));
         // mock_disabled: 返回 Trojan 但 active=false
-        reg.add(std::make_shared<mock_scheme>("mock_disabled", psm::protocol::protocol_type::trojan, false));
+        reg.add(std::make_shared<mock_scheme>("mock_disabled", psm::connect::protocol_type::trojan, false));
         // mock_tls2: 返回 TLS（第二个"不是我"）
-        reg.add(std::make_shared<mock_scheme>("mock_tls2", psm::protocol::protocol_type::tls));
+        reg.add(std::make_shared<mock_scheme>("mock_tls2", psm::connect::protocol_type::tls));
     }
 } // namespace
 
@@ -178,7 +178,7 @@ TEST(Executor, EmptyCandidates)
     {
         auto result = co_await executor.execute_by_analysis(analysis, std::move(ctx));
 
-        EXPECT_TRUE(result.detected == psm::protocol::protocol_type::trojan)
+        EXPECT_TRUE(result.detected == psm::connect::protocol_type::trojan)
             << "empty candidates: detected = trojan (mock_b)";
         EXPECT_TRUE(std::string_view(result.scheme) == "mock_b")
             << "empty candidates: scheme = mock_b";
@@ -225,7 +225,7 @@ TEST(Executor, FindByOrder)
     {
         auto result = co_await executor.execute_by_analysis(analysis, std::move(ctx));
 
-        EXPECT_TRUE(result.detected == psm::protocol::protocol_type::trojan)
+        EXPECT_TRUE(result.detected == psm::connect::protocol_type::trojan)
             << "find by order: detected = trojan";
         EXPECT_TRUE(std::string_view(result.scheme) == "mock_b")
             << "find by order: scheme = mock_b";
@@ -272,7 +272,7 @@ TEST(Executor, SkipDisabled)
     {
         auto result = co_await executor.execute_by_analysis(analysis, std::move(ctx));
 
-        EXPECT_TRUE(result.detected == psm::protocol::protocol_type::trojan)
+        EXPECT_TRUE(result.detected == psm::connect::protocol_type::trojan)
             << "skip disabled: detected = trojan (mock_b)";
         EXPECT_TRUE(std::string_view(result.scheme) == "mock_b")
             << "skip disabled: scheme = mock_b";
@@ -318,7 +318,7 @@ TEST(Executor, NotFound)
     {
         auto result = co_await executor.execute_by_analysis(analysis, std::move(ctx));
 
-        EXPECT_TRUE(result.detected == psm::protocol::protocol_type::trojan)
+        EXPECT_TRUE(result.detected == psm::connect::protocol_type::trojan)
             << "not found: detected = trojan (mock_b)";
         EXPECT_TRUE(std::string_view(result.scheme) == "mock_b")
             << "not found: scheme = mock_b";
@@ -364,7 +364,7 @@ TEST(Executor, Passthrough)
     {
         auto result = co_await executor.execute_by_analysis(analysis, std::move(ctx));
 
-        EXPECT_TRUE(result.detected == psm::protocol::protocol_type::trojan)
+        EXPECT_TRUE(result.detected == psm::connect::protocol_type::trojan)
             << "passthrough: detected = trojan (mock_b after mock_a TLS)";
         EXPECT_TRUE(std::string_view(result.scheme) == "mock_b")
             << "passthrough: scheme = mock_b";

@@ -10,7 +10,7 @@
 #include <prism/net/connect/pool/pool.hpp>
 #include <prism/foundation/fault/code.hpp>
 #include <prism/foundation/memory/container.hpp>
-#include <prism/net/resolve/dns/dns.hpp>
+#include <prism/net/dns/resolver.hpp>
 
 #include <boost/asio.hpp>
 
@@ -35,7 +35,7 @@ namespace psm::connect
     {
         connection_pool &pool;                     ///< 共享 TCP 传输源，用于获取连接
         net::io_context &ioc;                      ///< IO 上下文，用于创建执行器和定时器
-        resolve::dns::config dns_cfg;              ///< DNS 解析器配置
+        dns::config dns_cfg;              ///< DNS 解析器配置
         memory::resource_pointer mr = memory::current_resource(); ///< 内存资源，用于内部存储分配
     };
 
@@ -172,9 +172,9 @@ namespace psm::connect
          * @return DNS 解析器引用
          */
         [[nodiscard]] auto dns() noexcept
-            -> resolve::dns::resolver & { return *dns_; }
+            -> dns::resolver & { return *dns_; }
         [[nodiscard]] auto dns() const noexcept
-            -> const resolve::dns::resolver & { return *dns_; }
+            -> const dns::resolver & { return *dns_; }
 
         /**
          * @brief 获取执行器
@@ -200,7 +200,7 @@ namespace psm::connect
     private:
         connection_pool &pool_;                             // 共享 TCP 传输源
         memory::resource_pointer mr_;                       // 内存资源
-        std::unique_ptr<resolve::dns::resolver> dns_;       // DNS 解析器
+        std::unique_ptr<dns::resolver> dns_;       // DNS 解析器
         reverse_map reverse_map_;                           // 反向路由表
         net::any_io_executor executor_;                     // 执行器（用于创建 UDP socket）
         std::optional<memory::string> positive_host_;       // 正向代理主机名

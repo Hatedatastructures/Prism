@@ -9,7 +9,7 @@
 #include <prism/foundation/foundation.hpp>
 #include <prism/trace/spdlog.hpp>
 #include <prism/foundation/fault/handling.hpp>
-#include <prism/net/resolve/dns/upstream.hpp>
+#include <prism/net/dns/upstream.hpp>
 
 
 #include <gtest/gtest.h>
@@ -21,7 +21,7 @@ namespace
 {
     namespace net = boost::asio;
 
-    using psm::resolve::dns::query_result;
+    using psm::dns::query_result;
 
     /**
      * @brief 辅助函数：构造一个指定参数的查询结果

@@ -6,19 +6,19 @@
  */
 
 #include <prism/foundation/foundation.hpp>
-#include <prism/net/resolve/dns/upstream.hpp>
-#include <prism/net/resolve/dns/config.hpp>
+#include <prism/net/dns/upstream.hpp>
+#include <prism/net/dns/config.hpp>
 #include <prism/trace/spdlog.hpp>
 #include <prism/foundation/foundation.hpp>
 
 #include <gtest/gtest.h>
 
 // #include 源文件增加覆盖率计数
-#include "../../src/prism/net/resolve/dns/upstream.cpp"
+#include "../../src/prism/net/dns/upstream.cpp"
 
 namespace
 {
-    namespace dns = psm::resolve::dns;
+    namespace dns = psm::dns;
     namespace net = boost::asio;
 
     // 与 upstream::select_best_result 等价的本地实现
@@ -57,7 +57,7 @@ namespace
         net::io_context ioc;
         dns::upstream ups(ioc);
         // 默认构造不崩溃，可调用 setter
-        psm::memory::vector<dns::dns_remote> servers(psm::memory::current_resource());
+        psm::memory::vector<dns::server> servers(psm::memory::current_resource());
         ups.set_servers(servers);
         // 无异常即验证构造成功
         EXPECT_TRUE(true) << "upstream: default construct + set_servers succeeds";
@@ -78,11 +78,11 @@ namespace
         net::io_context ioc;
         dns::upstream ups(ioc);
 
-        psm::memory::vector<dns::dns_remote> servers(psm::memory::current_resource());
-        dns::dns_remote srv;
+        psm::memory::vector<dns::server> servers(psm::memory::current_resource());
+        dns::server srv;
         srv.address = "8.8.8.8";
         srv.port = 53;
-        srv.protocol = dns::dns_protocol::udp;
+        srv.protocol = dns::protocol::udp;
         servers.push_back(srv);
 
         ups.set_servers(servers);
@@ -94,13 +94,13 @@ namespace
         net::io_context ioc;
         dns::upstream ups(ioc);
 
-        psm::memory::vector<dns::dns_remote> servers(psm::memory::current_resource());
+        psm::memory::vector<dns::server> servers(psm::memory::current_resource());
         for (int i = 0; i < 5; ++i)
         {
-            dns::dns_remote srv;
+            dns::server srv;
             srv.address = psm::memory::string("1.1.1." + std::to_string(i + 1));
             srv.port = 53;
-            srv.protocol = dns::dns_protocol::udp;
+            srv.protocol = dns::protocol::udp;
             servers.push_back(srv);
         }
 
@@ -113,29 +113,29 @@ namespace
         net::io_context ioc;
         dns::upstream ups(ioc);
 
-        psm::memory::vector<dns::dns_remote> servers(psm::memory::current_resource());
+        psm::memory::vector<dns::server> servers(psm::memory::current_resource());
 
-        dns::dns_remote srv_udp;
+        dns::server srv_udp;
         srv_udp.address = "8.8.8.8";
-        srv_udp.protocol = dns::dns_protocol::udp;
+        srv_udp.protocol = dns::protocol::udp;
         servers.push_back(srv_udp);
 
-        dns::dns_remote srv_tcp;
+        dns::server srv_tcp;
         srv_tcp.address = "8.8.8.8";
         srv_tcp.port = 53;
-        srv_tcp.protocol = dns::dns_protocol::tcp;
+        srv_tcp.protocol = dns::protocol::tcp;
         servers.push_back(srv_tcp);
 
-        dns::dns_remote srv_tls;
+        dns::server srv_tls;
         srv_tls.address = "8.8.8.8";
         srv_tls.port = 853;
-        srv_tls.protocol = dns::dns_protocol::tls;
+        srv_tls.protocol = dns::protocol::tls;
         servers.push_back(srv_tls);
 
-        dns::dns_remote srv_https;
+        dns::server srv_https;
         srv_https.address = "8.8.8.8";
         srv_https.port = 443;
-        srv_https.protocol = dns::dns_protocol::https;
+        srv_https.protocol = dns::protocol::https;
         servers.push_back(srv_https);
 
         ups.set_servers(servers);
@@ -149,10 +149,10 @@ namespace
         net::io_context ioc;
         dns::upstream ups(ioc);
 
-        ups.set_mode(dns::resolve_mode::fastest);
-        ups.set_mode(dns::resolve_mode::first);
-        ups.set_mode(dns::resolve_mode::fallback);
-        EXPECT_TRUE(true) << "upstream: set_mode accepts all resolve_mode values";
+        ups.set_mode(dns::mode::fastest);
+        ups.set_mode(dns::mode::first);
+        ups.set_mode(dns::mode::fallback);
+        EXPECT_TRUE(true) << "upstream: set_mode accepts all mode values";
     }
 
     TEST(UpstreamSettersPure, UpstreamSetTimeout)

@@ -9,7 +9,7 @@
 
 #include <prism/foundation/foundation.hpp>
 #include <prism/trace/spdlog.hpp>
-#include <prism/proto/multiplex/bootstrap.hpp>
+#include <prism/protocol/multiplex/bootstrap.hpp>
 
 #include <gtest/gtest.h>
 

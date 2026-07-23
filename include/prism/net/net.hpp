@@ -20,9 +20,12 @@
 #include <prism/net/transport/unreliable.hpp>
 
 // Connect 子模块
-#include <prism/net/connect/dial/dial.hpp>
+#include <prism/net/connect/dial/connector.hpp>
 #include <prism/net/connect/dial/racer.hpp>
 #include <prism/net/connect/dial/router.hpp>
+#include <prism/net/connect/outbound/dial.hpp>
+#include <prism/net/connect/outbound/direct.hpp>
+#include <prism/net/connect/outbound/proxy.hpp>
 #include <prism/net/connect/pool/config.hpp>
 #include <prism/net/connect/pool/health.hpp>
 #include <prism/net/connect/pool/pool.hpp>
@@ -31,12 +34,12 @@
 #include <prism/net/connect/util.hpp>
 
 // Resolve 子模块
-#include <prism/net/resolve/dns/config.hpp>
-#include <prism/net/resolve/dns/detail/cache.hpp>
-#include <prism/net/resolve/dns/detail/coalescer.hpp>
-#include <prism/net/resolve/dns/detail/format.hpp>
-#include <prism/net/resolve/dns/detail/rules.hpp>
-#include <prism/net/resolve/dns/detail/transparent.hpp>
-#include <prism/net/resolve/dns/detail/utility.hpp>
-#include <prism/net/resolve/dns/dns.hpp>
-#include <prism/net/resolve/dns/upstream.hpp>
+#include <prism/net/dns/config.hpp>
+#include <prism/net/dns/detail/cache.hpp>
+#include <prism/net/dns/detail/coalescer.hpp>
+#include <prism/net/dns/detail/format.hpp>
+#include <prism/net/dns/detail/rules.hpp>
+#include <prism/net/dns/detail/transparent.hpp>
+#include <prism/net/dns/detail/utility.hpp>
+#include <prism/net/dns/resolver.hpp>
+#include <prism/net/dns/upstream.hpp>

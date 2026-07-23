@@ -8,15 +8,15 @@
  */
 
 #include <prism/foundation/foundation.hpp>
-#include <prism/proto/protocol/tls/hello.hpp>
-#include <prism/proto/protocol/tls/record.hpp>
+#include <prism/protocol/tls/hello.hpp>
+#include <prism/protocol/tls/record.hpp>
 #include <prism/trace/spdlog.hpp>
 #include <prism/foundation/foundation.hpp>
 
 #include <gtest/gtest.h>
 
 // #include 源文件增加覆盖率计数
-#include "../../src/prism/proto/protocol/tls/hello.cpp"
+#include "../../src/prism/protocol/tls/hello.cpp"
 
 namespace
 {

@@ -4,7 +4,7 @@
  */
 
 #include <prism/foundation/foundation.hpp>
-#include <prism/proto/protocol/types.hpp>
+#include <prism/net/connect/types.hpp>
 #include <prism/account/stats/stats.hpp>
 #include <prism/trace/spdlog.hpp>
 
@@ -95,14 +95,14 @@ namespace
     {
         psm::stats::traffic::traffic_state ts;
         ts.on_connect();
-        ts.on_protocol_detected(psm::protocol::protocol_type::http);
+        ts.on_protocol_detected(psm::connect::protocol_type::http);
 
         auto snap = ts.snapshot();
-        auto idx = static_cast<std::uint8_t>(psm::protocol::protocol_type::http);
+        auto idx = static_cast<std::uint8_t>(psm::connect::protocol_type::http);
         EXPECT_TRUE(snap.protocols[idx].connections == 1) << "traffic: http connections=1";
         EXPECT_TRUE(snap.protocols[idx].active == 1) << "traffic: http active=1";
 
-        ts.on_disconnect(psm::protocol::protocol_type::http);
+        ts.on_disconnect(psm::connect::protocol_type::http);
         snap = ts.snapshot();
         EXPECT_TRUE(snap.total_active == 0) << "traffic: after disconnect active=0";
         EXPECT_TRUE(snap.protocols[idx].active == 0) << "traffic: after disconnect http active=0";
@@ -111,7 +111,7 @@ namespace
     TEST(StatsExtended, TrafficStateFlush)
     {
         psm::stats::traffic::traffic_state ts;
-        ts.flush_traffic(psm::protocol::protocol_type::socks5, 1024, 2048);
+        ts.flush_traffic(psm::connect::protocol_type::socks5, 1024, 2048);
         auto snap = ts.snapshot();
         EXPECT_TRUE(snap.total_uplink == 1024) << "traffic: uplink=1024";
         EXPECT_TRUE(snap.total_downlink == 2048) << "traffic: downlink=2048";
@@ -120,7 +120,7 @@ namespace
     TEST(StatsExtended, TrafficStateFlushZero)
     {
         psm::stats::traffic::traffic_state ts;
-        ts.flush_traffic(psm::protocol::protocol_type::http, 0, 0);
+        ts.flush_traffic(psm::connect::protocol_type::http, 0, 0);
         auto snap = ts.snapshot();
         EXPECT_TRUE(snap.total_uplink == 0) << "traffic: flush zero uplink";
         EXPECT_TRUE(snap.total_downlink == 0) << "traffic: flush zero downlink";
@@ -129,7 +129,7 @@ namespace
     TEST(StatsExtended, TrafficStateFlushPartial)
     {
         psm::stats::traffic::traffic_state ts;
-        ts.flush_traffic(psm::protocol::protocol_type::http, 100, 0);
+        ts.flush_traffic(psm::connect::protocol_type::http, 100, 0);
         auto snap = ts.snapshot();
         EXPECT_TRUE(snap.total_uplink == 100) << "traffic: flush partial uplink";
         EXPECT_TRUE(snap.total_downlink == 0) << "traffic: flush partial downlink=0";
@@ -151,7 +151,7 @@ namespace
         psm::stats::traffic::traffic_state ts;
         ts.on_connect();
         ts.on_auth_success();
-        ts.flush_traffic(psm::protocol::protocol_type::http, 100, 200);
+        ts.flush_traffic(psm::connect::protocol_type::http, 100, 200);
         ts.reset();
         auto snap = ts.snapshot();
         EXPECT_TRUE(snap.total_connections == 0) << "traffic: reset connections=0";

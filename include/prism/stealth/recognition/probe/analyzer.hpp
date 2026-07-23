@@ -13,7 +13,7 @@
 
 #pragma once
 
-#include <prism/proto/protocol/types.hpp>
+#include <prism/net/connect/types.hpp>
 
 #include <array>
 #include <cstdint>
@@ -32,7 +32,7 @@ namespace psm::recognition::probe
      * 空数据返回 unknown。函数为纯计算操作，无状态，线程安全。
      */
     [[nodiscard]] auto detect(std::string_view peek_data)
-        -> protocol::protocol_type;
+        -> psm::connect::protocol_type;
 
     /// HTTP 方法列表，用于协议检测（最短 4 字节 "GET "）
     inline constexpr std::array<std::string_view, 9> tls_http_methods = {
@@ -69,12 +69,12 @@ namespace psm::recognition::probe
      *       60+ 字节且不匹配任何已知协议也返回 unknown，不自动 fallback。
      */
     [[nodiscard]] inline auto detect_tls(std::string_view peek_data)
-        -> protocol::protocol_type
+        -> psm::connect::protocol_type
     {
         // 阶段 1：HTTP 检测（最少 4 字节）
         if (peek_data.size() >= 4 && is_http_request(peek_data))
         {
-            return protocol::protocol_type::http;
+            return psm::connect::protocol_type::http;
         }
 
         // 阶段 2：VLESS 检测（最少 22 字节）
@@ -91,7 +91,7 @@ namespace psm::recognition::probe
             if (b0 == 0x00 && b17 == 0x00 && (b18 == 0x01 || b18 == 0x02 || b18 == 0x7F) &&
                 (b21 == 0x01 || b21 == 0x02 || b21 == 0x03))
             {
-                return protocol::protocol_type::vless;
+                return psm::connect::protocol_type::vless;
             }
         }
 
@@ -120,18 +120,18 @@ namespace psm::recognition::probe
                     const auto atyp = static_cast<std::uint8_t>(peek_data[59]);
                     if (atyp == 0x01 || atyp == 0x03 || atyp == 0x04)
                     {
-                        return protocol::protocol_type::trojan;
+                        return psm::connect::protocol_type::trojan;
                     }
                 }
             }
 
             // 60+ 字节且非 HTTP/VLESS/Trojan，无法确定具体协议
             // 返回 unknown 让调用者根据上下文决定（如 ShadowTLS 场景需更多数据）
-            return protocol::protocol_type::unknown;
+            return psm::connect::protocol_type::unknown;
         }
 
         // 数据不足 60 字节且不匹配任何已知协议，返回 unknown 让调用者继续读取
-        return protocol::protocol_type::unknown;
+        return psm::connect::protocol_type::unknown;
     }
 
 } // namespace psm::recognition::probe

@@ -1,3 +1,4 @@
+#include <prism/resource/session.hpp>
 #include <prism/stealth/stack/anytls/scheme.hpp>
 
 #include <prism/config/config.hpp>
@@ -9,11 +10,11 @@
 #include <prism/foundation/fault/handling.hpp>
 #include <prism/foundation/memory/container.hpp>
 #include <prism/foundation/memory/pool.hpp>
-#include <prism/proto/multiplex/bootstrap.hpp>
-#include <prism/proto/protocol/common/address.hpp>
-#include <prism/proto/protocol/common/framing.hpp>
-#include <prism/proto/protocol/common/target.hpp>
-#include <prism/proto/protocol/types.hpp>
+#include <prism/protocol/multiplex/bootstrap.hpp>
+#include <prism/protocol/common/address.hpp>
+#include <prism/protocol/common/framing.hpp>
+#include <prism/net/connect/target.hpp>
+#include <prism/net/connect/types.hpp>
 #include <prism/stealth/stack/anytls/mux/session.hpp>
 #include <prism/stealth/stack/anytls/mux/transport.hpp>
 #include <prism/stealth/stack/anytls/padding.hpp>
@@ -56,9 +57,9 @@ namespace psm::stealth::anytls
             std::array<std::uint8_t, 32>, memory::string, sha256_hash>;
 
         auto parse_socks_target(std::span<const std::byte> data, memory::resource_pointer mr)
-            -> std::pair<fault::code, protocol::target>
+            -> std::pair<fault::code, psm::connect::target>
         {
-            protocol::target target(mr);
+            psm::connect::target target(mr);
 
             // 安全：将 byte span 转为 uint8_t span 用于协议帧解析，内存布局相同
             auto buf = std::span<const std::uint8_t>(
@@ -163,7 +164,7 @@ namespace psm::stealth::anytls
             auto raw = connect::peel(std::move(ctx.transport));
             if (!raw)
             {
-                trace::warn<flt::conn | flt::protocol>(ctx.trace, "Cannot unwrap transport layers");
+                trace::warn<flt::conn | flt::protocol>(ctx.session->trace, "Cannot unwrap transport layers");
                 res.error = fault::code::not_supported;
                 co_return res;
             }
@@ -173,17 +174,17 @@ namespace psm::stealth::anytls
                 std::move(raw), preread_span);
 
             auto [ssl_ec, ssl_stream, recovered] = co_await transport::encrypted::ssl_handshake(
-                std::move(clean_inbound), *ctx.session->server_ctx.ssl_ctx);
+                std::move(clean_inbound), *ctx.session->worker->process->ssl);
 
             if (fault::failed(ssl_ec) || !ssl_stream)
             {
                 res.recovered = std::move(recovered);
-                trace::warn<flt::conn | flt::protocol>(ctx.trace, "TLS handshake failed: {}", fault::describe(ssl_ec));
+                trace::warn<flt::conn | flt::protocol>(ctx.session->trace, "TLS handshake failed: {}", fault::describe(ssl_ec));
                 res.error = ssl_ec;
                 co_return res;
             }
 
-            trace::debug<flt::conn | flt::protocol>(ctx.trace, "TLS handshake succeeded");
+            trace::debug<flt::conn | flt::protocol>(ctx.session->trace, "TLS handshake succeeded");
             res.encrypted_trans = std::make_shared<transport::encrypted>(ssl_stream);
             co_return res;
         }
@@ -249,7 +250,7 @@ namespace psm::stealth::anytls
             return &it->second;
         }
 
-        auto handle_subsequent_stream(context::session *session_ptr,
+        auto handle_subsequent_stream(psm::resource::session *session_ptr,
                                         std::shared_ptr<transport::transmission> inbound,
                                         memory::vector<std::uint8_t> preread_data,
                                         std::shared_ptr<trace::trace_context> prefix_)
@@ -267,7 +268,7 @@ namespace psm::stealth::anytls
                 preread_data.size());
 
             auto [parse_ec, target] = parse_socks_target(
-                preread_span, session_ptr->frame_arena.get());
+                preread_span, session_ptr->arena.get());
             if (fault::failed(parse_ec))
             {
                 trace::warn<flt::conn | flt::protocol>(prefix_, "failed to parse SOCKS target: {}",
@@ -279,13 +280,13 @@ namespace psm::stealth::anytls
 
             // sing-mux 检测：客户端用 .mux.sing-box.arpa 标记地址触发多路复用
             auto mux_sw = psm::connect::mux_switch::off;
-            if (session_ptr->server_ctx.config().mux.enabled)
+            if (session_ptr->worker->process->cfg->mux.enabled)
                 mux_sw = psm::connect::mux_switch::on;
 
             if (psm::connect::is_mux(target.host, mux_sw))
             {
                 trace::info<flt::conn | flt::protocol>(prefix_, "anytls mux session started (subsequent stream)");
-                auto mux_wr = session_ptr->worker_ctx.resources.lock();
+                auto mux_wr = session_ptr->worker;
                 if (!mux_wr)
                 {
                     trace::warn<flt::conn | flt::protocol>(prefix_, "worker resources expired before anytls mux");
@@ -297,10 +298,7 @@ namespace psm::stealth::anytls
                     auto muxprotocol = co_await multiplex::bootstrap(
                         multiplex::bootstrap_context{
                             .transport = inbound,
-                            .outbound = &mux_wr->outbound(),
-                            .cfg = session_ptr->server_ctx.config().mux,
-                            .traffic = &mux_wr->traffic(),
-                            .proto = session_ptr->detected_protocol,
+                            .res = session_ptr,
                         });
                     if (muxprotocol)
                     {
@@ -324,7 +322,7 @@ namespace psm::stealth::anytls
             }
 
             // forward_pipeline 内部完成 dial + tunnel + mux 检查
-            auto sub_wr = session_ptr->worker_ctx.resources.lock();
+            auto sub_wr = session_ptr->worker;
             if (!sub_wr)
             {
                 trace::warn<flt::conn | flt::protocol>(prefix_,
@@ -332,12 +330,12 @@ namespace psm::stealth::anytls
                 co_return;
             }
             co_await psm::connect::forward_pipeline(
-                sub_wr, *session_ptr,
-                psm::connect::pipeline_options{std::move(inbound), target, prefix_});
+                *session_ptr, target,
+                psm::connect::pipeline_options{std::move(inbound), prefix_});
         }
 
 
-        auto make_stream_callback(context::session *session_ptr,
+        auto make_stream_callback(psm::resource::session *session_ptr,
                                    std::shared_ptr<void> keepalive,
                                    std::shared_ptr<trace::trace_context> prefix_)
             -> anytls_session::stream_callback
@@ -364,21 +362,21 @@ namespace psm::stealth::anytls
                         trace::error<flt::conn | flt::protocol>(prefix_, "subsequent stream unknown exception");
                     }
                 };
-                if (auto wr = session_ptr->worker_ctx.resources.lock())
+                if (auto wr = session_ptr->worker)
                 {
-                    wr->tasks().spawn_tracked(
+                    wr->tasks.spawn_tracked(
                         "anytls.subsequent_stream", std::move(subsequent_task));
                 }
                 else
                 {
-                    net::co_spawn(session_ptr->worker_ctx.io_context.get_executor(),
+                    net::co_spawn(session_ptr->worker->ioc.get_executor(),
                         std::move(subsequent_task), net::detached);
                 }
             };
         }
 
         auto handle_first_stream(std::shared_ptr<anytls_session> anytls_sess,
-                                  context::session *session_ptr,
+                                  psm::resource::session *session_ptr,
                                   memory::resource_pointer frame_arena_mr,
                                   std::shared_ptr<void> keepalive,
                                   std::shared_ptr<trace::trace_context> prefix_,
@@ -442,10 +440,10 @@ namespace psm::stealth::anytls
                 auto mux_task = [session_ptr, keepalive = std::move(keepalive),
                                  cfg_ptr = cfg,
                                  stream_transport,
-                                 proto = session_ptr->detected_protocol,
+                                 proto = session_ptr->detected,
                                  prefix_]() -> net::awaitable<void>
                 {
-                    auto wr_inner = session_ptr->worker_ctx.resources.lock();
+                    auto wr_inner = session_ptr->worker;
                     if (!wr_inner)
                     {
                         trace::warn<flt::conn | flt::protocol>(prefix_, "worker resources expired in mux_task");
@@ -457,10 +455,7 @@ namespace psm::stealth::anytls
                         auto muxprotocol = co_await multiplex::bootstrap(
                             multiplex::bootstrap_context{
                                 .transport = stream_transport,
-                                .outbound = &wr_inner->outbound(),
-                                .cfg = cfg_ptr->mux,
-                                .traffic = &wr_inner->traffic(),
-                                .proto = proto,
+                                .res = session_ptr,
                             });
                         if (muxprotocol)
                         {
@@ -481,14 +476,14 @@ namespace psm::stealth::anytls
                         trace::error<flt::conn | flt::protocol>(prefix_, "anytls mux bootstrap unknown exception");
                     }
                 };
-                if (auto wr = session_ptr->worker_ctx.resources.lock())
+                if (auto wr = session_ptr->worker)
                 {
-                    wr->tasks().spawn_tracked(
+                    wr->tasks.spawn_tracked(
                         "anytls.mux_bootstrap", std::move(mux_task));
                 }
                 else
                 {
-                    net::co_spawn(session_ptr->worker_ctx.io_context.get_executor(),
+                    net::co_spawn(session_ptr->worker->ioc.get_executor(),
                         std::move(mux_task), net::detached);
                 }
                 co_return fault::code::success;
@@ -501,7 +496,7 @@ namespace psm::stealth::anytls
             {
                 try
                 {
-                    auto fwd_wr = session_ptr->worker_ctx.resources.lock();
+                    auto fwd_wr = session_ptr->worker;
                     if (!fwd_wr)
                     {
                         trace::warn<flt::conn | flt::protocol>(prefix_,
@@ -509,9 +504,9 @@ namespace psm::stealth::anytls
                         co_return;
                     }
                     co_await psm::connect::forward_pipeline(
-                        fwd_wr, *session_ptr,
+                        *session_ptr, target,
                         psm::connect::pipeline_options{
-                            std::move(stream_transport), target, prefix_});
+                            std::move(stream_transport), prefix_});
                 }
                 catch (const std::exception &e)
                 {
@@ -522,14 +517,14 @@ namespace psm::stealth::anytls
                     trace::error<flt::conn | flt::protocol>(prefix_, "first stream forward unknown exception");
                 }
             };
-            if (auto wr = session_ptr->worker_ctx.resources.lock())
+            if (auto wr = session_ptr->worker)
             {
-                wr->tasks().spawn_tracked(
+                wr->tasks.spawn_tracked(
                     "anytls.first_stream_forward", std::move(forward_task));
             }
             else
             {
-                net::co_spawn(session_ptr->worker_ctx.io_context.get_executor(),
+                net::co_spawn(session_ptr->worker->ioc.get_executor(),
                     std::move(forward_task), net::detached);
             }
 
@@ -595,7 +590,7 @@ namespace psm::stealth::anytls
     auto scheme::handshake(stealth::stealth_opts ctx)
         -> net::awaitable<stealth::handshake_result>
     {
-        const auto prefix_ = ctx.trace;
+        const auto prefix_ = ctx.session->trace;
 
         stealth::handshake_result result;
 
@@ -605,14 +600,14 @@ namespace psm::stealth::anytls
             co_return result;
         }
 
-        if (!ctx.session->server_ctx.ssl_ctx)
+        if (!ctx.session->worker->process->ssl)
         {
             trace::warn<flt::conn | flt::protocol>(prefix_, "No SSL context configured");
             result.error = fault::code::not_supported;
             co_return result;
         }
 
-        const auto &cfg = ctx.cfg->stealth.anytls;
+        const auto &cfg = ctx.session->worker->process->cfg->stealth.anytls;
 
         auto hs_res = co_await perform_tls_handshake(ctx);
         if (fault::failed(hs_res.error))
@@ -657,7 +652,7 @@ namespace psm::stealth::anytls
         anytls_sess->start();
 
         auto stream_ec = co_await handle_first_stream(
-            anytls_sess, ctx.session, ctx.session->frame_arena.get(), std::move(keepalive_copy), prefix_, ctx.cfg);
+            anytls_sess, ctx.session, ctx.session->arena.get(), std::move(keepalive_copy), prefix_, (&*ctx.session->worker->process->cfg));
         if (fault::failed(stream_ec))
         {
             result.polluted = true;
@@ -665,7 +660,7 @@ namespace psm::stealth::anytls
             co_return result;
         }
 
-        result.detected = protocol::protocol_type::unknown;
+        result.detected = psm::connect::protocol_type::unknown;
         result.error = fault::code::success;
 
         co_return result;

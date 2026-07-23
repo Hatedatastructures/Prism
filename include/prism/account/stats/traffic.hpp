@@ -8,7 +8,7 @@
  */
 #pragma once
 
-#include <prism/proto/protocol/types.hpp>
+#include <prism/net/connect/types.hpp>
 #include <prism/account/stats/snapshot.hpp>
 
 #include <atomic>
@@ -64,7 +64,7 @@ namespace psm::stats::traffic
          * @details 在 session::diversion() 识别完成后调用，
          * 递增对应协议槽位的 connections 和 active 计数器
          */
-        void on_protocol_detected(protocol::protocol_type type) noexcept;
+        void on_protocol_detected(psm::connect::protocol_type type) noexcept;
 
         /**
          * @brief 连接断开时调用
@@ -72,7 +72,7 @@ namespace psm::stats::traffic
          * @details 在 session::release_resources() 中调用，
          * 递减 total_active 和对应协议槽位的 active 计数器
          */
-        void on_disconnect(protocol::protocol_type type) noexcept;
+        void on_disconnect(psm::connect::protocol_type type) noexcept;
 
         /**
          * @brief 批量刷入会话累积的流量数据
@@ -83,7 +83,7 @@ namespace psm::stats::traffic
          * 每次调用产生 4 次 fetch_add（total_uplink, total_downlink,
          * protocols_[i].uplink_bytes, protocols_[i].downlink_bytes）
          */
-        void flush_traffic(protocol::protocol_type proto, std::uint64_t up, std::uint64_t down) noexcept;
+        void flush_traffic(psm::connect::protocol_type proto, std::uint64_t up, std::uint64_t down) noexcept;
 
         /**
          * @brief 认证成功计数 +1

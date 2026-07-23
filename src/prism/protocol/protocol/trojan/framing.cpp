@@ -1,0 +1,233 @@
+#include <prism/protocol/trojan/framing.hpp>
+
+#include <cstdint>
+#include <cstring>
+namespace psm::protocol::trojan::format
+{
+
+    auto parse_credential(const std::span<const std::uint8_t> buffer)
+        -> std::pair<fault::code, std::array<char, 56>>
+    {
+        if (buffer.size() < 56)
+        {
+            return {fault::code::bad_message, {}};
+        }
+
+        std::array<char, 56> credential{};
+        for (std::size_t i = 0; i < 56; ++i)
+        {
+            const auto c = static_cast<std::uint8_t>(buffer[i]);
+            if ((c < '0' || c > '9') && (c < 'a' || c > 'f') && (c < 'A' || c > 'F'))
+            {
+                return {fault::code::protocol_error, {}};
+            }
+            credential[i] = static_cast<char>(buffer[i]);
+        }
+        return {fault::code::success, credential};
+    }
+
+    auto parse_crlf(const std::span<const std::uint8_t> buffer)
+        -> fault::code
+    {
+        if (buffer.size() < 2)
+        {
+            return fault::code::bad_message;
+        }
+        if (buffer[0] != '\r' || buffer[1] != '\n')
+        {
+            return fault::code::protocol_error;
+        }
+        return fault::code::success;
+    }
+
+    auto parse_cmd_atyp(std::span<const std::uint8_t> buffer)
+        -> std::pair<fault::code, header_parse>
+    {
+        if (buffer.size() < 2)
+        {
+            return {fault::code::bad_message, {}};
+        }
+        return {fault::code::success, {static_cast<command>(buffer[0]), static_cast<address_type>(buffer[1])}};
+    }
+
+    auto build_udp_pkt(const udp_routed &frame, std::span<const std::byte> payload, memory::vector<std::byte> &out)
+        -> fault::code
+    {
+        // 预分配：最大地址长度(1+16) + port(2) + length(2) + CRLF(2) + payload
+        out.reserve(out.size() + 23 + payload.size());
+
+        // 写入 SOCKS5 地址 (ATYP + ADDR + PORT)
+        std::visit([&out]<typename Address>(const Address &addr)
+                   {
+        if constexpr (std::is_same_v<Address, ipv4_address>)
+        {
+            out.push_back(static_cast<std::byte>(0x01));
+            // 安全：IPv4 地址字节数组转字节 span 用于序列化
+            out.insert(out.end(),
+                reinterpret_cast<const std::byte*>(addr.bytes.data()),
+                reinterpret_cast<const std::byte*>(addr.bytes.data()) + 4);
+        }
+        else if constexpr (std::is_same_v<Address, ipv6_address>)
+        {
+            out.push_back(static_cast<std::byte>(0x04));
+            // 安全：IPv6 地址字节数组转字节 span 用于序列化
+            out.insert(out.end(),
+                reinterpret_cast<const std::byte*>(addr.bytes.data()),
+                reinterpret_cast<const std::byte*>(addr.bytes.data()) + 16);
+        }
+        else if constexpr (std::is_same_v<Address, domain_address>)
+        {
+            out.push_back(static_cast<std::byte>(0x03));
+            out.push_back(static_cast<std::byte>(addr.length));
+            // 安全：域名字符串字节转字节 span 用于序列化
+            out.insert(out.end(),
+                reinterpret_cast<const std::byte*>(addr.value.data()),
+                reinterpret_cast<const std::byte*>(addr.value.data()) + addr.length);
+        } }, frame.destination_address);
+
+        // 写入端口
+        out.push_back(static_cast<std::byte>(frame.destination_port >> 8 & 0xFF));
+        out.push_back(static_cast<std::byte>(frame.destination_port & 0xFF));
+
+        // 写入 Length (payload 长度, 2 bytes BE)
+        const auto payload_len = static_cast<std::uint16_t>(payload.size());
+        out.push_back(static_cast<std::byte>(payload_len >> 8 & 0xFF));
+        out.push_back(static_cast<std::byte>(payload_len & 0xFF));
+
+        // 写入 CRLF
+        out.push_back(static_cast<std::byte>('\r'));
+        out.push_back(static_cast<std::byte>('\n'));
+
+        // 写入 Payload
+        out.insert(out.end(), payload.begin(), payload.end());
+
+        return fault::code::success;
+    }
+
+    auto parse_udp_pkt(std::span<const std::byte> buffer)
+        -> std::pair<fault::code, udp_parse_result>
+    {
+        // 最小长度: ATYP(1) + IPv4(4) + PORT(2) + Length(2) + CRLF(2) = 11
+        if (buffer.size() < 11)
+        {
+            return {fault::code::bad_message, {}};
+        }
+
+        const auto atyp = static_cast<address_type>(static_cast<std::uint8_t>(buffer[0]));
+        std::size_t offset = 1; // 偏移量，初始为 ATYP 字节之后
+        address dest_addr;
+        std::size_t addr_size = 0;
+
+        // 解析地址
+        switch (atyp)
+        {
+        case address_type::ipv4:
+        {
+            if (buffer.size() < offset + 4 + 2)
+            {
+                return {fault::code::bad_message, {}};
+            }
+            // 安全：字节缓冲区转 uint8_t span 用于 IPv4 地址解析
+            const auto addr_span = std::span(reinterpret_cast<const std::uint8_t *>(buffer.data() + offset), 4);
+            auto [ec, addr] = parse_ipv4(addr_span);
+            if (fault::failed(ec))
+            {
+                return {ec, {}};
+            }
+            dest_addr = addr;
+            addr_size = 4;
+            break;
+        }
+        case address_type::ipv6:
+        {
+            if (buffer.size() < offset + 16 + 2)
+            {
+                return {fault::code::bad_message, {}};
+            }
+            // 安全：字节缓冲区转 uint8_t span 用于 IPv6 地址解析
+            auto addr_span = std::span(reinterpret_cast<const std::uint8_t *>(buffer.data() + offset), 16);
+            auto [ec, addr] = parse_ipv6(addr_span);
+            if (fault::failed(ec))
+            {
+                return {ec, {}};
+            }
+            dest_addr = addr;
+            addr_size = 16;
+            break;
+        }
+        case address_type::domain:
+        {
+            if (buffer.size() < offset + 1)
+            {
+                return {fault::code::bad_message, {}};
+            }
+            const auto domain_len = static_cast<std::uint8_t>(buffer[offset]);
+            if (buffer.size() < offset + 1 + domain_len + 2)
+            {
+                return {fault::code::bad_message, {}};
+            }
+            // 安全：字节缓冲区转 uint8_t span 用于域名地址解析
+            const auto domain_span = std::span(
+                reinterpret_cast<const std::uint8_t *>(buffer.data() + offset), 1 + domain_len);
+            auto [ec, addr] = parse_domain(domain_span);
+            if (fault::failed(ec))
+            {
+                return {ec, {}};
+            }
+            dest_addr = addr;
+            addr_size = 1 + domain_len;
+            break;
+        }
+        default:
+            return {fault::code::unsupported_address, {}};
+        }
+
+        offset += addr_size;
+
+        // 解析端口
+        // 安全：字节缓冲区转 uint8_t span 用于端口字段解析
+        const auto port_span = std::span(reinterpret_cast<const std::uint8_t *>(buffer.data() + offset), 2);
+        auto [port_ec, port] = parse_port(port_span);
+        if (fault::failed(port_ec))
+        {
+            return {port_ec, {}};
+        }
+        offset += 2;
+
+        // 解析 Length (payload 长度)
+        if (buffer.size() < offset + 2)
+        {
+            return {fault::code::bad_message, {}};
+        }
+        const auto hi = static_cast<std::uint16_t>(buffer[offset]) << 8;
+        const auto lo = static_cast<std::uint16_t>(buffer[offset + 1]);
+        const std::uint16_t payload_len = static_cast<std::uint16_t>(hi | lo);
+        offset += 2;
+
+        // 验证 CRLF
+        if (buffer.size() < offset + 2)
+        {
+            return {fault::code::bad_message, {}};
+        }
+        if (buffer[offset] != static_cast<std::byte>('\r') || buffer[offset + 1] != static_cast<std::byte>('\n'))
+        {
+            return {fault::code::protocol_error, {}};
+        }
+        offset += 2;
+
+        // 验证 payload 长度
+        if (buffer.size() < offset + payload_len)
+        {
+            return {fault::code::bad_message, {}};
+        }
+
+        udp_parse_result result;
+        result.destination_address = dest_addr;
+        result.destination_port = port;
+        result.payload_offset = offset;
+        result.payload_size = payload_len;
+
+        return {fault::code::success, result};
+    }
+
+} // namespace psm::protocol::trojan::format

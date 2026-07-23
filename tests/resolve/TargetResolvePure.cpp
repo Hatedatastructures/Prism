@@ -4,7 +4,7 @@
  */
 
 #include <prism/foundation/foundation.hpp>
-#include <prism/proto/protocol/http/parser.hpp>
+#include <prism/protocol/http/parser.hpp>
 #include <prism/stealth/recognition/target.hpp>
 #include <prism/trace/spdlog.hpp>
 

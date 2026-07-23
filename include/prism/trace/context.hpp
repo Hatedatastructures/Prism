@@ -260,7 +260,7 @@ namespace psm::trace
      * 编译期展开。没有值的字段不渲染。
      *
      * 业务数据（端点/目标/路由决策）不在 trace_context，由
-     * @ref psm::context::request_metadata 承载。trace_context 与
+     * @ref psm::resources::request_metadata 承载。trace_context 与
      * metadata 并行流转，但职责分离。
      *
      * 不只用于 session：mux stream、transport 装饰器、protocol handler
@@ -297,7 +297,7 @@ namespace psm::trace
         phase_slot phase;                  ///< 阶段标注
 
         // 端点字段（client/listen/client_port/listen_port）已移到
-        // psm::context::request_metadata::src/dst
+        // psm::resources::request_metadata::src/dst
 
         /// 上下文是否仍活跃（未被 retire）
         [[nodiscard]] constexpr auto alive() const noexcept -> bool

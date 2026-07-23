@@ -5,13 +5,13 @@
  * 1. domain_trie：反转域名基数树的精确匹配、通配符匹配和大小写不敏感特性
  * 2. rules_engine：规则引擎的地址规则、否定规则、CNAME 规则及优先级合并
  * 3. parse_port：端口号解析工具函数的边界值和异常输入处理
- * 4. transparent_hash / transparent_equal：透明哈希与跨类型相等比较器的确定性
+ * 4. string_hash / string_equal：透明哈希与跨类型相等比较器的确定性
  * @note 当前 wildcard 断言以仓库现实现行为准：`*.example.com` 也会命中 `example.com`。
  */
 
-#include <prism/net/resolve/dns/detail/rules.hpp>
-#include <prism/net/resolve/dns/detail/utility.hpp>
-#include <prism/net/resolve/dns/detail/transparent.hpp>
+#include <prism/net/dns/detail/rules.hpp>
+#include <prism/net/dns/detail/utility.hpp>
+#include <prism/net/dns/detail/transparent.hpp>
 #include <prism/foundation/foundation.hpp>
 #include <prism/trace/spdlog.hpp>
 
@@ -32,7 +32,7 @@ namespace
 
     TEST(DnsRules, TrieExactMatch)
     {
-        psm::resolve::dns::detail::domain_trie trie;
+        psm::dns::detail::domain_trie trie;
 
         trie.insert("example.com", 42);
 
@@ -52,7 +52,7 @@ namespace
 
     TEST(DnsRules, TrieWildcardMatch)
     {
-        psm::resolve::dns::detail::domain_trie trie;
+        psm::dns::detail::domain_trie trie;
 
         trie.insert("*.example.com", 100);
 
@@ -83,7 +83,7 @@ namespace
 
     TEST(DnsRules, TrieCaseInsensitive)
     {
-        psm::resolve::dns::detail::domain_trie trie;
+        psm::dns::detail::domain_trie trie;
 
         trie.insert("Example.COM", 77);
 
@@ -98,7 +98,7 @@ namespace
     {
         // 空 trie 的查询应返回空
         {
-            psm::resolve::dns::detail::domain_trie trie;
+            psm::dns::detail::domain_trie trie;
 
             auto result = trie.search("anything");
             EXPECT_TRUE(!result.has_value()) << "search on empty trie should return nullopt";
@@ -106,7 +106,7 @@ namespace
 
         // 不同域名不应互相匹配
         {
-            psm::resolve::dns::detail::domain_trie trie;
+            psm::dns::detail::domain_trie trie;
             trie.insert("a.com", 1);
 
             auto result = trie.search("b.com");
@@ -116,7 +116,7 @@ namespace
 
     TEST(DnsRules, TrieMatchBoolean)
     {
-        psm::resolve::dns::detail::domain_trie trie;
+        psm::dns::detail::domain_trie trie;
         trie.insert("test.com", 99);
 
         EXPECT_TRUE(trie.match("test.com")) << "match(\"test.com\") should return true";
@@ -129,7 +129,7 @@ namespace
 
     TEST(DnsRules, RulesAddressRule)
     {
-        psm::resolve::dns::detail::rules_engine engine;
+        psm::dns::detail::rules_engine engine;
 
         {
             namespace net = boost::asio;
@@ -152,7 +152,7 @@ namespace
 
     TEST(DnsRules, RulesNegativeRule)
     {
-        psm::resolve::dns::detail::rules_engine engine;
+        psm::dns::detail::rules_engine engine;
 
         engine.add_neg_rule("evil.com");
 
@@ -163,7 +163,7 @@ namespace
 
     TEST(DnsRules, RulesCnameRule)
     {
-        psm::resolve::dns::detail::rules_engine engine;
+        psm::dns::detail::rules_engine engine;
 
         engine.add_cname("alias.com", "real.com");
 
@@ -174,7 +174,7 @@ namespace
 
     TEST(DnsRules, RulesCombinedPriority)
     {
-        psm::resolve::dns::detail::rules_engine engine;
+        psm::dns::detail::rules_engine engine;
 
         {
             namespace net = boost::asio;
@@ -199,55 +199,55 @@ namespace
     TEST(DnsRules, ParsePortValid)
     {
         {
-            auto r = psm::resolve::dns::detail::parse_port("80");
+            auto r = psm::dns::detail::parse_port("80");
             EXPECT_TRUE(r && *r == 80) << "parse_port(\"80\") should return 80";
         }
 
         {
-            auto r = psm::resolve::dns::detail::parse_port("443");
+            auto r = psm::dns::detail::parse_port("443");
             EXPECT_TRUE(r && *r == 443) << "parse_port(\"443\") should return 443";
         }
 
         {
-            auto r = psm::resolve::dns::detail::parse_port("0");
+            auto r = psm::dns::detail::parse_port("0");
             EXPECT_TRUE(r && *r == 0) << "parse_port(\"0\") should return 0";
         }
 
         {
-            auto r = psm::resolve::dns::detail::parse_port("65535");
+            auto r = psm::dns::detail::parse_port("65535");
             EXPECT_TRUE(r && *r == 65535) << "parse_port(\"65535\") should return 65535";
         }
     }
 
     TEST(DnsRules, ParsePortInvalid)
     {
-        EXPECT_TRUE(!psm::resolve::dns::detail::parse_port("").has_value()) << "parse_port(\"\") should return nullopt";
-        EXPECT_TRUE(!psm::resolve::dns::detail::parse_port("abc").has_value()) << "parse_port(\"abc\") should return nullopt";
-        EXPECT_TRUE(!psm::resolve::dns::detail::parse_port("65536").has_value()) << "parse_port(\"65536\") should return nullopt";
-        EXPECT_TRUE(!psm::resolve::dns::detail::parse_port("-1").has_value()) << "parse_port(\"-1\") should return nullopt";
-        EXPECT_TRUE(!psm::resolve::dns::detail::parse_port("123456").has_value()) << "parse_port(\"123456\") should return nullopt (>5 chars)";
+        EXPECT_TRUE(!psm::dns::detail::parse_port("").has_value()) << "parse_port(\"\") should return nullopt";
+        EXPECT_TRUE(!psm::dns::detail::parse_port("abc").has_value()) << "parse_port(\"abc\") should return nullopt";
+        EXPECT_TRUE(!psm::dns::detail::parse_port("65536").has_value()) << "parse_port(\"65536\") should return nullopt";
+        EXPECT_TRUE(!psm::dns::detail::parse_port("-1").has_value()) << "parse_port(\"-1\") should return nullopt";
+        EXPECT_TRUE(!psm::dns::detail::parse_port("123456").has_value()) << "parse_port(\"123456\") should return nullopt (>5 chars)";
     }
 
     TEST(DnsRules, ParsePortBoundary)
     {
         {
-            auto r = psm::resolve::dns::detail::parse_port("65535");
+            auto r = psm::dns::detail::parse_port("65535");
             EXPECT_TRUE(r && *r == 65535) << "parse_port(\"65535\") should return 65535 (valid boundary)";
         }
 
         {
-            auto r = psm::resolve::dns::detail::parse_port("65536");
+            auto r = psm::dns::detail::parse_port("65536");
             EXPECT_TRUE(!r.has_value()) << "parse_port(\"65536\") should return nullopt (invalid boundary)";
         }
     }
 
     // ---------------------------------------------------------------------------
-    // transparent_hash / transparent_equal 测试 (2)
+    // string_hash / string_equal 测试 (2)
     // ---------------------------------------------------------------------------
 
     TEST(DnsRules, TransparentHashDeterminism)
     {
-        psm::resolve::dns::detail::transparent_hash h;
+        psm::dns::detail::string_hash h;
 
         auto v1 = h(std::string_view("test"));
         auto v2 = h(std::string_view("test"));
@@ -262,7 +262,7 @@ namespace
 
     TEST(DnsRules, TransparentEqualCrossType)
     {
-        psm::resolve::dns::detail::transparent_equal eq;
+        psm::dns::detail::string_equal eq;
 
         std::string_view sv("hello");
         psm::memory::string ms("hello");

@@ -8,10 +8,10 @@
  */
 
 #include <prism/foundation/foundation.hpp>
-#include <prism/proto/protocol/shadowsocks/util/datagram.hpp>
-#include <prism/proto/protocol/shadowsocks/util/tracker.hpp>
-#include <prism/proto/protocol/shadowsocks/constants.hpp>
-#include <prism/proto/protocol/shadowsocks/framing.hpp>
+#include <prism/protocol/shadowsocks/util/datagram.hpp>
+#include <prism/protocol/shadowsocks/util/tracker.hpp>
+#include <prism/protocol/shadowsocks/constants.hpp>
+#include <prism/protocol/shadowsocks/framing.hpp>
 #include <prism/crypto/block.hpp>
 #include <prism/trace/spdlog.hpp>
 #include <prism/foundation/foundation.hpp>

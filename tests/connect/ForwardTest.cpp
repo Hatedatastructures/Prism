@@ -13,11 +13,11 @@
 #include <prism/net/connect/pool/pool.hpp>
 #include <prism/net/connect/tunnel/forward/basic.hpp>
 #include <prism/net/connect/tunnel/tunnel.hpp>
-#include <prism/context/context.hpp>
+#include <prism/resource/session.hpp>
 #include <prism/foundation/fault/handling.hpp>
 #include <prism/foundation/foundation.hpp>
-#include <prism/proto/protocol/common/form.hpp>
-#include <prism/proto/protocol/common/target.hpp>
+#include <prism/protocol/common/form.hpp>
+#include <prism/net/connect/target.hpp>
 #include <prism/net/transport/transmission.hpp>
 
 #include <boost/asio.hpp>
@@ -33,7 +33,6 @@ namespace
     namespace net = boost::asio;
     using namespace psm::connect;
     using namespace psm::testing;
-    using namespace psm::context;
     using namespace psm::protocol;
 } // anonymous namespace
 
@@ -78,22 +77,16 @@ TEST(Forward, TunnelOptionsStructure)
     auto inbound = std::make_shared<MockTransport>();
     auto outbound = std::make_shared<MockTransport>();
 
-    // 创建最小 session 上下文
-    static server server_ctx{
-        std::atomic<std::shared_ptr<const psm::config>>{},
-        nullptr, nullptr};
-    server_ctx.cfg.store(std::make_shared<const psm::config>());
+    // 创建最小资源上下文
+    auto cfg = std::make_shared<psm::config>();
+    auto proc_opts = psm::resource::process::options{cfg, nullptr, nullptr};
+    auto proc = std::make_shared<psm::resource::process>(std::move(proc_opts));
+    auto wrk_opts = psm::resource::worker::options{proc, psm::memory::system::global_pool()};
+    auto wrk = std::make_shared<psm::resource::worker>(std::move(wrk_opts));
+    auto ses_opts = psm::resource::session::options{wrk, 1, 8192, inbound, {}, nullptr, nullptr};
+    auto ses = std::make_shared<psm::resource::session>(std::move(ses_opts));
 
-    static connection_pool pool{ioc, psm::memory::system::global_pool()};
-    static psm::connect::router router_instance(
-        psm::connect::router_options{pool, ioc, {}, psm::memory::system::global_pool()});
-    static psm::context::worker_ref worker_ctx{ioc, psm::worker::borrow{}, psm::memory::system::global_pool()};
-    static psm::memory::frame_arena arena;
-
-    session_opts s_opts{1, server_ctx, worker_ctx, arena, 8192, nullptr, {}};
-    session sess(std::move(s_opts));
-
-    tunnel_options opts{inbound, outbound, sess.buffer_size, write_policy::complete};
+    tunnel_options opts{inbound, outbound, ses->buffer, write_policy::complete};
 
     EXPECT_EQ(opts.policy, write_policy::complete);
     EXPECT_TRUE(opts.inbound);

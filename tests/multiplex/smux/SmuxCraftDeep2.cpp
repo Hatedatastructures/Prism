@@ -11,7 +11,7 @@
  */
 
 #include <prism/foundation/foundation.hpp>
-#include <prism/instance/outbound/direct.hpp>
+#include <prism/net/connect/outbound/direct.hpp>
 #include <prism/trace/spdlog.hpp>
 
 #include "common/MockTransport.hpp"
@@ -21,8 +21,8 @@
 // 预包含依赖头文件（不打开 private）
 #include <prism/net/connect/pool/pool.hpp>
 #include <prism/net/connect/dial/router.hpp>
-#include <prism/net/resolve/dns/dns.hpp>
-#include <prism/proto/multiplex/smux/frame.hpp>
+#include <prism/net/dns/resolver.hpp>
+#include <prism/protocol/multiplex/smux/frame.hpp>
 #include <prism/account/stats/traffic.hpp>
 #include <boost/asio.hpp>
 #include <boost/asio/experimental/concurrent_channel.hpp>
@@ -30,12 +30,12 @@
 // 打开 craft 及其传递依赖的非公开访问
 #define private public
 #define protected public
-#include <prism/proto/multiplex/smux/craft.hpp>
+#include <prism/protocol/multiplex/smux/craft.hpp>
 #undef protected
 #undef private
 
 // 包含源文件以获得 gcov 覆盖
-#include "../../src/prism/proto/multiplex/smux/craft.cpp"
+#include "../../src/prism/protocol/multiplex/smux/craft.cpp"
 
 using MockTransport = psm::testing::MockTransport;
 namespace multiplex = psm::multiplex;
@@ -58,7 +58,7 @@ namespace
             transport = std::make_shared<MockTransport>();
             auto &ioc = transport->get_io_context();
             pool = std::make_unique<psm::connect::connection_pool>(ioc);
-            psm::resolve::dns::config dns_cfg;
+            psm::dns::config dns_cfg;
             psm::connect::router_options ropts{*pool, ioc, dns_cfg};
             router_ptr = std::make_unique<psm::connect::router>(std::move(ropts));
             outbound_ptr = std::make_unique<psm::outbound::direct>(*router_ptr);

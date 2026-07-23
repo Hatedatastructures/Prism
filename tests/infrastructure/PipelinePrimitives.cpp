@@ -179,7 +179,7 @@ namespace
     TEST(PipelinePrimitives, ProbeResultHelpers)
     {
         using psm::recognition::probe::probe_result;
-        using psm::protocol::protocol_type;
+        using psm::connect::protocol_type;
         using psm::fault::code;
 
         // 测试默认构造状态

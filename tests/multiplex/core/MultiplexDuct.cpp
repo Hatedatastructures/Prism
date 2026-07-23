@@ -10,8 +10,8 @@
 
 #include <prism/foundation/foundation.hpp>
 #include <prism/trace/spdlog.hpp>
-#include <prism/proto/multiplex/config.hpp>
-#include <prism/proto/multiplex/duct.hpp>
+#include <prism/protocol/multiplex/config.hpp>
+#include <prism/protocol/multiplex/duct.hpp>
 
 #include <gtest/gtest.h>
 

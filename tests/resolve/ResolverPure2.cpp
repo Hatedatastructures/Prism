@@ -7,18 +7,18 @@
  */
 
 #include <prism/foundation/foundation.hpp>
-#include <prism/net/resolve/dns/dns.hpp>
+#include <prism/net/dns/resolver.hpp>
 #include <prism/trace/spdlog.hpp>
 
 
 #include <gtest/gtest.h>
 
 // #include 源文件获取 resolver_impl 定义
-#include "../../src/prism/net/resolve/dns/resolver.cpp"
+#include "../../src/prism/net/dns/resolver.cpp"
 
 namespace
 {
-    namespace dns = psm::resolve::dns;
+    namespace dns = psm::dns;
     namespace net = boost::asio;
 
     // 本地副本测试 normalize 逻辑（resolver_impl::normalize 是 private）
@@ -82,7 +82,7 @@ namespace
     {
         net::io_context ioc;
         dns::config cfg;
-        auto resolver = dns::make_resolver(ioc, std::move(cfg));
+        auto resolver = std::make_unique<dns::resolver>(ioc, std::move(cfg));
         EXPECT_TRUE(resolver != nullptr) << "make_resolver: returns non-null";
     }
 
@@ -90,7 +90,7 @@ namespace
     {
         net::io_context ioc;
         dns::config cfg;
-        auto resolver = dns::make_resolver(ioc, std::move(cfg), psm::memory::current_resource());
+        auto resolver = std::make_unique<dns::resolver>(ioc, std::move(cfg), psm::memory::current_resource());
         EXPECT_TRUE(resolver != nullptr) << "make_resolver: with mr returns non-null";
     }
 
@@ -99,7 +99,7 @@ namespace
     TEST(ResolverPure2, ConfigDefaults)
     {
         dns::config cfg;
-        EXPECT_TRUE(cfg.mode == dns::resolve_mode::fastest) << "config: default mode=fastest";
+        EXPECT_TRUE(cfg.mode == dns::mode::fastest) << "config: default mode=fastest";
         EXPECT_TRUE(cfg.timeout_ms == 5000) << "config: default timeout=5000";
         EXPECT_TRUE(cfg.cache_enabled) << "config: default cache_enabled=true";
         EXPECT_TRUE(cfg.cache_ttl == std::chrono::seconds{120}) << "config: default cache_ttl=120";

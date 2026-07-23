@@ -9,7 +9,7 @@
 #include <prism/trace/spdlog.hpp>
 
 
-#include <prism/net/connect/dial/dial.hpp>
+#include <prism/net/connect/dial/connector.hpp>
 
 #include <gtest/gtest.h>
 

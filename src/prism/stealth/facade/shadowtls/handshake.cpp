@@ -2,7 +2,7 @@
 
 #include <prism/foundation/fault/code.hpp>
 #include <prism/net/transport/reliable.hpp>
-#include <prism/proto/protocol/tls/record.hpp>
+#include <prism/protocol/tls/record.hpp>
 #include <prism/stealth/common.hpp>
 #include <prism/stealth/facade/shadowtls/util/auth.hpp>
 #include <prism/stealth/facade/shadowtls/util/constants.hpp>
@@ -696,7 +696,7 @@ namespace psm::stealth::shadowtls
         detail.hmac_read_ctx = std::move(relay->hmac_verify_ctx);
 
         result.error = fault::code::success;
-        result.detected = protocol::protocol_type::tls;
+        result.detected = psm::connect::protocol_type::tls;
         result.scheme = "shadowtls";
 
         trace::debug<flt::conn | flt::protocol>(prefix_, "HMAC contexts transferred to detail");

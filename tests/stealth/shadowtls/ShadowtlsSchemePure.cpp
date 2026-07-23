@@ -10,7 +10,7 @@
 #include <prism/config/config.hpp>
 #include <prism/stealth/facade/shadowtls/scheme.hpp>
 #include <prism/stealth/recognition/tls/features.hpp>
-#include <prism/proto/protocol/tls/types.hpp>
+#include <prism/protocol/tls/types.hpp>
 
 namespace
 {

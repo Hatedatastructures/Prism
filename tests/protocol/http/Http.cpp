@@ -8,8 +8,8 @@
  * 4. 403 认证失败（错误凭证）
  */
 
-#include <prism/proto/protocol/http/conn.hpp>
-#include <prism/proto/protocol/http/parser.hpp>
+#include <prism/protocol/http/conn.hpp>
+#include <prism/protocol/http/parser.hpp>
 #include <prism/account/directory.hpp>
 #include <prism/crypto/sha224.hpp>
 #include <prism/net/transport/reliable.hpp>

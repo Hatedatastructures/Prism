@@ -6,8 +6,8 @@
  */
 
 #include <prism/foundation/foundation.hpp>
-#include <prism/proto/protocol/tls/hello.hpp>
-#include <prism/proto/protocol/tls/record.hpp>
+#include <prism/protocol/tls/hello.hpp>
+#include <prism/protocol/tls/record.hpp>
 #include <prism/trace/spdlog.hpp>
 #include <prism/foundation/foundation.hpp>
 #include <gtest/gtest.h>

@@ -10,13 +10,13 @@
 
 #include <gtest/gtest.h>
 
-#include "../../src/prism/instance/worker/launch.cpp"
+#include "../../src/prism/runtime/worker/launch.cpp"
 
 namespace
 {
     namespace net = boost::asio;
     using tcp = net::ip::tcp;
-    namespace launch = psm::instance::worker::launch;
+    namespace launch = psm::runtime::worker::launch;
 
     // ─── prime() 测试 ──────────────────────────
 

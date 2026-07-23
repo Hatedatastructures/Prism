@@ -7,7 +7,7 @@
 #include <prism/foundation/foundation.hpp>
 #include <prism/account/stats/runtime.hpp>
 #include <prism/account/stats/traffic.hpp>
-#include <prism/proto/protocol/types.hpp>
+#include <prism/net/connect/types.hpp>
 #include <prism/trace/spdlog.hpp>
 
 #include <gtest/gtest.h>
@@ -89,7 +89,7 @@ namespace
         EXPECT_TRUE(snap.total_connections == 1) << "after connect: total = 1";
         EXPECT_TRUE(snap.total_active == 1) << "after connect: active = 1";
 
-        traffic.on_disconnect(psm::protocol::protocol_type::unknown);
+        traffic.on_disconnect(psm::connect::protocol_type::unknown);
         snap = traffic.snapshot();
         EXPECT_TRUE(snap.total_active == 0) << "after disconnect: active = 0";
         EXPECT_TRUE(snap.total_connections == 1) << "after disconnect: total still 1";
@@ -99,9 +99,9 @@ namespace
     {
         psm::stats::traffic::traffic_state traffic;
 
-        traffic.on_protocol_detected(psm::protocol::protocol_type::http);
+        traffic.on_protocol_detected(psm::connect::protocol_type::http);
         auto snap = traffic.snapshot();
-        auto idx = static_cast<std::uint8_t>(psm::protocol::protocol_type::http);
+        auto idx = static_cast<std::uint8_t>(psm::connect::protocol_type::http);
         EXPECT_TRUE(snap.protocols[idx].connections == 1) << "protocol connections = 1";
         EXPECT_TRUE(snap.protocols[idx].active == 1) << "protocol active = 1";
     }
@@ -110,12 +110,12 @@ namespace
     {
         psm::stats::traffic::traffic_state traffic;
 
-        traffic.flush_traffic(psm::protocol::protocol_type::socks5, 1000, 2000);
+        traffic.flush_traffic(psm::connect::protocol_type::socks5, 1000, 2000);
         auto snap = traffic.snapshot();
         EXPECT_TRUE(snap.total_uplink == 1000) << "total uplink = 1000";
         EXPECT_TRUE(snap.total_downlink == 2000) << "total downlink = 2000";
 
-        auto idx = static_cast<std::uint8_t>(psm::protocol::protocol_type::socks5);
+        auto idx = static_cast<std::uint8_t>(psm::connect::protocol_type::socks5);
         EXPECT_TRUE(snap.protocols[idx].uplink_bytes == 1000) << "protocol uplink = 1000";
         EXPECT_TRUE(snap.protocols[idx].downlink_bytes == 2000) << "protocol downlink = 2000";
     }
@@ -124,7 +124,7 @@ namespace
     {
         psm::stats::traffic::traffic_state traffic;
 
-        traffic.flush_traffic(psm::protocol::protocol_type::http, 0, 0);
+        traffic.flush_traffic(psm::connect::protocol_type::http, 0, 0);
         auto snap = traffic.snapshot();
         EXPECT_TRUE(snap.total_uplink == 0) << "zero uplink not flushed";
         EXPECT_TRUE(snap.total_downlink == 0) << "zero downlink not flushed";
@@ -147,7 +147,7 @@ namespace
         psm::stats::traffic::traffic_state traffic;
 
         traffic.on_connect();
-        traffic.flush_traffic(psm::protocol::protocol_type::http, 100, 200);
+        traffic.flush_traffic(psm::connect::protocol_type::http, 100, 200);
         traffic.on_auth_success();
         traffic.reset();
 

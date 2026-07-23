@@ -11,14 +11,14 @@
 // Deep test: 包含源文件以测试内部函数
 // 注意：不能与其他包含 conn.cpp 的测试编译到同一可执行文件
 #define private public
-#include "../../src/prism/proto/protocol/socks5/conn.cpp"
+#include "../../src/prism/protocol/socks5/conn.cpp"
 #undef private
 
 #include <prism/foundation/fault/handling.hpp>
 #include <prism/foundation/foundation.hpp>
-#include <prism/proto/protocol/socks5/config.hpp>
-#include <prism/proto/protocol/socks5/constants.hpp>
-#include <prism/proto/protocol/socks5/packet.hpp>
+#include <prism/protocol/socks5/config.hpp>
+#include <prism/protocol/socks5/constants.hpp>
+#include <prism/protocol/socks5/packet.hpp>
 
 #include <boost/asio.hpp>
 
@@ -696,13 +696,13 @@ TEST(Socks5ConnDeep, SetTrafficState)
     auto c = std::make_shared<conn>(mock, cfg);
 
     EXPECT_EQ(c->traffic_, nullptr);
-    EXPECT_EQ(c->proto_, psm::protocol::protocol_type::unknown);
+    EXPECT_EQ(c->proto_, psm::connect::protocol_type::unknown);
 
     c->set_traffic(reinterpret_cast<psm::stats::traffic::traffic_state *>(0x1),
-                   psm::protocol::protocol_type::socks5);
+                   psm::connect::protocol_type::socks5);
 
     EXPECT_NE(c->traffic_, nullptr);
-    EXPECT_EQ(c->proto_, psm::protocol::protocol_type::socks5);
+    EXPECT_EQ(c->proto_, psm::connect::protocol_type::socks5);
 }
 
 // ── ep_to_addr: IPv4 和 IPv6 端点转换 ──

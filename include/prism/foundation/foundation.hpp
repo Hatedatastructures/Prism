@@ -27,3 +27,6 @@
 #include <prism/foundation/exception/protocol.hpp>
 #include <prism/foundation/exception/security.hpp>
 #include <prism/foundation/coroutine/registry.hpp>
+
+// Probe 子模块
+#include <prism/foundation/rate/counter.hpp>

@@ -2,11 +2,11 @@
 
 #include <prism/config/config.hpp>
 #include <prism/net/connect/util.hpp>
-#include <prism/context/context.hpp>
+#include <prism/resource/session.hpp>
 #include <prism/foundation/fault/handling.hpp>
 #include <prism/foundation/memory/container.hpp>
-#include <prism/proto/multiplex/h2mux/craft.hpp>
-#include <prism/proto/protocol/types.hpp>
+#include <prism/protocol/multiplex/h2mux/craft.hpp>
+#include <prism/net/connect/types.hpp>
 #include <prism/trace/trace.hpp>
 #include <prism/net/transport/encrypted.hpp>
 #include <prism/net/transport/preview.hpp>
@@ -167,14 +167,14 @@ namespace psm::stealth::trusttunnel
             co_return result;
         }
 
-        if (!ctx.session->server_ctx.ssl_ctx)
+        if (!ctx.session->worker->process->ssl)
         {
             trace::warn<flt::conn | flt::protocol>(prefix_, "No SSL context configured");
             result.error = fault::code::not_supported;
             co_return result;
         }
 
-        const auto &cfg = ctx.cfg->stealth.trusttunnel;
+        const auto &cfg = ctx.session->worker->process->cfg->stealth.trusttunnel;
 
         auto raw = connect::peel(std::move(ctx.transport));
         if (!raw)
@@ -187,7 +187,7 @@ namespace psm::stealth::trusttunnel
         // 创建独立的 SSL_CTX 副本用于 TrustTunnel，不修改共享 SSL_CTX 的 ALPN 回调
         auto tt_ssl_ctx = std::make_shared<ssl::context>(ssl::context::tlsv13);
         {
-            auto &src_ctx = *ctx.session->server_ctx.ssl_ctx;
+            auto &src_ctx = *ctx.session->worker->process->ssl;
             auto *src_native = src_ctx.native_handle();
             auto *dst_native = tt_ssl_ctx->native_handle();
 
@@ -238,26 +238,26 @@ namespace psm::stealth::trusttunnel
         if (!alpn || alpn_len != 2 || alpn[0] != 'h' || alpn[1] != '2')
         {
             trace::warn<flt::conn | flt::protocol>(prefix_, "ALPN did not select h2");
-            result.detected = protocol::protocol_type::tls;
+            result.detected = psm::connect::protocol_type::tls;
             result.transport = std::make_shared<transport::encrypted>(ssl_stream);
             co_return result;
         }
 
         auto encrypted_trans = std::make_shared<transport::encrypted>(ssl_stream);
 
-        auto tt_wr = ctx.session->worker_ctx.resources.lock();
+        auto tt_wr = ctx.session->worker;
         if (!tt_wr)
         {
             trace::warn<flt::conn | flt::protocol>(prefix_, "worker resources expired before trusttunnel mux");
-            result.detected = protocol::protocol_type::tls;
+            result.detected = psm::connect::protocol_type::tls;
             result.transport = encrypted_trans;
             co_return result;
         }
 
-        auto mux_cfg = ctx.cfg->mux;
-        multiplex::core_options core_opts{encrypted_trans, &tt_wr->outbound(), mux_cfg};
+        auto mux_cfg = ctx.session->worker->process->cfg->mux;
+        multiplex::core_options core_opts{encrypted_trans, tt_wr->outbound.get(), mux_cfg};
         multiplex::h2mux::craft_init craft_init_args{
-            &tt_wr->outbound(),
+            tt_wr->outbound.get(),
             mux_cfg,
             resolve_stream_target};
         auto craft = std::make_shared<multiplex::h2mux::craft>(core_opts, craft_init_args);
@@ -268,7 +268,7 @@ namespace psm::stealth::trusttunnel
         if (!first_opt)
         {
             trace::warn<flt::conn | flt::protocol>(prefix_, "No CONNECT request received");
-            result.detected = protocol::protocol_type::tls;
+            result.detected = psm::connect::protocol_type::tls;
             result.transport = std::move(encrypted_trans);
             co_return result;
         }
@@ -292,7 +292,7 @@ namespace psm::stealth::trusttunnel
         (void)craft->respond_connect(first.stream_id, 200);
         co_await craft->send_pending();
 
-        result.detected = protocol::protocol_type::unknown;
+        result.detected = psm::connect::protocol_type::unknown;
         result.error = fault::code::success;
 
         co_return result;

@@ -7,7 +7,7 @@
  */
 
 #include <prism/foundation/foundation.hpp>
-#include <prism/net/resolve/dns/detail/cache.hpp>
+#include <prism/net/dns/detail/cache.hpp>
 #include <prism/trace/spdlog.hpp>
 
 
@@ -15,7 +15,7 @@
 
 namespace
 {
-    namespace dns = psm::resolve::dns::detail;
+    namespace dns = psm::dns::detail;
     namespace net = boost::asio;
 
     auto make_cache(std::size_t max = 100, bool serve_stale = true)

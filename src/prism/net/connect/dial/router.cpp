@@ -1,6 +1,6 @@
 #include <prism/net/connect/dial/router.hpp>
 
-#include <prism/net/resolve/dns/detail/utility.hpp>
+#include <prism/net/dns/detail/utility.hpp>
 #include <prism/trace/trace.hpp>
 
 namespace psm::connect
@@ -9,7 +9,7 @@ namespace psm::connect
     router::router(router_options opts)
         : pool_(opts.pool),
           mr_(memory::effective_mr(opts.mr)),
-          dns_(resolve::dns::make_resolver(opts.ioc, std::move(opts.dns_cfg), mr_)),
+          dns_(std::make_unique<dns::resolver>(opts.ioc, std::move(opts.dns_cfg), mr_)),
           reverse_map_(mr_),
           executor_(opts.ioc.get_executor())
     {

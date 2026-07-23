@@ -87,9 +87,9 @@ namespace psm::recognition
     }
 
     auto resolve(const protocol::http::proxy_request &req, const memory::resource_pointer mr)
-        -> protocol::target
+        -> psm::connect::target
     {
-        protocol::target t(resolve_mr(mr));
+        psm::connect::target t(resolve_mr(mr));
 
         // A. `CONNECT` 只会出现在正向代理请求中，请求行已明确给出目标 `host:port`
         if (req.method == "CONNECT")
@@ -133,7 +133,7 @@ namespace psm::recognition
     }
 
     auto resolve(const std::string_view host_port, const memory::resource_pointer mr)
-        -> protocol::target
+        -> psm::connect::target
     {
         memory::resource_pointer effective_mr;
         if (mr)
@@ -144,7 +144,7 @@ namespace psm::recognition
         {
             effective_mr = memory::current_resource();
         }
-        protocol::target t(effective_mr);
+        psm::connect::target t(effective_mr);
         t.positive = true;
         parse(host_port, t.host, t.port);
         return t;

@@ -7,8 +7,8 @@
 
 #include <prism/foundation/foundation.hpp>
 #include <prism/trace/spdlog.hpp>
-#include <prism/proto/multiplex/smux/craft.hpp>
-#include <prism/proto/multiplex/smux/frame.hpp>
+#include <prism/protocol/multiplex/smux/craft.hpp>
+#include <prism/protocol/multiplex/smux/frame.hpp>
 
 #include <gtest/gtest.h>
 

@@ -4,7 +4,7 @@
  */
 
 #include <prism/foundation/foundation.hpp>
-#include <prism/proto/protocol/types.hpp>
+#include <prism/net/connect/types.hpp>
 #include <prism/stealth/recognition/probe/analyzer.hpp>
 #include <prism/trace/spdlog.hpp>
 #include <gtest/gtest.h>
@@ -15,7 +15,7 @@
 
 namespace
 {
-    using psm::protocol::protocol_type;
+    using psm::connect::protocol_type;
     using psm::recognition::probe::detect;
     using psm::recognition::probe::detect_tls;
     using psm::recognition::probe::is_http_request;

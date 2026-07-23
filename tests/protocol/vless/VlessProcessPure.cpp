@@ -8,10 +8,10 @@
  */
 
 #include <prism/foundation/foundation.hpp>
-#include <prism/proto/protocol/vless/handler.hpp>
-#include <prism/proto/protocol/vless/config.hpp>
-#include <prism/proto/protocol/vless/packet.hpp>
-#include <prism/proto/protocol/vless/constants.hpp>
+#include <prism/protocol/vless/handler.hpp>
+#include <prism/protocol/vless/config.hpp>
+#include <prism/protocol/vless/packet.hpp>
+#include <prism/protocol/vless/constants.hpp>
 #include <prism/trace/spdlog.hpp>
 
 #include <array>

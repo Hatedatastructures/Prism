@@ -9,7 +9,7 @@
 
 #include <prism/foundation/foundation.hpp>
 #include <prism/trace/spdlog.hpp>
-#include <prism/proto/multiplex/smux/frame.hpp>
+#include <prism/protocol/multiplex/smux/frame.hpp>
 
 #include <gtest/gtest.h>
 
@@ -1124,4 +1124,4 @@ TEST(SmuxFrameDeep, ParseAddrIpv6OneBytePort)
 }
 
 // #include 源文件以覆盖 frame.cpp 全部实现
-#include "../../src/prism/proto/multiplex/smux/frame.cpp"
+#include "../../src/prism/protocol/multiplex/smux/frame.cpp"

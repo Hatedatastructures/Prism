@@ -9,11 +9,11 @@
  * 5. 多连接并发 (E2EConcurrency)
  */
 
-#include <prism/instance/config.hpp>
+#include <prism/runtime/config.hpp>
 #include <prism/config/config.hpp>
-#include <prism/context/context.hpp>
+#include <prism/resource/session.hpp>
 #include <prism/account/directory.hpp>
-#include <prism/instance/session/session.hpp>
+#include <prism/runtime/session/session.hpp>
 #include <prism/net/connect/pool/pool.hpp>
 #include <prism/net/transport/reliable.hpp>
 #include <prism/crypto/sha224.hpp>
@@ -42,7 +42,7 @@ namespace net = boost::asio;
 namespace ssl = boost::asio::ssl;
 using tcp = net::ip::tcp;
 
-namespace agent = psm::instance;
+namespace agent = psm::runtime;
 
 namespace
 {
@@ -112,8 +112,8 @@ net::awaitable<void> MultiEchoServer(tcp::acceptor acceptor, const int count)
     }
 }
 
-net::awaitable<void> ProxyAcceptOne(tcp::acceptor acceptor, psm::context::server &server_ctx,
-                                    psm::context::worker_ref &worker_ctx)
+net::awaitable<void> ProxyAcceptOne(tcp::acceptor acceptor, psm::resource::process &server_ctx,
+                                    psm::resource::worker &worker_ctx)
 {
     boost::system::error_code accept_ec;
     auto accept_token = net::redirect_error(net::use_awaitable, accept_ec);
@@ -124,14 +124,14 @@ net::awaitable<void> ProxyAcceptOne(tcp::acceptor acceptor, psm::context::server
     }
     auto inbound = psm::transport::make_reliable(std::move(socket));
 
-    psm::instance::session::session_params params{server_ctx, worker_ctx, std::move(inbound)};
-    auto session_ptr = psm::instance::session::make_session(std::move(params));
+    psm::runtime::session::session_params params{server_ctx, worker_ctx, std::move(inbound)};
+    auto session_ptr = psm::runtime::session::make_session(std::move(params));
 
     session_ptr->start();
 }
 
 net::awaitable<void> MultiProxyAccept(tcp::acceptor acceptor, const int count,
-                                      psm::context::server &server_ctx, psm::context::worker_ref &worker_ctx)
+                                      psm::resource::process &server_ctx, psm::resource::worker &worker_ctx)
 {
     for (int i = 0; i < count; ++i)
     {
@@ -144,8 +144,8 @@ net::awaitable<void> MultiProxyAccept(tcp::acceptor acceptor, const int count,
         }
 
         auto inbound = psm::transport::make_reliable(std::move(socket));
-        psm::instance::session::session_params params{server_ctx, worker_ctx, std::move(inbound)};
-        auto session_ptr = psm::instance::session::make_session(std::move(params));
+        psm::runtime::session::session_params params{server_ctx, worker_ctx, std::move(inbound)};
+        auto session_ptr = psm::runtime::session::make_session(std::move(params));
         session_ptr->start();
     }
 }
@@ -497,7 +497,7 @@ net::awaitable<void> HttpAuth407Client(tcp::endpoint proxy_ep, const std::string
 // 测试用例
 // ============================================================
 
-net::awaitable<void> E2ESocks5EchoImpl(psm::context::server &server_ctx, psm::context::worker_ref &worker_ctx)
+net::awaitable<void> E2ESocks5EchoImpl(psm::resource::process &server_ctx, psm::resource::worker &worker_ctx)
 {
     try
     {
@@ -519,7 +519,7 @@ net::awaitable<void> E2ESocks5EchoImpl(psm::context::server &server_ctx, psm::co
     }
 }
 
-net::awaitable<void> E2EHttpConnectEchoImpl(psm::context::server &server_ctx, psm::context::worker_ref &worker_ctx)
+net::awaitable<void> E2EHttpConnectEchoImpl(psm::resource::process &server_ctx, psm::resource::worker &worker_ctx)
 {
     try
     {
@@ -541,7 +541,7 @@ net::awaitable<void> E2EHttpConnectEchoImpl(psm::context::server &server_ctx, ps
     }
 }
 
-net::awaitable<void> E2ESocks5AuthImpl(psm::context::server &server_ctx, psm::context::worker_ref &worker_ctx)
+net::awaitable<void> E2ESocks5AuthImpl(psm::resource::process &server_ctx, psm::resource::worker &worker_ctx)
 {
     try
     {
@@ -564,7 +564,7 @@ net::awaitable<void> E2ESocks5AuthImpl(psm::context::server &server_ctx, psm::co
     }
 }
 
-net::awaitable<void> E2EHttpAuth407Impl(psm::context::server &server_ctx, psm::context::worker_ref &worker_ctx)
+net::awaitable<void> E2EHttpAuth407Impl(psm::resource::process &server_ctx, psm::resource::worker &worker_ctx)
 {
     try
     {
@@ -583,7 +583,7 @@ net::awaitable<void> E2EHttpAuth407Impl(psm::context::server &server_ctx, psm::c
     }
 }
 
-net::awaitable<void> E2EConcurrencyImpl(psm::context::server &server_ctx, psm::context::worker_ref &worker_ctx)
+net::awaitable<void> E2EConcurrencyImpl(psm::resource::process &server_ctx, psm::resource::worker &worker_ctx)
 {
     try
     {
@@ -649,7 +649,7 @@ TEST(E2E, Socks5Echo)
     auto &ioc = *ioc_ptr;
 
     const auto pool = std::make_unique<psm::connect::connection_pool>(ioc);
-    psm::resolve::dns::config dns_cfg;
+    psm::dns::config dns_cfg;
     auto dist = std::make_unique<psm::connect::router>(psm::connect::router_options{*pool, ioc, std::move(dns_cfg)});
 
     auto ssl_ctx = std::make_shared<ssl::context>(ssl::context::tlsv12);
@@ -657,12 +657,12 @@ TEST(E2E, Socks5Echo)
 
     psm::config no_auth_cfg;
 
-    psm::context::server no_auth_server_ctx{
+    psm::resource::process no_auth_server_ctx{
         std::atomic<std::shared_ptr<const psm::config>>{std::make_shared<const psm::config>(no_auth_cfg)},
         ssl_ctx, std::make_shared<psm::account::directory>(psm::memory::system::global_pool())};
 
     auto mr = psm::memory::system::local_pool();
-    psm::context::worker_ref worker_ctx{ioc, psm::worker::borrow{}, mr};
+    psm::resource::worker worker_ctx{ioc, std::weak_ptr<psm::resource::worker>{}, mr};
 
     std::exception_ptr test_error;
     auto function = [&no_auth_server_ctx, &worker_ctx]() -> net::awaitable<void>
@@ -690,7 +690,7 @@ TEST(E2E, HttpConnectEcho)
     auto &ioc = *ioc_ptr;
 
     const auto pool = std::make_unique<psm::connect::connection_pool>(ioc);
-    psm::resolve::dns::config dns_cfg;
+    psm::dns::config dns_cfg;
     auto dist = std::make_unique<psm::connect::router>(psm::connect::router_options{*pool, ioc, std::move(dns_cfg)});
 
     auto ssl_ctx = std::make_shared<ssl::context>(ssl::context::tlsv12);
@@ -698,12 +698,12 @@ TEST(E2E, HttpConnectEcho)
 
     psm::config no_auth_cfg;
 
-    psm::context::server no_auth_server_ctx{
+    psm::resource::process no_auth_server_ctx{
         std::atomic<std::shared_ptr<const psm::config>>{std::make_shared<const psm::config>(no_auth_cfg)},
         ssl_ctx, std::make_shared<psm::account::directory>(psm::memory::system::global_pool())};
 
     auto mr = psm::memory::system::local_pool();
-    psm::context::worker_ref worker_ctx{ioc, psm::worker::borrow{}, mr};
+    psm::resource::worker worker_ctx{ioc, std::weak_ptr<psm::resource::worker>{}, mr};
 
     std::exception_ptr test_error;
     auto function = [&no_auth_server_ctx, &worker_ctx]() -> net::awaitable<void>
@@ -731,7 +731,7 @@ TEST(E2E, Socks5Auth)
     auto &ioc = *ioc_ptr;
 
     const auto pool = std::make_unique<psm::connect::connection_pool>(ioc);
-    psm::resolve::dns::config dns_cfg;
+    psm::dns::config dns_cfg;
     auto dist = std::make_unique<psm::connect::router>(psm::connect::router_options{*pool, ioc, std::move(dns_cfg)});
 
     auto ssl_ctx = std::make_shared<ssl::context>(ssl::context::tlsv12);
@@ -740,7 +740,7 @@ TEST(E2E, Socks5Auth)
     // 认证配置: password="test_password", credential=sha224("test_password")
     psm::config auth_cfg;
     auth_cfg.protocol.socks5.enable_auth = true;
-    psm::instance::authentication::user test_user{};
+    psm::runtime::authentication::user test_user{};
     test_user.password = "test_password";
     test_user.max_connections = 0;
     auth_cfg.instance.auth.users.push_back(std::move(test_user));
@@ -749,12 +749,12 @@ TEST(E2E, Socks5Auth)
     const auto credential = psm::crypto::sha224("test_password");
     account_dir->upsert(credential, 0);
 
-    psm::context::server auth_server_ctx{
+    psm::resource::process auth_server_ctx{
         std::atomic<std::shared_ptr<const psm::config>>{std::make_shared<const psm::config>(auth_cfg)},
         ssl_ctx, account_dir};
 
     auto mr = psm::memory::system::local_pool();
-    psm::context::worker_ref worker_ctx{ioc, psm::worker::borrow{}, mr};
+    psm::resource::worker worker_ctx{ioc, std::weak_ptr<psm::resource::worker>{}, mr};
 
     std::exception_ptr test_error;
     auto function = [&auth_server_ctx, &worker_ctx]() -> net::awaitable<void>
@@ -782,7 +782,7 @@ TEST(E2E, HttpAuth407)
     auto &ioc = *ioc_ptr;
 
     const auto pool = std::make_unique<psm::connect::connection_pool>(ioc);
-    psm::resolve::dns::config dns_cfg;
+    psm::dns::config dns_cfg;
     auto dist = std::make_unique<psm::connect::router>(psm::connect::router_options{*pool, ioc, std::move(dns_cfg)});
 
     auto ssl_ctx = std::make_shared<ssl::context>(ssl::context::tlsv12);
@@ -790,7 +790,7 @@ TEST(E2E, HttpAuth407)
 
     psm::config auth_cfg;
     auth_cfg.protocol.socks5.enable_auth = true;
-    psm::instance::authentication::user test_user{};
+    psm::runtime::authentication::user test_user{};
     test_user.password = "test_password";
     test_user.max_connections = 0;
     auth_cfg.instance.auth.users.push_back(std::move(test_user));
@@ -799,12 +799,12 @@ TEST(E2E, HttpAuth407)
     const auto credential = psm::crypto::sha224("test_password");
     account_dir->upsert(credential, 0);
 
-    psm::context::server auth_server_ctx{
+    psm::resource::process auth_server_ctx{
         std::atomic<std::shared_ptr<const psm::config>>{std::make_shared<const psm::config>(auth_cfg)},
         ssl_ctx, account_dir};
 
     auto mr = psm::memory::system::local_pool();
-    psm::context::worker_ref worker_ctx{ioc, psm::worker::borrow{}, mr};
+    psm::resource::worker worker_ctx{ioc, std::weak_ptr<psm::resource::worker>{}, mr};
 
     std::exception_ptr test_error;
     auto function = [&auth_server_ctx, &worker_ctx]() -> net::awaitable<void>
@@ -832,7 +832,7 @@ TEST(E2E, Concurrency)
     auto &ioc = *ioc_ptr;
 
     const auto pool = std::make_unique<psm::connect::connection_pool>(ioc);
-    psm::resolve::dns::config dns_cfg;
+    psm::dns::config dns_cfg;
     auto dist = std::make_unique<psm::connect::router>(psm::connect::router_options{*pool, ioc, std::move(dns_cfg)});
 
     auto ssl_ctx = std::make_shared<ssl::context>(ssl::context::tlsv12);
@@ -840,12 +840,12 @@ TEST(E2E, Concurrency)
 
     psm::config no_auth_cfg;
 
-    psm::context::server no_auth_server_ctx{
+    psm::resource::process no_auth_server_ctx{
         std::atomic<std::shared_ptr<const psm::config>>{std::make_shared<const psm::config>(no_auth_cfg)},
         ssl_ctx, std::make_shared<psm::account::directory>(psm::memory::system::global_pool())};
 
     auto mr = psm::memory::system::local_pool();
-    psm::context::worker_ref worker_ctx{ioc, psm::worker::borrow{}, mr};
+    psm::resource::worker worker_ctx{ioc, std::weak_ptr<psm::resource::worker>{}, mr};
 
     std::exception_ptr test_error;
     auto function = [&no_auth_server_ctx, &worker_ctx]() -> net::awaitable<void>

@@ -11,7 +11,7 @@
  */
 
 #include <prism/foundation/foundation.hpp>
-#include <prism/net/resolve/dns/detail/format.hpp>
+#include <prism/net/dns/detail/format.hpp>
 #include <prism/trace/spdlog.hpp>
 
 #include <boost/asio.hpp>
@@ -28,7 +28,7 @@ namespace net = boost::asio;
 
 namespace
 {
-    namespace detail = psm::resolve::dns::detail;
+    namespace detail = psm::dns::detail;
 
     // ─── 辅助：创建 IP 地址列表 ───────────────────────────────
 

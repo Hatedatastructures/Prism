@@ -9,7 +9,7 @@
  */
 
 #include <prism/foundation/foundation.hpp>
-#include <prism/proto/protocol/shadowsocks/constants.hpp>
+#include <prism/protocol/shadowsocks/constants.hpp>
 #include <prism/trace/spdlog.hpp>
 #include <prism/foundation/foundation.hpp>
 
@@ -17,7 +17,7 @@
 #include <gtest/gtest.h>
 
 // #include 源文件获取 parse_body_after_timestamp（匿名命名空间 -> 内部链接）
-#include "../../src/prism/proto/protocol/shadowsocks/util/datagram.cpp"
+#include "../../src/prism/protocol/shadowsocks/util/datagram.cpp"
 
 namespace
 {

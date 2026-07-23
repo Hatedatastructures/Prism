@@ -23,9 +23,9 @@
 
 #include <prism/net/connect/pool/pool.hpp>
 #include <prism/net/connect/dial/router.hpp>
-#include <prism/net/resolve/dns/dns.hpp>
-#include <prism/proto/multiplex/core.hpp>
-#include <prism/proto/multiplex/duct.hpp>
+#include <prism/net/dns/resolver.hpp>
+#include <prism/protocol/multiplex/core.hpp>
+#include <prism/protocol/multiplex/duct.hpp>
 #include <prism/account/stats/traffic.hpp>
 
 using MockTransport = psm::testing::MockTransport;
@@ -92,7 +92,7 @@ namespace
             target_transport = std::make_shared<MockTransport>();
             ioc = std::make_unique<net::io_context>(1);
             pool = std::make_unique<psm::connect::connection_pool>(*ioc);
-            psm::resolve::dns::config dns_cfg;
+            psm::dns::config dns_cfg;
             psm::connect::router_options ropts{*pool, *ioc, dns_cfg};
             router_ptr = std::make_unique<psm::connect::router>(std::move(ropts));
             multiplex::core_options opts{mux_transport, nullptr, g_cfg, nullptr};
@@ -144,7 +144,7 @@ namespace
         auto tgt_t = std::make_shared<MockTransport>();
         auto ioc = std::make_unique<net::io_context>(1);
         auto pool = std::make_unique<psm::connect::connection_pool>(*ioc);
-        psm::resolve::dns::config dns_cfg;
+        psm::dns::config dns_cfg;
         psm::connect::router_options ropts{*pool, *ioc, dns_cfg};
         auto router = std::make_unique<psm::connect::router>(std::move(ropts));
         static multiplex::config cfg;
@@ -199,7 +199,7 @@ namespace
         DuctFixture fx;
         psm::stats::traffic::traffic_state ts;
         fx.core_obj->start();
-        fx.core_obj->set_traffic(&ts, psm::protocol::protocol_type::trojan);
+        fx.core_obj->set_traffic(&ts, psm::connect::protocol_type::trojan);
         fx.duct_obj->close();
     }
 
@@ -274,4 +274,4 @@ namespace
 } // namespace
 
 // #include 源文件以覆盖 duct 全部实现
-#include "../src/prism/proto/multiplex/duct.cpp"
+#include "../src/prism/protocol/multiplex/duct.cpp"

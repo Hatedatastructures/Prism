@@ -6,8 +6,8 @@
  * 边界条件和排除法 fallback 逻辑。
  */
 
-#include <prism/proto/protocol/types.hpp>
-#include <prism/proto/protocol/common/target.hpp>
+#include <prism/net/connect/types.hpp>
+#include <prism/net/connect/target.hpp>
 #include <prism/stealth/recognition/target.hpp>
 #include <prism/stealth/recognition/probe/analyzer.hpp>
 #include <prism/foundation/foundation.hpp>
@@ -18,7 +18,7 @@
 #include <string_view>
 
 namespace protocol = psm::protocol;
-using psm::protocol::protocol_type;
+using psm::connect::protocol_type;
 
 /**
  * @brief 测试 recognition::probe::detect() 外层协议探测

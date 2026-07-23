@@ -14,12 +14,12 @@
  */
 #pragma once
 
-#include <prism/context/flow_opts.hpp>
 #include <prism/foundation/fault/code.hpp>
 #include <prism/foundation/memory/container.hpp>
 #include <prism/foundation/memory/pool.hpp>
-#include <prism/proto/protocol/tls/types.hpp>
-#include <prism/proto/protocol/types.hpp>
+#include <prism/protocol/tls/types.hpp>
+#include <prism/net/connect/types.hpp>
+#include <prism/resource/session.hpp>
 #include <prism/stealth/challenge.hpp>
 #include <prism/stealth/recognition/tls/features.hpp>
 #include <prism/net/transport/transmission.hpp>
@@ -43,12 +43,6 @@ namespace psm
 
     struct config;
 } // namespace psm
-
-namespace psm::context
-{
-
-    struct session;
-} // namespace psm::context
 
 namespace psm::stealth
 {
@@ -121,7 +115,7 @@ namespace psm::stealth
     struct handshake_result
     {
         shared_transmission transport;            ///< 最终传输层
-        protocol::protocol_type detected;         ///< 检测到的内层协议
+        psm::connect::protocol_type detected;         ///< 检测到的内层协议
         memory::vector<std::byte> preread;        ///< 内层预读数据
         fault::code error = fault::code::success; ///< 错误码
         memory::string scheme;                    ///< 成功执行的方案名
@@ -130,22 +124,19 @@ namespace psm::stealth
 
     /**
      * @struct stealth_opts
-     * @brief Stealth 层统一传参（替代 recognize_context / identify_context / handshake_context）
-     * @details 继承 flow_opts 获取 meta/trace/cfg/rt 通用字段，添加 stealth 层专用的
-     * transport、session_keepalive、frame_arena、src_ip_raw、preread 字段。
-     * 调用方应在调用前用 preview 包装 transport（如有预读数据）。
+     * @brief Stealth 层统一传参
+     * @details session_resources 提供所有 worker/session 级资源访问。
+     *          preread 是 ClientHello 预读数据。
      */
-    struct stealth_opts : public psm::context::flow_opts
+    struct stealth_opts
     {
-        shared_transmission transport;              ///< 传输层（合并 inbound 语义）
-        context::session *session{nullptr};         ///< 会话上下文
-        std::shared_ptr<void> session_keepalive;    ///< session 保活（shared_ptr<void> 避免循环依赖）
-        memory::frame_arena *frame_arena{nullptr};  ///< 帧内存池
-        std::array<std::byte, 16> src_ip_raw{};     ///< 来源 IP 哈希(RFC-065 探测追踪用)
-        memory::vector<std::byte> preread;          ///< 预读数据（ClientHello 等）
+        shared_transmission transport;                                ///< 传输层（合并 inbound 语义）
+        psm::resource::session *session{nullptr};          ///< 会话资源
+        std::shared_ptr<void> session_keepalive;                      ///< session 保活
+        memory::vector<std::byte> preread;                            ///< 预读数据（ClientHello 等）
     };
 
-    /// @brief handshake_context 别名（过渡期兼容，Step 4 删除）
+    /// @brief handshake_context 别名
     using handshake_context = stealth_opts;
 
     // 方案基类

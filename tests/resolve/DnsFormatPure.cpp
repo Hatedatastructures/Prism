@@ -6,7 +6,7 @@
  */
 
 #include <prism/foundation/foundation.hpp>
-#include <prism/net/resolve/dns/detail/format.hpp>
+#include <prism/net/dns/detail/format.hpp>
 #include <prism/trace/spdlog.hpp>
 
 
@@ -14,7 +14,7 @@
 
 namespace
 {
-    namespace dns = psm::resolve::dns::detail;
+    namespace dns = psm::dns::detail;
 
     // ─── extract_ipv4 / extract_ipv6 ─────────────
 

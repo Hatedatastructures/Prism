@@ -1,8 +1,9 @@
+#include <prism/resource/session.hpp>
 #include <prism/stealth/facade/reality/handshake.hpp>
 
 #include <prism/config/config.hpp>
-#include <prism/instance/outbound/dial.hpp>
-#include <prism/instance/outbound/proxy.hpp>
+#include <prism/net/connect/outbound/dial.hpp>
+#include <prism/net/connect/outbound/proxy.hpp>
 #include <prism/net/net.hpp>
 #include <prism/net/connect/tunnel/tunnel.hpp>
 #include <prism/crypto/aead.hpp>
@@ -10,7 +11,7 @@
 #include <prism/crypto/hkdf.hpp>
 #include <prism/crypto/x25519.hpp>
 #include <prism/foundation/memory/container.hpp>
-#include <prism/proto/protocol/tls/record.hpp>
+#include <prism/protocol/tls/record.hpp>
 #include <prism/stealth/recognition/tls/signal.hpp>
 #include <prism/stealth/facade/reality/config.hpp>
 #include <prism/stealth/facade/reality/seal.hpp>
@@ -207,7 +208,7 @@ namespace psm::stealth::reality
         {
             transport::shared_transmission inbound;
             const psm::config &cfg;
-            psm::context::session &session;
+            psm::resource::session &session;
             net::steady_timer &deadline;
             std::shared_ptr<trace::trace_context> trace;
         };
@@ -296,7 +297,7 @@ namespace psm::stealth::reality
                 auto set_preread = [&](stealth::handshake_result &r)
                 {
                     r.transport = args.inbound;
-                    r.detected = protocol::protocol_type::tls;
+                    r.detected = psm::connect::protocol_type::tls;
                     r.preread.assign(
                         reinterpret_cast<const std::byte *>(out.raw_record.data()),
                         reinterpret_cast<const std::byte *>(out.raw_record.data() + out.raw_record.size()));
@@ -523,10 +524,10 @@ namespace psm::stealth::reality
 
     // 回退路径：连接 dest 配置的真实网站，将客户端的 ClientHello 原封不动转发过去
     // 之后双向透传，审查者探测时会看到与真实网站完全正常的 TLS 通信
-    auto fallback_dest(psm::context::session &session, transport::shared_transmission inbound, const std::span<const std::uint8_t> raw_record, std::shared_ptr<trace::trace_context> trace)
+    auto fallback_dest(psm::resource::session &session, transport::shared_transmission inbound, const std::span<const std::uint8_t> raw_record, std::shared_ptr<trace::trace_context> trace)
         -> net::awaitable<fault::code>
     {
-        const auto &reality_cfg = session.server_ctx.config().stealth.reality;
+        const auto &reality_cfg = session.worker->process->cfg->stealth.reality;
 
         std::string dest_host;
         std::uint16_t dest_port = 443;
@@ -539,7 +540,7 @@ namespace psm::stealth::reality
         trace::info<flt::conn | flt::protocol>(trace, "falling back to {}:{}", dest_host, dest_port);
 
         // 通过 outbound::dial 统一入口建立 TCP 连接到真实网站
-        auto reality_wr = session.worker_ctx.resources.lock();
+        auto reality_wr = session.worker;
         if (!reality_wr)
         {
             trace::warn<flt::conn | flt::protocol>(trace, "worker resources expired before reality fallback dial");
@@ -548,14 +549,14 @@ namespace psm::stealth::reality
         char dest_port_buf[8];
         const auto [dest_port_end, dest_port_ec] = std::to_chars(dest_port_buf, dest_port_buf + sizeof(dest_port_buf), dest_port);
         auto dest_port_str = std::string_view(dest_port_buf, std::distance(dest_port_buf, dest_port_end));
-        protocol::target dest_target;
-        dest_target.host = memory::string(dest_host, session.frame_arena.get());
-        dest_target.port = memory::string(dest_port_str, session.frame_arena.get());
+        psm::connect::target dest_target;
+        dest_target.host = memory::string(dest_host, session.arena.get());
+        dest_target.port = memory::string(dest_port_str, session.arena.get());
         dest_target.positive = true;
         psm::outbound::dial_options dial_opts;
         dial_opts.trace = trace;
         dial_opts.allow_reverse = false;
-        auto dial_res = co_await psm::outbound::dial(reality_wr, dest_target, dial_opts);
+        auto dial_res = co_await psm::outbound::dial({*reality_wr->outbound, reality_wr->ioc, reality_wr->traffic}, dest_target, dial_opts);
         if (fault::failed(dial_res.code) || !dial_res.transport)
         {
             trace::warn<flt::conn | flt::protocol>(trace, "connect to dest failed: {}", fault::describe(dial_res.code));
@@ -579,10 +580,10 @@ namespace psm::stealth::reality
         connect::tunnel_options t_opts;
         t_opts.inbound = inbound;
         t_opts.outbound = std::move(dest_trans);
-        t_opts.buffer_size = session.buffer_size;
-        t_opts.traffic = &reality_wr->traffic();
-        t_opts.detected = session.detected_protocol;
-        t_opts.lease = &session.account_lease;
+        t_opts.buffer_size = session.buffer;
+        t_opts.traffic = &reality_wr->traffic;
+        t_opts.detected = session.detected;
+        t_opts.lease = &session.lease;
         co_await connect::tunnel(std::move(t_opts));
 
         trace::debug<flt::conn | flt::protocol>(trace, "fallback tunnel completed");
@@ -604,7 +605,7 @@ namespace psm::stealth::reality
             auto cert_port_str = std::string_view(cert_port_buf, std::distance(cert_port_buf, cert_port_end));
 
             // 通过 outbound 接口拨号
-            protocol::target cert_target;
+            psm::connect::target cert_target;
             cert_target.host = memory::string(host, memory::current_resource());
             cert_target.port = memory::string(cert_port_str, memory::current_resource());
             cert_target.positive = true;
@@ -695,7 +696,7 @@ namespace psm::stealth::reality
     // 3. complete_hello        → 发送 ServerHello + 接收客户端 Finished
     // 4. 建立 seal 传输层      → 派生应用密钥，读取内层协议数据
     // ══════════════════════════════════════════════════════════════════════
-    auto handshake(transport::shared_transmission inbound, const psm::config &cfg, psm::context::session &session, std::shared_ptr<trace::trace_context> trace)
+    auto handshake(transport::shared_transmission inbound, const psm::config &cfg, psm::resource::session &session, std::shared_ptr<trace::trace_context> trace)
         -> net::awaitable<stealth::handshake_result>
     {
         stealth::handshake_result result;
@@ -782,7 +783,7 @@ namespace psm::stealth::reality
         }
 
         result.transport = std::move(reality_session);
-        result.detected = protocol::protocol_type::unknown;
+        result.detected = psm::connect::protocol_type::unknown;
         result.preread.assign(inner_buf.begin(), inner_buf.begin() + static_cast<std::ptrdiff_t>(inner_n));
         result.scheme = "reality";
         result.error = fault::code::success;

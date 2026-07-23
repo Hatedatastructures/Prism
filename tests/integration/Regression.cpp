@@ -7,8 +7,8 @@
  * 3. Trojan lease 持有和释放 (account::directory)
  */
 
-#include <prism/proto/protocol/types.hpp>
-#include <prism/proto/protocol/common/target.hpp>
+#include <prism/net/connect/types.hpp>
+#include <prism/net/connect/target.hpp>
 #include <prism/stealth/recognition/target.hpp>
 #include <prism/stealth/recognition/probe/analyzer.hpp>
 #include <prism/account/directory.hpp>
@@ -30,7 +30,7 @@ TEST(Regression, IPv6Parsing)
     // 封装解析逻辑，返回 {host, port} 便于断言
     auto parse = [&](const std::string_view input) -> std::pair<psm::memory::string, psm::memory::string>
     {
-        psm::protocol::target t = psm::recognition::resolve(input, mr);
+        psm::connect::target t = psm::recognition::resolve(input, mr);
         return {t.host, t.port};
     };
 
@@ -79,7 +79,7 @@ TEST(Regression, InnerProtocolDetection)
     {
         std::string http_request = "GET / HTTP/1.1\r\nHost: example.com\r\n\r\n";
         auto result = psm::recognition::probe::detect_tls(http_request);
-        EXPECT_TRUE(result == psm::protocol::protocol_type::http)
+        EXPECT_TRUE(result == psm::connect::protocol_type::http)
             << "HTTP detection";
     }
 
@@ -87,7 +87,7 @@ TEST(Regression, InnerProtocolDetection)
     {
         std::string partial_data = "GET ";
         auto result = psm::recognition::probe::detect_tls(partial_data);
-        EXPECT_TRUE(result == psm::protocol::protocol_type::http)
+        EXPECT_TRUE(result == psm::connect::protocol_type::http)
             << "partial HTTP detection";
     }
 
@@ -95,7 +95,7 @@ TEST(Regression, InnerProtocolDetection)
     {
         std::string short_data(30, 'a');
         auto result = psm::recognition::probe::detect_tls(short_data);
-        EXPECT_TRUE(result == psm::protocol::protocol_type::unknown)
+        EXPECT_TRUE(result == psm::connect::protocol_type::unknown)
             << "short data should be unknown (insufficient for detection)";
     }
 
@@ -103,7 +103,7 @@ TEST(Regression, InnerProtocolDetection)
     {
         std::string long_data(70, 'b');
         auto result = psm::recognition::probe::detect_tls(long_data);
-        EXPECT_TRUE(result == psm::protocol::protocol_type::unknown)
+        EXPECT_TRUE(result == psm::connect::protocol_type::unknown)
             << "long unrecognized data should be unknown";
     }
 
@@ -115,7 +115,7 @@ TEST(Regression, InnerProtocolDetection)
         trojan_like[58] = 0x01;
         trojan_like[59] = 0x01;
         auto result = psm::recognition::probe::detect_tls(trojan_like);
-        EXPECT_TRUE(result == psm::protocol::protocol_type::trojan)
+        EXPECT_TRUE(result == psm::connect::protocol_type::trojan)
             << "Trojan detection";
     }
 
@@ -124,7 +124,7 @@ TEST(Regression, InnerProtocolDetection)
         std::string invalid_trojan(60, 'a');
         invalid_trojan[56] = 'x';
         auto result = psm::recognition::probe::detect_tls(invalid_trojan);
-        EXPECT_TRUE(result == psm::protocol::protocol_type::unknown)
+        EXPECT_TRUE(result == psm::connect::protocol_type::unknown)
             << "invalid Trojan should be unknown";
     }
 }

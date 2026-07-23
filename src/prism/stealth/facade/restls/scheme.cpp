@@ -1,9 +1,9 @@
 #include <prism/stealth/facade/restls/scheme.hpp>
 
 #include <prism/config/config.hpp>
-#include <prism/context/context.hpp>
+#include <prism/resource/session.hpp>
 #include <prism/foundation/fault/code.hpp>
-#include <prism/proto/protocol/types.hpp>
+#include <prism/net/connect/types.hpp>
 #include <prism/stealth/recognition/probe/analyzer.hpp>
 #include <prism/stealth/facade/restls/handshake.hpp>
 #include <prism/stealth/facade/restls/transport.hpp>
@@ -56,14 +56,14 @@ namespace psm::stealth::restls
         auto hs_result = co_await restls::handshake(
             restls::handshake_opts{
                 .raw_trans = ctx.transport,
-                .cfg = ctx.cfg->stealth.restls,
+                .cfg = ctx.session->worker->process->cfg->stealth.restls,
                 .client_hello = std::move(ctx.preread),
                 .detail = detail,
             });
 
         if (!fault::succeeded(hs_result.error))
         {
-            result.detected = protocol::protocol_type::tls;
+            result.detected = psm::connect::protocol_type::tls;
             result.error = hs_result.error;
             result.polluted = hs_result.polluted;
             result.transport = ctx.transport;
@@ -99,7 +99,7 @@ namespace psm::stealth::restls
 
         if (inner_n >= 32)
         {
-            result.detected = protocol::protocol_type::shadowsocks;
+            result.detected = psm::connect::protocol_type::shadowsocks;
             trace::debug<flt::conn | flt::protocol>(                "restls inner fallback to shadowsocks, inner_n={}", inner_n);
         }
 
@@ -108,7 +108,7 @@ namespace psm::stealth::restls
         result.scheme = "restls";
 
         trace::debug<flt::conn | flt::protocol>(            "restls_transport created, inner protocol: {}",
-            protocol::to_string_view(result.detected));
+            psm::connect::to_string_view(result.detected));
 
         co_return result;
     }

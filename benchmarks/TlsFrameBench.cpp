@@ -9,9 +9,9 @@
 
 #include <benchmark/benchmark.h>
 #include <prism/foundation/memory/container.hpp>
-#include <prism/proto/protocol/tls/hello.hpp>
-#include <prism/proto/protocol/tls/record.hpp>
-#include <prism/proto/protocol/tls/types.hpp>
+#include <prism/protocol/tls/hello.hpp>
+#include <prism/protocol/tls/record.hpp>
+#include <prism/protocol/tls/types.hpp>
 
 #include <cstdint>
 

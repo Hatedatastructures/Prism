@@ -16,10 +16,10 @@
 
 #include <prism/net/connect/pool/pool.hpp>
 #include <prism/net/connect/dial/router.hpp>
-#include <prism/net/resolve/dns/dns.hpp>
-#include <prism/proto/multiplex/core.hpp>
-#include <prism/proto/multiplex/duct.hpp>
-#include <prism/proto/multiplex/parcel.hpp>
+#include <prism/net/dns/resolver.hpp>
+#include <prism/protocol/multiplex/core.hpp>
+#include <prism/protocol/multiplex/duct.hpp>
+#include <prism/protocol/multiplex/parcel.hpp>
 #include <prism/account/stats/traffic.hpp>
 
 using MockTransport = psm::testing::MockTransport;
@@ -79,7 +79,7 @@ namespace
             transport = std::make_shared<MockTransport>();
             ioc = std::make_unique<net::io_context>(1);
             pool = std::make_unique<psm::connect::connection_pool>(*ioc);
-            psm::resolve::dns::config dns_cfg;
+            psm::dns::config dns_cfg;
             psm::connect::router_options ropts{*pool, *ioc, dns_cfg};
             router_ptr = std::make_unique<psm::connect::router>(std::move(ropts));
             static multiplex::config cfg;
@@ -101,7 +101,7 @@ namespace
         auto transport = std::make_shared<MockTransport>();
         auto ioc = std::make_unique<net::io_context>(1);
         auto pool = std::make_unique<psm::connect::connection_pool>(*ioc);
-        psm::resolve::dns::config dns_cfg;
+        psm::dns::config dns_cfg;
         psm::connect::router_options ropts{*pool, *ioc, dns_cfg};
         auto router_ptr = std::make_unique<psm::connect::router>(std::move(ropts));
         static multiplex::config cfg;
@@ -117,7 +117,7 @@ namespace
     {
         CoreFixture fx;
         psm::stats::traffic::traffic_state ts;
-        fx.core_obj->set_traffic(&ts, psm::protocol::protocol_type::trojan);
+        fx.core_obj->set_traffic(&ts, psm::connect::protocol_type::trojan);
     }
 
     TEST(MuxCoreDeep, AccumulateTrafficBoth)
@@ -176,7 +176,7 @@ namespace
     {
         CoreFixture fx;
         psm::stats::traffic::traffic_state ts;
-        fx.core_obj->set_traffic(&ts, psm::protocol::protocol_type::trojan);
+        fx.core_obj->set_traffic(&ts, psm::connect::protocol_type::trojan);
         fx.core_obj->accumulate_traffic(1000, 2000);
         fx.core_obj->close();
     }
@@ -275,7 +275,7 @@ namespace
 
 // #include 源文件以覆盖 resolve_mr 匿名命名空间函数
 // 放在 TestCore 定义之后，确保所有类型完整
-#include "../src/prism/proto/multiplex/core.cpp"
+#include "../src/prism/protocol/multiplex/core.cpp"
 
 namespace
 {

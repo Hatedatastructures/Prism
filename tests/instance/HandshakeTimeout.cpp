@@ -8,8 +8,8 @@
 
 #include <prism/stealth/common.hpp>
 #include <prism/net/transport/reliable.hpp>
-#include <prism/proto/protocol/vless/conn.hpp>
-#include <prism/proto/protocol/trojan/conn.hpp>
+#include <prism/protocol/vless/conn.hpp>
+#include <prism/protocol/trojan/conn.hpp>
 #include <prism/foundation/foundation.hpp>
 #include <prism/trace/trace.hpp>
 #include <prism/foundation/foundation.hpp>

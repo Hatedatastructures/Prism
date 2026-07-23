@@ -7,7 +7,7 @@
 
 #pragma once
 
-#include <prism/context/context.hpp>
+#include <prism/resource/session.hpp>
 #include <prism/foundation/fault/code.hpp>
 #include <prism/foundation/memory/container.hpp>
 #include <prism/stealth/scheme.hpp>
@@ -43,7 +43,7 @@ namespace psm::stealth::reality
      * @return net::awaitable<stealth::handshake_result> 异步操作，返回握手结果
      */
     [[nodiscard]] auto handshake(transport::shared_transmission inbound, const psm::config &cfg,
-                                 psm::context::session &session,
+                                 psm::resource::session &session,
                                  std::shared_ptr<trace::trace_context> trace)
         -> net::awaitable<stealth::handshake_result>;
 
@@ -56,7 +56,7 @@ namespace psm::stealth::reality
      * @param raw_record 原始 ClientHello TLS 记录字节
      * @return net::awaitable<fault::code> 异步操作，返回错误码
      */
-    [[nodiscard]] auto fallback_dest(psm::context::session &session, transport::shared_transmission inbound, std::span<const std::uint8_t> raw_record,
+    [[nodiscard]] auto fallback_dest(psm::resource::session &session, transport::shared_transmission inbound, std::span<const std::uint8_t> raw_record,
                                     std::shared_ptr<trace::trace_context> trace)
         -> net::awaitable<fault::code>;
 

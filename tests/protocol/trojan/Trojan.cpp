@@ -7,8 +7,8 @@
  * 3. 数据双向传输 (Echo)
  */
 
-#include <prism/proto/protocol/trojan.hpp>
-#include <prism/proto/protocol/trojan/framing.hpp>
+#include <prism/protocol/trojan/trojan.hpp>
+#include <prism/protocol/trojan/framing.hpp>
 #include <prism/foundation/exception/network.hpp>
 #include <prism/foundation/fault/code.hpp>
 #include <prism/net/transport/reliable.hpp>

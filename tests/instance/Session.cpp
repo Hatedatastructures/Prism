@@ -7,11 +7,11 @@
  * 3. 客户端关闭后上游检测到 (TestSessionClientClose)
  */
 
-#include <prism/instance/config.hpp>
+#include <prism/runtime/config.hpp>
 #include <prism/config/config.hpp>
-#include <prism/context/context.hpp>
+#include <prism/resource/session.hpp>
 #include <prism/account/directory.hpp>
-#include <prism/instance/session/session.hpp>
+#include <prism/runtime/session/session.hpp>
 #include <prism/net/connect/pool/pool.hpp>
 #include <prism/net/transport/reliable.hpp>
 #include <prism/net/connect/dial/router.hpp>
@@ -36,7 +36,7 @@ namespace net = boost::asio;
 namespace ssl = boost::asio::ssl;
 using tcp = net::ip::tcp;
 
-namespace agent = psm::instance;
+namespace agent = psm::runtime;
 
 namespace
 {
@@ -93,8 +93,8 @@ namespace
      * @param worker_ctx 工作线程上下文（io_context、DNS 路由、PMR 资源）
      * @return net::awaitable<void>
      */
-    net::awaitable<void> ProxyAcceptOne(tcp::acceptor acceptor, psm::context::server &server_ctx,
-                                        psm::context::worker_ref &worker_ctx)
+    net::awaitable<void> ProxyAcceptOne(tcp::acceptor acceptor, psm::resource::process &server_ctx,
+                                        psm::resource::worker &worker_ctx)
     {
         // 将错误码重定向到 accept_ec，避免 accept 失败时抛异常
         boost::system::error_code accept_ec;
@@ -450,7 +450,7 @@ namespace
      * @param worker_ctx 工作线程上下文
      * @return net::awaitable<void>
      */
-    net::awaitable<void> RunAllTests(psm::context::server &server_ctx, psm::context::worker_ref &worker_ctx)
+    net::awaitable<void> RunAllTests(psm::resource::process &server_ctx, psm::resource::worker &worker_ctx)
     {
         // 测试 1: CONNECT + echo 完整往返
         {
@@ -546,7 +546,7 @@ namespace
         // 创建连接池，管理到上游的出站连接
         const auto pool = std::make_unique<psm::connect::connection_pool>(ioc);
         // 使用空 DNS 配置创建路由器（测试中使用直连，无需上游 DNS）
-        psm::resolve::dns::config dns_cfg;
+        psm::dns::config dns_cfg;
         auto dist = std::make_unique<psm::connect::router>(psm::connect::router_options{*pool, ioc, std::move(dns_cfg)});
 
         // 创建 SSL 上下文，测试中跳过证书验证
@@ -556,11 +556,11 @@ namespace
         // 构造服务端上下文：配置、SSL、账户存储
         psm::config cfg;
         auto account_store = std::make_shared<psm::account::directory>(psm::memory::system::global_pool());
-        psm::context::server server_ctx{std::atomic<std::shared_ptr<const psm::config>>{std::make_shared<const psm::config>(cfg)}, ssl_ctx, account_store};
+        psm::resource::process server_ctx{std::atomic<std::shared_ptr<const psm::config>>{std::make_shared<const psm::config>(cfg)}, ssl_ctx, account_store};
 
         // 构造工作线程上下文：io_context、DNS 路由、线程本地内存池
         auto mr = psm::memory::system::local_pool();
-        psm::context::worker_ref worker_ctx{ioc, psm::worker::borrow{}, mr};
+        psm::resource::worker worker_ctx{ioc, std::weak_ptr<psm::resource::worker>{}, mr};
 
         // 用于捕获协程中未处理的异常
         std::exception_ptr test_error;

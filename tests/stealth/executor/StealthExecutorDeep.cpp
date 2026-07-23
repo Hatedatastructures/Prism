@@ -19,7 +19,7 @@ namespace
 {
     namespace stealth = psm::stealth;
     using psm::memory::vector;
-    using psm::protocol::protocol_type;
+    using psm::connect::protocol_type;
 
     // ─── 构造函数 ───────────────────────────
 

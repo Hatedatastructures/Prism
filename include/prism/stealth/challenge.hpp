@@ -9,7 +9,7 @@
 
 #include <prism/foundation/fault/code.hpp>
 #include <prism/foundation/memory/container.hpp>
-#include <prism/stealth/tracker.hpp>
+#include <prism/foundation/rate/counter.hpp>
 
 #include <array>
 #include <cstdint>
@@ -44,7 +44,7 @@ namespace psm::stealth
      */
     struct challenge_input
     {
-        const address_hash &src;
+        const psm::rate::address_hash &src;
         std::span<const std::uint8_t> sni;
         std::uint64_t counter{0};
         std::array<std::uint8_t, 32> server_secret{};

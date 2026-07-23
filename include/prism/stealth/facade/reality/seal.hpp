@@ -10,7 +10,7 @@
 
 #include <prism/crypto/aead.hpp>
 #include <prism/foundation/memory/container.hpp>
-#include <prism/proto/protocol/tls/types.hpp>
+#include <prism/protocol/tls/types.hpp>
 #include <prism/stealth/facade/reality/util/keygen.hpp>
 #include <prism/net/transport/transmission.hpp>
 

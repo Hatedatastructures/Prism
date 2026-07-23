@@ -104,7 +104,7 @@ TEST(ConfigValidator, ReverseMapIpLiteralCheck)
     cfg.instance.reverse_map.clear();
     cfg.instance.reverse_map.emplace(
         psm::memory::string{"example.com"},
-        psm::instance::endpoint{psm::memory::string{"not.an.ip", cfg.instance.reverse_map.get_allocator()}, 8443});
+        psm::runtime::endpoint{psm::memory::string{"not.an.ip", cfg.instance.reverse_map.get_allocator()}, 8443});
     const auto result = psm::config_validator::validate(cfg);
     EXPECT_FALSE(result.valid);
 }
@@ -115,7 +115,7 @@ TEST(ConfigValidator, ReverseMapValidIpLiteralOk)
     cfg.instance.reverse_map.clear();
     cfg.instance.reverse_map.emplace(
         psm::memory::string{"backend.com"},
-        psm::instance::endpoint{psm::memory::string{"127.0.0.1", cfg.instance.reverse_map.get_allocator()}, 8443});
+        psm::runtime::endpoint{psm::memory::string{"127.0.0.1", cfg.instance.reverse_map.get_allocator()}, 8443});
     const auto result = psm::config_validator::validate(cfg);
     EXPECT_TRUE(result.valid);
 }

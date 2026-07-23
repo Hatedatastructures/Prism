@@ -11,13 +11,13 @@
  */
 
 #include <prism/foundation/foundation.hpp>
-#include <prism/instance/outbound/direct.hpp>
+#include <prism/net/connect/outbound/direct.hpp>
 #include <prism/trace/spdlog.hpp>
-#include <prism/proto/proto.hpp>
+#include <prism/protocol/proto.hpp>
 #include <prism/net/transport/reliable.hpp>
 #include <prism/net/connect/pool/pool.hpp>
 #include <prism/net/connect/dial/router.hpp>
-#include <prism/net/resolve/dns/dns.hpp>
+#include <prism/net/dns/resolver.hpp>
 
 #include <gtest/gtest.h>
 
@@ -100,7 +100,7 @@ struct mux_test_context
 
     explicit mux_test_context(const std::uint32_t max_streams = 32)
         : pool(ioc),
-          router({pool, ioc, psm::resolve::dns::config{}}),
+          router({pool, ioc, psm::dns::config{}}),
           outbound(router)
     {
         mux_config.smux.max_streams = max_streams;

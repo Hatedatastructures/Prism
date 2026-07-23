@@ -1,0 +1,16 @@
+target_sources(${PROJECT_NAME}_static_library
+        PRIVATE
+        process.cpp
+        worker.cpp
+        session.cpp
+)
+
+target_sources(${PROJECT_NAME}_static_library
+        PUBLIC
+        FILE_SET public_headers TYPE HEADERS
+        BASE_DIRS ${PROJECT_SOURCE_DIR}/include
+        FILES
+            ${PROJECT_SOURCE_DIR}/include/prism/resource/process.hpp
+            ${PROJECT_SOURCE_DIR}/include/prism/resource/worker.hpp
+            ${PROJECT_SOURCE_DIR}/include/prism/resource/session.hpp
+)

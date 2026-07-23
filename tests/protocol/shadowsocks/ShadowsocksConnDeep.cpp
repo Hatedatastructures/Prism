@@ -11,7 +11,7 @@
 #include <prism/trace/spdlog.hpp>
 #include <prism/crypto/blake3.hpp>
 #include <prism/crypto/aead.hpp>
-#include <prism/proto/protocol/shadowsocks/framing.hpp>
+#include <prism/protocol/shadowsocks/framing.hpp>
 
 #include <chrono>
 #include <cstring>
@@ -21,7 +21,7 @@
 #define private public
 #include <gtest/gtest.h>
 
-#include "../../src/prism/proto/protocol/shadowsocks/conn.cpp"
+#include "../../src/prism/protocol/shadowsocks/conn.cpp"
 
 using psm::testing::MockTransport;
 

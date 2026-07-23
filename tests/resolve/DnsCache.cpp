@@ -4,8 +4,8 @@
  * @details 测试 DNS 缓存的 LRU 淘汰、TTL 过期、serve-stale、负向缓存等核心逻辑。
  */
 
-#include <prism/net/resolve/dns/detail/cache.hpp>
-#include <prism/net/resolve/dns/detail/format.hpp>
+#include <prism/net/dns/detail/cache.hpp>
+#include <prism/net/dns/detail/format.hpp>
 #include <prism/foundation/foundation.hpp>
 #include <prism/trace/spdlog.hpp>
 
@@ -17,11 +17,11 @@
 
 namespace net = boost::asio;
 
-using psm::resolve::dns::detail::cache;
-using psm::resolve::dns::detail::cache_options;
-using psm::resolve::dns::detail::put_input;
-using psm::resolve::dns::detail::qtype;
-using psm::resolve::dns::detail::stale_policy;
+using psm::dns::detail::cache;
+using psm::dns::detail::cache_options;
+using psm::dns::detail::put_input;
+using psm::dns::detail::qtype;
+using psm::dns::detail::stale_policy;
 
 namespace
 {

@@ -10,15 +10,15 @@
  */
 
 #include <prism/foundation/foundation.hpp>
-#include <prism/instance/outbound/direct.hpp>
+#include <prism/net/connect/outbound/direct.hpp>
 #include <prism/trace/spdlog.hpp>
-#include <prism/proto/multiplex/bootstrap.hpp>
-#include <prism/proto/multiplex/smux/craft.hpp>
-#include <prism/proto/multiplex/yamux/craft.hpp>
-#include <prism/proto/multiplex/h2mux/craft.hpp>
+#include <prism/protocol/multiplex/bootstrap.hpp>
+#include <prism/protocol/multiplex/smux/craft.hpp>
+#include <prism/protocol/multiplex/yamux/craft.hpp>
+#include <prism/protocol/multiplex/h2mux/craft.hpp>
 #include <prism/net/connect/dial/router.hpp>
 #include <prism/net/connect/pool/pool.hpp>
-#include <prism/net/resolve/dns/dns.hpp>
+#include <prism/net/dns/resolver.hpp>
 #include <prism/net/transport/transmission.hpp>
 
 #include <gtest/gtest.h>
@@ -124,7 +124,7 @@ namespace
     {
         net::io_context ioc;
         psm::connect::connection_pool pool(ioc);
-        psm::connect::router rtr({pool, ioc, psm::resolve::dns::config{}});
+        psm::connect::router rtr({pool, ioc, psm::dns::config{}});
         psm::outbound::direct ob(rtr);
         psm::multiplex::config mux_cfg;
 
@@ -134,7 +134,7 @@ namespace
         psm::multiplex::bootstrap_context ctx{
             .transport = transport,
             .outbound = &ob,
-            .cfg = mux_cfg,
+            .cfg = &mux_cfg,
         };
 
         std::exception_ptr ep;
@@ -174,7 +174,7 @@ namespace
     {
         net::io_context ioc;
         psm::connect::connection_pool pool(ioc);
-        psm::connect::router rtr({pool, ioc, psm::resolve::dns::config{}});
+        psm::connect::router rtr({pool, ioc, psm::dns::config{}});
         psm::outbound::direct ob(rtr);
         psm::multiplex::config mux_cfg;
 
@@ -184,7 +184,7 @@ namespace
         psm::multiplex::bootstrap_context ctx{
             .transport = transport,
             .outbound = &ob,
-            .cfg = mux_cfg,
+            .cfg = &mux_cfg,
         };
 
         std::exception_ptr ep;
@@ -224,7 +224,7 @@ namespace
     {
         net::io_context ioc;
         psm::connect::connection_pool pool(ioc);
-        psm::connect::router rtr({pool, ioc, psm::resolve::dns::config{}});
+        psm::connect::router rtr({pool, ioc, psm::dns::config{}});
         psm::outbound::direct ob(rtr);
         psm::multiplex::config mux_cfg;
 
@@ -234,7 +234,7 @@ namespace
         psm::multiplex::bootstrap_context ctx{
             .transport = transport,
             .outbound = &ob,
-            .cfg = mux_cfg,
+            .cfg = &mux_cfg,
         };
 
         std::exception_ptr ep;
@@ -275,7 +275,7 @@ namespace
     {
         net::io_context ioc;
         psm::connect::connection_pool pool(ioc);
-        psm::connect::router rtr({pool, ioc, psm::resolve::dns::config{}});
+        psm::connect::router rtr({pool, ioc, psm::dns::config{}});
         psm::outbound::direct ob(rtr);
         psm::multiplex::config mux_cfg;
 
@@ -286,7 +286,7 @@ namespace
         psm::multiplex::bootstrap_context ctx{
             .transport = transport,
             .outbound = &ob,
-            .cfg = mux_cfg,
+            .cfg = &mux_cfg,
         };
 
         std::exception_ptr ep;
@@ -324,7 +324,7 @@ namespace
     {
         net::io_context ioc;
         psm::connect::connection_pool pool(ioc);
-        psm::connect::router rtr({pool, ioc, psm::resolve::dns::config{}});
+        psm::connect::router rtr({pool, ioc, psm::dns::config{}});
         psm::outbound::direct ob(rtr);
         psm::multiplex::config mux_cfg;
 
@@ -335,7 +335,7 @@ namespace
         psm::multiplex::bootstrap_context ctx{
             .transport = transport,
             .outbound = &ob,
-            .cfg = mux_cfg,
+            .cfg = &mux_cfg,
         };
 
         std::exception_ptr ep;

@@ -5,8 +5,8 @@
  */
 
 #include <prism/foundation/foundation.hpp>
-#include <prism/proto/protocol/shadowsocks/framing.hpp>
-#include <prism/proto/protocol/shadowsocks/constants.hpp>
+#include <prism/protocol/shadowsocks/framing.hpp>
+#include <prism/protocol/shadowsocks/constants.hpp>
 #include <prism/trace/spdlog.hpp>
 
 #include <gtest/gtest.h>

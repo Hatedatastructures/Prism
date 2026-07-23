@@ -10,7 +10,7 @@
 #include <prism/crypto/blake3.hpp>
 #include <prism/crypto/x25519.hpp>
 #include <prism/crypto/hkdf.hpp>
-#include <prism/proto/protocol/shadowsocks/util/salts.hpp>
+#include <prism/protocol/shadowsocks/util/salts.hpp>
 #include <prism/foundation/foundation.hpp>
 #include <array>
 #include <cstdint>
