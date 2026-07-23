@@ -10,8 +10,8 @@
 #include <prism/protocol/http/parser.hpp>
 #include <prism/protocol/trojan/framing.hpp>
 #include <prism/protocol/shadowsocks/framing.hpp>
-#include <prism/net/resolve/dns/detail/format.hpp>
-#include <prism/net/resolve/dns/detail/rules.hpp>
+#include <prism/net/dns/detail/format.hpp>
+#include <prism/net/dns/detail/rules.hpp>
 #include <prism/crypto/sha224.hpp>
 #include <prism/crypto/base64.hpp>
 #include <array>
@@ -20,8 +20,9 @@
 #include <string_view>
 
 using namespace psm;
+using namespace psm::dns;
 
-namespace psm::resolve
+namespace psm::dns
 {
     using dns::detail::message;
     using dns::detail::qtype;
@@ -175,14 +176,14 @@ static void BM_DnsMakeQuery(benchmark::State &state)
 {
     for (auto _ : state)
     {
-        auto msg = resolve::message::make_query("example.com", resolve::qtype::a);
+        auto msg = dns::message::make_query("example.com", dns::qtype::a);
         benchmark::DoNotOptimize(msg);
     }
 }
 
 static void BM_DnsPackMessage(benchmark::State &state)
 {
-    auto msg = resolve::message::make_query("example.com", resolve::qtype::a);
+    auto msg = dns::message::make_query("example.com", dns::qtype::a);
     for (auto _ : state)
     {
         auto wire = msg.pack();
@@ -193,11 +194,11 @@ static void BM_DnsPackMessage(benchmark::State &state)
 
 static void BM_DnsUnpackMessage(benchmark::State &state)
 {
-    auto msg = resolve::message::make_query("example.com", resolve::qtype::a);
+    auto msg = dns::message::make_query("example.com", dns::qtype::a);
     auto wire = msg.pack();
     for (auto _ : state)
     {
-        auto opt = resolve::message::unpack(std::span<const std::uint8_t>(wire.data(), wire.size()));
+        auto opt = dns::message::unpack(std::span<const std::uint8_t>(wire.data(), wire.size()));
         benchmark::DoNotOptimize(opt);
     }
     state.SetBytesProcessed(state.iterations() * static_cast<std::int64_t>(wire.size()));
@@ -205,17 +206,17 @@ static void BM_DnsUnpackMessage(benchmark::State &state)
 
 static void BM_DnsExtractIps(benchmark::State &state)
 {
-    resolve::message msg;
+    dns::message msg;
     {
-        resolve::record ans;
-        ans.type = resolve::qtype::a;
+        dns::record ans;
+        ans.type = dns::qtype::a;
         ans.ttl = 300;
         ans.rdata = {8, 8, 8, 8};
         msg.answers.push_back(std::move(ans));
     }
     {
-        resolve::record ans;
-        ans.type = resolve::qtype::aaaa;
+        dns::record ans;
+        ans.type = dns::qtype::aaaa;
         ans.ttl = 300;
         ans.rdata = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1};
         msg.answers.push_back(std::move(ans));
@@ -229,10 +230,10 @@ static void BM_DnsExtractIps(benchmark::State &state)
 
 static void BM_DnsMinTtl(benchmark::State &state)
 {
-    resolve::message msg;
+    dns::message msg;
     for (int i = 0; i < 10; ++i)
     {
-        resolve::record r;
+        dns::record r;
         r.ttl = static_cast<std::uint32_t>(300 + i * 60);
         msg.answers.push_back(std::move(r));
     }
@@ -316,7 +317,7 @@ static void BM_NormalizeCredential_Hashed(benchmark::State &state)
 
 static void BM_DomainTrieSearchHit(benchmark::State &state)
 {
-    resolve::domain_trie trie;
+    dns::domain_trie trie;
     trie.insert("example.com", 42);
     for (auto _ : state)
     {
@@ -327,7 +328,7 @@ static void BM_DomainTrieSearchHit(benchmark::State &state)
 
 static void BM_DomainTrieSearchWildcard(benchmark::State &state)
 {
-    resolve::domain_trie trie;
+    dns::domain_trie trie;
     trie.insert("*.example.com", 100);
     for (auto _ : state)
     {
@@ -338,7 +339,7 @@ static void BM_DomainTrieSearchWildcard(benchmark::State &state)
 
 static void BM_DomainTrieSearchMiss(benchmark::State &state)
 {
-    resolve::domain_trie trie;
+    dns::domain_trie trie;
     trie.insert("example.com", 42);
     for (auto _ : state)
     {
@@ -349,7 +350,7 @@ static void BM_DomainTrieSearchMiss(benchmark::State &state)
 
 static void BM_RulesEngineMatch(benchmark::State &state)
 {
-    resolve::rules_engine engine;
+    dns::rules_engine engine;
     {
         namespace net = boost::asio;
         memory::vector<net::ip::address> ips;
@@ -373,7 +374,7 @@ static void BM_RulesEngineMatch(benchmark::State &state)
 static void BM_DomainTrie_LargeDataset(benchmark::State &state)
 {
     const auto rule_count = static_cast<std::size_t>(state.range(0));
-    resolve::domain_trie trie;
+    dns::domain_trie trie;
 
     for (std::size_t i = 0; i < rule_count; ++i)
     {
@@ -392,7 +393,7 @@ static void BM_DomainTrie_LargeDataset(benchmark::State &state)
 static void BM_DomainTrie_WildcardLarge(benchmark::State &state)
 {
     const auto rule_count = static_cast<std::size_t>(state.range(0));
-    resolve::domain_trie trie;
+    dns::domain_trie trie;
 
     for (std::size_t i = 0; i < rule_count; ++i)
     {

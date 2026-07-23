@@ -86,7 +86,7 @@ namespace psm::loader
     [[nodiscard]] inline auto build_dir(const runtime::authentication &auth)
         -> std::shared_ptr<account::directory>
     {
-        const auto dir = std::make_shared<account::directory>(memory::system::local_pool());
+        const auto dir = std::make_shared<account::directory>(memory::system::global_pool());
 
         // 预估总条目数：每个用户可能的 password 和 uuid
         std::size_t entry_count = 0;

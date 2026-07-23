@@ -17,6 +17,13 @@ namespace psm::connect
 
     // ── pooled_connection ───────────────────────────────────────────────
 
+    pooled_connection::pooled_connection(connection_pool *pool, tcp::socket *socket, tcp::endpoint endpoint)
+        : pool_(pool), socket_(socket), endpoint_(std::move(endpoint))
+    {
+        if (pool_)
+            alive_ = pool_->alive_sentinel();
+    }
+
     pooled_connection::~pooled_connection() noexcept
     {
         reset();
@@ -48,7 +55,8 @@ namespace psm::connect
     {
         if (socket_)
         {
-            if (pool_)
+            auto alive = alive_.lock();
+            if (pool_ && alive && alive->load(std::memory_order_acquire))
             {
                 pool_->recycle(socket_, endpoint_);
             }

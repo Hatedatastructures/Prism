@@ -64,6 +64,7 @@ struct worker
 
     std::shared_ptr<process> process;
 
+    psm::memory::resource_pointer               memory;
     boost::asio::io_context                     ioc;
     psm::connect::connection_pool               pool;
     std::unique_ptr<psm::connect::router>       router;
@@ -72,7 +73,6 @@ struct worker
     psm::stats::traffic::traffic_state          traffic;
     psm::rate::counter                          rate;
     psm::coroutine::task_registry               tasks;
-    psm::memory::resource_pointer               memory;
 
 private:
     std::atomic<bool> alive_{true};

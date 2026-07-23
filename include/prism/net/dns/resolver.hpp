@@ -61,6 +61,13 @@ namespace psm::dns
         [[nodiscard]] auto ipv6_disabled() const noexcept
             -> bool;
 
+        // 测试接口（原 resolver_impl 的公开方法）
+        [[nodiscard]] auto is_blacklisted(const net::ip::address &addr) const noexcept
+            -> bool;
+
+        [[nodiscard]] static auto normalize(std::string_view domain, memory::resource_pointer mr = {}) noexcept
+            -> memory::string;
+
     private:
         class impl;
         std::unique_ptr<impl> impl_;

@@ -388,6 +388,7 @@ namespace psm::dns
             co_return std::make_pair(result.error, std::move(result.ips));
         }
 
+    public:
         [[nodiscard]] static auto normalize(std::string_view domain, memory::resource_pointer mr)
             -> memory::string
         {
@@ -459,6 +460,7 @@ namespace psm::dns
 
             return false;
         }
+    private:
 
         net::io_context &ioc_;
         memory::resource_pointer mr_;
@@ -502,6 +504,18 @@ namespace psm::dns
         return impl_->ipv6_disabled();
     }
 
+
+    auto resolver::is_blacklisted(const net::ip::address &addr) const noexcept
+        -> bool
+    {
+        return impl_->is_blacklisted(addr);
+    }
+
+    auto resolver::normalize(std::string_view domain, memory::resource_pointer mr) noexcept
+        -> memory::string
+    {
+        return impl::normalize(domain, mr ? mr : memory::current_resource());
+    }
     resolver::~resolver() noexcept = default;
 
 } // namespace psm::dns

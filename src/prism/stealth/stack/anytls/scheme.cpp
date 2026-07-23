@@ -369,8 +369,7 @@ namespace psm::stealth::anytls
                 }
                 else
                 {
-                    net::co_spawn(session_ptr->worker->ioc.get_executor(),
-                        std::move(subsequent_task), net::detached);
+                    return;
                 }
             };
         }
@@ -483,8 +482,7 @@ namespace psm::stealth::anytls
                 }
                 else
                 {
-                    net::co_spawn(session_ptr->worker->ioc.get_executor(),
-                        std::move(mux_task), net::detached);
+                    co_return fault::code::success;
                 }
                 co_return fault::code::success;
             }
@@ -524,8 +522,7 @@ namespace psm::stealth::anytls
             }
             else
             {
-                net::co_spawn(session_ptr->worker->ioc.get_executor(),
-                    std::move(forward_task), net::detached);
+                co_return fault::code::success;
             }
 
             co_return fault::code::success;

@@ -13,8 +13,8 @@ namespace psm::resource
 
 worker::worker(options opts)
     : process(std::move(opts.process))
-    , ioc(1)
     , memory(opts.mr)
+    , ioc(1)
     , pool(ioc, memory, process->cfg->pool)
     , router(std::make_unique<psm::connect::router>(
           psm::connect::router_options{pool, ioc, process->cfg->dns, memory}))
@@ -50,6 +50,7 @@ worker::worker(options opts)
     }
 
     psm::stats::traffic::traffic_state::register_instance(&traffic);
+    pool.start();
 }
 
 worker::~worker() noexcept
@@ -58,6 +59,7 @@ worker::~worker() noexcept
     if (!tasks.cancel_and_wait())
         std::cerr << "worker: tasks cancel timed out\n";
 
+    pool.clear();
     router.reset();
 
     ioc.restart();

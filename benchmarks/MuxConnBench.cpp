@@ -6,8 +6,8 @@
  */
 
 #include <benchmark/benchmark.h>
-#include <prism/proto/multiplex/smux/frame.hpp>
-#include <prism/proto/multiplex/yamux/frame.hpp>
+#include <prism/protocol/multiplex/smux/frame.hpp>
+#include <prism/protocol/multiplex/yamux/frame.hpp>
 #include <prism/foundation/memory/pool.hpp>
 #include <prism/foundation/memory/container.hpp>
 #include <array>

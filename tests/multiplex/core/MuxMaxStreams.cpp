@@ -13,7 +13,7 @@
 #include <prism/foundation/foundation.hpp>
 #include <prism/net/connect/outbound/direct.hpp>
 #include <prism/trace/spdlog.hpp>
-#include <prism/protocol/proto.hpp>
+#include <prism/protocol/protocol.hpp>
 #include <prism/net/transport/reliable.hpp>
 #include <prism/net/connect/pool/pool.hpp>
 #include <prism/net/connect/dial/router.hpp>

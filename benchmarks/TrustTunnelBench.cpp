@@ -7,7 +7,7 @@
 #include <benchmark/benchmark.h>
 #include <prism/foundation/foundation.hpp>
 #include <prism/stealth/stack/trusttunnel/config.hpp>
-#include <prism/proto/multiplex/h2mux/craft.hpp>
+#include <prism/protocol/multiplex/h2mux/craft.hpp>
 
 #include <openssl/evp.h>
 #include <string_view>

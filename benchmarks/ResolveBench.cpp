@@ -2,16 +2,16 @@
  * @file ResolveBench.cpp
  * @brief DNS 解析基础设施基准测试
  * @details 测量 DNS 解析管道中高频操作的性能：
- *          透明哈希（transparent_hash FNV-1a）和相等比较（transparent_equal）、
+ *          透明哈希（string_hash FNV-1a）和相等比较（string_equal）、
  *          DNS 缓存读写与淘汰、DNS 查询合并器。
  *          透明哈希在每次缓存查找时调用，缓存操作在每次 DNS 解析时执行。
  */
 
 #include <benchmark/benchmark.h>
-#include <prism/net/resolve/dns/detail/cache.hpp>
-#include <prism/net/resolve/dns/detail/coalescer.hpp>
-#include <prism/net/resolve/dns/detail/transparent.hpp>
-#include <prism/net/resolve/dns/detail/format.hpp>
+#include <prism/net/dns/detail/cache.hpp>
+#include <prism/net/dns/detail/coalescer.hpp>
+#include <prism/net/dns/detail/transparent.hpp>
+#include <prism/net/dns/detail/format.hpp>
 #include <prism/foundation/memory/container.hpp>
 
 #include <cstdint>
@@ -21,7 +21,7 @@
 namespace
 {
 
-using namespace psm::resolve::dns::detail;
+using namespace psm::dns::detail;
 namespace mem = psm::memory;
 
 // ============================================================
@@ -34,12 +34,12 @@ const auto test_short_domain = std::string("a.bc");
 const auto test_long_domain = std::string("subdomain.deep.nested.very.long.domain.example.com");
 
 // ============================================================
-// transparent_hash 基准测试
+// string_hash 基准测试
 // ============================================================
 
 void BM_TransparentHash_StringView(benchmark::State &state)
 {
-    transparent_hash hasher;
+    string_hash hasher;
     for (auto _ : state)
     {
         auto h = hasher(std::string_view(test_domain));
@@ -50,7 +50,7 @@ BENCHMARK(BM_TransparentHash_StringView);
 
 void BM_TransparentHash_PmrString(benchmark::State &state)
 {
-    transparent_hash hasher;
+    string_hash hasher;
     for (auto _ : state)
     {
         auto h = hasher(test_domain_pmr);
@@ -61,7 +61,7 @@ BENCHMARK(BM_TransparentHash_PmrString);
 
 void BM_TransparentHash_Short(benchmark::State &state)
 {
-    transparent_hash hasher;
+    string_hash hasher;
     for (auto _ : state)
     {
         auto h = hasher(std::string_view(test_short_domain));
@@ -72,7 +72,7 @@ BENCHMARK(BM_TransparentHash_Short);
 
 void BM_TransparentHash_Long(benchmark::State &state)
 {
-    transparent_hash hasher;
+    string_hash hasher;
     for (auto _ : state)
     {
         auto h = hasher(std::string_view(test_long_domain));
@@ -82,12 +82,12 @@ void BM_TransparentHash_Long(benchmark::State &state)
 BENCHMARK(BM_TransparentHash_Long);
 
 // ============================================================
-// transparent_equal 基准测试
+// string_equal 基准测试
 // ============================================================
 
 void BM_TransparentEqual_SvSv(benchmark::State &state)
 {
-    transparent_equal eq;
+    string_equal eq;
     const std::string_view a(test_domain);
     const std::string_view b(test_domain);
     for (auto _ : state)
@@ -100,7 +100,7 @@ BENCHMARK(BM_TransparentEqual_SvSv);
 
 void BM_TransparentEqual_SvPmr(benchmark::State &state)
 {
-    transparent_equal eq;
+    string_equal eq;
     const std::string_view a(test_domain);
     for (auto _ : state)
     {

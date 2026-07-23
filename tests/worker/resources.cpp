@@ -17,7 +17,7 @@
 
 namespace
 {
-    static_assert(std::is_same_v<psm::resources::worker_borrow,
+    static_assert(std::is_same_v<std::weak_ptr<psm::resource::worker>,
                                  std::weak_ptr<psm::resource::worker>>);
     static_assert(std::is_class_v<psm::resource::process>);
     static_assert(std::is_class_v<psm::resource::worker>);
@@ -27,7 +27,7 @@ namespace
 
 TEST(WorkerResources, TypeAliasesCorrect)
 {
-    auto borrow = psm::resources::worker_borrow{};
+    auto borrow = std::weak_ptr<psm::resource::worker>{};
     EXPECT_TRUE(borrow.expired());
 }
 

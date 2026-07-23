@@ -19,7 +19,7 @@ namespace psm::runtime::worker
         : resources_(std::make_shared<psm::resource::worker>(
               psm::resource::worker::options{
                   std::move(global_ctx),
-                  psm::memory::system::local_pool(),
+                  std::pmr::new_delete_resource(),
                   0}))
     {
     }

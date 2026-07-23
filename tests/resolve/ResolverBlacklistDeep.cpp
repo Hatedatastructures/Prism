@@ -35,9 +35,9 @@ namespace
 
     // 辅助：创建 resolver_impl 实例（用完需手动析构，会停止 eviction 协程）
     auto make_impl(net::io_context &ioc, dns::config cfg = dns::config())
-        -> std::unique_ptr<dns::resolver_impl>
+        -> std::unique_ptr<dns::resolver>
     {
-        return std::make_unique<dns::resolver_impl>(ioc, std::move(cfg));
+        return std::make_unique<dns::resolver>(ioc, std::move(cfg));
     }
 
     // ─── is_blacklisted IPv4 测试 ─────────────────
