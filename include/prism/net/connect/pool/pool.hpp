@@ -251,7 +251,6 @@ namespace psm::connect
          */
         ~connection_pool() noexcept
         {
-            alive_flag_->store(false, std::memory_order_release);
             try
             {
                 clear();
