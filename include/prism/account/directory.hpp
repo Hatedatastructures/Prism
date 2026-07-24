@@ -35,13 +35,13 @@ namespace psm::account
     {
     public:
         /**
-         * @struct transparent_hash
+         * @struct string_hash
          * @brief 透明哈希函数
          * @details 支持 string_view 和 memory::string 的
          * 透明哈希计算，允许在查找时直接使用 string_view
          * 避免临时对象构造。
          */
-        struct transparent_hash
+        struct string_hash
         {
             using is_transparent = void;
 
@@ -56,15 +56,15 @@ namespace psm::account
             {
                 return std::hash<std::string_view>{}(std::string_view(value));
             }
-        }; // struct transparent_hash
+        }; // struct string_hash
 
         /**
-         * @struct transparent_equal
+         * @struct string_equal
          * @brief 透明相等比较器
          * @details 支持 string_view 和 memory::string 的
          * 混合比较，配合透明哈希实现无临时对象的键查找。
          */
-        struct transparent_equal
+        struct string_equal
         {
             using is_transparent = void;
 
@@ -85,7 +85,7 @@ namespace psm::account
             {
                 return left == std::string_view(right);
             }
-        }; // struct transparent_equal
+        }; // struct string_equal
 
         /**
          * @brief 构造账户目录
@@ -139,7 +139,7 @@ namespace psm::account
             -> std::shared_ptr<entry>;
 
     private:
-        using unordered_map = memory::unordered_map<memory::string, std::shared_ptr<entry>, transparent_hash, transparent_equal>;
+        using unordered_map = memory::unordered_map<memory::string, std::shared_ptr<entry>, string_hash, string_equal>;
 
         /**
          * @brief 写时复制更新映射表

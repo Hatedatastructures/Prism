@@ -1,0 +1,711 @@
+#include <prism/protocol/multiplex/h2mux/craft.hpp>
+#include <prism/net/connect/outbound/proxy.hpp>
+#include <prism/net/connect/dial/connector.hpp>
+#include <prism/protocol/multiplex/duct.hpp>
+#include <prism/protocol/multiplex/parcel.hpp>
+#include <prism/trace/trace.hpp>
+#include <prism/trace/context.hpp>
+#include <prism/net/transport/reliable.hpp>
+#include <prism/net/transport/transmission.hpp>
+
+#include <boost/asio/co_spawn.hpp>
+
+#include <algorithm>
+#include <charconv>
+#include <cstring>
+
+using namespace psm::trace;
+
+namespace psm::multiplex::h2mux
+{
+
+    namespace
+    {
+
+        void log_spawn_error(const std::exception_ptr &ep, std::string_view label)
+        {
+            try
+            {
+                std::rethrow_exception(ep);
+            }
+            catch (const std::exception &e)
+            {
+                trace::debug<flt::conn | flt::protocol>("{} error: {}", label, e.what());
+            }
+            catch (...)
+            {
+            }
+        }
+    } // namespace
+
+
+    craft::craft(core_options opts, craft_init init)
+        : core(core_options{std::move(opts.transport), init.outbound, init.cfg, opts.mr}),
+          resolver_(std::move(init.resolver)),
+          h2_pending_(mr_),
+          send_channel_(transport_->executor(), init.cfg.h2mux.max_streams),
+          connect_waiter_(transport_->executor())
+    {
+        connect_waiter_.expires_after(std::chrono::hours(24));
+    }
+
+    craft::~craft() noexcept
+    {
+        if (session_)
+        {
+            nghttp2_session_del(session_);
+            session_ = nullptr;
+        }
+    }
+
+
+    auto craft::init_nghttp2() -> std::int32_t
+    {
+        nghttp2_session_callbacks *callbacks = nullptr;
+        if (nghttp2_session_callbacks_new(&callbacks) != 0)
+        {
+            trace::error<flt::conn | flt::protocol>(prefix_, "failed to create nghttp2 callbacks");
+            return -1;
+        }
+
+        nghttp2_session_callbacks_set_on_begin_headers_callback(callbacks, &craft::on_begin_headers);
+        nghttp2_session_callbacks_set_on_header_callback(callbacks, &craft::on_header);
+        nghttp2_session_callbacks_set_on_frame_recv_callback(callbacks, &craft::on_frame_recv);
+        nghttp2_session_callbacks_set_on_data_chunk_recv_callback(callbacks, &craft::on_data);
+        nghttp2_session_callbacks_set_on_stream_close_callback(callbacks, &craft::on_stream_close);
+
+        const std::int32_t rv = nghttp2_session_server_new2(&session_, callbacks, this, nullptr);
+        nghttp2_session_callbacks_del(callbacks);
+
+        if (rv != 0)
+        {
+            trace::error<flt::conn | flt::protocol>(prefix_, "failed to create nghttp2 session: {}", nghttp2_strerror(rv));
+            return -1;
+        }
+
+        if (nghttp2_submit_settings(session_, NGHTTP2_FLAG_NONE, nullptr, 0) != 0)
+        {
+            trace::error<flt::conn | flt::protocol>(prefix_, "failed to submit settings");
+            return -1;
+        }
+
+        trace::debug<flt::conn | flt::protocol>(prefix_, "nghttp2 session initialized");
+        return 0;
+    }
+
+
+    auto craft::run() -> net::awaitable<void>
+    {
+        if (init_nghttp2() != 0)
+        {
+            trace::error<flt::conn | flt::protocol>(prefix_, "nghttp2 init failed");
+            co_return;
+        }
+
+        co_await send_pending();
+
+        const auto self = std::static_pointer_cast<craft>(shared_from_this());
+
+        auto send_task = [self]() -> net::awaitable<void>
+        {
+            co_await self->send_loop();
+        };
+        net::co_spawn(executor(), std::move(send_task), net::detached);
+
+        co_await frame_loop();
+
+        send_channel_.cancel();
+    }
+
+    auto craft::frame_loop() -> net::awaitable<void>
+    {
+        trace::debug<flt::conn | flt::protocol>(prefix_, "frame loop started");
+
+        memory::vector<std::byte> recv_buf(config_.h2mux.buffer_size, mr_);
+
+        while (active_.load(std::memory_order_acquire))
+        {
+            std::error_code read_ec;
+            const auto n = co_await transport_->async_read_some(
+                std::span<std::byte>(recv_buf.data(), recv_buf.size()), read_ec);
+
+            if (read_ec || n == 0)
+            {
+                if (read_ec && read_ec != std::errc::operation_canceled)
+                {
+                    trace::debug<flt::conn | flt::protocol>(prefix_, "transport read closed: {}", read_ec.message());
+                }
+                break;
+            }
+
+            // 安全：nghttp2 API 要求 uint8_t*，recv_buf 仅作只读输入
+            const auto recv_len = nghttp2_session_mem_recv(
+                session_,
+                reinterpret_cast<const std::uint8_t *>(recv_buf.data()),
+                n);
+
+            if (recv_len < 0)
+            {
+                trace::error<flt::conn | flt::protocol>(prefix_, "nghttp2 recv error: {}",
+                             nghttp2_strerror(static_cast<std::int32_t>(recv_len)));
+                break;
+            }
+
+            co_await send_pending();
+        }
+
+        if (!connect_resolved_)
+        {
+            connect_resolved_ = true;
+            connect_waiter_.cancel();
+        }
+
+        trace::debug<flt::conn | flt::protocol>(prefix_, "frame loop ended");
+    }
+
+
+    auto craft::send_pending() -> net::awaitable<void>
+    {
+        while (true)
+        {
+            const std::uint8_t *data = nullptr;
+            const auto len = nghttp2_session_mem_send(session_, &data);
+            if (len <= 0)
+            {
+                break;
+            }
+
+            std::error_code write_ec;
+            // 安全：将 nghttp2 输出数据 (uint8_t*) 转为 byte span 写入传输层
+            co_await transport::async_write(*transport_,
+                std::span<const std::byte>(
+                    reinterpret_cast<const std::byte *>(data), len),
+                write_ec);
+
+            if (write_ec)
+            {
+                trace::warn<flt::conn | flt::protocol>(prefix_, "send_pending write failed: {}", write_ec.message());
+                break;
+            }
+        }
+    }
+
+
+    void craft::handle_connect(const std::int32_t stream_id)
+    {
+        auto it = h2_pending_.find(static_cast<std::uint32_t>(stream_id));
+        if (it == h2_pending_.end())
+        {
+            return;
+        }
+
+        auto &entry = it->second;
+
+        entry.info = resolver_(stream_id, entry.headers);
+
+        if (entry.info.valid)
+        {
+            if (!connect_resolved_)
+            {
+                first_connect_ = entry.headers;
+                connect_resolved_ = true;
+                connect_waiter_.cancel();
+                return;
+            }
+
+            entry.connecting = true;
+            auto self = std::static_pointer_cast<craft>(shared_from_this());
+            const auto id = static_cast<std::uint32_t>(stream_id);
+            auto activate_task = [self, id]() -> net::awaitable<void>
+            {
+                co_await self->activate_stream(id);
+            };
+            auto on_error = [](const std::exception_ptr &ep)
+            {
+                if (ep) log_spawn_error(ep, "activate_stream");
+            };
+            net::co_spawn(executor(), std::move(activate_task), std::move(on_error));
+        }
+    }
+
+
+    auto craft::activate_stream(const std::uint32_t stream_id) -> net::awaitable<void>
+    {
+        auto it = h2_pending_.find(stream_id);
+        if (it == h2_pending_.end())
+        {
+            co_return;
+        }
+
+        auto info = std::move(it->second.info);
+        h2_pending_.erase(it);
+
+        switch (info.type)
+        {
+        case stream_type::check:
+        {
+            const auto rc = respond_connect(static_cast<std::int32_t>(stream_id), 200);
+            if (rc != 0)
+            {
+                trace::warn<flt::conn | flt::protocol>(prefix_, "respond_connect for health check stream {} failed: nghttp2 rc={}", stream_id, rc);
+            }
+            std::error_code ec;
+            co_await send_pending();
+            nghttp2_submit_rst_stream(session_, NGHTTP2_FLAG_NONE,
+                                      static_cast<std::int32_t>(stream_id), NGHTTP2_NO_ERROR);
+            co_await send_pending();
+            trace::debug<flt::conn | flt::protocol>(prefix_, "stream {} health check completed", stream_id);
+            co_return;
+        }
+
+        case stream_type::udp:
+        {
+            trace::debug<flt::conn | flt::protocol>(prefix_, "stream {} creating UDP parcel -> {}:{}", stream_id, info.host, info.port);
+
+            const auto rc = respond_connect(static_cast<std::int32_t>(stream_id), 200);
+            if (rc != 0)
+            {
+                trace::warn<flt::conn | flt::protocol>(prefix_, "respond_connect for UDP stream {} failed: nghttp2 rc={}", stream_id, rc);
+            }
+            std::error_code ec;
+            co_await send_pending();
+
+            auto dp = make_parcel(
+                parcel_config{
+                    .stream_id = stream_id,
+                    .idle_timeout = config_.h2mux.udp_idle,
+                    .max_dgram = config_.h2mux.max_dgram,
+                    .mr = mr_,
+                },
+                shared_from_this(), outbound_);
+            dp->set_destination(
+                std::string_view(info.host.data(), info.host.size()),
+                info.port);
+
+            if (active_.load(std::memory_order_acquire))
+            {
+                parcels_[stream_id] = dp;
+                dp->start();
+            }
+            else
+            {
+                dp->close();
+            }
+
+            trace::debug<flt::conn | flt::protocol>(prefix_, "stream {} UDP parcel created", stream_id);
+            co_return;
+        }
+
+        case stream_type::icmp:
+        {
+            trace::warn<flt::conn | flt::protocol>(prefix_, "stream {} ICMP not yet implemented, treating as TCP", stream_id);
+            [[fallthrough]];
+        }
+
+        case stream_type::tcp:
+        default:
+        {
+            trace::debug<flt::conn | flt::protocol>(prefix_, "stream {} connecting to {}:{}", stream_id, info.host, info.port);
+
+            char port_buf[8];
+            const auto [port_end, port_ec] = std::to_chars(port_buf, port_buf + sizeof(port_buf), info.port);
+            auto port_str = std::string_view(port_buf, std::distance(port_buf, port_end));
+            auto host_str = std::string_view(info.host.data(), info.host.size());
+
+            // 通过 outbound 接口拨号（返回 shared_transmission，无需 make_reliable）
+            psm::connect::target tgt;
+            tgt.host = memory::string(host_str, mr_);
+            tgt.port = memory::string(port_str, mr_);
+            tgt.positive = true;
+            auto [code, trans] = co_await outbound_->async_connect(tgt, executor());
+
+            if (code != fault::code::success || !trans)
+            {
+                trace::warn<flt::conn | flt::protocol>(prefix_, "stream {} connect to {}:{} failed", stream_id, info.host, info.port);
+                nghttp2_submit_rst_stream(session_, NGHTTP2_FLAG_NONE,
+                                          static_cast<std::int32_t>(stream_id), NGHTTP2_INTERNAL_ERROR);
+                co_await send_pending();
+                co_return;
+            }
+
+            const auto rc = respond_connect(static_cast<std::int32_t>(stream_id), 200);
+            if (rc != 0)
+            {
+                trace::warn<flt::conn | flt::protocol>(prefix_, "respond_connect for TCP stream {} failed: nghttp2 rc={}", stream_id, rc);
+            }
+            std::error_code send_ec;
+            co_await send_pending();
+
+            const duct_options dopts{
+                stream_id, shared_from_this(), std::move(trans),
+                {config_.h2mux.buffer_size, mr_}};
+            const auto p = make_duct(dopts);
+            ducts_[stream_id] = p;
+            p->start();
+
+            trace::debug<flt::conn | flt::protocol>(prefix_, "stream {} connected to {}:{}", stream_id, info.host, info.port);
+        }
+        }
+    }
+
+
+    auto craft::on_begin_headers(nghttp2_session *, const nghttp2_frame *frame, void *user_data) -> int
+    {
+        auto *self = static_cast<craft *>(user_data);
+
+        if (frame->hd.type == NGHTTP2_HEADERS &&
+            frame->headers.cat == NGHTTP2_HCAT_REQUEST)
+        {
+            const auto &nv = frame->headers.nva;
+            bool is_connect = false;
+            for (std::size_t i = 0; i < frame->headers.nvlen; ++i)
+            {
+                // 安全：将 nghttp2 头部名 (uint8_t*) 转为 string_view 解析 HTTP/2 头
+                const auto name = std::string_view(
+                    reinterpret_cast<const char *>(nv[i].name), nv[i].namelen);
+                // 安全：将 nghttp2 头部值 (uint8_t*) 转为 string_view 解析 HTTP/2 头
+                const auto value = std::string_view(
+                    reinterpret_cast<const char *>(nv[i].value), nv[i].valuelen);
+
+                if (name == ":method" && value == "CONNECT")
+                {
+                    is_connect = true;
+                    break;
+                }
+            }
+
+            if (is_connect)
+            {
+                const auto stream_id = static_cast<std::uint32_t>(frame->hd.stream_id);
+                h2_pending_entry entry;
+                entry.headers.stream_id = frame->hd.stream_id;
+                self->h2_pending_[stream_id] = std::move(entry);
+                trace::debug<flt::conn | flt::protocol>(self->prefix_, "CONNECT detected on stream {}", stream_id);
+            }
+        }
+        return 0;
+    }
+
+    auto craft::on_header(nghttp2_session *, const nghttp2_frame *frame,
+                          const uint8_t *name, const size_t namelen,
+                          const uint8_t *value, const size_t valuelen,
+                          uint8_t, void *user_data) -> int
+    {
+        auto *self = static_cast<craft *>(user_data);
+
+        const auto stream_id = static_cast<std::uint32_t>(frame->hd.stream_id);
+        auto it = self->h2_pending_.find(stream_id);
+        if (it == self->h2_pending_.end())
+        {
+            return 0;
+        }
+
+        // 安全：将 nghttp2 头部名/值 (uint8_t*) 转为 string_view 分发头部字段
+        const auto hname = std::string_view(reinterpret_cast<const char *>(name), namelen);
+        const auto hvalue = std::string_view(reinterpret_cast<const char *>(value), valuelen);
+
+        auto &headers = it->second.headers;
+
+        if (hname == ":authority")
+        {
+            headers.authority.assign(hvalue);
+        }
+        else if (hname == "host" || hname == "Host")
+        {
+            headers.host.assign(hvalue);
+        }
+        else if (hname == "user-agent")
+        {
+            headers.user_agent.assign(hvalue);
+        }
+        else if (hname == "proxy-authorization")
+        {
+            headers.proxy_auth.assign(hvalue);
+        }
+
+        return 0;
+    }
+
+    auto craft::on_frame_recv(nghttp2_session *, const nghttp2_frame *frame, void *user_data) -> int
+    {
+        auto *self = static_cast<craft *>(user_data);
+
+        if (frame->hd.type != NGHTTP2_HEADERS ||
+            frame->headers.cat != NGHTTP2_HCAT_REQUEST)
+        {
+            return 0;
+        }
+
+        const auto stream_id = frame->hd.stream_id;
+        auto it = self->h2_pending_.find(static_cast<std::uint32_t>(stream_id));
+        if (it == self->h2_pending_.end())
+        {
+            return 0;
+        }
+
+        self->handle_connect(stream_id);
+
+        return 0;
+    }
+
+    auto craft::on_data(nghttp2_session *, uint8_t, const int32_t stream_id,
+                        const uint8_t *data, const size_t len, void *user_data) -> int
+    {
+        auto *self = static_cast<craft *>(user_data);
+        const auto id = static_cast<std::uint32_t>(stream_id);
+
+        if (const auto pit = self->h2_pending_.find(id); pit != self->h2_pending_.end())
+        {
+            auto &entry = pit->second;
+            // TODO: 实现 StreamRequest 解析(#h2mux)
+            return 0;
+        }
+
+        if (const auto dit = self->ducts_.find(id); dit != self->ducts_.end() && dit->second)
+        {
+            auto dp = dit->second;
+            // 安全：将 nghttp2 数据帧载荷 (uint8_t*) 转为 byte vector 分发到 duct
+            auto payload = memory::vector<std::byte>(
+                reinterpret_cast<const std::byte *>(data),
+                reinterpret_cast<const std::byte *>(data) + len, self->mr_);
+
+            auto craft_self = std::static_pointer_cast<craft>(self->shared_from_this());
+            auto dispatch_data = [dp, p = std::move(payload), craft_self]() mutable -> net::awaitable<void>
+            {
+                co_await dp->on_data(std::move(p));
+            };
+            auto on_duct_error = [dp](const std::exception_ptr &ep)
+            {
+                if (ep)
+                {
+                    log_spawn_error(ep, "dispatch duct data");
+                    dp->close();
+                }
+            };
+            net::co_spawn(self->executor(), std::move(dispatch_data), std::move(on_duct_error));
+            return 0;
+        }
+
+        if (const auto uit = self->parcels_.find(id); uit != self->parcels_.end() && uit->second)
+        {
+            auto dp = uit->second;
+            // 安全：将 nghttp2 数据帧载荷 (uint8_t*) 转为 byte vector 分发到 parcel
+            memory::vector<std::byte> payload(
+                reinterpret_cast<const std::byte *>(data),
+                reinterpret_cast<const std::byte *>(data) + len, self->mr_);
+
+            auto craft_self = std::static_pointer_cast<craft>(self->shared_from_this());
+            auto dispatch_parcel = [dp, p = std::move(payload), craft_self]() mutable -> net::awaitable<void>
+            {
+                co_await dp->on_data(std::move(p));
+            };
+            auto on_parcel_error = [dp](const std::exception_ptr &ep)
+            {
+                if (ep)
+                {
+                    log_spawn_error(ep, "dispatch parcel data");
+                    dp->close();
+                }
+            };
+            net::co_spawn(self->executor(), std::move(dispatch_parcel), std::move(on_parcel_error));
+            return 0;
+        }
+
+        nghttp2_submit_rst_stream(self->session_, NGHTTP2_FLAG_NONE, stream_id, NGHTTP2_PROTOCOL_ERROR);
+        return 0;
+    }
+
+    auto craft::on_stream_close(nghttp2_session *, const int32_t stream_id,
+                                uint32_t, void *user_data) -> int
+    {
+        auto *self = static_cast<craft *>(user_data);
+        const auto id = static_cast<std::uint32_t>(stream_id);
+
+        self->h2_pending_.erase(id);
+
+        if (const auto it = self->ducts_.find(id); it != self->ducts_.end() && it->second)
+        {
+            it->second->on_fin();
+        }
+
+        if (const auto it = self->parcels_.find(id); it != self->parcels_.end() && it->second)
+        {
+            it->second->close();
+        }
+
+        return 0;
+    }
+
+
+    auto craft::send_data(const std::uint32_t stream_id, memory::vector<std::byte> payload) const
+        -> net::awaitable<void>
+    {
+        outbound_data item(mr_);
+        item.stream_id = stream_id;
+        item.payload = std::move(payload);
+        item.is_fin = false;
+
+        boost::system::error_code ec;
+        auto token = net::redirect_error(trace::use_prefix_awaitable, ec);
+        co_await send_channel_.async_send(boost::system::error_code{}, std::move(item), token);
+        if (ec)
+        {
+            trace::debug<flt::conn | flt::protocol>(prefix_, "send_data channel send failed: {}", ec.message());
+        }
+    }
+
+    void craft::send_fin(const std::uint32_t stream_id)
+    {
+        auto self = std::static_pointer_cast<craft>(shared_from_this());
+        auto send_fn = [self, stream_id]() -> net::awaitable<void>
+        {
+            outbound_data item(self->mr_);
+            item.stream_id = stream_id;
+            item.is_fin = true;
+
+            boost::system::error_code ec;
+            auto token = net::redirect_error(trace::use_prefix_awaitable, ec);
+            co_await self->send_channel_.async_send(boost::system::error_code{}, std::move(item), token);
+        };
+        net::co_spawn(executor(), std::move(send_fn), net::detached);
+    }
+
+    auto craft::send_loop() -> net::awaitable<void>
+    {
+        trace::debug<flt::conn | flt::protocol>(prefix_, "send loop started");
+
+        try
+        {
+            while (is_active())
+            {
+                boost::system::error_code ec;
+                auto token = net::redirect_error(trace::use_prefix_awaitable, ec);
+                auto item = co_await send_channel_.async_receive(token);
+                if (ec)
+                {
+                    break;
+                }
+
+                if (item.is_fin)
+                {
+                    nghttp2_submit_rst_stream(session_, NGHTTP2_FLAG_NONE,
+                                              static_cast<std::int32_t>(item.stream_id), NGHTTP2_NO_ERROR);
+                    std::error_code pending_ec;
+                    co_await send_pending();
+                    continue;
+                }
+
+                if (item.payload.empty())
+                {
+                    continue;
+                }
+
+                auto payload = std::make_shared<memory::vector<std::byte>>(std::move(item.payload));
+
+                struct data_source
+                {
+                    std::shared_ptr<memory::vector<std::byte>> buf;
+                    std::size_t offset{0};
+                };
+
+                auto src = std::make_unique<data_source>(data_source{payload, 0});
+
+                nghttp2_data_provider dp;
+                dp.source.ptr = src.get();
+                dp.read_callback = [](nghttp2_session *, int32_t, uint8_t *buf,
+                                      size_t length, uint32_t *data_flags,
+                                      nghttp2_data_source *source, void *) -> ssize_t
+                {
+                    auto *ds = static_cast<data_source *>(source->ptr);
+                    auto remaining = ds->buf->size() - ds->offset;
+
+                    if (remaining == 0)
+                    {
+                        *data_flags |= NGHTTP2_DATA_FLAG_EOF;
+                        return 0;
+                    }
+
+                    const auto to_copy = std::min(length, remaining);
+                    std::memcpy(buf, ds->buf->data() + ds->offset, to_copy);
+                    ds->offset += to_copy;
+
+                    if (ds->offset >= ds->buf->size())
+                    {
+                        *data_flags |= NGHTTP2_DATA_FLAG_EOF;
+                    }
+
+                    return static_cast<ssize_t>(to_copy);
+                };
+
+                const std::int32_t rv = nghttp2_submit_data(session_, NGHTTP2_FLAG_NONE,
+                                                    static_cast<std::int32_t>(item.stream_id), &dp);
+                if (rv != 0)
+                {
+                    trace::warn<flt::conn | flt::protocol>(prefix_, "nghttp2_submit_data failed: {}", nghttp2_strerror(rv));
+                    continue;
+                }
+
+                co_await send_pending();
+                src.reset();
+            }
+        }
+        catch (const std::exception &e)
+        {
+            trace::debug<flt::conn | flt::protocol>(prefix_, "send loop error: {}", e.what());
+        }
+        catch (...)
+        {
+            trace::debug<flt::conn | flt::protocol>(prefix_, "send loop unknown error");
+        }
+
+        trace::debug<flt::conn | flt::protocol>(prefix_, "send loop ended");
+    }
+
+
+    auto craft::executor() const -> net::any_io_executor
+    {
+        return transport_->executor();
+    }
+
+    auto craft::wait_first_connect()
+        -> net::awaitable<std::optional<h2_headers>>
+    {
+        if (connect_resolved_)
+        {
+            if (first_connect_.authority.empty())
+            {
+                co_return std::nullopt;
+            }
+            co_return std::move(first_connect_);
+        }
+
+        boost::system::error_code ec;
+        co_await connect_waiter_.async_wait(
+            net::redirect_error(trace::use_prefix_awaitable, ec));
+
+        if (first_connect_.authority.empty())
+        {
+            co_return std::nullopt;
+        }
+        co_return std::move(first_connect_);
+    }
+
+    auto craft::respond_connect(const std::int32_t stream_id, const std::uint32_t status) -> std::int32_t
+    {
+        if (!session_)
+            return NGHTTP2_ERR_INVALID_STATE;
+
+        const char *status_str = "407";
+        if (status == 200)
+            status_str = "200";
+        // 安全：nghttp2 要求可变 uint8_t*，字符串字面量经 const_cast 满足 API 兼容
+        auto status_name = const_cast<std::uint8_t *>(reinterpret_cast<const std::uint8_t *>(":status"));
+        auto status_val = const_cast<std::uint8_t *>(reinterpret_cast<const std::uint8_t *>(status_str));
+        nghttp2_nv hdrs[] = {
+            {status_name, status_val, 7, 3, NGHTTP2_NV_FLAG_NONE}};
+
+        return nghttp2_submit_headers(session_, NGHTTP2_FLAG_NONE,
+                                      stream_id, nullptr, hdrs, 1, nullptr);
+    }
+
+} // namespace psm::multiplex::h2mux

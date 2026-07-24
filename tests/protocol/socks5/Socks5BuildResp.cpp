@@ -12,10 +12,10 @@
 
 // 通过预处理器 hack 访问 private static 方法
 #define private public
-#include <prism/proto/protocol/socks5/conn.hpp>
+#include <prism/protocol/socks5/conn.hpp>
 #undef private
 
-#include <prism/proto/protocol/socks5/constants.hpp>
+#include <prism/protocol/socks5/constants.hpp>
 
 
 #include <gtest/gtest.h>

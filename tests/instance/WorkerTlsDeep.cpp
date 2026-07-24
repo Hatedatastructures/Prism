@@ -14,7 +14,7 @@
 #include <filesystem>
 #include <fstream>
 
-#include "../../src/prism/instance/worker/tls.cpp"
+#include "../../src/prism/runtime/worker/tls.cpp"
 
 #include <openssl/bio.h>
 #include <openssl/bn.h>
@@ -25,7 +25,7 @@
 
 namespace
 {
-    namespace tls = psm::instance::worker::tls;
+    namespace tls = psm::runtime::worker::tls;
     namespace ssl = boost::asio::ssl;
 
     struct TempCertKey
@@ -94,14 +94,14 @@ namespace
 
     TEST(WorkerTlsDeep, MakeEmptyCertAndKey)
     {
-        psm::instance::config cfg;
+        psm::runtime::config cfg;
         auto result = tls::make(cfg);
         EXPECT_TRUE(!result) << "make: empty cert+key -> nullptr";
     }
 
     TEST(WorkerTlsDeep, MakeEmptyKey)
     {
-        psm::instance::config cfg;
+        psm::runtime::config cfg;
         cfg.cert.cert = "nonexistent.pem";
         auto result = tls::make(cfg);
         EXPECT_TRUE(!result) << "make: empty key -> nullptr";
@@ -109,7 +109,7 @@ namespace
 
     TEST(WorkerTlsDeep, MakeEmptyCert)
     {
-        psm::instance::config cfg;
+        psm::runtime::config cfg;
         cfg.cert.key = "nonexistent.pem";
         auto result = tls::make(cfg);
         EXPECT_TRUE(!result) << "make: empty cert -> nullptr";
@@ -117,7 +117,7 @@ namespace
 
     TEST(WorkerTlsDeep, MakeInvalidCertPath)
     {
-        psm::instance::config cfg;
+        psm::runtime::config cfg;
         cfg.cert.cert = "/nonexistent/path/cert.pem";
         cfg.cert.key = "/nonexistent/path/key.pem";
 
@@ -137,7 +137,7 @@ namespace
     {
         auto tmp = generate_temp_cert_key();
 
-        psm::instance::config cfg;
+        psm::runtime::config cfg;
         cfg.cert.cert = psm::memory::string(tmp.cert_path);
         cfg.cert.key = psm::memory::string(tmp.key_path);
 

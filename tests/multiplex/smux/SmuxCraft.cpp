@@ -3,7 +3,7 @@
  * @brief Smux 帧构建单元测试
  */
 
-#include <prism/proto/multiplex/smux/craft.hpp>
+#include <prism/protocol/multiplex/smux/craft.hpp>
 #include <prism/foundation/foundation.hpp>
 #include <prism/trace/spdlog.hpp>
 #include <gtest/gtest.h>

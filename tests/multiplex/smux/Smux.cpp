@@ -6,8 +6,8 @@
  */
 
 #include <prism/foundation/foundation.hpp>
-#include <prism/proto/multiplex/parcel.hpp>
-#include <prism/proto/multiplex/smux/frame.hpp>
+#include <prism/protocol/multiplex/parcel.hpp>
+#include <prism/protocol/multiplex/smux/frame.hpp>
 #include <prism/trace/spdlog.hpp>
 
 #include <gtest/gtest.h>

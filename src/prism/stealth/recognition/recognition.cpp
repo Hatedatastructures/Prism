@@ -19,7 +19,7 @@ namespace psm::recognition
     auto identify(stealth::stealth_opts &opts)
         -> net::awaitable<identify_result>
     {
-        const auto prefix_ = opts.trace;
+        const auto prefix_ = opts.session->trace;
         identify_result result;
 
         auto *pfx = prefix_.get();
@@ -48,7 +48,7 @@ namespace psm::recognition
         }
 
         // Phase 3: SNI 路由匹配
-        auto route_table = route_table::build(*opts.cfg);
+        auto route_table = route_table::build(*opts.session->worker->process->cfg);
         auto matched_scheme_names = route_table.lookup(features.server_name);
 
         // 从 registry 获取匹配的 scheme 实例
@@ -57,7 +57,7 @@ namespace psm::recognition
         for (const auto &name : matched_scheme_names)
         {
             auto scheme = registry.find(std::string_view(name));
-            if (scheme && scheme->active(*opts.cfg))
+            if (scheme && scheme->active(*opts.session->worker->process->cfg))
                 matched_schemes.push_back(scheme);
         }
 
@@ -68,7 +68,7 @@ namespace psm::recognition
 
         auto pipeline = layered_detection_pipeline(registry.all());
         auto pipeline_result = pipeline.detect(
-            detect_input{bitmap, features, raw_ch_span, *opts.cfg},
+            detect_input{bitmap, features, raw_ch_span, *opts.session->worker->process->cfg},
             matched_schemes);
 
         // Phase 5: 构建 preview transport，直接修改 opts
@@ -134,7 +134,7 @@ namespace psm::recognition
             }
             trace::debug<flt::conn | flt::protocol>(prefix_, "identify succeeded: {} -> {}",
                 result.executed_scheme,
-                protocol::to_string_view(result.detected));
+                psm::connect::to_string_view(result.detected));
         }
         else
         {
@@ -147,7 +147,7 @@ namespace psm::recognition
     auto recognize(stealth::stealth_opts &opts)
         -> net::awaitable<recognize_result>
     {
-        const auto prefix_ = opts.trace;
+        const auto prefix_ = opts.session->trace;
         recognize_result result;
 
         if (!opts.transport)
@@ -165,12 +165,12 @@ namespace psm::recognition
             co_return result;
         }
 
-        trace::debug<flt::conn | flt::protocol>(prefix_, "probe result: {}", protocol::to_string_view(probe_res.type));
+        trace::debug<flt::conn | flt::protocol>(prefix_, "probe result: {}", psm::connect::to_string_view(probe_res.type));
 
         result.detected = probe_res.type;
         result.preread.assign(probe_res.pre_read_data.begin(), probe_res.pre_read_data.begin() + probe_res.pre_read_size);
 
-        if (probe_res.type == protocol::protocol_type::tls)
+        if (probe_res.type == psm::connect::protocol_type::tls)
         {
             // 将 probe 预读数据存到 opts.preread，identify 内部使用
             const auto probe_span = probe_res.preload_bytes();
@@ -188,7 +188,7 @@ namespace psm::recognition
 
                 trace::info<flt::conn | flt::protocol>(prefix_, "recognized: {} -> {}",
                     result.executed_scheme,
-                    protocol::to_string_view(result.detected));
+                    psm::connect::to_string_view(result.detected));
             }
             else
             {
@@ -201,7 +201,7 @@ namespace psm::recognition
             result.transport = opts.transport;
             result.success = probe_res.success();
 
-            trace::debug<flt::conn | flt::protocol>(prefix_, "recognized (non-TLS): {}", protocol::to_string_view(result.detected));
+            trace::debug<flt::conn | flt::protocol>(prefix_, "recognized (non-TLS): {}", psm::connect::to_string_view(result.detected));
         }
 
         co_return result;

@@ -6,8 +6,8 @@
  */
 
 #include <prism/foundation/foundation.hpp>
-#include <prism/proto/protocol/tls/record.hpp>
-#include <prism/proto/protocol/tls/types.hpp>
+#include <prism/protocol/tls/record.hpp>
+#include <prism/protocol/tls/types.hpp>
 #include <prism/trace/spdlog.hpp>
 #include <prism/net/transport/transmission.hpp>
 

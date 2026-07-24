@@ -5,9 +5,9 @@
  */
 #pragma once
 
-#include <prism/context/flow_opts.hpp>
+#include <prism/resource/session.hpp>
 #include <prism/net/transport/transmission.hpp>
-#include <prism/proto/protocol/types.hpp>
+#include <prism/net/connect/types.hpp>
 
 #include <boost/asio.hpp>
 
@@ -47,8 +47,9 @@ namespace psm::connect
      * @details 继承 flow_opts 获取 trace/cfg/rt 通用字段，
      * 组合双向隧道转发所需的全部参数。
      */
-    struct tunnel_options : public psm::context::flow_opts
+    struct tunnel_options
     {
+        std::shared_ptr<psm::trace::trace_context> trace;
         shared_transmission inbound;                            ///< 入站流对象
         shared_transmission outbound;                           ///< 出站流对象
         write_policy policy{write_policy::complete};            ///< 写入策略
@@ -63,7 +64,7 @@ namespace psm::connect
               policy(pol), buffer_size(buf_size) {}
 
         tunnel_options() = default;
-        protocol::protocol_type detected{protocol::protocol_type::unknown}; ///< 检测到的协议
+        connect::protocol_type detected{};
         std::uint32_t buffer_size{0};                            ///< 缓冲区大小（替代 ctx.buffer_size）
     };
 

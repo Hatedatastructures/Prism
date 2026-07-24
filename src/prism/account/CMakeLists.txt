@@ -16,7 +16,7 @@ target_sources(${PROJECT_NAME}_static_library
             ${PROJECT_SOURCE_DIR}/include/prism/account/directory.hpp
 
             ${PROJECT_SOURCE_DIR}/include/prism/account/stats/stats.hpp
-            ${PROJECT_SOURCE_DIR}/include/prism/account/stats/account.hpp
+            ${PROJECT_SOURCE_DIR}/include/prism/account/stats/record.hpp
             ${PROJECT_SOURCE_DIR}/include/prism/account/stats/counter.hpp
             ${PROJECT_SOURCE_DIR}/include/prism/account/stats/gauge.hpp
             ${PROJECT_SOURCE_DIR}/include/prism/account/stats/memory.hpp

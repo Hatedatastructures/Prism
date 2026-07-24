@@ -9,9 +9,9 @@
 #pragma once
 
 #include <prism/net/connect/pool/pool.hpp>
-#include <prism/instance/config.hpp>
-#include <prism/proto/multiplex/config.hpp>
-#include <prism/net/resolve/dns/config.hpp>
+#include <prism/runtime/config.hpp>
+#include <prism/protocol/multiplex/config.hpp>
+#include <prism/net/dns/config.hpp>
 #include <prism/trace/config.hpp>
 
 namespace psm
@@ -27,22 +27,22 @@ namespace psm
     struct config
     {
         std::uint32_t version{1};               // 配置版本号（schema 演进用）
-        instance::config instance;              // 代理服务核心配置
+        runtime::config instance;              // 代理服务核心配置
         connect::config pool;                   // 连接池配置
-        instance::buffer buffer;                // 缓冲区配置
-        instance::protocol::config protocol;    // 协议配置 (socks5/trojan/vless/shadowsocks)
+        runtime::buffer buffer;                // 缓冲区配置
+        runtime::protocol::config protocol;    // 协议配置 (socks5/trojan/vless/shadowsocks)
         multiplex::config mux;                  // 多路复用配置
-        instance::stealth::config stealth;      // 伪装配置 (reality/shadowtls)
-        resolve::dns::config dns;               // DNS 解析器配置
+        runtime::stealth::config stealth;      // 伪装配置 (reality/shadowtls)
+        dns::config dns;               // DNS 解析器配置
         trace::config trace;                    // 日志追踪配置
     };
 
 } // namespace psm
 
 #include <glaze/glaze.hpp>
-#include <prism/instance/serialize.hpp>
-#include <prism/proto/multiplex/serialize.hpp>
-#include <prism/net/resolve/dns/serialize.hpp>
+#include <prism/runtime/serialize.hpp>
+#include <prism/protocol/multiplex/serialize.hpp>
+#include <prism/net/dns/serialize.hpp>
 #include <prism/stealth/serialize.hpp>
 
 

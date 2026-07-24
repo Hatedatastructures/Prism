@@ -9,7 +9,7 @@
 #include <benchmark/benchmark.h>
 #include <prism/stealth/recognition/probe/analyzer.hpp>
 #include <prism/stealth/recognition/tls/signal.hpp>
-#include <prism/proto/protocol/tls/types.hpp>
+#include <prism/protocol/tls/types.hpp>
 #include <prism/foundation/memory/container.hpp>
 
 #include <array>

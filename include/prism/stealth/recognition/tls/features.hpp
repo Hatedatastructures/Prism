@@ -7,7 +7,7 @@
 
 #pragma once
 
-#include <prism/proto/protocol/tls/types.hpp>
+#include <prism/protocol/tls/types.hpp>
 
 #include <cstdint>
 

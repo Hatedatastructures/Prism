@@ -16,7 +16,7 @@
 
 // 通过预处理器 hack 访问 private 成员
 #define private public
-#include "../../src/prism/net/resolve/dns/resolver.cpp"
+#include "../../src/prism/net/dns/resolver.cpp"
 #undef private
 
 namespace
@@ -27,7 +27,7 @@ namespace
     TEST(ResolverPure, NormalizeToLower)
     {
         auto *mr = psm::memory::current_resource();
-        auto result = psm::resolve::dns::resolver_impl::normalize("EXAMPLE.COM", mr);
+        auto result = psm::dns::resolver::normalize("EXAMPLE.COM", mr);
         EXPECT_TRUE(result == "example.com") << "normalize: EXAMPLE.COM -> example.com";
     }
 
@@ -37,7 +37,7 @@ namespace
     TEST(ResolverPure, NormalizeStripTrailingDots)
     {
         auto *mr = psm::memory::current_resource();
-        auto result = psm::resolve::dns::resolver_impl::normalize("example.com.", mr);
+        auto result = psm::dns::resolver::normalize("example.com.", mr);
         EXPECT_TRUE(result == "example.com") << "normalize: example.com. -> example.com";
     }
 
@@ -47,7 +47,7 @@ namespace
     TEST(ResolverPure, NormalizeStripMultipleTrailingDots)
     {
         auto *mr = psm::memory::current_resource();
-        auto result = psm::resolve::dns::resolver_impl::normalize("example.com...", mr);
+        auto result = psm::dns::resolver::normalize("example.com...", mr);
         EXPECT_TRUE(result == "example.com") << "normalize: example.com... -> example.com";
     }
 
@@ -57,7 +57,7 @@ namespace
     TEST(ResolverPure, NormalizeAllDots)
     {
         auto *mr = psm::memory::current_resource();
-        auto result = psm::resolve::dns::resolver_impl::normalize("...", mr);
+        auto result = psm::dns::resolver::normalize("...", mr);
         EXPECT_TRUE(result.empty()) << "normalize: '...' -> empty";
     }
 
@@ -67,7 +67,7 @@ namespace
     TEST(ResolverPure, NormalizeEmpty)
     {
         auto *mr = psm::memory::current_resource();
-        auto result = psm::resolve::dns::resolver_impl::normalize("", mr);
+        auto result = psm::dns::resolver::normalize("", mr);
         EXPECT_TRUE(result.empty()) << "normalize: '' -> empty";
     }
 
@@ -77,7 +77,7 @@ namespace
     TEST(ResolverPure, NormalizeMixedCaseAndDots)
     {
         auto *mr = psm::memory::current_resource();
-        auto result = psm::resolve::dns::resolver_impl::normalize("ExAmPlE.CoM.", mr);
+        auto result = psm::dns::resolver::normalize("ExAmPlE.CoM.", mr);
         EXPECT_TRUE(result == "example.com") << "normalize: ExAmPlE.CoM. -> example.com";
     }
 
@@ -87,7 +87,7 @@ namespace
     TEST(ResolverPure, NormalizeAlreadyNormalized)
     {
         auto *mr = psm::memory::current_resource();
-        auto result = psm::resolve::dns::resolver_impl::normalize("example.com", mr);
+        auto result = psm::dns::resolver::normalize("example.com", mr);
         EXPECT_TRUE(result == "example.com") << "normalize: example.com -> example.com (unchanged)";
     }
 

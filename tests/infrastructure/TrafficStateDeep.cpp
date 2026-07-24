@@ -9,7 +9,7 @@
 #include <prism/foundation/foundation.hpp>
 #include <prism/account/stats/traffic.hpp>
 #include <prism/trace/spdlog.hpp>
-#include <prism/proto/protocol/types.hpp>
+#include <prism/protocol/types.hpp>
 
 #include <gtest/gtest.h>
 

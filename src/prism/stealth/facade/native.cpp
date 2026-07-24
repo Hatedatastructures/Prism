@@ -1,11 +1,12 @@
 #include <prism/stealth/facade/native.hpp>
 
+#include <prism/resource/session.hpp>
 #include <prism/config/config.hpp>
 #include <prism/net/net.hpp>
 #include <prism/net/connect/util.hpp>
 #include <prism/foundation/fault/handling.hpp>
-#include <prism/proto/protocol/types.hpp>
-#include <prism/proto/protocol/tls/types.hpp>
+#include <prism/net/connect/types.hpp>
+#include <prism/protocol/tls/types.hpp>
 #include <prism/stealth/recognition/probe/analyzer.hpp>
 #include <prism/trace/trace.hpp>
 #include <prism/net/transport/encrypted.hpp>
@@ -53,7 +54,7 @@ namespace psm::stealth::native
             co_return result;
         }
 
-        if (!ctx.session->server_ctx.ssl_ctx)
+        if (!ctx.session->worker->process->ssl)
         {
             trace::warn<flt::conn | flt::protocol>(prefix_, "No SSL context configured, aborting");
             result.error = fault::code::not_supported;
@@ -88,7 +89,7 @@ namespace psm::stealth::native
 
         trace::debug<flt::conn | flt::protocol>(prefix_, "Starting SSL handshake");
         auto [ssl_ec, ssl_stream, recovered] = co_await transport::encrypted::ssl_handshake(
-            std::move(clean_inbound), *ctx.session->server_ctx.ssl_ctx);
+            std::move(clean_inbound), *ctx.session->worker->process->ssl);
         if (fault::failed(ssl_ec) || !ssl_stream)
         {
             ctx.transport = std::move(recovered);
@@ -104,40 +105,25 @@ namespace psm::stealth::native
         // session::close()/release_resources() 直接调用 transport 的 cancel()/close() 即可。
         // 原先的回调绕过 encrypted 层直接操作 lowest_layer，导致同一 socket 被 close/cancel 两次。
 
-        constexpr std::size_t trojan_min = 60;
+        // 一次性读取内部协议探测数据，避免多次 co_await 循环
         std::array<std::byte, 128> inner_buf{};
-        std::size_t inner_n = 0;
-
-        while (inner_n < trojan_min)
+        std::error_code ec;
+        const auto n = co_await encrypted_trans->async_read_some(inner_buf, ec);
+        if (ec && n == 0)
         {
-            std::error_code ec;
-            auto buf_span = std::span(inner_buf.data() + inner_n, inner_buf.size() - inner_n);
-            const auto n = co_await encrypted_trans->async_read_some(buf_span, ec);
-            if (ec)
-            {
-                result.error = fault::to_code(ec);
-                trace::warn<flt::conn | flt::protocol>(prefix_, "Inner probe read failed: {}", ec.message());
-                co_return result;
-            }
-            inner_n += n;
-
-            // 类型转换：uint8_t 缓冲转 string_view 供协议探测
-            const auto inner_view = std::string_view(reinterpret_cast<const char *>(inner_buf.data()), inner_n);
-            result.detected = recognition::probe::detect_tls(inner_view);
-            if (result.detected != protocol::protocol_type::unknown)
-            {
-                break;
-            }
+            result.error = fault::to_code(ec);
+            trace::warn<flt::conn | flt::protocol>(prefix_, "Inner probe read failed: {}", ec.message());
+            co_return result;
         }
 
-        // 60+ 字节仍无法识别，由 executor 统一做二次探测
-        result.detected = protocol::protocol_type::unknown;
+        const auto inner_view = std::string_view(reinterpret_cast<const char *>(inner_buf.data()), n);
+        result.detected = recognition::probe::detect_tls(inner_view);
 
         trace::debug<flt::conn | flt::protocol>(prefix_, "Inner protocol: {}",
-                    protocol::to_string_view(result.detected));
+                    psm::connect::to_string_view(result.detected));
 
         result.transport = std::move(encrypted_trans);
-        result.preread.assign(inner_buf.begin(), inner_buf.begin() + static_cast<std::ptrdiff_t>(inner_n));
+        result.preread.assign(inner_buf.begin(), inner_buf.begin() + static_cast<std::ptrdiff_t>(n));
 
         co_return result;
     }

@@ -8,7 +8,7 @@
  */
 
 #include <prism/foundation/foundation.hpp>
-#include <prism/net/resolve/dns/config.hpp>
+#include <prism/net/dns/config.hpp>
 #include <prism/trace/spdlog.hpp>
 #include <prism/foundation/foundation.hpp>
 
@@ -17,13 +17,13 @@
 
 // 通过预处理器 hack 访问 private 成员（仅限测试翻译单元）
 #define private public
-#include <prism/net/resolve/dns/upstream.hpp>
-#include "../../src/prism/net/resolve/dns/upstream.cpp"
+#include <prism/net/dns/upstream.hpp>
+#include "../../src/prism/net/dns/upstream.cpp"
 #undef private
 
 namespace
 {
-    namespace dns = psm::resolve::dns;
+    namespace dns = psm::dns;
     namespace net = boost::asio;
 
     // ─── select_best_result ───────────────────────────
@@ -161,10 +161,10 @@ namespace
         net::io_context ioc;
         dns::upstream ups(ioc);
 
-        dns::dns_remote server(psm::memory::current_resource());
+        dns::server server(psm::memory::current_resource());
         server.address = "1.1.1.1";
         server.hostname = "dns.example.com";
-        server.protocol = dns::dns_protocol::tls;
+        server.protocol = dns::protocol::tls;
         server.port = 853;
 
         auto ctx1 = ups.get_ssl_ctx(server);
@@ -179,10 +179,10 @@ namespace
         net::io_context ioc;
         dns::upstream ups(ioc);
 
-        dns::dns_remote server(psm::memory::current_resource());
+        dns::server server(psm::memory::current_resource());
         server.address = "8.8.8.8";
         server.hostname = "";
-        server.protocol = dns::dns_protocol::tls;
+        server.protocol = dns::protocol::tls;
         server.port = 853;
 
         auto ctx = ups.get_ssl_ctx(server);
@@ -194,12 +194,12 @@ namespace
         net::io_context ioc;
         dns::upstream ups(ioc);
 
-        dns::dns_remote server1(psm::memory::current_resource());
+        dns::server server1(psm::memory::current_resource());
         server1.address = "1.1.1.1";
         server1.hostname = "dns.example.com";
         server1.skip_cert_check = false;
 
-        dns::dns_remote server2(psm::memory::current_resource());
+        dns::server server2(psm::memory::current_resource());
         server2.address = "1.1.1.1";
         server2.hostname = "dns.example.com";
         server2.skip_cert_check = true;
@@ -216,11 +216,11 @@ namespace
         net::io_context ioc;
         dns::upstream ups(ioc);
 
-        dns::dns_remote server1(psm::memory::current_resource());
+        dns::server server1(psm::memory::current_resource());
         server1.address = "1.1.1.1";
         server1.hostname = "dns1.example.com";
 
-        dns::dns_remote server2(psm::memory::current_resource());
+        dns::server server2(psm::memory::current_resource());
         server2.address = "8.8.8.8";
         server2.hostname = "dns2.example.com";
 
@@ -253,11 +253,11 @@ namespace
         net::io_context ioc;
         dns::upstream ups(ioc);
 
-        psm::memory::vector<dns::dns_remote> servers(psm::memory::current_resource());
-        dns::dns_remote srv(psm::memory::current_resource());
+        psm::memory::vector<dns::server> servers(psm::memory::current_resource());
+        dns::server srv(psm::memory::current_resource());
         srv.address = "8.8.8.8";
         srv.port = 53;
-        srv.protocol = dns::dns_protocol::udp;
+        srv.protocol = dns::protocol::udp;
         servers.push_back(srv);
 
         ups.set_servers(servers);
@@ -268,10 +268,10 @@ namespace
     {
         net::io_context ioc;
         dns::upstream ups(ioc);
-        ups.set_mode(dns::resolve_mode::first);
-        ups.set_mode(dns::resolve_mode::fallback);
-        ups.set_mode(dns::resolve_mode::fastest);
-        EXPECT_TRUE(ups.mode_ == dns::resolve_mode::fastest) << "upstream: set_mode last is fastest";
+        ups.set_mode(dns::mode::first);
+        ups.set_mode(dns::mode::fallback);
+        ups.set_mode(dns::mode::fastest);
+        EXPECT_TRUE(ups.mode_ == dns::mode::fastest) << "upstream: set_mode last is fastest";
     }
 
     TEST(DnsUpstreamPure2, SetTimeout)

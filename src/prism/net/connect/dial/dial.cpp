@@ -1,9 +1,9 @@
-#include <prism/net/connect/dial/dial.hpp>
+#include <prism/net/connect/dial/connector.hpp>
 
 #include <prism/net/connect/dial/racer.hpp>
 #include <prism/net/connect/dial/router.hpp>
-#include <prism/instance/outbound/proxy.hpp>
-#include <prism/net/resolve/dns/detail/utility.hpp>
+#include <prism/net/connect/outbound/proxy.hpp>
+#include <prism/net/dns/detail/utility.hpp>
 #include <prism/trace/trace.hpp>
 #include <prism/net/transport/reliable.hpp>
 
@@ -12,7 +12,7 @@ using namespace psm::trace;
 namespace psm::connect
 {
 
-    using resolve::dns::detail::parse_port;
+    using dns::detail::parse_port;
 
     auto retry_connect(router &rt, const std::span<const tcp::endpoint> endpoints,
                        std::shared_ptr<trace::trace_context> trace)
@@ -131,7 +131,7 @@ namespace psm::connect
         co_return co_await rt.dns().resolve_udp(host, port);
     }
 
-    auto dial(outbound::proxy &outbound_proxy, const protocol::target &target, const net::any_io_executor &executor, std::shared_ptr<trace::trace_context> trace)
+    auto dial(outbound::proxy &outbound_proxy, const psm::connect::target &target, const net::any_io_executor &executor, std::shared_ptr<trace::trace_context> trace)
         -> net::awaitable<std::pair<fault::code, shared_transmission>>
     {
         auto [ec, trans] = co_await outbound_proxy.async_connect(target, executor);

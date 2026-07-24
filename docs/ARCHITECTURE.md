@@ -14,10 +14,10 @@ Prism 所有资源按所有权范围分四层：
 
 | 层 | 所有者 | 寿命 | 典型资源 | detached 协程可引用？ |
 |----|--------|------|---------|---------------------|
-| **L1 全局** | 进程 | 进程启动到退出 | `memory::system::global_pool()`、`stealth::scheme_registry`、`config`（loader 加载后） | ✅ 永远安全 |
-| **L2 worker** | worker 线程 | worker 创建到销毁 | `connect::router`、`stats::traffic::traffic_state`、`outbound::proxy`、`ssl::context`、`net::io_context`、`memory::local_pool()`（thread_local） | ✅ worker 不死即可 |
-| **L3 session** | session 对象 | 单次连接处理周期 | `memory::frame_arena`、`inbound`/`outbound` transport、`account::lease`、`context::session` 本身 | ❌ 严禁 |
-| **L4 detached** | detached 协程自身 | 协程启动到结束 | `multiplex::core.transport_`、`craft.prefix_`（值副本）、`craft.self`（shared_from_this） | 自带，不依赖外层 |
+| **L1 进程** | 进程 | 启动到退出 | `resource::process`（cfg / ssl / accounts）、`memory::system::global_pool()`、`stealth::scheme_registry` | ✅ 永远安全 |
+| **L2 worker** | worker 线程 | worker 创建到销毁 | `resource::worker`（ioc / pool / router / dns / outbound / traffic / rate / tasks） | ✅ worker 不死即可 |
+| **L3 session** | session 对象 | 单次连接 | `resource::session`（conn / buffer / inbound / outbound / detected / lease / meta / trace / arena / src） | ❌ 严禁 |
+| **L4 detached** | detached 协程 | 协程启动到结束 | `multiplex::core.transport_`、`craft.prefix_`（值副本）、`craft.self`（shared_from_this） | 自带，不依赖外层 |
 
 ---
 
@@ -151,4 +151,128 @@ net::co_spawn(exec, [session = &ctx]() {  // session 是 session&
 // ❌ 危险：PMR allocator 来自 frame_arena
 auto v = memory::vector<byte>(data, ctx.frame_arena.get());
 // v 可能被 detached 协程持有，析构时 m_resource 悬垂
+```
+
+---
+
+## 三层资源容器（resource/ 模块）
+
+重构后（2026-07）resource/ 模块提供三层纯数据容器，替代旧的 resources/ 虚基类体系。
+
+### 所有权链
+
+```
+main
+  └─ shared_ptr<resource::process>           ← L1 进程级，唯一持有者
+       └─ shared_ptr<resource::worker>       ← L2 工作级，runtime::worker + 所有 session 共享
+            └─ shared_ptr<resource::session>  ← L3 会话级，runtime::session 持有
+```
+
+**对外共享，对内独占**。shared_ptr 跨层传递，值持有自己层的资源。上层释放 → 引用计数递减 → 所有引用释放后自动析构。
+
+### 函数：只 2 个
+
+| 函数 | 所在层 | 作用 |
+|------|--------|------|
+| `alive()` | worker, session | 检查资源链存活（atomic acquire），协程判断是否停止 |
+| `stop()` | worker | 触发 io_context 停机，启动关机级联 |
+
+`resource::process` 零函数，纯数据。其余全部是**公有字段**，不提供 getter/setter，调用方链式访问：
+
+```cpp
+ctx.trace                              // session 级
+ctx.worker->traffic.on_connect()       // worker 级
+ctx.worker->process->cfg->buffer.size  // 进程级
+ctx.worker->outbound->make_router()    // unique_ptr 用 ->
+```
+
+### 新增资源规则
+
+1. 放到实际归属层，不跨层
+2. 作为公有字段，不加 getter
+3. 不加透传：L2 加字段后 L3 不需要同步加同名方法
+4. 不加新函数：2 个函数是上限。业务逻辑放业务类
+
+### 构造模式
+
+```cpp
+// 每层都有一个嵌套 ::options struct 收敛构造参数
+auto proc_opts = resource::process::options{cfg, ssl, accounts};
+auto proc = std::make_shared<resource::process>(std::move(proc_opts));
+
+auto wrk_opts = resource::worker::options{proc, mr, index};
+auto wrk = std::make_shared<resource::worker>(std::move(wrk_opts));
+
+auto ses_opts = resource::session::options{wrk, conn, buffer, inbound, src, trace, meta};
+auto ses = std::make_shared<resource::session>(std::move(ses_opts));
+```
+
+---
+
+## 模块依赖规范
+
+### 依赖层次（禁止反向）
+
+```
+Level 0: foundation/  rate/           ← 零外部依赖
+Level 1: trace/  crypto/              ← foundation only
+Level 2: net/                         ← foundation + trace + crypto
+           ├── connect/types.hpp      ← protocol_type
+           ├── connect/target.hpp     ← target
+           ├── transport/
+           ├── connect/outbound/
+           ├── connect/tunnel/
+           └── dns/
+Level 3: account/                     ← foundation + crypto + net
+Level 4: protocol/                    ← net + account + crypto
+Level 5: stealth/                     ← net + protocol + crypto
+Level 5: resource/                    ← 纯聚合，仅被 runtime 头文件包含
+Level 6: config/  runtime/            ← 顶层编排
+```
+
+### 允许/禁止表
+
+| 模块 | 可依赖 | 禁止依赖 |
+|------|--------|---------|
+| `foundation/` `rate/` | 无 | 任何其他 |
+| `trace/` | foundation | net, account, protocol, stealth, runtime |
+| `crypto/` | foundation | net, account, protocol, stealth, runtime |
+| `net/` | foundation, trace, crypto | resource, protocol, stealth, runtime |
+| `account/` | foundation, crypto, net | protocol, stealth, runtime |
+| `protocol/` | net, account, crypto | stealth, runtime |
+| `stealth/` | net, protocol, crypto | runtime |
+| `resource/` | net, account, crypto, trace | protocol, stealth, runtime |
+| `config/` `runtime/` | 所有下层 | 无（顶层） |
+
+### 头文件规则
+
+- 前向声明优先：`.hpp` 中能前向声明就不 `#include`
+- `unique_ptr<T>` 的 T 前向声明时，析构函数在 `.cpp` 中定义
+- 禁止上行包含：下层 `.hpp` 绝不包含上层模块
+- 聚合头维护：新增子头文件须同步更新模块聚合头
+
+### 审计
+
+```bash
+grep -rn '#include <prism/\(resource\|stealth\|runtime\)' include/prism/net/
+grep -rn '#include <prism/\(net\|resource\|protocol\|stealth\|runtime\)' include/prism/foundation/
+grep -rn '#include <prism/\(stealth\|runtime\)' include/prism/protocol/
+grep -rn '#include <prism/\(protocol\|stealth\|runtime\)' include/prism/resource/
+# 全部应 0 命中
+```
+
+---
+
+## 传参规范
+
+- 函数参数 ≤ 3，超过用 struct 收敛
+- opts struct 不继承，独立 POD
+- 需要资源：`(resource::session&, opts)` 或 `(resource::worker&, opts)` — 2 参数上限
+- 不需要资源：`(opts)` — 1 参数
+
+```cpp
+struct handler_params { resource::session& ctx; span<const byte> data; };
+auto forward(resource::session& ctx, forward_options opts) -> awaitable<void>;
+auto dial(resource::worker& w, const target& t, dial_options opts) -> awaitable<dial_result>;
+auto tunnel(tunnel_options opts) -> awaitable<void>;
 ```

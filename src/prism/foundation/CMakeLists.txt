@@ -1,6 +1,7 @@
 target_sources(${PROJECT_NAME}_static_library
         PRIVATE
             coroutine/registry.cpp
+            rate/counter.cpp
 )
 
 target_sources(${PROJECT_NAME}_static_library
@@ -19,4 +20,5 @@ target_sources(${PROJECT_NAME}_static_library
             ${PROJECT_SOURCE_DIR}/include/prism/foundation/exception/protocol.hpp
             ${PROJECT_SOURCE_DIR}/include/prism/foundation/exception/security.hpp
             ${PROJECT_SOURCE_DIR}/include/prism/foundation/coroutine/registry.hpp
+            ${PROJECT_SOURCE_DIR}/include/prism/foundation/rate/counter.hpp
 )

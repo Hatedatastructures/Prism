@@ -6,7 +6,7 @@
  */
 
 #include <prism/foundation/foundation.hpp>
-#include <prism/proto/multiplex/smux/frame.hpp>
+#include <prism/protocol/multiplex/smux/frame.hpp>
 #include <prism/trace/spdlog.hpp>
 
 #include <array>

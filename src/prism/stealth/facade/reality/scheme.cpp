@@ -1,3 +1,4 @@
+#include <prism/resource/session.hpp>
 #include <prism/stealth/facade/reality/scheme.hpp>
 
 #include <prism/config/config.hpp>
@@ -119,9 +120,9 @@ namespace psm::stealth::reality
             co_return result;
         }
 
-        const auto &cfg = ctx.session->server_ctx.config();
+        const auto &cfg = *ctx.session->worker->process->cfg;
 
-        result = co_await stealth::reality::handshake(ctx.transport, cfg, *ctx.session, ctx.trace);
+        result = co_await stealth::reality::handshake(ctx.transport, cfg, *ctx.session, ctx.session->trace);
 
         co_return result;
     }

@@ -4,7 +4,7 @@
  */
 
 #include <prism/foundation/foundation.hpp>
-#include <prism/proto/protocol/types.hpp>
+#include <prism/net/connect/types.hpp>
 #include <prism/account/stats/traffic.hpp>
 #include <prism/trace/spdlog.hpp>
 
@@ -13,7 +13,7 @@
 namespace
 {
     using psm::stats::traffic::traffic_state;
-    using psm::protocol::protocol_type;
+    using psm::connect::protocol_type;
 
     TEST(TrafficStatePure, InitialState)
     {

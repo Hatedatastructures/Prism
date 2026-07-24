@@ -17,6 +17,13 @@ namespace psm::connect
 
     // ── pooled_connection ───────────────────────────────────────────────
 
+    pooled_connection::pooled_connection(connection_pool *pool, tcp::socket *socket, tcp::endpoint endpoint)
+        : pool_(pool), socket_(socket), endpoint_(std::move(endpoint))
+    {
+        if (pool_)
+            alive_ = pool_->alive_sentinel();
+    }
+
     pooled_connection::~pooled_connection() noexcept
     {
         reset();
@@ -30,6 +37,7 @@ namespace psm::connect
             pool_ = other.pool_;
             socket_ = other.socket_;
             endpoint_ = other.endpoint_;
+            alive_ = std::move(other.alive_);
             other.pool_ = nullptr;
             other.socket_ = nullptr;
         }
@@ -48,14 +56,16 @@ namespace psm::connect
     {
         if (socket_)
         {
-            if (pool_)
+            if (pool_ && alive_.lock())
             {
+                trace::debug<flt::conn | flt::protocol>("[pool] reset→recycle: {}", endpoint_.address().to_string());
                 pool_->recycle(socket_, endpoint_);
             }
             else
             {
                 boost::system::error_code ignore;
                 socket_->close(ignore);
+                trace::debug<flt::conn | flt::protocol>("[pool] reset→delete: pool={}", (void*)pool_);
                 delete socket_;
             }
             pool_ = nullptr;
@@ -275,19 +285,20 @@ namespace psm::connect
 
     void connection_pool::recycle(tcp::socket *s, const tcp::endpoint &endpoint)
     {
-        // 无效连接直接销毁，不计入驱逐统计
         if (!s || !s->is_open())
         {
+            trace::debug<flt::conn | flt::protocol>("[pool] recycle rejected: !s={} !open={}", !s, s ? !s->is_open() : true);
             delete_socket(s);
             return;
         }
 
         stat_recycles_ += 1;
+        trace::debug<flt::conn | flt::protocol>("[pool] recycle accepted: {}", endpoint.address().to_string());
 
         // IPv6 连接默认不缓存，受配置控制
         if (!config_.cache_ipv6 && endpoint.address().is_v6())
         {
-                    // IPv6 connection not cached (trace removed)
+            trace::debug<flt::conn | flt::protocol>("[pool] recycle rejected: IPv6");
             delete_socket(s);
             stat_evictions_ += 1;
             return;
@@ -296,6 +307,7 @@ namespace psm::connect
         // 快速健康检测，不健康的连接不回收
         if (!healthy_fast(*s))
         {
+            trace::debug<flt::conn | flt::protocol>("[pool] recycle rejected: unhealthy {}", endpoint.address().to_string());
             delete_socket(s);
             stat_evictions_ += 1;
             return;

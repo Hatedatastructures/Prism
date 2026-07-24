@@ -1,7 +1,7 @@
 #include <prism/stealth/facade/shadowtls/scheme.hpp>
 
 #include <prism/net/connect/util.hpp>
-#include <prism/proto/protocol/types.hpp>
+#include <prism/net/connect/types.hpp>
 #include <prism/stealth/recognition/probe/analyzer.hpp>
 #include <prism/stealth/recognition/tls/features.hpp>
 #include <prism/stealth/facade/shadowtls/handshake.hpp>
@@ -117,12 +117,12 @@ namespace psm::stealth::shadowtls
         auto hs_result = co_await stealth::shadowtls::handshake(
             stealth::shadowtls::handshake_opts{
                 ctx.transport,
-                ctx.cfg->stealth.shadowtls,
-                ctx.outbound,
+                ctx.session->worker->process->cfg->stealth.shadowtls,
+                ctx.session->worker->outbound.get(),
                 std::move(ctx.preread),
                 detail,
-                ctx.trace,
-                ctx.trace});
+                ctx.session->trace,
+                ctx.session->trace});
 
         if (fault::succeeded(hs_result.error) && !detail.client_firstframe.empty())
         {
@@ -137,7 +137,7 @@ namespace psm::stealth::shadowtls
                 trace::debug<flt::conn | flt::protocol>(prefix_, "first_frame TLS header stripped, payload_size={}", payload.size());
 
                 result.preread.assign(payload.begin(), payload.end());
-                result.detected = protocol::protocol_type::unknown;
+                result.detected = psm::connect::protocol_type::unknown;
 
                 auto shadowtls_trans = std::make_shared<shadowtls_transport>(
                     std::move(ctx.transport),
@@ -163,13 +163,13 @@ namespace psm::stealth::shadowtls
             }
             else
             {
-                result.detected = protocol::protocol_type::tls;
+                result.detected = psm::connect::protocol_type::tls;
                 result.transport = std::move(ctx.transport);
             }
         }
         else
         {
-            result.detected = protocol::protocol_type::tls;
+            result.detected = psm::connect::protocol_type::tls;
             result.error = hs_result.error;
             result.polluted = hs_result.polluted;
             result.transport = ctx.transport;

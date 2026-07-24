@@ -10,7 +10,7 @@
 
 #include <prism/foundation/foundation.hpp>
 #include <prism/stealth/facade/reality/util/auth.hpp>
-#include <prism/proto/protocol/tls/types.hpp>
+#include <prism/protocol/tls/types.hpp>
 #include <prism/foundation/foundation.hpp>
 #include <prism/crypto/aead.hpp>
 #include <prism/crypto/hkdf.hpp>

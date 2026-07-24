@@ -5,11 +5,11 @@
  * IPv4/IPv6/域名地址解析、命令字识别、无效输入处理以及协程集成握手。
  */
 
-#include <prism/proto/protocol/vless.hpp>
-#include <prism/proto/protocol/vless/framing.hpp>
-#include <prism/proto/protocol/vless/packet.hpp>
-#include <prism/proto/protocol/vless/constants.hpp>
-#include <prism/proto/protocol/vless/conn.hpp>
+#include <prism/protocol/vless/vless.hpp>
+#include <prism/protocol/vless/framing.hpp>
+#include <prism/protocol/vless/packet.hpp>
+#include <prism/protocol/vless/constants.hpp>
+#include <prism/protocol/vless/conn.hpp>
 #include <prism/net/transport/reliable.hpp>
 #include <prism/foundation/foundation.hpp>
 #include <prism/trace/spdlog.hpp>

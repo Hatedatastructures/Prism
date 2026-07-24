@@ -5,7 +5,7 @@
  */
 
 #include <prism/foundation/foundation.hpp>
-#include <prism/proto/protocol/trojan/framing.hpp>
+#include <prism/protocol/trojan/framing.hpp>
 #include <prism/trace/spdlog.hpp>
 #include <prism/foundation/foundation.hpp>
 

@@ -10,7 +10,7 @@
 
 #include <gtest/gtest.h>
 
-#include "../../src/prism/proto/multiplex/smux/craft.cpp"
+#include "../../src/prism/protocol/multiplex/smux/craft.cpp"
 
 namespace
 {

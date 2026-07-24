@@ -9,7 +9,7 @@
 #include <prism/foundation/fault/code.hpp>
 #include <prism/net/connect/tunnel/forward/pipeline.hpp>
 #include <prism/net/transport/transmission.hpp>
-#include <prism/proto/protocol/common/target.hpp>
+#include <prism/net/connect/target.hpp>
 #include <prism/trace/context.hpp>
 
 #include <boost/asio.hpp>
@@ -39,17 +39,15 @@ TEST(ForwardPipeline, OptionsFields)
 {
     // transmission 是抽象类，用 nullptr 占位（仅验证字段赋值，不实际转发）
     psm::transport::shared_transmission inbound;
-    psm::protocol::target target;
+    psm::connect::target target;
     target.host = psm::memory::string{"example.com", psm::memory::current_resource()};
     target.port = psm::memory::string{"443", psm::memory::current_resource()};
     target.positive = true;
     auto trace_ctx = std::make_shared<psm::trace::trace_context>();
 
-    psm::connect::pipeline_options opts{inbound, target, trace_ctx};
+    psm::connect::pipeline_options opts{inbound, trace_ctx};
     EXPECT_EQ(opts.inbound, inbound);
-    EXPECT_EQ(opts.target.host, target.host);
     EXPECT_EQ(opts.trace, trace_ctx);
-    EXPECT_TRUE(opts.enable_mux_check);
 }
 
 /**
@@ -57,7 +55,7 @@ TEST(ForwardPipeline, OptionsFields)
  */
 TEST(ForwardPipeline, FailsWithNullHandle)
 {
-    psm::protocol::target target;
+    psm::connect::target target;
     target.host = psm::memory::string{"127.0.0.1", psm::memory::current_resource()};
     target.port = psm::memory::string{"80", psm::memory::current_resource()};
     target.positive = true;

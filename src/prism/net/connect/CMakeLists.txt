@@ -13,6 +13,8 @@ target_sources(${PROJECT_NAME}_static_library
         tunnel/forward/pipeline.cpp
 )
 
+add_subdirectory(outbound)
+
 target_sources(${PROJECT_NAME}_static_library
         PUBLIC
         FILE_SET public_headers TYPE HEADERS
@@ -23,7 +25,7 @@ target_sources(${PROJECT_NAME}_static_library
             ${PROJECT_SOURCE_DIR}/include/prism/net/connect/pool/pool.hpp
             ${PROJECT_SOURCE_DIR}/include/prism/net/connect/dial/router.hpp
             ${PROJECT_SOURCE_DIR}/include/prism/net/connect/dial/racer.hpp
-            ${PROJECT_SOURCE_DIR}/include/prism/net/connect/dial/dial.hpp
+            ${PROJECT_SOURCE_DIR}/include/prism/net/connect/dial/connector.hpp
             ${PROJECT_SOURCE_DIR}/include/prism/net/connect/route/table.hpp
             ${PROJECT_SOURCE_DIR}/include/prism/net/connect/tunnel/tunnel.hpp
             ${PROJECT_SOURCE_DIR}/include/prism/net/connect/tunnel/tunnel_relay.hpp

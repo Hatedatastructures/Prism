@@ -1,7 +1,7 @@
 #include <prism/stealth/recognition/tls/signal.hpp>
 
 #include <prism/foundation/fault/handling.hpp>
-#include <prism/proto/protocol/tls/record.hpp>
+#include <prism/protocol/tls/record.hpp>
 #include <prism/trace/trace.hpp>
 #include <prism/net/transport/transmission.hpp>
 

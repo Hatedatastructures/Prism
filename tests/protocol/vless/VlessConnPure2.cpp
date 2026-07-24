@@ -12,7 +12,7 @@
 #include <gtest/gtest.h>
 
 // #include 源文件增加覆盖率计数
-#include "../../src/prism/proto/protocol/vless/conn.cpp"
+#include "../../src/prism/protocol/vless/conn.cpp"
 
 namespace
 {

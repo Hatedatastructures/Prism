@@ -9,20 +9,20 @@
  */
 
 #include <prism/foundation/foundation.hpp>
-#include <prism/net/resolve/dns/config.hpp>
+#include <prism/net/dns/config.hpp>
 #include <prism/trace/spdlog.hpp>
 #include <prism/foundation/foundation.hpp>
 
 #include <gtest/gtest.h>
 
 #define private public
-#include <prism/net/resolve/dns/upstream.hpp>
-#include "../../src/prism/net/resolve/dns/upstream.cpp"
+#include <prism/net/dns/upstream.hpp>
+#include "../../src/prism/net/dns/upstream.cpp"
 #undef private
 
 namespace
 {
-    namespace dns = psm::resolve::dns;
+    namespace dns = psm::dns;
     namespace net = boost::asio;
 
     // ─── is_timeout ──────────────────────────────────
@@ -30,19 +30,19 @@ namespace
     TEST(DnsUpstreamDeep, IsTimeoutTrue)
     {
         auto ec = net::error::make_error_code(net::error::operation_aborted);
-        EXPECT_TRUE(psm::resolve::dns::is_timeout(ec)) << "is_timeout: operation_aborted -> true";
+        EXPECT_TRUE(psm::dns::is_timeout(ec)) << "is_timeout: operation_aborted -> true";
     }
 
     TEST(DnsUpstreamDeep, IsTimeoutFalse)
     {
         auto ec = boost::system::errc::make_error_code(boost::system::errc::timed_out);
-        EXPECT_TRUE(!psm::resolve::dns::is_timeout(ec)) << "is_timeout: timed_out -> false";
+        EXPECT_TRUE(!psm::dns::is_timeout(ec)) << "is_timeout: timed_out -> false";
     }
 
     TEST(DnsUpstreamDeep, IsTimeoutSuccess)
     {
         boost::system::error_code ec;
-        EXPECT_TRUE(!psm::resolve::dns::is_timeout(ec)) << "is_timeout: success -> false";
+        EXPECT_TRUE(!psm::dns::is_timeout(ec)) << "is_timeout: success -> false";
     }
 
     // ─── transport_context 构造 ──────────────────────
@@ -50,7 +50,7 @@ namespace
     TEST(DnsUpstreamDeep, TransportContextConstruction)
     {
         net::io_context ioc;
-        psm::resolve::dns::transport_context ctx(ioc, 5000);
+        psm::dns::transport_context ctx(ioc, 5000);
         EXPECT_TRUE(ctx.timeout_ms == 5000) << "transport_context: timeout_ms=5000";
     }
 
@@ -58,7 +58,7 @@ namespace
 
     TEST(DnsUpstreamDeep, TransportResultDefault)
     {
-        psm::resolve::dns::transport_result tr;
+        psm::dns::transport_result tr;
         EXPECT_TRUE(!tr.response.has_value()) << "transport_result: no response by default";
         EXPECT_TRUE(tr.result.error == psm::fault::code::success) << "transport_result: default error=success";
     }
@@ -68,12 +68,12 @@ namespace
     TEST(DnsUpstreamDeep, QueryContextConstruction)
     {
         auto mr = psm::memory::current_resource();
-        dns::dns_remote server(mr);
+        dns::server server(mr);
         server.address = "8.8.8.8";
         server.port = 53;
         auto query = dns::message::make_query("example.com", dns::qtype::a, mr);
 
-        psm::resolve::dns::query_context qctx{server, query, 4000, mr};
+        psm::dns::query_context qctx{server, query, 4000, mr};
         EXPECT_TRUE(qctx.default_timeout == 4000) << "query_context: timeout=4000";
         EXPECT_TRUE(qctx.server.address == "8.8.8.8") << "query_context: server address";
     }
@@ -82,7 +82,7 @@ namespace
 
     TEST(DnsUpstreamDeep, UdpTransportCloseNull)
     {
-        psm::resolve::dns::udp_transport t;
+        psm::dns::udp_transport t;
         t.sock = nullptr;
         // 不应崩溃
         t.close();
@@ -92,7 +92,7 @@ namespace
     TEST(DnsUpstreamDeep, UdpTransportCloseOpen)
     {
         net::io_context ioc;
-        psm::resolve::dns::udp_transport t;
+        psm::dns::udp_transport t;
         t.sock = std::make_shared<net::ip::udp::socket>(ioc);
         t.sock->open(net::ip::udp::v4());
         EXPECT_TRUE(t.sock->is_open()) << "udp_transport: socket open before close";
@@ -104,7 +104,7 @@ namespace
 
     TEST(DnsUpstreamDeep, TcpTransportCloseNull)
     {
-        psm::resolve::dns::tcp_transport t;
+        psm::dns::tcp_transport t;
         t.sock = nullptr;
         t.close();
         EXPECT_TRUE(true) << "tcp_transport: close with null sock -> no crash";
@@ -113,7 +113,7 @@ namespace
     TEST(DnsUpstreamDeep, TcpTransportCloseOpen)
     {
         net::io_context ioc;
-        psm::resolve::dns::tcp_transport t;
+        psm::dns::tcp_transport t;
         t.sock = std::make_shared<net::ip::tcp::socket>(ioc);
         t.sock->open(net::ip::tcp::v4());
         EXPECT_TRUE(t.sock->is_open()) << "tcp_transport: socket open before close";
@@ -125,7 +125,7 @@ namespace
 
     TEST(DnsUpstreamDeep, TlsTransportCloseNull)
     {
-        psm::resolve::dns::tls_transport t;
+        psm::dns::tls_transport t;
         t.ssl_sock = nullptr;
         t.close();
         EXPECT_TRUE(true) << "tls_transport: close with null ssl_sock -> no crash";
@@ -135,7 +135,7 @@ namespace
 
     TEST(DnsUpstreamDeep, HttpsTransportCloseNull)
     {
-        psm::resolve::dns::https_transport t;
+        psm::dns::https_transport t;
         t.ssl_sock = nullptr;
         t.close();
         EXPECT_TRUE(true) << "https_transport: close with null ssl_sock -> no crash";
@@ -184,14 +184,14 @@ namespace
         net::io_context ioc;
         dns::upstream ups(ioc);
 
-        psm::memory::vector<dns::dns_remote> servers(psm::memory::current_resource());
-        dns::dns_remote srv(psm::memory::current_resource());
+        psm::memory::vector<dns::server> servers(psm::memory::current_resource());
+        dns::server srv(psm::memory::current_resource());
         srv.address = "not-a-valid-address-xyz";
         srv.port = 53;
-        srv.protocol = dns::dns_protocol::udp;
+        srv.protocol = dns::protocol::udp;
         servers.push_back(srv);
         ups.set_servers(servers);
-        ups.set_mode(dns::resolve_mode::fallback);
+        ups.set_mode(dns::mode::fallback);
 
         std::exception_ptr ep;
         dns::query_result result(psm::memory::current_resource());
@@ -227,16 +227,16 @@ namespace
         net::io_context ioc;
         dns::upstream ups(ioc);
 
-        psm::memory::vector<dns::dns_remote> servers(psm::memory::current_resource());
-        dns::dns_remote srv(psm::memory::current_resource());
+        psm::memory::vector<dns::server> servers(psm::memory::current_resource());
+        dns::server srv(psm::memory::current_resource());
         srv.address = "0.0.0.0";
         srv.port = 1;
-        srv.protocol = dns::dns_protocol::udp;
+        srv.protocol = dns::protocol::udp;
         // 极短超时确保快速失败
         srv.timeout_ms = 1;
         servers.push_back(srv);
         ups.set_servers(servers);
-        ups.set_mode(dns::resolve_mode::fallback);
+        ups.set_mode(dns::mode::fallback);
         ups.set_timeout(1);
 
         std::exception_ptr ep;
@@ -272,7 +272,7 @@ namespace
     {
         net::io_context ioc;
         auto ep = net::ip::tcp::endpoint(net::ip::make_address_v4("8.8.8.8"), 53);
-        psm::resolve::dns::dial_target dt{ioc, ep};
+        psm::dns::dial_target dt{ioc, ep};
         EXPECT_TRUE(dt.endpoint == ep) << "dial_target: endpoint matches";
     }
 
@@ -280,7 +280,7 @@ namespace
 
     TEST(DnsUpstreamDeep, TlsMaterialDefault)
     {
-        psm::resolve::dns::tls_material tm;
+        psm::dns::tls_material tm;
         EXPECT_TRUE(!tm.sock) << "tls_material: null sock by default";
         EXPECT_TRUE(!tm.ssl_ctx) << "tls_material: null ssl_ctx by default";
     }
@@ -291,7 +291,7 @@ namespace
     {
         auto mr = psm::memory::current_resource();
         boost::system::error_code ec;
-        psm::resolve::dns::frame_context fctx{mr, ec};
+        psm::dns::frame_context fctx{mr, ec};
         EXPECT_TRUE(!ec) << "frame_context: no error initially";
     }
 
@@ -299,7 +299,7 @@ namespace
 
     TEST(DnsUpstreamDeep, HttpsTransportDefaults)
     {
-        psm::resolve::dns::https_transport t;
+        psm::dns::https_transport t;
         EXPECT_TRUE(!t.ssl_sock) << "https_transport: null ssl_sock";
         EXPECT_TRUE(!t.ssl_ctx) << "https_transport: null ssl_ctx";
         EXPECT_TRUE(t.http_path.empty()) << "https_transport: empty http_path";

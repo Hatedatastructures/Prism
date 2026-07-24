@@ -4,7 +4,7 @@
  */
 
 #include <prism/stealth/recognition/tls/features.hpp>
-#include <prism/proto/protocol/tls/types.hpp>
+#include <prism/protocol/tls/types.hpp>
 #include <gtest/gtest.h>
 
 using fb = psm::recognition::tls::feature_bit;

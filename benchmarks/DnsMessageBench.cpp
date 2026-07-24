@@ -6,15 +6,15 @@
 
 #include <benchmark/benchmark.h>
 #include <prism/foundation/foundation.hpp>
-#include <prism/net/resolve/dns/detail/format.hpp>
-#include <prism/net/resolve/dns/detail/cache.hpp>
+#include <prism/net/dns/detail/format.hpp>
+#include <prism/net/dns/detail/cache.hpp>
 
 #include <boost/asio.hpp>
 #include <cstdint>
 
 namespace
 {
-    namespace dns = psm::resolve::dns::detail;
+    namespace dns = psm::dns::detail;
     namespace mem = psm::memory;
     namespace net = boost::asio;
 

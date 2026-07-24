@@ -7,9 +7,9 @@
  */
 
 #include <prism/foundation/foundation.hpp>
-#include <prism/net/resolve/dns/dns.hpp>
-#include <prism/net/resolve/dns/detail/cache.hpp>
-#include <prism/net/resolve/dns/detail/rules.hpp>
+#include <prism/net/dns/resolver.hpp>
+#include <prism/net/dns/detail/cache.hpp>
+#include <prism/net/dns/detail/rules.hpp>
 #include <prism/trace/spdlog.hpp>
 
 #include <any>
@@ -23,21 +23,21 @@
 
 // 预包含完成后，通过预处理器 hack 访问 private 成员
 #define private public
-#include "../../src/prism/net/resolve/dns/resolver.cpp"
+#include "../../src/prism/net/dns/resolver.cpp"
 #undef private
 
 namespace
 {
-    namespace dns = psm::resolve::dns;
-    namespace detail = psm::resolve::dns::detail;
+    namespace dns = psm::dns;
+    namespace detail = psm::dns::detail;
     namespace net = boost::asio;
     namespace memory = psm::memory;
 
     // 辅助：创建 resolver_impl 实例（用完需手动析构，会停止 eviction 协程）
     auto make_impl(net::io_context &ioc, dns::config cfg = dns::config())
-        -> std::unique_ptr<dns::resolver_impl>
+        -> std::unique_ptr<dns::resolver>
     {
-        return std::make_unique<dns::resolver_impl>(ioc, std::move(cfg));
+        return std::make_unique<dns::resolver>(ioc, std::move(cfg));
     }
 
     // ─── is_blacklisted IPv4 测试 ─────────────────

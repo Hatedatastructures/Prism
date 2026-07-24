@@ -12,7 +12,7 @@
 
 #include <prism/foundation/foundation.hpp>
 #include <prism/trace/spdlog.hpp>
-#include <prism/proto/multiplex/yamux/craft.hpp>
+#include <prism/protocol/multiplex/yamux/craft.hpp>
 
 #include <boost/asio.hpp>
 #include <boost/asio/co_spawn.hpp>

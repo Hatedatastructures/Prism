@@ -3,7 +3,7 @@
 #include <prism/crypto/aead.hpp>
 #include <prism/crypto/hkdf.hpp>
 #include <prism/crypto/x25519.hpp>
-#include <prism/proto/protocol/tls/record.hpp>
+#include <prism/protocol/tls/record.hpp>
 #include <prism/stealth/common.hpp>
 #include <prism/stealth/facade/reality/util/keygen.hpp>
 #include <prism/trace/trace.hpp>

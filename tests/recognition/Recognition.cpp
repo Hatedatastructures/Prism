@@ -13,7 +13,7 @@
 #include <prism/stealth/recognition/probe/probe.hpp>
 #include <prism/stealth/recognition/routes.hpp>
 #include <prism/stealth/recognition/tls/features.hpp>
-#include <prism/proto/protocol/tls/types.hpp>
+#include <prism/protocol/tls/types.hpp>
 #include <prism/stealth/facade/reality/scheme.hpp>
 #include <prism/stealth/registry.hpp>
 #include <prism/config/config.hpp>
@@ -87,35 +87,35 @@ namespace
 TEST(Recognition, DetectAllProtocols)
 {
     // 空数据 -> unknown
-    EXPECT_TRUE(probe::detect("") == psm::protocol::protocol_type::unknown)
+    EXPECT_TRUE(probe::detect("") == psm::connect::protocol_type::unknown)
         << "detect: empty -> unknown";
 
     // SOCKS5 (首字节 0x05)
     std::string socks5 = "\x05\x01\x00";
-    EXPECT_TRUE(probe::detect(socks5) == psm::protocol::protocol_type::socks5)
+    EXPECT_TRUE(probe::detect(socks5) == psm::connect::protocol_type::socks5)
         << "detect: 0x05 -> socks5";
 
     // TLS (0x16 0x03)
     std::string tls = "\x16\x03\x01\x00\x05";
-    EXPECT_TRUE(probe::detect(tls) == psm::protocol::protocol_type::tls)
+    EXPECT_TRUE(probe::detect(tls) == psm::connect::protocol_type::tls)
         << "detect: 0x16 0x03 -> tls";
 
     // 单字节 0x16 但第二字节不是 0x03 -> shadowsocks fallback
     std::string not_tls = "\x16\x00";
-    EXPECT_TRUE(probe::detect(not_tls) == psm::protocol::protocol_type::shadowsocks)
+    EXPECT_TRUE(probe::detect(not_tls) == psm::connect::protocol_type::shadowsocks)
         << "detect: 0x16 0x00 -> shadowsocks (not TLS)";
 
     // HTTP GET
-    EXPECT_TRUE(probe::detect("GET / HTTP/1.1\r\n") == psm::protocol::protocol_type::http)
+    EXPECT_TRUE(probe::detect("GET / HTTP/1.1\r\n") == psm::connect::protocol_type::http)
         << "detect: GET -> http";
 
     // HTTP POST
-    EXPECT_TRUE(probe::detect("POST /api HTTP/1.1\r\n") == psm::protocol::protocol_type::http)
+    EXPECT_TRUE(probe::detect("POST /api HTTP/1.1\r\n") == psm::connect::protocol_type::http)
         << "detect: POST -> http";
 
     // 随机字节 -> shadowsocks fallback
     std::string random = "\x42\x00\xFF\xAB\xCD";
-    EXPECT_TRUE(probe::detect(random) == psm::protocol::protocol_type::shadowsocks)
+    EXPECT_TRUE(probe::detect(random) == psm::connect::protocol_type::shadowsocks)
         << "detect: random bytes -> shadowsocks";
 }
 
@@ -377,7 +377,7 @@ TEST(Recognition, ProbeResultDefaults)
 {
     probe::probe_result result;
 
-    EXPECT_TRUE(result.type == psm::protocol::protocol_type::unknown)
+    EXPECT_TRUE(result.type == psm::connect::protocol_type::unknown)
         << "probe_result: default type = unknown";
     EXPECT_TRUE(result.pre_read_size == 0)
         << "probe_result: default pre_read_size = 0";

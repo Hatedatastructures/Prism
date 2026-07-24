@@ -21,12 +21,12 @@ namespace psm::connect
     class forward_relay
     {
     public:
-        forward_relay(context::session &ctx, forward_options opts) noexcept;
+        forward_relay(psm::resource::session &res, forward_options opts) noexcept;
 
         [[nodiscard]] auto run() -> net::awaitable<void>;
 
     private:
-        context::session &ctx_;
+        psm::resource::session &res_;
         forward_options opts_;
     };
 

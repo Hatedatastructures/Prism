@@ -11,7 +11,7 @@
 
 #include <prism/crypto/x25519.hpp>
 #include <prism/foundation/fault/code.hpp>
-#include <prism/proto/protocol/tls/types.hpp>
+#include <prism/protocol/tls/types.hpp>
 #include <prism/stealth/facade/reality/config.hpp>
 
 #include <array>

@@ -16,7 +16,7 @@
 #include <prism/stealth/facade/reality/config.hpp>
 #include <prism/stealth/facade/restls/config.hpp>
 #include <prism/stealth/facade/shadowtls/config.hpp>
-#include <prism/stealth/tracker.hpp>
+#include <prism/foundation/rate/counter.hpp>
 #include <prism/stealth/stack/trusttunnel/config.hpp>
 #include <prism/net/transport/pad.hpp>
 
@@ -210,9 +210,9 @@ struct glz::meta<psm::transport::pad_config>
 // ============================================================================
 
 template <>
-struct glz::meta<psm::stealth::probe_defense_config>
+struct glz::meta<psm::rate::probe_defense_config>
 {
-    using T = psm::stealth::probe_defense_config;
+    using T = psm::rate::probe_defense_config;
     static constexpr auto value = glz::object(
         "challenge_timeout_ms", &T::challenge_timeout_ms,
         "track_window_sec",     &T::track_window_sec,

@@ -123,7 +123,7 @@ namespace
     {
         net::io_context ioc;
         connect::connection_pool pool(ioc);
-        psm::resolve::dns::config dns_cfg;
+        psm::dns::config dns_cfg;
         connect::router_options opts{pool, ioc, dns_cfg};
         connect::router r(std::move(opts));
 
@@ -134,7 +134,7 @@ namespace
     {
         net::io_context ioc;
         connect::connection_pool pool(ioc);
-        psm::resolve::dns::config dns_cfg;
+        psm::dns::config dns_cfg;
         dns_cfg.disable_ipv6 = true;
         connect::router_options opts{pool, ioc, dns_cfg};
         connect::router r(std::move(opts));

@@ -9,7 +9,7 @@
 
 #include <prism/foundation/memory/container.hpp>
 #include <prism/net/transport/transmission.hpp>
-#include <prism/proto/protocol/tls/types.hpp>
+#include <prism/protocol/tls/types.hpp>
 
 #include <boost/asio.hpp>
 

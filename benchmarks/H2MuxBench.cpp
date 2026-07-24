@@ -8,7 +8,7 @@
  */
 
 #include <benchmark/benchmark.h>
-#include <prism/proto/multiplex/h2mux/craft.hpp>
+#include <prism/protocol/multiplex/h2mux/craft.hpp>
 #include <prism/foundation/memory/container.hpp>
 #include <nghttp2/nghttp2.h>
 

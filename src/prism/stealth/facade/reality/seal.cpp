@@ -1,6 +1,6 @@
 #include <prism/stealth/facade/reality/seal.hpp>
 
-#include <prism/proto/protocol/tls/record.hpp>
+#include <prism/protocol/tls/record.hpp>
 #include <prism/stealth/common.hpp>
 #include <prism/trace/trace.hpp>
 #include <prism/net/transport/transmission.hpp>

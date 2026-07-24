@@ -18,12 +18,13 @@
 #include <vector>
 
 
+namespace psm::rate { class counter; }
+
+
 namespace psm::stealth
 {
 
     namespace net = boost::asio;
-
-    class probe_tracker;  ///< 前向声明（RFC-065 探测追踪）
 
     /**
      * @brief 传输层回绕模式
@@ -71,11 +72,11 @@ namespace psm::stealth
             -> net::awaitable<handshake_result>;
 
         /// 设置探测行为追踪器（RFC-065）
-        void set_probe_tracker(probe_tracker *t) noexcept { tracker_ = t; }
+        void set_probe_tracker(psm::rate::counter *t) noexcept { tracker_ = t; }
 
     private:
         std::vector<shared_scheme> schemes_;
-        probe_tracker *tracker_{nullptr};
+        psm::rate::counter *tracker_{nullptr};
 
         [[nodiscard]] auto find_scheme(std::string_view name) const
             -> shared_scheme;

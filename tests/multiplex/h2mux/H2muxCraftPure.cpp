@@ -8,8 +8,8 @@
 
 #include <prism/foundation/foundation.hpp>
 #include <prism/trace/spdlog.hpp>
-#include <prism/proto/multiplex/h2mux/craft.hpp>
-#include <prism/proto/multiplex/config.hpp>
+#include <prism/protocol/multiplex/h2mux/craft.hpp>
+#include <prism/protocol/multiplex/config.hpp>
 #include <prism/net/connect/dial/router.hpp>
 #include <prism/net/transport/transmission.hpp>
 

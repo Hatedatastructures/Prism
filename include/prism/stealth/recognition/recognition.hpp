@@ -10,8 +10,8 @@
 #include <prism/foundation/fault/code.hpp>
 #include <prism/foundation/memory/container.hpp>
 #include <prism/foundation/memory/pool.hpp>
-#include <prism/proto/protocol/common/target.hpp>
-#include <prism/proto/protocol/types.hpp>
+#include <prism/net/connect/target.hpp>
+#include <prism/net/connect/types.hpp>
 #include <prism/stealth/recognition/confidence.hpp>
 #include <prism/stealth/recognition/pipeline.hpp>
 #include <prism/stealth/recognition/probe/analyzer.hpp>
@@ -39,7 +39,7 @@ namespace psm::connect
     class router;
 }
 
-namespace psm::context
+namespace psm::resources
 {
 
     struct session;
@@ -63,7 +63,7 @@ namespace psm::recognition
         transport::shared_transmission transport;
 
         /** @brief 检测到的协议类型 */
-        protocol::protocol_type detected{protocol::protocol_type::unknown};
+        psm::connect::protocol_type detected{psm::connect::protocol_type::unknown};
 
         /** @brief 预读数据 */
         memory::vector<std::byte> preread;
@@ -109,7 +109,7 @@ namespace psm::recognition
         transport::shared_transmission transport;
 
         /** @brief 检测到的协议类型 */
-        protocol::protocol_type detected{protocol::protocol_type::unknown};
+        psm::connect::protocol_type detected{psm::connect::protocol_type::unknown};
 
         /** @brief 内层预读数据 */
         memory::vector<std::byte> preread;

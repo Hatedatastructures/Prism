@@ -12,7 +12,7 @@
 #include <gtest/gtest.h>
 
 // #include 源文件以访问匿名命名空间中的 resolve_mr 纯辅助函数
-#include "../src/prism/proto/multiplex/core.cpp"
+#include "../src/prism/protocol/multiplex/core.cpp"
 
 namespace
 {

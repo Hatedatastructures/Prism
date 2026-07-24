@@ -5,7 +5,7 @@
  */
 
 #include <prism/foundation/foundation.hpp>
-#include <prism/proto/protocol/http/parser.hpp>
+#include <prism/protocol/http/parser.hpp>
 #include <prism/account/directory.hpp>
 #include <prism/crypto/sha224.hpp>
 #include <prism/crypto/base64.hpp>

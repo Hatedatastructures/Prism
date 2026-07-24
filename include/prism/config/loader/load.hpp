@@ -83,10 +83,10 @@ namespace psm::loader
      * password 经 SHA224 规范化后注册，uuid 直接注册。两种凭证共享同一个
      * entry，从而共享连接数配额。
      */
-    [[nodiscard]] inline auto build_dir(const instance::authentication &auth)
+    [[nodiscard]] inline auto build_dir(const runtime::authentication &auth)
         -> std::shared_ptr<account::directory>
     {
-        const auto dir = std::make_shared<account::directory>(memory::system::local_pool());
+        const auto dir = std::make_shared<account::directory>(memory::system::global_pool());
 
         // 预估总条目数：每个用户可能的 password 和 uuid
         std::size_t entry_count = 0;

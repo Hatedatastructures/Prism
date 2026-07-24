@@ -6,12 +6,12 @@
  */
 
 #include <prism/config/config.hpp>
-#include <prism/context/context.hpp>
+#include <prism/resource/session.hpp>
 #include <prism/account/directory.hpp>
-#include <prism/instance/front/listener.hpp>
-#include <prism/instance/front/balancer.hpp>
-#include <prism/instance/worker/worker.hpp>
-#include <prism/instance/session/session.hpp>
+#include <prism/runtime/front/listener.hpp>
+#include <prism/runtime/front/balancer.hpp>
+#include <prism/runtime/worker/worker.hpp>
+#include <prism/runtime/session/session.hpp>
 #include <prism/net/connect/pool/pool.hpp>
 #include <prism/net/connect/dial/router.hpp>
 #include <prism/net/transport/reliable.hpp>
@@ -41,16 +41,16 @@ namespace
     TEST(GracefulShutdown, ListenerStopIdempotent)
     {
         // 构造 balancer（空绑定，仅用于构造 listener）
-        psm::memory::vector<psm::instance::front::balancer::worker_binding> bindings(
+        psm::memory::vector<psm::runtime::front::balancer::worker_binding> bindings(
             psm::memory::current_resource());
-        psm::instance::front::balancer bal(std::move(bindings));
+        psm::runtime::front::balancer bal(std::move(bindings));
 
         // 构造配置，使用 127.0.0.1:0 避免端口冲突
         psm::config cfg;
         cfg.instance.addressable.host = "127.0.0.1";
         cfg.instance.addressable.port = 0;
 
-        psm::instance::front::listener lst(cfg, bal);
+        psm::runtime::front::listener lst(cfg, bal);
 
         // 第一次 stop：正常关闭
         lst.stop();
@@ -74,7 +74,7 @@ namespace
         auto account_store = std::make_shared<psm::account::directory>(
             psm::memory::system::global_pool());
 
-        psm::instance::worker::worker wrk(cfg, std::move(account_store));
+        psm::runtime::worker::worker wrk(cfg, std::move(account_store));
 
         // 第一次 stop：正常关闭
         wrk.stop();
@@ -95,7 +95,7 @@ namespace
         net::io_context ioc;
 
         // 创建连接池和路由器（空 DNS 配置）
-        psm::resolve::dns::config dns_cfg;
+        psm::dns::config dns_cfg;
         auto pool = std::make_unique<psm::connect::connection_pool>(ioc);
         auto router = std::make_unique<psm::connect::router>(
             psm::connect::router_options{*pool, ioc, std::move(dns_cfg)});
@@ -109,7 +109,7 @@ namespace
         auto account_store = std::make_shared<psm::account::directory>(
             psm::memory::system::global_pool());
 
-        psm::context::server server_ctx{
+        psm::resource::process server_ctx{
             std::atomic<std::shared_ptr<const psm::config>>{
                 std::make_shared<const psm::config>(cfg)},
             ssl_ctx,
@@ -117,7 +117,7 @@ namespace
 
         // 构造 worker 上下文
         auto mr = psm::memory::system::local_pool();
-        psm::context::worker_ref worker_ctx{ioc, psm::worker::borrow{}, mr};
+        psm::resource::worker worker_ctx{ioc, std::weak_ptr<psm::resource::worker>{}, mr};
 
         // 创建一对已连接的 socket，模拟入站传输
         tcp::acceptor acceptor(ioc, tcp::endpoint(net::ip::make_address("127.0.0.1"), 0));
@@ -130,9 +130,9 @@ namespace
         auto inbound = psm::transport::make_reliable(std::move(server_socket));
 
         // 创建 session
-        psm::instance::session::session_params params{
+        psm::runtime::session::session_params params{
             server_ctx, worker_ctx, std::move(inbound)};
-        auto sess = psm::instance::session::make_session(std::move(params));
+        auto sess = psm::runtime::session::make_session(std::move(params));
 
         // 第一次 close：正常关闭
         sess->close();

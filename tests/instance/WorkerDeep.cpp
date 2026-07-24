@@ -10,7 +10,7 @@
 // Deep test: 包含源文件以访问内部状态
 // 注意：不能与其他包含 worker.cpp 的测试编译到同一可执行文件
 #define private public
-#include "../../src/prism/instance/worker/worker.cpp"
+#include "../../src/prism/runtime/worker/worker.cpp"
 #undef private
 
 #include <prism/account/directory.hpp>
@@ -25,7 +25,7 @@
 
 namespace
 {
-    using namespace psm::instance::worker;
+    using namespace psm::runtime::worker;
 } // anonymous namespace
 
 // ── 构造：最小配置 ──
@@ -60,7 +60,7 @@ TEST(WorkerDeep, ConstructMinimal)
 TEST(WorkerDeep, ConstructWithValidReverseRoute)
 {
     psm::config cfg;
-    cfg.instance.reverse_map["example.com"] = psm::instance::endpoint{
+    cfg.instance.reverse_map["example.com"] = psm::runtime::endpoint{
         psm::memory::string("192.168.1.1"), 8080};
 
     auto acct = std::make_shared<psm::account::directory>();
@@ -74,7 +74,7 @@ TEST(WorkerDeep, ConstructWithValidReverseRoute)
 TEST(WorkerDeep, ConstructWithZeroPortReverseRoute)
 {
     psm::config cfg;
-    cfg.instance.reverse_map["bad.com"] = psm::instance::endpoint{
+    cfg.instance.reverse_map["bad.com"] = psm::runtime::endpoint{
         psm::memory::string("10.0.0.1"), 0};
 
     auto acct = std::make_shared<psm::account::directory>();
@@ -88,7 +88,7 @@ TEST(WorkerDeep, ConstructWithZeroPortReverseRoute)
 TEST(WorkerDeep, ConstructWithInvalidAddressReverseRoute)
 {
     psm::config cfg;
-    cfg.instance.reverse_map["bad.com"] = psm::instance::endpoint{
+    cfg.instance.reverse_map["bad.com"] = psm::runtime::endpoint{
         psm::memory::string("not-an-ip!!!"), 443};
 
     auto acct = std::make_shared<psm::account::directory>();
@@ -101,7 +101,7 @@ TEST(WorkerDeep, ConstructWithInvalidAddressReverseRoute)
 TEST(WorkerDeep, ConstructWithPositiveEndpoint)
 {
     psm::config cfg;
-    cfg.instance.positive = psm::instance::endpoint{
+    cfg.instance.positive = psm::runtime::endpoint{
         psm::memory::string("proxy.example.com"), 3128};
 
     auto acct = std::make_shared<psm::account::directory>();
@@ -115,7 +115,7 @@ TEST(WorkerDeep, ConstructWithPositiveEndpoint)
 TEST(WorkerDeep, ConstructWithEmptyPositiveHost)
 {
     psm::config cfg;
-    cfg.instance.positive = psm::instance::endpoint{
+    cfg.instance.positive = psm::runtime::endpoint{
         psm::memory::string(""), 3128};
 
     auto acct = std::make_shared<psm::account::directory>();

@@ -12,10 +12,10 @@
 #include <prism/net/connect/dial/router.hpp>
 #include <prism/net/connect/pool/pool.hpp>
 #include <prism/net/connect/tunnel/tunnel.hpp>
-#include <prism/context/context.hpp>
+#include <prism/resource/session.hpp>
 #include <prism/foundation/fault/handling.hpp>
 #include <prism/foundation/foundation.hpp>
-#include <prism/proto/protocol/types.hpp>
+#include <prism/net/connect/types.hpp>
 #include <prism/net/transport/transmission.hpp>
 
 #include <boost/asio.hpp>
@@ -35,32 +35,18 @@ namespace
     using namespace psm::connect;
     using namespace psm::testing;
     using namespace psm::transport;
-    using namespace psm::context;
 
-    // 辅助：创建最小 session 上下文
+    // 辅助：创建最小会话资源
     auto make_minimal_session(net::io_context &ioc, uint32_t buffer_size = 4096)
-        -> session
+        -> std::shared_ptr<psm::resource::session>
     {
-        static server server_ctx{
-            std::atomic<std::shared_ptr<const psm::config>>{},
-            nullptr, nullptr};
-        server_ctx.cfg.store(std::make_shared<const psm::config>());
-
-        static connection_pool pool{ioc, psm::memory::system::global_pool()};
-        static psm::connect::router router_instance(
-            psm::connect::router_options{pool, ioc, {}, psm::memory::system::global_pool()});
-        static psm::context::worker_ref worker_ctx{ioc, psm::worker::borrow{}, psm::memory::system::global_pool()};
-        static psm::memory::frame_arena arena;
-
-        session_opts opts{
-            1,
-            server_ctx,
-            worker_ctx,
-            arena,
-            buffer_size,
-            nullptr,
-            {}};
-        return session(std::move(opts));
+        auto cfg = std::make_shared<psm::config>();
+        auto proc_opts = psm::resource::process::options{cfg, nullptr, nullptr};
+        auto proc = std::make_shared<psm::resource::process>(std::move(proc_opts));
+        auto wrk_opts = psm::resource::worker::options{proc, psm::memory::system::global_pool()};
+        auto wrk = std::make_shared<psm::resource::worker>(std::move(wrk_opts));
+        auto ses_opts = psm::resource::session::options{wrk, 1, buffer_size, nullptr, {}, nullptr, nullptr};
+        return std::make_shared<psm::resource::session>(std::move(ses_opts));
     }
 } // anonymous namespace
 
@@ -86,7 +72,7 @@ TEST(Tunnel, BasicBidirectionalForward)
         ioc,
         [&]() -> net::awaitable<void>
         {
-            auto opts = tunnel_options{inbound, outbound, sess.buffer_size, write_policy::complete};
+            auto opts = tunnel_options{inbound, outbound, sess->buffer, write_policy::complete};
             co_await tunnel(std::move(opts));
             done = true;
         },
@@ -132,7 +118,7 @@ TEST(Tunnel, PartialWritePolicy)
         [&]() -> net::awaitable<void>
         {
             auto opts = tunnel_options{
-                inbound, outbound, sess.buffer_size, write_policy::partial};
+                inbound, outbound, sess->buffer, write_policy::partial};
             co_await tunnel(std::move(opts));
             done = true;
         },
@@ -170,7 +156,7 @@ TEST(Tunnel, EmptyDataImmediateClose)
         ioc,
         [&]() -> net::awaitable<void>
         {
-            auto opts = tunnel_options{inbound, outbound, sess.buffer_size, write_policy::complete};
+            auto opts = tunnel_options{inbound, outbound, sess->buffer, write_policy::complete};
             co_await tunnel(std::move(opts));
             done = true;
         },
@@ -199,7 +185,7 @@ TEST(Tunnel, ReadErrorTerminatesTunnel)
         ioc,
         [&]() -> net::awaitable<void>
         {
-            auto opts = tunnel_options{inbound, outbound, sess.buffer_size, write_policy::complete};
+            auto opts = tunnel_options{inbound, outbound, sess->buffer, write_policy::complete};
             co_await tunnel(std::move(opts));
             done = true;
         },
@@ -230,7 +216,7 @@ TEST(Tunnel, WriteErrorTerminatesTunnel)
         ioc,
         [&]() -> net::awaitable<void>
         {
-            auto opts = tunnel_options{inbound, outbound, sess.buffer_size, write_policy::complete};
+            auto opts = tunnel_options{inbound, outbound, sess->buffer, write_policy::complete};
             co_await tunnel(std::move(opts));
             done = true;
         },
@@ -261,7 +247,7 @@ TEST(Tunnel, MinimalBufferSize)
         ioc,
         [&]() -> net::awaitable<void>
         {
-            auto opts = tunnel_options{inbound, outbound, sess.buffer_size, write_policy::complete};
+            auto opts = tunnel_options{inbound, outbound, sess->buffer, write_policy::complete};
             co_await tunnel(std::move(opts));
             done = true;
         },
@@ -293,7 +279,7 @@ TEST(Tunnel, CancelPropagation)
         ioc,
         [&]() -> net::awaitable<void>
         {
-            auto opts = tunnel_options{inbound, outbound, sess.buffer_size, write_policy::complete};
+            auto opts = tunnel_options{inbound, outbound, sess->buffer, write_policy::complete};
             co_await tunnel(std::move(opts));
             done = true;
         },

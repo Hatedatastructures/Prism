@@ -13,7 +13,7 @@
 #include <gtest/gtest.h>
 
 // #include 源文件增加覆盖率计数，并访问 private/anonymous 函数
-#include "../../src/prism/proto/protocol/shadowsocks/util/datagram.cpp"
+#include "../../src/prism/protocol/shadowsocks/util/datagram.cpp"
 
 namespace
 {

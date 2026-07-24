@@ -13,24 +13,17 @@ using namespace psm::trace;
 namespace psm::connect
 {
 
-    forward_relay::forward_relay(context::session &ctx, forward_options opts) noexcept
-        : ctx_(ctx)
+    forward_relay::forward_relay(psm::resource::session &res, forward_options opts) noexcept
+        : res_(res)
         , opts_(std::move(opts))
     {
     }
 
     auto forward_relay::run() -> net::awaitable<void>
     {
-        auto wr = ctx_.worker_ctx.resources.lock();
-        if (!wr)
-        {
-            trace::warn<flt::conn | flt::protocol>(opts_.trace,
-                "forward_relay: worker resources expired");
-            co_return;
-        }
         co_await forward_pipeline(
-            wr, ctx_,
-            pipeline_options{std::move(opts_.inbound), opts_.target, opts_.trace});
+            res_, opts_.target,
+            pipeline_options{std::move(opts_.inbound), opts_.trace});
     }
 
 } // namespace psm::connect

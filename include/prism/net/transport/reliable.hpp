@@ -202,15 +202,12 @@ namespace psm::transport
         {
             if (pooled_.valid())
             {
-                // 取消挂起的异步操作，但不关闭 socket。
-                // 保持 socket 打开状态，让析构函数通过 pooled_.reset() → recycle() 归还连接池。
-                // recycle() 会通过 healthy_fast() 检测 socket 健康状态，
-                // 不健康的连接会被自动销毁而非复用。
                 boost::system::error_code ec;
                 if (auto *sock = pooled_.get())
                 {
                     sock->cancel(ec);
                 }
+                psm::trace::debug<psm::trace::flt::conn | psm::trace::flt::protocol>("[pool] reliable::close pooled, keep alive for recycle");
                 return;
             }
             if (socket_)

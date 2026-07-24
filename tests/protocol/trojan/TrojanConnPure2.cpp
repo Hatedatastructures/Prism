@@ -8,13 +8,13 @@
 
 #include <prism/foundation/foundation.hpp>
 #include <prism/trace/spdlog.hpp>
-#include <prism/proto/protocol/trojan/constants.hpp>
+#include <prism/protocol/trojan/constants.hpp>
 
 
 #include <gtest/gtest.h>
 
 // #include 源文件增加覆盖率计数
-#include "../../src/prism/proto/protocol/trojan/conn.cpp"
+#include "../../src/prism/protocol/trojan/conn.cpp"
 
 namespace
 {

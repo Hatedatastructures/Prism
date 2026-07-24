@@ -19,16 +19,16 @@
 #include <cstring>
 
 #define private public
-#include <prism/net/resolve/dns/upstream.hpp>
+#include <prism/net/dns/upstream.hpp>
 #undef private
 
 namespace
 {
     namespace net = boost::asio;
-    namespace dns = psm::resolve::dns;
+    namespace dns = psm::dns;
     using dns::upstream;
     using dns::query_result;
-    using dns::dns_remote;
+    using dns::server;
     using psm::memory::resource_pointer;
 
     // ─── 构造器 ──────────────────────────────────
@@ -39,7 +39,7 @@ namespace
         upstream ups(ioc);
         EXPECT_TRUE(ups.servers_.empty()) << "construct: empty servers";
         EXPECT_TRUE(ups.timeout_ms_ == 4000) << "construct: default timeout=4000";
-        EXPECT_TRUE(ups.mode_ == dns::resolve_mode::fastest) << "construct: default mode=fastest";
+        EXPECT_TRUE(ups.mode_ == dns::mode::fastest) << "construct: default mode=fastest";
     }
 
     TEST(UpstreamDeep, ConstructWithMr)
@@ -55,8 +55,8 @@ namespace
     {
         net::io_context ioc;
         upstream ups(ioc);
-        psm::memory::vector<dns_remote> servers(ups.mr_);
-        dns_remote srv(ups.mr_);
+        psm::memory::vector<server> servers(ups.mr_);
+        server srv(ups.mr_);
         srv.address = psm::memory::string("8.8.8.8", ups.mr_);
         servers.push_back(std::move(srv));
         ups.set_servers(servers);
@@ -68,10 +68,10 @@ namespace
     {
         net::io_context ioc;
         upstream ups(ioc);
-        ups.set_mode(dns::resolve_mode::first);
-        EXPECT_TRUE(ups.mode_ == dns::resolve_mode::first) << "set_mode: first";
-        ups.set_mode(dns::resolve_mode::fallback);
-        EXPECT_TRUE(ups.mode_ == dns::resolve_mode::fallback) << "set_mode: fallback";
+        ups.set_mode(dns::mode::first);
+        EXPECT_TRUE(ups.mode_ == dns::mode::first) << "set_mode: first";
+        ups.set_mode(dns::mode::fallback);
+        EXPECT_TRUE(ups.mode_ == dns::mode::fallback) << "set_mode: fallback";
     }
 
     TEST(UpstreamDeep, SetTimeout)
@@ -272,7 +272,7 @@ namespace
         net::io_context ioc;
         upstream ups(ioc);
 
-        dns_remote srv(ups.mr_);
+        server srv(ups.mr_);
         srv.address = psm::memory::string("1.1.1.1", ups.mr_);
         srv.hostname = psm::memory::string("dns.example.com", ups.mr_);
         srv.skip_cert_check = false;
@@ -291,7 +291,7 @@ namespace
         net::io_context ioc;
         upstream ups(ioc);
 
-        dns_remote srv(ups.mr_);
+        server srv(ups.mr_);
         srv.address = psm::memory::string("9.9.9.9", ups.mr_);
         srv.hostname.clear();
         srv.skip_cert_check = false;
@@ -308,12 +308,12 @@ namespace
         net::io_context ioc;
         upstream ups(ioc);
 
-        dns_remote srv1(ups.mr_);
+        server srv1(ups.mr_);
         srv1.address = psm::memory::string("1.1.1.1", ups.mr_);
         srv1.hostname = psm::memory::string("a.com", ups.mr_);
         srv1.skip_cert_check = false;
 
-        dns_remote srv2(ups.mr_);
+        server srv2(ups.mr_);
         srv2.address = psm::memory::string("8.8.8.8", ups.mr_);
         srv2.hostname = psm::memory::string("b.com", ups.mr_);
         srv2.skip_cert_check = true;
@@ -324,16 +324,16 @@ namespace
         EXPECT_TRUE(ups.ssl_cache_.size() == 2) << "ssl_ctx: cache size=2";
     }
 
-    // ─── dns_remote 默认值 ──────────────────────────
+    // ─── server 默认值 ──────────────────────────
 
     TEST(UpstreamDeep, DnsRemoteDefaults)
     {
-        dns_remote srv;
-        EXPECT_TRUE(srv.protocol == dns::dns_protocol::udp) << "dns_remote: default udp";
-        EXPECT_TRUE(srv.port == 53) << "dns_remote: default port=53";
-        EXPECT_TRUE(srv.timeout_ms == 5000) << "dns_remote: default timeout=5000";
-        EXPECT_TRUE(srv.skip_cert_check == false) << "dns_remote: default verify";
-        EXPECT_TRUE(std::string(srv.http_path) == "/dns-query") << "dns_remote: default path";
+        server srv;
+        EXPECT_TRUE(srv.protocol == dns::protocol::udp) << "server: default udp";
+        EXPECT_TRUE(srv.port == 53) << "server: default port=53";
+        EXPECT_TRUE(srv.timeout_ms == 5000) << "server: default timeout=5000";
+        EXPECT_TRUE(srv.skip_cert_check == false) << "server: default verify";
+        EXPECT_TRUE(std::string(srv.http_path) == "/dns-query") << "server: default path";
     }
 
     // ─── query_result 默认值 ──────────────────────────

@@ -5,7 +5,7 @@
  */
 
 #include <prism/foundation/foundation.hpp>
-#include "../src/prism/proto/protocol/trojan/conn.cpp"
+#include "../src/prism/protocol/trojan/conn.cpp"
 #include <prism/trace/spdlog.hpp>
 #include <prism/foundation/foundation.hpp>
 

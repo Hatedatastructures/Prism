@@ -4,7 +4,7 @@
  */
 
 #include <prism/foundation/foundation.hpp>
-#include <prism/proto/protocol/tls/types.hpp>
+#include <prism/protocol/tls/types.hpp>
 #include <prism/stealth/recognition/tls/signal.hpp>
 #include <prism/trace/spdlog.hpp>
 #include <gtest/gtest.h>

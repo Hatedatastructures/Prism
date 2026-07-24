@@ -19,15 +19,15 @@
 #include <string_view>
 
 #define private public
-#include <prism/net/resolve/dns/detail/rules.hpp>
+#include <prism/net/dns/detail/rules.hpp>
 #undef private
 
 // 包含源文件以获得 gcov 覆盖
-#include "../../src/prism/net/resolve/dns/detail/rules.cpp"
+#include "../../src/prism/net/dns/detail/rules.cpp"
 
 namespace
 {
-    namespace dns = psm::resolve::dns::detail;
+    namespace dns = psm::dns::detail;
     namespace net = boost::asio;
     using psm::memory::vector;
     using psm::memory::string;

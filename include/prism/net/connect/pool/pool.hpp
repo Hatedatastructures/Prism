@@ -15,6 +15,8 @@
 #include <prism/foundation/memory/container.hpp>
 #include <prism/trace/context.hpp>
 
+#include <atomic>
+
 #include <boost/asio.hpp>
 
 #include <array>
@@ -104,10 +106,7 @@ namespace psm::connect
          * @param socket 持有的 socket 指针
          * @param endpoint 关联的目标端点
          */
-        explicit pooled_connection(connection_pool *pool, tcp::socket *socket, tcp::endpoint endpoint)
-            : pool_(pool), socket_(socket), endpoint_(std::move(endpoint))
-        {
-        }
+        explicit pooled_connection(connection_pool *pool, tcp::socket *socket, tcp::endpoint endpoint);
 
         /**
          * @brief 析构函数
@@ -124,7 +123,7 @@ namespace psm::connect
          * @param other 要移动的连接包装器
          */
         pooled_connection(pooled_connection &&other) noexcept
-            : pool_(other.pool_), socket_(other.socket_), endpoint_(other.endpoint_)
+            : pool_(other.pool_), socket_(other.socket_), endpoint_(other.endpoint_), alive_(std::move(other.alive_))
         {
             other.pool_ = nullptr;
             other.socket_ = nullptr;
@@ -191,9 +190,10 @@ namespace psm::connect
         void reset();
 
     private:
-        connection_pool *pool_ = nullptr; // 关联的连接池指针，归还时使用
-        tcp::socket *socket_ = nullptr;   // 持有的 socket 指针
-        tcp::endpoint endpoint_{};        // 关联的目标端点，归还时用于缓存定位
+        connection_pool *pool_ = nullptr;
+        tcp::socket *socket_ = nullptr;
+        tcp::endpoint endpoint_{};
+        std::weak_ptr<std::atomic<bool>> alive_;   // 连接池存活哨兵
     };
 
     /**
@@ -243,7 +243,7 @@ namespace psm::connect
          */
         explicit connection_pool(net::io_context &ioc, memory::resource_pointer resource = memory::current_resource(),
                                  const config &config = {})
-            : ioc_(ioc), cache_(resource), config_(config) {}
+            : ioc_(ioc), cache_(resource), config_(config), alive_flag_(std::make_shared<std::atomic<bool>>(true)) {}
 
         /**
          * @brief 析构函数
@@ -258,6 +258,15 @@ namespace psm::connect
             catch (...)
             {
             }
+        }
+
+        /**
+         * @brief 获取存活哨兵（供 pooled_connection 使用）
+         */
+        [[nodiscard]] auto alive_sentinel() const noexcept
+            -> std::weak_ptr<std::atomic<bool>>
+        {
+            return alive_flag_;
         }
 
         connection_pool(const connection_pool &) = delete;
@@ -313,13 +322,14 @@ namespace psm::connect
         [[nodiscard]] auto get_config() const noexcept
             -> const config & { return config_; }
 
-    private:
         /**
          * @brief 清理所有缓存连接
          * @details 取消后台清理定时器，关闭并释放所有缓存中的 socket，
          * 清空缓存容器。在析构函数和 stop() 中调用。
          */
         void clear();
+
+    private:
 
         /**
          * @brief 后台清理：移除过期连接
@@ -354,9 +364,10 @@ namespace psm::connect
         memory::unordered_map<endpoint_key, memory::vector<idle_item>, endpoint_hash> cache_; // 连接缓存，按端点键组织，每个端点使用 LIFO 栈
         struct config config_;                                                                // 连接池配置
         std::optional<net::steady_timer> cleanup_timer_;                                      // 后台清理定时器，start() 后有效
-        std::shared_ptr<std::atomic<bool>> shutdown_flag_;                                    // 退出标志，clear() 设置后协程安全退出
+        std::shared_ptr<std::atomic<bool>> shutdown_flag_;
+        std::shared_ptr<std::atomic<bool>> alive_flag_;      // 池存活哨兵，析构设为 false
 
-        bool started_{false}; // start() 是否已调用
+        bool started_{false};
 
         mutable std::size_t stat_acquires_{0};  // 总获取次数
         mutable std::size_t stat_hits_{0};      // 缓存命中次数

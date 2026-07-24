@@ -12,12 +12,12 @@
 
 #include <gtest/gtest.h>
 
-#include <prism/net/resolve/dns/detail/format.hpp>
+#include <prism/net/dns/detail/format.hpp>
 
 #include <array>
 #include <cstring>
 
-namespace dns = psm::resolve::dns::detail;
+namespace dns = psm::dns::detail;
 namespace net = boost::asio;
 
 namespace
@@ -722,4 +722,4 @@ namespace
 } // namespace
 
 // #include 源文件以覆盖 format.cpp 全部实现
-#include "../../src/prism/net/resolve/dns/detail/format.cpp"
+#include "../../src/prism/net/dns/detail/format.cpp"

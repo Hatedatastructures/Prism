@@ -8,12 +8,12 @@
 #include <gtest/gtest.h>
 
 // 包含源文件以访问 mix_hash 和 score 私有方法
-#include "../../../../src/prism/instance/front/balancer.cpp"
+#include "../../../../src/prism/runtime/front/balancer.cpp"
 
 namespace
 {
-    using psm::instance::front::balancer;
-    using psm::instance::front::distribute_config;
+    using psm::runtime::front::balancer;
+    using psm::runtime::front::distribute_config;
     using psm::stats::worker_snapshot;
 
     TEST(BalancerPure, SelectEmpty)
@@ -33,7 +33,7 @@ namespace
 
         psm::memory::vector<balancer::worker_binding> bindings;
         bindings.push_back({
-            [](psm::instance::front::tcp::socket) {},
+            [](psm::runtime::front::tcp::socket) {},
             []() { return worker_snapshot{10, 0, 0}; }
         });
 
@@ -50,11 +50,11 @@ namespace
 
         psm::memory::vector<balancer::worker_binding> bindings;
         bindings.push_back({
-            [](psm::instance::front::tcp::socket) {},
+            [](psm::runtime::front::tcp::socket) {},
             []() { return worker_snapshot{10, 0, 0}; }
         });
         bindings.push_back({
-            [](psm::instance::front::tcp::socket) {},
+            [](psm::runtime::front::tcp::socket) {},
             []() { return worker_snapshot{20, 0, 0}; }
         });
 
@@ -73,11 +73,11 @@ namespace
 
         psm::memory::vector<balancer::worker_binding> bindings;
         bindings.push_back({
-            [](psm::instance::front::tcp::socket) {},
+            [](psm::runtime::front::tcp::socket) {},
             []() { return worker_snapshot{50, 0, 0}; }
         });
         bindings.push_back({
-            [](psm::instance::front::tcp::socket) {},
+            [](psm::runtime::front::tcp::socket) {},
             []() { return worker_snapshot{50, 0, 0}; }
         });
 
@@ -99,12 +99,12 @@ namespace
         psm::memory::vector<balancer::worker_binding> bindings;
         // Worker 0: heavy (80/100=0.8 > enter_overload=0.5 -> overloaded)
         bindings.push_back({
-            [](psm::instance::front::tcp::socket) {},
+            [](psm::runtime::front::tcp::socket) {},
             []() { return worker_snapshot{80, 0, 0}; }
         });
         // Worker 1: light (10/100=0.1 -> not overloaded)
         bindings.push_back({
-            [](psm::instance::front::tcp::socket) {},
+            [](psm::runtime::front::tcp::socket) {},
             []() { return worker_snapshot{10, 0, 0}; }
         });
 
@@ -128,11 +128,11 @@ namespace
         psm::memory::vector<balancer::worker_binding> bindings;
         // Both workers overloaded (> 0.5)
         bindings.push_back({
-            [](psm::instance::front::tcp::socket) {},
+            [](psm::runtime::front::tcp::socket) {},
             []() { return worker_snapshot{90, 0, 0}; }
         });
         bindings.push_back({
-            [](psm::instance::front::tcp::socket) {},
+            [](psm::runtime::front::tcp::socket) {},
             []() { return worker_snapshot{90, 0, 0}; }
         });
 
@@ -150,11 +150,11 @@ namespace
 
         psm::memory::vector<balancer::worker_binding> bindings;
         bindings.push_back({
-            [](psm::instance::front::tcp::socket) {},
+            [](psm::runtime::front::tcp::socket) {},
             []() { return worker_snapshot{10, 0, 0}; }
         });
         bindings.push_back({
-            [](psm::instance::front::tcp::socket) {},
+            [](psm::runtime::front::tcp::socket) {},
             []() { return worker_snapshot{20, 0, 0}; }
         });
 
@@ -169,15 +169,15 @@ namespace
 
         psm::memory::vector<balancer::worker_binding> bindings;
         bindings.push_back({
-            [](psm::instance::front::tcp::socket) {},
+            [](psm::runtime::front::tcp::socket) {},
             []() { return worker_snapshot{0, 0, 0}; }
         });
         bindings.push_back({
-            [](psm::instance::front::tcp::socket) {},
+            [](psm::runtime::front::tcp::socket) {},
             []() { return worker_snapshot{0, 0, 0}; }
         });
         bindings.push_back({
-            [](psm::instance::front::tcp::socket) {},
+            [](psm::runtime::front::tcp::socket) {},
             []() { return worker_snapshot{0, 0, 0}; }
         });
 
@@ -198,7 +198,7 @@ namespace
         psm::memory::vector<balancer::worker_binding> bindings;
         // Worker heavily loaded (90/100 = 0.9, above enter_overload=0.5)
         bindings.push_back({
-            [](psm::instance::front::tcp::socket) {},
+            [](psm::runtime::front::tcp::socket) {},
             []() { return worker_snapshot{90, 0, 0}; }
         });
 
@@ -215,15 +215,15 @@ namespace
 
         psm::memory::vector<balancer::worker_binding> bindings;
         bindings.push_back({
-            [](psm::instance::front::tcp::socket) {},
+            [](psm::runtime::front::tcp::socket) {},
             []() { return worker_snapshot{80, 10, 1000}; }
         });
         bindings.push_back({
-            [](psm::instance::front::tcp::socket) {},
+            [](psm::runtime::front::tcp::socket) {},
             []() { return worker_snapshot{40, 5, 500}; }
         });
         bindings.push_back({
-            [](psm::instance::front::tcp::socket) {},
+            [](psm::runtime::front::tcp::socket) {},
             []() { return worker_snapshot{5, 0, 50}; }
         });
 

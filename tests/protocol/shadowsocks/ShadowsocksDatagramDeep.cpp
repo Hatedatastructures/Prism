@@ -14,7 +14,7 @@
 
 #include <gtest/gtest.h>
 
-#include "../../src/prism/proto/protocol/shadowsocks/util/datagram.cpp"
+#include "../../src/prism/protocol/shadowsocks/util/datagram.cpp"
 
 namespace
 {

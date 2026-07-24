@@ -7,7 +7,7 @@
 
 #include <prism/foundation/foundation.hpp>
 #include <prism/trace/spdlog.hpp>
-#include <prism/instance/worker/launch.hpp>
+#include <prism/runtime/worker/launch.hpp>
 #include <gtest/gtest.h>
 
 namespace
@@ -28,11 +28,11 @@ namespace
         client.connect(ep);
         tcp::socket server = acceptor.accept();
 
-        psm::instance::worker::launch::prime(server, 8192);
+        psm::runtime::worker::launch::prime(server, 8192);
         EXPECT_TRUE(server.is_open()) << "prime: socket still open after prime";
 
         // 再次调用也不崩溃
-        psm::instance::worker::launch::prime(server, 4096);
+        psm::runtime::worker::launch::prime(server, 4096);
         EXPECT_TRUE(server.is_open()) << "prime: socket still open after second prime";
 
         server.close();
@@ -48,7 +48,7 @@ namespace
         net::io_context ioc;
         tcp::socket socket(ioc);
         // socket 未打开，prime 应该内部忽略所有 set_option 错误
-        psm::instance::worker::launch::prime(socket, 8192);
+        psm::runtime::worker::launch::prime(socket, 8192);
         // prime 成功返回即验证了内部错误被安全忽略
         EXPECT_TRUE(socket.is_open() == false) << "prime: closed socket remains closed after prime";
     }
@@ -67,7 +67,7 @@ namespace
         client.connect(ep);
         tcp::socket server = acceptor.accept();
 
-        auto migrated = psm::instance::worker::launch::migrate_executor(server, ioc2);
+        auto migrated = psm::runtime::worker::launch::migrate_executor(server, ioc2);
         ASSERT_TRUE(migrated.has_value()) << "migrate: success";
         EXPECT_TRUE(migrated->is_open()) << "migrate: socket open";
         EXPECT_TRUE(!server.is_open()) << "migrate: original socket released";
@@ -90,7 +90,7 @@ namespace
         client.connect(ep);
         tcp::socket server = acceptor.accept();
 
-        auto migrated = psm::instance::worker::launch::migrate_executor(server, ioc);
+        auto migrated = psm::runtime::worker::launch::migrate_executor(server, ioc);
         ASSERT_TRUE(migrated.has_value()) << "migrate same ioc: success";
         EXPECT_TRUE(migrated->is_open()) << "migrate same ioc: socket open";
 

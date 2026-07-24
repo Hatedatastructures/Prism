@@ -362,7 +362,7 @@ namespace psm::stealth::restls
             });
         result.transport->set_prefix(
             prefix_);
-        result.detected = protocol::protocol_type::tls;
+        result.detected = psm::connect::protocol_type::tls;
         result.scheme = "restls";
 
         co_return result;

@@ -7,7 +7,7 @@
  */
 
 #include <prism/foundation/foundation.hpp>
-#include <prism/net/resolve/dns/detail/rules.hpp>
+#include <prism/net/dns/detail/rules.hpp>
 #include <prism/trace/spdlog.hpp>
 
 
@@ -15,7 +15,7 @@
 
 namespace
 {
-    namespace dns = psm::resolve::dns::detail;
+    namespace dns = psm::dns::detail;
     namespace net = boost::asio;
 
     auto make_ips(std::initializer_list<std::string_view> strs)

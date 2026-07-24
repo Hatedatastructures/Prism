@@ -7,7 +7,7 @@
 #pragma once
 
 #include <prism/foundation/fault/code.hpp>
-#include <prism/proto/protocol/tls/record.hpp>
+#include <prism/protocol/tls/record.hpp>
 #include <prism/net/transport/transmission.hpp>
 
 #include <boost/asio.hpp>
@@ -18,7 +18,7 @@
 #include <utility>
 
 
-namespace psm::stealth::seal_io
+namespace psm::stealth::seal
 {
 
     namespace net = boost::asio;
@@ -122,4 +122,4 @@ namespace psm::stealth::seal_io
         co_return req.data.size();
     }
 
-} // namespace psm::stealth::seal_io
+} // namespace psm::stealth::seal

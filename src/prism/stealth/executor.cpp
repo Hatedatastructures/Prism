@@ -1,8 +1,8 @@
 #include <prism/stealth/executor.hpp>
 
 #include <prism/net/connect/util.hpp>
-#include <prism/context/context.hpp>
-#include <prism/stealth/tracker.hpp>
+#include <prism/resource/session.hpp>
+#include <prism/foundation/rate/counter.hpp>
 #include <prism/stealth/recognition/probe/analyzer.hpp>
 #include <prism/trace/trace.hpp>
 #include <prism/net/transport/preview.hpp>
@@ -19,11 +19,11 @@ namespace psm::stealth
     {
 
         [[nodiscard]] auto secondary_probe(const memory::vector<std::byte> &preread)
-            -> protocol::protocol_type
+            -> psm::connect::protocol_type
         {
             if (preread.empty())
             {
-                return protocol::protocol_type::unknown;
+                return psm::connect::protocol_type::unknown;
             }
 
             auto view = std::string_view(
@@ -31,9 +31,9 @@ namespace psm::stealth
                 preread.size());
             auto detected = recognition::probe::detect_tls(view);
             // SS2022 的 AEAD 加密载荷无特征，detect_tls() 无法识别，回退到 shadowsocks
-            if (detected == protocol::protocol_type::unknown)
+            if (detected == psm::connect::protocol_type::unknown)
             {
-                return protocol::protocol_type::shadowsocks;
+                return psm::connect::protocol_type::shadowsocks;
             }
             return detected;
         }
@@ -102,19 +102,19 @@ namespace psm::stealth
             const auto scheme = find_scheme(name);
             if (!scheme)
             {
-                trace::warn<flt::conn | flt::protocol>(ctx.trace, "Scheme '{}' not found", name);
+                trace::warn<flt::conn | flt::protocol>(ctx.session->trace, "Scheme '{}' not found", name);
                 continue;
             }
 
-            if (!scheme->active(*ctx.cfg))
+            if (!scheme->active(*ctx.session->worker->process->cfg))
             {
-                trace::debug<flt::conn | flt::protocol>(ctx.trace, "Scheme '{}' disabled, skipping", name);
+                trace::debug<flt::conn | flt::protocol>(ctx.session->trace, "Scheme '{}' disabled, skipping", name);
                 continue;
             }
 
             ensure_snapshot(ctx);
 
-            trace::debug<flt::conn | flt::protocol>(ctx.trace, "Executing scheme '{}'", name);
+            trace::debug<flt::conn | flt::protocol>(ctx.session->trace, "Executing scheme '{}'", name);
 
             auto exec_result = co_await execute_single(scheme, handshake_context{ctx});
 
@@ -123,7 +123,7 @@ namespace psm::stealth
             {
                 if (!fault::failed(exec_result.error) && !exec_result.transport)
                 {
-                    trace::debug<flt::conn | flt::protocol>(ctx.trace, "Stack scheme '{}' handled connection", name);
+                    trace::debug<flt::conn | flt::protocol>(ctx.session->trace, "Stack scheme '{}' handled connection", name);
                     co_return exec_result;
                 }
                 // Stack 失败 → rewind 并尝试下一个
@@ -144,9 +144,9 @@ namespace psm::stealth
             }
 
             // Facade detected==tls → "不是我的"，尝试下一个（优先于成功判断）
-            if (exec_result.detected == protocol::protocol_type::tls)
+            if (exec_result.detected == psm::connect::protocol_type::tls)
             {
-                trace::debug<flt::conn | flt::protocol>(ctx.trace, "Scheme '{}' returned TLS, continuing to next", name);
+                trace::debug<flt::conn | flt::protocol>(ctx.session->trace, "Scheme '{}' returned TLS, continuing to next", name);
                 rewind_mode rw_mode2;
                 if (exec_result.polluted)
                 {
@@ -169,7 +169,7 @@ namespace psm::stealth
                 {
                     exec_result.detected = secondary_probe(exec_result.preread);
                 }
-                trace::debug<flt::conn | flt::protocol>(ctx.trace, "Facade scheme '{}' succeeded, inner: {}",
+                trace::debug<flt::conn | flt::protocol>(ctx.session->trace, "Facade scheme '{}' succeeded, inner: {}",
                              name, static_cast<std::int32_t>(exec_result.detected));
                 co_return exec_result;
             }
@@ -179,20 +179,20 @@ namespace psm::stealth
                 // RFC-065: 认证失败时记录探测行为
                 if (tracker_ && !exec_result.polluted)
                 {
-                    address_hash src_ip;
-                    std::memcpy(src_ip.bytes.data(), ctx.src_ip_raw.data(), 16);
+                    psm::rate::address_hash src_ip;
+                    std::memcpy(src_ip.bytes.data(), ctx.session->meta->src_ip.data(), 16);
                     tracker_->record(src_ip, scheme->tier());
 
                     // 探测次数达到阈值时触发挑战-响应
                     if (tracker_->should_challenge(src_ip))
                     {
                         trace::debug<flt::conn | flt::protocol>(
-                            ctx.trace, "triggering challenge for scheme '{}'", name);
+                            ctx.session->trace, "triggering challenge for scheme '{}'", name);
                         auto ch_result = co_await scheme->challenge(handshake_context{ctx});
                         if (ch_result.triggered && ch_result.success)
                         {
                             trace::debug<flt::conn | flt::protocol>(
-                                ctx.trace, "challenge passed, retrying handshake");
+                                ctx.session->trace, "challenge passed, retrying handshake");
                             tracker_->reset(src_ip);
                             exec_result = co_await execute_single(scheme, handshake_context{ctx});
                             if (exec_result.transport && !fault::failed(exec_result.error))
@@ -200,14 +200,14 @@ namespace psm::stealth
                                 if (!exec_result.preread.empty())
                                     exec_result.detected = secondary_probe(exec_result.preread);
                                 trace::debug<flt::conn | flt::protocol>(
-                                    ctx.trace, "Facade scheme '{}' succeeded after challenge", name);
+                                    ctx.session->trace, "Facade scheme '{}' succeeded after challenge", name);
                                 co_return exec_result;
                             }
                         }
                         else if (ch_result.triggered)
                         {
                             trace::warn<flt::conn | flt::protocol>(
-                                ctx.trace, "challenge failed for scheme '{}'", name);
+                                ctx.session->trace, "challenge failed for scheme '{}'", name);
                         }
                     }
                 }
@@ -223,10 +223,10 @@ namespace psm::stealth
                 }
                 if (try_rewind(ctx, rw_mode))
                 {
-                    trace::debug<flt::conn | flt::protocol>(ctx.trace, "Scheme '{}' failed but snapshot rewound, trying next", name);
+                    trace::debug<flt::conn | flt::protocol>(ctx.session->trace, "Scheme '{}' failed but snapshot rewound, trying next", name);
                     continue;
                 }
-                trace::warn<flt::conn | flt::protocol>(ctx.trace, "Scheme '{}' failed with error: {}",
+                trace::warn<flt::conn | flt::protocol>(ctx.session->trace, "Scheme '{}' failed with error: {}",
                             name, fault::describe(exec_result.error));
                 co_return exec_result;
             }
@@ -245,7 +245,7 @@ namespace psm::stealth
     {
         if (analysis.candidates.empty())
         {
-            trace::debug<flt::conn | flt::protocol>(ctx.trace, "No candidates from analysis, executing by default priority");
+            trace::debug<flt::conn | flt::protocol>(ctx.session->trace, "No candidates from analysis, executing by default priority");
 
             memory::vector<memory::string> default_order; // 默认顺序
             for (const auto &scheme : schemes_)
@@ -256,7 +256,7 @@ namespace psm::stealth
 
             if (fault::failed(result.error) && !result.transport)
             {
-                trace::debug<flt::conn | flt::protocol>(ctx.trace, "All candidates failed, executing native fallback");
+                trace::debug<flt::conn | flt::protocol>(ctx.session->trace, "All candidates failed, executing native fallback");
                 if (const auto native = find_scheme("native"))
                 {
                     co_return co_await execute_single(native, std::move(native_ctx));

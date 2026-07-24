@@ -12,7 +12,7 @@ namespace psm::stats::traffic
     }
 
 
-    void traffic_state::on_protocol_detected(protocol::protocol_type type) noexcept
+    void traffic_state::on_protocol_detected(psm::connect::protocol_type type) noexcept
     {
         const auto i = static_cast<std::uint8_t>(type);
         protocols_[i].connections.fetch_add(1, std::memory_order::relaxed);
@@ -20,7 +20,7 @@ namespace psm::stats::traffic
     }
 
 
-    void traffic_state::on_disconnect(protocol::protocol_type type) noexcept
+    void traffic_state::on_disconnect(psm::connect::protocol_type type) noexcept
     {
         total_active_.fetch_sub(1, std::memory_order::relaxed);
         const auto i = static_cast<std::uint8_t>(type);
@@ -28,7 +28,7 @@ namespace psm::stats::traffic
     }
 
 
-    void traffic_state::flush_traffic(protocol::protocol_type proto, std::uint64_t up, std::uint64_t down) noexcept
+    void traffic_state::flush_traffic(psm::connect::protocol_type proto, std::uint64_t up, std::uint64_t down) noexcept
     {
         const auto i = static_cast<std::uint8_t>(proto);
         if (up)

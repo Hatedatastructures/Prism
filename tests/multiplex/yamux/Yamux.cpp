@@ -8,7 +8,7 @@
  * 4. 截断数据与版本不匹配的容错处理
  */
 
-#include <prism/proto/multiplex/yamux/frame.hpp>
+#include <prism/protocol/multiplex/yamux/frame.hpp>
 #include <prism/foundation/foundation.hpp>
 #include <prism/trace/spdlog.hpp>
 

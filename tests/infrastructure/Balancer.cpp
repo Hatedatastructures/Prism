@@ -4,7 +4,7 @@
  * @details 测试负载均衡器的评分、过载滞后、空绑定、一致性哈希等核心逻辑。
  */
 
-#include <prism/instance/front/balancer.hpp>
+#include <prism/runtime/front/balancer.hpp>
 #include <prism/account/stats/snapshot.hpp>
 #include <prism/foundation/foundation.hpp>
 #include <prism/trace/spdlog.hpp>
@@ -12,7 +12,7 @@
 #include <set>
 #include <vector>
 
-namespace front = psm::instance::front;
+namespace front = psm::runtime::front;
 
 namespace
 {

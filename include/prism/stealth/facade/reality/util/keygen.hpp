@@ -11,7 +11,7 @@
 
 #include <prism/crypto/hkdf.hpp>
 #include <prism/foundation/fault/code.hpp>
-#include <prism/proto/protocol/tls/types.hpp>
+#include <prism/protocol/tls/types.hpp>
 
 #include <array>
 #include <cstddef>

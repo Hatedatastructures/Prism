@@ -17,7 +17,7 @@
 namespace
 {
     namespace traffic = psm::stats::traffic;
-    using psm::protocol::protocol_type;
+    using psm::connect::protocol_type;
 
     // ─── on_connect / on_disconnect ─────────────
 

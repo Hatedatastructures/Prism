@@ -9,7 +9,7 @@
 #include <prism/foundation/foundation.hpp>
 #include <prism/stealth/facade/reality/scheme.hpp>
 #include <prism/stealth/recognition/tls/features.hpp>
-#include <prism/proto/protocol/tls/types.hpp>
+#include <prism/protocol/tls/types.hpp>
 
 namespace
 {

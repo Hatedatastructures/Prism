@@ -10,7 +10,7 @@
 #include <prism/foundation/fault/code.hpp>
 #include <prism/foundation/fault/handling.hpp>
 #include <prism/foundation/memory/container.hpp>
-#include <prism/proto/protocol/types.hpp>
+#include <prism/net/connect/types.hpp>
 #include <prism/stealth/recognition/probe/analyzer.hpp>
 #include <prism/net/transport/transmission.hpp>
 
@@ -34,7 +34,7 @@ namespace psm::recognition::probe
     struct probe_result
     {
         /** @brief 检测到的协议类型 */
-        protocol::protocol_type type{protocol::protocol_type::unknown};
+        psm::connect::protocol_type type{psm::connect::protocol_type::unknown};
         /** @brief 预读数据缓冲区（最大 32 字节） */
         std::array<std::byte, 32> pre_read_data{};
         /** @brief 实际预读数据大小 */
@@ -48,7 +48,7 @@ namespace psm::recognition::probe
         [[nodiscard]] auto success() const noexcept
             -> bool
         {
-            return ec == fault::code::success && type != protocol::protocol_type::unknown;
+            return ec == fault::code::success && type != psm::connect::protocol_type::unknown;
         }
 
         /**

@@ -105,7 +105,6 @@ auto make_context() -> stealth::handshake_context
 {
     stealth::handshake_context ctx;
     ctx.transport = std::make_shared<psm::testing::MockTransport>();
-    ctx.cfg = nullptr;
     return ctx;
 }
 
@@ -157,7 +156,7 @@ TEST(StealthExecutorDeep3, ExecuteSingle_PreservesTransport)
     auto mock_transport = std::make_shared<psm::testing::MockTransport>();
     stealth::handshake_result preset;
     preset.transport = mock_transport;
-    preset.detected = psm::protocol::protocol_type::socks5;
+    preset.detected = psm::connect::protocol_type::socks5;
 
     auto mock = make_mock("test", std::move(preset));
     stealth::scheme_registry registry;
@@ -178,7 +177,7 @@ TEST(StealthExecutorDeep3, ExecuteSingle_PreservesTransport)
 
     ASSERT_TRUE(!ep);
     EXPECT_TRUE(result.transport == mock_transport) << "execute_single preserves transport";
-    EXPECT_TRUE(result.detected == psm::protocol::protocol_type::socks5) << "execute_single preserves detected";
+    EXPECT_TRUE(result.detected == psm::connect::protocol_type::socks5) << "execute_single preserves detected";
 }
 
 // ─── execute_pipeline 测试 ──────────────────────────────────
@@ -188,7 +187,7 @@ TEST(StealthExecutorDeep3, ExecutePipeline_FacadeSuccess)
     auto mock_transport = std::make_shared<psm::testing::MockTransport>();
     stealth::handshake_result preset;
     preset.transport = mock_transport;
-    preset.detected = psm::protocol::protocol_type::http;
+    preset.detected = psm::connect::protocol_type::http;
 
     auto mock = make_mock("facade_ok", std::move(preset));
     stealth::scheme_registry registry;
@@ -261,7 +260,7 @@ TEST(StealthExecutorDeep3, ExecutePipeline_StackFailContinue)
     // 第二个 facade 方案成功
     stealth::handshake_result ok_preset;
     ok_preset.transport = mock_transport;
-    ok_preset.detected = psm::protocol::protocol_type::trojan;
+    ok_preset.detected = psm::connect::protocol_type::trojan;
     auto facade_ok = make_mock("facade_ok", std::move(ok_preset));
 
     stealth::scheme_registry registry;
@@ -296,12 +295,12 @@ TEST(StealthExecutorDeep3, ExecutePipeline_TlsDetectedContinue)
 
     stealth::handshake_result tls_preset;
     tls_preset.transport = mock_transport;
-    tls_preset.detected = psm::protocol::protocol_type::tls;
+    tls_preset.detected = psm::connect::protocol_type::tls;
     auto tls_scheme = make_mock("tls_detector", std::move(tls_preset));
 
     stealth::handshake_result ok_preset;
     ok_preset.transport = mock_transport;
-    ok_preset.detected = psm::protocol::protocol_type::socks5;
+    ok_preset.detected = psm::connect::protocol_type::socks5;
     auto ok_scheme = make_mock("real_match", std::move(ok_preset));
 
     stealth::scheme_registry registry;
@@ -367,7 +366,7 @@ TEST(StealthExecutorDeep3, ExecutePipeline_SchemeNotFound_Skipped)
     auto mock_transport = std::make_shared<psm::testing::MockTransport>();
     stealth::handshake_result ok_preset;
     ok_preset.transport = mock_transport;
-    ok_preset.detected = psm::protocol::protocol_type::http;
+    ok_preset.detected = psm::connect::protocol_type::http;
 
     auto mock = make_mock("existing", std::move(ok_preset));
     stealth::scheme_registry registry;
@@ -400,7 +399,7 @@ TEST(StealthExecutorDeep3, ExecutePipeline_SchemeDisabled_Skipped)
     auto mock_transport = std::make_shared<psm::testing::MockTransport>();
     stealth::handshake_result ok_preset;
     ok_preset.transport = mock_transport;
-    ok_preset.detected = psm::protocol::protocol_type::http;
+    ok_preset.detected = psm::connect::protocol_type::http;
 
     auto disabled = make_mock("disabled", stealth::handshake_result{}, false);
     auto enabled = make_mock("enabled", std::move(ok_preset), true);
@@ -459,7 +458,7 @@ TEST(StealthExecutorDeep3, ExecuteByAnalysis_EmptyCandidates_DefaultOrder)
     auto mock_transport = std::make_shared<psm::testing::MockTransport>();
     stealth::handshake_result ok_preset;
     ok_preset.transport = mock_transport;
-    ok_preset.detected = psm::protocol::protocol_type::http;
+    ok_preset.detected = psm::connect::protocol_type::http;
 
     auto mock = make_mock("scheme_a", std::move(ok_preset));
     stealth::scheme_registry registry;
@@ -491,7 +490,7 @@ TEST(StealthExecutorDeep3, ExecuteByAnalysis_WithCandidates_PipelineOrder)
     auto mock_transport = std::make_shared<psm::testing::MockTransport>();
     stealth::handshake_result ok_preset;
     ok_preset.transport = mock_transport;
-    ok_preset.detected = psm::protocol::protocol_type::trojan;
+    ok_preset.detected = psm::connect::protocol_type::trojan;
 
     auto scheme_b = make_mock("scheme_b", std::move(ok_preset));
     stealth::scheme_registry registry;
@@ -524,7 +523,7 @@ TEST(StealthExecutorDeep3, Execute_DelegatesToPipeline)
     auto mock_transport = std::make_shared<psm::testing::MockTransport>();
     stealth::handshake_result ok_preset;
     ok_preset.transport = mock_transport;
-    ok_preset.detected = psm::protocol::protocol_type::socks5;
+    ok_preset.detected = psm::connect::protocol_type::socks5;
 
     auto mock = make_mock("delegate_test", std::move(ok_preset));
     stealth::scheme_registry registry;
@@ -557,11 +556,11 @@ TEST(StealthExecutorDeep3, Execute_MultipleCandidatesFirstWins)
 
     stealth::handshake_result first_ok;
     first_ok.transport = mock_transport;
-    first_ok.detected = psm::protocol::protocol_type::http;
+    first_ok.detected = psm::connect::protocol_type::http;
 
     stealth::handshake_result second_ok;
     second_ok.transport = mock_transport;
-    second_ok.detected = psm::protocol::protocol_type::socks5;
+    second_ok.detected = psm::connect::protocol_type::socks5;
 
     auto first = make_mock("first", std::move(first_ok));
     auto second = make_mock("second", std::move(second_ok));
@@ -589,7 +588,7 @@ TEST(StealthExecutorDeep3, Execute_MultipleCandidatesFirstWins)
 
     ASSERT_TRUE(!ep);
     EXPECT_EQ(result.scheme, "first") << "execute first candidate wins";
-    EXPECT_TRUE(result.detected == psm::protocol::protocol_type::http) << "execute preserves first detected";
+    EXPECT_TRUE(result.detected == psm::connect::protocol_type::http) << "execute preserves first detected";
 }
 
 // ─── pipeline 错误回退测试 ────────────────────────────────
@@ -634,7 +633,7 @@ TEST(StealthExecutorDeep3, ExecutePipeline_FacadeWithPrereadSecondaryProbe)
     stealth::handshake_result ok_preset;
     ok_preset.transport = mock_transport;
     // 初始 detected 不能是 tls（否则走 "不是我" 分支）
-    ok_preset.detected = psm::protocol::protocol_type::unknown;
+    ok_preset.detected = psm::connect::protocol_type::unknown;
     // preread 内容为 HTTP GET → secondary_probe 通过 detect_tls 检测
     ok_preset.preread.push_back(std::byte{'G'});
     ok_preset.preread.push_back(std::byte{'E'});
@@ -671,7 +670,7 @@ TEST(StealthExecutorDeep3, ExecutePipeline_FacadeWithPrereadSecondaryProbe)
     EXPECT_EQ(result.scheme, "preread_probe") << "pipeline preread: scheme set";
     // detected 被 secondary_probe 覆盖
     // secondary_probe 调用 detect_tls("GET / HTTP") → 阶段1 HTTP 检测 → 返回 http
-    EXPECT_TRUE(result.detected == psm::protocol::protocol_type::http)
+    EXPECT_TRUE(result.detected == psm::connect::protocol_type::http)
         << "pipeline preread: HTTP preread detected as http";
 }
 

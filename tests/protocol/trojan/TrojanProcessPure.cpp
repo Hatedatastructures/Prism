@@ -8,10 +8,10 @@
  */
 
 #include <prism/foundation/foundation.hpp>
-#include <prism/proto/protocol/trojan/handler.hpp>
-#include <prism/proto/protocol/trojan/config.hpp>
-#include <prism/proto/protocol/trojan/packet.hpp>
-#include <prism/proto/protocol/trojan/constants.hpp>
+#include <prism/protocol/trojan/handler.hpp>
+#include <prism/protocol/trojan/config.hpp>
+#include <prism/protocol/trojan/packet.hpp>
+#include <prism/protocol/trojan/constants.hpp>
 #include <prism/trace/spdlog.hpp>
 
 #include <array>

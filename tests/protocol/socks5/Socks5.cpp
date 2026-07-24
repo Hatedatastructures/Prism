@@ -8,7 +8,7 @@
  * 4. Echo 数据双向传输
  */
 
-#include <prism/proto/protocol/socks5.hpp>
+#include <prism/protocol/socks5/socks5.hpp>
 #include <prism/foundation/exception/network.hpp>
 #include <prism/foundation/fault/code.hpp>
 #include <prism/net/transport/reliable.hpp>
