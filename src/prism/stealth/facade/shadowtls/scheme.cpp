@@ -77,7 +77,7 @@ namespace psm::stealth::shadowtls
                         continue;
                     if (verify_client_hello(raw, user.password))
                     {
-                        trace::debug<flt::conn | flt::protocol>(prefix_, "HMAC verified, user: {}", user.name);
+                        trace::debug(prefix_, "HMAC verified, user: {}", user.name);
                         return {
                             .score = 900,
                             .solo_flag = 0xFFFF,
@@ -89,7 +89,7 @@ namespace psm::stealth::shadowtls
             {
                 if (verify_client_hello(raw, st_cfg.password))
                 {
-                    trace::debug<flt::conn | flt::protocol>(prefix_, "HMAC verified (v2)");
+                    trace::debug(prefix_, "HMAC verified (v2)");
                     return {
                         .score = 900,
                         .solo_flag = 0xFFFF,
@@ -134,7 +134,7 @@ namespace psm::stealth::shadowtls
                     first_frame.data() + local_tls_hdrsize,
                     first_frame.size() - local_tls_hdrsize);
 
-                trace::debug<flt::conn | flt::protocol>(prefix_, "first_frame TLS header stripped, payload_size={}", payload.size());
+                trace::debug(prefix_, "first_frame TLS header stripped, payload_size={}", payload.size());
 
                 result.preread.assign(payload.begin(), payload.end());
                 result.detected = psm::connect::protocol_type::unknown;
@@ -153,13 +153,9 @@ namespace psm::stealth::shadowtls
                 result.scheme = "shadowtls";
 
                 auto *pfx = prefix_.get();
-                if (pfx && !detail.matched_user.empty())
-                {
-                    std::strncpy(pfx->user, detail.matched_user.c_str(),
-                                 sizeof(pfx->user) - 1);
-                }
+                // user info logged via auth messages
 
-                trace::debug<flt::conn | flt::protocol>(prefix_, "authenticated, shadowtls_transport created (HMAC inherited)");
+                trace::debug(prefix_, "authenticated, shadowtls_transport created (HMAC inherited)");
             }
             else
             {
@@ -173,7 +169,7 @@ namespace psm::stealth::shadowtls
             result.error = hs_result.error;
             result.polluted = hs_result.polluted;
             result.transport = ctx.transport;
-            trace::debug<flt::conn | flt::protocol>(prefix_, "not ShadowTLS, pass to next scheme");
+            trace::debug(prefix_, "not ShadowTLS, pass to next scheme");
         }
 
         co_return result;

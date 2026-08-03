@@ -106,26 +106,26 @@ namespace psm::protocol::common
             opts.udp_socket.open(opts.target_ep.protocol(), udp_ec);
             if (udp_ec)
             {
-                trace::warn<flt::conn | flt::protocol>("Socket open failed: {}", udp_ec.message());
+                trace::warn("Socket open failed: {}", udp_ec.message());
                 co_return std::tuple{fault::to_code(udp_ec), std::size_t{0}, net::ip::udp::endpoint{}};
             }
         }
 
-        auto token = net::redirect_error(trace::use_prefix_awaitable, udp_ec);
+        auto token = net::redirect_error(net::use_awaitable, udp_ec);
         co_await opts.udp_socket.async_send_to(net::buffer(opts.payload.data(), opts.payload.size()), opts.target_ep, token);
         if (udp_ec)
         {
-            trace::debug<flt::conn | flt::protocol>("Send failed: {}", udp_ec.message());
+            trace::debug("Send failed: {}", udp_ec.message());
             co_return std::tuple{fault::to_code(udp_ec), std::size_t{0}, net::ip::udp::endpoint{}};
         }
 
         net::ip::udp::endpoint sender_ep;
         const auto resp_n = co_await opts.udp_socket.async_receive_from(
             net::buffer(opts.buf.response.data(), opts.buf.response.size()), sender_ep,
-            net::redirect_error(trace::use_prefix_awaitable, udp_ec));
+            net::redirect_error(net::use_awaitable, udp_ec));
         if (udp_ec)
         {
-            trace::debug<flt::conn | flt::protocol>("Receive failed: {}", udp_ec.message());
+            trace::debug("Receive failed: {}", udp_ec.message());
             co_return std::tuple{fault::to_code(udp_ec), std::size_t{0}, net::ip::udp::endpoint{}};
         }
 
@@ -201,7 +201,7 @@ namespace psm::protocol::common
         co_await transport::async_write(transport, {buf.send.data(), buf.send.size()}, write_ec);
         if (write_ec)
         {
-            trace::warn<flt::conn | flt::protocol>("Write response failed: {}", write_ec.message());
+            trace::warn("Write response failed: {}", write_ec.message());
             co_return false;
         }
         co_return true;
@@ -252,11 +252,11 @@ namespace psm::protocol::common
                 co_return n;
             };
 
-            auto read_result = co_await (do_read() || config.idle_timer.async_wait(trace::use_prefix_awaitable));
+            auto read_result = co_await (do_read() || config.idle_timer.async_wait(net::use_awaitable));
 
             if (read_result.index() == 1)
             {
-                trace::debug<flt::conn | flt::protocol>("Idle timeout");
+                trace::debug("Idle timeout");
                 if (config.on_traffic)
                 {
                     config.on_traffic(config.traffic_ctx, uplink_bytes, downlink_bytes);
@@ -269,7 +269,7 @@ namespace psm::protocol::common
 
             if (n == 0)
             {
-                trace::debug<flt::conn | flt::protocol>("Read error or EOF");
+                trace::debug("Read error or EOF");
                 if (config.on_traffic)
                 {
                     config.on_traffic(config.traffic_ctx, uplink_bytes, downlink_bytes);
@@ -280,7 +280,7 @@ namespace psm::protocol::common
             auto [parse_ec, parsed] = frame_ctx.parse_fn(std::span<const std::byte>{buf.recv.data(), n});
             if (fault::failed(parse_ec))
             {
-                trace::warn<flt::conn | flt::protocol>("Packet parse failed");
+                trace::warn("Packet parse failed");
                 continue;
             }
 
@@ -292,7 +292,7 @@ namespace psm::protocol::common
             auto [route_ec, target_ep] = co_await frame_ctx.route_cb(target_host, target_port);
             if (fault::failed(route_ec))
             {
-                trace::debug<flt::conn | flt::protocol>("Route failed for {}:{}", target_host, target_port);
+                trace::debug("Route failed for {}:{}", target_host, target_port);
                 continue;
             }
 

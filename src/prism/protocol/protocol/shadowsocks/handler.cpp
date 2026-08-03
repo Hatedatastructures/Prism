@@ -49,20 +49,20 @@ namespace psm::protocol::shadowsocks
         if (fault::failed(ec))
         {
             if (trace)
-                trace::warn<flt::conn | flt::protocol>(trace,
+                trace::warn(trace,
                     "handshake failed: {}", fault::describe(ec));
             co_return;
         }
 
         if (trace)
-            trace::info<flt::conn | flt::protocol>(trace,
+            trace::info(trace,
                 "CONNECT -> {}:{}", agent->target().host, agent->target().port);
 
         auto ack_ec = co_await agent->acknowledge();
         if (fault::failed(ack_ec))
         {
             if (trace)
-                trace::warn<flt::conn | flt::protocol>(trace,
+                trace::warn(trace,
                     "acknowledge failed: {}", fault::describe(ack_ec));
             co_return;
         }
@@ -73,7 +73,7 @@ namespace psm::protocol::shadowsocks
         if (psm::connect::is_mux(agent->target().host, mux_sw))
         {
             if (trace)
-                trace::info<flt::conn | flt::protocol>(trace, "mux session started");
+                trace::info(trace, "mux session started");
             auto mux_proto = co_await multiplex::bootstrap(
                 multiplex::bootstrap_context{
                     .transport = std::static_pointer_cast<transport::transmission>(agent),

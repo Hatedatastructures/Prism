@@ -48,7 +48,7 @@ namespace psm::stealth::trusttunnel
                 constexpr std::size_t max_cred_len = 192;
                 if (creds_view.size() > max_cred_len)
                 {
-                    trace::warn<flt::conn | flt::protocol>(std::shared_ptr<trace::trace_context>{}, "凭据长度 {} 超过安全阈值 {}，跳过该用户",
+                    trace::warn(std::shared_ptr<trace::trace_context>{}, "凭据长度 {} 超过安全阈值 {}，跳过该用户",
                         creds_view.size(), max_cred_len);
                     continue;
                 }
@@ -169,7 +169,7 @@ namespace psm::stealth::trusttunnel
 
         if (!ctx.session->worker->process->ssl)
         {
-            trace::warn<flt::conn | flt::protocol>(prefix_, "No SSL context configured");
+            trace::warn(prefix_, "No SSL context configured");
             result.error = fault::code::not_supported;
             co_return result;
         }
@@ -179,7 +179,7 @@ namespace psm::stealth::trusttunnel
         auto raw = connect::peel(std::move(ctx.transport));
         if (!raw)
         {
-            trace::warn<flt::conn | flt::protocol>(prefix_, "Cannot unwrap transport layers");
+            trace::warn(prefix_, "Cannot unwrap transport layers");
             result.error = fault::code::not_supported;
             co_return result;
         }
@@ -226,18 +226,18 @@ namespace psm::stealth::trusttunnel
         {
             ctx.transport = std::move(recovered);
             result.error = ssl_ec;
-            trace::warn<flt::conn | flt::protocol>(prefix_, "TLS handshake failed: {}", fault::describe(ssl_ec));
+            trace::warn(prefix_, "TLS handshake failed: {}", fault::describe(ssl_ec));
             co_return result;
         }
 
-        trace::debug<flt::conn | flt::protocol>(prefix_, "TLS handshake succeeded");
+        trace::debug(prefix_, "TLS handshake succeeded");
 
         const std::uint8_t *alpn = nullptr;
         std::uint32_t alpn_len = 0;
         SSL_get0_alpn_selected(ssl_stream->native_handle(), &alpn, &alpn_len);
         if (!alpn || alpn_len != 2 || alpn[0] != 'h' || alpn[1] != '2')
         {
-            trace::warn<flt::conn | flt::protocol>(prefix_, "ALPN did not select h2");
+            trace::warn(prefix_, "ALPN did not select h2");
             result.detected = psm::connect::protocol_type::tls;
             result.transport = std::make_shared<transport::encrypted>(ssl_stream);
             co_return result;
@@ -248,7 +248,7 @@ namespace psm::stealth::trusttunnel
         auto tt_wr = ctx.session->worker;
         if (!tt_wr)
         {
-            trace::warn<flt::conn | flt::protocol>(prefix_, "worker resources expired before trusttunnel mux");
+            trace::warn(prefix_, "worker resources expired before trusttunnel mux");
             result.detected = psm::connect::protocol_type::tls;
             result.transport = encrypted_trans;
             co_return result;
@@ -267,7 +267,7 @@ namespace psm::stealth::trusttunnel
         auto first_opt = co_await craft->wait_first_connect();
         if (!first_opt)
         {
-            trace::warn<flt::conn | flt::protocol>(prefix_, "No CONNECT request received");
+            trace::warn(prefix_, "No CONNECT request received");
             result.detected = psm::connect::protocol_type::tls;
             result.transport = std::move(encrypted_trans);
             co_return result;
@@ -279,14 +279,14 @@ namespace psm::stealth::trusttunnel
             first.proxy_auth.data(), first.proxy_auth.size());
         if (cfg.users.empty() || !verify_basic_auth(auth_view, cfg.users))
         {
-            trace::warn<flt::conn | flt::protocol>(prefix_, "Authentication failed");
+            trace::warn(prefix_, "Authentication failed");
             (void)craft->respond_connect(first.stream_id, 407);
             co_await craft->send_pending();
             result.error = fault::code::auth_failed;
             co_return result;
         }
 
-        trace::debug<flt::conn | flt::protocol>(prefix_, "Authenticated, authority={}", first.authority);
+        trace::debug(prefix_, "Authenticated, authority={}", first.authority);
 
         co_await craft->activate_stream(first.stream_id);
         (void)craft->respond_connect(first.stream_id, 200);

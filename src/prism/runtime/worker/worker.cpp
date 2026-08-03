@@ -52,7 +52,6 @@ namespace psm::runtime::worker
         snapshot.active_tasks = task_stats.active;
         snapshot.spawned_total = task_stats.total_spawned;
         snapshot.cancelled_total = task_stats.total_cancelled;
-        snapshot.alive = resources_->alive();
         return snapshot;
     }
 

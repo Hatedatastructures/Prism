@@ -114,7 +114,7 @@ namespace psm::connect
         {
             if (!ec)
             {
-                trace::info<flt::conn | flt::protocol>(prefix, "idle timeout, closing tunnel");
+                trace::info(prefix, "idle timeout, closing tunnel");
                 inbound->cancel();
                 outbound->cancel();
             }
@@ -139,7 +139,7 @@ namespace psm::connect
         const auto end_time = std::chrono::steady_clock::now();
         if (const auto up = total_bytes[0], down = total_bytes[1]; up > 0 || down > 0)
         {
-            trace::info<flt::conn | flt::protocol>(opts_.trace,
+            trace::info(opts_.trace,
                 "Transfer: up={}B down={}B, {}ms",
                 up, down,
                 std::chrono::duration_cast<std::chrono::milliseconds>(end_time - start_time).count());

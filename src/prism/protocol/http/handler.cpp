@@ -44,14 +44,14 @@ namespace psm::protocol::http
         if (fault::failed(ec))
         {
             if (trace)
-                trace::warn<flt::conn | flt::protocol>(trace,
+                trace::warn(trace,
                     "handshake failed: {}", fault::describe(ec));
             co_return;
         }
 
         const auto target = recognition::resolve(req);
         if (trace)
-            trace::info<flt::conn | flt::protocol>(trace,
+            trace::info(trace,
                 "{} {} -> {}:{}", req.method, req.target, target.host, target.port);
 
         psm::outbound::dial_options dial_opts;
@@ -64,7 +64,7 @@ namespace psm::protocol::http
         if (fault::failed(dial_ec) || !outbound)
         {
             if (trace)
-                trace::warn<flt::conn | flt::protocol>(trace,
+                trace::warn(trace,
                     "dial failed: {}:{}", target.host, target.port);
             co_await relay->send_gateway_err();
             co_return;

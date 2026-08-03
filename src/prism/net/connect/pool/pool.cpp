@@ -58,14 +58,14 @@ namespace psm::connect
         {
             if (pool_ && alive_.lock())
             {
-                trace::debug<flt::conn | flt::protocol>("[pool] reset→recycle: {}", endpoint_.address().to_string());
+                trace::debug("[pool] reset→recycle: {}", endpoint_.address().to_string());
                 pool_->recycle(socket_, endpoint_);
             }
             else
             {
                 boost::system::error_code ignore;
                 socket_->close(ignore);
-                trace::debug<flt::conn | flt::protocol>("[pool] reset→delete: pool={}", (void*)pool_);
+                trace::debug("[pool] reset→delete: pool={}", (void*)pool_);
                 delete socket_;
             }
             pool_ = nullptr;
@@ -163,7 +163,7 @@ namespace psm::connect
                 {
                     stat_idle_ -= 1;
                     stat_hits_ += 1;
-                    trace::debug<flt::conn | flt::protocol>(std::shared_ptr<trace::trace_context>{}, "reused {}:{} (idle {}ms)", opts.endpoint.address().to_string(), opts.endpoint.port(),
+                    trace::debug(std::shared_ptr<trace::trace_context>{}, "reused {}:{} (idle {}ms)", opts.endpoint.address().to_string(), opts.endpoint.port(),
                                  std::chrono::duration_cast<std::chrono::milliseconds>(opts.now - last_used).count());
                     co_return std::make_pair(fault::code::success, pooled_connection(this, socket, opts.endpoint));
                 }
@@ -231,7 +231,7 @@ namespace psm::connect
 
         if (!started_)
         {
-            trace::debug<flt::conn | flt::protocol>(trace, "start() not called, background cleanup is disabled");
+            trace::debug(trace, "start() not called, background cleanup is disabled");
         }
 
         const auto key = to_key(endpoint);
@@ -254,8 +254,8 @@ namespace psm::connect
 
         boost::system::error_code connect_ec;
         boost::system::error_code timer_ec;
-        auto connect_token = net::redirect_error(trace::use_prefix_awaitable, connect_ec);
-        auto timer_token = net::redirect_error(trace::use_prefix_awaitable, timer_ec);
+        auto connect_token = net::redirect_error(net::use_awaitable, connect_ec);
+        auto timer_token = net::redirect_error(net::use_awaitable, timer_ec);
 
         auto connect_op = sock->async_connect(endpoint, connect_token);
         auto timer_op = timer.async_wait(timer_token);
@@ -264,14 +264,14 @@ namespace psm::connect
         if (result.index() == 1)
         {
             delete_socket(sock);
-            trace::warn<flt::conn | flt::protocol>(trace, "connect timed out to {}:{}", endpoint.address().to_string(), endpoint.port());
+            trace::warn(trace, "connect timed out to {}:{}", endpoint.address().to_string(), endpoint.port());
             co_return std::make_pair(fault::code::timeout, pooled_connection{});
         }
 
         if (connect_ec)
         {
             delete_socket(sock);
-            trace::warn<flt::conn | flt::protocol>(trace, "connect failed: {}", connect_ec.message());
+            trace::warn(trace, "connect failed: {}", connect_ec.message());
             co_return std::make_pair(fault::code::bad_gateway, pooled_connection{});
         }
 
@@ -279,7 +279,7 @@ namespace psm::connect
 
         stat_creates_ += 1;
 
-        trace::debug<flt::conn | flt::protocol>(trace, "new connection to {}:{}", endpoint.address().to_string(), endpoint.port());
+        trace::debug(trace, "new connection to {}:{}", endpoint.address().to_string(), endpoint.port());
         co_return std::make_pair(fault::code::success, pooled_connection(this, sock, endpoint));
     }
 
@@ -287,18 +287,18 @@ namespace psm::connect
     {
         if (!s || !s->is_open())
         {
-            trace::debug<flt::conn | flt::protocol>("[pool] recycle rejected: !s={} !open={}", !s, s ? !s->is_open() : true);
+            trace::debug("[pool] recycle rejected: !s={} !open={}", !s, s ? !s->is_open() : true);
             delete_socket(s);
             return;
         }
 
         stat_recycles_ += 1;
-        trace::debug<flt::conn | flt::protocol>("[pool] recycle accepted: {}", endpoint.address().to_string());
+        trace::debug("[pool] recycle accepted: {}", endpoint.address().to_string());
 
         // IPv6 连接默认不缓存，受配置控制
         if (!config_.cache_ipv6 && endpoint.address().is_v6())
         {
-            trace::debug<flt::conn | flt::protocol>("[pool] recycle rejected: IPv6");
+            trace::debug("[pool] recycle rejected: IPv6");
             delete_socket(s);
             stat_evictions_ += 1;
             return;
@@ -307,7 +307,7 @@ namespace psm::connect
         // 快速健康检测，不健康的连接不回收
         if (!healthy_fast(*s))
         {
-            trace::debug<flt::conn | flt::protocol>("[pool] recycle rejected: unhealthy {}", endpoint.address().to_string());
+            trace::debug("[pool] recycle rejected: unhealthy {}", endpoint.address().to_string());
             delete_socket(s);
             stat_evictions_ += 1;
             return;
@@ -355,14 +355,14 @@ namespace psm::connect
             {
                 cleanup_timer_->expires_after(std::chrono::seconds(config_.clean_interval));
                 boost::system::error_code ec;
-                co_await cleanup_timer_->async_wait(net::redirect_error(trace::use_prefix_awaitable, ec));
+                co_await cleanup_timer_->async_wait(net::redirect_error(net::use_awaitable, ec));
                 if (ec)
                     break;
                 if (shutdown_flag_->load(std::memory_order_acquire))
                     break;
                 if (stat_acquires_ != 0)
                 {
-                    trace::debug<flt::conn | flt::protocol>("total acquires: {}, total hits: {}, "
+                    trace::debug("total acquires: {}, total hits: {}, "
                                  "total creates: {}, total evictions: {}, "
                                  "total recycles: {}, total idle: {}",
                                  stat_acquires_, stat_hits_,
@@ -374,7 +374,7 @@ namespace psm::connect
         }
         catch (...)
         {
-            trace::error<flt::conn | flt::protocol>("cleanup timer error");
+            trace::error("cleanup timer error");
         }
     }
 

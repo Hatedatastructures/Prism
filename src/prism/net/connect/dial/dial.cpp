@@ -50,12 +50,12 @@ namespace psm::connect
             {
                 if (addr.is_v6() && rt.ipv6_disabled())
                 {
-                    trace::debug<flt::conn | flt::protocol>(trace, "IPv6 disabled, rejected literal: {}", host);
+                    trace::debug(trace, "IPv6 disabled, rejected literal: {}", host);
                     co_return std::make_pair(fault::code::host_noreply, pooled_connection{});
                 }
                 const auto port_num = parse_port(port).value_or(0);
                 const tcp::endpoint ep(addr, port_num);
-                trace::debug<flt::conn | flt::protocol>(trace, "literal address, direct connect: {}", host);
+                trace::debug(trace, "literal address, direct connect: {}", host);
                 auto [code, conn] = co_await rt.pool().async_acquire(ep, trace);
                 if (conn.valid())
                 {
@@ -69,7 +69,7 @@ namespace psm::connect
         auto [resolve_ec, endpoints] = co_await rt.dns().resolve_tcp(host, port);
         if (fault::failed(resolve_ec) || endpoints.empty())
         {
-            trace::warn<flt::conn | flt::protocol>(trace, "DNS resolve {}:{} failed", host, port);
+            trace::warn(trace, "DNS resolve {}:{} failed", host, port);
             co_return std::make_pair(fault::code::host_noreply, pooled_connection{});
         }
 
@@ -137,7 +137,7 @@ namespace psm::connect
         auto [ec, trans] = co_await outbound_proxy.async_connect(target, executor);
         if (fault::failed(ec) || !trans)
         {
-            trace::debug<flt::conn | flt::protocol>(trace, "outbound dial failed: {}, target: {}:{}",
+            trace::debug(trace, "outbound dial failed: {}, target: {}:{}",
                          fault::describe(ec), target.host, target.port);
         }
         co_return std::pair{ec, std::move(trans)};

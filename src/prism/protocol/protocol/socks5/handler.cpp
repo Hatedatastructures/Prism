@@ -37,7 +37,7 @@ namespace psm::protocol::socks5
         if (!inbound)
         {
             if (trace)
-                trace::warn<flt::conn | flt::protocol>(trace, "inbound missing");
+                trace::warn(trace, "inbound missing");
             co_return;
         }
 
@@ -49,7 +49,7 @@ namespace psm::protocol::socks5
         if (fault::failed(ec))
         {
             if (trace)
-                trace::error<flt::conn | flt::protocol>(trace,
+                trace::error(trace,
                     "handshake failed: {}", fault::cached_message(ec));
             co_return;
         }
@@ -67,7 +67,7 @@ namespace psm::protocol::socks5
             target.port.assign(port_buf, std::distance(port_buf, pe));
             target.positive = true;
             if (trace)
-                trace::info<flt::conn | flt::protocol>(trace,
+                trace::info(trace,
                     "CONNECT -> {}:{}", target.host, target.port);
 
             psm::outbound::dial_options dial_opts;
@@ -81,14 +81,14 @@ namespace psm::protocol::socks5
                 if (dial_ec == fault::code::ipv6_disabled)
                 {
                     if (trace)
-                        trace::debug<flt::conn | flt::protocol>(trace,
+                        trace::debug(trace,
                             "IPv6 disabled: {}:{}", target.host, target.port);
                     co_await agent->send_error(reply_code::network_unreachable);
                 }
                 else
                 {
                     if (trace)
-                        trace::warn<flt::conn | flt::protocol>(trace,
+                        trace::warn(trace,
                             "dial failed: {}, target: {}:{}",
                             fault::describe(dial_ec), target.host, target.port);
                     co_await agent->send_error(reply_code::host_unreachable);
@@ -121,7 +121,7 @@ namespace psm::protocol::socks5
             const auto target_port = std::string_view(
                 udp_port_buf, std::distance(udp_port_buf, upe));
             if (trace)
-                trace::info<flt::conn | flt::protocol>(trace,
+                trace::info(trace,
                     "UDP_ASSOCIATE -> {}:{}", target_host, target_port);
 
             auto datagram_router = res_.worker->outbound->make_router();
@@ -131,14 +131,14 @@ namespace psm::protocol::socks5
             if (fault::failed(associate_ec))
             {
                 if (trace)
-                    trace::warn<flt::conn | flt::protocol>(trace,
+                    trace::warn(trace,
                         "UDP_ASSOCIATE failed: {}", fault::describe(associate_ec));
             }
             break;
         }
         default:
             if (trace)
-                trace::warn<flt::conn | flt::protocol>(trace, "BIND not supported");
+                trace::warn(trace, "BIND not supported");
             co_await agent->send_error(reply_code::cmd_unsupported);
             break;
         }

@@ -49,21 +49,21 @@ namespace psm::stealth::native
 
         if (!ctx.session)
         {
-            trace::warn<flt::conn | flt::protocol>(prefix_, "No session context, aborting");
+            trace::warn(prefix_, "No session context, aborting");
             result.error = fault::code::not_supported;
             co_return result;
         }
 
         if (!ctx.session->worker->process->ssl)
         {
-            trace::warn<flt::conn | flt::protocol>(prefix_, "No SSL context configured, aborting");
+            trace::warn(prefix_, "No SSL context configured, aborting");
             result.error = fault::code::not_supported;
             co_return result;
         }
 
         if (!ctx.transport)
         {
-            trace::warn<flt::conn | flt::protocol>(prefix_, "No inbound transport, aborting");
+            trace::warn(prefix_, "No inbound transport, aborting");
             result.error = fault::code::not_supported;
             co_return result;
         }
@@ -74,12 +74,12 @@ namespace psm::stealth::native
 
         if (!raw)
         {
-            trace::warn<flt::conn | flt::protocol>(prefix_, "Unwrap exhausted all layers, no raw transport");
+            trace::warn(prefix_, "Unwrap exhausted all layers, no raw transport");
             result.error = fault::code::not_supported;
             co_return result;
         }
 
-        trace::debug<flt::conn | flt::protocol>(prefix_, "Unwrap complete, preread={} bytes, raw={}",
+        trace::debug(prefix_, "Unwrap complete, preread={} bytes, raw={}",
                      ctx.preread.size(), fmt::ptr(raw.get()));
 
         // 用 preread（ClientHello 完整数据）创建干净的 preview 包装
@@ -87,14 +87,14 @@ namespace psm::stealth::native
         auto clean_inbound = transport::wrap_with_preview(
             std::move(raw), preread_span);
 
-        trace::debug<flt::conn | flt::protocol>(prefix_, "Starting SSL handshake");
+        trace::debug(prefix_, "Starting SSL handshake");
         auto [ssl_ec, ssl_stream, recovered] = co_await transport::encrypted::ssl_handshake(
             std::move(clean_inbound), *ctx.session->worker->process->ssl);
         if (fault::failed(ssl_ec) || !ssl_stream)
         {
             ctx.transport = std::move(recovered);
             result.error = ssl_ec;
-            trace::warn<flt::conn | flt::protocol>(prefix_, "TLS handshake failed: {}", fault::describe(ssl_ec));
+            trace::warn(prefix_, "TLS handshake failed: {}", fault::describe(ssl_ec));
             co_return result;
         }
 
@@ -112,14 +112,14 @@ namespace psm::stealth::native
         if (ec && n == 0)
         {
             result.error = fault::to_code(ec);
-            trace::warn<flt::conn | flt::protocol>(prefix_, "Inner probe read failed: {}", ec.message());
+            trace::warn(prefix_, "Inner probe read failed: {}", ec.message());
             co_return result;
         }
 
         const auto inner_view = std::string_view(reinterpret_cast<const char *>(inner_buf.data()), n);
         result.detected = recognition::probe::detect_tls(inner_view);
 
-        trace::debug<flt::conn | flt::protocol>(prefix_, "Inner protocol: {}",
+        trace::debug(prefix_, "Inner protocol: {}",
                     psm::connect::to_string_view(result.detected));
 
         result.transport = std::move(encrypted_trans);

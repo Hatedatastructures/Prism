@@ -29,11 +29,11 @@ namespace psm::multiplex::smux
             }
             catch (const std::exception &e)
             {
-                trace::debug<flt::conn | flt::protocol>("stream {} {} error: {}", stream_id, label, e.what());
+                trace::debug("stream {} {} error: {}", stream_id, label, e.what());
             }
             catch (...)
             {
-                trace::error<flt::conn | flt::protocol>("stream {} {} unknown error", stream_id, label);
+                trace::error("stream {} {} unknown error", stream_id, label);
             }
         }
     } // namespace
@@ -119,7 +119,7 @@ namespace psm::multiplex::smux
     auto craft::frame_loop()
         -> net::awaitable<void>
     {
-        trace::debug<flt::conn | flt::protocol>(prefix_, "frame loop started");
+        trace::debug(prefix_, "frame loop started");
 
         std::error_code ec;
         std::array<std::byte, frame_hdrsize> frame_buffer{};
@@ -132,7 +132,7 @@ namespace psm::multiplex::smux
             {
                 if (ec != std::errc::operation_canceled)
                 {
-                    trace::debug<flt::conn | flt::protocol>(prefix_, "read header failed: {}", ec.message());
+                    trace::debug(prefix_, "read header failed: {}", ec.message());
                 }
                 break;
             }
@@ -140,7 +140,7 @@ namespace psm::multiplex::smux
             const auto hdr_opt = deserialization(frame_buffer);
             if (!hdr_opt)
             {
-                trace::warn<flt::conn | flt::protocol>(prefix_, "invalid frame header [{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}]",
+                trace::warn(prefix_, "invalid frame header [{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}]",
                             static_cast<unsigned>(frame_buffer[0]),
                             static_cast<unsigned>(frame_buffer[1]),
                             static_cast<unsigned>(frame_buffer[2]),
@@ -161,7 +161,7 @@ namespace psm::multiplex::smux
                 const auto payload_n = co_await transport::async_read(*transport_, payload, ec);
                 if (ec || payload_n < hdr.length)
                 {
-                    trace::debug<flt::conn | flt::protocol>(prefix_, "read payload failed: {}", ec.message());
+                    trace::debug(prefix_, "read payload failed: {}", ec.message());
                     break;
                 }
             }
@@ -186,7 +186,7 @@ namespace psm::multiplex::smux
             }
         }
 
-        trace::debug<flt::conn | flt::protocol>(prefix_, "frame loop ended");
+        trace::debug(prefix_, "frame loop ended");
     }
 
 
@@ -195,7 +195,7 @@ namespace psm::multiplex::smux
     {
         if (pending_.size() + ducts_.size() + parcels_.size() >= config_.smux.max_streams)
         {
-            trace::warn<flt::conn | flt::protocol>(prefix_, "max streams reached, rejecting stream {}", stream_id);
+            trace::warn(prefix_, "max streams reached, rejecting stream {}", stream_id);
             send_fin(stream_id);
             co_return;
         }
@@ -203,13 +203,13 @@ namespace psm::multiplex::smux
         // 检查 stream_id 是否已存在（冲突拒绝）
         if (pending_.contains(stream_id) || ducts_.contains(stream_id) || parcels_.contains(stream_id))
         {
-            trace::warn<flt::conn | flt::protocol>(prefix_, "duplicate SYN for stream {}, rejecting", stream_id);
+            trace::warn(prefix_, "duplicate SYN for stream {}, rejecting", stream_id);
             send_fin(stream_id);
             co_return;
         }
 
         pending_.emplace(stream_id, pending_entry(mr_));
-        trace::debug<flt::conn | flt::protocol>(prefix_, "stream {} pending, waiting for address", stream_id);
+        trace::debug(prefix_, "stream {} pending, waiting for address", stream_id);
     }
 
 
@@ -285,7 +285,7 @@ namespace psm::multiplex::smux
     {
         if (pending_.erase(stream_id))
         {
-            trace::debug<flt::conn | flt::protocol>(prefix_, "stream {} fin while pending", stream_id);
+            trace::debug(prefix_, "stream {} fin while pending", stream_id);
             return;
         }
 
@@ -306,7 +306,7 @@ namespace psm::multiplex::smux
     auto craft::send_addr_err(const std::uint32_t stream_id)
         -> net::awaitable<void>
     {
-        trace::warn<flt::conn | flt::protocol>(prefix_, "stream {} address parse failed", stream_id);
+        trace::warn(prefix_, "stream {} address parse failed", stream_id);
         memory::vector<std::byte> error_buf(mr_);
         error_buf.push_back(std::byte{0x01});
         co_await send_data(stream_id, std::move(error_buf));
@@ -318,7 +318,7 @@ namespace psm::multiplex::smux
     auto craft::activate_udp(activate_opts opts)
         -> net::awaitable<void>
     {
-        trace::debug<flt::conn | flt::protocol>(prefix_, "stream {} creating UDP parcel", opts.stream_id);
+        trace::debug(prefix_, "stream {} creating UDP parcel", opts.stream_id);
 
         memory::vector<std::byte> success_buf(mr_);
         success_buf.push_back(std::byte{0x00});
@@ -364,14 +364,14 @@ namespace psm::multiplex::smux
             dp->close();
         }
 
-        trace::debug<flt::conn | flt::protocol>(prefix_, "stream {} UDP parcel created", opts.stream_id);
+        trace::debug(prefix_, "stream {} UDP parcel created", opts.stream_id);
     }
 
 
     auto craft::activate_tcp(activate_opts opts)
         -> net::awaitable<void>
     {
-        trace::debug<flt::conn | flt::protocol>(prefix_, "stream {} connecting to {}:{}", opts.stream_id, opts.host, opts.port);
+        trace::debug(prefix_, "stream {} connecting to {}:{}", opts.stream_id, opts.host, opts.port);
 
         char port_buf[8];
         const auto [port_end, port_ec] = std::to_chars(port_buf, port_buf + sizeof(port_buf), opts.port);
@@ -386,7 +386,7 @@ namespace psm::multiplex::smux
 
         if (code != fault::code::success || !trans)
         {
-            trace::warn<flt::conn | flt::protocol>(prefix_, "stream {} connect to {}:{} failed", opts.stream_id, opts.host, opts.port);
+            trace::warn(prefix_, "stream {} connect to {}:{} failed", opts.stream_id, opts.host, opts.port);
             memory::vector<std::byte> error_buf(mr_);
             error_buf.push_back(std::byte{0x01});
             co_await send_data(opts.stream_id, std::move(error_buf));
@@ -414,7 +414,7 @@ namespace psm::multiplex::smux
             co_await p->on_data(std::move(opts.remaining));
         }
 
-        trace::debug<flt::conn | flt::protocol>(prefix_, "stream {} connected to {}:{}", opts.stream_id, opts.host, opts.port);
+        trace::debug(prefix_, "stream {} connected to {}:{}", opts.stream_id, opts.host, opts.port);
     }
 
 
@@ -513,11 +513,11 @@ namespace psm::multiplex::smux
         frame.payload = std::move(payload);
 
         boost::system::error_code ec;
-        auto token = net::redirect_error(trace::use_prefix_awaitable, ec);
+        auto token = net::redirect_error(net::use_awaitable, ec);
         co_await channel_.async_send(boost::system::error_code{}, std::move(frame), token);
         if (ec)
         {
-            trace::debug<flt::conn | flt::protocol>(prefix_, "push frame to channel failed: {}", ec.message());
+            trace::debug(prefix_, "push frame to channel failed: {}", ec.message());
         }
     }
 
@@ -525,13 +525,13 @@ namespace psm::multiplex::smux
     auto craft::send_loop()
         -> net::awaitable<void>
     {
-        trace::debug<flt::conn | flt::protocol>(prefix_, "send loop started");
+        trace::debug(prefix_, "send loop started");
         try
         {
             while (is_active())
             {
                 boost::system::error_code ec;
-                auto token = net::redirect_error(trace::use_prefix_awaitable, ec);
+                auto token = net::redirect_error(net::use_awaitable, ec);
                 auto frame = co_await channel_.async_receive(token);
                 if (ec)
                 {
@@ -555,7 +555,7 @@ namespace psm::multiplex::smux
 
                 if (transport_ec)
                 {
-                    trace::debug<flt::conn | flt::protocol>(prefix_, "send frame failed: {}", transport_ec.message());
+                    trace::debug(prefix_, "send frame failed: {}", transport_ec.message());
                     close();
                     break;
                 }
@@ -563,20 +563,20 @@ namespace psm::multiplex::smux
         }
         catch (const std::exception &e)
         {
-            trace::debug<flt::conn | flt::protocol>(prefix_, "send loop error: {}", e.what());
+            trace::debug(prefix_, "send loop error: {}", e.what());
         }
         catch (...)
         {
-            trace::debug<flt::conn | flt::protocol>(prefix_, "send loop unknown error");
+            trace::debug(prefix_, "send loop unknown error");
         }
-        trace::debug<flt::conn | flt::protocol>(prefix_, "send loop ended");
+        trace::debug(prefix_, "send loop ended");
     }
 
 
     auto craft::keepalive_loop()
         -> net::awaitable<void>
     {
-        trace::debug<flt::conn | flt::protocol>(prefix_, "keepalive loop started, interval={}ms", config_.smux.keepalive_interval);
+        trace::debug(prefix_, "keepalive loop started, interval={}ms", config_.smux.keepalive_interval);
         net::steady_timer timer(executor());
         try
         {
@@ -584,7 +584,7 @@ namespace psm::multiplex::smux
             {
                 timer.expires_after(std::chrono::milliseconds(config_.smux.keepalive_interval));
                 boost::system::error_code ec;
-                co_await timer.async_wait(net::redirect_error(trace::use_prefix_awaitable, ec));
+                co_await timer.async_wait(net::redirect_error(net::use_awaitable, ec));
                 if (ec || !is_active())
                 {
                     break;
@@ -594,12 +594,12 @@ namespace psm::multiplex::smux
         }
         catch (const std::exception &e)
         {
-            trace::debug<flt::conn | flt::protocol>(prefix_, "keepalive loop error: {}", e.what());
+            trace::debug(prefix_, "keepalive loop error: {}", e.what());
         }
         catch (...)
         {
         }
-        trace::debug<flt::conn | flt::protocol>(prefix_, "keepalive loop ended");
+        trace::debug(prefix_, "keepalive loop ended");
     }
 
 } // namespace psm::multiplex::smux

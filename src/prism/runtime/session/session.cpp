@@ -34,11 +34,11 @@ namespace psm::runtime::session
             // launch 未填则自动生成（兼容路径）
             const auto cid = detail::next_conn_id();
             // session_resources 内部 conn_id_ 是 const，需要重新构造
-            // 这里通过 set_meta 链路同步 meta.conn_id 即可
+            // 这里通过 set_meta 链路同步 meta.conn 即可
             if (auto meta = res_->meta)
                 meta->conn_id = cid;
             if (auto trace = res_->trace)
-                trace->conn_id = cid;
+                trace->conn = cid;
         }
         else if (auto meta = res_->meta)
         {
@@ -63,7 +63,7 @@ namespace psm::runtime::session
             {
                 if (auto trace = self->res_->trace)
                 {
-                    trace::error<flt::conn | flt::protocol>(*trace,
+                    trace::error(*trace,
                         "unhandled exception in diversion: {}", e.what());
                 }
             }
@@ -71,7 +71,7 @@ namespace psm::runtime::session
             {
                 if (auto trace = self->res_->trace)
                 {
-                    trace::error<flt::conn | flt::protocol>(*trace,
+                    trace::error(*trace,
                         "unknown exception in diversion");
                 }
             }
@@ -90,19 +90,19 @@ namespace psm::runtime::session
             catch (const ::psm::exception::deviant &e)
             {
                 if (trace)
-                    trace::error<flt::conn | flt::protocol>(*trace,
+                    trace::error(*trace,
                         "abnormal exception: {}", e.dump());
             }
             catch (const std::exception &e)
             {
                 if (trace)
-                    trace::error<flt::conn | flt::protocol>(*trace,
+                    trace::error(*trace,
                         "standard exception: {}", e.what());
             }
             catch (...)
             {
                 if (trace)
-                    trace::error<flt::conn | flt::protocol>(*trace,
+                    trace::error(*trace,
                         "unknown exception type");
             }
             self->release_resources();
@@ -118,7 +118,7 @@ namespace psm::runtime::session
         state_ = state::closing;
 
         if (auto trace = res_->trace)
-            trace::debug<flt::conn | flt::protocol>(*trace, "session closing");
+            trace::debug(*trace, "session closing");
 
         if (res_->inbound)
             res_->inbound->cancel();
@@ -155,7 +155,7 @@ namespace psm::runtime::session
             callback();
         }
         if (auto trace = res_->trace)
-            trace::info<flt::conn | flt::protocol>(*trace, "session closed");
+            trace::info(*trace, "session closed");
     }
 
     auto session::diversion() -> net::awaitable<void>
@@ -165,7 +165,7 @@ namespace psm::runtime::session
         if (!res_->inbound)
         {
             if (trace)
-                trace::warn<flt::conn | flt::protocol>(trace,
+                trace::warn(trace,
                     "diversion aborted: missing inbound transmission");
             co_return;
         }
@@ -173,14 +173,14 @@ namespace psm::runtime::session
         if (auto meta = res_->meta)
         {
             if (trace)
-                trace::info<flt::conn | flt::protocol>(trace,
+                trace::info(trace,
                     "session established, {} -> {}",
                     meta->src.address().to_string(),
                     meta->dst.address().to_string());
         }
         else if (trace)
         {
-            trace::info<flt::conn | flt::protocol>(trace, "session established");
+            trace::info(trace, "session established");
         }
 
         // 1. 完整识别流程
@@ -191,7 +191,7 @@ namespace psm::runtime::session
         {
             boost::system::error_code ec;
             co_await handshake_deadline_->async_wait(
-                net::redirect_error(trace::use_prefix_awaitable, ec));
+                net::redirect_error(net::use_awaitable, ec));
             co_return true;
         };
 
@@ -227,10 +227,8 @@ namespace psm::runtime::session
             res_->inbound->cancel();
             if (trace)
             {
-                trace->phase.set("handshake");
-                trace::warn<flt::conn | flt::protocol>(trace,
+                trace::warn(trace,
                     "handshake deadline exceeded, aborting");
-                trace->phase.clear();
             }
             co_return;
         }
@@ -238,7 +236,7 @@ namespace psm::runtime::session
         if (!result.success)
         {
             if (trace)
-                trace::warn<flt::conn | flt::protocol>(trace,
+                trace::warn(trace,
                     "recognition failed: {}", fault::describe(result.error));
             co_return;
         }
@@ -246,11 +244,11 @@ namespace psm::runtime::session
         res_->detected = result.detected;
         auto proto_view = psm::connect::to_string_view(result.detected);
         if (trace)
-            std::strncpy(trace->protocol, proto_view.data(), sizeof(trace->protocol) - 1);
+            std::strncpy(trace->proto, proto_view.data(), sizeof(trace->proto) - 1);
         res_->worker->traffic.on_protocol_detected(result.detected);
 
         if (trace)
-            trace::info<flt::conn | flt::protocol>(trace,
+            trace::info(trace,
                 "recognized as {}", proto_view);
 
         // 2. 更新传输层
@@ -259,7 +257,7 @@ namespace psm::runtime::session
         if (!res_->inbound)
         {
             if (trace)
-                trace::debug<flt::conn | flt::protocol>(trace,
+                trace::debug(trace,
                     "connection handled by stack scheme");
             co_return;
         }

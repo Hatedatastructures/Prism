@@ -67,11 +67,11 @@ namespace psm::stealth::restls
             result.error = hs_result.error;
             result.polluted = hs_result.polluted;
             result.transport = ctx.transport;
-            trace::debug<flt::conn | flt::protocol>(prefix_, "handshake failed, pass to next scheme");
+            trace::debug(prefix_, "handshake failed, pass to next scheme");
             co_return result;
         }
 
-        trace::debug<flt::conn | flt::protocol>(
+        trace::debug(
             "handshake succeeded, tls13={}", detail.version == tls_version::v13);
 
         // 从 restls_transport 预读内层数据（SS2022 加密流），无需做 TLS 识别
@@ -91,7 +91,7 @@ namespace psm::stealth::restls
             const auto n = co_await hs_result.transport->async_read_some(buf_span, probe_ec);
             if (probe_ec)
             {
-                trace::warn<flt::conn | flt::protocol>(                    "inner probe read failed: {}", probe_ec.message());
+                trace::warn(                    "inner probe read failed: {}", probe_ec.message());
                 break;
             }
             inner_n += n;
@@ -100,14 +100,14 @@ namespace psm::stealth::restls
         if (inner_n >= 32)
         {
             result.detected = psm::connect::protocol_type::shadowsocks;
-            trace::debug<flt::conn | flt::protocol>(                "restls inner fallback to shadowsocks, inner_n={}", inner_n);
+            trace::debug(                "restls inner fallback to shadowsocks, inner_n={}", inner_n);
         }
 
         result.preread.assign(inner_buf.begin(), inner_buf.begin() + static_cast<std::ptrdiff_t>(inner_n));
         result.transport = hs_result.transport;
         result.scheme = "restls";
 
-        trace::debug<flt::conn | flt::protocol>(            "restls_transport created, inner protocol: {}",
+        trace::debug(            "restls_transport created, inner protocol: {}",
             psm::connect::to_string_view(result.detected));
 
         co_return result;

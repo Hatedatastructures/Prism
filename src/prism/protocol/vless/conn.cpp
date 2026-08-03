@@ -286,7 +286,7 @@ namespace psm::protocol::vless
             if (!verifier_(uuid_str))
             {
                 deadline.cancel();
-                trace::warn<flt::conn | flt::protocol>("UUID verification failed");
+                trace::warn("UUID verification failed");
                 co_return fault::code::auth_failed;
             }
         }

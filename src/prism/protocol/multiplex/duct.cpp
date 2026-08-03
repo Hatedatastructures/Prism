@@ -98,11 +98,11 @@ namespace psm::multiplex
             }
             catch (const std::exception &e)
             {
-                trace::debug<flt::conn | flt::protocol>(owner_.lock()->prefix_, "stream {} target read loop error: {}", id_, e.what());
+                trace::debug(owner_.lock()->prefix_, "stream {} target read loop error: {}", id_, e.what());
             }
             catch (...)
             {
-                trace::error<flt::conn | flt::protocol>(owner_.lock()->prefix_, "stream {} target read loop unknown error", id_);
+                trace::error(owner_.lock()->prefix_, "stream {} target read loop unknown error", id_);
             }
         }
         close();
@@ -119,11 +119,11 @@ namespace psm::multiplex
             }
             catch (const std::exception &e)
             {
-                trace::debug<flt::conn | flt::protocol>(owner_.lock()->prefix_, "stream {} target write loop error: {}", id_, e.what());
+                trace::debug(owner_.lock()->prefix_, "stream {} target write loop error: {}", id_, e.what());
             }
             catch (...)
             {
-                trace::error<flt::conn | flt::protocol>(owner_.lock()->prefix_, "stream {} target write loop unknown error", id_);
+                trace::error(owner_.lock()->prefix_, "stream {} target write loop unknown error", id_);
             }
         }
     }
@@ -138,7 +138,7 @@ namespace psm::multiplex
         }
 
         boost::system::error_code ch_ec;
-        auto token = net::redirect_error(trace::use_prefix_awaitable, ch_ec);
+        auto token = net::redirect_error(net::use_awaitable, ch_ec);
         co_await write_channel_.async_send(boost::system::error_code{}, std::move(data), token);
         if (ch_ec)
         {
@@ -159,7 +159,7 @@ namespace psm::multiplex
             {
                 rel->shutdown_write();
             }
-            trace::debug<flt::conn | flt::protocol>(owner_.lock()->prefix_, "stream {} mux fin, shutdown target write", id_);
+            trace::debug(owner_.lock()->prefix_, "stream {} mux fin, shutdown target write", id_);
         }
 
         // target 端也已关闭，完全关闭管道
@@ -202,10 +202,10 @@ namespace psm::multiplex
         }
         catch (...)
         {
-            trace::error<flt::conn | flt::protocol>(owner_.lock()->prefix_, "stream {} remove duct error", id_);
+            trace::error(owner_.lock()->prefix_, "stream {} remove duct error", id_);
         }
 
-        trace::debug<flt::conn | flt::protocol>(owner_.lock()->prefix_, "stream {} closed", id_);
+        trace::debug(owner_.lock()->prefix_, "stream {} closed", id_);
     }
 
 
@@ -226,7 +226,7 @@ namespace psm::multiplex
             // yamux 协议：客户端 FIN 后不再发送 WindowUpdate，继续发送会窗口耗尽
             if (mux_closed_.load(std::memory_order_acquire))
             {
-                trace::debug<flt::conn | flt::protocol>(owner_.lock()->prefix_, "stream {} mux closed, stop sending", id_);
+                trace::debug(owner_.lock()->prefix_, "stream {} mux closed, stop sending", id_);
                 break;
             }
 
@@ -237,7 +237,7 @@ namespace psm::multiplex
             {
                 if (ec != std::errc::operation_canceled && fault::to_code(ec) != fault::code::eof)
                 {
-                    trace::debug<flt::conn | flt::protocol>(owner_.lock()->prefix_, "stream {} read from target failed: {}", id_, ec.message());
+                    trace::debug(owner_.lock()->prefix_, "stream {} read from target failed: {}", id_, ec.message());
                 }
                 break;
             }
@@ -277,7 +277,7 @@ namespace psm::multiplex
         while (!closed_)
         {
             boost::system::error_code ch_ec;
-            auto token = net::redirect_error(trace::use_prefix_awaitable, ch_ec);
+            auto token = net::redirect_error(net::use_awaitable, ch_ec);
             auto data = co_await write_channel_.async_receive(token);
             if (ch_ec)
             {
@@ -289,7 +289,7 @@ namespace psm::multiplex
             co_await transport::async_write(*target_, data, write_ec);
             if (write_ec)
             {
-                trace::debug<flt::conn | flt::protocol>(owner_.lock()->prefix_, "stream {} write to target failed: {}", id_, write_ec.message());
+                trace::debug(owner_.lock()->prefix_, "stream {} write to target failed: {}", id_, write_ec.message());
                 close();
                 break;
             }

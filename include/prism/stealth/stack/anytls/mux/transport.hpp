@@ -87,7 +87,7 @@ namespace psm::stealth::anytls
             }
 
             auto [recv_ec, chunk] = co_await channel_->async_receive(
-                net::as_tuple(trace::use_prefix_awaitable));
+                net::as_tuple(net::use_awaitable));
 
             if (recv_ec)
             {
@@ -139,7 +139,7 @@ namespace psm::stealth::anytls
                     }
                     catch (...)
                     {
-                        trace::error<flt::conn | flt::protocol>("write_fin exception for stream_id={}", sid);
+                        trace::error("write_fin exception for stream_id={}", sid);
                     }
                 },
                 net::detached);

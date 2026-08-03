@@ -358,7 +358,7 @@ namespace psm::protocol::socks5
             }
         }
 
-        auto token = net::redirect_error(trace::use_prefix_awaitable, io_ec);
+        auto token = net::redirect_error(net::use_awaitable, io_ec);
 
         const auto payload = ingress_packet.subspan(parsed.header_size);
         co_await ctx.egress.async_send_to(net::buffer(payload.data(), payload.size()), target_endpoint, token);
@@ -411,14 +411,14 @@ namespace psm::protocol::socks5
         {
             idle_timer.expires_after(std::chrono::seconds(config_.idle_timeout));
             boost::system::error_code read_ec;
-            auto token = net::redirect_error(trace::use_prefix_awaitable, read_ec);
+            auto token = net::redirect_error(net::use_awaitable, read_ec);
             net::ip::udp::endpoint client_endpoint;
 
             using boost::asio::experimental::awaitable_operators::operator||;
             auto buf = net::buffer(ingress_buffer.data(), ingress_buffer.size());
             auto result = co_await (
                 ingress_socket.async_receive_from(buf, client_endpoint, token)
-                || idle_timer.async_wait(trace::use_prefix_awaitable));
+                || idle_timer.async_wait(net::use_awaitable));
 
             if (result.index() == 1)
             {

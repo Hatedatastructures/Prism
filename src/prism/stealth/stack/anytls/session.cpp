@@ -48,7 +48,7 @@ namespace psm::stealth::anytls
 
         // 等待 recv_loop 通知
         boost::system::error_code ec;
-        co_await init_waiter_.async_wait(net::redirect_error(trace::use_prefix_awaitable, ec));
+        co_await init_waiter_.async_wait(net::redirect_error(net::use_awaitable, ec));
 
         auto result2 = std::pair{init_error_,
             std::tuple{init_id_, std::move(init_preread_)}};
@@ -65,7 +65,7 @@ namespace psm::stealth::anytls
             {
                 if (!co_await read_exact(header_buf))
                 {
-                    trace::debug<flt::conn | flt::protocol>(prefix_, "connection closed during header read");
+                    trace::debug(prefix_, "connection closed during header read");
                     break;
                 }
 
@@ -77,7 +77,7 @@ namespace psm::stealth::anytls
 
                 if (!header)
                 {
-                    trace::warn<flt::conn | flt::protocol>(prefix_, "invalid frame header");
+                    trace::warn(prefix_, "invalid frame header");
                     break;
                 }
 
@@ -90,7 +90,7 @@ namespace psm::stealth::anytls
                             reinterpret_cast<std::byte *>(payload.data()),
                             payload.size())))
                     {
-                        trace::debug<flt::conn | flt::protocol>(prefix_, "connection closed during payload read");
+                        trace::debug(prefix_, "connection closed during payload read");
                         break;
                     }
                 }
@@ -101,7 +101,7 @@ namespace psm::stealth::anytls
                     co_await send_waste_frame(pkt_counter_, pad_ec);
                     if (pad_ec)
                     {
-                        trace::warn<flt::conn | flt::protocol>(prefix_, "padding frame failed: {}", pad_ec.message());
+                        trace::warn(prefix_, "padding frame failed: {}", pad_ec.message());
                     }
                     ++pkt_counter_;
                 }
@@ -111,7 +111,7 @@ namespace psm::stealth::anytls
         }
         catch (...)
         {
-            trace::error<flt::conn | flt::protocol>(prefix_, "recv_loop exception, closing session");
+            trace::error(prefix_, "recv_loop exception, closing session");
         }
 
         for (auto &[id, ch] : streams_)
@@ -133,7 +133,7 @@ namespace psm::stealth::anytls
         if (transport_)
             transport_->close();
 
-        trace::debug<flt::conn | flt::protocol>(prefix_, "recv_loop ended");
+        trace::debug(prefix_, "recv_loop ended");
     }
 
     auto anytls_session::dispatch_frame(const frame_header &hdr, memory::vector<std::uint8_t> payload)
@@ -164,7 +164,7 @@ namespace psm::stealth::anytls
                     memory::vector<std::uint8_t>{});
                 streams_.erase(it);
             }
-            trace::debug<flt::conn | flt::protocol>(prefix_, "ALERT stream_id={}", stream_id);
+            trace::debug(prefix_, "ALERT stream_id={}", stream_id);
             break;
         }
         case command::heart_req:
@@ -173,18 +173,18 @@ namespace psm::stealth::anytls
             co_await write_frame(frame_input{command::heart_resp, 0, {}, heart_ec});
             if (heart_ec)
             {
-                trace::warn<flt::conn | flt::protocol>(prefix_, "heartbeat response failed: {}", heart_ec.message());
+                trace::warn(prefix_, "heartbeat response failed: {}", heart_ec.message());
             }
             else
             {
-                trace::debug<flt::conn | flt::protocol>(prefix_, "heartbeat response sent");
+                trace::debug(prefix_, "heartbeat response sent");
             }
             break;
         }
         case command::waste:
             break;
         default:
-            trace::debug<flt::conn | flt::protocol>(prefix_, "unhandled command: {}", static_cast<int>(hdr.cmd));
+            trace::debug(prefix_, "unhandled command: {}", static_cast<int>(hdr.cmd));
             break;
         }
     }
@@ -224,7 +224,7 @@ namespace psm::stealth::anytls
 
                 if (client_md5 != std::string_view(padding_->md5.data(), padding_->md5.size()))
                 {
-                    trace::debug<flt::conn | flt::protocol>(prefix_, "client padding-md5 mismatch, sending update");
+                    trace::debug(prefix_, "client padding-md5 mismatch, sending update");
                     std::error_code up_ec;
                     co_await write_frame(frame_input{command::update_padding, 0,
                         // 安全：将字符串数据转为 byte span 用于帧传输
@@ -247,11 +247,11 @@ namespace psm::stealth::anytls
                     settings_text.size()), wr_ec});
             if (wr_ec)
             {
-                trace::warn<flt::conn | flt::protocol>(prefix_, "failed to send server settings: {}", wr_ec.message());
+                trace::warn(prefix_, "failed to send server settings: {}", wr_ec.message());
             }
         }
 
-        trace::debug<flt::conn | flt::protocol>(prefix_, "Settings received, version={}", peer_version_);
+        trace::debug(prefix_, "Settings received, version={}", peer_version_);
     }
 
     auto anytls_session::on_syn(std::uint32_t stream_id) -> net::awaitable<void>
@@ -259,13 +259,13 @@ namespace psm::stealth::anytls
         // mihomo: 服务端在收到 Settings 之前忽略 SYN
         if (!received_settings_)
         {
-            trace::warn<flt::conn | flt::protocol>(prefix_, "SYN before Settings, ignoring");
+            trace::warn(prefix_, "SYN before Settings, ignoring");
             co_return;
         }
 
         if (stream_id == 0)
         {
-            trace::warn<flt::conn | flt::protocol>(prefix_, "SYN with stream_id=0");
+            trace::warn(prefix_, "SYN with stream_id=0");
             co_return;
         }
 
@@ -288,7 +288,7 @@ namespace psm::stealth::anytls
             pending_syns_.insert(stream_id);
         }
 
-        trace::debug<flt::conn | flt::protocol>(prefix_, "SYN stream_id={}", stream_id);
+        trace::debug(prefix_, "SYN stream_id={}", stream_id);
     }
 
     auto anytls_session::on_psh(std::uint32_t stream_id, memory::vector<std::uint8_t> payload) -> net::awaitable<void>
@@ -340,7 +340,7 @@ namespace psm::stealth::anytls
                 co_return;
             }
 
-            trace::warn<flt::conn | flt::protocol>(prefix_, "PSH for unknown stream_id={}", stream_id);
+            trace::warn(prefix_, "PSH for unknown stream_id={}", stream_id);
             co_return;
         }
 
@@ -352,7 +352,7 @@ namespace psm::stealth::anytls
         }
         else
         {
-            trace::warn<flt::conn | flt::protocol>(prefix_, "PSH for unknown stream_id={}", stream_id);
+            trace::warn(prefix_, "PSH for unknown stream_id={}", stream_id);
         }
     }
 
@@ -366,7 +366,7 @@ namespace psm::stealth::anytls
                 memory::vector<std::uint8_t>{});
             streams_.erase(it);
         }
-        trace::debug<flt::conn | flt::protocol>(prefix_, "FIN stream_id={}", stream_id);
+        trace::debug(prefix_, "FIN stream_id={}", stream_id);
         co_return;
     }
 
@@ -390,7 +390,7 @@ namespace psm::stealth::anytls
     auto anytls_session::write_frame(frame_input input) -> net::awaitable<void>
     {
         // 通过 write_strand_ 序列化写入，防止多 stream 并发写入帧交错
-        co_await net::dispatch(write_strand_, trace::use_prefix_awaitable);
+        co_await net::dispatch(write_strand_, net::use_awaitable);
 
         frame_header hdr;
         hdr.cmd = input.cmd;
@@ -409,7 +409,7 @@ namespace psm::stealth::anytls
 
         if (input.ec)
         {
-            trace::warn<flt::conn | flt::protocol>(prefix_, "write_frame header failed: {}", input.ec.message());
+            trace::warn(prefix_, "write_frame header failed: {}", input.ec.message());
             co_return;
         }
 
@@ -419,7 +419,7 @@ namespace psm::stealth::anytls
             co_await transport::async_write(*transport_, input.data, input.ec);
             if (input.ec)
             {
-                trace::warn<flt::conn | flt::protocol>(prefix_, "write_frame payload failed: {}", input.ec.message());
+                trace::warn(prefix_, "write_frame payload failed: {}", input.ec.message());
             }
         }
 

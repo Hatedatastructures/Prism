@@ -60,7 +60,6 @@ namespace psm::runtime::worker
 
         [[nodiscard]] auto alive() const noexcept -> bool
         {
-            return resources_->alive();
         }
 
         [[nodiscard]] auto resources() const noexcept

@@ -66,7 +66,7 @@ namespace psm::connect
         constexpr std::size_t max_racing = 6;
         const auto count = std::min(endpoints.size(), max_racing);
 
-        trace::debug<flt::conn | flt::protocol>(trace, "racing {} endpoints", count);
+        trace::debug(trace, "racing {} endpoints", count);
 
         auto executor = co_await net::this_coro::executor;
         auto ctx = std::make_shared<race_context>(count, executor);
@@ -87,7 +87,7 @@ namespace psm::connect
         }
 
         boost::system::error_code ec;
-        co_await ctx->signal.async_wait(net::redirect_error(trace::use_prefix_awaitable, ec));
+        co_await ctx->signal.async_wait(net::redirect_error(net::use_awaitable, ec));
         co_return std::move(ctx->result);
     }
 
@@ -105,7 +105,7 @@ namespace psm::connect
                 timer.expires_after(delay);
 
                 boost::system::error_code ec;
-                co_await timer.async_wait(net::redirect_error(trace::use_prefix_awaitable, ec));
+                co_await timer.async_wait(net::redirect_error(net::use_awaitable, ec));
 
                 if (ec)
                 {
@@ -124,7 +124,7 @@ namespace psm::connect
 
             if (!conn.valid())
             {
-                trace::debug<flt::conn | flt::protocol>(trace, "endpoint {} failed: {}", ep.address().to_string(), static_cast<int>(code));
+                trace::debug(trace, "endpoint {} failed: {}", ep.address().to_string(), static_cast<int>(code));
                 ctx->complete();
                 co_return;
             }
@@ -135,13 +135,13 @@ namespace psm::connect
             {
                 ctx->result = std::move(conn);
 
-                trace::info<flt::conn | flt::protocol>(trace, "endpoint {} won the race", ep.address().to_string());
+                trace::info(trace, "endpoint {} won the race", ep.address().to_string());
 
                 ctx->signal.cancel();
             }
             else
             {
-                trace::debug<flt::conn | flt::protocol>(trace, "endpoint {} connected but not winner, returning to pool", ep.address().to_string());
+                trace::debug(trace, "endpoint {} connected but not winner, returning to pool", ep.address().to_string());
 
                 conn.reset();
             }
@@ -150,12 +150,12 @@ namespace psm::connect
         }
         catch (const std::exception &e)
         {
-            trace::debug<flt::conn | flt::protocol>(trace, "endpoint {} error: {}", ep.address().to_string(), e.what());
+            trace::debug(trace, "endpoint {} error: {}", ep.address().to_string(), e.what());
             ctx->complete();
         }
         catch (...)
         {
-            trace::error<flt::conn | flt::protocol>(trace, "endpoint {} unknown error", ep.address().to_string());
+            trace::error(trace, "endpoint {} unknown error", ep.address().to_string());
             ctx->complete();
         }
     }

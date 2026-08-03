@@ -55,7 +55,7 @@ namespace psm::outbound
             // 拒绝 IPv6 地址字面量（仅在禁用 IPv6 时）
             if (router_.ipv6_disabled() && is_ipv6(target.host))
             {
-                trace::debug<flt::conn | flt::protocol>("rejecting IPv6 literal: {}:{}", target.host, target.port);
+                trace::debug("rejecting IPv6 literal: {}:{}", target.host, target.port);
                 co_return std::pair{fault::code::ipv6_disabled, nullptr};
             }
 
@@ -80,18 +80,18 @@ namespace psm::outbound
 
             if (fault::failed(ec))
             {
-                trace::warn<flt::conn | flt::protocol>("route failed: {}, target: {}:{}", fault::describe(ec),
+                trace::warn("route failed: {}, target: {}:{}", fault::describe(ec),
                             target.host, target.port);
                 co_return std::pair{ec, nullptr};
             }
 
             if (!conn.valid())
             {
-                trace::warn<flt::conn | flt::protocol>("socket not open, target: {}:{}", target.host, target.port);
+                trace::warn("socket not open, target: {}:{}", target.host, target.port);
                 co_return std::pair{fault::code::connection_refused, nullptr};
             }
 
-            trace::info<flt::conn | flt::protocol>("success, target: {}:{}", target.host, target.port);
+            trace::info("success, target: {}:{}", target.host, target.port);
             co_return std::pair{fault::code::success,
                                 transport::make_reliable(std::move(conn))};
         }

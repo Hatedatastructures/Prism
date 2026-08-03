@@ -49,7 +49,7 @@ namespace psm::protocol::vless
             if (!lease)
             {
                 if (auto t = res_.trace)
-                    trace::warn<flt::conn | flt::protocol>(t,
+                    trace::warn(t,
                         "credential verification failed");
                 return false;
             }
@@ -65,7 +65,7 @@ namespace psm::protocol::vless
         if (fault::failed(vless_ec))
         {
             if (trace)
-                trace::warn<flt::conn | flt::protocol>(trace,
+                trace::warn(trace,
                     "handshake failed: {}", fault::describe(vless_ec));
             co_return;
         }
@@ -84,7 +84,7 @@ namespace psm::protocol::vless
             target.port.assign(port_buf, std::distance(port_buf, pe));
             target.positive = true;
             if (trace)
-                trace::info<flt::conn | flt::protocol>(trace,
+                trace::info(trace,
                     "CONNECT -> {}:{}", target.host, target.port);
 
             co_await psm::connect::forward_pipeline(res_, target,
@@ -95,7 +95,7 @@ namespace psm::protocol::vless
         case command::udp:
         {
             if (trace)
-                trace::info<flt::conn | flt::protocol>(trace, "UDP associate started");
+                trace::info(trace, "UDP associate started");
             using route_fn = std::function<net::awaitable<
                 std::pair<fault::code, net::ip::udp::endpoint>>(
                 std::string_view, std::string_view)>;
@@ -104,18 +104,18 @@ namespace psm::protocol::vless
             if (fault::failed(ec))
             {
                 if (trace)
-                    trace::warn<flt::conn | flt::protocol>(trace,
+                    trace::warn(trace,
                         "UDP associate failed: {}", fault::describe(ec));
             }
             else if (trace)
             {
-                trace::info<flt::conn | flt::protocol>(trace, "UDP associate completed");
+                trace::info(trace, "UDP associate completed");
             }
             break;
         }
         default:
             if (trace)
-                trace::warn<flt::conn | flt::protocol>(trace,
+                trace::warn(trace,
                     "unknown command: {}", static_cast<int>(req.cmd));
             break;
         }

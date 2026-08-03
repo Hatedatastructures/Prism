@@ -68,11 +68,11 @@ namespace psm::multiplex
             }
             catch (const std::exception &e)
             {
-                trace::error<flt::conn | flt::protocol>(prefix_, "session exception: {}", e.what());
+                trace::error(prefix_, "session exception: {}", e.what());
             }
             catch (...)
             {
-                trace::error<flt::conn | flt::protocol>(prefix_, "session unknown exception");
+                trace::error(prefix_, "session unknown exception");
             }
         }
         close();
@@ -116,7 +116,7 @@ namespace psm::multiplex
 
         transport_->close();
 
-        trace::debug<flt::conn | flt::protocol>(prefix_, "session closed");
+        trace::debug(prefix_, "session closed");
     }
 
 

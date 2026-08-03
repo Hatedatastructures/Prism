@@ -35,12 +35,12 @@ namespace psm::outbound
         {
             if (ec == fault::code::ipv6_disabled)
             {
-                trace::debug<flt::conn | flt::protocol>(opts.trace,
+                trace::debug(opts.trace,
                     "outbound::dial: IPv6 disabled: {}:{}", target.host, target.port);
             }
             else
             {
-                trace::warn<flt::conn | flt::protocol>(opts.trace,
+                trace::warn(opts.trace,
                     "outbound::dial: failed: {}, target: {}:{}",
                     fault::describe(ec), target.host, target.port);
             }
@@ -52,7 +52,7 @@ namespace psm::outbound
             handles.traffic.on_connect();
         }
 
-        trace::info<flt::conn | flt::protocol>(opts.trace,
+        trace::info(opts.trace,
             "outbound::dial: success, target: {}:{}, elapsed={}ms",
             target.host, target.port, result.elapsed.count());
 

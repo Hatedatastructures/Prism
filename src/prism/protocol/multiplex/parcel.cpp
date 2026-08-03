@@ -58,11 +58,11 @@ namespace psm::multiplex
             }
             catch (const std::exception &e)
             {
-                trace::debug<flt::conn | flt::protocol>(owner_.lock()->prefix_, "stream {} UDP uplink error: {}", id_, e.what());
+                trace::debug(owner_.lock()->prefix_, "stream {} UDP uplink error: {}", id_, e.what());
             }
             catch (...)
             {
-                trace::error<flt::conn | flt::protocol>(owner_.lock()->prefix_, "stream {} UDP uplink unknown error", id_);
+                trace::error(owner_.lock()->prefix_, "stream {} UDP uplink unknown error", id_);
             }
         }
         close();
@@ -103,7 +103,7 @@ namespace psm::multiplex
         while (!closed_)
         {
             boost::system::error_code ec;
-            auto token = net::redirect_error(trace::use_prefix_awaitable, ec);
+            auto token = net::redirect_error(net::use_awaitable, ec);
             co_await idle_timer_.async_wait(token);
 
             if (ec == net::error::operation_aborted)
@@ -112,7 +112,7 @@ namespace psm::multiplex
             }
             break;
         }
-        trace::debug<flt::conn | flt::protocol>(owner_.lock()->prefix_, "stream {} UDP idle timeout", id_);
+        trace::debug(owner_.lock()->prefix_, "stream {} UDP idle timeout", id_);
         co_return;
     }
 
@@ -150,7 +150,7 @@ namespace psm::multiplex
         }
         catch (const std::exception &e)
         {
-            trace::warn<flt::conn | flt::protocol>(owner_.lock()->prefix_, "stream {} UDP socket create failed: {}", id_, e.what());
+            trace::warn(owner_.lock()->prefix_, "stream {} UDP socket create failed: {}", id_, e.what());
             co_return false;
         }
     }
@@ -260,11 +260,11 @@ namespace psm::multiplex
         }
         catch (const std::exception &e)
         {
-            trace::debug<flt::conn | flt::protocol>(owner_.lock()->prefix_, "stream {} process_buffer error: {}", id_, e.what());
+            trace::debug(owner_.lock()->prefix_, "stream {} process_buffer error: {}", id_, e.what());
         }
         catch (...)
         {
-            trace::error<flt::conn | flt::protocol>(owner_.lock()->prefix_, "stream {} process_buffer unknown error", id_);
+            trace::error(owner_.lock()->prefix_, "stream {} process_buffer unknown error", id_);
         }
         processing_.store(false, std::memory_order_release);
     }
@@ -306,12 +306,12 @@ namespace psm::multiplex
 
         // 发送数据报（不等待响应）
         boost::system::error_code ec;
-        auto token = net::redirect_error(trace::use_prefix_awaitable, ec);
+        auto token = net::redirect_error(net::use_awaitable, ec);
         co_await egress_socket_->async_send_to(net::buffer(payload.data(), payload.size()),
                                                target_ep, token);
         if (ec)
         {
-            trace::debug<flt::conn | flt::protocol>(owner_.lock()->prefix_, "stream {} UDP send to {}:{} failed: {}",
+            trace::debug(owner_.lock()->prefix_, "stream {} UDP send to {}:{} failed: {}",
                          id_, target_host, target_port, ec.message());
         }
         else
@@ -331,7 +331,7 @@ namespace psm::multiplex
             {
                 // 读取一个完整的 UDP 响应数据报
                 boost::system::error_code ec;
-                auto token = net::redirect_error(trace::use_prefix_awaitable, ec);
+                auto token = net::redirect_error(net::use_awaitable, ec);
 
                 net::ip::udp::endpoint sender_ep;
                 auto recv_buf = net::buffer(recv_buffer_.data(), recv_buffer_.size());
@@ -340,7 +340,7 @@ namespace psm::multiplex
                 {
                     if (ec != net::error::operation_aborted && ec != net::error::bad_descriptor)
                     {
-                        trace::debug<flt::conn | flt::protocol>(owner_.lock()->prefix_, "stream {} UDP recv error: {}", id_, ec.message());
+                        trace::debug(owner_.lock()->prefix_, "stream {} UDP recv error: {}", id_, ec.message());
                     }
                     break;
                 }
@@ -376,11 +376,11 @@ namespace psm::multiplex
         }
         catch (const std::exception &e)
         {
-            trace::debug<flt::conn | flt::protocol>(owner_.lock()->prefix_, "stream {} downlink_loop error: {}", id_, e.what());
+            trace::debug(owner_.lock()->prefix_, "stream {} downlink_loop error: {}", id_, e.what());
         }
         catch (...)
         {
-            trace::error<flt::conn | flt::protocol>(owner_.lock()->prefix_, "stream {} downlink_loop unknown error", id_);
+            trace::error(owner_.lock()->prefix_, "stream {} downlink_loop unknown error", id_);
         }
         recv_running_.store(false, std::memory_order_release);
     }
@@ -417,7 +417,7 @@ namespace psm::multiplex
         {
             owner->remove_parcel(id_);
         }
-        trace::debug<flt::conn | flt::protocol>(owner_.lock()->prefix_, "stream {} UDP parcel closed", id_);
+        trace::debug(owner_.lock()->prefix_, "stream {} UDP parcel closed", id_);
     }
 
 } // namespace psm::multiplex

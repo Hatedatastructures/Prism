@@ -61,11 +61,11 @@ namespace psm::stealth::restls
             boost::system::error_code ec;
             co_await net::async_connect(
                 *sock, endpoints,
-                net::redirect_error(trace::use_prefix_awaitable, ec));
+                net::redirect_error(net::use_awaitable, ec));
 
             if (ec)
             {
-                trace::warn<flt::conn | flt::protocol>(prefix_, "restls: backend connection failed: {}", ec.message());
+                trace::warn(prefix_, "restls: backend connection failed: {}", ec.message());
                 co_return nullptr;
             }
             co_return sock;
@@ -130,7 +130,7 @@ namespace psm::stealth::restls
                     // 第 5 个开始是 NewSessionTicket 等后端数据，不转发
                     if (appdata_count > 4)
                     {
-                        trace::debug<flt::conn | flt::protocol>(prefix_, "restls: dropping backend record #{} (likely NewSessionTicket), payload_len={}",
+                        trace::debug(prefix_, "restls: dropping backend record #{} (likely NewSessionTicket), payload_len={}",
                             appdata_count, frame.size() - tls_hdrsize);
                         continue;  // 读但丢弃，不转发
                     }
@@ -144,7 +144,7 @@ namespace psm::stealth::restls
                         raw[tls_hdrsize + i] ^= sr_mac[i];
                     first_app_data = false;
 
-                    trace::debug<flt::conn | flt::protocol>(prefix_, "restls: XOR applied to first backend→client record, payload_len={}, xor_len={}",
+                    trace::debug(prefix_, "restls: XOR applied to first backend→client record, payload_len={}, xor_len={}",
                         payload_len, xor_len);
                 }
 
@@ -158,7 +158,7 @@ namespace psm::stealth::restls
                 co_await net::async_write(
                     client_sock,
                     net::buffer(frame.data(), frame.size()),
-                    net::redirect_error(trace::use_prefix_awaitable, write_ec));
+                    net::redirect_error(net::use_awaitable, write_ec));
                 if (write_ec)
                     co_return;
             }
@@ -195,7 +195,7 @@ namespace psm::stealth::restls
                     co_await net::async_write(
                         *backend_sock,
                         net::buffer(frame.data(), frame.size()),
-                        net::redirect_error(trace::use_prefix_awaitable, write_ec));
+                        net::redirect_error(net::use_awaitable, write_ec));
 
                     // 立即关闭后端的 read 端，阻止 relay_backend_to_client 继续读
                     // 这会让 relay_backend_to_client 的 read_tls_frame 立即返回 error
@@ -205,7 +205,7 @@ namespace psm::stealth::restls
 
                     client_finished_flag.store(true, std::memory_order_release);
 
-                    trace::debug<flt::conn | flt::protocol>(prefix_, "restls: clientFinished captured + backend recv shutdown, payload_len={}", frame.size());
+                    trace::debug(prefix_, "restls: clientFinished captured + backend recv shutdown, payload_len={}", frame.size());
                     co_return;
                 }
 
@@ -213,7 +213,7 @@ namespace psm::stealth::restls
                 co_await net::async_write(
                     *backend_sock,
                     net::buffer(frame.data(), frame.size()),
-                    net::redirect_error(trace::use_prefix_awaitable, write_ec));
+                    net::redirect_error(net::use_awaitable, write_ec));
                 if (write_ec)
                     co_return;
             }
@@ -251,7 +251,7 @@ namespace psm::stealth::restls
         // 2. 解析后端地址
         auto host_port_sv = std::string_view(cfg.host.data(), cfg.host.size());
         auto [backend_host, backend_port] = parse_host_port(host_port_sv);
-        trace::debug<flt::conn | flt::protocol>(prefix_, "restls: connecting to backend {}:{}", backend_host, backend_port);
+        trace::debug(prefix_, "restls: connecting to backend {}:{}", backend_host, backend_port);
 
         // 3. 连接后端
         auto executor = client_sock.get_executor();
@@ -269,10 +269,10 @@ namespace psm::stealth::restls
             co_await net::async_write(
                 *backend_sock,
                 net::buffer(opts.client_hello.data(), opts.client_hello.size()),
-                net::redirect_error(trace::use_prefix_awaitable, write_ec));
+                net::redirect_error(net::use_awaitable, write_ec));
             if (write_ec)
             {
-                trace::warn<flt::conn | flt::protocol>(prefix_, "restls: write ClientHello failed: {}", write_ec.message());
+                trace::warn(prefix_, "restls: write ClientHello failed: {}", write_ec.message());
                 result.error = fault::code::connection_refused;
                 result.polluted = true;
                 co_return result;
@@ -284,7 +284,7 @@ namespace psm::stealth::restls
         auto server_hello_opt = co_await common::read_tls_frame(*backend_sock, sh_ec);
         if (sh_ec || !server_hello_opt)
         {
-            trace::warn<flt::conn | flt::protocol>(prefix_, "restls: failed to read ServerHello");
+            trace::warn(prefix_, "restls: failed to read ServerHello");
             result.error = fault::code::connection_refused;
             result.polluted = true;
             co_return result;
@@ -300,7 +300,7 @@ namespace psm::stealth::restls
         const bool tls13 = is_tls13_server_hello(sh_span);
         detail.version = tls13 ? tls_version::v13 : tls_version::v12;
 
-        trace::debug<flt::conn | flt::protocol>(prefix_, "restls: ServerHello received, tls13={}, sr_mac[0..3]={:02x}{:02x}{:02x}{:02x}",
+        trace::debug(prefix_, "restls: ServerHello received, tls13={}, sr_mac[0..3]={:02x}{:02x}{:02x}{:02x}",
             tls13, sr_mac[0], sr_mac[1], sr_mac[2], sr_mac[3]);
 
         // 7. 转发 ServerHello 到客户端
@@ -309,10 +309,10 @@ namespace psm::stealth::restls
             co_await net::async_write(
                 client_sock,
                 net::buffer(server_hello_opt->data(), server_hello_opt->size()),
-                net::redirect_error(trace::use_prefix_awaitable, write_ec));
+                net::redirect_error(net::use_awaitable, write_ec));
             if (write_ec)
             {
-                trace::warn<flt::conn | flt::protocol>(prefix_, "restls: write ServerHello failed: {}", write_ec.message());
+                trace::warn(prefix_, "restls: write ServerHello failed: {}", write_ec.message());
                 result.error = fault::code::connection_refused;
                 result.polluted = true;
                 co_return result;
@@ -342,12 +342,12 @@ namespace psm::stealth::restls
         // 11. 检查 clientFinished
         if (detail.client_finished.empty())
         {
-            trace::warn<flt::conn | flt::protocol>(prefix_, "restls: clientFinished not captured");
+            trace::warn(prefix_, "restls: clientFinished not captured");
             result.error = fault::code::protocol_error;
             co_return result;
         }
 
-        trace::debug<flt::conn | flt::protocol>(prefix_, "restls: handshake complete, clientFinished={}B, first_encrypted={}B",
+        trace::debug(prefix_, "restls: handshake complete, clientFinished={}B, first_encrypted={}B",
             detail.client_finished.size(), detail.first_encrypted.size());
 
         // 12. 把 raw_trans 所有权交给 restls_transport

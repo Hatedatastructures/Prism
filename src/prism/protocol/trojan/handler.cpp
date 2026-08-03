@@ -47,7 +47,7 @@ namespace psm::protocol::trojan
             if (!lease)
             {
                 if (auto t = res_.trace)
-                    trace::warn<flt::conn | flt::protocol>(t,
+                    trace::warn(t,
                         "credential verification failed");
                 return false;
             }
@@ -63,7 +63,7 @@ namespace psm::protocol::trojan
         if (fault::failed(trojan_ec))
         {
             if (trace)
-                trace::warn<flt::conn | flt::protocol>(trace,
+                trace::warn(trace,
                     "handshake failed: {}", fault::describe(trojan_ec));
             co_return;
         }
@@ -80,7 +80,7 @@ namespace psm::protocol::trojan
             target.port.assign(port_buf, std::distance(port_buf, pe));
             target.positive = true;
             if (trace)
-                trace::info<flt::conn | flt::protocol>(trace,
+                trace::info(trace,
                     "CONNECT -> {}:{}", target.host, target.port);
 
             co_await psm::connect::forward_pipeline(res_, target,
@@ -91,7 +91,7 @@ namespace psm::protocol::trojan
         case command::udp_associate:
         {
             if (trace)
-                trace::info<flt::conn | flt::protocol>(trace, "UDP_ASSOCIATE started");
+                trace::info(trace, "UDP_ASSOCIATE started");
             using route_fn = std::function<net::awaitable<
                 std::pair<fault::code, net::ip::udp::endpoint>>(
                 std::string_view, std::string_view)>;
@@ -100,32 +100,32 @@ namespace psm::protocol::trojan
             if (fault::failed(ec))
             {
                 if (trace)
-                    trace::warn<flt::conn | flt::protocol>(trace,
+                    trace::warn(trace,
                         "UDP_ASSOCIATE failed: {}", fault::describe(ec));
             }
             else if (trace)
             {
-                trace::info<flt::conn | flt::protocol>(trace, "UDP_ASSOCIATE completed");
+                trace::info(trace, "UDP_ASSOCIATE completed");
             }
             break;
         }
         case command::mux:
         {
             if (trace)
-                trace::info<flt::conn | flt::protocol>(trace,
+                trace::info(trace,
                     "mux session started (cmd=0x7F)");
             const auto mux_ok = co_await psm::connect::spawn_mux_session(
                 psm::connect::mux_session_options{res_, agent->release(), trace});
             if (!mux_ok && trace)
             {
-                trace::warn<flt::conn | flt::protocol>(trace, "mux bootstrap failed");
+                trace::warn(trace, "mux bootstrap failed");
             }
             res_.inbound = nullptr;
             co_return;
         }
         default:
             if (trace)
-                trace::warn<flt::conn | flt::protocol>(trace,
+                trace::warn(trace,
                     "unknown command: {}", static_cast<int>(req.cmd));
             break;
         }

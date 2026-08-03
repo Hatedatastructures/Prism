@@ -160,7 +160,7 @@ namespace psm::stealth::shadowtls
             auto frame_opt = co_await common::read_tls_frame(*args.client_trans, frame_ec);
             if (frame_ec || !frame_opt)
             {
-                trace::warn<flt::conn | flt::protocol>(args.trace, "read_tls_frame from client returned nullopt");
+                trace::warn(args.trace, "read_tls_frame from client returned nullopt");
                 co_return std::nullopt;
             }
 
@@ -194,7 +194,7 @@ namespace psm::stealth::shadowtls
 
                 if (match)
                 {
-                    trace::debug<flt::conn | flt::protocol>(args.trace, "client first frame HMAC matched, payload_size={}", payload.size());
+                    trace::debug(args.trace, "client first frame HMAC matched, payload_size={}", payload.size());
 
                     auto hmac_verify = std::shared_ptr<HMAC_CTX>(HMAC_CTX_new(), HMAC_CTX_free);
                     if (hmac_verify)
@@ -210,7 +210,7 @@ namespace psm::stealth::shadowtls
                                     payload.size());
                         HMAC_Update(hmac_verify.get(), client_hmac.data(), hmac_size);
                         args.hmac_verify_out = hmac_verify;
-                        trace::debug<flt::conn | flt::protocol>(args.trace, "initialized hmac_verify for transport phase");
+                        trace::debug(args.trace, "initialized hmac_verify for transport phase");
                     }
 
                     memory::vector<std::byte> result(frame.size() - hmac_size);
@@ -222,7 +222,7 @@ namespace psm::stealth::shadowtls
                 }
             }
 
-            trace::debug<flt::conn | flt::protocol>(args.trace, "forwarding client frame to backend, type=0x{:02x}, size={}", raw[0], frame.size());
+            trace::debug(args.trace, "forwarding client frame to backend, type=0x{:02x}, size={}", raw[0], frame.size());
             std::error_code write_ec;
             co_await transport::async_write(
                 *args.backend_trans,
@@ -231,7 +231,7 @@ namespace psm::stealth::shadowtls
 
             if (write_ec)
             {
-                trace::warn<flt::conn | flt::protocol>(args.trace, "write to backend failed: {}", write_ec.message());
+                trace::warn(args.trace, "write to backend failed: {}", write_ec.message());
                 co_return std::nullopt;
             }
         }
@@ -275,11 +275,11 @@ namespace psm::stealth::shadowtls
             write_ec);
         if (write_ec)
         {
-            trace::warn<flt::conn | flt::protocol>(args.trace, "write to client failed: {}", write_ec.message());
+            trace::warn(args.trace, "write to client failed: {}", write_ec.message());
             co_return false;
         }
 
-        trace::debug<flt::conn | flt::protocol>(args.trace, "sent modified frame #{} to client, new_size={}", args.frame_idx, frame_bytes.size());
+        trace::debug(args.trace, "sent modified frame #{} to client, new_size={}", args.frame_idx, frame_bytes.size());
         co_return true;
     }
 
@@ -294,11 +294,11 @@ namespace psm::stealth::shadowtls
             write_ec);
         if (write_ec)
         {
-            trace::warn<flt::conn | flt::protocol>(args.trace, "write passthrough failed: {}", write_ec.message());
+            trace::warn(args.trace, "write passthrough failed: {}", write_ec.message());
             co_return false;
         }
 
-        trace::debug<flt::conn | flt::protocol>(args.trace, "sent passthrough frame #{} to client, type=0x{:02x}, size={}",
+        trace::debug(args.trace, "sent passthrough frame #{} to client, type=0x{:02x}, size={}",
                    args.frame_idx, args.raw[0], args.frame.size());
         co_return true;
     }
@@ -315,7 +315,7 @@ namespace psm::stealth::shadowtls
         auto hmac_main = std::shared_ptr<HMAC_CTX>(HMAC_CTX_new(), HMAC_CTX_free);
         if (!hmac_main)
         {
-            trace::warn<flt::conn | flt::protocol>(args.trace, "failed to create HMAC_CTX");
+            trace::warn(args.trace, "failed to create HMAC_CTX");
             co_return;
         }
 
@@ -324,7 +324,7 @@ namespace psm::stealth::shadowtls
 
         std::size_t frame_count = 0;
 
-        trace::debug<flt::conn | flt::protocol>(args.trace, "initialized cumulative HMAC with serverRandom");
+        trace::debug(args.trace, "initialized cumulative HMAC with serverRandom");
 
         while (true)
         {
@@ -332,7 +332,7 @@ namespace psm::stealth::shadowtls
             auto frame_opt = co_await common::read_tls_frame(*args.backend_trans, frame_ec);
             if (frame_ec || !frame_opt)
             {
-                trace::warn<flt::conn | flt::protocol>(args.trace, "backend closed (nullopt), total_frames={}", frame_count);
+                trace::warn(args.trace, "backend closed (nullopt), total_frames={}", frame_count);
                 args.hmac_out = hmac_main;
                 co_return;
             }
@@ -341,7 +341,7 @@ namespace psm::stealth::shadowtls
             // 安全：将 byte 帧缓冲区转为 uint8_t 检查 TLS 内容类型，二进制兼容
             const auto *raw = reinterpret_cast<const std::uint8_t *>(frame.data());
 
-            trace::debug<flt::conn | flt::protocol>(args.trace, "read backend frame #{}: type=0x{:02x}, size={}",
+            trace::debug(args.trace, "read backend frame #{}: type=0x{:02x}, size={}",
                         frame_count, raw[0], frame.size());
 
             if (raw[0] == content_appdata && frame.size() > tls_hdrsize)
@@ -349,7 +349,7 @@ namespace psm::stealth::shadowtls
                 auto payload = std::span<std::byte>(
                     frame.data() + tls_hdrsize, frame.size() - tls_hdrsize);
 
-                trace::debug<flt::conn | flt::protocol>(args.trace, "frame #{} is ApplicationData, payload_size={}", frame_count, payload.size());
+                trace::debug(args.trace, "frame #{} is ApplicationData, payload_size={}", frame_count, payload.size());
 
                 common::xor_key(payload, write_key);
 
@@ -426,11 +426,11 @@ namespace psm::stealth::shadowtls
 
         if (auth.matched_user.empty())
         {
-            trace::debug<flt::conn | flt::protocol>(trace, "ClientHello HMAC verification failed");
+            trace::debug(trace, "ClientHello HMAC verification failed");
             return std::nullopt;
         }
 
-        trace::debug<flt::conn | flt::protocol>(trace, "Client authenticated (user: {})", auth.matched_user);
+        trace::debug(trace, "Client authenticated (user: {})", auth.matched_user);
         return auth;
     }
 
@@ -458,7 +458,7 @@ namespace psm::stealth::shadowtls
             const auto [ptr, fc_ec] = std::from_chars(port_sv.data(), port_sv.data() + port_sv.size(), port_tmp);
             if (fc_ec != std::errc())
             {
-                trace::error<flt::conn | flt::protocol>(opts.trace, "invalid backend port: {}", port_sv);
+                trace::error(opts.trace, "invalid backend port: {}", port_sv);
                 res.error = fault::code::bad_message;
                 co_return res;
             }
@@ -466,7 +466,7 @@ namespace psm::stealth::shadowtls
             backend_host = backend_host.substr(0, pos);
         }
 
-        trace::debug<flt::conn | flt::protocol>(opts.trace, "connecting to backend: {}:{}", backend_host, backend_port);
+        trace::debug(opts.trace, "connecting to backend: {}:{}", backend_host, backend_port);
 
         // TODO(P5): shadowtls 当前用裸 tcp::resolver + net::async_connect 直连后端，
         // 绕过 connection_pool/DNS gateway/IPv6 策略。原因是 backend_trans 由调用方
@@ -481,17 +481,17 @@ namespace psm::stealth::shadowtls
         boost::system::error_code connect_ec;
         auto connected_endpoint = co_await net::async_connect(
             backend_sock, endpoints,
-            net::redirect_error(trace::use_prefix_awaitable, connect_ec));
+            net::redirect_error(net::use_awaitable, connect_ec));
         (void)connected_endpoint;
 
         if (connect_ec)
         {
-            trace::warn<flt::conn | flt::protocol>(opts.trace, "Backend connection failed: {}", connect_ec.message());
+            trace::warn(opts.trace, "Backend connection failed: {}", connect_ec.message());
             res.error = fault::code::connection_refused;
             co_return res;
         }
 
-        trace::debug<flt::conn | flt::protocol>(opts.trace, "backend connected");
+        trace::debug(opts.trace, "backend connected");
 
         {
             std::error_code write_ec;
@@ -501,24 +501,24 @@ namespace psm::stealth::shadowtls
                 write_ec);
             if (write_ec)
             {
-                trace::warn<flt::conn | flt::protocol>(opts.trace, "write ClientHello to backend failed: {}", write_ec.message());
+                trace::warn(opts.trace, "write ClientHello to backend failed: {}", write_ec.message());
                 res.error = fault::code::connection_refused;
                 co_return res;
             }
         }
 
-        trace::debug<flt::conn | flt::protocol>(opts.trace, "sent ClientHello to backend");
+        trace::debug(opts.trace, "sent ClientHello to backend");
 
         std::error_code server_hello_ec;
         auto server_hello_opt = co_await common::read_tls_frame(*opts.backend_trans, server_hello_ec);
         if (server_hello_ec || !server_hello_opt)
         {
-            trace::warn<flt::conn | flt::protocol>(opts.trace, "Failed to read ServerHello from backend");
+            trace::warn(opts.trace, "Failed to read ServerHello from backend");
             res.error = fault::code::connection_refused;
             co_return res;
         }
 
-        trace::debug<flt::conn | flt::protocol>(opts.trace, "received ServerHello from backend, size={}", server_hello_opt->size());
+        trace::debug(opts.trace, "received ServerHello from backend, size={}", server_hello_opt->size());
 
         {
             std::error_code write_ec;
@@ -528,13 +528,13 @@ namespace psm::stealth::shadowtls
                 write_ec);
             if (write_ec)
             {
-                trace::warn<flt::conn | flt::protocol>(opts.trace, "write ServerHello to client failed: {}", write_ec.message());
+                trace::warn(opts.trace, "write ServerHello to client failed: {}", write_ec.message());
                 res.error = fault::code::connection_refused;
                 co_return res;
             }
         }
 
-        trace::debug<flt::conn | flt::protocol>(opts.trace, "sent ServerHello to client");
+        trace::debug(opts.trace, "sent ServerHello to client");
 
         res.server_hello = std::move(*server_hello_opt);
         co_return res;
@@ -547,7 +547,7 @@ namespace psm::stealth::shadowtls
         auto server_random_opt = extract_random(args.server_hello);
         if (!server_random_opt)
         {
-            trace::warn<flt::conn | flt::protocol>(args.trace, "Failed to extract ServerRandom");
+            trace::warn(args.trace, "Failed to extract ServerRandom");
             co_return std::nullopt;
         }
 
@@ -556,11 +556,11 @@ namespace psm::stealth::shadowtls
 
         if (args.cfg.strict_mode && !is_tls13_hello(args.server_hello))
         {
-            trace::warn<flt::conn | flt::protocol>(args.trace, "Backend does not support TLS 1.3, strict mode enabled");
+            trace::warn(args.trace, "Backend does not support TLS 1.3, strict mode enabled");
             co_return std::nullopt;
         }
 
-        trace::debug<flt::conn | flt::protocol>(args.trace, "ServerRandom extracted, TLS1.3={}",
+        trace::debug(args.trace, "ServerRandom extracted, TLS1.3={}",
                     is_tls13_hello(args.server_hello));
 
         // 双工转发：用 awaitable_operators::operator|| 并发跑两个方向，
@@ -593,18 +593,18 @@ namespace psm::stealth::shadowtls
 
         {
             args.backend_trans->close();
-            trace::debug<flt::conn | flt::protocol>(args.trace, "backend transport closed");
+            trace::debug(args.trace, "backend transport closed");
         }
 
-        trace::debug<flt::conn | flt::protocol>(args.trace, "closed backend socket");
+        trace::debug(args.trace, "closed backend socket");
 
         if (!first_frame_opt || !hmac_verify_ctx)
         {
-            trace::warn<flt::conn | flt::protocol>(args.trace, "HMAC match failed during handshake relay");
+            trace::warn(args.trace, "HMAC match failed during handshake relay");
             co_return std::nullopt;
         }
 
-        trace::debug<flt::conn | flt::protocol>(args.trace, "Handshake complete, first_frame_size={}", first_frame_opt->size());
+        trace::debug(args.trace, "Handshake complete, first_frame_size={}", first_frame_opt->size());
 
         co_return relay_outputs{
             std::move(*first_frame_opt),
@@ -628,12 +628,12 @@ namespace psm::stealth::shadowtls
 
         if (opts.client_hello.empty())
         {
-            trace::warn<flt::conn | flt::protocol>(prefix_, "Empty ClientHello");
+            trace::warn(prefix_, "Empty ClientHello");
             result.error = fault::code::bad_message;
             co_return result;
         }
 
-        trace::debug<flt::conn | flt::protocol>(prefix_, "handshake start, client_hello size={}", opts.client_hello.size());
+        trace::debug(prefix_, "handshake start, client_hello size={}", opts.client_hello.size());
 
         auto executor = opts.inbound->executor();
 
@@ -647,7 +647,6 @@ namespace psm::stealth::shadowtls
         // 用户名写入 prefix_（认证成功）
         if (prefix_)
         {
-            std::strncpy(prefix_->user, auth->matched_user.c_str(), sizeof(prefix_->user) - 1);
         }
 
         auto backend_trans = std::make_shared<transport::reliable>(
@@ -672,7 +671,7 @@ namespace psm::stealth::shadowtls
             co_return result;
         }
 
-        trace::debug<flt::conn | flt::protocol>(prefix_, "Handshake complete, first_frame_size = {}", relay->first_frame.size());
+        trace::debug(prefix_, "Handshake complete, first_frame_size = {}", relay->first_frame.size());
 
         detail.client_firstframe = std::move(relay->first_frame);
         detail.matched_user = std::move(auth->matched_user);
@@ -690,7 +689,7 @@ namespace psm::stealth::shadowtls
             HMAC_Init_ex(hmac_write_transport.get(), pwd_data, pwd_len, EVP_sha1(), nullptr);
             HMAC_Update(hmac_write_transport.get(), sr_data, detail.server_random.size());
             HMAC_Update(hmac_write_transport.get(), &tag_s, 1);
-            trace::debug<flt::conn | flt::protocol>(prefix_, "initialized hmac_write_ctx for transport: password + SR + 'S'");
+            trace::debug(prefix_, "initialized hmac_write_ctx for transport: password + SR + 'S'");
         }
         detail.hmac_write_ctx = hmac_write_transport;
         detail.hmac_read_ctx = std::move(relay->hmac_verify_ctx);
@@ -699,7 +698,7 @@ namespace psm::stealth::shadowtls
         result.detected = psm::connect::protocol_type::tls;
         result.scheme = "shadowtls";
 
-        trace::debug<flt::conn | flt::protocol>(prefix_, "HMAC contexts transferred to detail");
+        trace::debug(prefix_, "HMAC contexts transferred to detail");
         co_return result;
     }
 } // namespace psm::stealth::shadowtls

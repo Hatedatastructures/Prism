@@ -76,7 +76,7 @@ namespace psm::protocol::shadowsocks
             }
             else
             {
-                trace::error<flt::conn | flt::protocol>("PSK decode failed: {}", fault::describe(ec));
+                trace::error("PSK decode failed: {}", fault::describe(ec));
                 valid_ = false;
             }
             method_ = format::resolve_method(config_.method, psk_.size());
