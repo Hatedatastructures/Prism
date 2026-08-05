@@ -100,11 +100,24 @@ auto make_mock(std::string_view name,
 
 /**
  * @brief 创建最小的 handshake_context
+ * @details execute_pipeline 需要访问 session->trace 与
+ *          session->worker->process->cfg，必须提供最小会话资源链。
  */
 auto make_context() -> stealth::handshake_context
 {
     stealth::handshake_context ctx;
     ctx.transport = std::make_shared<psm::testing::MockTransport>();
+
+    auto cfg = std::make_shared<psm::config>();
+    auto proc = std::make_shared<psm::resource::process>(
+        psm::resource::process::options{cfg, nullptr, nullptr});
+    auto wrk = std::make_shared<psm::resource::worker>(
+        psm::resource::worker::options{proc, psm::memory::system::global_pool()});
+    auto ses = std::make_shared<psm::resource::session>(
+        psm::resource::session::options{wrk, 1, 4096, nullptr, {}, nullptr, nullptr});
+
+    ctx.session = ses.get();
+    ctx.session_keepalive = ses;
     return ctx;
 }
 

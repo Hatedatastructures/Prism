@@ -13,10 +13,15 @@ namespace psm::stealth::common
     {
         ec_out.clear();
 
-        // 设置超时定时器：30 秒后关闭 socket
+        // 设置超时定时器：调用方未配置 deadline 时兜底 30 秒后取消读取
+        // （默认构造的 timer expiry() 为 epoch；调用方已设置则保留其超时，
+        // 避免覆盖更短的握手窗口）
         if (deadline)
         {
-            deadline->expires_after(std::chrono::seconds(30));
+            if (deadline->expiry() == net::steady_timer::time_point{})
+            {
+                deadline->expires_after(std::chrono::seconds(30));
+            }
             auto on_timeout = [&sock](const boost::system::error_code &timer_ec)
             {
                 if (!timer_ec)
@@ -59,7 +64,10 @@ namespace psm::stealth::common
 
         if (deadline)
         {
-            deadline->expires_after(std::chrono::seconds(30));
+            if (deadline->expiry() == net::steady_timer::time_point{})
+            {
+                deadline->expires_after(std::chrono::seconds(30));
+            }
             auto on_timeout = [&trans](const boost::system::error_code &timer_ec)
             {
                 if (!timer_ec)

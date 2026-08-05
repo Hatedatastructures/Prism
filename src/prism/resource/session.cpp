@@ -22,6 +22,7 @@ session::session(options opts)
 auto session::alive() const noexcept
     -> bool
 {
+    return true;
 }
 
 } // namespace psm::resource

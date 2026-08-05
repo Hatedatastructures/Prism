@@ -185,6 +185,7 @@ int main(int argc, char *argv[])
             };
             auto alive_function = [worker_ref]() -> bool
             {
+                return worker_ref->alive();
             };
             bindings.emplace_back(delivery_function, snapshot_function, alive_function);
         }
