@@ -22,15 +22,19 @@
 
 // Multiplex 子模块
 #include <prism/protocol/multiplex/bootstrap.hpp>
+#include <prism/protocol/multiplex/codec.hpp>
 #include <prism/protocol/multiplex/config.hpp>
-#include <prism/protocol/multiplex/core.hpp>
-#include <prism/protocol/multiplex/duct.hpp>
-#include <prism/protocol/multiplex/parcel.hpp>
+#include <prism/protocol/multiplex/datagram.hpp>
+#include <prism/protocol/multiplex/egress.hpp>
+#include <prism/protocol/multiplex/multiplexer.hpp>
+#include <prism/protocol/multiplex/stream.hpp>
+#include <prism/protocol/multiplex/smux/codec.hpp>
 #include <prism/protocol/multiplex/smux/config.hpp>
-#include <prism/protocol/multiplex/smux/craft.hpp>
+#include <prism/protocol/multiplex/smux/control.hpp>
 #include <prism/protocol/multiplex/smux/frame.hpp>
+#include <prism/protocol/multiplex/yamux/codec.hpp>
 #include <prism/protocol/multiplex/yamux/config.hpp>
-#include <prism/protocol/multiplex/yamux/craft.hpp>
+#include <prism/protocol/multiplex/yamux/control.hpp>
 #include <prism/protocol/multiplex/yamux/frame.hpp>
 #include <prism/protocol/multiplex/h2mux/config.hpp>
-#include <prism/protocol/multiplex/h2mux/craft.hpp>
+#include <prism/protocol/multiplex/h2mux/control.hpp>

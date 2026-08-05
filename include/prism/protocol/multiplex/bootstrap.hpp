@@ -7,7 +7,7 @@
 
 #include <prism/foundation/memory/pool.hpp>
 #include <prism/protocol/multiplex/config.hpp>
-#include <prism/protocol/multiplex/core.hpp>
+#include <prism/protocol/multiplex/multiplexer.hpp>
 #include <prism/resource/session.hpp>
 #include <prism/trace/context.hpp>
 #include <prism/net/connect/types.hpp>
@@ -34,6 +34,6 @@ namespace psm::multiplex
     };
 
     [[nodiscard]] auto bootstrap(bootstrap_context ctx)
-        -> net::awaitable<std::shared_ptr<core>>;
+        -> net::awaitable<std::shared_ptr<multiplexer>>;
 
 } // namespace psm::multiplex

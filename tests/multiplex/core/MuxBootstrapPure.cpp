@@ -3,7 +3,7 @@
  * @brief 多路复用引导模块纯函数单元测试
  * @details 验证 bootstrap.hpp 头文件正确 include、protocol_type 枚举值、
  *          各协议 config 默认值和可修改性。bootstrap 和 negotiate 均为异步协程，
- *          bootstrap_context / core_options 包含引用成员无法默认构造，
+ *          bootstrap_context / multiplexer_options 包含引用成员无法默认构造，
  *          此处仅验证同步可测的纯逻辑。
  */
 

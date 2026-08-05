@@ -275,7 +275,7 @@ TEST(MuxMaxStreams, SmuxReject)
         auto [client_sock, server_sock] = co_await make_socket_pair(ex);
 
         auto server_transport = psm::transport::make_reliable(std::move(server_sock));
-        auto session = std::make_shared<smux::craft>(core_options{std::move(server_transport), &ctx->outbound, ctx->mux_config});
+        auto session = std::make_shared<smux::control>(multiplexer_options{std::move(server_transport), &ctx->outbound, ctx->mux_config});
         session->start();
 
         // 发送 3 个 SYN 帧（stream_id = 1, 2, 3）
@@ -332,7 +332,7 @@ TEST(MuxMaxStreams, SmuxOne)
         auto [client_sock, server_sock] = co_await make_socket_pair(ex);
 
         auto server_transport = psm::transport::make_reliable(std::move(server_sock));
-        auto session = std::make_shared<smux::craft>(core_options{std::move(server_transport), &ctx->outbound, ctx->mux_config});
+        auto session = std::make_shared<smux::control>(multiplexer_options{std::move(server_transport), &ctx->outbound, ctx->mux_config});
         session->start();
 
         std::vector<std::byte> all_data;
@@ -386,7 +386,7 @@ TEST(MuxMaxStreams, SmuxDefault)
         auto [client_sock, server_sock] = co_await make_socket_pair(ex);
 
         auto server_transport = psm::transport::make_reliable(std::move(server_sock));
-        auto session = std::make_shared<smux::craft>(core_options{std::move(server_transport), &ctx->outbound, ctx->mux_config});
+        auto session = std::make_shared<smux::control>(multiplexer_options{std::move(server_transport), &ctx->outbound, ctx->mux_config});
         session->start();
 
         std::vector<std::byte> all_data;
@@ -446,7 +446,7 @@ TEST(MuxMaxStreams, YamuxReject)
         auto [client_sock, server_sock] = co_await make_socket_pair(ex);
 
         auto server_transport = psm::transport::make_reliable(std::move(server_sock));
-        auto session = std::make_shared<yamux::craft>(core_options{std::move(server_transport), &ctx->outbound, ctx->mux_config});
+        auto session = std::make_shared<yamux::control>(multiplexer_options{std::move(server_transport), &ctx->outbound, ctx->mux_config});
         session->start();
 
         // 发送 3 个 WindowUpdate(SYN) 帧
@@ -515,7 +515,7 @@ TEST(MuxMaxStreams, YamuxDataSynReject)
         auto [client_sock, server_sock] = co_await make_socket_pair(ex);
 
         auto server_transport = psm::transport::make_reliable(std::move(server_sock));
-        auto session = std::make_shared<yamux::craft>(core_options{std::move(server_transport), &ctx->outbound, ctx->mux_config});
+        auto session = std::make_shared<yamux::control>(multiplexer_options{std::move(server_transport), &ctx->outbound, ctx->mux_config});
         session->start();
 
         // 注入 3 个 Data(SYN) 帧（空 payload）
@@ -582,7 +582,7 @@ TEST(MuxMaxStreams, YamuxExact)
         auto [client_sock, server_sock] = co_await make_socket_pair(ex);
 
         auto server_transport = psm::transport::make_reliable(std::move(server_sock));
-        auto session = std::make_shared<yamux::craft>(core_options{std::move(server_transport), &ctx->outbound, ctx->mux_config});
+        auto session = std::make_shared<yamux::control>(multiplexer_options{std::move(server_transport), &ctx->outbound, ctx->mux_config});
         session->start();
 
         // 注入恰好 4 个 WindowUpdate(SYN) 帧

@@ -2,7 +2,7 @@
  * @file H2muxCraftDeep.cpp
  * @brief multiplex/h2mux/craft 深度同步逻辑测试
  * @details 通过 #include 源文件访问匿名命名空间中的 log_spawn_error，
- *          以及 craft 类的构造、析构、respond_connect、close、send_fin、
+ *          以及 craft 类的构造、析构、respond_connect、close、fin、
  *          executor 等同步/公开方法。
  *          涉及 start() 的测试使用 co_spawn + ioc.run() 协程模式驱动，
  *          避免同步 start() + poll()/run_for() 导致的 Access violation。
@@ -16,8 +16,7 @@
 #include <prism/net/connect/pool/pool.hpp>
 #include <prism/net/connect/dial/router.hpp>
 #include <prism/net/dns/resolver.hpp>
-#include <prism/protocol/multiplex/h2mux/craft.hpp>
-#include <prism/account/stats/traffic.hpp>
+#include <prism/protocol/multiplex/h2mux/control.hpp>
 
 using MockTransport = psm::testing::MockTransport;
 namespace multiplex = psm::multiplex;
@@ -51,7 +50,7 @@ namespace
         std::unique_ptr<net::io_context> ioc;
         std::unique_ptr<psm::connect::connection_pool> pool;
         std::unique_ptr<psm::connect::router> router_ptr;
-        std::shared_ptr<h2mux::craft> craft_obj;
+        std::shared_ptr<h2mux::control> craft_obj;
 
         CraftFixture()
         {
@@ -61,9 +60,8 @@ namespace
             psm::dns::config dns_cfg;
             psm::connect::router_options ropts{*pool, *ioc, dns_cfg};
             router_ptr = std::make_unique<psm::connect::router>(std::move(ropts));
-            multiplex::core_options opts{transport, nullptr, g_cfg, nullptr};
-            h2mux::craft_init init{nullptr, g_cfg, make_resolver()};
-            craft_obj = std::make_shared<h2mux::craft>(std::move(opts), std::move(init));
+            multiplex::multiplexer_options opts{transport, nullptr, g_cfg, nullptr};
+            craft_obj = std::make_shared<h2mux::control>(std::move(opts), make_resolver());
         }
     };
 
@@ -84,9 +82,8 @@ namespace
         psm::connect::router_options ropts{*pool, *ioc, dns_cfg};
         auto router_ptr = std::make_unique<psm::connect::router>(std::move(ropts));
         psm::memory::unsynchronized_pool mr;
-        multiplex::core_options opts{transport, nullptr, g_cfg, &mr};
-        h2mux::craft_init init{nullptr, g_cfg, make_resolver()};
-        auto c = std::make_shared<h2mux::craft>(std::move(opts), std::move(init));
+        multiplex::multiplexer_options opts{transport, nullptr, g_cfg, &mr};
+        auto c = std::make_shared<h2mux::control>(std::move(opts), make_resolver());
         EXPECT_TRUE(!c->is_active()) << "constructor: with mr -> inactive";
     }
 
@@ -126,49 +123,6 @@ namespace
         EXPECT_TRUE(!fx.craft_obj->is_active()) << "close: second close -> still inactive";
     }
 
-    TEST(H2muxCraftDeep, CloseWithTraffic)
-    {
-        CraftFixture fx;
-        psm::stats::traffic::traffic_state ts;
-        fx.craft_obj->set_traffic(&ts, psm::connect::protocol_type::trojan);
-        fx.craft_obj->accumulate_traffic(1000, 2000);
-        fx.craft_obj->close();
-    }
-
-    TEST(H2muxCraftDeep, CloseWithoutTraffic)
-    {
-        CraftFixture fx;
-        fx.craft_obj->accumulate_traffic(100, 200);
-        fx.craft_obj->close();
-    }
-
-    // ─── set_traffic + accumulate_traffic ──────
-
-    TEST(H2muxCraftDeep, SetTraffic)
-    {
-        CraftFixture fx;
-        psm::stats::traffic::traffic_state ts;
-        fx.craft_obj->set_traffic(&ts, psm::connect::protocol_type::trojan);
-    }
-
-    TEST(H2muxCraftDeep, AccumulateTrafficBoth)
-    {
-        CraftFixture fx;
-        fx.craft_obj->accumulate_traffic(100, 200);
-    }
-
-    TEST(H2muxCraftDeep, AccumulateTrafficZero)
-    {
-        CraftFixture fx;
-        fx.craft_obj->accumulate_traffic(0, 0);
-    }
-
-    TEST(H2muxCraftDeep, AccumulateTrafficMultiple)
-    {
-        CraftFixture fx;
-        fx.craft_obj->accumulate_traffic(10, 20);
-        fx.craft_obj->accumulate_traffic(30, 40);
-    }
 
     // ─── 析构函数 ─────────────────────────────
 
@@ -192,7 +146,7 @@ namespace
     {
         // 使用 co_spawn + ioc.run() 模式（与 MuxLifecycle 相同），
         // 避免同步 start() + poll()/run_for() 导致的 Access violation。
-        // root cause: core::start() 通过 co_spawn 将 run_wrapper 投递到
+        // root cause: multiplexer::start() 通过 co_spawn 将 run_wrapper 投递到
         // transport 的 executor 上，run_wrapper 中 scope_guard + co_await run()
         // 需要完整的协程调度支持。poll()/run_for() 不提供足够的调度保障。
         CraftFixture fx;
@@ -243,7 +197,7 @@ namespace
 } // namespace
 
 // #include 源文件以覆盖 log_spawn_error 匿名命名空间函数
-#include "../src/prism/protocol/multiplex/h2mux/craft.cpp"
+#include "../src/prism/protocol/multiplex/h2mux/control.cpp"
 
 namespace
 {

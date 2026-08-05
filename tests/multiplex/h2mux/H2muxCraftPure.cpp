@@ -8,7 +8,7 @@
 
 #include <prism/foundation/foundation.hpp>
 #include <prism/trace/spdlog.hpp>
-#include <prism/protocol/multiplex/h2mux/craft.hpp>
+#include <prism/protocol/multiplex/h2mux/control.hpp>
 #include <prism/protocol/multiplex/config.hpp>
 #include <prism/net/connect/dial/router.hpp>
 #include <prism/net/transport/transmission.hpp>
@@ -27,13 +27,13 @@ namespace
     struct test_craft
     {
         psm::memory::unordered_map<std::uint32_t, h2mux::h2_pending_entry> h2_pending;
-        psm::memory::unordered_map<std::uint32_t, std::shared_ptr<psm::multiplex::duct>> ducts;
-        psm::memory::unordered_map<std::uint32_t, std::shared_ptr<psm::multiplex::parcel>> parcels;
+        psm::memory::unordered_map<std::uint32_t, std::shared_ptr<psm::multiplex::stream>> streams;
+        psm::memory::unordered_map<std::uint32_t, std::shared_ptr<psm::multiplex::datagram>> datagrams;
         nghttp2_session *session{nullptr};
         psm::memory::resource_pointer mr;
 
         explicit test_craft(psm::memory::resource_pointer m = psm::memory::current_resource())
-            : h2_pending(m), ducts(m), parcels(m), mr(m)
+            : h2_pending(m), streams(m), datagrams(m), mr(m)
         {
             nghttp2_session_callbacks *cbs = nullptr;
             nghttp2_session_callbacks_new(&cbs);
@@ -314,8 +314,8 @@ namespace
 
         // 没有对应的 pending/duct/parcel -> 应提交 RST_STREAM
         bool found_pending = tc.h2_pending.count(42) > 0;
-        bool found_duct = tc.ducts.count(42) > 0;
-        bool found_parcel = tc.parcels.count(42) > 0;
+        bool found_duct = tc.streams.count(42) > 0;
+        bool found_parcel = tc.datagrams.count(42) > 0;
 
         EXPECT_TRUE(!found_pending && !found_duct && !found_parcel)
             << "on_data: unknown stream -> would RST_STREAM";

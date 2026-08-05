@@ -1,18 +1,18 @@
-#include <prism/protocol/multiplex/h2mux/craft.hpp>
-#include <prism/net/connect/outbound/proxy.hpp>
+#include <prism/protocol/multiplex/h2mux/control.hpp>
+
 #include <prism/net/connect/dial/connector.hpp>
-#include <prism/protocol/multiplex/duct.hpp>
-#include <prism/protocol/multiplex/parcel.hpp>
+#include <prism/net/connect/outbound/proxy.hpp>
+#include <prism/protocol/multiplex/datagram.hpp>
+#include <prism/protocol/multiplex/smux/frame.hpp>
+#include <prism/protocol/multiplex/stream.hpp>
 #include <prism/trace/trace.hpp>
-#include <prism/trace/context.hpp>
-#include <prism/net/transport/reliable.hpp>
-#include <prism/net/transport/transmission.hpp>
 
 #include <boost/asio/co_spawn.hpp>
 
 #include <algorithm>
 #include <charconv>
 #include <cstring>
+#include <span>
 
 using namespace psm::trace;
 
@@ -21,7 +21,6 @@ namespace psm::multiplex::h2mux
 
     namespace
     {
-
         void log_spawn_error(const std::exception_ptr &ep, std::string_view label)
         {
             try
@@ -38,18 +37,21 @@ namespace psm::multiplex::h2mux
         }
     } // namespace
 
-
-    craft::craft(core_options opts, craft_init init)
-        : core(core_options{std::move(opts.transport), init.outbound, init.cfg, opts.mr}),
-          resolver_(std::move(init.resolver)),
+    control::control(multiplexer_options opts, address_resolver resolver)
+        : multiplexer(multiplexer_options{
+              std::move(opts.transport), opts.outbound, opts.cfg, opts.mr,
+              opts.cfg.h2mux.max_streams}),
+          resolver_(std::move(resolver)),
+          router_fn_(outbound_ ? outbound_->make_router() : decltype(router_fn_){}),
           h2_pending_(mr_),
-          send_channel_(transport_->executor(), init.cfg.h2mux.max_streams),
+          udp_bufs_(mr_),
           connect_waiter_(transport_->executor())
     {
         connect_waiter_.expires_after(std::chrono::hours(24));
     }
 
-    craft::~craft() noexcept
+
+    control::~control() noexcept
     {
         if (session_)
         {
@@ -59,7 +61,88 @@ namespace psm::multiplex::h2mux
     }
 
 
-    auto craft::init_nghttp2() -> std::int32_t
+    auto control::run() -> net::awaitable<void>
+    {
+        if (init_nghttp2() != 0)
+        {
+            trace::error(prefix_, "nghttp2 init failed");
+            co_return;
+        }
+
+        co_await send_pending();
+
+        co_await frame_loop();
+    }
+
+
+    auto control::write_frame(outbound_frame frame)
+        -> net::awaitable<void>
+    {
+        if (frame.kind == outbound_kind::fin)
+        {
+            nghttp2_submit_rst_stream(session_, NGHTTP2_FLAG_NONE,
+                                      static_cast<std::int32_t>(frame.stream_id), NGHTTP2_NO_ERROR);
+            co_await send_pending();
+            co_return;
+        }
+
+        if (frame.payload.empty())
+        {
+            co_return;
+        }
+
+        // 将载荷包装为 nghttp2 data provider，mem_send 时按需拷贝
+        auto payload = std::make_shared<memory::vector<std::byte>>(std::move(frame.payload));
+
+        struct data_source
+        {
+            std::shared_ptr<memory::vector<std::byte>> buf;
+            std::size_t offset{0};
+        };
+
+        auto src = std::make_unique<data_source>(data_source{payload, 0});
+
+        nghttp2_data_provider dp;
+        dp.source.ptr = src.get();
+        dp.read_callback = [](nghttp2_session *, int32_t, uint8_t *buf,
+                              size_t length, uint32_t *data_flags,
+                              nghttp2_data_source *source, void *) -> ssize_t
+        {
+            auto *ds = static_cast<data_source *>(source->ptr);
+            auto remaining = ds->buf->size() - ds->offset;
+
+            if (remaining == 0)
+            {
+                *data_flags |= NGHTTP2_DATA_FLAG_EOF;
+                return 0;
+            }
+
+            const auto to_copy = std::min(length, remaining);
+            std::memcpy(buf, ds->buf->data() + ds->offset, to_copy);
+            ds->offset += to_copy;
+
+            if (ds->offset >= ds->buf->size())
+            {
+                *data_flags |= NGHTTP2_DATA_FLAG_EOF;
+            }
+
+            return static_cast<ssize_t>(to_copy);
+        };
+
+        const std::int32_t rv = nghttp2_submit_data(session_, NGHTTP2_FLAG_NONE,
+                                                    static_cast<std::int32_t>(frame.stream_id), &dp);
+        if (rv != 0)
+        {
+            trace::warn(prefix_, "nghttp2_submit_data failed: {}", nghttp2_strerror(rv));
+            co_return;
+        }
+
+        co_await send_pending();
+        src.reset();
+    }
+
+
+    auto control::init_nghttp2() -> std::int32_t
     {
         nghttp2_session_callbacks *callbacks = nullptr;
         if (nghttp2_session_callbacks_new(&callbacks) != 0)
@@ -68,11 +151,11 @@ namespace psm::multiplex::h2mux
             return -1;
         }
 
-        nghttp2_session_callbacks_set_on_begin_headers_callback(callbacks, &craft::on_begin_headers);
-        nghttp2_session_callbacks_set_on_header_callback(callbacks, &craft::on_header);
-        nghttp2_session_callbacks_set_on_frame_recv_callback(callbacks, &craft::on_frame_recv);
-        nghttp2_session_callbacks_set_on_data_chunk_recv_callback(callbacks, &craft::on_data);
-        nghttp2_session_callbacks_set_on_stream_close_callback(callbacks, &craft::on_stream_close);
+        nghttp2_session_callbacks_set_on_begin_headers_callback(callbacks, &control::on_begin_headers);
+        nghttp2_session_callbacks_set_on_header_callback(callbacks, &control::on_header);
+        nghttp2_session_callbacks_set_on_frame_recv_callback(callbacks, &control::on_frame_recv);
+        nghttp2_session_callbacks_set_on_data_chunk_recv_callback(callbacks, &control::on_data);
+        nghttp2_session_callbacks_set_on_stream_close_callback(callbacks, &control::on_stream_close);
 
         const std::int32_t rv = nghttp2_session_server_new2(&session_, callbacks, this, nullptr);
         nghttp2_session_callbacks_del(callbacks);
@@ -94,36 +177,13 @@ namespace psm::multiplex::h2mux
     }
 
 
-    auto craft::run() -> net::awaitable<void>
-    {
-        if (init_nghttp2() != 0)
-        {
-            trace::error(prefix_, "nghttp2 init failed");
-            co_return;
-        }
-
-        co_await send_pending();
-
-        const auto self = std::static_pointer_cast<craft>(shared_from_this());
-
-        auto send_task = [self]() -> net::awaitable<void>
-        {
-            co_await self->send_loop();
-        };
-        net::co_spawn(executor(), std::move(send_task), net::detached);
-
-        co_await frame_loop();
-
-        send_channel_.cancel();
-    }
-
-    auto craft::frame_loop() -> net::awaitable<void>
+    auto control::frame_loop() -> net::awaitable<void>
     {
         trace::debug(prefix_, "frame loop started");
 
         memory::vector<std::byte> recv_buf(config_.h2mux.buffer_size, mr_);
 
-        while (active_.load(std::memory_order_acquire))
+        while (is_active())
         {
             std::error_code read_ec;
             const auto n = co_await transport_->async_read_some(
@@ -164,7 +224,7 @@ namespace psm::multiplex::h2mux
     }
 
 
-    auto craft::send_pending() -> net::awaitable<void>
+    auto control::send_pending() -> net::awaitable<void>
     {
         while (true)
         {
@@ -191,7 +251,7 @@ namespace psm::multiplex::h2mux
     }
 
 
-    void craft::handle_connect(const std::int32_t stream_id)
+    void control::handle_connect(const std::int32_t stream_id)
     {
         auto it = h2_pending_.find(static_cast<std::uint32_t>(stream_id));
         if (it == h2_pending_.end())
@@ -214,7 +274,7 @@ namespace psm::multiplex::h2mux
             }
 
             entry.connecting = true;
-            auto self = std::static_pointer_cast<craft>(shared_from_this());
+            auto self = std::static_pointer_cast<control>(shared_from_this());
             const auto id = static_cast<std::uint32_t>(stream_id);
             auto activate_task = [self, id]() -> net::awaitable<void>
             {
@@ -224,12 +284,12 @@ namespace psm::multiplex::h2mux
             {
                 if (ep) log_spawn_error(ep, "activate_stream");
             };
-            net::co_spawn(executor(), std::move(activate_task), std::move(on_error));
+            net::co_spawn(transport_->executor(), std::move(activate_task), std::move(on_error));
         }
     }
 
 
-    auto craft::activate_stream(const std::uint32_t stream_id) -> net::awaitable<void>
+    auto control::activate_stream(const std::uint32_t stream_id) -> net::awaitable<void>
     {
         auto it = h2_pending_.find(stream_id);
         if (it == h2_pending_.end())
@@ -249,7 +309,6 @@ namespace psm::multiplex::h2mux
             {
                 trace::warn(prefix_, "respond_connect for health check stream {} failed: nghttp2 rc={}", stream_id, rc);
             }
-            std::error_code ec;
             co_await send_pending();
             nghttp2_submit_rst_stream(session_, NGHTTP2_FLAG_NONE,
                                       static_cast<std::int32_t>(stream_id), NGHTTP2_NO_ERROR);
@@ -260,39 +319,44 @@ namespace psm::multiplex::h2mux
 
         case stream_type::udp:
         {
-            trace::debug(prefix_, "stream {} creating UDP parcel -> {}:{}", stream_id, info.host, info.port);
+            trace::debug(prefix_, "stream {} creating UDP datagram -> {}:{}", stream_id, info.host, info.port);
 
             const auto rc = respond_connect(static_cast<std::int32_t>(stream_id), 200);
             if (rc != 0)
             {
                 trace::warn(prefix_, "respond_connect for UDP stream {} failed: nghttp2 rc={}", stream_id, rc);
             }
-            std::error_code ec;
             co_await send_pending();
 
-            auto dp = make_parcel(
-                parcel_config{
-                    .stream_id = stream_id,
-                    .idle_timeout = config_.h2mux.udp_idle,
-                    .max_dgram = config_.h2mux.max_dgram,
-                    .mr = mr_,
-                },
-                shared_from_this(), outbound_);
-            dp->set_destination(
-                std::string_view(info.host.data(), info.host.size()),
-                info.port);
+            auto [bit, inserted] = udp_bufs_.emplace(stream_id, udp_entry(mr_));
+            (void)inserted;
+            bit->second.dest_host.assign(info.host.data(), info.host.size());
+            bit->second.dest_port = info.port;
 
-            if (active_.load(std::memory_order_acquire))
+            auto dp = make_datagram(datagram_options{
+                .stream_id = stream_id,
+                .idle_timeout = config_.h2mux.udp_idle,
+                .max_dgram = config_.h2mux.max_dgram,
+                .executor = transport_->executor(),
+                .egress = shared_from_this(),
+                .resolve = make_resolve(),
+                .emit = make_emit(stream_id),
+                .mr = mr_,
+                .prefix = prefix_,
+            });
+
+            if (is_active())
             {
-                parcels_[stream_id] = dp;
+                datagrams_[stream_id] = dp;
                 dp->start();
             }
             else
             {
+                udp_bufs_.erase(stream_id);
                 dp->close();
             }
 
-            trace::debug(prefix_, "stream {} UDP parcel created", stream_id);
+            trace::debug(prefix_, "stream {} UDP datagram created", stream_id);
             co_return;
         }
 
@@ -317,7 +381,7 @@ namespace psm::multiplex::h2mux
             tgt.host = memory::string(host_str, mr_);
             tgt.port = memory::string(port_str, mr_);
             tgt.positive = true;
-            auto [code, trans] = co_await outbound_->async_connect(tgt, executor());
+            auto [code, trans] = co_await outbound_->async_connect(tgt, transport_->executor());
 
             if (code != fault::code::success || !trans)
             {
@@ -333,15 +397,18 @@ namespace psm::multiplex::h2mux
             {
                 trace::warn(prefix_, "respond_connect for TCP stream {} failed: nghttp2 rc={}", stream_id, rc);
             }
-            std::error_code send_ec;
             co_await send_pending();
 
-            const duct_options dopts{
-                stream_id, shared_from_this(), std::move(trans),
-                {config_.h2mux.buffer_size, mr_}};
-            const auto p = make_duct(dopts);
-            ducts_[stream_id] = p;
-            p->start();
+            auto sp = make_stream(stream_options{
+                .stream_id = stream_id,
+                .target = std::move(trans),
+                .egress = shared_from_this(),
+                .buffer_size = config_.h2mux.buffer_size,
+                .mr = mr_,
+                .prefix = prefix_,
+            });
+            streams_[stream_id] = sp;
+            sp->start();
 
             trace::debug(prefix_, "stream {} connected to {}:{}", stream_id, info.host, info.port);
         }
@@ -349,9 +416,85 @@ namespace psm::multiplex::h2mux
     }
 
 
-    auto craft::on_begin_headers(nghttp2_session *, const nghttp2_frame *frame, void *user_data) -> int
+    auto control::process_udp(const std::uint32_t stream_id, memory::vector<std::byte> payload)
+        -> net::awaitable<void>
     {
-        auto *self = static_cast<craft *>(user_data);
+        const auto bit = udp_bufs_.find(stream_id);
+        if (bit == udp_bufs_.end())
+        {
+            co_return;
+        }
+        auto &entry = bit->second;
+
+        entry.buffer.insert(entry.buffer.end(), payload.begin(), payload.end());
+
+        // 缓冲区超过最大数据报大小时关闭管道，防止内存持续膨胀
+        if (entry.buffer.size() > config_.h2mux.max_dgram)
+        {
+            drop(stream_id);
+            co_return;
+        }
+
+        // 串行化：已有处理循环在跑则直接返回（数据已累积）
+        if (entry.processing)
+        {
+            co_return;
+        }
+        entry.processing = true;
+
+        try
+        {
+            bool has_progress;
+            do
+            {
+                memory::vector<std::byte> local(mr_);
+                std::swap(local, entry.buffer);
+
+                std::size_t offset = 0;
+                while (offset < local.size())
+                {
+                    auto dp = datagrams_.find(stream_id);
+                    if (dp == datagrams_.end() || !dp->second)
+                    {
+                        break;
+                    }
+
+                    auto rest = std::span<const std::byte>(local.data() + offset, local.size() - offset);
+                    auto dgram = smux::parse_prefixed(rest);
+                    if (!dgram)
+                    {
+                        break;
+                    }
+                    co_await dp->second->send_to(entry.dest_host, entry.dest_port, dgram->payload);
+                    offset += dgram->consumed;
+                }
+
+                // 未消费数据移回入口缓冲
+                if (offset < local.size())
+                {
+                    entry.buffer.insert(entry.buffer.begin(),
+                                        local.begin() + static_cast<std::ptrdiff_t>(offset),
+                                        local.end());
+                }
+
+                has_progress = offset > 0;
+            } while (has_progress && !entry.buffer.empty() && is_active());
+        }
+        catch (const std::exception &e)
+        {
+            trace::debug(prefix_, "stream {} process udp error: {}", stream_id, e.what());
+        }
+        catch (...)
+        {
+            trace::error(prefix_, "stream {} process udp unknown error", stream_id);
+        }
+        entry.processing = false;
+    }
+
+
+    auto control::on_begin_headers(nghttp2_session *, const nghttp2_frame *frame, void *user_data) -> int
+    {
+        auto *self = static_cast<control *>(user_data);
 
         if (frame->hd.type == NGHTTP2_HEADERS &&
             frame->headers.cat == NGHTTP2_HCAT_REQUEST)
@@ -363,7 +506,6 @@ namespace psm::multiplex::h2mux
                 // 安全：将 nghttp2 头部名 (uint8_t*) 转为 string_view 解析 HTTP/2 头
                 const auto name = std::string_view(
                     reinterpret_cast<const char *>(nv[i].name), nv[i].namelen);
-                // 安全：将 nghttp2 头部值 (uint8_t*) 转为 string_view 解析 HTTP/2 头
                 const auto value = std::string_view(
                     reinterpret_cast<const char *>(nv[i].value), nv[i].valuelen);
 
@@ -386,12 +528,13 @@ namespace psm::multiplex::h2mux
         return 0;
     }
 
-    auto craft::on_header(nghttp2_session *, const nghttp2_frame *frame,
-                          const uint8_t *name, const size_t namelen,
-                          const uint8_t *value, const size_t valuelen,
-                          uint8_t, void *user_data) -> int
+
+    auto control::on_header(nghttp2_session *, const nghttp2_frame *frame,
+                            const uint8_t *name, const size_t namelen,
+                            const uint8_t *value, const size_t valuelen,
+                            uint8_t, void *user_data) -> int
     {
-        auto *self = static_cast<craft *>(user_data);
+        auto *self = static_cast<control *>(user_data);
 
         const auto stream_id = static_cast<std::uint32_t>(frame->hd.stream_id);
         auto it = self->h2_pending_.find(stream_id);
@@ -426,9 +569,10 @@ namespace psm::multiplex::h2mux
         return 0;
     }
 
-    auto craft::on_frame_recv(nghttp2_session *, const nghttp2_frame *frame, void *user_data) -> int
+
+    auto control::on_frame_recv(nghttp2_session *, const nghttp2_frame *frame, void *user_data) -> int
     {
-        auto *self = static_cast<craft *>(user_data);
+        auto *self = static_cast<control *>(user_data);
 
         if (frame->hd.type != NGHTTP2_HEADERS ||
             frame->headers.cat != NGHTTP2_HCAT_REQUEST)
@@ -448,66 +592,64 @@ namespace psm::multiplex::h2mux
         return 0;
     }
 
-    auto craft::on_data(nghttp2_session *, uint8_t, const int32_t stream_id,
-                        const uint8_t *data, const size_t len, void *user_data) -> int
+
+    auto control::on_data(nghttp2_session *, uint8_t, const int32_t stream_id,
+                          const uint8_t *data, const size_t len, void *user_data) -> int
     {
-        auto *self = static_cast<craft *>(user_data);
+        auto *self = static_cast<control *>(user_data);
         const auto id = static_cast<std::uint32_t>(stream_id);
 
-        if (const auto pit = self->h2_pending_.find(id); pit != self->h2_pending_.end())
+        if (self->h2_pending_.contains(id))
         {
-            auto &entry = pit->second;
             // TODO: 实现 StreamRequest 解析(#h2mux)
             return 0;
         }
 
-        if (const auto dit = self->ducts_.find(id); dit != self->ducts_.end() && dit->second)
+        if (const auto dit = self->streams_.find(id); dit != self->streams_.end() && dit->second)
         {
-            auto dp = dit->second;
-            // 安全：将 nghttp2 数据帧载荷 (uint8_t*) 转为 byte vector 分发到 duct
+            auto sp = dit->second;
+            // 安全：将 nghttp2 数据帧载荷 (uint8_t*) 转为 byte vector 分发到 stream
             auto payload = memory::vector<std::byte>(
                 reinterpret_cast<const std::byte *>(data),
                 reinterpret_cast<const std::byte *>(data) + len, self->mr_);
 
-            auto craft_self = std::static_pointer_cast<craft>(self->shared_from_this());
-            auto dispatch_data = [dp, p = std::move(payload), craft_self]() mutable -> net::awaitable<void>
+            auto self_ptr = std::static_pointer_cast<control>(self->shared_from_this());
+            auto dispatch_data = [sp, p = std::move(payload), self_ptr]() mutable -> net::awaitable<void>
             {
-                co_await dp->on_data(std::move(p));
+                co_await sp->on_data(std::move(p));
             };
-            auto on_duct_error = [dp](const std::exception_ptr &ep)
+            auto on_stream_error = [sp](const std::exception_ptr &ep)
             {
                 if (ep)
                 {
-                    log_spawn_error(ep, "dispatch duct data");
-                    dp->close();
+                    log_spawn_error(ep, "dispatch stream data");
+                    sp->close();
                 }
             };
-            net::co_spawn(self->executor(), std::move(dispatch_data), std::move(on_duct_error));
+            net::co_spawn(self->executor(), std::move(dispatch_data), std::move(on_stream_error));
             return 0;
         }
 
-        if (const auto uit = self->parcels_.find(id); uit != self->parcels_.end() && uit->second)
+        if (self->datagrams_.contains(id))
         {
-            auto dp = uit->second;
-            // 安全：将 nghttp2 数据帧载荷 (uint8_t*) 转为 byte vector 分发到 parcel
-            memory::vector<std::byte> payload(
+            auto payload = memory::vector<std::byte>(
                 reinterpret_cast<const std::byte *>(data),
                 reinterpret_cast<const std::byte *>(data) + len, self->mr_);
 
-            auto craft_self = std::static_pointer_cast<craft>(self->shared_from_this());
-            auto dispatch_parcel = [dp, p = std::move(payload), craft_self]() mutable -> net::awaitable<void>
+            auto self_ptr = std::static_pointer_cast<control>(self->shared_from_this());
+            auto dispatch_udp = [self_ptr, id, p = std::move(payload)]() mutable -> net::awaitable<void>
             {
-                co_await dp->on_data(std::move(p));
+                co_await self_ptr->process_udp(id, std::move(p));
             };
-            auto on_parcel_error = [dp](const std::exception_ptr &ep)
+            auto on_udp_error = [self_ptr, id](const std::exception_ptr &ep)
             {
                 if (ep)
                 {
-                    log_spawn_error(ep, "dispatch parcel data");
-                    dp->close();
+                    log_spawn_error(ep, "dispatch datagram data");
+                    self_ptr->drop(id);
                 }
             };
-            net::co_spawn(self->executor(), std::move(dispatch_parcel), std::move(on_parcel_error));
+            net::co_spawn(self->executor(), std::move(dispatch_udp), std::move(on_udp_error));
             return 0;
         }
 
@@ -515,20 +657,23 @@ namespace psm::multiplex::h2mux
         return 0;
     }
 
-    auto craft::on_stream_close(nghttp2_session *, const int32_t stream_id,
-                                uint32_t, void *user_data) -> int
+
+    auto control::on_stream_close(nghttp2_session *, const int32_t stream_id,
+                                  uint32_t, void *user_data) -> int
     {
-        auto *self = static_cast<craft *>(user_data);
+        auto *self = static_cast<control *>(user_data);
         const auto id = static_cast<std::uint32_t>(stream_id);
 
         self->h2_pending_.erase(id);
 
-        if (const auto it = self->ducts_.find(id); it != self->ducts_.end() && it->second)
+        if (const auto it = self->streams_.find(id); it != self->streams_.end() && it->second)
         {
             it->second->on_fin();
         }
 
-        if (const auto it = self->parcels_.find(id); it != self->parcels_.end() && it->second)
+        self->udp_bufs_.erase(id);
+
+        if (const auto it = self->datagrams_.find(id); it != self->datagrams_.end() && it->second)
         {
             it->second->close();
         }
@@ -537,137 +682,7 @@ namespace psm::multiplex::h2mux
     }
 
 
-    auto craft::send_data(const std::uint32_t stream_id, memory::vector<std::byte> payload) const
-        -> net::awaitable<void>
-    {
-        outbound_data item(mr_);
-        item.stream_id = stream_id;
-        item.payload = std::move(payload);
-        item.is_fin = false;
-
-        boost::system::error_code ec;
-        auto token = net::redirect_error(net::use_awaitable, ec);
-        co_await send_channel_.async_send(boost::system::error_code{}, std::move(item), token);
-        if (ec)
-        {
-            trace::debug(prefix_, "send_data channel send failed: {}", ec.message());
-        }
-    }
-
-    void craft::send_fin(const std::uint32_t stream_id)
-    {
-        auto self = std::static_pointer_cast<craft>(shared_from_this());
-        auto send_fn = [self, stream_id]() -> net::awaitable<void>
-        {
-            outbound_data item(self->mr_);
-            item.stream_id = stream_id;
-            item.is_fin = true;
-
-            boost::system::error_code ec;
-            auto token = net::redirect_error(net::use_awaitable, ec);
-            co_await self->send_channel_.async_send(boost::system::error_code{}, std::move(item), token);
-        };
-        net::co_spawn(executor(), std::move(send_fn), net::detached);
-    }
-
-    auto craft::send_loop() -> net::awaitable<void>
-    {
-        trace::debug(prefix_, "send loop started");
-
-        try
-        {
-            while (is_active())
-            {
-                boost::system::error_code ec;
-                auto token = net::redirect_error(net::use_awaitable, ec);
-                auto item = co_await send_channel_.async_receive(token);
-                if (ec)
-                {
-                    break;
-                }
-
-                if (item.is_fin)
-                {
-                    nghttp2_submit_rst_stream(session_, NGHTTP2_FLAG_NONE,
-                                              static_cast<std::int32_t>(item.stream_id), NGHTTP2_NO_ERROR);
-                    std::error_code pending_ec;
-                    co_await send_pending();
-                    continue;
-                }
-
-                if (item.payload.empty())
-                {
-                    continue;
-                }
-
-                auto payload = std::make_shared<memory::vector<std::byte>>(std::move(item.payload));
-
-                struct data_source
-                {
-                    std::shared_ptr<memory::vector<std::byte>> buf;
-                    std::size_t offset{0};
-                };
-
-                auto src = std::make_unique<data_source>(data_source{payload, 0});
-
-                nghttp2_data_provider dp;
-                dp.source.ptr = src.get();
-                dp.read_callback = [](nghttp2_session *, int32_t, uint8_t *buf,
-                                      size_t length, uint32_t *data_flags,
-                                      nghttp2_data_source *source, void *) -> ssize_t
-                {
-                    auto *ds = static_cast<data_source *>(source->ptr);
-                    auto remaining = ds->buf->size() - ds->offset;
-
-                    if (remaining == 0)
-                    {
-                        *data_flags |= NGHTTP2_DATA_FLAG_EOF;
-                        return 0;
-                    }
-
-                    const auto to_copy = std::min(length, remaining);
-                    std::memcpy(buf, ds->buf->data() + ds->offset, to_copy);
-                    ds->offset += to_copy;
-
-                    if (ds->offset >= ds->buf->size())
-                    {
-                        *data_flags |= NGHTTP2_DATA_FLAG_EOF;
-                    }
-
-                    return static_cast<ssize_t>(to_copy);
-                };
-
-                const std::int32_t rv = nghttp2_submit_data(session_, NGHTTP2_FLAG_NONE,
-                                                    static_cast<std::int32_t>(item.stream_id), &dp);
-                if (rv != 0)
-                {
-                    trace::warn(prefix_, "nghttp2_submit_data failed: {}", nghttp2_strerror(rv));
-                    continue;
-                }
-
-                co_await send_pending();
-                src.reset();
-            }
-        }
-        catch (const std::exception &e)
-        {
-            trace::debug(prefix_, "send loop error: {}", e.what());
-        }
-        catch (...)
-        {
-            trace::debug(prefix_, "send loop unknown error");
-        }
-
-        trace::debug(prefix_, "send loop ended");
-    }
-
-
-    auto craft::executor() const -> net::any_io_executor
-    {
-        return transport_->executor();
-    }
-
-    auto craft::wait_first_connect()
+    auto control::wait_first_connect()
         -> net::awaitable<std::optional<h2_headers>>
     {
         if (connect_resolved_)
@@ -690,7 +705,8 @@ namespace psm::multiplex::h2mux
         co_return std::move(first_connect_);
     }
 
-    auto craft::respond_connect(const std::int32_t stream_id, const std::uint32_t status) -> std::int32_t
+
+    auto control::respond_connect(const std::int32_t stream_id, const std::uint32_t status) -> std::int32_t
     {
         if (!session_)
             return NGHTTP2_ERR_INVALID_STATE;
@@ -706,6 +722,31 @@ namespace psm::multiplex::h2mux
 
         return nghttp2_submit_headers(session_, NGHTTP2_FLAG_NONE,
                                       stream_id, nullptr, hdrs, 1, nullptr);
+    }
+
+
+    auto control::make_resolve() const
+        -> resolve_fn
+    {
+        return [this](std::string_view host, std::string_view port)
+            -> net::awaitable<std::pair<fault::code, net::ip::udp::endpoint>>
+        {
+            co_return co_await router_fn_(host, port);
+        };
+    }
+
+
+    auto control::make_emit(const std::uint32_t stream_id)
+        -> emit_fn
+    {
+        auto self = std::static_pointer_cast<control>(shared_from_this());
+        return [self, stream_id](const std::string_view, const std::uint16_t,
+                                 const std::span<const std::byte> payload)
+            -> net::awaitable<void>
+        {
+            auto encoded = smux::build_prefixed(payload, self->mr_);
+            co_await self->send(stream_id, std::move(encoded));
+        };
     }
 
 } // namespace psm::multiplex::h2mux

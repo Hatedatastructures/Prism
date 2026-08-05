@@ -8,7 +8,7 @@
  */
 #pragma once
 
-#include <prism/protocol/multiplex/parcel.hpp>
+#include <prism/protocol/multiplex/datagram.hpp>
 
 #include <cstddef>
 #include <cstdint>
@@ -166,5 +166,33 @@ namespace psm::multiplex::smux
      */
     [[nodiscard]] auto deserialization(std::span<const std::byte> data)
         -> std::optional<frame_header>;
+
+    /**
+     * @brief 构建 DATA (PSH) 帧字节序列
+     * @param stream_id 流标识符
+     * @param payload 数据负载
+     * @return 完整的帧字节序列（8 字节帧头 + payload）
+     * @details 帧格式：[Version 1B][Cmd=PSH 1B][Length 2B LE][StreamID 4B LE][Payload]
+     */
+    [[nodiscard]] auto make_data_frame(std::uint32_t stream_id, std::span<const std::byte> payload)
+        -> memory::vector<std::byte>;
+
+    /**
+     * @brief 构建 SYN 帧字节序列
+     * @param stream_id 流标识符
+     * @return 8 字节 SYN 帧头（无 payload）
+     * @details 帧格式：[Version 1B][Cmd=SYN 1B][Length=0 2B LE][StreamID 4B LE]
+     */
+    [[nodiscard]] auto make_syn(std::uint32_t stream_id)
+        -> std::array<std::byte, frame_hdrsize>;
+
+    /**
+     * @brief 构建 FIN 帧字节序列
+     * @param stream_id 流标识符
+     * @return 8 字节 FIN 帧头（无 payload）
+     * @details 帧格式：[Version 1B][Cmd=FIN 1B][Length=0 2B LE][StreamID 4B LE]
+     */
+    [[nodiscard]] auto make_fin(std::uint32_t stream_id)
+        -> std::array<std::byte, frame_hdrsize>;
 
 } // namespace psm::multiplex::smux

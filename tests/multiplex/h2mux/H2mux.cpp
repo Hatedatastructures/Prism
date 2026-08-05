@@ -12,7 +12,7 @@
 
 #include <prism/foundation/foundation.hpp>
 #include <prism/trace/spdlog.hpp>
-#include <prism/protocol/multiplex/h2mux/craft.hpp>
+#include <prism/protocol/multiplex/h2mux/control.hpp>
 
 #include <array>
 #include <cstring>
@@ -462,33 +462,7 @@ TEST(H2mux, H2PendingEntryStruct)
     EXPECT_TRUE(entry.connecting == true) << "h2_pending_entry connecting assigned";
 }
 
-/**
- * @brief 测试 outbound_data 结构体
- */
-TEST(H2mux, OutboundDataStruct)
-{
-    outbound_data data;
-    EXPECT_TRUE(data.stream_id == 0) << "outbound_data default stream_id == 0";
-    EXPECT_TRUE(data.payload.empty()) << "outbound_data default payload empty";
-    EXPECT_TRUE(data.is_fin == false) << "outbound_data default is_fin == false";
 
-    data.stream_id = 42;
-    data.payload = {std::byte{0x01}, std::byte{0x02}, std::byte{0x03}};
-    data.is_fin = true;
-
-    EXPECT_TRUE(data.stream_id == 42) << "outbound_data stream_id assigned";
-    EXPECT_TRUE(data.payload.size() == 3) << "outbound_data payload size == 3";
-    EXPECT_TRUE(data.is_fin == true) << "outbound_data is_fin assigned";
-
-    // 带 PMR 的构造
-    outbound_data data_with_mr(psm::memory::current_resource());
-    EXPECT_TRUE(data_with_mr.payload.empty()) << "outbound_data(mr) payload empty";
-}
-
-/**
- * @brief 测试 address_resolver 回调类型
- * @details 分别测试 TrustTunnel resolver 和 sing-mux resolver 的行为
- */
 TEST(H2mux, AddressResolverCallback)
 {
     // TrustTunnel resolver: 从 authority 解析 host:port

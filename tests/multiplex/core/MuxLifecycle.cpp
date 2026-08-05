@@ -215,7 +215,7 @@ auto async_wait(net::any_io_executor ex, const std::chrono::milliseconds dur) ->
 
 // ── 辅助：等待 session 变为非活跃 ──
 
-auto wait_for_inactive(const std::shared_ptr<core> &session, net::any_io_executor ex,
+auto wait_for_inactive(const std::shared_ptr<multiplexer> &session, net::any_io_executor ex,
                        const std::chrono::milliseconds timeout = std::chrono::milliseconds(500))
     -> net::awaitable<void>
 {
@@ -276,7 +276,7 @@ TEST(MuxLifecycle, SmuxTcpLifecycle)
 
         // 创建 smux 服务端 session
         auto server_transport = psm::transport::make_reliable(std::move(server_sock));
-        auto session = std::make_shared<smux::craft>(core_options{std::move(server_transport), &ctx->outbound, ctx->mux_config});
+        auto session = std::make_shared<smux::control>(multiplexer_options{std::move(server_transport), &ctx->outbound, ctx->mux_config});
         session->start();
 
         const std::uint32_t stream_id = 1;
@@ -398,7 +398,7 @@ TEST(MuxLifecycle, YamuxTcpLifecycle)
         auto [client_sock, server_sock] = co_await make_socket_pair(ex);
 
         auto server_transport = psm::transport::make_reliable(std::move(server_sock));
-        auto session = std::make_shared<yamux::craft>(core_options{std::move(server_transport), &ctx->outbound, ctx->mux_config});
+        auto session = std::make_shared<yamux::control>(multiplexer_options{std::move(server_transport), &ctx->outbound, ctx->mux_config});
         session->start();
 
         const std::uint32_t stream_id = 1;
@@ -554,7 +554,7 @@ TEST(MuxLifecycle, SmuxUdpLifecycle)
         auto [client_sock, server_sock] = co_await make_socket_pair(ex);
 
         auto server_transport = psm::transport::make_reliable(std::move(server_sock));
-        auto session = std::make_shared<smux::craft>(core_options{std::move(server_transport), &ctx->outbound, ctx->mux_config});
+        auto session = std::make_shared<smux::control>(multiplexer_options{std::move(server_transport), &ctx->outbound, ctx->mux_config});
         session->start();
 
         const std::uint32_t stream_id = 2;
@@ -641,7 +641,7 @@ TEST(MuxLifecycle, SmuxAbruptDisconnect)
         auto [client_sock, server_sock] = co_await make_socket_pair(ex);
 
         auto server_transport = psm::transport::make_reliable(std::move(server_sock));
-        auto session = std::make_shared<smux::craft>(core_options{std::move(server_transport), &ctx->outbound, ctx->mux_config});
+        auto session = std::make_shared<smux::control>(multiplexer_options{std::move(server_transport), &ctx->outbound, ctx->mux_config});
         session->start();
 
         const std::uint32_t stream_id = 1;
@@ -713,7 +713,7 @@ TEST(MuxLifecycle, YamuxAbruptDisconnect)
         auto [client_sock, server_sock] = co_await make_socket_pair(ex);
 
         auto server_transport = psm::transport::make_reliable(std::move(server_sock));
-        auto session = std::make_shared<yamux::craft>(core_options{std::move(server_transport), &ctx->outbound, ctx->mux_config});
+        auto session = std::make_shared<yamux::control>(multiplexer_options{std::move(server_transport), &ctx->outbound, ctx->mux_config});
         session->start();
 
         const std::uint32_t stream_id = 1;
@@ -783,7 +783,7 @@ TEST(MuxLifecycle, SmuxMultiStream)
         auto [client_sock, server_sock] = co_await make_socket_pair(ex);
 
         auto server_transport = psm::transport::make_reliable(std::move(server_sock));
-        auto session = std::make_shared<smux::craft>(core_options{std::move(server_transport), &ctx->outbound, ctx->mux_config});
+        auto session = std::make_shared<smux::control>(multiplexer_options{std::move(server_transport), &ctx->outbound, ctx->mux_config});
         session->start();
 
         for (std::uint32_t sid = 1; sid <= 2; ++sid)
@@ -873,7 +873,7 @@ TEST(MuxLifecycle, YamuxRstStream)
         auto [client_sock, server_sock] = co_await make_socket_pair(ex);
 
         auto server_transport = psm::transport::make_reliable(std::move(server_sock));
-        auto session = std::make_shared<yamux::craft>(core_options{std::move(server_transport), &ctx->outbound, ctx->mux_config});
+        auto session = std::make_shared<yamux::control>(multiplexer_options{std::move(server_transport), &ctx->outbound, ctx->mux_config});
         session->start();
 
         const std::uint32_t stream_id = 5;
@@ -939,7 +939,7 @@ TEST(MuxLifecycle, YamuxGoAway)
         auto [client_sock, server_sock] = co_await make_socket_pair(ex);
 
         auto server_transport = psm::transport::make_reliable(std::move(server_sock));
-        auto session = std::make_shared<yamux::craft>(core_options{std::move(server_transport), &ctx->outbound, ctx->mux_config});
+        auto session = std::make_shared<yamux::control>(multiplexer_options{std::move(server_transport), &ctx->outbound, ctx->mux_config});
         session->start();
 
         auto go_away = yamux::build_goaway(yamux::away_code::protocol_error);

@@ -24,9 +24,8 @@
 #include <prism/net/connect/pool/pool.hpp>
 #include <prism/net/connect/dial/router.hpp>
 #include <prism/net/dns/resolver.hpp>
-#include <prism/protocol/multiplex/core.hpp>
-#include <prism/protocol/multiplex/duct.hpp>
-#include <prism/account/stats/traffic.hpp>
+#include <prism/protocol/multiplex/multiplexer.hpp>
+#include <prism/protocol/multiplex/stream.hpp>
 
 using MockTransport = psm::testing::MockTransport;
 namespace multiplex = psm::multiplex;
@@ -37,36 +36,36 @@ namespace net = boost::asio;
 namespace
 {
     // TestCore: core 最小子类，提供 executor
-    class TestCore final : public multiplex::core
+    class TestCore final : public multiplex::multiplexer
     {
     public:
         std::uint32_t last_fin_id_ = 0;
         mutable bool send_data_called_ = false;
 
-        explicit TestCore(multiplex::core_options opts)
-            : core(std::move(opts))
+        explicit TestCore(multiplex::multiplexer_options opts)
+            : multiplexer(std::move(opts))
         {
         }
 
-        auto send_data(std::uint32_t, psm::memory::vector<std::byte>) const
+        auto send(std::uint32_t, psm::memory::vector<std::byte>)
             -> net::awaitable<void> override
         {
             send_data_called_ = true;
             co_return;
         }
 
-        void send_fin(std::uint32_t id) override
+        void fin(std::uint32_t id) override
         {
             last_fin_id_ = id;
         }
 
-        [[nodiscard]] auto executor() const -> net::any_io_executor override
-        {
-            return transport_->executor();
-        }
-
     protected:
         auto run() -> net::awaitable<void> override
+        {
+            co_return;
+        }
+
+        auto write_frame(outbound_frame) -> net::awaitable<void> override
         {
             co_return;
         }
@@ -84,7 +83,7 @@ namespace
         std::unique_ptr<psm::connect::connection_pool> pool;
         std::unique_ptr<psm::connect::router> router_ptr;
         std::shared_ptr<TestCore> core_obj;
-        std::shared_ptr<multiplex::duct> duct_obj;
+        std::shared_ptr<multiplex::stream> duct_obj;
 
         explicit DuctFixture(std::uint32_t buffer_size = 4096)
         {
@@ -95,14 +94,16 @@ namespace
             psm::dns::config dns_cfg;
             psm::connect::router_options ropts{*pool, *ioc, dns_cfg};
             router_ptr = std::make_unique<psm::connect::router>(std::move(ropts));
-            multiplex::core_options opts{mux_transport, nullptr, g_cfg, nullptr};
+            multiplex::multiplexer_options opts{mux_transport, nullptr, g_cfg, nullptr};
             core_obj = std::make_shared<TestCore>(std::move(opts));
 
-            multiplex::stream_options sopts{buffer_size, nullptr};
-            multiplex::duct_options dopts{
-                42, core_obj,
-                target_transport, sopts};
-            duct_obj = multiplex::make_duct(std::move(dopts));
+            duct_obj = multiplex::make_stream(multiplex::stream_options{
+                .stream_id = 42,
+                .target = target_transport,
+                .egress = core_obj,
+                .buffer_size = buffer_size,
+                .mr = nullptr,
+                .prefix = nullptr});
         }
 
         ~DuctFixture()
@@ -148,13 +149,17 @@ namespace
         psm::connect::router_options ropts{*pool, *ioc, dns_cfg};
         auto router = std::make_unique<psm::connect::router>(std::move(ropts));
         static multiplex::config cfg;
-        multiplex::core_options opts{mux_t, nullptr, cfg, nullptr};
+        multiplex::multiplexer_options opts{mux_t, nullptr, cfg, nullptr};
         auto c = std::make_shared<TestCore>(std::move(opts));
 
         psm::memory::unsynchronized_pool mr;
-        multiplex::stream_options sopts{4096, &mr};
-        multiplex::duct_options dopts{1, c, tgt_t, sopts};
-        auto d = multiplex::make_duct(std::move(dopts));
+        auto d = multiplex::make_stream(multiplex::stream_options{
+            .stream_id = 1,
+            .target = tgt_t,
+            .egress = c,
+            .buffer_size = 4096,
+            .mr = &mr,
+            .prefix = nullptr});
         EXPECT_TRUE(d->stream_id() == 1) << "constructor: with mr -> stream_id = 1";
     }
 
@@ -191,15 +196,6 @@ namespace
     {
         DuctFixture fx;
         fx.duct_obj->close();
-        fx.duct_obj->close();
-    }
-
-    TEST(DuctDeep, CloseAccumulatesTraffic)
-    {
-        DuctFixture fx;
-        psm::stats::traffic::traffic_state ts;
-        fx.core_obj->start();
-        fx.core_obj->set_traffic(&ts, psm::connect::protocol_type::trojan);
         fx.duct_obj->close();
     }
 
@@ -274,4 +270,4 @@ namespace
 } // namespace
 
 // #include 源文件以覆盖 duct 全部实现
-#include "../src/prism/protocol/multiplex/duct.cpp"
+#include "../src/prism/protocol/multiplex/stream.cpp"

@@ -1,7 +1,7 @@
 /**
  * @file H2muxCraftAsync.cpp
  * @brief h2mux craft 异步端到端路径测试
- * @details 测试 craft 的 send_data/send_fin/send_loop/wait_first_connect/
+ * @details 测试 craft 的 send/fin/send_loop/wait_first_connect/
  *          frame_loop/activate_stream(handle_connect 第二次触发)等异步路径。
  *          所有测试使用 co_spawn + ioc.run() 模式。
  * @note close() 后必须 transport->close() 解除 MockTransport 轮询循环
@@ -18,8 +18,7 @@
 #include <prism/net/connect/pool/pool.hpp>
 #include <prism/net/connect/dial/router.hpp>
 #include <prism/net/dns/resolver.hpp>
-#include <prism/protocol/multiplex/h2mux/craft.hpp>
-#include <prism/account/stats/traffic.hpp>
+#include <prism/protocol/multiplex/h2mux/control.hpp>
 #undef protected
 #undef private
 
@@ -65,7 +64,7 @@ namespace
         std::unique_ptr<net::io_context> ioc;
         std::unique_ptr<psm::connect::connection_pool> pool;
         std::unique_ptr<psm::connect::router> router_ptr;
-        std::shared_ptr<h2mux::craft> craft_obj;
+        std::shared_ptr<h2mux::control> craft_obj;
 
         explicit AsyncFixture(h2mux::address_resolver resolver = make_check_resolver())
         {
@@ -75,13 +74,12 @@ namespace
             psm::dns::config dns_cfg;
             psm::connect::router_options ropts{*pool, *ioc, dns_cfg};
             router_ptr = std::make_unique<psm::connect::router>(std::move(ropts));
-            multiplex::core_options opts{transport, nullptr, g_cfg, nullptr};
-            h2mux::craft_init init{nullptr, g_cfg, std::move(resolver)};
-            craft_obj = std::make_shared<h2mux::craft>(std::move(opts), std::move(init));
+            multiplex::multiplexer_options opts{transport, nullptr, g_cfg, nullptr};
+            craft_obj = std::make_shared<h2mux::control>(std::move(opts), std::move(resolver));
         }
     };
 
-    // ─── send_data 通过 send_loop 写入 transport ──
+    // ─── send 通过 send_loop 写入 transport ──
 
     TEST(H2muxCraftAsync, SendDataWritesToTransport)
     {
@@ -103,7 +101,7 @@ namespace
             payload.push_back(std::byte{0xDE});
             payload.push_back(std::byte{0xAD});
 
-            co_await fx.craft_obj->send_data(1, std::move(payload));
+            co_await fx.craft_obj->send(1, std::move(payload));
 
             timer.expires_after(std::chrono::milliseconds(200));
             co_await timer.async_wait(net::redirect_error(net::use_awaitable, ec));
@@ -125,10 +123,10 @@ namespace
             catch (const std::exception &e) { FAIL() << e.what(); }
         }
 
-        EXPECT_TRUE(wrote_data) << "send_data: bytes written to transport";
+        EXPECT_TRUE(wrote_data) << "send: bytes written to transport";
     }
 
-    // ─── send_fin 不崩溃 ─────────────────────────
+    // ─── fin 不崩溃 ─────────────────────────
 
     TEST(H2muxCraftAsync, SendFinNoCrash)
     {
@@ -146,7 +144,7 @@ namespace
             boost::system::error_code ec;
             co_await timer.async_wait(net::redirect_error(net::use_awaitable, ec));
 
-            fx.craft_obj->send_fin(1);
+            fx.craft_obj->fin(1);
 
             timer.expires_after(std::chrono::milliseconds(200));
             co_await timer.async_wait(net::redirect_error(net::use_awaitable, ec));
@@ -168,10 +166,10 @@ namespace
             catch (const std::exception &e) { FAIL() << e.what(); }
         }
 
-        EXPECT_TRUE(fin_ok) << "send_fin: completed without crash";
+        EXPECT_TRUE(fin_ok) << "fin: completed without crash";
     }
 
-    // ─── send_data 空 payload 被跳过 ────────────
+    // ─── send 空 payload 被跳过 ────────────
 
     TEST(H2muxCraftAsync, SendDataEmptyPayload)
     {
@@ -190,7 +188,7 @@ namespace
             co_await timer.async_wait(net::redirect_error(net::use_awaitable, ec));
 
             psm::memory::vector<std::byte> empty_payload(psm::memory::current_resource());
-            co_await fx.craft_obj->send_data(1, std::move(empty_payload));
+            co_await fx.craft_obj->send(1, std::move(empty_payload));
 
             empty_ok = true;
 
@@ -209,7 +207,7 @@ namespace
             catch (const std::exception &e) { FAIL() << e.what(); }
         }
 
-        EXPECT_TRUE(empty_ok) << "send_data: empty payload handled";
+        EXPECT_TRUE(empty_ok) << "send: empty payload handled";
     }
 
     // ─── frame_loop 读错误正常退出 ──────────────

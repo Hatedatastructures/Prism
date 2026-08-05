@@ -2,20 +2,20 @@
  * @file MuxBootstrap.cpp
  * @brief bootstrap 协商单元测试
  * @details 测试 multiplex::bootstrap 的 sing-mux 协商路由逻辑：
- * 1. [Version=0, Protocol=0] 正确分发到 smux::craft
- * 2. [Version=0, Protocol=1] 正确分发到 yamux::craft
- * 3. [Version=0, Protocol=2] 正确分发到 h2mux::craft
+ * 1. [Version=0, Protocol=0] 正确分发到 smux::control
+ * 2. [Version=0, Protocol=1] 正确分发到 yamux::control
+ * 3. [Version=0, Protocol=2] 正确分发到 h2mux::control
  * 4. 无效版本号（Version>0 且无 padding 数据）被拒绝，返回 nullptr
- * 5. 无效协议号兜底到 smux::craft（default 分支）
+ * 5. 无效协议号兜底到 smux::control（default 分支）
  */
 
 #include <prism/foundation/foundation.hpp>
 #include <prism/net/connect/outbound/direct.hpp>
 #include <prism/trace/spdlog.hpp>
 #include <prism/protocol/multiplex/bootstrap.hpp>
-#include <prism/protocol/multiplex/smux/craft.hpp>
-#include <prism/protocol/multiplex/yamux/craft.hpp>
-#include <prism/protocol/multiplex/h2mux/craft.hpp>
+#include <prism/protocol/multiplex/smux/control.hpp>
+#include <prism/protocol/multiplex/yamux/control.hpp>
+#include <prism/protocol/multiplex/h2mux/control.hpp>
 #include <prism/net/connect/dial/router.hpp>
 #include <prism/net/connect/pool/pool.hpp>
 #include <prism/net/dns/resolver.hpp>
@@ -118,7 +118,7 @@ namespace
     /**
      * @brief 测试 [Version=0, Protocol=0] 分发到 smux
      * @details Protocol=0 对应 multiplex::protocol_type::smux，
-     * bootstrap 应创建 smux::craft 实例。
+     * bootstrap 应创建 smux::control 实例。
      */
     TEST(MuxBootstrap, Version0Protocol0Smux)
     {
@@ -144,8 +144,8 @@ namespace
             auto result = co_await psm::multiplex::bootstrap(std::move(ctx));
 
             EXPECT_TRUE(result != nullptr) << "[V=0,P=0] session created";
-            EXPECT_TRUE(dynamic_cast<psm::multiplex::smux::craft *>(result.get()) != nullptr)
-                << "[V=0,P=0] session is smux::craft";
+            EXPECT_TRUE(dynamic_cast<psm::multiplex::smux::control *>(result.get()) != nullptr)
+                << "[V=0,P=0] session is smux::control";
         };
 
         net::co_spawn(ioc, coro(), [&](std::exception_ptr e)
@@ -168,7 +168,7 @@ namespace
     /**
      * @brief 测试 [Version=0, Protocol=1] 分发到 yamux
      * @details Protocol=1 对应 multiplex::protocol_type::yamux，
-     * bootstrap 应创建 yamux::craft 实例。
+     * bootstrap 应创建 yamux::control 实例。
      */
     TEST(MuxBootstrap, Version0Protocol1Yamux)
     {
@@ -194,8 +194,8 @@ namespace
             auto result = co_await psm::multiplex::bootstrap(std::move(ctx));
 
             EXPECT_TRUE(result != nullptr) << "[V=0,P=1] session created";
-            EXPECT_TRUE(dynamic_cast<psm::multiplex::yamux::craft *>(result.get()) != nullptr)
-                << "[V=0,P=1] session is yamux::craft";
+            EXPECT_TRUE(dynamic_cast<psm::multiplex::yamux::control *>(result.get()) != nullptr)
+                << "[V=0,P=1] session is yamux::control";
         };
 
         net::co_spawn(ioc, coro(), [&](std::exception_ptr e)
@@ -218,7 +218,7 @@ namespace
     /**
      * @brief 测试 [Version=0, Protocol=2] 分发到 h2mux
      * @details Protocol=2 对应 multiplex::protocol_type::h2mux，
-     * bootstrap 应创建 h2mux::craft 实例。
+     * bootstrap 应创建 h2mux::control 实例。
      */
     TEST(MuxBootstrap, Version0Protocol2H2mux)
     {
@@ -244,8 +244,8 @@ namespace
             auto result = co_await psm::multiplex::bootstrap(std::move(ctx));
 
             EXPECT_TRUE(result != nullptr) << "[V=0,P=2] session created";
-            EXPECT_TRUE(dynamic_cast<psm::multiplex::h2mux::craft *>(result.get()) != nullptr)
-                << "[V=0,P=2] session is h2mux::craft";
+            EXPECT_TRUE(dynamic_cast<psm::multiplex::h2mux::control *>(result.get()) != nullptr)
+                << "[V=0,P=2] session is h2mux::control";
         };
 
         net::co_spawn(ioc, coro(), [&](std::exception_ptr e)
@@ -318,7 +318,7 @@ namespace
     /**
      * @brief 测试无效协议号被拒绝
      * @details Protocol=99 不在合法枚举范围 [smux=0, yamux=1, h2mux=2] 内，
-     * bootstrap 的 switch 命中 default 分支，兜底创建 smux::craft。
+     * bootstrap 的 switch 命中 default 分支，兜底创建 smux::control。
      */
     TEST(MuxBootstrap, InvalidProtocolRejected)
     {
@@ -345,8 +345,8 @@ namespace
             auto result = co_await psm::multiplex::bootstrap(std::move(ctx));
 
             EXPECT_TRUE(result != nullptr) << "[V=0,P=99] session created (smux fallback)";
-            EXPECT_TRUE(dynamic_cast<psm::multiplex::smux::craft *>(result.get()) != nullptr)
-                << "[V=0,P=99] fallback to smux::craft";
+            EXPECT_TRUE(dynamic_cast<psm::multiplex::smux::control *>(result.get()) != nullptr)
+                << "[V=0,P=99] fallback to smux::control";
         };
 
         net::co_spawn(ioc, coro(), [&](std::exception_ptr e)

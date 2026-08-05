@@ -12,7 +12,7 @@
 
 #include <prism/foundation/foundation.hpp>
 #include <prism/trace/spdlog.hpp>
-#include <prism/protocol/multiplex/yamux/craft.hpp>
+#include <prism/protocol/multiplex/yamux/control.hpp>
 
 #include <boost/asio.hpp>
 #include <boost/asio/co_spawn.hpp>
@@ -34,8 +34,8 @@ namespace
     // ---------- helpers ----------
 
     /**
-     * @brief 模拟 craft::send_data 中的窗口扣减 CAS 循环
-     * @details 复现 craft::send_data 的原子扣减逻辑：尝试从 send_window 扣减 payload_size，
+     * @brief 模拟 craft::send 中的窗口扣减 CAS 循环
+     * @details 复现 craft::send 的原子扣减逻辑：尝试从 send_window 扣减 payload_size，
      * 成功返回 true，窗口不足返回 false。
      */
     [[nodiscard]] auto try_acquire_window(yamux::stream_window &window, std::uint32_t payload_size) -> bool
@@ -94,7 +94,7 @@ namespace
 /**
  * @brief 测试窗口耗尽后写入阻塞
  * @details 设置较小窗口后连续扣减，验证窗口为 0 时 try_acquire_window 返回 false
- * （对应 craft::send_data 中协程挂起等待窗口更新）。
+ * （对应 craft::send 中协程挂起等待窗口更新）。
  * 同时验证初始窗口大小 (256KB) 下恰好耗尽的场景。
  */
 TEST(YamuxWindow, WindowExhaustionBlocksWrite)
@@ -314,7 +314,7 @@ TEST(YamuxWindow, RecvConsumedAutoWindowUpdate)
 
 /**
  * @brief 测试窗口信号定时器的阻塞与唤醒
- * @details 模拟 craft::send_data 中 window_signal 的阻塞/唤醒模式：
+ * @details 模拟 craft::send 中 window_signal 的阻塞/唤醒模式：
  * 协程挂起等待信号，WindowUpdate 到达后 cancel 唤醒协程。
  */
 TEST(YamuxWindow, WindowSignalBlockAndWake)

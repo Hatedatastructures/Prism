@@ -1,14 +1,16 @@
 target_sources(${PROJECT_NAME}_static_library
         PRIVATE
-        core.cpp
-        duct.cpp
-        parcel.cpp
+        multiplexer.cpp
+        stream.cpp
+        datagram.cpp
         bootstrap.cpp
-        h2mux/craft.cpp
+        h2mux/control.cpp
         smux/frame.cpp
-        smux/craft.cpp
+        smux/codec.cpp
+        smux/control.cpp
         yamux/frame.cpp
-        yamux/craft.cpp
+        yamux/codec.cpp
+        yamux/control.cpp
 )
 
 target_sources(${PROJECT_NAME}_static_library
@@ -17,16 +19,20 @@ target_sources(${PROJECT_NAME}_static_library
         BASE_DIRS ${PROJECT_SOURCE_DIR}/include
         FILES
             ${PROJECT_SOURCE_DIR}/include/prism/protocol/multiplex/config.hpp
-            ${PROJECT_SOURCE_DIR}/include/prism/protocol/multiplex/core.hpp
-            ${PROJECT_SOURCE_DIR}/include/prism/protocol/multiplex/duct.hpp
-            ${PROJECT_SOURCE_DIR}/include/prism/protocol/multiplex/parcel.hpp
+            ${PROJECT_SOURCE_DIR}/include/prism/protocol/multiplex/multiplexer.hpp
+            ${PROJECT_SOURCE_DIR}/include/prism/protocol/multiplex/stream.hpp
+            ${PROJECT_SOURCE_DIR}/include/prism/protocol/multiplex/datagram.hpp
+            ${PROJECT_SOURCE_DIR}/include/prism/protocol/multiplex/egress.hpp
+            ${PROJECT_SOURCE_DIR}/include/prism/protocol/multiplex/codec.hpp
             ${PROJECT_SOURCE_DIR}/include/prism/protocol/multiplex/bootstrap.hpp
             ${PROJECT_SOURCE_DIR}/include/prism/protocol/multiplex/h2mux/config.hpp
-            ${PROJECT_SOURCE_DIR}/include/prism/protocol/multiplex/h2mux/craft.hpp
+            ${PROJECT_SOURCE_DIR}/include/prism/protocol/multiplex/h2mux/control.hpp
             ${PROJECT_SOURCE_DIR}/include/prism/protocol/multiplex/smux/frame.hpp
-            ${PROJECT_SOURCE_DIR}/include/prism/protocol/multiplex/smux/craft.hpp
+            ${PROJECT_SOURCE_DIR}/include/prism/protocol/multiplex/smux/codec.hpp
+            ${PROJECT_SOURCE_DIR}/include/prism/protocol/multiplex/smux/control.hpp
             ${PROJECT_SOURCE_DIR}/include/prism/protocol/multiplex/smux/config.hpp
             ${PROJECT_SOURCE_DIR}/include/prism/protocol/multiplex/yamux/frame.hpp
-            ${PROJECT_SOURCE_DIR}/include/prism/protocol/multiplex/yamux/craft.hpp
+            ${PROJECT_SOURCE_DIR}/include/prism/protocol/multiplex/yamux/codec.hpp
+            ${PROJECT_SOURCE_DIR}/include/prism/protocol/multiplex/yamux/control.hpp
             ${PROJECT_SOURCE_DIR}/include/prism/protocol/multiplex/yamux/config.hpp
 )

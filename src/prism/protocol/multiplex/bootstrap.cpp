@@ -1,7 +1,7 @@
 #include <prism/protocol/multiplex/bootstrap.hpp>
-#include <prism/protocol/multiplex/h2mux/craft.hpp>
-#include <prism/protocol/multiplex/smux/craft.hpp>
-#include <prism/protocol/multiplex/yamux/craft.hpp>
+#include <prism/protocol/multiplex/h2mux/control.hpp>
+#include <prism/protocol/multiplex/smux/control.hpp>
+#include <prism/protocol/multiplex/yamux/control.hpp>
 #include <prism/trace/trace.hpp>
 #include <prism/trace/context.hpp>
 #include <prism/net/transport/transmission.hpp>
@@ -88,14 +88,12 @@ namespace psm::multiplex
     } // namespace
 
     auto bootstrap(bootstrap_context ctx)
-        -> net::awaitable<std::shared_ptr<core>>
+        -> net::awaitable<std::shared_ptr<multiplexer>>
     {
         auto &res = *ctx.res;
         const auto prefix_ = res.trace;
         auto &mux_cfg = res.worker->process->cfg->mux;
         auto *outbound_ptr = &*res.worker->outbound;
-        auto *traffic_ptr = &res.worker->traffic;
-        const auto proto = res.detected;
 
         auto [ec, protocol] = co_await negotiate(*ctx.transport);
         if (ec)
@@ -114,9 +112,8 @@ namespace psm::multiplex
                 if (prefix_)
                     trace::info(prefix_, "constructing yamux session");
                 {
-                    std::shared_ptr<core> session = std::make_shared<yamux::craft>(
-                        core_options{std::move(ctx.transport), outbound_ptr, mux_cfg, {}});
-                    session->set_traffic(traffic_ptr, proto);
+                    auto session = std::make_shared<yamux::control>(
+                        multiplexer_options{std::move(ctx.transport), outbound_ptr, mux_cfg, {}});
                     session->set_prefix(prefix_);
                     if (prefix_)
                         trace::info(prefix_, "yamux session constructed");
@@ -131,10 +128,9 @@ namespace psm::multiplex
                     {
                         return {};
                     };
-                    std::shared_ptr<core> session = std::make_shared<h2mux::craft>(
-                        core_options{std::move(ctx.transport), outbound_ptr, mux_cfg, {}},
-                        h2mux::craft_init{outbound_ptr, mux_cfg, singmux_resolver});
-                    session->set_traffic(traffic_ptr, proto);
+                    auto session = std::make_shared<h2mux::control>(
+                        multiplexer_options{std::move(ctx.transport), outbound_ptr, mux_cfg, {}},
+                        singmux_resolver);
                     session->set_prefix(prefix_);
                     if (prefix_)
                         trace::info(prefix_, "h2mux session constructed");
@@ -146,9 +142,8 @@ namespace psm::multiplex
                 if (prefix_)
                     trace::info(prefix_, "constructing smux session");
                 {
-                    std::shared_ptr<core> session = std::make_shared<smux::craft>(
-                        core_options{std::move(ctx.transport), outbound_ptr, mux_cfg, {}});
-                    session->set_traffic(traffic_ptr, proto);
+                    auto session = std::make_shared<smux::control>(
+                        multiplexer_options{std::move(ctx.transport), outbound_ptr, mux_cfg, {}});
                     session->set_prefix(prefix_);
                     if (prefix_)
                         trace::info(prefix_, "smux session constructed");

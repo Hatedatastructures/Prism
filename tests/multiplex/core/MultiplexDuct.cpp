@@ -11,7 +11,7 @@
 #include <prism/foundation/foundation.hpp>
 #include <prism/trace/spdlog.hpp>
 #include <prism/protocol/multiplex/config.hpp>
-#include <prism/protocol/multiplex/duct.hpp>
+#include <prism/protocol/multiplex/stream.hpp>
 
 #include <gtest/gtest.h>
 
@@ -35,7 +35,7 @@ namespace
         // 此处验证 duct 类型存在且无 config 嵌套类型。
         // 使用 static_assert 确保 duct 不提供 ::config 子类型。
         // 同时验证 duct 类的 stream_id() 接口存在且返回正确类型。
-        static_assert(std::is_same_v<decltype(std::declval<psm::multiplex::duct>().stream_id()), std::uint32_t>,
+        static_assert(std::is_same_v<decltype(std::declval<psm::multiplex::stream>().stream_id()), std::uint32_t>,
                       "duct::stream_id() should return std::uint32_t");
     }
 

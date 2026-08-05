@@ -3,7 +3,7 @@
  * @brief multiplex/core 深度纯函数测试
  * @details 通过 #include 源文件访问匿名命名空间中的 resolve_mr，
  *          以及 core 类的构造、close、accumulate_traffic、
- *          is_active、remove_duct/remove_parcel、on_exception 等同步方法。
+ *          is_active、drop/drop、on_exception 等同步方法。
  *          使用 TestCore 具体子类 + MockTransport 验证核心逻辑。
  */
 
@@ -17,10 +17,9 @@
 #include <prism/net/connect/pool/pool.hpp>
 #include <prism/net/connect/dial/router.hpp>
 #include <prism/net/dns/resolver.hpp>
-#include <prism/protocol/multiplex/core.hpp>
-#include <prism/protocol/multiplex/duct.hpp>
-#include <prism/protocol/multiplex/parcel.hpp>
-#include <prism/account/stats/traffic.hpp>
+#include <prism/protocol/multiplex/multiplexer.hpp>
+#include <prism/protocol/multiplex/stream.hpp>
+#include <prism/protocol/multiplex/datagram.hpp>
 
 using MockTransport = psm::testing::MockTransport;
 namespace multiplex = psm::multiplex;
@@ -31,34 +30,34 @@ namespace net = boost::asio;
 namespace
 {
     // 具体子类实现 core 的纯虚接口
-    class TestCore final : public multiplex::core
+    class TestCore final : public multiplex::multiplexer
     {
     public:
-        explicit TestCore(multiplex::core_options opts)
-            : core(std::move(opts))
+        explicit TestCore(multiplex::multiplexer_options opts)
+            : multiplexer(std::move(opts))
         {
         }
 
-        auto send_data(std::uint32_t, psm::memory::vector<std::byte>) const
+        auto send(std::uint32_t, psm::memory::vector<std::byte>)
             -> net::awaitable<void> override
         {
             co_return;
         }
 
-        void send_fin(std::uint32_t) override {}
-
-        [[nodiscard]] auto executor() const -> net::any_io_executor override
-        {
-            return transport_->executor();
-        }
+        void fin(std::uint32_t) override {}
 
         // public 包装器用于测试 protected 方法
-        void test_remove_duct(std::uint32_t id) { remove_duct(id); }
-        void test_remove_parcel(std::uint32_t id) { remove_parcel(id); }
+        void test_remove_duct(std::uint32_t id) { drop(id); }
+        void test_remove_parcel(std::uint32_t id) { drop(id); }
         void test_on_exception(std::exception_ptr ep) { on_exception(std::move(ep)); }
 
     protected:
         auto run() -> net::awaitable<void> override
+        {
+            co_return;
+        }
+
+        auto write_frame(outbound_frame) -> net::awaitable<void> override
         {
             co_return;
         }
@@ -83,7 +82,7 @@ namespace
             psm::connect::router_options ropts{*pool, *ioc, dns_cfg};
             router_ptr = std::make_unique<psm::connect::router>(std::move(ropts));
             static multiplex::config cfg;
-            multiplex::core_options opts{transport, nullptr, cfg, nullptr};
+            multiplex::multiplexer_options opts{transport, nullptr, cfg, nullptr};
             core_obj = std::make_shared<TestCore>(std::move(opts));
         }
     };
@@ -106,49 +105,9 @@ namespace
         auto router_ptr = std::make_unique<psm::connect::router>(std::move(ropts));
         static multiplex::config cfg;
         psm::memory::unsynchronized_pool mr;
-        multiplex::core_options opts{transport, nullptr, cfg, &mr};
+        multiplex::multiplexer_options opts{transport, nullptr, cfg, &mr};
         auto c = std::make_shared<TestCore>(std::move(opts));
         EXPECT_TRUE(!c->is_active()) << "constructor: with mr -> inactive";
-    }
-
-    // ─── set_traffic + accumulate_traffic ──────
-
-    TEST(MuxCoreDeep, SetTraffic)
-    {
-        CoreFixture fx;
-        psm::stats::traffic::traffic_state ts;
-        fx.core_obj->set_traffic(&ts, psm::connect::protocol_type::trojan);
-    }
-
-    TEST(MuxCoreDeep, AccumulateTrafficBoth)
-    {
-        CoreFixture fx;
-        fx.core_obj->accumulate_traffic(100, 200);
-    }
-
-    TEST(MuxCoreDeep, AccumulateTrafficOnlyUp)
-    {
-        CoreFixture fx;
-        fx.core_obj->accumulate_traffic(50, 0);
-    }
-
-    TEST(MuxCoreDeep, AccumulateTrafficOnlyDown)
-    {
-        CoreFixture fx;
-        fx.core_obj->accumulate_traffic(0, 50);
-    }
-
-    TEST(MuxCoreDeep, AccumulateTrafficZero)
-    {
-        CoreFixture fx;
-        fx.core_obj->accumulate_traffic(0, 0);
-    }
-
-    TEST(MuxCoreDeep, AccumulateTrafficMultiple)
-    {
-        CoreFixture fx;
-        fx.core_obj->accumulate_traffic(10, 20);
-        fx.core_obj->accumulate_traffic(30, 40);
     }
 
     // ─── close() 幂等性 ─────────────────────
@@ -172,23 +131,14 @@ namespace
         EXPECT_TRUE(fx.transport->is_closed()) << "close: transport closed";
     }
 
-    TEST(MuxCoreDeep, CloseWithTraffic)
-    {
-        CoreFixture fx;
-        psm::stats::traffic::traffic_state ts;
-        fx.core_obj->set_traffic(&ts, psm::connect::protocol_type::trojan);
-        fx.core_obj->accumulate_traffic(1000, 2000);
-        fx.core_obj->close();
-    }
 
     TEST(MuxCoreDeep, CloseWithoutTraffic)
     {
         CoreFixture fx;
-        fx.core_obj->accumulate_traffic(100, 200);
         fx.core_obj->close();
     }
 
-    // ─── remove_duct / remove_parcel ─────────
+    // ─── drop / drop ─────────
 
     TEST(MuxCoreDeep, RemoveDuctNonexistent)
     {
@@ -275,7 +225,7 @@ namespace
 
 // #include 源文件以覆盖 resolve_mr 匿名命名空间函数
 // 放在 TestCore 定义之后，确保所有类型完整
-#include "../src/prism/protocol/multiplex/core.cpp"
+#include "../src/prism/protocol/multiplex/multiplexer.cpp"
 
 namespace
 {

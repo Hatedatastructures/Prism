@@ -391,4 +391,48 @@ namespace psm::multiplex::smux
         return buffer;
     }
 
+    namespace
+    {
+        [[nodiscard]] auto build_header(const command cmd, const std::uint32_t stream_id,
+                                        const std::uint16_t length)
+            -> std::array<std::byte, frame_hdrsize>
+        {
+            return {
+                std::byte{protocol_version},
+                static_cast<std::byte>(cmd),
+                static_cast<std::byte>(length & 0xFF),
+                static_cast<std::byte>(length >> 8),
+                static_cast<std::byte>(stream_id & 0xFF),
+                static_cast<std::byte>(stream_id >> 8),
+                static_cast<std::byte>(stream_id >> 16),
+                static_cast<std::byte>(stream_id >> 24),
+            };
+        }
+    } // namespace
+
+    auto make_data_frame(const std::uint32_t stream_id, const std::span<const std::byte> payload)
+        -> memory::vector<std::byte>
+    {
+        memory::vector<std::byte> buf(memory::current_resource());
+        const auto hdr = build_header(command::push, stream_id,
+                                      static_cast<std::uint16_t>(payload.size()));
+        buf.insert(buf.end(), hdr.begin(), hdr.end());
+        buf.insert(buf.end(), payload.begin(), payload.end());
+        return buf;
+    }
+
+
+    auto make_syn(const std::uint32_t stream_id)
+        -> std::array<std::byte, frame_hdrsize>
+    {
+        return build_header(command::syn, stream_id, 0);
+    }
+
+
+    auto make_fin(const std::uint32_t stream_id)
+        -> std::array<std::byte, frame_hdrsize>
+    {
+        return build_header(command::fin, stream_id, 0);
+    }
+
 } // namespace psm::multiplex::smux

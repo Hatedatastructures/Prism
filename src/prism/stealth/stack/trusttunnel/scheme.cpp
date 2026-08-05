@@ -5,7 +5,7 @@
 #include <prism/resource/session.hpp>
 #include <prism/foundation/fault/handling.hpp>
 #include <prism/foundation/memory/container.hpp>
-#include <prism/protocol/multiplex/h2mux/craft.hpp>
+#include <prism/protocol/multiplex/h2mux/control.hpp>
 #include <prism/net/connect/types.hpp>
 #include <prism/trace/trace.hpp>
 #include <prism/net/transport/encrypted.hpp>
@@ -255,12 +255,8 @@ namespace psm::stealth::trusttunnel
         }
 
         auto mux_cfg = ctx.session->worker->process->cfg->mux;
-        multiplex::core_options core_opts{encrypted_trans, tt_wr->outbound.get(), mux_cfg};
-        multiplex::h2mux::craft_init craft_init_args{
-            tt_wr->outbound.get(),
-            mux_cfg,
-            resolve_stream_target};
-        auto craft = std::make_shared<multiplex::h2mux::craft>(core_opts, craft_init_args);
+        multiplex::multiplexer_options core_opts{encrypted_trans, tt_wr->outbound.get(), mux_cfg};
+        auto craft = std::make_shared<multiplex::h2mux::control>(core_opts, resolve_stream_target);
 
         craft->start();
 
