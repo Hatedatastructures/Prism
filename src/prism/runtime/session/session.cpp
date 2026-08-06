@@ -198,7 +198,7 @@ namespace psm::runtime::session
         auto do_recognize = [this, self = this->shared_from_this()]()
             -> net::awaitable<recognition::recognize_result>
         {
-            ::psm::handshake::stealth_opts st_opts;
+            ::psm::handshake::handshake_context st_opts;
             st_opts.transport = res_->inbound;
             st_opts.session = res_.get();
             st_opts.session_keepalive = std::move(self);

@@ -7,10 +7,10 @@
 
 #include <gtest/gtest.h>
 
-#include <prism/handshake/facade/shadowtls/util/auth.hpp>
-#include <prism/handshake/facade/shadowtls/util/constants.hpp>
-#include <prism/handshake/facade/shadowtls/config.hpp>
-#include <prism/handshake/facade/shadowtls/handshake.hpp>
+#include <prism/handshake/shadowtls/util/auth.hpp>
+#include <prism/handshake/shadowtls/util/constants.hpp>
+#include <prism/handshake/shadowtls/config.hpp>
+#include <prism/handshake/shadowtls/handshake.hpp>
 #include <prism/foundation/foundation.hpp>
 
 #include <openssl/hmac.h>

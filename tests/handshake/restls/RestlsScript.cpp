@@ -7,7 +7,7 @@
 #include <gtest/gtest.h>
 
 #include <prism/foundation/foundation.hpp>
-#include <prism/handshake/facade/restls/script.hpp>
+#include <prism/handshake/restls/script.hpp>
 
 namespace
 {

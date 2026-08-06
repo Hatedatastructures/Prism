@@ -8,8 +8,8 @@
 #include <gtest/gtest.h>
 
 #include <prism/foundation/foundation.hpp>
-#include <prism/handshake/facade/reality/util/response.hpp>
-#include <prism/handshake/facade/reality/util/keygen.hpp>
+#include <prism/handshake/reality/util/response.hpp>
+#include <prism/handshake/reality/util/keygen.hpp>
 #include <prism/protocol/tls/types.hpp>
 #include <prism/foundation/foundation.hpp>
 

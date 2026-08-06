@@ -10,8 +10,8 @@
 #include <prism/foundation/foundation.hpp>
 
 // 显式引入 scheme 子类（executor.cpp 不直接 include 它们）
-#include <prism/handshake/facade/native.hpp>
-#include <prism/handshake/facade/reality/scheme.hpp>
+#include <prism/handshake/native.hpp>
+#include <prism/handshake/reality/scheme.hpp>
 
 #include "../../src/prism/handshake/executor.cpp"
 

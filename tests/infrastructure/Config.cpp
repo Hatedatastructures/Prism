@@ -20,8 +20,8 @@
 #include <prism/protocol/trojan/config.hpp>
 #include <prism/protocol/vless/config.hpp>
 #include <prism/protocol/shadowsocks/config.hpp>
-#include <prism/handshake/facade/shadowtls/config.hpp>
-#include <prism/handshake/facade/reality/config.hpp>
+#include <prism/handshake/shadowtls/config.hpp>
+#include <prism/handshake/reality/config.hpp>
 #include <prism/foundation/foundation.hpp>
 #include <prism/diagnose/log.hpp>
 

@@ -1,6 +1,6 @@
 /**
  * @file StealthRegistryDeep.cpp
- * @brief stealth/registry 深度纯函数测试
+ * @brief handshake 注册表深度纯函数测试
  * @details 通过 #include 源文件访问 registry.cpp 中所有同步函数，
  *          覆盖 register_schemes、scheme_registry 单例/add/all/find。
  */

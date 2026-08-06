@@ -8,7 +8,7 @@
 #include <gtest/gtest.h>
 
 #include <prism/foundation/foundation.hpp>
-#include <prism/handshake/facade/reality/handshake.hpp>
+#include <prism/handshake/reality/handshake.hpp>
 
 namespace
 {

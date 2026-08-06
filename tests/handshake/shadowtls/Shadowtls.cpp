@@ -5,7 +5,7 @@
 
 #include <gtest/gtest.h>
 
-#include <prism/handshake/facade/shadowtls/util/auth.hpp>
+#include <prism/handshake/shadowtls/util/auth.hpp>
 #include <prism/foundation/foundation.hpp>
 
 #include <openssl/hmac.h>

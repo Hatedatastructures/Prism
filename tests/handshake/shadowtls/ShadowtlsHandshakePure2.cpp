@@ -8,10 +8,10 @@
 #include <gtest/gtest.h>
 
 #include <prism/foundation/foundation.hpp>
-#include <prism/handshake/facade/shadowtls/handshake.hpp>
+#include <prism/handshake/shadowtls/handshake.hpp>
 #include <prism/handshake/common.hpp>
 
-#include "../../src/prism/handshake/facade/shadowtls/handshake.cpp"
+#include "../../src/prism/handshake/shadowtls/handshake.cpp"
 
 namespace
 {

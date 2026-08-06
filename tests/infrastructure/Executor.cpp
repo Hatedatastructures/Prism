@@ -73,7 +73,7 @@ namespace
      * @brief 用于测试的 mock 伪装方案
      * @details handshake() 返回预设的 handshake_result，不做任何 I/O。
      */
-    class mock_scheme final : public psm::handshake::stealth_scheme
+    class mock_scheme final : public psm::handshake::scheme
     {
     public:
         mock_scheme(std::string name, psm::connect::protocol_type detected,

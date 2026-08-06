@@ -1,7 +1,7 @@
 /**
  * @file DetectionPipeline.cpp
  * @brief 分层检测管道单元测试
- * @details 通过 mock stealth_scheme 测试 layered_detection_pipeline
+ * @details 通过 mock scheme 测试 layered_detection_pipeline
  *          的构造分组、三级检测逻辑、early-out 和 native 兜底。
  */
 
@@ -19,7 +19,7 @@
 namespace
 {
     // 测试用 mock scheme，可配置各层返回值
-    struct mock_scheme final : psm::handshake::stealth_scheme
+    struct mock_scheme final : psm::handshake::scheme
     {
         std::string name_;
         std::uint8_t tier_{2};

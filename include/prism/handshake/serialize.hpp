@@ -10,14 +10,14 @@
  */
 #pragma once
 
-#include <prism/handshake/stack/anytls/config.hpp>
+#include <prism/handshake/anytls/config.hpp>
 #include <prism/handshake/ech/config.hpp>
-#include <prism/handshake/facade/native/config.hpp>
-#include <prism/handshake/facade/reality/config.hpp>
-#include <prism/handshake/facade/restls/config.hpp>
-#include <prism/handshake/facade/shadowtls/config.hpp>
+#include <prism/handshake/native/config.hpp>
+#include <prism/handshake/reality/config.hpp>
+#include <prism/handshake/restls/config.hpp>
+#include <prism/handshake/shadowtls/config.hpp>
 #include <prism/foundation/rate/counter.hpp>
-#include <prism/handshake/stack/trusttunnel/config.hpp>
+#include <prism/handshake/trusttunnel/config.hpp>
 #include <prism/net/transport/pad.hpp>
 
 #include <glaze/glaze.hpp>

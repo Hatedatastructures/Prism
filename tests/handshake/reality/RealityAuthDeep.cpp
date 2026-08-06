@@ -11,7 +11,7 @@
 #include <prism/foundation/foundation.hpp>
 
 // #include 源文件增加覆盖率计数
-#include "../../src/prism/handshake/facade/reality/util/auth.cpp"
+#include "../../src/prism/handshake/reality/util/auth.cpp"
 
 namespace
 {

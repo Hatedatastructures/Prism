@@ -22,20 +22,20 @@
 #include "common/MockTransport.hpp"
 
 #include <prism/foundation/foundation.hpp>
-#include <prism/handshake/stack/anytls/mux/frame.hpp>
-#include <prism/handshake/stack/anytls/padding.hpp>
+#include <prism/handshake/anytls/mux/frame.hpp>
+#include <prism/handshake/anytls/padding.hpp>
 #include <boost/asio.hpp>
 #include <boost/asio/experimental/concurrent_channel.hpp>
 
 // 必须在 session.hpp 之前定义，否则 transport.hpp 内部已包含 session.hpp
 #define private public
 #define protected public
-#include <prism/handshake/stack/anytls/mux/transport.hpp>
-#include <prism/handshake/stack/anytls/mux/session.hpp>
+#include <prism/handshake/anytls/mux/transport.hpp>
+#include <prism/handshake/anytls/mux/session.hpp>
 #undef protected
 #undef private
 
-#include "../../src/prism/handshake/stack/anytls/session.cpp"
+#include "../../src/prism/handshake/anytls/session.cpp"
 
 using MockTransport = psm::testing::MockTransport;
 namespace anytls = psm::handshake::anytls;

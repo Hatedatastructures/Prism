@@ -45,7 +45,7 @@ namespace psm::recognition
          * @brief 从配置构建路由表
          * @param cfg 全局配置
          * @return 构建完成的路由表
-         * @details 遍历所有 stealth 方案的 server_names，
+         * @details 遍历所有 handshake 方案的 server_names，
          * 构建 SNI → 方案名称的映射。
          */
         [[nodiscard]] static auto build(const psm::settings &cfg)

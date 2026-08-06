@@ -10,11 +10,11 @@
 #include <gtest/gtest.h>
 
 #include <prism/foundation/foundation.hpp>
-#include <prism/handshake/facade/restls/handshake.hpp>
+#include <prism/handshake/restls/handshake.hpp>
 #include <prism/handshake/common.hpp>
 
 // #include 源文件获取匿名命名空间中的纯函数
-#include "../../src/prism/handshake/facade/restls/handshake.cpp"
+#include "../../src/prism/handshake/restls/handshake.cpp"
 
 namespace
 {

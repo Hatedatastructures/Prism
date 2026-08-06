@@ -8,7 +8,7 @@
 #include <gtest/gtest.h>
 
 #include <prism/foundation/foundation.hpp>
-#include <prism/handshake/facade/reality/seal.hpp>
+#include <prism/handshake/reality/seal.hpp>
 #include <prism/crypto/aead.hpp>
 
 #include "common/MockTransport.hpp"

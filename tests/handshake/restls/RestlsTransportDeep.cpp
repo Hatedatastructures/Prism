@@ -16,7 +16,7 @@
 #include <vector>
 
 #define private public
-#include <prism/handshake/facade/restls/transport.hpp>
+#include <prism/handshake/restls/transport.hpp>
 #undef private
 
 namespace

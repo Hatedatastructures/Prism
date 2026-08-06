@@ -10,7 +10,7 @@
 #include <gtest/gtest.h>
 
 #include <prism/foundation/foundation.hpp>
-#include <prism/handshake/facade/restls/crypto.hpp>
+#include <prism/handshake/restls/crypto.hpp>
 
 #include <array>
 #include <cstdint>
@@ -21,7 +21,7 @@
 // 拉入源文件中 anonymous namespace 的函数定义
 // 注意：必须在所有头文件之后 include
 // anonymous namespace 函数在 psm::handshake::restls 命名空间中可见
-#include "../../src/prism/handshake/facade/restls/handshake.cpp"
+#include "../../src/prism/handshake/restls/handshake.cpp"
 
 using namespace psm::handshake::restls;
 

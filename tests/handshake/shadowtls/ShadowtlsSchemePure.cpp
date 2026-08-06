@@ -8,7 +8,7 @@
 
 #include <prism/foundation/foundation.hpp>
 #include <prism/settings/settings.hpp>
-#include <prism/handshake/facade/shadowtls/scheme.hpp>
+#include <prism/handshake/shadowtls/scheme.hpp>
 #include <prism/handshake/recognition/tls/features.hpp>
 #include <prism/protocol/tls/types.hpp>
 

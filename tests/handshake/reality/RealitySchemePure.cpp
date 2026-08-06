@@ -7,7 +7,7 @@
 #include <gtest/gtest.h>
 
 #include <prism/foundation/foundation.hpp>
-#include <prism/handshake/facade/reality/scheme.hpp>
+#include <prism/handshake/reality/scheme.hpp>
 #include <prism/handshake/recognition/tls/features.hpp>
 #include <prism/protocol/tls/types.hpp>
 

@@ -19,8 +19,8 @@
 #include <prism/handshake/executor.hpp>
 #undef private
 
-#include <prism/handshake/facade/native.hpp>
-#include <prism/handshake/facade/reality/scheme.hpp>
+#include <prism/handshake/native.hpp>
+#include <prism/handshake/reality/scheme.hpp>
 
 #include "../../src/prism/handshake/executor.cpp"
 

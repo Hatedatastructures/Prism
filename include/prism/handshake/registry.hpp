@@ -1,7 +1,7 @@
 /**
  * @file registry.hpp
  * @brief 伪装方案注册表
- * @details 单例模式，管理所有 stealth_scheme 的注册和查询。
+ * @details 单例模式，管理所有 scheme 的注册和查询。
  * 启动阶段通过 register_schemes() 手动注册所有方案，
  * 运行时只读，无需同步。
  */
@@ -20,7 +20,7 @@ namespace psm::handshake
     /**
      * @class scheme_registry
      * @brief 伪装方案注册表（单例）
-     * @details 管理所有 stealth_scheme 的注册和查询。
+     * @details 管理所有 scheme 的注册和查询。
      * 启动时通过 register_schemes() 注册所有方案，
      * 运行时由 recognition 模块查询和使用。
      *

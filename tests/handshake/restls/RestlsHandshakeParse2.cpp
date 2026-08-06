@@ -7,7 +7,7 @@
 #include <gtest/gtest.h>
 
 #include <prism/foundation/foundation.hpp>
-#include <prism/handshake/facade/restls/handshake.hpp>
+#include <prism/handshake/restls/handshake.hpp>
 #include <prism/handshake/common.hpp>
 
 namespace

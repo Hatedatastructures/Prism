@@ -7,8 +7,8 @@
  */
 
 #include <benchmark/benchmark.h>
-#include <prism/handshake/facade/restls/crypto.hpp>
-#include <prism/handshake/facade/shadowtls/util/auth.hpp>
+#include <prism/handshake/restls/crypto.hpp>
+#include <prism/handshake/shadowtls/util/auth.hpp>
 
 #include <array>
 #include <cstdint>

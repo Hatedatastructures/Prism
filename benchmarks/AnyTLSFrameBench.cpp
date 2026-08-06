@@ -8,7 +8,7 @@
  */
 
 #include <benchmark/benchmark.h>
-#include <prism/handshake/stack/anytls/mux/frame.hpp>
+#include <prism/handshake/anytls/mux/frame.hpp>
 #include <prism/foundation/memory/container.hpp>
 
 #include <array>

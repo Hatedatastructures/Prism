@@ -8,7 +8,7 @@
 
 #include <prism/foundation/foundation.hpp>
 
-#include "../../src/prism/handshake/stack/trusttunnel/scheme.cpp"
+#include "../../src/prism/handshake/trusttunnel/scheme.cpp"
 
 namespace
 {

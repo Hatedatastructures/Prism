@@ -6,7 +6,7 @@
 #include <gtest/gtest.h>
 
 #include <prism/foundation/foundation.hpp>
-#include <prism/handshake/stack/anytls/mux/frame.hpp>
+#include <prism/handshake/anytls/mux/frame.hpp>
 
 #include <array>
 #include <cstdint>

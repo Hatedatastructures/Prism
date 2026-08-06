@@ -14,7 +14,7 @@
 #include <prism/handshake/recognition/routes.hpp>
 #include <prism/handshake/recognition/tls/features.hpp>
 #include <prism/protocol/tls/types.hpp>
-#include <prism/handshake/facade/reality/scheme.hpp>
+#include <prism/handshake/reality/scheme.hpp>
 #include <prism/handshake/registry.hpp>
 #include <prism/settings/settings.hpp>
 #include <prism/foundation/foundation.hpp>

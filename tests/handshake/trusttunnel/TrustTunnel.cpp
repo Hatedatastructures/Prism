@@ -17,7 +17,7 @@
 // 拉入源文件中 anonymous namespace 的函数定义
 // 注意：必须在所有头文件之后 include
 // anonymous namespace 函数在 psm::handshake::trusttunnel 命名空间中可见
-#include "../../src/prism/handshake/stack/trusttunnel/scheme.cpp"
+#include "../../src/prism/handshake/trusttunnel/scheme.cpp"
 
 using namespace psm::handshake::trusttunnel;
 

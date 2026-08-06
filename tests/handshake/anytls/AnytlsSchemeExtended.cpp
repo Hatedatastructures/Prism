@@ -7,7 +7,7 @@
 
 #include <prism/settings/settings.hpp>
 #include <prism/foundation/foundation.hpp>
-#include <prism/handshake/stack/anytls/scheme.hpp>
+#include <prism/handshake/anytls/scheme.hpp>
 #include <prism/handshake/scheme.hpp>
 
 #include <cstddef>

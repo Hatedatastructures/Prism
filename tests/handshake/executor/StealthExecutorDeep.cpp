@@ -1,6 +1,6 @@
 /**
  * @file StealthExecutorDeep.cpp
- * @brief stealth/executor 深度纯函数测试
+ * @brief handshake executor 深度纯函数测试
  * @details 通过 #include 源文件访问 executor.cpp 中匿名命名空间的
  *          secondary_probe 函数，以及构造函数。
  *          private static 方法（pass_through/ensure_snapshot/try_rewind/find_scheme）

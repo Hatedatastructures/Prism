@@ -1,11 +1,11 @@
 #include <prism/handshake/registry.hpp>
 
-#include <prism/handshake/stack/anytls/scheme.hpp>
-#include <prism/handshake/facade/native.hpp>
-#include <prism/handshake/facade/reality/scheme.hpp>
-#include <prism/handshake/facade/restls/scheme.hpp>
-#include <prism/handshake/facade/shadowtls/scheme.hpp>
-#include <prism/handshake/stack/trusttunnel/scheme.hpp>
+#include <prism/handshake/anytls/scheme.hpp>
+#include <prism/handshake/native.hpp>
+#include <prism/handshake/reality/scheme.hpp>
+#include <prism/handshake/restls/scheme.hpp>
+#include <prism/handshake/shadowtls/scheme.hpp>
+#include <prism/handshake/trusttunnel/scheme.hpp>
 
 #include <algorithm>
 

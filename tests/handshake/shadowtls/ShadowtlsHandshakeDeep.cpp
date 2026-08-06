@@ -9,14 +9,14 @@
 #include <gtest/gtest.h>
 
 #include <prism/foundation/foundation.hpp>
-#include <prism/handshake/facade/shadowtls/config.hpp>
-#include <prism/handshake/facade/shadowtls/util/auth.hpp>
-#include <prism/handshake/facade/shadowtls/util/constants.hpp>
+#include <prism/handshake/shadowtls/config.hpp>
+#include <prism/handshake/shadowtls/util/auth.hpp>
+#include <prism/handshake/shadowtls/util/constants.hpp>
 
 #include <cstdint>
 #include <cstring>
 
-#include "../../src/prism/handshake/facade/shadowtls/handshake.cpp"
+#include "../../src/prism/handshake/shadowtls/handshake.cpp"
 
 namespace
 {

@@ -2,7 +2,7 @@
  * @file types.hpp
  * @brief TLS 协议共享类型与常量
  * @details 定义 TLS 1.3 记录层和握手协议的通用常量，以及从 ClientHello
- * 提取的特征结构。这些类型是中立的共享层，供 recognition 和 stealth 模块
+ * 提取的特征结构。这些类型是中立的共享层，供 recognition 和 handshake 模块
  * 共同使用，不依赖任何具体实现。
  * @note 遵循 RFC 8446 (TLS 1.3) 和 RFC 5246 (TLS 1.2) 的定义。
  */
@@ -121,7 +121,7 @@ namespace psm::protocol::tls
      * @brief 从 TLS ClientHello 提取的关键特征
      * @details 包含 SNI、session_id、key_share、支持的版本等特征。
      * 各方案的 detect() 方法基于这些特征判断置信度。
-     * 该结构是中立的共享类型，供 recognition 和 stealth 共同使用。
+     * 该结构是中立的共享类型，供 recognition 和 handshake 共同使用。
      */
     struct hello_features
     {

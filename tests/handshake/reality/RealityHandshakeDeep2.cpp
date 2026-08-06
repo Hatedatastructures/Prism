@@ -13,7 +13,7 @@
 #include <prism/crypto/hkdf.hpp>
 #include <prism/protocol/tls/types.hpp>
 
-#include "../../src/prism/handshake/facade/reality/handshake.cpp"
+#include "../../src/prism/handshake/reality/handshake.cpp"
 
 namespace
 {

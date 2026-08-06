@@ -7,7 +7,7 @@
 #include <gtest/gtest.h>
 
 #include <prism/foundation/foundation.hpp>
-#include "../../src/prism/handshake/stack/anytls/padding.cpp"
+#include "../../src/prism/handshake/anytls/padding.cpp"
 
 namespace
 {

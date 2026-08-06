@@ -19,7 +19,7 @@
 #include <openssl/hmac.h>
 
 #define private public
-#include <prism/handshake/facade/shadowtls/transport.hpp>
+#include <prism/handshake/shadowtls/transport.hpp>
 #undef private
 
 namespace

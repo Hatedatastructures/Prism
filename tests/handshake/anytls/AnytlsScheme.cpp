@@ -14,7 +14,7 @@
 // 拉入源文件中 anonymous namespace 的函数定义
 // 注意：必须在所有头文件之后 include
 // anonymous namespace 函数在 psm::handshake::anytls 命名空间中可见
-#include "../../src/prism/handshake/stack/anytls/scheme.cpp"
+#include "../../src/prism/handshake/anytls/scheme.cpp"
 
 using namespace psm::handshake::anytls;
 

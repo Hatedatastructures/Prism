@@ -5,9 +5,9 @@
 
 #include <gtest/gtest.h>
 
-#include <prism/handshake/facade/restls/config.hpp>
-#include <prism/handshake/facade/restls/crypto.hpp>
-#include <prism/handshake/facade/shadowtls/util/constants.hpp>
+#include <prism/handshake/restls/config.hpp>
+#include <prism/handshake/restls/crypto.hpp>
+#include <prism/handshake/shadowtls/util/constants.hpp>
 #include <prism/foundation/foundation.hpp>
 
 namespace

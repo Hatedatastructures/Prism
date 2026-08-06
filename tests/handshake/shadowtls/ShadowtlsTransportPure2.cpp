@@ -8,7 +8,7 @@
 
 #include <prism/foundation/foundation.hpp>
 
-#include "../../src/prism/handshake/facade/shadowtls/transport.cpp"
+#include "../../src/prism/handshake/shadowtls/transport.cpp"
 
 using psm::handshake::shadowtls::compute_write_key;
 

@@ -125,7 +125,7 @@ namespace psm::recognition
     {
     public:
         /**
-         * @brief 从 stealth 注册表构建管道
+         * @brief 从 handshake 注册表构建管道
          * @param schemes 已注册的方案列表（std::vector 兼容 registry）
          */
         explicit layered_detection_pipeline(

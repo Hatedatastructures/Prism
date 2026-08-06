@@ -9,7 +9,7 @@
 
 #include <prism/foundation/foundation.hpp>
 
-#include "../../src/prism/handshake/stack/anytls/scheme.cpp"
+#include "../../src/prism/handshake/anytls/scheme.cpp"
 
 // 匿名命名空间函数通过 #include 可见
 using psm::handshake::anytls::parse_socks_target;

@@ -43,7 +43,7 @@ namespace
  * @details 通过 preset_result 控制 handshake() 返回值，
  * 通过 active_flag 控制 active() 返回值
  */
-class MockScheme final : public handshake::stealth_scheme
+class MockScheme final : public handshake::scheme
 {
 public:
     handshake::handshake_result preset_result;

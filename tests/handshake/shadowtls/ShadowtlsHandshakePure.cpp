@@ -10,7 +10,7 @@
 #include <gtest/gtest.h>
 
 #include <prism/foundation/foundation.hpp>
-#include <prism/handshake/facade/shadowtls/util/constants.hpp>
+#include <prism/handshake/shadowtls/util/constants.hpp>
 
 #include <array>
 #include <cstdint>
@@ -21,7 +21,7 @@
 // 拉入源文件中 anonymous namespace 的函数定义
 // 注意：必须在所有头文件之后 include
 // anonymous namespace 函数在 psm::handshake::shadowtls 命名空间中可见
-#include "../../src/prism/handshake/facade/shadowtls/handshake.cpp"
+#include "../../src/prism/handshake/shadowtls/handshake.cpp"
 
 using namespace psm::handshake::shadowtls;
 

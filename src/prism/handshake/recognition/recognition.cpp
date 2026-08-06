@@ -16,7 +16,7 @@ using namespace psm::diagnose;
 namespace psm::recognition
 {
 
-    auto identify(handshake::stealth_opts &opts)
+    auto identify(handshake::handshake_context &opts)
         -> net::awaitable<identify_result>
     {
         const auto prefix_ = opts.session->trace;
@@ -144,7 +144,7 @@ namespace psm::recognition
         co_return result;
     }
 
-    auto recognize(handshake::stealth_opts &opts)
+    auto recognize(handshake::handshake_context &opts)
         -> net::awaitable<recognize_result>
     {
         const auto prefix_ = opts.session->trace;

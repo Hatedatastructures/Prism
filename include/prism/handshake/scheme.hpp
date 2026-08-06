@@ -1,7 +1,7 @@
 /**
  * @file scheme.hpp
  * @brief Stealth 模块伪装方案基类
- * @details 定义 stealth_scheme 抽象基类，每个方案代表一种传输层伪装方式
+ * @details 定义 scheme 抽象基类，每个方案代表一种传输层伪装方式
  * （如 Reality、ShadowTLS、Standard TLS）。调用方通过 handshake() 接口
  * 完成握手和协议检测，获得最终传输层和检测到的协议类型。
  *
@@ -123,12 +123,12 @@ namespace psm::handshake
     };
 
     /**
-     * @struct stealth_opts
+     * @struct handshake_context
      * @brief Stealth 层统一传参
      * @details session_resources 提供所有 worker/session 级资源访问。
      *          preread 是 ClientHello 预读数据。
      */
-    struct stealth_opts
+    struct handshake_context
     {
         shared_transmission transport;                                ///< 传输层（合并 inbound 语义）
         psm::resource::session *session{nullptr};          ///< 会话资源
@@ -136,13 +136,11 @@ namespace psm::handshake
         memory::vector<std::byte> preread;                            ///< 预读数据（ClientHello 等）
     };
 
-    /// @brief handshake_context 别名
-    using handshake_context = stealth_opts;
 
     // 方案基类
 
     /**
-     * @class stealth_scheme
+     * @class scheme
      * @brief 传输层伪装方案抽象基类
      * @details 支持分层检测：
      * Tier 0: sniff() - 零成本字节比较
@@ -150,10 +148,10 @@ namespace psm::handshake
      * Tier 2: guess() - 模糊匹配（SNI 路由）
      * handshake() 执行握手，失败则 fallback 到真实 TLS
      */
-    class stealth_scheme
+    class scheme
     {
     public:
-        virtual ~stealth_scheme() noexcept = default;
+        virtual ~scheme() noexcept = default;
 
         auto set_prefix(std::shared_ptr<diagnose::context> p) noexcept -> void
         {
@@ -267,7 +265,7 @@ namespace psm::handshake
          *          需要挑战的方案(如 Reality)覆盖此方法。
          *          executor 在认证失败 + should_challenge 时调用。
          */
-        [[nodiscard]] virtual auto challenge(stealth_opts /*ctx*/)
+        [[nodiscard]] virtual auto challenge(handshake_context /*ctx*/)
             -> net::awaitable<challenge_result>
         {
             co_return challenge_result{};
@@ -295,6 +293,6 @@ namespace psm::handshake
         }
     };
 
-    using shared_scheme = std::shared_ptr<stealth_scheme>;
+    using shared_scheme = std::shared_ptr<scheme>;
 
 } // namespace psm::handshake

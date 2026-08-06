@@ -7,9 +7,9 @@
 
 #include <prism/settings/settings.hpp>
 #include <prism/foundation/foundation.hpp>
-#include <prism/handshake/facade/reality/scheme.hpp>
-#include <prism/handshake/facade/restls/scheme.hpp>
-#include <prism/handshake/facade/shadowtls/scheme.hpp>
+#include <prism/handshake/reality/scheme.hpp>
+#include <prism/handshake/restls/scheme.hpp>
+#include <prism/handshake/shadowtls/scheme.hpp>
 #include <prism/handshake/scheme.hpp>
 
 #include <string_view>

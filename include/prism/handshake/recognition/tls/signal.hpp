@@ -3,7 +3,7 @@
  * @brief TLS ClientHello 解析器
  * @details 解析 TLS 记录层的 ClientHello 消息，提取 SNI、key_share 公钥、
  * session_id 和 supported_versions 等关键字段。解析器是无状态的，
- * 所有方法均为纯函数。该模块是中立的共享层，供 recognition 和 stealth
+ * 所有方法均为纯函数。该模块是中立的共享层，供 recognition 和 handshake
  * 模块共同使用。
  */
 

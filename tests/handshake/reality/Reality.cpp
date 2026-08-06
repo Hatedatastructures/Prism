@@ -7,8 +7,8 @@
 
 #include <gtest/gtest.h>
 
-#include <prism/handshake/facade/reality/util/response.hpp>
-#include <prism/handshake/facade/reality/util/keygen.hpp>
+#include <prism/handshake/reality/util/response.hpp>
+#include <prism/handshake/reality/util/keygen.hpp>
 #include <prism/crypto/x25519.hpp>
 #include <openssl/x509.h>
 #include <openssl/evp.h>

@@ -1,6 +1,6 @@
 /**
  * @file TrustTunnelSchemeDeep.cpp
- * @brief stealth/stack/trusttunnel/scheme 深度纯函数测试
+ * @brief handshake trusttunnel 深度纯函数测试
  * @details 通过 #include 源文件访问 scheme.cpp 中所有同步函数，
  *          覆盖 verify_basic_auth、resolve_stream_target 和所有访问器方法。
  */
@@ -9,7 +9,7 @@
 
 #include <prism/foundation/foundation.hpp>
 
-#include "../../src/prism/handshake/stack/trusttunnel/scheme.cpp"
+#include "../../src/prism/handshake/trusttunnel/scheme.cpp"
 
 namespace
 {

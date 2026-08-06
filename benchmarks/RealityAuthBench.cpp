@@ -9,10 +9,10 @@
  */
 
 #include <benchmark/benchmark.h>
-#include <prism/handshake/facade/reality/util/auth.hpp>
-#include <prism/handshake/facade/reality/util/keygen.hpp>
-#include <prism/handshake/facade/reality/util/response.hpp>
-#include <prism/handshake/facade/reality/config.hpp>
+#include <prism/handshake/reality/util/auth.hpp>
+#include <prism/handshake/reality/util/keygen.hpp>
+#include <prism/handshake/reality/util/response.hpp>
+#include <prism/handshake/reality/config.hpp>
 #include <prism/protocol/tls/types.hpp>
 #include <prism/crypto/x25519.hpp>
 #include <prism/foundation/memory/container.hpp>

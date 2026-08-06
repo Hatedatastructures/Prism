@@ -6,7 +6,7 @@
 
 #include <gtest/gtest.h>
 
-#include <prism/handshake/facade/native.hpp>
+#include <prism/handshake/native.hpp>
 #include <prism/settings/settings.hpp>
 
 #include <string_view>

@@ -7,7 +7,7 @@
 
 #include <prism/settings/settings.hpp>
 #include <prism/foundation/foundation.hpp>
-#include <prism/handshake/stack/trusttunnel/scheme.hpp>
+#include <prism/handshake/trusttunnel/scheme.hpp>
 #include <prism/handshake/scheme.hpp>
 
 #include <string>
