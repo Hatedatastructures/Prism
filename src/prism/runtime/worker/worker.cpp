@@ -3,14 +3,14 @@
 #include <prism/foundation/coroutine/registry.hpp>
 #include <prism/runtime/worker/launch.hpp>
 #include <prism/runtime/worker/tls.hpp>
-#include <prism/trace/trace.hpp>
+#include <prism/diagnose/diagnose.hpp>
 
 #include <boost/asio/co_spawn.hpp>
 
 #include <memory>
 #include <utility>
 
-using namespace psm::trace;
+using namespace psm::diagnose;
 
 namespace psm::runtime::worker
 {

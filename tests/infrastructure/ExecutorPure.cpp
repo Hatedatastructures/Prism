@@ -7,13 +7,13 @@
  */
 
 #include <prism/foundation/foundation.hpp>
-#include <prism/trace/spdlog.hpp>
-#include <prism/stealth/stealth.hpp>
-#include <prism/config/config.hpp>
+#include <prism/diagnose/log.hpp>
+#include <prism/handshake/handshake.hpp>
+#include <prism/settings/settings.hpp>
 #include <gtest/gtest.h>
 
 // #include 源文件以访问匿名命名空间中的 secondary_probe
-#include "../../src/prism/stealth/executor.cpp"
+#include "../../src/prism/handshake/executor.cpp"
 
 namespace
 {
@@ -23,7 +23,7 @@ namespace
     TEST(ExecutorPure, SecondaryProbeEmpty)
     {
         psm::memory::vector<std::byte> empty_preread;
-        auto result = psm::stealth::secondary_probe(empty_preread);
+        auto result = psm::handshake::secondary_probe(empty_preread);
         EXPECT_TRUE(result == psm::connect::protocol_type::unknown)
             << "secondary_probe: empty preread -> unknown";
     }
@@ -36,7 +36,7 @@ namespace
         const char *http_get = "GET / HTTP/1.1\r\nHost: example.com\r\n";
         const auto *ptr = reinterpret_cast<const std::byte *>(http_get);
         psm::memory::vector<std::byte> preread(ptr, ptr + std::strlen(http_get));
-        auto result = psm::stealth::secondary_probe(preread);
+        auto result = psm::handshake::secondary_probe(preread);
         EXPECT_TRUE(result == psm::connect::protocol_type::http)
             << "secondary_probe: HTTP GET -> http";
     }
@@ -49,7 +49,7 @@ namespace
         const char *random = "\x17\x03\x03\x00\x05hello";
         const auto *ptr = reinterpret_cast<const std::byte *>(random);
         psm::memory::vector<std::byte> preread(ptr, ptr + std::strlen(random));
-        auto result = psm::stealth::secondary_probe(preread);
+        auto result = psm::handshake::secondary_probe(preread);
         EXPECT_TRUE(result == psm::connect::protocol_type::shadowsocks)
             << "secondary_probe: random bytes -> shadowsocks";
     }
@@ -62,7 +62,7 @@ namespace
         const unsigned char socks5_data[] = {0x05, 0x01, 0x00};
         const auto *ptr = reinterpret_cast<const std::byte *>(socks5_data);
         psm::memory::vector<std::byte> preread(ptr, ptr + sizeof(socks5_data));
-        auto result = psm::stealth::secondary_probe(preread);
+        auto result = psm::handshake::secondary_probe(preread);
         // SOCKS5 无 TLS 内层特征，detect_tls 返回 unknown → 回退 shadowsocks
         EXPECT_TRUE(result == psm::connect::protocol_type::shadowsocks)
             << "secondary_probe: SOCKS5 -> shadowsocks (no TLS fingerprint)";
@@ -73,7 +73,7 @@ namespace
      */
     TEST(ExecutorPure, RegistryFindEmpty)
     {
-        psm::stealth::scheme_registry registry;
+        psm::handshake::scheme_registry registry;
         auto found = registry.find("native");
         EXPECT_TRUE(!found) << "registry::find: empty -> nullptr";
     }
@@ -83,8 +83,8 @@ namespace
      */
     TEST(ExecutorPure, RegistryFindHit)
     {
-        psm::stealth::scheme_registry registry;
-        auto scheme = std::make_shared<psm::stealth::native::native>();
+        psm::handshake::scheme_registry registry;
+        auto scheme = std::make_shared<psm::handshake::native::native>();
         registry.add(scheme);
         auto found = registry.find("native");
         EXPECT_TRUE(found != nullptr) << "registry::find: native registered -> found";
@@ -97,8 +97,8 @@ namespace
      */
     TEST(ExecutorPure, RegistryFindMiss)
     {
-        psm::stealth::scheme_registry registry;
-        auto scheme = std::make_shared<psm::stealth::native::native>();
+        psm::handshake::scheme_registry registry;
+        auto scheme = std::make_shared<psm::handshake::native::native>();
         registry.add(scheme);
         auto found = registry.find("nonexistent");
         EXPECT_TRUE(!found) << "registry::find: nonexistent -> nullptr";
@@ -109,10 +109,10 @@ namespace
      */
     TEST(ExecutorPure, ExecutorFromRegistry)
     {
-        psm::stealth::scheme_registry registry;
-        auto scheme = std::make_shared<psm::stealth::native::native>();
+        psm::handshake::scheme_registry registry;
+        auto scheme = std::make_shared<psm::handshake::native::native>();
         registry.add(scheme);
-        psm::stealth::scheme_executor executor(registry);
+        psm::handshake::scheme_executor executor(registry);
         EXPECT_TRUE(registry.all().size() == 1) << "executor: registry contains 1 scheme after add";
     }
 } // namespace

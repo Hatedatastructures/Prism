@@ -17,7 +17,7 @@
 
 #include <prism/foundation/memory/container.hpp>
 #include <prism/protocol/multiplex/egress.hpp>
-#include <prism/trace/context.hpp>
+#include <prism/diagnose/context.hpp>
 #include <prism/net/transport/transmission.hpp>
 
 #include <boost/asio.hpp>
@@ -46,7 +46,7 @@ namespace psm::multiplex
         std::shared_ptr<egress> egress;        ///< 会话层出口（数据回传通道）
         std::uint32_t buffer_size{4096};       ///< 单次读取缓冲区大小
         memory::resource_pointer mr = {};      ///< PMR 内存资源
-        std::shared_ptr<trace::trace_context> prefix; ///< 日志前缀
+        std::shared_ptr<diagnose::context> prefix; ///< 日志前缀
     };
 
     /**
@@ -136,7 +136,7 @@ namespace psm::multiplex
         std::weak_ptr<egress> egress_;                 ///< 会话层出口弱引用（防循环）
         memory::resource_pointer mr_{};                ///< PMR 内存资源
         transport::shared_transmission target_;        ///< 已连接的目标传输层
-        std::shared_ptr<trace::trace_context> prefix_; ///< 日志前缀
+        std::shared_ptr<diagnose::context> prefix_; ///< 日志前缀
         bool closed_ = false;                          ///< 关闭标志（close 幂等）
         std::size_t read_size_ = 0;                    ///< 单次读取上限（≤ 帧载荷上限）
 

@@ -11,7 +11,7 @@
 
 #pragma once
 
-#include <prism/net/connect/types.hpp>
+#include <prism/net/connection/types.hpp>
 #include <prism/resource/session.hpp>
 
 #include <boost/asio.hpp>

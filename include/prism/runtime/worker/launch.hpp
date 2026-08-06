@@ -7,7 +7,7 @@
  */
 #pragma once
 
-#include <prism/account/stats/runtime.hpp>
+#include <prism/user/stats/runtime.hpp>
 #include <prism/resource/worker.hpp>
 
 #include <boost/asio.hpp>

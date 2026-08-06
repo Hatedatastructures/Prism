@@ -11,9 +11,9 @@
 
 // Protocol 子模块
 #include <prism/protocol/common/mux.hpp>
-#include <prism/net/connect/target.hpp>
+#include <prism/net/connection/target.hpp>
 #include <prism/protocol/tls/types.hpp>
-#include <prism/net/connect/types.hpp>
+#include <prism/net/connection/types.hpp>
 #include <prism/protocol/http/http.hpp>
 #include <prism/protocol/shadowsocks/shadowsocks.hpp>
 #include <prism/protocol/socks5/socks5.hpp>

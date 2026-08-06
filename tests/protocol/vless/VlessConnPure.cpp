@@ -5,8 +5,8 @@
  */
 
 #include <prism/foundation/foundation.hpp>
-#include "../../src/prism/protocol/vless/conn.cpp"
-#include <prism/trace/spdlog.hpp>
+#include "../../src/prism/protocol/vless/handler/conn.cpp"
+#include <prism/diagnose/log.hpp>
 
 #include <gtest/gtest.h>
 

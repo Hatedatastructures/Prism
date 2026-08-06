@@ -7,8 +7,8 @@
  */
 
 #include <benchmark/benchmark.h>
-#include <prism/stealth/recognition/probe/analyzer.hpp>
-#include <prism/stealth/recognition/tls/signal.hpp>
+#include <prism/handshake/recognition/probe/analyzer.hpp>
+#include <prism/handshake/recognition/tls/signal.hpp>
 #include <prism/protocol/tls/types.hpp>
 #include <prism/foundation/memory/container.hpp>
 

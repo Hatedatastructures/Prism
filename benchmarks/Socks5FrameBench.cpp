@@ -9,7 +9,7 @@
  */
 
 #include <benchmark/benchmark.h>
-#include <prism/protocol/socks5/framing.hpp>
+#include <prism/protocol/socks5/codec/framing.hpp>
 #include <prism/protocol/common/framing.hpp>
 #include <prism/foundation/memory/container.hpp>
 

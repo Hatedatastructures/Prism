@@ -6,14 +6,14 @@
  */
 
 #include <prism/foundation/foundation.hpp>
-#include <prism/trace/spdlog.hpp>
+#include <prism/diagnose/log.hpp>
 
 
 #include <gtest/gtest.h>
 
 // 通过预处理器 hack 访问 private 方法
 #define private public
-#include <prism/stealth/recognition/routes.hpp>
+#include <prism/handshake/recognition/routes.hpp>
 #undef private
 
 namespace

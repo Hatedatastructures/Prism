@@ -6,8 +6,8 @@
 #include <cstring>
 
 #include <boost/asio.hpp>
-#include <prism/protocol/http/parser.hpp>
-#include <prism/trace/trace.hpp>
+#include <prism/protocol/http/codec/parser.hpp>
+#include <prism/diagnose/diagnose.hpp>
 
 namespace srv
 {
@@ -86,11 +86,11 @@ namespace srv
         socket.non_blocking(true, ec);
         if (ec)
         {
-            psm::trace::error("stress mode: failed to set non-blocking: {}", ec.message());
+            psm::diagnose::error("stress mode: failed to set non-blocking: {}", ec.message());
             co_return;
         }
 
-        psm::trace::debug("stress mode: sending 4KB response every 50ms or on client message...");
+        psm::diagnose::debug("stress mode: sending 4KB response every 50ms or on client message...");
 
         while (true)
         {
@@ -107,14 +107,14 @@ namespace srv
                 if (auto n = socket.read_some(net::buffer(recv_buf), ec); n > 0)
                 {
                     has_data = true;
-                    psm::trace::debug("stress mode: received {} bytes from client", n);
+                    psm::diagnose::debug("stress mode: received {} bytes from client", n);
                 }
                 else if (ec == net::error::would_block || ec == net::error::try_again)
                 {
                 }
                 else if (ec)
                 {
-                    psm::trace::debug("stress mode: client disconnected ({})", ec.message());
+                    psm::diagnose::debug("stress mode: client disconnected ({})", ec.message());
                     co_return;
                 }
             }
@@ -123,11 +123,11 @@ namespace srv
             co_await net::async_write(socket, net::buffer(response_data), net::redirect_error(net::use_awaitable, ec));
             if (ec)
             {
-                psm::trace::debug("stress mode: write failed ({})", ec.message());
+                psm::diagnose::debug("stress mode: write failed ({})", ec.message());
                 break;
             }
 
-            psm::trace::debug("stress mode: sent 4KB response ({})", has_data ? "client triggered" : "timeout");
+            psm::diagnose::debug("stress mode: sent 4KB response ({})", has_data ? "client triggered" : "timeout");
         }
     }
 }

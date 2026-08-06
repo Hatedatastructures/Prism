@@ -12,9 +12,8 @@
  */
 #pragma once
 
-#include <prism/net/connect/pool/pool.hpp>
 #include <prism/foundation/fault/handling.hpp>
-#include <prism/trace/trace.hpp>
+#include <prism/diagnose/diagnose.hpp>
 #include <prism/net/transport/transmission.hpp>
 
 #include <cassert>
@@ -76,18 +75,6 @@ namespace psm::transport
          */
         explicit reliable(socket_type socket)
             : socket_(std::move(socket))
-        {
-        }
-
-        /**
-         * @brief 构造函数（连接池复用）
-         * @details 从连接池获取的连接创建传输层。该构造函数接收 pooled_connection，
-         * 析构或 close() 时 socket 将被归还到连接池而非直接关闭，实现连接复用。
-         * @param pooled 来自连接池的连接
-         * @note pooled_ 持有 socket 的所有权，native_socket() 返回 *pooled_
-         */
-        explicit reliable(psm::connect::pooled_connection pooled)
-            : pooled_(std::move(pooled))
         {
         }
 
@@ -200,16 +187,6 @@ namespace psm::transport
          */
         void close() override
         {
-            if (pooled_.valid())
-            {
-                boost::system::error_code ec;
-                if (auto *sock = pooled_.get())
-                {
-                    sock->cancel(ec);
-                }
-                psm::trace::debug("[pool] reliable::close pooled, keep alive for recycle");
-                return;
-            }
             if (socket_)
             {
                 boost::system::error_code ec;
@@ -250,10 +227,6 @@ namespace psm::transport
         [[nodiscard]] auto native_socket() noexcept
             -> socket_type &
         {
-            if (pooled_.valid())
-            {
-                return *pooled_.get();
-            }
             assert(socket_.has_value());
             return *socket_;
         }
@@ -266,10 +239,6 @@ namespace psm::transport
         [[nodiscard]] auto native_socket() const noexcept
             -> const socket_type &
         {
-            if (pooled_.valid())
-            {
-                return *pooled_.get();
-            }
             assert(socket_.has_value());
             return *socket_;
         }
@@ -284,11 +253,6 @@ namespace psm::transport
         [[nodiscard]] auto release_socket() noexcept
             -> std::optional<socket_type>
         {
-            if (pooled_.valid())
-            {
-                // 池连接不能释放所有权
-                return std::nullopt;
-            }
             if (socket_)
             {
                 auto s = std::move(*socket_);
@@ -300,8 +264,7 @@ namespace psm::transport
         }
 
     private:
-        std::optional<socket_type> socket_;      // 非池连接的 socket 存储
-        psm::connect::pooled_connection pooled_; // 池连接，RAII 包装器
+        std::optional<socket_type> socket_;      // socket 存储
     };
 
     /**
@@ -328,16 +291,4 @@ namespace psm::transport
         return std::make_shared<reliable>(std::move(socket));
     }
 
-    /**
-     * @brief 创建 reliable 传输层（从连接池连接）
-     * @details 使用来自连接池的连接创建传输层实例。
-     * pooled_connection 是 RAII 包装器，在 close() 时将自动归还到连接池。
-     * @param pooled 来自连接池的连接
-     * @return shared_transmission 创建的 reliable 实例
-     * @note 该重载用于连接池复用场景
-     */
-    [[nodiscard]] inline shared_transmission make_reliable(psm::connect::pooled_connection pooled)
-    {
-        return std::make_shared<reliable>(std::move(pooled));
-    }
 } // namespace psm::transport

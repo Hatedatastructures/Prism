@@ -6,13 +6,13 @@
  */
 
 #include <prism/protocol/vless/vless.hpp>
-#include <prism/protocol/vless/framing.hpp>
-#include <prism/protocol/vless/packet.hpp>
+#include <prism/protocol/vless/codec/framing.hpp>
+#include <prism/protocol/vless/codec/packet.hpp>
 #include <prism/protocol/vless/constants.hpp>
-#include <prism/protocol/vless/conn.hpp>
+#include <prism/protocol/vless/handler/conn.hpp>
 #include <prism/net/transport/reliable.hpp>
 #include <prism/foundation/foundation.hpp>
-#include <prism/trace/spdlog.hpp>
+#include <prism/diagnose/log.hpp>
 #include <prism/foundation/foundation.hpp>
 #include <boost/asio.hpp>
 #include <array>

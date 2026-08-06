@@ -1,6 +1,6 @@
 #include <prism/net/dns/detail/rules.hpp>
 
-#include <prism/trace/trace.hpp>
+#include <prism/diagnose/diagnose.hpp>
 
 #include <algorithm>
 #include <boost/asio.hpp>

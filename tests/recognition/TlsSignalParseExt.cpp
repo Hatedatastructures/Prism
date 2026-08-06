@@ -5,8 +5,8 @@
  */
 
 #include <prism/foundation/foundation.hpp>
-#include "../../src/prism/stealth/recognition/tls/signal.cpp"
-#include <prism/trace/spdlog.hpp>
+#include "../../src/prism/handshake/recognition/tls/signal.cpp"
+#include <prism/diagnose/log.hpp>
 #include <gtest/gtest.h>
 
 #include <cstring>

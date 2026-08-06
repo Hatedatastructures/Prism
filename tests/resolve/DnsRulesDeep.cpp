@@ -8,7 +8,7 @@
 
 #include <prism/foundation/foundation.hpp>
 #include <prism/net/dns/detail/rules.hpp>
-#include <prism/trace/spdlog.hpp>
+#include <prism/diagnose/log.hpp>
 
 
 #include <gtest/gtest.h>

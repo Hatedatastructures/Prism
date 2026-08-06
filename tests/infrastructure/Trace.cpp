@@ -1,13 +1,13 @@
 /**
  * @file Trace.cpp
  * @brief 日志模块单元测试
- * @details 测试 psm::trace 模块的核心功能：初始化/关闭生命周期、
+ * @details 测试 psm::diagnose 模块的核心功能：初始化/关闭生命周期、
  * 日志级别配置、各级别日志输出、重复初始化、空日志器安全调用等。
  */
 
 #include <prism/foundation/foundation.hpp>
-#include <prism/trace/spdlog.hpp>
-#include <prism/trace/config.hpp>
+#include <prism/diagnose/log.hpp>
+#include <prism/diagnose/config.hpp>
 
 #include <gtest/gtest.h>
 
@@ -15,7 +15,7 @@ namespace
 {
     TEST(Trace, ConfigDefaults)
     {
-        psm::trace::config cfg;
+        psm::diagnose::config cfg;
 
         EXPECT_TRUE(cfg.file_name == "prism.log") << "file_name default";
         EXPECT_TRUE(cfg.path_name == "logs") << "path_name default";
@@ -29,86 +29,86 @@ namespace
 
     TEST(Trace, ShutdownNullRecorder)
     {
-        psm::trace::config cfg;
+        psm::diagnose::config cfg;
         cfg.enable_console = true;
         cfg.enable_file = false;
-        psm::trace::init(cfg);
+        psm::diagnose::init(cfg);
 
-        auto logger = psm::trace::recorder();
+        auto logger = psm::diagnose::recorder();
         ASSERT_TRUE(logger) << "recorder should not be null after init";
 
-        psm::trace::shutdown();
+        psm::diagnose::shutdown();
 
-        logger = psm::trace::recorder();
+        logger = psm::diagnose::recorder();
         EXPECT_TRUE(logger == nullptr) << "recorder should be null after shutdown";
     }
 
     TEST(Trace, LogWithoutInit)
     {
-        psm::trace::shutdown();
+        psm::diagnose::shutdown();
 
-        psm::trace::debug("debug without init");
-        psm::trace::info("info without init");
-        psm::trace::warn("warn without init");
-        psm::trace::error("error without init");
-        psm::trace::fatal("fatal without init");
+        psm::diagnose::debug("debug without init");
+        psm::diagnose::info("info without init");
+        psm::diagnose::warn("warn without init");
+        psm::diagnose::error("error without init");
+        psm::diagnose::fatal("fatal without init");
 
         EXPECT_TRUE(true) << "log without init: completed without exception";
     }
 
     TEST(Trace, LogWithFormatArgs)
     {
-        psm::trace::config cfg;
+        psm::diagnose::config cfg;
         cfg.enable_console = true;
         cfg.enable_file = false;
-        psm::trace::init(cfg);
+        psm::diagnose::init(cfg);
 
-        psm::trace::debug("debug message: {}", 42);
-        psm::trace::info("info message: {} + {} = {}", 1, 2, 3);
-        psm::trace::warn("warn message: {}", "string arg");
-        psm::trace::error("error code: {}", 0xDEAD);
-        psm::trace::fatal("fatal: {} {} {}", "a", "b", "c");
+        psm::diagnose::debug("debug message: {}", 42);
+        psm::diagnose::info("info message: {} + {} = {}", 1, 2, 3);
+        psm::diagnose::warn("warn message: {}", "string arg");
+        psm::diagnose::error("error code: {}", 0xDEAD);
+        psm::diagnose::fatal("fatal: {} {} {}", "a", "b", "c");
 
         EXPECT_TRUE(true) << "log with format args: completed without exception";
     }
 
     TEST(Trace, RepeatedInit)
     {
-        psm::trace::config cfg;
+        psm::diagnose::config cfg;
         cfg.enable_console = true;
         cfg.enable_file = false;
 
-        psm::trace::init(cfg);
-        psm::trace::info("first init");
+        psm::diagnose::init(cfg);
+        psm::diagnose::info("first init");
 
-        psm::trace::init(cfg);
-        psm::trace::info("second init");
+        psm::diagnose::init(cfg);
+        psm::diagnose::info("second init");
 
-        psm::trace::init(cfg);
-        psm::trace::info("third init");
+        psm::diagnose::init(cfg);
+        psm::diagnose::info("third init");
 
-        auto logger = psm::trace::recorder();
+        auto logger = psm::diagnose::recorder();
         EXPECT_TRUE(logger) << "recorder should not be null after repeated init";
     }
 
     TEST(Trace, ConsoleOnly)
     {
-        psm::trace::config cfg;
+        psm::diagnose::config cfg;
         cfg.enable_console = true;
         cfg.enable_file = false;
-        psm::trace::init(cfg);
+        psm::diagnose::init(cfg);
 
-        psm::trace::info("console only message");
+        psm::diagnose::info("console only message");
 
-        auto logger = psm::trace::recorder();
+        auto logger = psm::diagnose::recorder();
         EXPECT_TRUE(logger) << "recorder should exist in console-only mode";
     }
 
     TEST(Trace, LogLevelStrings)
     {
-        const psm::trace::config base_cfg = []
+        const psm::diagnose::config base_cfg = []
         {
-            psm::trace::config c;
+            psm::diagnose::config c;
             c.enable_console = true;
             c.enable_file = false;
             return c;
@@ -120,29 +120,29 @@ namespace
 
         for (const auto *level : levels)
         {
-            psm::trace::config cfg = base_cfg;
+            psm::diagnose::config cfg = base_cfg;
             cfg.log_level = psm::memory::string(level);
-            psm::trace::init(cfg);
+            psm::diagnose::init(cfg);
 
-            auto logger = psm::trace::recorder();
+            auto logger = psm::diagnose::recorder();
             ASSERT_TRUE(logger) << "recorder null for level: " << level;
 
-            psm::trace::info("level test: {}", level);
+            psm::diagnose::info("level test: {}", level);
         }
     }
 
     TEST(Trace, EmptyFileNameFallback)
     {
-        psm::trace::config cfg;
+        psm::diagnose::config cfg;
         cfg.enable_console = true;
         cfg.enable_file = true;
         cfg.file_name = "";
         cfg.trace_name = "test_trace";
-        psm::trace::init(cfg);
+        psm::diagnose::init(cfg);
 
-        psm::trace::info("empty file name fallback test");
+        psm::diagnose::info("empty file name fallback test");
 
-        auto logger = psm::trace::recorder();
+        auto logger = psm::diagnose::recorder();
         EXPECT_TRUE(logger) << "recorder should exist with empty file name";
     }
 } // namespace

@@ -10,19 +10,18 @@
  */
 
 #include <prism/runtime/config.hpp>
-#include <prism/config/config.hpp>
+#include <prism/settings/settings.hpp>
 #include <prism/resource/session.hpp>
-#include <prism/account/directory.hpp>
+#include <prism/user/directory.hpp>
 #include <prism/runtime/session/session.hpp>
-#include <prism/net/connect/pool/pool.hpp>
 #include <prism/net/transport/reliable.hpp>
 #include <prism/crypto/sha224.hpp>
 #include <prism/crypto/base64.hpp>
-#include <prism/net/connect/dial/router.hpp>
+#include <prism/net/connection/dialer/dialer.hpp>
 #include <prism/foundation/exception/network.hpp>
 #include <prism/foundation/fault/code.hpp>
 #include <prism/foundation/foundation.hpp>
-#include <prism/trace/spdlog.hpp>
+#include <prism/diagnose/log.hpp>
 
 #include <gtest/gtest.h>
 
@@ -648,18 +647,17 @@ TEST(E2E, Socks5Echo)
     const auto ioc_ptr = std::make_unique<net::io_context>();
     auto &ioc = *ioc_ptr;
 
-    const auto pool = std::make_unique<psm::connect::connection_pool>(ioc);
     psm::dns::config dns_cfg;
-    auto dist = std::make_unique<psm::connect::router>(psm::connect::router_options{*pool, ioc, std::move(dns_cfg)});
+    auto dist = std::make_unique<psm::connect::dialer>(psm::connect::dialer_options{*pool, ioc, std::move(dns_cfg)});
 
     auto ssl_ctx = std::make_shared<ssl::context>(ssl::context::tlsv12);
     ssl_ctx->set_verify_mode(ssl::verify_none);
 
-    psm::config no_auth_cfg;
+    psm::settings no_auth_cfg;
 
     psm::resource::process no_auth_server_ctx{
-        std::atomic<std::shared_ptr<const psm::config>>{std::make_shared<const psm::config>(no_auth_cfg)},
-        ssl_ctx, std::make_shared<psm::account::directory>(psm::memory::system::global_pool())};
+        std::atomic<std::shared_ptr<const psm::settings>>{std::make_shared<const psm::settings>(no_auth_cfg)},
+        ssl_ctx, std::make_shared<psm::user::directory>(psm::memory::system::global_pool())};
 
     auto mr = psm::memory::system::local_pool();
     psm::resource::worker worker_ctx{ioc, std::weak_ptr<psm::resource::worker>{}, mr};
@@ -689,18 +687,17 @@ TEST(E2E, HttpConnectEcho)
     const auto ioc_ptr = std::make_unique<net::io_context>();
     auto &ioc = *ioc_ptr;
 
-    const auto pool = std::make_unique<psm::connect::connection_pool>(ioc);
     psm::dns::config dns_cfg;
-    auto dist = std::make_unique<psm::connect::router>(psm::connect::router_options{*pool, ioc, std::move(dns_cfg)});
+    auto dist = std::make_unique<psm::connect::dialer>(psm::connect::dialer_options{*pool, ioc, std::move(dns_cfg)});
 
     auto ssl_ctx = std::make_shared<ssl::context>(ssl::context::tlsv12);
     ssl_ctx->set_verify_mode(ssl::verify_none);
 
-    psm::config no_auth_cfg;
+    psm::settings no_auth_cfg;
 
     psm::resource::process no_auth_server_ctx{
-        std::atomic<std::shared_ptr<const psm::config>>{std::make_shared<const psm::config>(no_auth_cfg)},
-        ssl_ctx, std::make_shared<psm::account::directory>(psm::memory::system::global_pool())};
+        std::atomic<std::shared_ptr<const psm::settings>>{std::make_shared<const psm::settings>(no_auth_cfg)},
+        ssl_ctx, std::make_shared<psm::user::directory>(psm::memory::system::global_pool())};
 
     auto mr = psm::memory::system::local_pool();
     psm::resource::worker worker_ctx{ioc, std::weak_ptr<psm::resource::worker>{}, mr};
@@ -730,27 +727,26 @@ TEST(E2E, Socks5Auth)
     const auto ioc_ptr = std::make_unique<net::io_context>();
     auto &ioc = *ioc_ptr;
 
-    const auto pool = std::make_unique<psm::connect::connection_pool>(ioc);
     psm::dns::config dns_cfg;
-    auto dist = std::make_unique<psm::connect::router>(psm::connect::router_options{*pool, ioc, std::move(dns_cfg)});
+    auto dist = std::make_unique<psm::connect::dialer>(psm::connect::dialer_options{*pool, ioc, std::move(dns_cfg)});
 
     auto ssl_ctx = std::make_shared<ssl::context>(ssl::context::tlsv12);
     ssl_ctx->set_verify_mode(ssl::verify_none);
 
     // 认证配置: password="test_password", credential=sha224("test_password")
-    psm::config auth_cfg;
+    psm::settings auth_cfg;
     auth_cfg.protocol.socks5.enable_auth = true;
     psm::runtime::authentication::user test_user{};
     test_user.password = "test_password";
     test_user.max_connections = 0;
     auth_cfg.instance.auth.users.push_back(std::move(test_user));
 
-    auto account_dir = std::make_shared<psm::account::directory>(psm::memory::system::global_pool());
+    auto account_dir = std::make_shared<psm::user::directory>(psm::memory::system::global_pool());
     const auto credential = psm::crypto::sha224("test_password");
     account_dir->upsert(credential, 0);
 
     psm::resource::process auth_server_ctx{
-        std::atomic<std::shared_ptr<const psm::config>>{std::make_shared<const psm::config>(auth_cfg)},
+        std::atomic<std::shared_ptr<const psm::settings>>{std::make_shared<const psm::settings>(auth_cfg)},
         ssl_ctx, account_dir};
 
     auto mr = psm::memory::system::local_pool();
@@ -781,26 +777,25 @@ TEST(E2E, HttpAuth407)
     const auto ioc_ptr = std::make_unique<net::io_context>();
     auto &ioc = *ioc_ptr;
 
-    const auto pool = std::make_unique<psm::connect::connection_pool>(ioc);
     psm::dns::config dns_cfg;
-    auto dist = std::make_unique<psm::connect::router>(psm::connect::router_options{*pool, ioc, std::move(dns_cfg)});
+    auto dist = std::make_unique<psm::connect::dialer>(psm::connect::dialer_options{*pool, ioc, std::move(dns_cfg)});
 
     auto ssl_ctx = std::make_shared<ssl::context>(ssl::context::tlsv12);
     ssl_ctx->set_verify_mode(ssl::verify_none);
 
-    psm::config auth_cfg;
+    psm::settings auth_cfg;
     auth_cfg.protocol.socks5.enable_auth = true;
     psm::runtime::authentication::user test_user{};
     test_user.password = "test_password";
     test_user.max_connections = 0;
     auth_cfg.instance.auth.users.push_back(std::move(test_user));
 
-    auto account_dir = std::make_shared<psm::account::directory>(psm::memory::system::global_pool());
+    auto account_dir = std::make_shared<psm::user::directory>(psm::memory::system::global_pool());
     const auto credential = psm::crypto::sha224("test_password");
     account_dir->upsert(credential, 0);
 
     psm::resource::process auth_server_ctx{
-        std::atomic<std::shared_ptr<const psm::config>>{std::make_shared<const psm::config>(auth_cfg)},
+        std::atomic<std::shared_ptr<const psm::settings>>{std::make_shared<const psm::settings>(auth_cfg)},
         ssl_ctx, account_dir};
 
     auto mr = psm::memory::system::local_pool();
@@ -831,18 +826,17 @@ TEST(E2E, Concurrency)
     const auto ioc_ptr = std::make_unique<net::io_context>();
     auto &ioc = *ioc_ptr;
 
-    const auto pool = std::make_unique<psm::connect::connection_pool>(ioc);
     psm::dns::config dns_cfg;
-    auto dist = std::make_unique<psm::connect::router>(psm::connect::router_options{*pool, ioc, std::move(dns_cfg)});
+    auto dist = std::make_unique<psm::connect::dialer>(psm::connect::dialer_options{*pool, ioc, std::move(dns_cfg)});
 
     auto ssl_ctx = std::make_shared<ssl::context>(ssl::context::tlsv12);
     ssl_ctx->set_verify_mode(ssl::verify_none);
 
-    psm::config no_auth_cfg;
+    psm::settings no_auth_cfg;
 
     psm::resource::process no_auth_server_ctx{
-        std::atomic<std::shared_ptr<const psm::config>>{std::make_shared<const psm::config>(no_auth_cfg)},
-        ssl_ctx, std::make_shared<psm::account::directory>(psm::memory::system::global_pool())};
+        std::atomic<std::shared_ptr<const psm::settings>>{std::make_shared<const psm::settings>(no_auth_cfg)},
+        ssl_ctx, std::make_shared<psm::user::directory>(psm::memory::system::global_pool())};
 
     auto mr = psm::memory::system::local_pool();
     psm::resource::worker worker_ctx{ioc, std::weak_ptr<psm::resource::worker>{}, mr};

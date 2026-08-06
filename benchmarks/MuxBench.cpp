@@ -12,7 +12,7 @@
 #include <prism/protocol/multiplex/yamux/control.hpp>
 #include <prism/foundation/memory/pool.hpp>
 #include <prism/foundation/memory/container.hpp>
-#include <prism/config/config.hpp>
+#include <prism/settings/settings.hpp>
 #include <boost/asio.hpp>
 #include <array>
 #include <cstddef>

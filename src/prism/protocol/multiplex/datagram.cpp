@@ -1,12 +1,12 @@
 #include <prism/protocol/multiplex/datagram.hpp>
 
-#include <prism/trace/trace.hpp>
+#include <prism/diagnose/diagnose.hpp>
 
 #include <boost/asio/co_spawn.hpp>
 
 #include <charconv>
 
-using namespace psm::trace;
+using namespace psm::diagnose;
 
 namespace psm::multiplex
 {
@@ -45,7 +45,7 @@ namespace psm::multiplex
             {
                 if (ep)
                 {
-                    trace::debug(self->prefix_, "stream {} UDP idle loop error", self->id_);
+                    diagnose::debug(self->prefix_, "stream {} UDP idle loop error", self->id_);
                 }
                 self->close();
             });
@@ -67,7 +67,7 @@ namespace psm::multiplex
             }
             break;
         }
-        trace::debug(prefix_, "stream {} UDP idle timeout", id_);
+        diagnose::debug(prefix_, "stream {} UDP idle timeout", id_);
     }
 
 
@@ -104,7 +104,7 @@ namespace psm::multiplex
         }
         catch (const std::exception &e)
         {
-            trace::warn(prefix_, "stream {} UDP socket create failed: {}", id_, e.what());
+            diagnose::warn(prefix_, "stream {} UDP socket create failed: {}", id_, e.what());
             co_return false;
         }
     }
@@ -157,7 +157,7 @@ namespace psm::multiplex
                                                target_ep, token);
         if (ec)
         {
-            trace::debug(prefix_, "stream {} UDP send to {}:{} failed: {}",
+            diagnose::debug(prefix_, "stream {} UDP send to {}:{} failed: {}",
                          id_, host, port, ec.message());
         }
         else
@@ -184,7 +184,7 @@ namespace psm::multiplex
                 {
                     if (ec != net::error::operation_aborted && ec != net::error::bad_descriptor)
                     {
-                        trace::debug(prefix_, "stream {} UDP recv error: {}", id_, ec.message());
+                        diagnose::debug(prefix_, "stream {} UDP recv error: {}", id_, ec.message());
                     }
                     break;
                 }
@@ -203,11 +203,11 @@ namespace psm::multiplex
         }
         catch (const std::exception &e)
         {
-            trace::debug(prefix_, "stream {} UDP recv loop error: {}", id_, e.what());
+            diagnose::debug(prefix_, "stream {} UDP recv loop error: {}", id_, e.what());
         }
         catch (...)
         {
-            trace::error(prefix_, "stream {} UDP recv loop unknown error", id_);
+            diagnose::error(prefix_, "stream {} UDP recv loop unknown error", id_);
         }
         recv_running_.store(false, std::memory_order_release);
     }
@@ -236,7 +236,7 @@ namespace psm::multiplex
         {
             ex->drop(id_);
         }
-        trace::debug(prefix_, "stream {} UDP datagram closed", id_);
+        diagnose::debug(prefix_, "stream {} UDP datagram closed", id_);
     }
 
 } // namespace psm::multiplex

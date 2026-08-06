@@ -8,7 +8,7 @@
 
 #pragma once
 
-#include <prism/trace/spdlog.hpp>
+#include <prism/diagnose/log.hpp>
 
 #include <format>
 #include <string_view>
@@ -50,7 +50,7 @@ namespace psm::testing
          */
         void LogInfo(const std::string_view msg) const
         {
-            psm::trace::info("[{}] {}", tag_, msg);
+            psm::diagnose::info("[{}] {}", tag_, msg);
         }
 
         /**
@@ -60,7 +60,7 @@ namespace psm::testing
         void LogPass(const std::string_view msg)
         {
             ++passed_;
-            psm::trace::info("[{}] PASS: {}", tag_, msg);
+            psm::diagnose::info("[{}] PASS: {}", tag_, msg);
         }
 
         /**
@@ -70,7 +70,7 @@ namespace psm::testing
         void LogFail(const std::string_view msg)
         {
             ++failed_;
-            psm::trace::error("[{}] FAIL: {}", tag_, msg);
+            psm::diagnose::error("[{}] FAIL: {}", tag_, msg);
         }
 
         /**
@@ -97,8 +97,8 @@ namespace psm::testing
          */
         [[nodiscard]] auto Summary() -> int
         {
-            psm::trace::info("[{}] Results: {} passed, {} failed", tag_, passed_, failed_);
-            psm::trace::shutdown();
+            psm::diagnose::info("[{}] Results: {} passed, {} failed", tag_, passed_, failed_);
+            psm::diagnose::shutdown();
             return failed_ > 0 ? 1 : 0;
         }
 

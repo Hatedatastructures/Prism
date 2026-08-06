@@ -4,9 +4,9 @@
  */
 
 #include <prism/foundation/foundation.hpp>
-#include <prism/net/connect/types.hpp>
-#include <prism/stealth/recognition/probe/analyzer.hpp>
-#include <prism/trace/spdlog.hpp>
+#include <prism/net/connection/types.hpp>
+#include <prism/handshake/recognition/probe/analyzer.hpp>
+#include <prism/diagnose/log.hpp>
 #include <gtest/gtest.h>
 
 #include <cstdint>

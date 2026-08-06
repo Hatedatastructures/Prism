@@ -10,7 +10,7 @@
 
 #include <prism/foundation/foundation.hpp>
 #include <prism/net/dns/config.hpp>
-#include <prism/trace/spdlog.hpp>
+#include <prism/diagnose/log.hpp>
 #include <prism/foundation/foundation.hpp>
 
 #include <gtest/gtest.h>

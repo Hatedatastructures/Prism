@@ -17,12 +17,11 @@
  */
 
 #include <prism/foundation/foundation.hpp>
-#include <prism/trace/spdlog.hpp>
+#include <prism/diagnose/log.hpp>
 
 #include "common/MockTransport.hpp"
 
-#include <prism/net/connect/pool/pool.hpp>
-#include <prism/net/connect/dial/router.hpp>
+#include <prism/net/connection/dialer/dialer.hpp>
 #include <prism/net/dns/resolver.hpp>
 #include <prism/protocol/multiplex/multiplexer.hpp>
 #include <prism/protocol/multiplex/stream.hpp>
@@ -80,8 +79,7 @@ namespace
         std::shared_ptr<MockTransport> mux_transport;
         std::shared_ptr<MockTransport> target_transport;
         std::unique_ptr<net::io_context> ioc;
-        std::unique_ptr<psm::connect::connection_pool> pool;
-        std::unique_ptr<psm::connect::router> router_ptr;
+        std::unique_ptr<psm::connect::dialer> router_ptr;
         std::shared_ptr<TestCore> core_obj;
         std::shared_ptr<multiplex::stream> duct_obj;
 
@@ -90,10 +88,9 @@ namespace
             mux_transport = std::make_shared<MockTransport>();
             target_transport = std::make_shared<MockTransport>();
             ioc = std::make_unique<net::io_context>(1);
-            pool = std::make_unique<psm::connect::connection_pool>(*ioc);
             psm::dns::config dns_cfg;
-            psm::connect::router_options ropts{*pool, *ioc, dns_cfg};
-            router_ptr = std::make_unique<psm::connect::router>(std::move(ropts));
+            psm::connect::dialer_options ropts{*ioc, dns_cfg};
+            router_ptr = std::make_unique<psm::connect::dialer>(std::move(ropts));
             multiplex::multiplexer_options opts{mux_transport, nullptr, g_cfg, nullptr};
             core_obj = std::make_shared<TestCore>(std::move(opts));
 
@@ -144,10 +141,9 @@ namespace
         auto mux_t = std::make_shared<MockTransport>();
         auto tgt_t = std::make_shared<MockTransport>();
         auto ioc = std::make_unique<net::io_context>(1);
-        auto pool = std::make_unique<psm::connect::connection_pool>(*ioc);
         psm::dns::config dns_cfg;
-        psm::connect::router_options ropts{*pool, *ioc, dns_cfg};
-        auto router = std::make_unique<psm::connect::router>(std::move(ropts));
+        psm::connect::dialer_options ropts{*ioc, dns_cfg};
+        auto router = std::make_unique<psm::connect::dialer>(std::move(ropts));
         static multiplex::config cfg;
         multiplex::multiplexer_options opts{mux_t, nullptr, cfg, nullptr};
         auto c = std::make_shared<TestCore>(std::move(opts));

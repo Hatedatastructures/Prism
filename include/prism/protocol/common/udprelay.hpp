@@ -12,8 +12,8 @@
 #include <prism/foundation/fault/handling.hpp>
 #include <prism/foundation/memory/container.hpp>
 #include <prism/protocol/common/address.hpp>
-#include <prism/net/connect/target.hpp>
-#include <prism/trace/trace.hpp>
+#include <prism/net/connection/target.hpp>
+#include <prism/diagnose/diagnose.hpp>
 #include <prism/net/transport/transmission.hpp>
 
 #include <boost/asio.hpp>
@@ -28,7 +28,7 @@
 
 namespace psm::protocol::common
 {
-    using namespace psm::trace; // NOLINT(google-build-using-namespace)
+    using namespace psm::diagnose; // NOLINT(google-build-using-namespace)
 
     namespace net = boost::asio;
 
@@ -106,7 +106,7 @@ namespace psm::protocol::common
             opts.udp_socket.open(opts.target_ep.protocol(), udp_ec);
             if (udp_ec)
             {
-                trace::warn("Socket open failed: {}", udp_ec.message());
+                diagnose::warn("Socket open failed: {}", udp_ec.message());
                 co_return std::tuple{fault::to_code(udp_ec), std::size_t{0}, net::ip::udp::endpoint{}};
             }
         }
@@ -115,7 +115,7 @@ namespace psm::protocol::common
         co_await opts.udp_socket.async_send_to(net::buffer(opts.payload.data(), opts.payload.size()), opts.target_ep, token);
         if (udp_ec)
         {
-            trace::debug("Send failed: {}", udp_ec.message());
+            diagnose::debug("Send failed: {}", udp_ec.message());
             co_return std::tuple{fault::to_code(udp_ec), std::size_t{0}, net::ip::udp::endpoint{}};
         }
 
@@ -125,7 +125,7 @@ namespace psm::protocol::common
             net::redirect_error(net::use_awaitable, udp_ec));
         if (udp_ec)
         {
-            trace::debug("Receive failed: {}", udp_ec.message());
+            diagnose::debug("Receive failed: {}", udp_ec.message());
             co_return std::tuple{fault::to_code(udp_ec), std::size_t{0}, net::ip::udp::endpoint{}};
         }
 
@@ -201,7 +201,7 @@ namespace psm::protocol::common
         co_await transport::async_write(transport, {buf.send.data(), buf.send.size()}, write_ec);
         if (write_ec)
         {
-            trace::warn("Write response failed: {}", write_ec.message());
+            diagnose::warn("Write response failed: {}", write_ec.message());
             co_return false;
         }
         co_return true;
@@ -256,7 +256,7 @@ namespace psm::protocol::common
 
             if (read_result.index() == 1)
             {
-                trace::debug("Idle timeout");
+                diagnose::debug("Idle timeout");
                 if (config.on_traffic)
                 {
                     config.on_traffic(config.traffic_ctx, uplink_bytes, downlink_bytes);
@@ -269,7 +269,7 @@ namespace psm::protocol::common
 
             if (n == 0)
             {
-                trace::debug("Read error or EOF");
+                diagnose::debug("Read error or EOF");
                 if (config.on_traffic)
                 {
                     config.on_traffic(config.traffic_ctx, uplink_bytes, downlink_bytes);
@@ -280,7 +280,7 @@ namespace psm::protocol::common
             auto [parse_ec, parsed] = frame_ctx.parse_fn(std::span<const std::byte>{buf.recv.data(), n});
             if (fault::failed(parse_ec))
             {
-                trace::warn("Packet parse failed");
+                diagnose::warn("Packet parse failed");
                 continue;
             }
 
@@ -292,7 +292,7 @@ namespace psm::protocol::common
             auto [route_ec, target_ep] = co_await frame_ctx.route_cb(target_host, target_port);
             if (fault::failed(route_ec))
             {
-                trace::debug("Route failed for {}:{}", target_host, target_port);
+                diagnose::debug("Route failed for {}:{}", target_host, target_port);
                 continue;
             }
 

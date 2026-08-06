@@ -7,8 +7,8 @@
  */
 
 #include <prism/foundation/foundation.hpp>
-#include <prism/account/stats/traffic.hpp>
-#include <prism/trace/spdlog.hpp>
+#include <prism/user/stats/traffic.hpp>
+#include <prism/diagnose/log.hpp>
 #include <prism/protocol/types.hpp>
 
 #include <gtest/gtest.h>

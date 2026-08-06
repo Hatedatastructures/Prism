@@ -9,10 +9,10 @@
  */
 
 #include <benchmark/benchmark.h>
-#include <prism/stealth/facade/reality/util/auth.hpp>
-#include <prism/stealth/facade/reality/util/keygen.hpp>
-#include <prism/stealth/facade/reality/util/response.hpp>
-#include <prism/stealth/facade/reality/config.hpp>
+#include <prism/handshake/facade/reality/util/auth.hpp>
+#include <prism/handshake/facade/reality/util/keygen.hpp>
+#include <prism/handshake/facade/reality/util/response.hpp>
+#include <prism/handshake/facade/reality/config.hpp>
 #include <prism/protocol/tls/types.hpp>
 #include <prism/crypto/x25519.hpp>
 #include <prism/foundation/memory/container.hpp>
@@ -26,7 +26,7 @@
 namespace
 {
 
-using namespace psm::stealth::reality;
+using namespace psm::handshake::reality;
 namespace mem = psm::memory;
 
 // ============================================================

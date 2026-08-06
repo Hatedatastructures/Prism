@@ -11,7 +11,7 @@
  */
 
 #include <prism/foundation/foundation.hpp>
-#include <prism/trace/spdlog.hpp>
+#include <prism/diagnose/log.hpp>
 #include <prism/protocol/multiplex/h2mux/control.hpp>
 
 #include <array>

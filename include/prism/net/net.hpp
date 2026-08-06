@@ -20,18 +20,14 @@
 #include <prism/net/transport/unreliable.hpp>
 
 // Connect 子模块
-#include <prism/net/connect/dial/connector.hpp>
-#include <prism/net/connect/dial/racer.hpp>
-#include <prism/net/connect/dial/router.hpp>
-#include <prism/net/connect/outbound/dial.hpp>
-#include <prism/net/connect/outbound/direct.hpp>
-#include <prism/net/connect/outbound/proxy.hpp>
-#include <prism/net/connect/pool/config.hpp>
-#include <prism/net/connect/pool/health.hpp>
-#include <prism/net/connect/pool/pool.hpp>
-#include <prism/net/connect/tunnel/forward/basic.hpp>
-#include <prism/net/connect/tunnel/tunnel.hpp>
-#include <prism/net/connect/util.hpp>
+#include <prism/net/connection/dialer/dialer.hpp>
+#include <prism/net/connection/dialer/racer.hpp>
+#include <prism/net/connection/dialer/dialer.hpp>
+#include <prism/net/connection/outbound/dial.hpp>
+#include <prism/net/connection/outbound/direct.hpp>
+#include <prism/net/connection/tunnel/forward/basic.hpp>
+#include <prism/net/connection/tunnel/tunnel.hpp>
+#include <prism/net/connection/util.hpp>
 
 // Resolve 子模块
 #include <prism/net/dns/config.hpp>

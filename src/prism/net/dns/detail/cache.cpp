@@ -1,14 +1,14 @@
 #include <prism/net/dns/detail/cache.hpp>
 
 #include <prism/foundation/memory/container.hpp>
-#include <prism/trace/trace.hpp>
+#include <prism/diagnose/diagnose.hpp>
 
 #include <algorithm>
 #include <cstdio>
 #include <cstring>
 #include <string>
 
-using namespace psm::trace;
+using namespace psm::diagnose;
 
 namespace
 {

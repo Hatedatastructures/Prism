@@ -5,8 +5,8 @@
 
 #include <prism/foundation/foundation.hpp>
 #include <prism/protocol/tls/types.hpp>
-#include <prism/stealth/recognition/tls/features.hpp>
-#include <prism/trace/spdlog.hpp>
+#include <prism/handshake/recognition/tls/features.hpp>
+#include <prism/diagnose/log.hpp>
 
 #include <gtest/gtest.h>
 

@@ -14,7 +14,7 @@
  * 9. 高压力综合场景
  */
 
-#include <prism/trace/context.hpp>
+#include <prism/diagnose/context.hpp>
 #include <gtest/gtest.h>
 
 #include <array>
@@ -70,20 +70,20 @@ namespace
     // 场景 1: 裸 scope_guard 同层交错（基线）
     // ============================================================
 
-    auto bugged_session_coro(psm::trace::session_prefix &pfx, int yield_count)
+    auto bugged_session_coro(psm::diagnose::session_prefix &pfx, int yield_count)
         -> net::awaitable<void>
     {
-        psm::trace::scope_guard guard(pfx);
+        psm::diagnose::scope_guard guard(pfx);
         for (int i = 0; i < yield_count; ++i)
         {
-            auto *cur = psm::trace::active_prefix;
+            auto *cur = psm::diagnose::active_prefix;
             record_log(pfx.conn, cur ? cur->conn : 0, i * 2, "bugged");
 
             net::steady_timer timer(co_await net::this_coro::executor);
             timer.expires_after(std::chrono::milliseconds(1));
             co_await timer.async_wait(net::use_awaitable);
 
-            cur = psm::trace::active_prefix;
+            cur = psm::diagnose::active_prefix;
             record_log(pfx.conn, cur ? cur->conn : 0, i * 2 + 1, "bugged");
         }
     }
@@ -92,28 +92,28 @@ namespace
     // 场景 2: protected_step 修复
     // ============================================================
 
-    auto protected_step(psm::trace::session_prefix &pfx)
+    auto protected_step(psm::diagnose::session_prefix &pfx)
         -> net::awaitable<void>
     {
-        psm::trace::active_prefix = &pfx;
+        psm::diagnose::active_prefix = &pfx;
         net::steady_timer timer(co_await net::this_coro::executor);
         timer.expires_after(std::chrono::milliseconds(1));
         co_await timer.async_wait(net::use_awaitable);
-        psm::trace::active_prefix = &pfx;
+        psm::diagnose::active_prefix = &pfx;
     }
 
-    auto fixed_session_coro(psm::trace::session_prefix &pfx, int yield_count)
+    auto fixed_session_coro(psm::diagnose::session_prefix &pfx, int yield_count)
         -> net::awaitable<void>
     {
-        psm::trace::scope_guard guard(pfx);
+        psm::diagnose::scope_guard guard(pfx);
         for (int i = 0; i < yield_count; ++i)
         {
-            auto *cur = psm::trace::active_prefix;
+            auto *cur = psm::diagnose::active_prefix;
             record_log(pfx.conn, cur ? cur->conn : 0, i * 2, "fixed");
 
             co_await protected_step(pfx);
 
-            cur = psm::trace::active_prefix;
+            cur = psm::diagnose::active_prefix;
             record_log(pfx.conn, cur ? cur->conn : 0, i * 2 + 1, "fixed");
         }
     }
@@ -128,7 +128,7 @@ namespace
     {
         for (int i = 0; i < checks; ++i)
         {
-            auto *cur = psm::trace::active_prefix;
+            auto *cur = psm::diagnose::active_prefix;
             record_log(0, cur ? cur->conn : 0, i, "orphan");
 
             net::steady_timer timer(co_await net::this_coro::executor);
@@ -138,11 +138,11 @@ namespace
         done_counter->fetch_add(1);
     }
 
-    auto parent_coro(psm::trace::session_prefix &pfx, int child_count,
+    auto parent_coro(psm::diagnose::session_prefix &pfx, int child_count,
                      std::shared_ptr<std::atomic<int>> done_counter)
         -> net::awaitable<void>
     {
-        psm::trace::scope_guard guard(pfx);
+        psm::diagnose::scope_guard guard(pfx);
         auto ex = co_await net::this_coro::executor;
 
         for (int i = 0; i < child_count; ++i)
@@ -151,7 +151,7 @@ namespace
         for (int i = 0; i < 3; ++i)
         {
             record_log(pfx.conn,
-                       psm::trace::active_prefix ? psm::trace::active_prefix->conn : 0,
+                       psm::diagnose::active_prefix ? psm::diagnose::active_prefix->conn : 0,
                        i, "parent");
 
             net::steady_timer timer(ex);
@@ -165,7 +165,7 @@ namespace
     //   模拟 trojan/vless mux 模式
     // ============================================================
 
-    auto mux_start_and_return(psm::trace::session_prefix &mux_pfx,
+    auto mux_start_and_return(psm::diagnose::session_prefix &mux_pfx,
                               std::shared_ptr<std::atomic<int>> mux_checks)
         -> net::awaitable<void>
     {
@@ -173,12 +173,12 @@ namespace
         auto *pfx_ptr = &mux_pfx;
         auto run_wrapper = [pfx_ptr, mux_checks]() -> net::awaitable<void>
         {
-            psm::trace::scope_guard guard(*pfx_ptr);
+            psm::diagnose::scope_guard guard(*pfx_ptr);
             for (int i = 0; i < 4; ++i)
             {
                 mux_checks->fetch_add(1);
                 record_log(pfx_ptr->conn,
-                           psm::trace::active_prefix ? psm::trace::active_prefix->conn : 0,
+                           psm::diagnose::active_prefix ? psm::diagnose::active_prefix->conn : 0,
                            i, "mux_run");
 
                 net::steady_timer timer(co_await net::this_coro::executor);
@@ -191,15 +191,15 @@ namespace
         net::co_spawn(ex, run_wrapper(), net::detached);
     }
 
-    auto session_then_mux(psm::trace::session_prefix &session_pfx,
-                          psm::trace::session_prefix &mux_pfx,
+    auto session_then_mux(psm::diagnose::session_prefix &session_pfx,
+                          psm::diagnose::session_prefix &mux_pfx,
                           std::shared_ptr<std::atomic<int>> mux_checks)
         -> net::awaitable<void>
     {
         // session_pfx 和 mux_pfx 的生命周期由测试函数的 vector 保证
-        psm::trace::scope_guard session_guard(session_pfx);
+        psm::diagnose::scope_guard session_guard(session_pfx);
         record_log(session_pfx.conn,
-                   psm::trace::active_prefix ? psm::trace::active_prefix->conn : 0,
+                   psm::diagnose::active_prefix ? psm::diagnose::active_prefix->conn : 0,
                    0, "session_pre_mux");
 
         co_await mux_start_and_return(mux_pfx, mux_checks);
@@ -215,7 +215,7 @@ namespace
     {
         for (int i = 0; i < checks; ++i)
         {
-            auto *cur = psm::trace::active_prefix;
+            auto *cur = psm::diagnose::active_prefix;
             record_log(caller_sid, cur ? cur->conn : 0, i, "innermost");
 
             net::steady_timer timer(co_await net::this_coro::executor);
@@ -225,11 +225,11 @@ namespace
         done->fetch_add(1);
     }
 
-    auto middle_coro(psm::trace::session_prefix &pfx,
+    auto middle_coro(psm::diagnose::session_prefix &pfx,
                      std::shared_ptr<std::atomic<int>> done)
         -> net::awaitable<void>
     {
-        psm::trace::scope_guard guard(pfx);
+        psm::diagnose::scope_guard guard(pfx);
 
         auto ex = co_await net::this_coro::executor;
         net::co_spawn(ex, innermost_coro(pfx.conn, 3, done), net::detached);
@@ -237,7 +237,7 @@ namespace
         for (int i = 0; i < 3; ++i)
         {
             record_log(pfx.conn,
-                       psm::trace::active_prefix ? psm::trace::active_prefix->conn : 0,
+                       psm::diagnose::active_prefix ? psm::diagnose::active_prefix->conn : 0,
                        i, "middle");
 
             net::steady_timer timer(ex);
@@ -246,12 +246,12 @@ namespace
         }
     }
 
-    auto outer_handshake(psm::trace::session_prefix &outer_pfx,
-                         psm::trace::session_prefix &middle_pfx,
+    auto outer_handshake(psm::diagnose::session_prefix &outer_pfx,
+                         psm::diagnose::session_prefix &middle_pfx,
                          std::shared_ptr<std::atomic<int>> done)
         -> net::awaitable<void>
     {
-        psm::trace::scope_guard guard(outer_pfx);
+        psm::diagnose::scope_guard guard(outer_pfx);
         co_await middle_coro(middle_pfx, done);
     }
 
@@ -259,16 +259,16 @@ namespace
     // 场景 6: mux 多流 dispatch（yamux 模式）
     // ============================================================
 
-    auto dispatch_coro(psm::trace::session_prefix &stream_pfx,
+    auto dispatch_coro(psm::diagnose::session_prefix &stream_pfx,
                        std::uint64_t stream_id,
                        std::shared_ptr<std::atomic<int>> done)
         -> net::awaitable<void>
     {
-        psm::trace::active_prefix = nullptr;
-        psm::trace::scope_guard guard(stream_pfx);
+        psm::diagnose::active_prefix = nullptr;
+        psm::diagnose::scope_guard guard(stream_pfx);
 
         record_log(stream_id,
-                   psm::trace::active_prefix ? psm::trace::active_prefix->conn : 0,
+                   psm::diagnose::active_prefix ? psm::diagnose::active_prefix->conn : 0,
                    0, "dispatch");
 
         net::steady_timer timer(co_await net::this_coro::executor);
@@ -276,18 +276,18 @@ namespace
         co_await timer.async_wait(net::use_awaitable);
 
         record_log(stream_id,
-                   psm::trace::active_prefix ? psm::trace::active_prefix->conn : 0,
+                   psm::diagnose::active_prefix ? psm::diagnose::active_prefix->conn : 0,
                    1, "dispatch");
 
         done->fetch_add(1);
     }
 
-    auto frame_loop_coro(psm::trace::session_prefix &mux_pfx,
-                         std::vector<psm::trace::session_prefix> &stream_pfxs,
+    auto frame_loop_coro(psm::diagnose::session_prefix &mux_pfx,
+                         std::vector<psm::diagnose::session_prefix> &stream_pfxs,
                          std::shared_ptr<std::atomic<int>> done)
         -> net::awaitable<void>
     {
-        psm::trace::scope_guard guard(mux_pfx);
+        psm::diagnose::scope_guard guard(mux_pfx);
         auto ex = co_await net::this_coro::executor;
 
         for (size_t i = 0; i < stream_pfxs.size(); ++i)
@@ -311,13 +311,13 @@ namespace
                        std::shared_ptr<std::atomic<int>> done)
         -> net::awaitable<void>
     {
-        psm::trace::active_prefix = nullptr;
+        psm::diagnose::active_prefix = nullptr;
 
         net::steady_timer timer(co_await net::this_coro::executor);
         timer.expires_after(std::chrono::milliseconds(1 + static_cast<int>(endpoint_id)));
         co_await timer.async_wait(net::use_awaitable);
 
-        auto *cur = psm::trace::active_prefix;
+        auto *cur = psm::diagnose::active_prefix;
         record_log(0, cur ? cur->conn : 0,
                    static_cast<int>(endpoint_id),
                    winner->exchange(true) ? "racer_loser" : "racer_winner");
@@ -325,12 +325,12 @@ namespace
         done->fetch_add(1);
     }
 
-    auto racer_main(psm::trace::session_prefix &session_pfx, int endpoint_count,
+    auto racer_main(psm::diagnose::session_prefix &session_pfx, int endpoint_count,
                     std::shared_ptr<std::atomic<bool>> winner,
                     std::shared_ptr<std::atomic<int>> done)
         -> net::awaitable<void>
     {
-        psm::trace::scope_guard guard(session_pfx);
+        psm::diagnose::scope_guard guard(session_pfx);
         auto ex = co_await net::this_coro::executor;
 
         for (int i = 0; i < endpoint_count; ++i)
@@ -355,12 +355,12 @@ namespace
     auto short_lived_session_coro(std::shared_ptr<std::atomic<int>> phase)
         -> net::awaitable<void>
     {
-        auto short_pfx = std::make_unique<psm::trace::session_prefix>();
+        auto short_pfx = std::make_unique<psm::diagnose::session_prefix>();
         short_pfx->conn = 999;
         {
-            psm::trace::scope_guard guard(*short_pfx);
+            psm::diagnose::scope_guard guard(*short_pfx);
             record_log(999,
-                       psm::trace::active_prefix ? psm::trace::active_prefix->conn : 0,
+                       psm::diagnose::active_prefix ? psm::diagnose::active_prefix->conn : 0,
                        0, "short_lived");
         }
         phase->store(1);
@@ -382,7 +382,7 @@ namespace
             co_await timer.async_wait(net::use_awaitable);
         }
 
-        auto *cur = psm::trace::active_prefix;
+        auto *cur = psm::diagnose::active_prefix;
         record_log(0, cur ? cur->conn : 0, 0, "observer");
     }
 
@@ -404,7 +404,7 @@ TEST(ScopedPrefix, BuggedScopeGuard_ShowsCorruption)
     clear_log();
     net::io_context ioc;
 
-    std::array<psm::trace::session_prefix, coro_count> pfx{};
+    std::array<psm::diagnose::session_prefix, coro_count> pfx{};
     for (int i = 0; i < coro_count; ++i)
         pfx[i].conn = 100 + i;
 
@@ -428,7 +428,7 @@ TEST(ScopedPrefix, ProtectedStep_NoCorruption)
     clear_log();
     net::io_context ioc;
 
-    std::array<psm::trace::session_prefix, coro_count> pfx{};
+    std::array<psm::diagnose::session_prefix, coro_count> pfx{};
     for (int i = 0; i < coro_count; ++i)
         pfx[i].conn = 200 + i;
 
@@ -456,7 +456,7 @@ TEST(ScopedPrefix, CoSpawnOrphan_ResidualPrefix)
     constexpr int total_children = parents * children_per_parent;
     auto done = std::make_shared<std::atomic<int>>(0);
 
-    std::array<psm::trace::session_prefix, parents> pfx{};
+    std::array<psm::diagnose::session_prefix, parents> pfx{};
     for (int i = 0; i < parents; ++i)
         pfx[i].conn = 300 + i;
 
@@ -482,8 +482,8 @@ TEST(ScopedPrefix, SessionReturn_MuxStillRunning)
     net::io_context ioc;
 
     constexpr int sessions = 4;
-    std::vector<psm::trace::session_prefix> session_pfx(sessions);
-    std::vector<psm::trace::session_prefix> mux_pfx(sessions);
+    std::vector<psm::diagnose::session_prefix> session_pfx(sessions);
+    std::vector<psm::diagnose::session_prefix> mux_pfx(sessions);
     std::vector<std::shared_ptr<std::atomic<int>>> mux_checks(sessions);
 
     for (int i = 0; i < sessions; ++i)
@@ -520,8 +520,8 @@ TEST(ScopedPrefix, NestedCoSpawn_AnyTlsMode)
     net::io_context ioc;
 
     constexpr int depth = 4;
-    std::vector<psm::trace::session_prefix> outer_pfx(depth);
-    std::vector<psm::trace::session_prefix> middle_pfx(depth);
+    std::vector<psm::diagnose::session_prefix> outer_pfx(depth);
+    std::vector<psm::diagnose::session_prefix> middle_pfx(depth);
     auto done = std::make_shared<std::atomic<int>>(0);
 
     for (int i = 0; i < depth; ++i)
@@ -556,9 +556,9 @@ TEST(ScopedPrefix, MuxDispatch_YamuxMode)
     net::io_context ioc;
 
     constexpr int streams = 8;
-    psm::trace::session_prefix mux_pfx{};
+    psm::diagnose::session_prefix mux_pfx{};
     mux_pfx.conn = 800;
-    std::vector<psm::trace::session_prefix> stream_pfx(streams);
+    std::vector<psm::diagnose::session_prefix> stream_pfx(streams);
     auto done = std::make_shared<std::atomic<int>>(0);
 
     for (int i = 0; i < streams; ++i)
@@ -588,7 +588,7 @@ TEST(ScopedPrefix, RacerMode)
     net::io_context ioc;
 
     constexpr int endpoints = 6;
-    psm::trace::session_prefix session_pfx{};
+    psm::diagnose::session_prefix session_pfx{};
     session_pfx.conn = 900;
 
     auto winner = std::make_shared<std::atomic<bool>>(false);
@@ -619,11 +619,11 @@ TEST(ScopedPrefix, ScopeGuardDestruct_RestoresPrefix)
     net::io_context ioc;
 
     auto phase = std::make_shared<std::atomic<int>>(0);
-    psm::trace::session_prefix global_pfx{};
+    psm::diagnose::session_prefix global_pfx{};
     global_pfx.conn = 9999;
 
     {
-        psm::trace::scope_guard global_guard(global_pfx);
+        psm::diagnose::scope_guard global_guard(global_pfx);
 
         net::co_spawn(ioc, short_lived_session_coro(phase), net::detached);
         net::co_spawn(ioc, observer_coro(phase), net::detached);
@@ -652,7 +652,7 @@ TEST(ScopedPrefix, HighStress_AllModes)
     constexpr int stress_coros = 32;
     constexpr int stress_yields = 8;
 
-    std::vector<psm::trace::session_prefix> pfx(stress_coros);
+    std::vector<psm::diagnose::session_prefix> pfx(stress_coros);
     for (int i = 0; i < stress_coros; ++i)
         pfx[i].conn = 1000 + i;
 

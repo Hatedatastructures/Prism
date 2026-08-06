@@ -7,12 +7,12 @@
  */
 
 #include <prism/foundation/foundation.hpp>
-#include <prism/trace/spdlog.hpp>
+#include <prism/diagnose/log.hpp>
 
 
 #include <gtest/gtest.h>
 
-#include "../../src/prism/net/connect/dial/router.cpp"
+#include "../../src/prism/net/connection/dialer/dialer.cpp"
 
 namespace
 {
@@ -24,7 +24,7 @@ namespace
 
     TEST(RouterDeep, StringHashStringView)
     {
-        connect::router::string_hash h;
+        connect::dialer::string_hash h;
         auto v1 = h(std::string_view("hello"));
         auto v2 = h(std::string_view("hello"));
         EXPECT_TRUE(v1 == v2) << "string_hash: same string_view -> same hash";
@@ -32,7 +32,7 @@ namespace
 
     TEST(RouterDeep, StringHashDifferentStrings)
     {
-        connect::router::string_hash h;
+        connect::dialer::string_hash h;
         auto v1 = h(std::string_view("abc"));
         auto v2 = h(std::string_view("xyz"));
         EXPECT_TRUE(v1 != v2) << "string_hash: different strings -> different hash";
@@ -40,7 +40,7 @@ namespace
 
     TEST(RouterDeep, StringHashMemoryString)
     {
-        connect::router::string_hash h;
+        connect::dialer::string_hash h;
         psm::memory::string s("hello");
         auto v_view = h(std::string_view("hello"));
         auto v_mem = h(s);
@@ -49,7 +49,7 @@ namespace
 
     TEST(RouterDeep, StringHashEmpty)
     {
-        connect::router::string_hash h;
+        connect::dialer::string_hash h;
         auto v = h(std::string_view(""));
         EXPECT_TRUE(v != 0 || v == 0) << "string_hash: empty string -> produces hash";
     }
@@ -58,7 +58,7 @@ namespace
 
     TEST(RouterDeep, StringEqualViewView)
     {
-        connect::router::string_equal eq;
+        connect::dialer::string_equal eq;
         EXPECT_TRUE(eq(std::string_view("abc"), std::string_view("abc")))
             << "string_equal: view == view -> true";
         EXPECT_TRUE(!eq(std::string_view("abc"), std::string_view("def")))
@@ -67,7 +67,7 @@ namespace
 
     TEST(RouterDeep, StringEqualMemView)
     {
-        connect::router::string_equal eq;
+        connect::dialer::string_equal eq;
         psm::memory::string s("test");
         EXPECT_TRUE(eq(s, std::string_view("test")))
             << "string_equal: mem == view -> true";
@@ -77,7 +77,7 @@ namespace
 
     TEST(RouterDeep, StringEqualViewMem)
     {
-        connect::router::string_equal eq;
+        connect::dialer::string_equal eq;
         psm::memory::string s("test");
         EXPECT_TRUE(eq(std::string_view("test"), s))
             << "string_equal: view == mem -> true";
@@ -87,7 +87,7 @@ namespace
 
     TEST(RouterDeep, StringEqualMemMem)
     {
-        connect::router::string_equal eq;
+        connect::dialer::string_equal eq;
         psm::memory::string a("abc");
         psm::memory::string b("abc");
         psm::memory::string c("def");
@@ -97,7 +97,7 @@ namespace
 
     TEST(RouterDeep, StringEqualEmpty)
     {
-        connect::router::string_equal eq;
+        connect::dialer::string_equal eq;
         EXPECT_TRUE(eq(std::string_view(""), std::string_view("")))
             << "string_equal: empty == empty -> true";
         EXPECT_TRUE(!eq(std::string_view(""), std::string_view("x")))
@@ -109,11 +109,9 @@ namespace
     TEST(RouterDeep, Constructor)
     {
         net::io_context ioc;
-        connect::connection_pool pool(ioc);
-        connect::router_options opts{pool, ioc, {}};
-        connect::router r(std::move(opts));
+        connect::dialer_options opts{ioc, {}};
+        connect::dialer r(std::move(opts));
 
-        EXPECT_TRUE(&r.pool() == &pool) << "constructor: pool accessor";
         EXPECT_TRUE(!!r.executor()) << "constructor: executor non-empty";
         EXPECT_TRUE(!r.positive_host().has_value()) << "constructor: no positive_host";
         EXPECT_TRUE(r.positive_port() == 0) << "constructor: positive_port == 0";
@@ -122,10 +120,9 @@ namespace
     TEST(RouterDeep, Ipv6DisabledDefault)
     {
         net::io_context ioc;
-        connect::connection_pool pool(ioc);
         psm::dns::config dns_cfg;
-        connect::router_options opts{pool, ioc, dns_cfg};
-        connect::router r(std::move(opts));
+        connect::dialer_options opts{ioc, dns_cfg};
+        connect::dialer r(std::move(opts));
 
         EXPECT_TRUE(!r.ipv6_disabled()) << "ipv6_disabled: default -> false";
     }
@@ -133,11 +130,10 @@ namespace
     TEST(RouterDeep, Ipv6DisabledTrue)
     {
         net::io_context ioc;
-        connect::connection_pool pool(ioc);
         psm::dns::config dns_cfg;
         dns_cfg.disable_ipv6 = true;
-        connect::router_options opts{pool, ioc, dns_cfg};
-        connect::router r(std::move(opts));
+        connect::dialer_options opts{ioc, dns_cfg};
+        connect::dialer r(std::move(opts));
 
         EXPECT_TRUE(r.ipv6_disabled()) << "ipv6_disabled: true -> true";
     }
@@ -145,9 +141,8 @@ namespace
     TEST(RouterDeep, DnsAccessor)
     {
         net::io_context ioc;
-        connect::connection_pool pool(ioc);
-        connect::router_options opts{pool, ioc, {}};
-        connect::router r(std::move(opts));
+        connect::dialer_options opts{ioc, {}};
+        connect::dialer r(std::move(opts));
 
         EXPECT_TRUE(&r.dns() != nullptr) << "dns: accessor returns non-null";
     }
@@ -155,19 +150,16 @@ namespace
     TEST(RouterDeep, PoolConstAccessor)
     {
         net::io_context ioc;
-        connect::connection_pool pool(ioc);
-        connect::router_options opts{pool, ioc, {}};
-        const connect::router r(std::move(opts));
+        connect::dialer_options opts{ioc, {}};
+        const connect::dialer r(std::move(opts));
 
-        EXPECT_TRUE(&r.pool() == &pool) << "pool: const accessor";
     }
 
     TEST(RouterDeep, DnsConstAccessor)
     {
         net::io_context ioc;
-        connect::connection_pool pool(ioc);
-        connect::router_options opts{pool, ioc, {}};
-        const connect::router r(std::move(opts));
+        connect::dialer_options opts{ioc, {}};
+        const connect::dialer r(std::move(opts));
 
         EXPECT_TRUE(&r.dns() != nullptr) << "dns: const accessor returns non-null";
     }
@@ -177,9 +169,8 @@ namespace
     TEST(RouterDeep, SetEndpointEmptyHost)
     {
         net::io_context ioc;
-        connect::connection_pool pool(ioc);
-        connect::router_options opts{pool, ioc, {}};
-        connect::router r(std::move(opts));
+        connect::dialer_options opts{ioc, {}};
+        connect::dialer r(std::move(opts));
 
         r.set_endpoint("", 8080);
         EXPECT_TRUE(!r.positive_host().has_value()) << "set_endpoint: empty host -> reset";
@@ -189,9 +180,8 @@ namespace
     TEST(RouterDeep, SetEndpointZeroPort)
     {
         net::io_context ioc;
-        connect::connection_pool pool(ioc);
-        connect::router_options opts{pool, ioc, {}};
-        connect::router r(std::move(opts));
+        connect::dialer_options opts{ioc, {}};
+        connect::dialer r(std::move(opts));
 
         r.set_endpoint("example.com", 0);
         EXPECT_TRUE(!r.positive_host().has_value()) << "set_endpoint: zero port -> reset";
@@ -201,9 +191,8 @@ namespace
     TEST(RouterDeep, SetEndpointValid)
     {
         net::io_context ioc;
-        connect::connection_pool pool(ioc);
-        connect::router_options opts{pool, ioc, {}};
-        connect::router r(std::move(opts));
+        connect::dialer_options opts{ioc, {}};
+        connect::dialer r(std::move(opts));
 
         r.set_endpoint("proxy.example.com", 3128);
         EXPECT_TRUE(r.positive_host().has_value()) << "set_endpoint: valid -> has host";
@@ -216,9 +205,8 @@ namespace
     TEST(RouterDeep, SetEndpointOverwrite)
     {
         net::io_context ioc;
-        connect::connection_pool pool(ioc);
-        connect::router_options opts{pool, ioc, {}};
-        connect::router r(std::move(opts));
+        connect::dialer_options opts{ioc, {}};
+        connect::dialer r(std::move(opts));
 
         r.set_endpoint("first.com", 80);
         r.set_endpoint("second.com", 443);
@@ -231,9 +219,8 @@ namespace
     TEST(RouterDeep, SetEndpointClearAfterSet)
     {
         net::io_context ioc;
-        connect::connection_pool pool(ioc);
-        connect::router_options opts{pool, ioc, {}};
-        connect::router r(std::move(opts));
+        connect::dialer_options opts{ioc, {}};
+        connect::dialer r(std::move(opts));
 
         r.set_endpoint("proxy.com", 8080);
         EXPECT_TRUE(r.positive_host().has_value()) << "set_endpoint: set first";
@@ -251,9 +238,8 @@ namespace
     TEST(RouterDeep, SetEndpointAndReadback)
     {
         net::io_context ioc;
-        connect::connection_pool pool(ioc);
-        connect::router_options opts{pool, ioc, {}};
-        connect::router r(std::move(opts));
+        connect::dialer_options opts{ioc, {}};
+        connect::dialer r(std::move(opts));
 
         // 设置 -> 读取 -> 清除 -> 读取 完整流程
         r.set_endpoint("host1.com", 100);
@@ -270,9 +256,8 @@ namespace
     TEST(RouterDeep, SetEndpointBothEmpty)
     {
         net::io_context ioc;
-        connect::connection_pool pool(ioc);
-        connect::router_options opts{pool, ioc, {}};
-        connect::router r(std::move(opts));
+        connect::dialer_options opts{ioc, {}};
+        connect::dialer r(std::move(opts));
 
         r.set_endpoint("", 0);
         EXPECT_TRUE(!r.positive_host().has_value()) << "endpoint: both empty -> reset";

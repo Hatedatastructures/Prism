@@ -7,11 +7,11 @@
 #pragma once
 
 #include <prism/resource/worker.hpp>
-#include <prism/account/entry.hpp>
+#include <prism/user/entry.hpp>
 #include <prism/foundation/memory/pool.hpp>
-#include <prism/net/connect/types.hpp>
+#include <prism/net/connection/types.hpp>
 #include <prism/net/transport/transmission.hpp>
-#include <prism/trace/context.hpp>
+#include <prism/diagnose/context.hpp>
 
 #include <array>
 #include <cstdint>
@@ -51,7 +51,7 @@ struct session
         std::uint32_t                              buffer = 0;
         psm::transport::shared_transmission        inbound;
         std::array<std::byte, 16>                  src = {};
-        std::shared_ptr<psm::trace::trace_context> trace;
+        std::shared_ptr<psm::diagnose::context> trace;
         std::shared_ptr<metadata>                  meta;
     };
 
@@ -74,9 +74,9 @@ struct session
     psm::transport::shared_transmission        inbound;
     psm::transport::shared_transmission        outbound;
     psm::connect::protocol_type                detected{};
-    psm::account::lease                        lease;
+    psm::user::lease                        lease;
     std::shared_ptr<metadata>                  meta;
-    std::shared_ptr<psm::trace::trace_context> trace;
+    std::shared_ptr<psm::diagnose::context> trace;
     psm::memory::frame_arena                   arena;
     std::array<std::byte, 16>                  src;
 };

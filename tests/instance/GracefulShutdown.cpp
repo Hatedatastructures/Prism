@@ -5,18 +5,17 @@
  * 的幂等性——多次调用不应崩溃或抛异常。
  */
 
-#include <prism/config/config.hpp>
+#include <prism/settings/settings.hpp>
 #include <prism/resource/session.hpp>
-#include <prism/account/directory.hpp>
+#include <prism/user/directory.hpp>
 #include <prism/runtime/front/listener.hpp>
 #include <prism/runtime/front/balancer.hpp>
 #include <prism/runtime/worker/worker.hpp>
 #include <prism/runtime/session/session.hpp>
-#include <prism/net/connect/pool/pool.hpp>
-#include <prism/net/connect/dial/router.hpp>
+#include <prism/net/connection/dialer/dialer.hpp>
 #include <prism/net/transport/reliable.hpp>
 #include <prism/foundation/foundation.hpp>
-#include <prism/trace/spdlog.hpp>
+#include <prism/diagnose/log.hpp>
 #include <gtest/gtest.h>
 
 #include <atomic>
@@ -46,7 +45,7 @@ namespace
         psm::runtime::front::balancer bal(std::move(bindings));
 
         // 构造配置，使用 127.0.0.1:0 避免端口冲突
-        psm::config cfg;
+        psm::settings cfg;
         cfg.instance.addressable.host = "127.0.0.1";
         cfg.instance.addressable.port = 0;
 
@@ -67,11 +66,11 @@ namespace
      */
     TEST(GracefulShutdown, WorkerStopIdempotent)
     {
-        psm::config cfg;
+        psm::settings cfg;
         cfg.instance.addressable.host = "127.0.0.1";
         cfg.instance.addressable.port = 0;
 
-        auto account_store = std::make_shared<psm::account::directory>(
+        auto account_store = std::make_shared<psm::user::directory>(
             psm::memory::system::global_pool());
 
         psm::runtime::worker::worker wrk(cfg, std::move(account_store));
@@ -96,22 +95,21 @@ namespace
 
         // 创建连接池和路由器（空 DNS 配置）
         psm::dns::config dns_cfg;
-        auto pool = std::make_unique<psm::connect::connection_pool>(ioc);
-        auto router = std::make_unique<psm::connect::router>(
-            psm::connect::router_options{*pool, ioc, std::move(dns_cfg)});
+        auto router = std::make_unique<psm::connect::dialer>(
+            psm::connect::dialer_options{*pool, ioc, std::move(dns_cfg)});
 
         // 创建 SSL 上下文
         auto ssl_ctx = std::make_shared<ssl::context>(ssl::context::tlsv12);
         ssl_ctx->set_verify_mode(ssl::verify_none);
 
         // 构造 server 上下文
-        psm::config cfg;
-        auto account_store = std::make_shared<psm::account::directory>(
+        psm::settings cfg;
+        auto account_store = std::make_shared<psm::user::directory>(
             psm::memory::system::global_pool());
 
         psm::resource::process server_ctx{
-            std::atomic<std::shared_ptr<const psm::config>>{
-                std::make_shared<const psm::config>(cfg)},
+            std::atomic<std::shared_ptr<const psm::settings>>{
+                std::make_shared<const psm::settings>(cfg)},
             ssl_ctx,
             account_store};
 

@@ -5,15 +5,15 @@
  *          payload 太短、version 错误、正确 version 但未实现。
  */
 
-#include <prism/stealth/ech/util/decrypt.hpp>
-#include <prism/trace/spdlog.hpp>
+#include <prism/handshake/ech/util/decrypt.hpp>
+#include <prism/diagnose/log.hpp>
 #include <gtest/gtest.h>
 
 #include <cstddef>
 
 namespace
 {
-    namespace ech = psm::stealth::ech;
+    namespace ech = psm::handshake::ech;
 
     TEST(EchDecrypt, PayloadTooShort)
     {

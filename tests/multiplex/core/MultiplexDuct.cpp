@@ -9,7 +9,7 @@
  */
 
 #include <prism/foundation/foundation.hpp>
-#include <prism/trace/spdlog.hpp>
+#include <prism/diagnose/log.hpp>
 #include <prism/protocol/multiplex/config.hpp>
 #include <prism/protocol/multiplex/stream.hpp>
 

@@ -5,7 +5,7 @@
  * route_table 单线程使用，无并发测试需求。
  */
 
-#include <prism/net/connect/route/table.hpp>
+#include <prism/net/connection/route/table.hpp>
 
 #include <gtest/gtest.h>
 

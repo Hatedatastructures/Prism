@@ -11,9 +11,9 @@
 #include <prism/protocol/shadowsocks/util/datagram.hpp>
 #include <prism/protocol/shadowsocks/util/tracker.hpp>
 #include <prism/protocol/shadowsocks/constants.hpp>
-#include <prism/protocol/shadowsocks/framing.hpp>
+#include <prism/protocol/shadowsocks/codec/framing.hpp>
 #include <prism/crypto/block.hpp>
-#include <prism/trace/spdlog.hpp>
+#include <prism/diagnose/log.hpp>
 #include <prism/foundation/foundation.hpp>
 
 #include <array>

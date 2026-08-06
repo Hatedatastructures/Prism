@@ -5,7 +5,7 @@
 #include <prism/net/dns/detail/rules.hpp>
 #include <prism/net/dns/detail/utility.hpp>
 #include <boost/asio/co_spawn.hpp>
-#include <prism/trace/trace.hpp>
+#include <prism/diagnose/diagnose.hpp>
 
 #include <boost/asio/experimental/awaitable_operators.hpp>
 
@@ -15,7 +15,7 @@
 #include <numeric>
 #include <optional>
 
-using namespace psm::trace;
+using namespace psm::diagnose;
 
 namespace psm::dns
 {
@@ -263,17 +263,17 @@ namespace psm::dns
             {
                 if (rule->blocked)
                 {
-                    trace::debug("{} blocked by rule", qname);
+                    diagnose::debug("{} blocked by rule", qname);
                     return std::make_pair(fault::code::blocked, memory::vector<net::ip::address>(mr_));
                 }
                 if (rule->negative)
                 {
-                    trace::debug("{} negative rule hit", qname);
+                    diagnose::debug("{} negative rule hit", qname);
                     return std::make_pair(fault::code::success, memory::vector<net::ip::address>(mr_));
                 }
                 if (!rule->addresses.empty())
                 {
-                    trace::debug("{} -> static address ({} IPs)", qname, rule->addresses.size());
+                    diagnose::debug("{} -> static address ({} IPs)", qname, rule->addresses.size());
                     return std::make_pair(fault::code::success, memory::vector<net::ip::address>(rule->addresses));
                 }
             }
@@ -291,10 +291,10 @@ namespace psm::dns
             {
                 if (cached->empty())
                 {
-                    trace::debug("{} negative cache hit", qname);
+                    diagnose::debug("{} negative cache hit", qname);
                     return std::make_pair(fault::code::dns_failed, std::move(*cached));
                 }
-                trace::debug("{} cache hit ({} IPs)", qname, cached->size());
+                diagnose::debug("{} cache hit ({} IPs)", qname, cached->size());
                 return std::make_pair(fault::code::success, std::move(*cached));
             }
             return std::nullopt;
@@ -367,7 +367,7 @@ namespace psm::dns
                     {
                         cache_.put_negative(qname, qt, config_.negative_ttl);
                     }
-                    trace::warn("{} all IPs blacklisted", qname);
+                    diagnose::warn("{} all IPs blacklisted", qname);
                     co_return std::make_pair(fault::code::blocked, memory::vector<net::ip::address>(mr_));
                 }
                 result.ips = std::move(filtered);
@@ -377,12 +377,12 @@ namespace psm::dns
 
             if (fault::succeeded(result.error))
             {
-                trace::debug("{} -> {} IPs in {}ms via {}",
+                diagnose::debug("{} -> {} IPs in {}ms via {}",
                              qname, result.ips.size(), result.rtt_ms, result.server_addr);
             }
             else
             {
-                trace::warn("{} failed: {}", qname, fault::describe(result.error));
+                diagnose::warn("{} failed: {}", qname, fault::describe(result.error));
             }
 
             co_return std::make_pair(result.error, std::move(result.ips));

@@ -9,7 +9,7 @@
 #include <prism/net/transport/reliable.hpp>
 #include <prism/net/transport/unreliable.hpp>
 #include <prism/foundation/foundation.hpp>
-#include <prism/trace/spdlog.hpp>
+#include <prism/diagnose/log.hpp>
 #include <gtest/gtest.h>
 
 #include <array>

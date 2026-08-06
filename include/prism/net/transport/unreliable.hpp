@@ -12,7 +12,7 @@
 #pragma once
 
 #include <prism/foundation/fault/handling.hpp>
-#include <prism/trace/trace.hpp>
+#include <prism/diagnose/diagnose.hpp>
 #include <prism/net/transport/transmission.hpp>
 
 #include <boost/asio.hpp>

@@ -3,21 +3,24 @@
  * @brief 模拟 Clash 客户端上行行为的诊断测试
  * @details 模拟真实客户端测速场景：SYN + 地址帧 + 数据帧连续快速发送
  *          （不等服务端 0x00 状态），大数据量多帧上行，验证 echo 完整回传。
- *          诊断"有下行没上行"问题。
+ *          三个用例：快速上行（8×1KB）、大流量上传（32×32KB=1MB）、
+ *          多流并发上传（6 流 × 8MB）。
+ * @note 测试进程退出时 io_context 析构会销毁挂起的协程，Windows 上
+ *       存在竞态（挂死/崩溃）。因此 echo server 支持显式停止：
+ *       测试末尾设置 stop 并 cancel 挂起的 accept，再驱动 poll 让
+ *       所有协程正常退出，避免 ioc 析构销毁挂起协程。
  */
 
 #include <prism/foundation/foundation.hpp>
-#include <prism/net/connect/outbound/direct.hpp>
-#include <prism/trace/spdlog.hpp>
+#include <prism/net/connection/outbound/direct.hpp>
+#include <prism/diagnose/log.hpp>
 #include <prism/protocol/protocol.hpp>
 #include <prism/net/transport/reliable.hpp>
-#include <prism/net/connect/pool/pool.hpp>
-#include <prism/net/connect/dial/router.hpp>
+#include <prism/net/connection/dialer/dialer.hpp>
 #include <prism/net/dns/resolver.hpp>
 #include <prism/foundation/fault/code.hpp>
 
 #include <gtest/gtest.h>
-#include <prism/trace/config.hpp>
 
 #include <array>
 #include <chrono>
@@ -68,11 +71,27 @@ namespace
     return buf;
 }
 
-auto echo_server(tcp::acceptor acceptor) -> net::awaitable<void>
+/**
+ * @brief echo 服务器（可停止）
+ * @details accept 被取消（stop 后测试端 cancel）时 ec=aborted，协程
+ *          正常 co_return 退出——避免 ioc 析构销毁挂起 accept 协程。
+ */
+auto echo_server(std::shared_ptr<tcp::acceptor> acceptor, std::shared_ptr<std::atomic<bool>> stop)
+    -> net::awaitable<void>
 {
-    while (true)
+    while (!stop->load())
     {
-        auto sock = co_await acceptor.async_accept(net::use_awaitable);
+        boost::system::error_code ec;
+        auto sock = co_await acceptor->async_accept(net::redirect_error(net::use_awaitable, ec));
+        if (ec)
+        {
+            co_return;
+        }
+        if (stop->load())
+        {
+            sock.close();
+            co_return;
+        }
         net::co_spawn(sock.get_executor(),
             [s = std::move(sock)]() mutable -> net::awaitable<void>
             {
@@ -127,29 +146,81 @@ auto async_read_at_least(tcp::socket &sock, std::span<std::byte> buffer, const s
     co_return total;
 }
 
+/**
+ * @brief echo 服务器资源（acceptor + stop 标志，测试末尾统一停止）
+ */
+struct echo_harness
+{
+    std::shared_ptr<tcp::acceptor> acceptor;
+    std::shared_ptr<std::atomic<bool>> stop;
+
+    echo_harness(net::any_io_executor ex, std::uint16_t &port)
+    {
+        acceptor = std::make_shared<tcp::acceptor>(ex, tcp::endpoint(net::ip::address_v4::loopback(), 0));
+        port = acceptor->local_endpoint().port();
+        stop = std::make_shared<std::atomic<bool>>(false);
+        net::co_spawn(ex, echo_server(acceptor, stop), net::detached);
+    }
+
+    void shutdown()
+    {
+        stop->store(true);
+        acceptor->cancel();
+    }
+};
+
 struct LifecycleContext
 {
     net::io_context ioc{1};
     psm::multiplex::config mux_config;
-    psm::connect::connection_pool pool{ioc};
     psm::dns::config dns_cfg;
-    psm::connect::router router{psm::connect::router_options{pool, ioc, dns_cfg}};
+    psm::connect::dialer router{psm::connect::dialer_options{ioc, dns_cfg}};
     psm::outbound::direct outbound{router};
 
     LifecycleContext()
     {
         mux_config.enabled = true;
+        // 测试环境关闭 keepalive：避免 ioc 析构时销毁挂起的 30s timer 协程
+        mux_config.smux.keepalive_interval = 0;
     }
 };
+
+/**
+ * @brief 驱动 io_context 直到协程完成，然后清理挂起协程
+ * @details 协程完成回调 ioc.stop() 后，restart + 循环 poll 让所有
+ *          已取消/完成的协程恢复并退出，最后 stop——ioc 析构时
+ *          不再有挂起协程（规避 Windows 销毁竞态）。
+ */
+void run_and_drain(net::io_context &ioc, const std::exception_ptr &ep, bool pass,
+                   const char *label, const char *detail)
+{
+    if (ep)
+    {
+        try
+        {
+            std::rethrow_exception(ep);
+        }
+        catch (const std::exception &e)
+        {
+            FAIL() << label << " coroutine exception: " << e.what();
+        }
+    }
+    EXPECT_TRUE(pass) << label << ": " << detail;
+    ioc.restart();
+    while (ioc.poll() > 0)
+    {
+    }
+    ioc.stop();
+}
 
 // ── 模拟 Clash 快速上行：不等 0x00 状态，SYN+addr+多帧数据连续发送 ──
 
 TEST(MuxUploadSim, SmuxRapidUplink)
 {
-    psm::trace::config tcfg;
+    psm::diagnose::config tcfg;
     tcfg.enable_console = true;
     tcfg.log_level = "debug";
-    psm::trace::init(tcfg);
+    psm::diagnose::init(tcfg);
 
     auto ctx = std::make_unique<LifecycleContext>();
 
@@ -160,9 +231,8 @@ TEST(MuxUploadSim, SmuxRapidUplink)
     {
         auto ex = ctx->ioc.get_executor();
 
-        tcp::acceptor echo_acceptor(ex, tcp::endpoint(net::ip::address_v4::loopback(), 0));
-        const auto echo_port = echo_acceptor.local_endpoint().port();
-        net::co_spawn(ex, echo_server(std::move(echo_acceptor)), net::detached);
+        std::uint16_t echo_port = 0;
+        echo_harness echo(ex, echo_port);
 
         auto [client_sock, server_sock] = co_await make_socket_pair(ex);
 
@@ -265,28 +335,19 @@ TEST(MuxUploadSim, SmuxRapidUplink)
 
         client_sock.close();
         session->close();
+        echo.shutdown();
     };
 
     net::co_spawn(ctx->ioc, coro(), [&](std::exception_ptr e)
                   { ep = e; ctx->ioc.stop(); });
     ctx->ioc.run();
 
-    if (ep)
-    {
-        try
-        {
-            std::rethrow_exception(ep);
-        }
-        catch (const std::exception &e)
-        {
-            FAIL() << "coroutine exception: " << e.what();
-        }
-    }
-
-    EXPECT_TRUE(pass) << "smux rapid uplink (no wait for status): echo must be complete";
+    run_and_drain(ctx->ioc, ep, pass, "SmuxRapidUplink",
+                  "smux rapid uplink (no wait for status): echo must be complete");
+    ctx.reset();
 }
 
-// ── 模拟大流量上传：16 帧 × 64KB = 1MB ──
+// ── 模拟大流量上传：32 帧 × 32KB = 1MB ──
 
 TEST(MuxUploadSim, SmuxLargeUpload)
 {
@@ -299,9 +360,8 @@ TEST(MuxUploadSim, SmuxLargeUpload)
     {
         auto ex = ctx->ioc.get_executor();
 
-        tcp::acceptor echo_acceptor(ex, tcp::endpoint(net::ip::address_v4::loopback(), 0));
-        const auto echo_port = echo_acceptor.local_endpoint().port();
-        net::co_spawn(ex, echo_server(std::move(echo_acceptor)), net::detached);
+        std::uint16_t echo_port = 0;
+        echo_harness echo(ex, echo_port);
 
         auto [client_sock, server_sock] = co_await make_socket_pair(ex);
 
@@ -403,25 +463,15 @@ TEST(MuxUploadSim, SmuxLargeUpload)
 
         client_sock.close();
         session->close();
+        echo.shutdown();
     };
 
     net::co_spawn(ctx->ioc, coro(), [&](std::exception_ptr e)
                   { ep = e; ctx->ioc.stop(); });
     ctx->ioc.run();
 
-    if (ep)
-    {
-        try
-        {
-            std::rethrow_exception(ep);
-        }
-        catch (const std::exception &e)
-        {
-            FAIL() << "coroutine exception: " << e.what();
-        }
-    }
-
-    EXPECT_TRUE(pass) << "smux 1MB upload echo must be complete";
+    run_and_drain(ctx->ioc, ep, pass, "SmuxLargeUpload", "smux 1MB upload echo must be complete");
+    ctx.reset();
 }
 
 // ── 模拟测速站多流并发上传：6 流 × 每流 8MB = 48MB ──
@@ -438,12 +488,14 @@ TEST(MuxUploadSim, SmuxMultiStreamUpload)
         auto ex = ctx->ioc.get_executor();
 
         // 6 个 echo server（每流一个目标端口）
+        constexpr int streams = 6;
         std::vector<std::uint16_t> ports;
-        for (int i = 0; i < 6; ++i)
+        std::vector<echo_harness> echoes;
+        for (int i = 0; i < streams; ++i)
         {
-            tcp::acceptor acc(ex, tcp::endpoint(net::ip::address_v4::loopback(), 0));
-            ports.push_back(acc.local_endpoint().port());
-            net::co_spawn(ex, echo_server(std::move(acc)), net::detached);
+            std::uint16_t port = 0;
+            echoes.emplace_back(ex, port);
+            ports.push_back(port);
         }
 
         auto [client_sock, server_sock] = co_await make_socket_pair(ex);
@@ -453,7 +505,6 @@ TEST(MuxUploadSim, SmuxMultiStreamUpload)
         session->start();
 
         // 6 个流交错建立 + 并发上传
-        constexpr int streams = 6;
         constexpr std::size_t chunk = 32768;
         constexpr int frames_per_stream = 256;  // 8MB 每流
         std::vector<std::byte> data(chunk);
@@ -555,25 +606,19 @@ TEST(MuxUploadSim, SmuxMultiStreamUpload)
 
         client_sock.close();
         session->close();
+        for (auto &e : echoes)
+        {
+            e.shutdown();
+        }
     };
 
     net::co_spawn(ctx->ioc, coro(), [&](std::exception_ptr e)
                   { ep = e; ctx->ioc.stop(); });
     ctx->ioc.run();
 
-    if (ep)
-    {
-        try
-        {
-            std::rethrow_exception(ep);
-        }
-        catch (const std::exception &e)
-        {
-            FAIL() << "coroutine exception: " << e.what();
-        }
-    }
-
-    EXPECT_TRUE(pass) << "smux 6-stream concurrent upload (48MB) echo must be complete";
+    run_and_drain(ctx->ioc, ep, pass, "SmuxMultiStreamUpload",
+                  "smux 6-stream concurrent upload (48MB) echo must be complete");
+    ctx.reset();
 }
 
 } // namespace

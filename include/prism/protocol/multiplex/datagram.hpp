@@ -8,7 +8,7 @@
  *          与旧 parcel 相比的职责净化：
  *          - 删除协议地址模式分支（packet_addr/length_prefixed），
  *            数据报重组与地址解析归 *_control 层
- *          - 删除 owner_ 弱引用与 outbound::proxy 直接持有，
+ *          - 删除 owner_ 弱引用与 outbound::direct 直接持有，
  *            只依赖两个注入回调（resolve 解析端点、emit 回传响应）
  *          - 保留 UDP socket 管理、空闲超时、首包启动接收循环
  * @note 线程安全：单个实例非线程安全，应在同一 executor 上串行使用
@@ -21,7 +21,7 @@
 #include <prism/protocol/multiplex/codec.hpp>
 #include <prism/foundation/memory/container.hpp>
 #include <prism/protocol/multiplex/egress.hpp>
-#include <prism/trace/context.hpp>
+#include <prism/diagnose/context.hpp>
 
 #include <boost/asio.hpp>
 
@@ -40,7 +40,7 @@ namespace psm::multiplex
 
     namespace net = boost::asio;
 
-    /// UDP 端点解析回调（由 *_control 注入，替代直接持有 outbound::proxy）
+    /// UDP 端点解析回调（由 *_control 注入，替代直接持有 outbound::direct）
     using resolve_fn = std::function<net::awaitable<std::pair<fault::code,
                                                               net::ip::udp::endpoint>>(std::string_view, std::string_view)>;
 
@@ -65,7 +65,7 @@ namespace psm::multiplex
         resolve_fn resolve;                        ///< 目标端点解析回调
         emit_fn emit;                              ///< 响应回传回调
         memory::resource_pointer mr = {};          ///< PMR 内存资源
-        std::shared_ptr<trace::trace_context> prefix; ///< 日志前缀
+        std::shared_ptr<diagnose::context> prefix; ///< 日志前缀
     };
 
     /**
@@ -167,7 +167,7 @@ namespace psm::multiplex
         std::uint32_t idle_timeout_{30000};            ///< 空闲超时（毫秒）
         std::uint32_t max_dgram_{4096};                ///< 数据报最大长度（字节）
         memory::resource_pointer mr_{};                ///< PMR 内存资源
-        std::shared_ptr<trace::trace_context> prefix_; ///< 日志前缀
+        std::shared_ptr<diagnose::context> prefix_; ///< 日志前缀
         bool closed_ = false;                          ///< 关闭标志（close 幂等）
 
         net::steady_timer idle_timer_;                                      ///< 空闲超时计时器

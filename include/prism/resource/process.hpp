@@ -6,8 +6,8 @@
  */
 #pragma once
 
-#include <prism/account/directory.hpp>
-#include <prism/config/config.hpp>
+#include <prism/user/directory.hpp>
+#include <prism/settings/settings.hpp>
 
 #include <boost/asio/ssl.hpp>
 
@@ -28,9 +28,9 @@ struct process
      */
     struct options
     {
-        std::shared_ptr<psm::config>                  cfg;
+        std::shared_ptr<psm::settings>                  cfg;
         std::shared_ptr<boost::asio::ssl::context>    ssl;
-        std::shared_ptr<psm::account::directory>      accounts;
+        std::shared_ptr<psm::user::directory>      accounts;
     };
 
     explicit process(options opts);
@@ -38,9 +38,9 @@ struct process
     process(const process&) = delete;
     auto operator=(const process&) -> process& = delete;
 
-    std::shared_ptr<psm::config>                  cfg;
+    std::shared_ptr<psm::settings>                  cfg;
     std::shared_ptr<boost::asio::ssl::context>    ssl;
-    std::shared_ptr<psm::account::directory>      accounts;
+    std::shared_ptr<psm::user::directory>      accounts;
 };
 
 } // namespace psm::resource

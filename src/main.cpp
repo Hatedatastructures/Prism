@@ -23,18 +23,18 @@
 #include <prism/resource/session.hpp>
 #include <prism/resource/process.hpp>
 #include <prism/runtime/runtime.hpp>
-#include <prism/account/directory.hpp>
-#include <prism/account/stats/stats.hpp>
-#include <prism/account/stats/runtime.hpp>
+#include <prism/user/directory.hpp>
+#include <prism/user/stats/stats.hpp>
+#include <prism/user/stats/runtime.hpp>
 #include <prism/runtime/front/balancer.hpp>
 #include <prism/runtime/front/listener.hpp>
 #include <prism/runtime/worker/tls.hpp>
 #include <prism/foundation/foundation.hpp>
 #include <prism/foundation/memory/pool.hpp>
-#include <prism/config/config.hpp>
-#include <prism/config/loader/load.hpp>
-#include <prism/stealth/registry.hpp>
-#include <prism/trace/trace.hpp>
+#include <prism/settings/settings.hpp>
+#include <prism/settings/loader/load.hpp>
+#include <prism/handshake/registry.hpp>
+#include <prism/diagnose/diagnose.hpp>
 
 namespace runtime = psm::runtime;
 
@@ -117,7 +117,7 @@ int main(int argc, char *argv[])
     try
     {
         psm::memory::system::enable_pooling();
-        psm::stealth::register_schemes();
+        psm::handshake::register_schemes();
 
         std::filesystem::path configuration_path;
         if (argc > 1)
@@ -143,13 +143,13 @@ int main(int argc, char *argv[])
         }
 
         auto full_config = psm::loader::load(configuration_path.string());
-        psm::trace::init(full_config.trace);
+        psm::diagnose::init(full_config.trace);
 
         auto account_store = psm::loader::build_dir(full_config.instance.auth);
 
         // 构造进程级资源（global_resources）
         auto ssl_ctx = psm::runtime::worker::tls::make(full_config.instance);
-        auto cfg_shared = std::make_shared<psm::config>(std::move(full_config));
+        auto cfg_shared = std::make_shared<psm::settings>(std::move(full_config));
         psm::resource::process::options gopts;
         gopts.cfg = cfg_shared;
         gopts.ssl = ssl_ctx;
@@ -159,7 +159,7 @@ int main(int argc, char *argv[])
         std::uint32_t workers_count = 1U;
         if (threads_count > 1U)
             workers_count = threads_count - 1U;
-        const psm::config &config_ref = *cfg_shared;
+        const psm::settings &config_ref = *cfg_shared;
 
         psm::memory::vector<std::unique_ptr<runtime::worker::worker>> workers;
         workers.reserve(workers_count);
@@ -207,11 +207,11 @@ int main(int argc, char *argv[])
                 }
                 catch (const std::exception &e)
                 {
-                    psm::trace::error("dispatch exception: {}", e.what());
+                    psm::diagnose::error("dispatch exception: {}", e.what());
                 }
                 catch (...)
                 {
-                    psm::trace::error("dispatch exception: unknown");
+                    psm::diagnose::error("dispatch exception: unknown");
                 }
             };
             threads.emplace_back(std::move(worker_handler));
@@ -225,11 +225,11 @@ int main(int argc, char *argv[])
             }
             catch (const std::exception &e)
             {
-                psm::trace::error("listen exception: {}", e.what());
+                psm::diagnose::error("listen exception: {}", e.what());
             }
             catch (...)
             {
-                psm::trace::error("listen exception: unknown");
+                psm::diagnose::error("listen exception: unknown");
             }
         };
         threads.emplace_back(listen_thread);
@@ -241,7 +241,7 @@ int main(int argc, char *argv[])
             [&workers, &service_listener, &threads, &signal_ioc](
                 const boost::system::error_code & /*ec*/, int /*signo*/)
             {
-                psm::trace::info("received shutdown signal, stopping gracefully...");
+                psm::diagnose::info("received shutdown signal, stopping gracefully...");
 
                 service_listener.stop();
 
@@ -252,8 +252,8 @@ int main(int argc, char *argv[])
 
                 threads.clear();
 
-                psm::trace::info("all threads stopped, shutting down logger");
-                psm::trace::shutdown();
+                psm::diagnose::info("all threads stopped, shutting down logger");
+                psm::diagnose::shutdown();
 
                 signal_ioc.stop();
             });

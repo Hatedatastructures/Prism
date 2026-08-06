@@ -10,7 +10,7 @@
 
 #include <prism/foundation/fault/code.hpp>
 #include <prism/foundation/fault/handling.hpp>
-#include <prism/trace/trace.hpp>
+#include <prism/diagnose/diagnose.hpp>
 #include <prism/net/transport/adapter/connector.hpp>
 #include <prism/net/transport/transmission.hpp>
 

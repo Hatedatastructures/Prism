@@ -10,10 +10,10 @@
  */
 #pragma once
 
-#include <prism/account/directory.hpp>
-#include <prism/account/entry.hpp>
+#include <prism/user/directory.hpp>
+#include <prism/user/entry.hpp>
 #include <prism/net/net.hpp>
-#include <prism/net/connect/dial/router.hpp>
+#include <prism/net/connection/dialer/dialer.hpp>
 #include <prism/resource/session.hpp>
 #include <prism/runtime/config.hpp>
 #include <prism/runtime/front/balancer.hpp>
@@ -22,11 +22,10 @@
 #include <prism/runtime/worker/launch.hpp>
 #include <prism/runtime/worker/tls.hpp>
 #include <prism/runtime/worker/worker.hpp>
-#include <prism/account/stats/runtime.hpp>
-#include <prism/account/stats/traffic.hpp>
+#include <prism/user/stats/runtime.hpp>
+#include <prism/user/stats/traffic.hpp>
 
 // Outbound 子模块（出站代理：直连 + 代理转发）
-#include <prism/net/connect/outbound/direct.hpp>
-#include <prism/net/connect/outbound/proxy.hpp>
+#include <prism/net/connection/outbound/direct.hpp>
 
 

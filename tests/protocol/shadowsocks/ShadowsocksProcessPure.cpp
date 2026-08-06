@@ -8,11 +8,11 @@
  */
 
 #include <prism/foundation/foundation.hpp>
-#include <prism/protocol/shadowsocks/handler.hpp>
+#include <prism/protocol/shadowsocks/handler/handler.hpp>
 #include <prism/protocol/shadowsocks/config.hpp>
-#include <prism/protocol/shadowsocks/packet.hpp>
+#include <prism/protocol/shadowsocks/codec/packet.hpp>
 #include <prism/protocol/shadowsocks/constants.hpp>
-#include <prism/trace/spdlog.hpp>
+#include <prism/diagnose/log.hpp>
 
 #include <cstdint>
 #include <cstring>

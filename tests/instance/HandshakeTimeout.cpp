@@ -6,12 +6,12 @@
  * 使用短超时（100ms ~ 1s）配合 socket pair 模拟对端无响应。
  */
 
-#include <prism/stealth/common.hpp>
+#include <prism/handshake/common.hpp>
 #include <prism/net/transport/reliable.hpp>
-#include <prism/protocol/vless/conn.hpp>
-#include <prism/protocol/trojan/conn.hpp>
+#include <prism/protocol/vless/handler/conn.hpp>
+#include <prism/protocol/trojan/handler/conn.hpp>
 #include <prism/foundation/foundation.hpp>
-#include <prism/trace/trace.hpp>
+#include <prism/diagnose/diagnose.hpp>
 #include <prism/foundation/foundation.hpp>
 #include <gtest/gtest.h>
 
@@ -69,7 +69,7 @@ namespace
                                        std::chrono::milliseconds(100));
 
             std::error_code ec;
-            auto result = co_await psm::stealth::common::read_tls_frame(
+            auto result = co_await psm::handshake::common::read_tls_frame(
                 client_sock, ec, &deadline);
 
             EXPECT_TRUE(!result.has_value())
@@ -110,7 +110,7 @@ namespace
             server_sock.close();
 
             std::error_code ec;
-            auto result = co_await psm::stealth::common::read_tls_frame(
+            auto result = co_await psm::handshake::common::read_tls_frame(
                 client_sock, ec, nullptr);
 
             EXPECT_TRUE(!result.has_value())
@@ -168,7 +168,7 @@ namespace
                                        std::chrono::seconds(1));
 
             std::error_code ec;
-            auto result = co_await psm::stealth::common::read_tls_frame(
+            auto result = co_await psm::handshake::common::read_tls_frame(
                 client_sock, ec, &deadline);
 
             EXPECT_TRUE(result.has_value())

@@ -8,7 +8,7 @@
  */
 
 #include <benchmark/benchmark.h>
-#include <prism/stealth/stack/anytls/mux/frame.hpp>
+#include <prism/handshake/stack/anytls/mux/frame.hpp>
 #include <prism/foundation/memory/container.hpp>
 
 #include <array>
@@ -19,7 +19,7 @@
 namespace
 {
 
-using namespace psm::stealth::anytls;
+using namespace psm::handshake::anytls;
 
 // ============================================================
 // 测试数据

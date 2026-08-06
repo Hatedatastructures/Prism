@@ -10,7 +10,7 @@
 #include "common/TestRunner.hpp"
 
 #include <prism/foundation/foundation.hpp>
-#include <prism/trace/spdlog.hpp>
+#include <prism/diagnose/log.hpp>
 #include <prism/crypto/aead.hpp>
 #include <prism/crypto/x25519.hpp>
 
@@ -102,7 +102,7 @@ namespace
         double elapsed_sec = static_cast<double>(elapsed_ns) / 1e9;
         double throughput_mb = static_cast<double>(data_size) / (1024.0 * 1024.0) / elapsed_sec;
 
-        psm::trace::info("[BENCH] aes_256_gcm_throughput: {:.2f} MB/s", throughput_mb);
+        psm::diagnose::info("[BENCH] aes_256_gcm_throughput: {:.2f} MB/s", throughput_mb);
         runner.Check(throughput_mb > 0.0, "AES-256-GCM throughput > 0 MB/s");
     }
 
@@ -159,7 +159,7 @@ namespace
         double p50_us = static_cast<double>(calculate_percentile(latencies, 0.50));
         double p99_us = static_cast<double>(calculate_percentile(latencies, 0.99));
 
-        psm::trace::info("[BENCH] x25519_latency: avg={:.2f} us, p50={:.2f} us, p99={:.2f} us",
+        psm::diagnose::info("[BENCH] x25519_latency: avg={:.2f} us, p50={:.2f} us, p99={:.2f} us",
                          avg_us, p50_us, p99_us);
         runner.Check(avg_us > 0.0, "X25519 latency measured successfully");
     }
@@ -198,7 +198,7 @@ namespace
         double elapsed_sec = static_cast<double>(elapsed_ns) / 1e9;
         double ops_per_sec = static_cast<double>(iterations) / elapsed_sec;
 
-        psm::trace::info("[BENCH] global_pool_alloc: {:.2f} ops/s", ops_per_sec);
+        psm::diagnose::info("[BENCH] global_pool_alloc: {:.2f} ops/s", ops_per_sec);
         runner.Check(ops_per_sec > 0.0, "Global pool allocation throughput > 0 ops/s");
     }
 
@@ -316,7 +316,7 @@ namespace
         double p50_us = static_cast<double>(calculate_percentile(latencies, 0.50));
         double p99_us = static_cast<double>(calculate_percentile(latencies, 0.99));
 
-        psm::trace::info("[BENCH] tcp_echo_rtt: avg={:.2f} us, p50={:.2f} us, p99={:.2f} us",
+        psm::diagnose::info("[BENCH] tcp_echo_rtt: avg={:.2f} us, p50={:.2f} us, p99={:.2f} us",
                          avg_us, p50_us, p99_us);
         runner.Check(avg_us > 0.0, "TCP echo RTT measured successfully");
     }
@@ -336,7 +336,7 @@ auto main() -> int
     // 初始化全局 PMR 内存池
     psm::memory::system::enable_pooling();
     // 初始化日志系统（使用默认配置，仅控制台输出）
-    psm::trace::init({});
+    psm::diagnose::init({});
 
     psm::testing::TestRunner runner("RegressionBench");
 

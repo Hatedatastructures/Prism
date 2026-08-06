@@ -7,10 +7,10 @@
  */
 
 #include <prism/foundation/fault/code.hpp>
-#include <prism/net/connect/tunnel/forward/pipeline.hpp>
+#include <prism/net/connection/tunnel/forward/pipeline.hpp>
 #include <prism/net/transport/transmission.hpp>
-#include <prism/net/connect/target.hpp>
-#include <prism/trace/context.hpp>
+#include <prism/net/connection/target.hpp>
+#include <prism/diagnose/context.hpp>
 
 #include <boost/asio.hpp>
 
@@ -43,7 +43,7 @@ TEST(ForwardPipeline, OptionsFields)
     target.host = psm::memory::string{"example.com", psm::memory::current_resource()};
     target.port = psm::memory::string{"443", psm::memory::current_resource()};
     target.positive = true;
-    auto trace_ctx = std::make_shared<psm::trace::trace_context>();
+    auto trace_ctx = std::make_shared<psm::diagnose::context>();
 
     psm::connect::pipeline_options opts{inbound, trace_ctx};
     EXPECT_EQ(opts.inbound, inbound);
@@ -59,7 +59,7 @@ TEST(ForwardPipeline, FailsWithNullHandle)
     target.host = psm::memory::string{"127.0.0.1", psm::memory::current_resource()};
     target.port = psm::memory::string{"80", psm::memory::current_resource()};
     target.positive = true;
-    auto trace_ctx = std::make_shared<psm::trace::trace_context>();
+    auto trace_ctx = std::make_shared<psm::diagnose::context>();
 
     auto coro = [&]() -> boost::asio::awaitable<void>
     {

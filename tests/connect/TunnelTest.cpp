@@ -8,14 +8,13 @@
 
 #include <gtest/gtest.h>
 
-#include <prism/config/config.hpp>
-#include <prism/net/connect/dial/router.hpp>
-#include <prism/net/connect/pool/pool.hpp>
-#include <prism/net/connect/tunnel/tunnel.hpp>
+#include <prism/settings/settings.hpp>
+#include <prism/net/connection/dialer/dialer.hpp>
+#include <prism/net/connection/tunnel/tunnel.hpp>
 #include <prism/resource/session.hpp>
 #include <prism/foundation/fault/handling.hpp>
 #include <prism/foundation/foundation.hpp>
-#include <prism/net/connect/types.hpp>
+#include <prism/net/connection/types.hpp>
 #include <prism/net/transport/transmission.hpp>
 
 #include <boost/asio.hpp>
@@ -40,7 +39,7 @@ namespace
     auto make_minimal_session(net::io_context &ioc, uint32_t buffer_size = 4096)
         -> std::shared_ptr<psm::resource::session>
     {
-        auto cfg = std::make_shared<psm::config>();
+        auto cfg = std::make_shared<psm::settings>();
         auto proc_opts = psm::resource::process::options{cfg, nullptr, nullptr};
         auto proc = std::make_shared<psm::resource::process>(std::move(proc_opts));
         auto wrk_opts = psm::resource::worker::options{proc, psm::memory::system::global_pool()};

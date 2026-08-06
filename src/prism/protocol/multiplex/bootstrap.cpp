@@ -2,13 +2,13 @@
 #include <prism/protocol/multiplex/h2mux/control.hpp>
 #include <prism/protocol/multiplex/smux/control.hpp>
 #include <prism/protocol/multiplex/yamux/control.hpp>
-#include <prism/trace/trace.hpp>
-#include <prism/trace/context.hpp>
+#include <prism/diagnose/diagnose.hpp>
+#include <prism/diagnose/context.hpp>
 #include <prism/net/transport/transmission.hpp>
 
 using transmission = psm::transport::transmission;
 
-using namespace psm::trace;
+using namespace psm::diagnose;
 
 namespace psm::multiplex
 {
@@ -82,7 +82,7 @@ namespace psm::multiplex
             {
                 proto_name = "yamux";
             }
-            trace::debug("sing-mux handshake completed, protocol={}", proto_name);
+            diagnose::debug("sing-mux handshake completed, protocol={}", proto_name);
             co_return std::make_pair(std::error_code{}, protocol);
         }
     } // namespace
@@ -99,7 +99,7 @@ namespace psm::multiplex
         if (ec)
         {
             if (prefix_)
-                trace::warn(prefix_,
+                diagnose::warn(prefix_,
                     "sing-mux negotiate failed: {}", ec.message());
             co_return nullptr;
         }
@@ -110,19 +110,19 @@ namespace psm::multiplex
             {
             case protocol_type::yamux:
                 if (prefix_)
-                    trace::info(prefix_, "constructing yamux session");
+                    diagnose::info(prefix_, "constructing yamux session");
                 {
                     auto session = std::make_shared<yamux::control>(
                         multiplexer_options{std::move(ctx.transport), outbound_ptr, mux_cfg, {}});
                     session->set_prefix(prefix_);
                     if (prefix_)
-                        trace::info(prefix_, "yamux session constructed");
+                        diagnose::info(prefix_, "yamux session constructed");
                     co_return session;
                 }
 
             case protocol_type::h2mux:
                 if (prefix_)
-                    trace::info(prefix_, "constructing h2mux session");
+                    diagnose::info(prefix_, "constructing h2mux session");
                 {
                     auto singmux_resolver = [](std::int32_t, const h2mux::h2_headers &) -> h2mux::stream_info
                     {
@@ -133,20 +133,20 @@ namespace psm::multiplex
                         singmux_resolver);
                     session->set_prefix(prefix_);
                     if (prefix_)
-                        trace::info(prefix_, "h2mux session constructed");
+                        diagnose::info(prefix_, "h2mux session constructed");
                     co_return session;
                 }
 
             case protocol_type::smux:
             default:
                 if (prefix_)
-                    trace::info(prefix_, "constructing smux session");
+                    diagnose::info(prefix_, "constructing smux session");
                 {
                     auto session = std::make_shared<smux::control>(
                         multiplexer_options{std::move(ctx.transport), outbound_ptr, mux_cfg, {}});
                     session->set_prefix(prefix_);
                     if (prefix_)
-                        trace::info(prefix_, "smux session constructed");
+                        diagnose::info(prefix_, "smux session constructed");
                     co_return session;
                 }
             }
@@ -154,14 +154,14 @@ namespace psm::multiplex
         catch (const std::exception &e)
         {
             if (prefix_)
-                trace::error(prefix_,
+                diagnose::error(prefix_,
                     "create_session exception: {}", e.what());
             co_return nullptr;
         }
         catch (...)
         {
             if (prefix_)
-                trace::error(prefix_,
+                diagnose::error(prefix_,
                     "create_session unknown exception");
             co_return nullptr;
         }

@@ -8,11 +8,11 @@
  */
 
 #include <prism/foundation/foundation.hpp>
-#include <prism/protocol/trojan/handler.hpp>
+#include <prism/protocol/trojan/handler/handler.hpp>
 #include <prism/protocol/trojan/config.hpp>
-#include <prism/protocol/trojan/packet.hpp>
+#include <prism/protocol/trojan/codec/packet.hpp>
 #include <prism/protocol/trojan/constants.hpp>
-#include <prism/trace/spdlog.hpp>
+#include <prism/diagnose/log.hpp>
 
 #include <array>
 #include <cstdint>

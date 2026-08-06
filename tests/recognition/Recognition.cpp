@@ -10,15 +10,15 @@
  * 6. 结构体默认值验证
  */
 
-#include <prism/stealth/recognition/probe/probe.hpp>
-#include <prism/stealth/recognition/routes.hpp>
-#include <prism/stealth/recognition/tls/features.hpp>
+#include <prism/handshake/recognition/probe/probe.hpp>
+#include <prism/handshake/recognition/routes.hpp>
+#include <prism/handshake/recognition/tls/features.hpp>
 #include <prism/protocol/tls/types.hpp>
-#include <prism/stealth/facade/reality/scheme.hpp>
-#include <prism/stealth/registry.hpp>
-#include <prism/config/config.hpp>
+#include <prism/handshake/facade/reality/scheme.hpp>
+#include <prism/handshake/registry.hpp>
+#include <prism/settings/settings.hpp>
 #include <prism/foundation/foundation.hpp>
-#include <prism/trace/spdlog.hpp>
+#include <prism/diagnose/log.hpp>
 #include <gtest/gtest.h>
 
 #include <string>
@@ -32,9 +32,9 @@ namespace
     /**
      * @brief 构建一个启用了 reality 的配置对象
      */
-    auto make_reality_config() -> psm::config
+    auto make_reality_config() -> psm::settings
     {
-        psm::config cfg;
+        psm::settings cfg;
         cfg.stealth.reality.dest = "example.com:443";
         cfg.stealth.reality.private_key = "dGVzdHRlc3R0ZXN0dGVzdHRlc3R0ZXN0dGVzdHRlc3Q=";
         cfg.stealth.reality.server_names.push_back("example.com");
@@ -44,9 +44,9 @@ namespace
     /**
      * @brief 构建多协议测试配置
      */
-    auto make_multi_scheme_config() -> psm::config
+    auto make_multi_scheme_config() -> psm::settings
     {
-        psm::config cfg;
+        psm::settings cfg;
 
         // Reality 配置
         cfg.stealth.reality.server_names.push_back("reality.example.com");
@@ -281,7 +281,7 @@ TEST(Recognition, FeatureBitmapCombined)
  */
 TEST(Recognition, RealitySniffExclusive)
 {
-    psm::stealth::reality::scheme scheme;
+    psm::handshake::reality::scheme scheme;
 
     // Reality 独占标记 → 独占命中
     hello_features features;
@@ -320,8 +320,8 @@ TEST(Recognition, RealitySniffExclusive)
 TEST(Recognition, SchemeRegistry)
 {
     // 注册所有方案
-    psm::stealth::register_schemes();
-    auto &reg = psm::stealth::scheme_registry::instance();
+    psm::handshake::register_schemes();
+    auto &reg = psm::handshake::scheme_registry::instance();
 
     EXPECT_TRUE(reg.all().size() >= 4)
         << "registry: at least 4 schemes registered";
@@ -390,7 +390,7 @@ TEST(Recognition, ProbeResultDefaults)
  */
 TEST(Recognition, SniffResultDefaults)
 {
-    psm::stealth::sniff_result result;
+    psm::handshake::sniff_result result;
 
     EXPECT_TRUE(result.hit == false) << "sniff_result: default hit = false";
     EXPECT_TRUE(result.solo == false) << "sniff_result: default solo = false";
@@ -402,7 +402,7 @@ TEST(Recognition, SniffResultDefaults)
  */
 TEST(Recognition, VerifyResultDefaults)
 {
-    psm::stealth::verify_result result;
+    psm::handshake::verify_result result;
 
     EXPECT_TRUE(result.score == 0) << "verify_result: default score = 0";
     EXPECT_TRUE(result.solo_flag == 0) << "verify_result: default solo_flag = 0";

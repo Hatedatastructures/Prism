@@ -6,8 +6,8 @@
  */
 
 #include <prism/foundation/foundation.hpp>
-#include <prism/account/stats/runtime.hpp>
-#include <prism/trace/spdlog.hpp>
+#include <prism/user/stats/runtime.hpp>
+#include <prism/diagnose/log.hpp>
 
 #include <gtest/gtest.h>
 

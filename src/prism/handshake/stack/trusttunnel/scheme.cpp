@@ -1,0 +1,296 @@
+#include <prism/handshake/stack/trusttunnel/scheme.hpp>
+
+#include <prism/settings/settings.hpp>
+#include <prism/net/connection/util.hpp>
+#include <prism/resource/session.hpp>
+#include <prism/foundation/fault/handling.hpp>
+#include <prism/foundation/memory/container.hpp>
+#include <prism/protocol/multiplex/h2mux/control.hpp>
+#include <prism/net/connection/types.hpp>
+#include <prism/diagnose/diagnose.hpp>
+#include <prism/net/transport/encrypted.hpp>
+#include <prism/net/transport/preview.hpp>
+
+#include <boost/asio.hpp>
+#include <openssl/evp.h>
+
+using namespace psm::diagnose;
+
+namespace psm::handshake::trusttunnel
+{
+
+    namespace net = boost::asio;
+    namespace ssl = net::ssl;
+
+    namespace
+    {
+        auto verify_basic_auth(
+            std::string_view auth_header,
+            const memory::vector<user> &users)
+            -> bool
+        {
+            constexpr std::string_view prefix = "Basic ";
+            if (auth_header.size() <= prefix.size() ||
+                auth_header.substr(0, prefix.size()) != prefix)
+            {
+                return false;
+            }
+
+            auto b64_credentials = auth_header.substr(prefix.size());
+
+            for (const auto &user : users)
+            {
+                memory::string expected_creds = user.username + ":" + user.password;
+                auto creds_view = std::string_view(expected_creds.data(), expected_creds.size());
+
+                // Base64 输出 = ceil(input/3)*4，256 字节缓冲区最多容纳 192 字节输入。
+                // 超过此阈值会栈溢出 encode_buf，直接跳过并记录警告。
+                constexpr std::size_t max_cred_len = 192;
+                if (creds_view.size() > max_cred_len)
+                {
+                    diagnose::warn(std::shared_ptr<diagnose::context>{}, "凭据长度 {} 超过安全阈值 {}，跳过该用户",
+                        creds_view.size(), max_cred_len);
+                    continue;
+                }
+
+                std::array<std::uint8_t, 256> encode_buf{};
+                // 安全：SSL API 要求 uint8_t*，字符串数据仅读取用于 Base64 编码
+                auto encoded_len = EVP_EncodeBlock(
+                    encode_buf.data(),
+                    reinterpret_cast<const std::uint8_t *>(creds_view.data()),
+                    static_cast<int>(creds_view.size()));
+
+                // 安全：将 uint8_t Base64 输出缓冲区转为 string_view 用于比较
+                auto encoded_str = std::string_view(
+                    reinterpret_cast<const char *>(encode_buf.data()),
+                    static_cast<std::size_t>(encoded_len));
+
+                if (encoded_str == b64_credentials)
+                {
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+
+        auto resolve_stream_target(
+            std::int32_t stream_id,
+            const multiplex::h2mux::h2_headers &headers)
+            -> multiplex::h2mux::stream_info
+        {
+            multiplex::h2mux::stream_info info;
+
+            auto authority = std::string_view(
+                headers.authority.data(), headers.authority.size());
+            auto host = std::string_view(
+                headers.host.data(), headers.host.size());
+
+            if (host.find("_check") != std::string_view::npos)
+            {
+                info.type = multiplex::h2mux::stream_type::check;
+                info.valid = true;
+                return info;
+            }
+            if (host.find("_udp2") != std::string_view::npos)
+            {
+                info.type = multiplex::h2mux::stream_type::udp;
+            }
+            else if (host.find("_icmp") != std::string_view::npos)
+            {
+                info.type = multiplex::h2mux::stream_type::icmp;
+            }
+            else
+            {
+                info.type = multiplex::h2mux::stream_type::tcp;
+            }
+
+            auto colon = authority.rfind(':');
+            if (colon == std::string_view::npos)
+            {
+                return info;
+            }
+
+            info.host.assign(authority.substr(0, colon));
+            auto port_view = authority.substr(colon + 1);
+            auto port_val = std::uint16_t{0};
+            auto [_, ec] = std::from_chars(
+                port_view.data(), port_view.data() + port_view.size(), port_val);
+            if (ec != std::errc())
+            {
+                return info;
+            }
+
+            info.port = port_val;
+            info.valid = true;
+            return info;
+        }
+    } // namespace
+
+
+    auto scheme::active(const psm::settings &cfg) const noexcept
+        -> bool
+    {
+        return cfg.stealth.trusttunnel.enabled();
+    }
+
+    auto scheme::name() const noexcept
+        -> std::string_view
+    {
+        return "trusttunnel";
+    }
+
+    auto scheme::snis(const psm::settings &cfg) const
+        -> memory::vector<memory::string>
+    {
+        return make_sni_list(cfg.stealth.trusttunnel.server_names);
+    }
+
+    auto scheme::guess(const psm::settings &cfg) const
+        -> verify_result
+    {
+        return {
+            .score = 100,
+            .solo_flag = 0,
+            .note = "TrustTunnel: rely on SNI match"};
+    }
+
+    auto scheme::handshake(handshake::stealth_opts ctx)
+        -> net::awaitable<handshake::handshake_result>
+    {
+        handshake::handshake_result result;
+
+        if (!ctx.session)
+        {
+            result.error = fault::code::not_supported;
+            co_return result;
+        }
+
+        if (!ctx.session->worker->process->ssl)
+        {
+            diagnose::warn(prefix_, "No SSL context configured");
+            result.error = fault::code::not_supported;
+            co_return result;
+        }
+
+        const auto &cfg = ctx.session->worker->process->cfg->stealth.trusttunnel;
+
+        auto raw = connect::peel(std::move(ctx.transport));
+        if (!raw)
+        {
+            diagnose::warn(prefix_, "Cannot unwrap transport layers");
+            result.error = fault::code::not_supported;
+            co_return result;
+        }
+
+        // 创建独立的 SSL_CTX 副本用于 TrustTunnel，不修改共享 SSL_CTX 的 ALPN 回调
+        auto tt_ssl_ctx = std::make_shared<ssl::context>(ssl::context::tlsv13);
+        {
+            auto &src_ctx = *ctx.session->worker->process->ssl;
+            auto *src_native = src_ctx.native_handle();
+            auto *dst_native = tt_ssl_ctx->native_handle();
+
+            // 复制证书和私钥
+            SSL_CTX_use_certificate(dst_native, SSL_CTX_get0_certificate(src_native));
+            SSL_CTX_use_PrivateKey(dst_native, SSL_CTX_get0_privatekey(src_native));
+
+            // 复制基本设置
+            SSL_CTX_set_min_proto_version(dst_native, SSL_CTX_get_min_proto_version(src_native));
+            SSL_CTX_set_max_proto_version(dst_native, SSL_CTX_get_max_proto_version(src_native));
+            SSL_CTX_set_session_cache_mode(dst_native, SSL_CTX_get_session_cache_mode(src_native));
+
+            // TrustTunnel 专用 ALPN 回调：仅选择 h2
+            SSL_CTX_set_alpn_select_cb(dst_native,
+                [](SSL *, const unsigned char **out, unsigned char *outlen,
+                   const unsigned char *in, unsigned int inlen, void *) -> int
+                {
+                    if (SSL_select_next_proto(const_cast<unsigned char **>(out), outlen,
+                        reinterpret_cast<const unsigned char *>("\x2h2"), 3,
+                        in, inlen) == OPENSSL_NPN_NEGOTIATED)
+                    {
+                        return SSL_TLSEXT_ERR_OK;
+                    }
+                    return SSL_TLSEXT_ERR_NOACK;
+                }, nullptr);
+        }
+
+        auto preread_span = std::span<const std::byte>(ctx.preread.data(), ctx.preread.size());
+        auto clean_inbound = transport::wrap_with_preview(
+            std::move(raw), preread_span);
+
+        auto [ssl_ec, ssl_stream, recovered] = co_await transport::encrypted::ssl_handshake(
+            std::move(clean_inbound), *tt_ssl_ctx);
+
+        if (fault::failed(ssl_ec) || !ssl_stream)
+        {
+            ctx.transport = std::move(recovered);
+            result.error = ssl_ec;
+            diagnose::warn(prefix_, "TLS handshake failed: {}", fault::describe(ssl_ec));
+            co_return result;
+        }
+
+        diagnose::debug(prefix_, "TLS handshake succeeded");
+
+        const std::uint8_t *alpn = nullptr;
+        std::uint32_t alpn_len = 0;
+        SSL_get0_alpn_selected(ssl_stream->native_handle(), &alpn, &alpn_len);
+        if (!alpn || alpn_len != 2 || alpn[0] != 'h' || alpn[1] != '2')
+        {
+            diagnose::warn(prefix_, "ALPN did not select h2");
+            result.detected = psm::connect::protocol_type::tls;
+            result.transport = std::make_shared<transport::encrypted>(ssl_stream);
+            co_return result;
+        }
+
+        auto encrypted_trans = std::make_shared<transport::encrypted>(ssl_stream);
+
+        auto tt_wr = ctx.session->worker;
+        if (!tt_wr)
+        {
+            diagnose::warn(prefix_, "worker resources expired before trusttunnel mux");
+            result.detected = psm::connect::protocol_type::tls;
+            result.transport = encrypted_trans;
+            co_return result;
+        }
+
+        auto mux_cfg = ctx.session->worker->process->cfg->mux;
+        multiplex::multiplexer_options core_opts{encrypted_trans, tt_wr->outbound.get(), mux_cfg};
+        auto craft = std::make_shared<multiplex::h2mux::control>(core_opts, resolve_stream_target);
+
+        craft->start();
+
+        auto first_opt = co_await craft->wait_first_connect();
+        if (!first_opt)
+        {
+            diagnose::warn(prefix_, "No CONNECT request received");
+            result.detected = psm::connect::protocol_type::tls;
+            result.transport = std::move(encrypted_trans);
+            co_return result;
+        }
+
+        auto &first = *first_opt;
+
+        auto auth_view = std::string_view(
+            first.proxy_auth.data(), first.proxy_auth.size());
+        if (cfg.users.empty() || !verify_basic_auth(auth_view, cfg.users))
+        {
+            diagnose::warn(prefix_, "Authentication failed");
+            (void)craft->respond_connect(first.stream_id, 407);
+            co_await craft->send_pending();
+            result.error = fault::code::auth_failed;
+            co_return result;
+        }
+
+        diagnose::debug(prefix_, "Authenticated, authority={}", first.authority);
+
+        co_await craft->activate_stream(first.stream_id);
+        (void)craft->respond_connect(first.stream_id, 200);
+        co_await craft->send_pending();
+
+        result.detected = psm::connect::protocol_type::unknown;
+        result.error = fault::code::success;
+
+        co_return result;
+    }
+} // namespace psm::handshake::trusttunnel

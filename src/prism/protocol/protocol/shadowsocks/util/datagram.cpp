@@ -1,7 +1,7 @@
 #include <prism/protocol/shadowsocks/util/datagram.hpp>
 #include <prism/crypto/block.hpp>
 #include <prism/protocol/shadowsocks/util/cast.hpp>
-#include <prism/trace/spdlog.hpp>
+#include <prism/diagnose/log.hpp>
 
 #include <chrono>
 #include <cstdint>
@@ -10,7 +10,7 @@
 
 #include <string_view>
 
-using namespace psm::trace;
+using namespace psm::diagnose;
 
 namespace psm::protocol::shadowsocks
 {
@@ -36,7 +36,7 @@ namespace psm::protocol::shadowsocks
             // 验证请求类型
             if (body_plain[0] != request_type)
             {
-                trace::warn(std::shared_ptr<trace::trace_context>{}, "invalid request type: 0x{:02x}", body_plain[0]);
+                diagnose::warn(std::shared_ptr<diagnose::context>{}, "invalid request type: 0x{:02x}", body_plain[0]);
                 return fault::code::bad_message;
             }
 
@@ -52,7 +52,7 @@ namespace psm::protocol::shadowsocks
             const auto diff = std::abs(static_cast<std::int64_t>(client_ts) - now);
             if (diff > timestamp_window)
             {
-                trace::warn(std::shared_ptr<trace::trace_context>{}, "timestamp expired: client_ts={}, now={}, diff={}s",
+                diagnose::warn(std::shared_ptr<diagnose::context>{}, "timestamp expired: client_ts={}, now={}, diff={}s",
                             client_ts, now, diff);
                 return fault::code::timestamp_expired;
             }
@@ -126,7 +126,7 @@ namespace psm::protocol::shadowsocks
         // 最小长度：SeparateHeader(16) + AEAD tag(16)
         if (packet.size() < separate_hdr_len + aead_tag_len)
         {
-            trace::warn(prefix_, "packet too short: {} bytes", packet.size());
+            diagnose::warn(prefix_, "packet too short: {} bytes", packet.size());
             return {fault::code::bad_message, result};
         }
 
@@ -150,7 +150,7 @@ namespace psm::protocol::shadowsocks
         auto entry = sess_tracker_->get_or_create({relay_id, sender, psk_, method_});
         if (!entry || !entry->aead_ctx)
         {
-            trace::warn(prefix_, "failed to get/create session");
+            diagnose::warn(prefix_, "failed to get/create session");
             return {fault::code::crypto_error, result};
         }
 
@@ -166,14 +166,14 @@ namespace psm::protocol::shadowsocks
         if (const auto r = entry->aead_ctx->open(body_plain, as_u8(body_enc), nonce_span);
             r != fault::code::success)
         {
-            trace::warn(prefix_, "AES-GCM decrypt body failed");
+            diagnose::warn(prefix_, "AES-GCM decrypt body failed");
             return {fault::code::crypto_error, result};
         }
 
         // 验证 PacketID 滑动窗口（解密成功后再验证，确保只跟踪认证过的包）
         if (!entry->packet_ids.check_and_update(packet_id_val))
         {
-            trace::warn(prefix_, "packet replay detected: packet_id={}", packet_id_val);
+            diagnose::warn(prefix_, "packet replay detected: packet_id={}", packet_id_val);
             return {fault::code::replay_detected, result};
         }
 
@@ -252,7 +252,7 @@ namespace psm::protocol::shadowsocks
         if (const auto r = entry->aead_ctx->seal(body_out, plain, nonce_span);
             r != fault::code::success)
         {
-            trace::warn(prefix_, "AES-GCM encrypt body failed");
+            diagnose::warn(prefix_, "AES-GCM encrypt body failed");
             return {fault::code::crypto_error, {}};
         }
 
@@ -268,7 +268,7 @@ namespace psm::protocol::shadowsocks
         // 最小长度：SessionID(8) + PacketID(8) + AEAD tag(16)
         if (packet.size() < session_id_len + packet_id_len + aead_tag_len)
         {
-            trace::warn(prefix_, "chacha20 packet too short: {} bytes", packet.size());
+            diagnose::warn(prefix_, "chacha20 packet too short: {} bytes", packet.size());
             return {fault::code::bad_message, result};
         }
 
@@ -308,14 +308,14 @@ namespace psm::protocol::shadowsocks
         if (const auto r = ctx.open(body_plain, as_u8(body_enc), nonce_span);
             r != fault::code::success)
         {
-            trace::warn(prefix_, "chacha20 decrypt body failed");
+            diagnose::warn(prefix_, "chacha20 decrypt body failed");
             return {fault::code::crypto_error, result};
         }
 
         // 验证 PacketID 滑动窗口
         if (!entry->packet_ids.check_and_update(packet_id_val))
         {
-            trace::warn(prefix_, "chacha20 packet replay detected: packet_id={}", packet_id_val);
+            diagnose::warn(prefix_, "chacha20 packet replay detected: packet_id={}", packet_id_val);
             return {fault::code::replay_detected, result};
         }
 
@@ -397,7 +397,7 @@ namespace psm::protocol::shadowsocks
         if (const auto r = ctx.seal(body_out, plain, nonce_span);
             r != fault::code::success)
         {
-            trace::warn(prefix_, "chacha20 encrypt body failed");
+            diagnose::warn(prefix_, "chacha20 encrypt body failed");
             return {fault::code::crypto_error, {}};
         }
 

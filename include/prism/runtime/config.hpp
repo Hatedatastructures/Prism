@@ -15,12 +15,12 @@
 #include <prism/protocol/vless/config.hpp>
 #include <prism/net/transport/pad.hpp>
 #include <prism/foundation/rate/counter.hpp>
-#include <prism/stealth/stack/anytls/config.hpp>
-#include <prism/stealth/facade/native/config.hpp>
-#include <prism/stealth/facade/reality/config.hpp>
-#include <prism/stealth/facade/restls/config.hpp>
-#include <prism/stealth/facade/shadowtls/config.hpp>
-#include <prism/stealth/stack/trusttunnel/config.hpp>
+#include <prism/handshake/stack/anytls/config.hpp>
+#include <prism/handshake/facade/native/config.hpp>
+#include <prism/handshake/facade/reality/config.hpp>
+#include <prism/handshake/facade/restls/config.hpp>
+#include <prism/handshake/facade/shadowtls/config.hpp>
+#include <prism/handshake/stack/trusttunnel/config.hpp>
 
 
 namespace psm::runtime
@@ -89,7 +89,7 @@ namespace psm::runtime
      * @note 凭据通常是密码的 SHA224 哈希，由客户端在
      * 握手时提供。
      * @warning 如果同时配置 credentials 和 users，
-     * account::directory 会优先检查 users 列表。
+     * user::directory 会优先检查 users 列表。
      */
     struct authentication
     {
@@ -99,8 +99,8 @@ namespace psm::runtime
          * @details 表示一个独立用户，可同时配置密码和 UUID
          * 两种认证方式。password 用于 Trojan/HTTP/SOCKS5
          * 协议，启动时自动转换为 SHA224 哈希注册到
-         * account::directory。uuid 用于 VLESS 协议，直接
-         * 注册到 account::directory。两种凭证共享同一个
+         * user::directory。uuid 用于 VLESS 协议，直接
+         * 注册到 user::directory。两种凭证共享同一个
          * entry，从而共享连接数配额。两个字段均为可选，
          * 但至少一个非空才有效。
          * @warning 如果 max_connections 设为 0，该用户
@@ -159,12 +159,12 @@ namespace psm::runtime
 
         struct config
         {
-            psm::stealth::reality::config reality;
-            psm::stealth::shadowtls::config shadowtls;
-            psm::stealth::restls::config restls;
-            psm::stealth::anytls::config anytls;
-            psm::stealth::trusttunnel::config trusttunnel;
-            psm::stealth::native::config native_tls;
+            psm::handshake::reality::config reality;
+            psm::handshake::shadowtls::config shadowtls;
+            psm::handshake::restls::config restls;
+            psm::handshake::anytls::config anytls;
+            psm::handshake::trusttunnel::config trusttunnel;
+            psm::handshake::native::config native_tls;
             psm::transport::pad_config pad;
             psm::rate::probe_defense_config probe;
         };
@@ -176,7 +176,7 @@ namespace psm::runtime
      * @details 仅包含 instance 模块专属的配置项：连接限制、
      * 正向代理、监听端点、TLS 证书、身份认证、伪装路径、
      * 反向代理路由。其他模块配置（pool、buffer、protocol、
-     * mux、dns、stealth）已移至顶层 psm::config。
+     * mux、dns、stealth）已移至顶层 psm::settings。
      * @warning 配置对象应在服务启动前完成初始化，运行时
      * 修改可能不会立即生效。
      */

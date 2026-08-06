@@ -2,14 +2,14 @@
 
 #include <prism/protocol/multiplex/datagram.hpp>
 #include <prism/protocol/multiplex/stream.hpp>
-#include <prism/trace/trace.hpp>
+#include <prism/diagnose/diagnose.hpp>
 
 #include <boost/asio/co_spawn.hpp>
 
 #include <ranges>
 #include <span>
 
-using namespace psm::trace;
+using namespace psm::diagnose;
 
 namespace
 {
@@ -77,11 +77,11 @@ namespace psm::multiplex
             }
             catch (const std::exception &e)
             {
-                trace::error(prefix_, "session exception: {}", e.what());
+                diagnose::error(prefix_, "session exception: {}", e.what());
             }
             catch (...)
             {
-                trace::error(prefix_, "session unknown exception");
+                diagnose::error(prefix_, "session unknown exception");
             }
         }
         close();
@@ -117,7 +117,7 @@ namespace psm::multiplex
 
         transport_->close();
 
-        trace::debug(prefix_, "session closed");
+        diagnose::debug(prefix_, "session closed");
     }
 
 
@@ -178,7 +178,7 @@ namespace psm::multiplex
     auto multiplexer::send_loop()
         -> net::awaitable<void>
     {
-        trace::debug(prefix_, "send loop started");
+        diagnose::debug(prefix_, "send loop started");
         try
         {
             while (is_active())
@@ -196,13 +196,13 @@ namespace psm::multiplex
         }
         catch (const std::exception &e)
         {
-            trace::debug(prefix_, "send loop error: {}", e.what());
+            diagnose::debug(prefix_, "send loop error: {}", e.what());
         }
         catch (...)
         {
-            trace::debug(prefix_, "send loop unknown error");
+            diagnose::debug(prefix_, "send loop unknown error");
         }
-        trace::debug(prefix_, "send loop ended");
+        diagnose::debug(prefix_, "send loop ended");
     }
 
 } // namespace psm::multiplex

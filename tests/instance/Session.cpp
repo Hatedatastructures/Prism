@@ -8,17 +8,16 @@
  */
 
 #include <prism/runtime/config.hpp>
-#include <prism/config/config.hpp>
+#include <prism/settings/settings.hpp>
 #include <prism/resource/session.hpp>
-#include <prism/account/directory.hpp>
+#include <prism/user/directory.hpp>
 #include <prism/runtime/session/session.hpp>
-#include <prism/net/connect/pool/pool.hpp>
 #include <prism/net/transport/reliable.hpp>
-#include <prism/net/connect/dial/router.hpp>
+#include <prism/net/connection/dialer/dialer.hpp>
 #include <prism/foundation/exception/network.hpp>
 #include <prism/foundation/fault/code.hpp>
 #include <prism/foundation/foundation.hpp>
-#include <prism/trace/spdlog.hpp>
+#include <prism/diagnose/log.hpp>
 #include <gtest/gtest.h>
 
 #include <array>
@@ -544,19 +543,18 @@ namespace
         auto &ioc = *ioc_ptr;
 
         // 创建连接池，管理到上游的出站连接
-        const auto pool = std::make_unique<psm::connect::connection_pool>(ioc);
         // 使用空 DNS 配置创建路由器（测试中使用直连，无需上游 DNS）
         psm::dns::config dns_cfg;
-        auto dist = std::make_unique<psm::connect::router>(psm::connect::router_options{*pool, ioc, std::move(dns_cfg)});
+        auto dist = std::make_unique<psm::connect::dialer>(psm::connect::dialer_options{*pool, ioc, std::move(dns_cfg)});
 
         // 创建 SSL 上下文，测试中跳过证书验证
         auto ssl_ctx = std::make_shared<ssl::context>(ssl::context::tlsv12);
         ssl_ctx->set_verify_mode(ssl::verify_none);
 
         // 构造服务端上下文：配置、SSL、账户存储
-        psm::config cfg;
-        auto account_store = std::make_shared<psm::account::directory>(psm::memory::system::global_pool());
-        psm::resource::process server_ctx{std::atomic<std::shared_ptr<const psm::config>>{std::make_shared<const psm::config>(cfg)}, ssl_ctx, account_store};
+        psm::settings cfg;
+        auto account_store = std::make_shared<psm::user::directory>(psm::memory::system::global_pool());
+        psm::resource::process server_ctx{std::atomic<std::shared_ptr<const psm::settings>>{std::make_shared<const psm::settings>(cfg)}, ssl_ctx, account_store};
 
         // 构造工作线程上下文：io_context、DNS 路由、线程本地内存池
         auto mr = psm::memory::system::local_pool();

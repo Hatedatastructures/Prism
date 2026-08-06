@@ -11,12 +11,11 @@
  */
 
 #include <prism/foundation/foundation.hpp>
-#include <prism/net/connect/outbound/direct.hpp>
-#include <prism/trace/spdlog.hpp>
+#include <prism/net/connection/outbound/direct.hpp>
+#include <prism/diagnose/log.hpp>
 #include <prism/protocol/protocol.hpp>
 #include <prism/net/transport/reliable.hpp>
-#include <prism/net/connect/pool/pool.hpp>
-#include <prism/net/connect/dial/router.hpp>
+#include <prism/net/connection/dialer/dialer.hpp>
 #include <prism/net/dns/resolver.hpp>
 #include <prism/foundation/fault/code.hpp>
 
@@ -235,14 +234,12 @@ auto wait_for_inactive(const std::shared_ptr<multiplexer> &session, net::any_io_
 struct LifecycleContext
 {
     net::io_context ioc;
-    psm::connect::connection_pool pool;
-    psm::connect::router router;
+    psm::connect::dialer router;
     psm::outbound::direct outbound;
     psm::multiplex::config mux_config;
 
     LifecycleContext()
-        : pool(ioc),
-          router({pool, ioc, psm::dns::config{}}),
+: router({ioc, psm::dns::config{}}),
           outbound(router)
     {
         mux_config.smux.keepalive_interval = 0;

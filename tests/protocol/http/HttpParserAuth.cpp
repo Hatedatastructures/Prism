@@ -5,11 +5,11 @@
  */
 
 #include <prism/foundation/foundation.hpp>
-#include <prism/protocol/http/parser.hpp>
-#include <prism/account/directory.hpp>
+#include <prism/protocol/http/codec/parser.hpp>
+#include <prism/user/directory.hpp>
 #include <prism/crypto/sha224.hpp>
 #include <prism/crypto/base64.hpp>
-#include <prism/trace/spdlog.hpp>
+#include <prism/diagnose/log.hpp>
 
 #include <cstdint>
 #include <string>
@@ -78,7 +78,7 @@ namespace
 
     TEST(HttpParserAuth, AuthenticateProxyNoPrefix)
     {
-        psm::account::directory dir;
+        psm::user::directory dir;
         auto result = http::authenticate_proxy("Bearer token123", dir);
         EXPECT_TRUE(!result.authenticated) << "auth: no Basic prefix -> not authenticated";
         EXPECT_TRUE(!result.error_response.empty()) << "auth: has error response";
@@ -86,14 +86,14 @@ namespace
 
     TEST(HttpParserAuth, AuthenticateProxyEmpty)
     {
-        psm::account::directory dir;
+        psm::user::directory dir;
         auto result = http::authenticate_proxy("", dir);
         EXPECT_TRUE(!result.authenticated) << "auth: empty -> not authenticated";
     }
 
     TEST(HttpParserAuth, AuthenticateProxyWrongCredentials)
     {
-        psm::account::directory dir;
+        psm::user::directory dir;
         const auto correct_hash = psm::crypto::sha224("password123");
         dir.upsert(correct_hash, 1);
 
@@ -106,7 +106,7 @@ namespace
 
     TEST(HttpParserAuth, AuthenticateProxyCorrectCredentials)
     {
-        psm::account::directory dir;
+        psm::user::directory dir;
         const auto hash = psm::crypto::sha224("mypassword");
         dir.upsert(hash, 10);
 
@@ -119,7 +119,7 @@ namespace
 
     TEST(HttpParserAuth, AuthenticateProxyNoColon)
     {
-        psm::account::directory dir;
+        psm::user::directory dir;
         auto b64 = b64_encode_str("userpassword");
         auto header = psm::memory::string("Basic ") + b64;
 
@@ -129,7 +129,7 @@ namespace
 
     TEST(HttpParserAuth, AuthenticateProxyEmptyPassword)
     {
-        psm::account::directory dir;
+        psm::user::directory dir;
         auto b64 = b64_encode_str("user:");
         auto header = psm::memory::string("Basic ") + b64;
 
@@ -139,7 +139,7 @@ namespace
 
     TEST(HttpParserAuth, AuthenticateProxyCaseInsensitive)
     {
-        psm::account::directory dir;
+        psm::user::directory dir;
         const auto hash = psm::crypto::sha224("pass");
         dir.upsert(hash, 1);
 

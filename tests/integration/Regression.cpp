@@ -4,16 +4,16 @@
  * @details 测试以下关键修复：
  * 1. IPv6 host:port 解析 (recognition::resolve)
  * 2. TLS 内层协议探测 (recognition::probe::detect_tls)
- * 3. Trojan lease 持有和释放 (account::directory)
+ * 3. Trojan lease 持有和释放 (user::directory)
  */
 
-#include <prism/net/connect/types.hpp>
-#include <prism/net/connect/target.hpp>
-#include <prism/stealth/recognition/target.hpp>
-#include <prism/stealth/recognition/probe/analyzer.hpp>
-#include <prism/account/directory.hpp>
+#include <prism/net/connection/types.hpp>
+#include <prism/net/connection/target.hpp>
+#include <prism/handshake/recognition/target.hpp>
+#include <prism/handshake/recognition/probe/analyzer.hpp>
+#include <prism/user/directory.hpp>
 #include <prism/foundation/foundation.hpp>
-#include <prism/trace/spdlog.hpp>
+#include <prism/diagnose/log.hpp>
 
 #include <gtest/gtest.h>
 
@@ -134,13 +134,13 @@ TEST(Regression, InnerProtocolDetection)
  */
 TEST(Regression, TrojanLease)
 {
-    psm::account::directory dir;
+    psm::user::directory dir;
     // 插入凭据，最大并发连接数限制为 2
     dir.upsert("test_credential", 2);
 
     {
         // 获取第一个 lease，应成功
-        auto lease1 = psm::account::try_acquire(dir, "test_credential");
+        auto lease1 = psm::user::try_acquire(dir, "test_credential");
         ASSERT_TRUE(lease1) << "first lease acquire";
 
         // 活跃连接数应递增为 1
@@ -149,14 +149,14 @@ TEST(Regression, TrojanLease)
         EXPECT_TRUE(entry->active_connections.load() == 1) << "active connections after first lease";
 
         // 获取第二个 lease，未达上限，应成功
-        auto lease2 = psm::account::try_acquire(dir, "test_credential");
+        auto lease2 = psm::user::try_acquire(dir, "test_credential");
         ASSERT_TRUE(lease2) << "second lease acquire";
 
         // 活跃连接数应递增为 2
         EXPECT_TRUE(entry->active_connections.load() == 2) << "active connections after second lease";
 
         // 超过并发限制，第三次获取应失败
-        auto lease3 = psm::account::try_acquire(dir, "test_credential");
+        auto lease3 = psm::user::try_acquire(dir, "test_credential");
         EXPECT_TRUE(!lease3) << "third lease should fail (limit=2)";
     }
 

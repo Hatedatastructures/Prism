@@ -5,11 +5,11 @@
 
 #include <prism/protocol/handler.hpp>
 
-#include <prism/protocol/http/handler.hpp>
-#include <prism/protocol/socks5/handler.hpp>
-#include <prism/protocol/trojan/handler.hpp>
-#include <prism/protocol/vless/handler.hpp>
-#include <prism/protocol/shadowsocks/handler.hpp>
+#include <prism/protocol/http/handler/handler.hpp>
+#include <prism/protocol/socks5/handler/handler.hpp>
+#include <prism/protocol/trojan/handler/handler.hpp>
+#include <prism/protocol/vless/handler/handler.hpp>
+#include <prism/protocol/shadowsocks/handler/handler.hpp>
 
 #include <utility>
 

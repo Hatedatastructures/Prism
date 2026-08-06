@@ -1,11 +1,11 @@
 #include <prism/protocol/multiplex/h2mux/control.hpp>
 
-#include <prism/net/connect/dial/connector.hpp>
-#include <prism/net/connect/outbound/proxy.hpp>
+#include <prism/net/connection/dialer/dialer.hpp>
+#include <prism/net/connection/outbound/direct.hpp>
 #include <prism/protocol/multiplex/datagram.hpp>
 #include <prism/protocol/multiplex/smux/frame.hpp>
 #include <prism/protocol/multiplex/stream.hpp>
-#include <prism/trace/trace.hpp>
+#include <prism/diagnose/diagnose.hpp>
 
 #include <boost/asio/co_spawn.hpp>
 
@@ -14,7 +14,7 @@
 #include <cstring>
 #include <span>
 
-using namespace psm::trace;
+using namespace psm::diagnose;
 
 namespace psm::multiplex::h2mux
 {
@@ -29,7 +29,7 @@ namespace psm::multiplex::h2mux
             }
             catch (const std::exception &e)
             {
-                trace::debug("{} error: {}", label, e.what());
+                diagnose::debug("{} error: {}", label, e.what());
             }
             catch (...)
             {
@@ -65,7 +65,7 @@ namespace psm::multiplex::h2mux
     {
         if (init_nghttp2() != 0)
         {
-            trace::error(prefix_, "nghttp2 init failed");
+            diagnose::error(prefix_, "nghttp2 init failed");
             co_return;
         }
 
@@ -133,7 +133,7 @@ namespace psm::multiplex::h2mux
                                                     static_cast<std::int32_t>(frame.stream_id), &dp);
         if (rv != 0)
         {
-            trace::warn(prefix_, "nghttp2_submit_data failed: {}", nghttp2_strerror(rv));
+            diagnose::warn(prefix_, "nghttp2_submit_data failed: {}", nghttp2_strerror(rv));
             co_return;
         }
 
@@ -147,7 +147,7 @@ namespace psm::multiplex::h2mux
         nghttp2_session_callbacks *callbacks = nullptr;
         if (nghttp2_session_callbacks_new(&callbacks) != 0)
         {
-            trace::error(prefix_, "failed to create nghttp2 callbacks");
+            diagnose::error(prefix_, "failed to create nghttp2 callbacks");
             return -1;
         }
 
@@ -162,24 +162,24 @@ namespace psm::multiplex::h2mux
 
         if (rv != 0)
         {
-            trace::error(prefix_, "failed to create nghttp2 session: {}", nghttp2_strerror(rv));
+            diagnose::error(prefix_, "failed to create nghttp2 session: {}", nghttp2_strerror(rv));
             return -1;
         }
 
         if (nghttp2_submit_settings(session_, NGHTTP2_FLAG_NONE, nullptr, 0) != 0)
         {
-            trace::error(prefix_, "failed to submit settings");
+            diagnose::error(prefix_, "failed to submit settings");
             return -1;
         }
 
-        trace::debug(prefix_, "nghttp2 session initialized");
+        diagnose::debug(prefix_, "nghttp2 session initialized");
         return 0;
     }
 
 
     auto control::frame_loop() -> net::awaitable<void>
     {
-        trace::debug(prefix_, "frame loop started");
+        diagnose::debug(prefix_, "frame loop started");
 
         memory::vector<std::byte> recv_buf(config_.h2mux.buffer_size, mr_);
 
@@ -193,7 +193,7 @@ namespace psm::multiplex::h2mux
             {
                 if (read_ec && read_ec != std::errc::operation_canceled)
                 {
-                    trace::debug(prefix_, "transport read closed: {}", read_ec.message());
+                    diagnose::debug(prefix_, "transport read closed: {}", read_ec.message());
                 }
                 break;
             }
@@ -206,7 +206,7 @@ namespace psm::multiplex::h2mux
 
             if (recv_len < 0)
             {
-                trace::error(prefix_, "nghttp2 recv error: {}",
+                diagnose::error(prefix_, "nghttp2 recv error: {}",
                              nghttp2_strerror(static_cast<std::int32_t>(recv_len)));
                 break;
             }
@@ -220,7 +220,7 @@ namespace psm::multiplex::h2mux
             connect_waiter_.cancel();
         }
 
-        trace::debug(prefix_, "frame loop ended");
+        diagnose::debug(prefix_, "frame loop ended");
     }
 
 
@@ -244,7 +244,7 @@ namespace psm::multiplex::h2mux
 
             if (write_ec)
             {
-                trace::warn(prefix_, "send_pending write failed: {}", write_ec.message());
+                diagnose::warn(prefix_, "send_pending write failed: {}", write_ec.message());
                 break;
             }
         }
@@ -307,24 +307,24 @@ namespace psm::multiplex::h2mux
             const auto rc = respond_connect(static_cast<std::int32_t>(stream_id), 200);
             if (rc != 0)
             {
-                trace::warn(prefix_, "respond_connect for health check stream {} failed: nghttp2 rc={}", stream_id, rc);
+                diagnose::warn(prefix_, "respond_connect for health check stream {} failed: nghttp2 rc={}", stream_id, rc);
             }
             co_await send_pending();
             nghttp2_submit_rst_stream(session_, NGHTTP2_FLAG_NONE,
                                       static_cast<std::int32_t>(stream_id), NGHTTP2_NO_ERROR);
             co_await send_pending();
-            trace::debug(prefix_, "stream {} health check completed", stream_id);
+            diagnose::debug(prefix_, "stream {} health check completed", stream_id);
             co_return;
         }
 
         case stream_type::udp:
         {
-            trace::debug(prefix_, "stream {} creating UDP datagram -> {}:{}", stream_id, info.host, info.port);
+            diagnose::debug(prefix_, "stream {} creating UDP datagram -> {}:{}", stream_id, info.host, info.port);
 
             const auto rc = respond_connect(static_cast<std::int32_t>(stream_id), 200);
             if (rc != 0)
             {
-                trace::warn(prefix_, "respond_connect for UDP stream {} failed: nghttp2 rc={}", stream_id, rc);
+                diagnose::warn(prefix_, "respond_connect for UDP stream {} failed: nghttp2 rc={}", stream_id, rc);
             }
             co_await send_pending();
 
@@ -356,20 +356,20 @@ namespace psm::multiplex::h2mux
                 dp->close();
             }
 
-            trace::debug(prefix_, "stream {} UDP datagram created", stream_id);
+            diagnose::debug(prefix_, "stream {} UDP datagram created", stream_id);
             co_return;
         }
 
         case stream_type::icmp:
         {
-            trace::warn(prefix_, "stream {} ICMP not yet implemented, treating as TCP", stream_id);
+            diagnose::warn(prefix_, "stream {} ICMP not yet implemented, treating as TCP", stream_id);
             [[fallthrough]];
         }
 
         case stream_type::tcp:
         default:
         {
-            trace::debug(prefix_, "stream {} connecting to {}:{}", stream_id, info.host, info.port);
+            diagnose::debug(prefix_, "stream {} connecting to {}:{}", stream_id, info.host, info.port);
 
             char port_buf[8];
             const auto [port_end, port_ec] = std::to_chars(port_buf, port_buf + sizeof(port_buf), info.port);
@@ -385,7 +385,7 @@ namespace psm::multiplex::h2mux
 
             if (code != fault::code::success || !trans)
             {
-                trace::warn(prefix_, "stream {} connect to {}:{} failed", stream_id, info.host, info.port);
+                diagnose::warn(prefix_, "stream {} connect to {}:{} failed", stream_id, info.host, info.port);
                 nghttp2_submit_rst_stream(session_, NGHTTP2_FLAG_NONE,
                                           static_cast<std::int32_t>(stream_id), NGHTTP2_INTERNAL_ERROR);
                 co_await send_pending();
@@ -395,7 +395,7 @@ namespace psm::multiplex::h2mux
             const auto rc = respond_connect(static_cast<std::int32_t>(stream_id), 200);
             if (rc != 0)
             {
-                trace::warn(prefix_, "respond_connect for TCP stream {} failed: nghttp2 rc={}", stream_id, rc);
+                diagnose::warn(prefix_, "respond_connect for TCP stream {} failed: nghttp2 rc={}", stream_id, rc);
             }
             co_await send_pending();
 
@@ -410,7 +410,7 @@ namespace psm::multiplex::h2mux
             streams_[stream_id] = sp;
             sp->start();
 
-            trace::debug(prefix_, "stream {} connected to {}:{}", stream_id, info.host, info.port);
+            diagnose::debug(prefix_, "stream {} connected to {}:{}", stream_id, info.host, info.port);
         }
         }
     }
@@ -482,11 +482,11 @@ namespace psm::multiplex::h2mux
         }
         catch (const std::exception &e)
         {
-            trace::debug(prefix_, "stream {} process udp error: {}", stream_id, e.what());
+            diagnose::debug(prefix_, "stream {} process udp error: {}", stream_id, e.what());
         }
         catch (...)
         {
-            trace::error(prefix_, "stream {} process udp unknown error", stream_id);
+            diagnose::error(prefix_, "stream {} process udp unknown error", stream_id);
         }
         entry.processing = false;
     }
@@ -522,7 +522,7 @@ namespace psm::multiplex::h2mux
                 h2_pending_entry entry;
                 entry.headers.stream_id = frame->hd.stream_id;
                 self->h2_pending_[stream_id] = std::move(entry);
-                trace::debug(self->prefix_, "CONNECT detected on stream {}", stream_id);
+                diagnose::debug(self->prefix_, "CONNECT detected on stream {}", stream_id);
             }
         }
         return 0;

@@ -12,7 +12,7 @@
 
 #include <prism/protocol/multiplex/yamux/frame.hpp>
 #include <prism/foundation/foundation.hpp>
-#include <prism/trace/spdlog.hpp>
+#include <prism/diagnose/log.hpp>
 
 #include <array>
 #include <cstddef>

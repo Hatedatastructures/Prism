@@ -27,17 +27,6 @@
         "camouflage": "/api/notification/v1/stream?id=abcd-1234",
         "reverse_map": {}
     },
-    "pool": {
-        "max_cache_per_endpoint": 32,
-        "max_idle_seconds": 240,
-        "connect_timeout_ms": 300,
-        "cleanup_interval_sec": 20,
-        "recv_buffer_size": 65536,
-        "send_buffer_size": 65536,
-        "tcp_nodelay": true,
-        "keep_alive": true,
-        "cache_ipv6": false
-    },
     "buffer": {
         "size": 262144
     },

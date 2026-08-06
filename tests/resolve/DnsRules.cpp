@@ -13,7 +13,7 @@
 #include <prism/net/dns/detail/utility.hpp>
 #include <prism/net/dns/detail/transparent.hpp>
 #include <prism/foundation/foundation.hpp>
-#include <prism/trace/spdlog.hpp>
+#include <prism/diagnose/log.hpp>
 
 
 #include <gtest/gtest.h>

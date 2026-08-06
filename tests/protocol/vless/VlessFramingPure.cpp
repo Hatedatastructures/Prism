@@ -5,9 +5,9 @@
  */
 
 #include <prism/foundation/foundation.hpp>
-#include <prism/protocol/vless/framing.hpp>
+#include <prism/protocol/vless/codec/framing.hpp>
 #include <prism/protocol/vless/constants.hpp>
-#include <prism/trace/spdlog.hpp>
+#include <prism/diagnose/log.hpp>
 
 #include <gtest/gtest.h>
 

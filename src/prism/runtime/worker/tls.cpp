@@ -1,8 +1,8 @@
 #include <prism/runtime/worker/tls.hpp>
 #include <prism/foundation/foundation.hpp>
-#include <prism/trace/trace.hpp>
+#include <prism/diagnose/diagnose.hpp>
 
-using namespace psm::trace;
+using namespace psm::diagnose;
 
 #include <cstdint>
 #include <cstring>
@@ -21,7 +21,7 @@ namespace psm::runtime::worker::tls
         ctx.use_certificate_chain_file(cert_path, ec);
         if (ec)
         {
-            trace::error("ssl cert load failed: {}", ec.message());
+            diagnose::error("ssl cert load failed: {}", ec.message());
             throw exception::protocol("ssl cert load failed: {}", ec.message());
         }
 
@@ -29,7 +29,7 @@ namespace psm::runtime::worker::tls
         ctx.use_private_key_file(key_path, ssl::context::pem, ec);
         if (ec)
         {
-            trace::error("ssl key load failed: {}", ec.message());
+            diagnose::error("ssl key load failed: {}", ec.message());
             throw exception::protocol("ssl key load failed: {}", ec.message());
         }
 
@@ -111,7 +111,7 @@ namespace psm::runtime::worker::tls
         // 如果未配置证书或密钥，返回空指针表示运行在纯 HTTP 模式
         if (cert.empty() || key.empty())
         {
-            trace::warn("No certificate or key provided, running in plain HTTP mode");
+            diagnose::warn("No certificate or key provided, running in plain HTTP mode");
             return {};
         }
 
@@ -127,7 +127,7 @@ namespace psm::runtime::worker::tls
         }
         catch (const std::exception &e)
         {
-            trace::error("SSL init failed: {}", e.what());
+            diagnose::error("SSL init failed: {}", e.what());
             throw;
         }
     }

@@ -8,13 +8,13 @@
  * 4. 403 认证失败（错误凭证）
  */
 
-#include <prism/protocol/http/conn.hpp>
-#include <prism/protocol/http/parser.hpp>
-#include <prism/account/directory.hpp>
+#include <prism/protocol/http/handler/conn.hpp>
+#include <prism/protocol/http/codec/parser.hpp>
+#include <prism/user/directory.hpp>
 #include <prism/crypto/sha224.hpp>
 #include <prism/net/transport/reliable.hpp>
 #include <prism/foundation/foundation.hpp>
-#include <prism/trace/spdlog.hpp>
+#include <prism/diagnose/log.hpp>
 #include <boost/asio.hpp>
 #include <string>
 #include <memory>
@@ -27,7 +27,7 @@
 namespace net = boost::asio;
 namespace transport = psm::transport;
 namespace http = psm::protocol::http;
-namespace account = psm::account;
+namespace user = psm::user;
 using tcp = net::ip::tcp;
 
 namespace
@@ -83,7 +83,7 @@ namespace
     /**
      * @brief 认证测试：服务端协程（带 account_directory）
      */
-    net::awaitable<void> DoAuthServer(tcp::acceptor &acceptor, account::directory &dir,
+    net::awaitable<void> DoAuthServer(tcp::acceptor &acceptor, user::directory &dir,
                                       std::string_view expected_response)
     {
         try
@@ -181,7 +181,7 @@ TEST(Http, AuthChallenge407)
     auto bound = acceptor.local_endpoint();
 
     // 配置账户目录（密码 "test" 的 SHA224 哈希）
-    account::directory dir;
+    user::directory dir;
     const auto credential = psm::crypto::sha224("test");
     dir.upsert(credential, 1);
 
@@ -242,7 +242,7 @@ TEST(Http, AuthForbidden403)
     auto bound = acceptor.local_endpoint();
 
     // 配置账户目录
-    account::directory dir;
+    user::directory dir;
     const auto credential = psm::crypto::sha224("correct_password");
     dir.upsert(credential, 1);
 

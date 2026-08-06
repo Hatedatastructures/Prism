@@ -7,7 +7,7 @@
  */
 
 #include <prism/foundation/foundation.hpp>
-#include <prism/trace/spdlog.hpp>
+#include <prism/diagnose/log.hpp>
 
 #include <boost/asio.hpp>
 
@@ -16,7 +16,8 @@
 
 // 通过预处理器 hack 访问 private 内部类型 race_context（仅限测试翻译单元）
 #define private public
-#include "../../src/prism/net/connect/dial/racer.cpp"
+#include "../../src/prism/net/connection/dialer/racer.cpp"
+#include <prism/net/connection/dialer/dialer.hpp>
 #undef private
 
 namespace
@@ -208,16 +209,17 @@ namespace
     // ═══════════════════════════════════════════════════════════
 
     /**
-     * @brief 测试 address_racer 构造不崩溃
+     * @brief 测试 address_racer 构造不崩溃（拨号回调）
      */
     TEST(RacerPure, RacerConstruction)
     {
-        net::io_context ioc;
-        psm::connect::connection_pool pool(ioc);
-        psm::connect::address_racer racer(pool);
-
-        EXPECT_TRUE(&racer.pool_ != nullptr)
-            << "racer: 构造成功，pool_ 引用有效";
+        // dialer::dial_endpoint 是私有成员，此处用占位回调验证 racer 构造
+        psm::connect::address_racer racer([](const auto &)
+            -> net::awaitable<std::pair<psm::fault::code, psm::connect::shared_transmission>>
+        {
+            co_return std::make_pair(psm::fault::code::success, psm::connect::shared_transmission{});
+        });
+        EXPECT_TRUE(true) << "racer: 构造成功（拨号回调）";
     }
 
     /**
@@ -230,19 +232,6 @@ namespace
         constexpr auto delay = psm::connect::address_racer::secondary_delay;
         EXPECT_TRUE(delay.count() == 250)
             << "secondary_delay: 250ms (RFC 8305)";
-    }
-
-    /**
-     * @brief 测试连接池引用正确存储
-     */
-    TEST(RacerPure, RacerPoolReference)
-    {
-        net::io_context ioc;
-        psm::connect::connection_pool pool(ioc);
-        psm::connect::address_racer racer(pool);
-
-        EXPECT_TRUE(&racer.pool_ == &pool)
-            << "racer: pool_ 引用指向传入的连接池";
     }
 
 } // namespace

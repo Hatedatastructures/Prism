@@ -5,10 +5,10 @@
  */
 
 #include <prism/foundation/foundation.hpp>
-#include <prism/account/stats/runtime.hpp>
-#include <prism/account/stats/traffic.hpp>
-#include <prism/net/connect/types.hpp>
-#include <prism/trace/spdlog.hpp>
+#include <prism/user/stats/runtime.hpp>
+#include <prism/user/stats/traffic.hpp>
+#include <prism/net/connection/types.hpp>
+#include <prism/diagnose/log.hpp>
 
 #include <gtest/gtest.h>
 

@@ -6,7 +6,7 @@
 
 #include <benchmark/benchmark.h>
 #include <prism/foundation/foundation.hpp>
-#include <prism/stealth/stack/trusttunnel/config.hpp>
+#include <prism/handshake/stack/trusttunnel/config.hpp>
 #include <prism/protocol/multiplex/h2mux/control.hpp>
 
 #include <openssl/evp.h>
@@ -33,7 +33,7 @@ namespace
     }
 
     auto verify_basic_auth(std::string_view auth_header,
-                            const mem::vector<psm::stealth::trusttunnel::user> &users)
+                            const mem::vector<psm::handshake::trusttunnel::user> &users)
         -> bool
     {
         constexpr std::string_view prefix = "Basic ";
@@ -118,12 +118,12 @@ namespace
 
     // ─── 辅助：构造测试数据 ─────────────────────
 
-    auto make_users(std::size_t n) -> mem::vector<psm::stealth::trusttunnel::user>
+    auto make_users(std::size_t n) -> mem::vector<psm::handshake::trusttunnel::user>
     {
-        mem::vector<psm::stealth::trusttunnel::user> users;
+        mem::vector<psm::handshake::trusttunnel::user> users;
         for (std::size_t i = 0; i < n; ++i)
         {
-            psm::stealth::trusttunnel::user u;
+            psm::handshake::trusttunnel::user u;
             u.username = "user" + std::to_string(i);
             u.password = "pass" + std::to_string(i);
             users.push_back(std::move(u));

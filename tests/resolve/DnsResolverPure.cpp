@@ -12,7 +12,7 @@
 
 #include <prism/foundation/foundation.hpp>
 #include <prism/net/dns/detail/format.hpp>
-#include <prism/trace/spdlog.hpp>
+#include <prism/diagnose/log.hpp>
 
 #include <boost/asio.hpp>
 

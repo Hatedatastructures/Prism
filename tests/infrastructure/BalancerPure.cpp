@@ -4,7 +4,7 @@
  */
 
 #include <prism/foundation/foundation.hpp>
-#include <prism/trace/spdlog.hpp>
+#include <prism/diagnose/log.hpp>
 #include <gtest/gtest.h>
 
 // 包含源文件以访问 mix_hash 和 score 私有方法

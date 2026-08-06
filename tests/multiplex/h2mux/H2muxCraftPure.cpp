@@ -7,10 +7,10 @@
  */
 
 #include <prism/foundation/foundation.hpp>
-#include <prism/trace/spdlog.hpp>
+#include <prism/diagnose/log.hpp>
 #include <prism/protocol/multiplex/h2mux/control.hpp>
 #include <prism/protocol/multiplex/config.hpp>
-#include <prism/net/connect/dial/router.hpp>
+#include <prism/net/connection/dialer/dialer.hpp>
 #include <prism/net/transport/transmission.hpp>
 
 #include <nghttp2/nghttp2.h>

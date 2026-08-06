@@ -5,7 +5,7 @@
 
 #include <prism/foundation/foundation.hpp>
 #include <prism/protocol/multiplex/smux/frame.hpp>
-#include <prism/trace/spdlog.hpp>
+#include <prism/diagnose/log.hpp>
 
 #include <array>
 #include <cstdint>

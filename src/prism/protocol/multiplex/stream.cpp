@@ -2,14 +2,14 @@
 
 #include <prism/foundation/fault/handling.hpp>
 #include <prism/net/transport/reliable.hpp>
-#include <prism/trace/trace.hpp>
+#include <prism/diagnose/diagnose.hpp>
 
 #include <boost/asio/co_spawn.hpp>
 
 #include <atomic>
 #include <span>
 
-using namespace psm::trace;
+using namespace psm::diagnose;
 
 namespace psm::multiplex
 {
@@ -49,7 +49,7 @@ namespace psm::multiplex
             {
                 if (ep)
                 {
-                    trace::debug(self->prefix_, "stream {} target read loop error", self->id_);
+                    diagnose::debug(self->prefix_, "stream {} target read loop error", self->id_);
                 }
                 self->close();
             });
@@ -62,7 +62,7 @@ namespace psm::multiplex
     auto stream::on_data(memory::vector<std::byte> data)
         -> net::awaitable<void>
     {
-        trace::debug(prefix_, "[up] on_data stream={} {} bytes", id_, data.size());
+        diagnose::debug(prefix_, "[up] on_data stream={} {} bytes", id_, data.size());
         if (closed_)
         {
             co_return;
@@ -90,7 +90,7 @@ namespace psm::multiplex
             {
                 rel->shutdown_write();
             }
-            trace::debug(prefix_, "stream {} mux fin, shutdown target write", id_);
+            diagnose::debug(prefix_, "stream {} mux fin, shutdown target write", id_);
         }
 
         // target 端也已关闭，完全关闭管道
@@ -125,7 +125,7 @@ namespace psm::multiplex
             ex->drop(id_);
         }
 
-        trace::debug(prefix_, "stream {} closed", id_);
+        diagnose::debug(prefix_, "stream {} closed", id_);
     }
 
 
@@ -144,7 +144,7 @@ namespace psm::multiplex
             // mux 端已半关闭（客户端发送 FIN），停止发送数据
             if (mux_closed_.load(std::memory_order_acquire))
             {
-                trace::debug(prefix_, "stream {} mux closed, stop sending", id_);
+                diagnose::debug(prefix_, "stream {} mux closed, stop sending", id_);
                 break;
             }
 
@@ -161,7 +161,7 @@ namespace psm::multiplex
             {
                 if (ec != std::errc::operation_canceled && fault::to_code(ec) != fault::code::eof)
                 {
-                    trace::debug(prefix_, "stream {} read from target failed: {}", id_, ec.message());
+                    diagnose::debug(prefix_, "stream {} read from target failed: {}", id_, ec.message());
                 }
                 break;
             }
@@ -207,12 +207,12 @@ namespace psm::multiplex
                 break;
             }
 
-            trace::debug(prefix_, "[up] writeloop stream={} write {} bytes", id_, data.size());
+            diagnose::debug(prefix_, "[up] writeloop stream={} write {} bytes", id_, data.size());
             std::error_code write_ec;
             co_await transport::async_write(*target_, data, write_ec);
             if (write_ec)
             {
-                trace::debug(prefix_, "stream {} write to target failed: {}", id_, write_ec.message());
+                diagnose::debug(prefix_, "stream {} write to target failed: {}", id_, write_ec.message());
                 close();
                 break;
             }

@@ -13,11 +13,11 @@
 #include "../../src/prism/runtime/worker/worker.cpp"
 #undef private
 
-#include <prism/account/directory.hpp>
-#include <prism/config/config.hpp>
+#include <prism/user/directory.hpp>
+#include <prism/settings/settings.hpp>
 #include <prism/foundation/foundation.hpp>
-#include <prism/account/stats/runtime.hpp>
-#include <prism/account/stats/traffic.hpp>
+#include <prism/user/stats/runtime.hpp>
+#include <prism/user/stats/traffic.hpp>
 
 #include <chrono>
 #include <memory>
@@ -32,8 +32,8 @@ namespace
 
 TEST(WorkerDeep, ConstructMinimal)
 {
-    psm::config cfg;
-    auto acct = std::make_shared<psm::account::directory>();
+    psm::settings cfg;
+    auto acct = std::make_shared<psm::user::directory>();
 
     worker w(cfg, acct);
 
@@ -59,11 +59,11 @@ TEST(WorkerDeep, ConstructMinimal)
 
 TEST(WorkerDeep, ConstructWithValidReverseRoute)
 {
-    psm::config cfg;
+    psm::settings cfg;
     cfg.instance.reverse_map["example.com"] = psm::runtime::endpoint{
         psm::memory::string("192.168.1.1"), 8080};
 
-    auto acct = std::make_shared<psm::account::directory>();
+    auto acct = std::make_shared<psm::user::directory>();
     worker w(cfg, acct);
     auto snap = w.load_snapshot();
     EXPECT_EQ(snap.active_sessions, 0u) << "valid reverse route: worker constructible";
@@ -73,11 +73,11 @@ TEST(WorkerDeep, ConstructWithValidReverseRoute)
 
 TEST(WorkerDeep, ConstructWithZeroPortReverseRoute)
 {
-    psm::config cfg;
+    psm::settings cfg;
     cfg.instance.reverse_map["bad.com"] = psm::runtime::endpoint{
         psm::memory::string("10.0.0.1"), 0};
 
-    auto acct = std::make_shared<psm::account::directory>();
+    auto acct = std::make_shared<psm::user::directory>();
     worker w(cfg, acct);
     auto snap = w.load_snapshot();
     EXPECT_EQ(snap.active_sessions, 0u) << "zero port route: worker constructible";
@@ -87,11 +87,11 @@ TEST(WorkerDeep, ConstructWithZeroPortReverseRoute)
 
 TEST(WorkerDeep, ConstructWithInvalidAddressReverseRoute)
 {
-    psm::config cfg;
+    psm::settings cfg;
     cfg.instance.reverse_map["bad.com"] = psm::runtime::endpoint{
         psm::memory::string("not-an-ip!!!"), 443};
 
-    auto acct = std::make_shared<psm::account::directory>();
+    auto acct = std::make_shared<psm::user::directory>();
     worker w(cfg, acct);
     auto snap = w.load_snapshot();
     EXPECT_EQ(snap.active_sessions, 0u) << "invalid address route: worker constructible";
@@ -100,11 +100,11 @@ TEST(WorkerDeep, ConstructWithInvalidAddressReverseRoute)
 
 TEST(WorkerDeep, ConstructWithPositiveEndpoint)
 {
-    psm::config cfg;
+    psm::settings cfg;
     cfg.instance.positive = psm::runtime::endpoint{
         psm::memory::string("proxy.example.com"), 3128};
 
-    auto acct = std::make_shared<psm::account::directory>();
+    auto acct = std::make_shared<psm::user::directory>();
     worker w(cfg, acct);
     auto snap = w.load_snapshot();
     EXPECT_EQ(snap.active_sessions, 0u) << "positive endpoint: worker constructible";
@@ -114,11 +114,11 @@ TEST(WorkerDeep, ConstructWithPositiveEndpoint)
 
 TEST(WorkerDeep, ConstructWithEmptyPositiveHost)
 {
-    psm::config cfg;
+    psm::settings cfg;
     cfg.instance.positive = psm::runtime::endpoint{
         psm::memory::string(""), 3128};
 
-    auto acct = std::make_shared<psm::account::directory>();
+    auto acct = std::make_shared<psm::user::directory>();
     worker w(cfg, acct);
     auto snap = w.load_snapshot();
     EXPECT_EQ(snap.active_sessions, 0u) << "empty positive host: worker constructible";
@@ -126,8 +126,8 @@ TEST(WorkerDeep, ConstructWithEmptyPositiveHost)
 
 TEST(WorkerDeep, LoadSnapshotInitial)
 {
-    psm::config cfg;
-    auto acct = std::make_shared<psm::account::directory>();
+    psm::settings cfg;
+    auto acct = std::make_shared<psm::user::directory>();
     worker w(cfg, acct);
 
     auto snap = w.load_snapshot();
@@ -139,8 +139,8 @@ TEST(WorkerDeep, LoadSnapshotInitial)
 
 TEST(WorkerDeep, RunStopLifecycle)
 {
-    psm::config cfg;
-    auto acct = std::make_shared<psm::account::directory>();
+    psm::settings cfg;
+    auto acct = std::make_shared<psm::user::directory>();
     auto w = std::make_unique<worker>(cfg, acct);
 
     std::atomic<bool> started{false};
@@ -164,8 +164,8 @@ TEST(WorkerDeep, RunStopLifecycle)
 TEST(WorkerDeep, DestructorUnregistersTraffic)
 {
     {
-        psm::config cfg;
-        auto acct = std::make_shared<psm::account::directory>();
+        psm::settings cfg;
+        auto acct = std::make_shared<psm::user::directory>();
         worker w(cfg, acct);
         // 构造时 register_instance 被调用
     }
@@ -180,8 +180,8 @@ TEST(WorkerDeep, DestructorUnregistersTraffic)
 
 TEST(WorkerDeep, StopBeforeRun)
 {
-    psm::config cfg;
-    auto acct = std::make_shared<psm::account::directory>();
+    psm::settings cfg;
+    auto acct = std::make_shared<psm::user::directory>();
     worker w(cfg, acct);
 
     // stop() 在 run() 之前调用不应崩溃

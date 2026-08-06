@@ -6,16 +6,16 @@
  * 使用 mock scheme 替代真实方案，避免实际 TLS 握手。
  */
 
-#include <prism/stealth/executor.hpp>
-#include <prism/stealth/registry.hpp>
-#include <prism/stealth/scheme.hpp>
-#include <prism/stealth/recognition/result.hpp>
-#include <prism/net/connect/types.hpp>
+#include <prism/handshake/executor.hpp>
+#include <prism/handshake/registry.hpp>
+#include <prism/handshake/scheme.hpp>
+#include <prism/handshake/recognition/result.hpp>
+#include <prism/net/connection/types.hpp>
 #include <prism/foundation/fault/code.hpp>
 #include <prism/foundation/fault/handling.hpp>
 #include <prism/foundation/foundation.hpp>
-#include <prism/trace/trace.hpp>
-#include <prism/config/config.hpp>
+#include <prism/diagnose/diagnose.hpp>
+#include <prism/settings/settings.hpp>
 #include <prism/net/transport/transmission.hpp>
 #include <gtest/gtest.h>
 
@@ -73,7 +73,7 @@ namespace
      * @brief 用于测试的 mock 伪装方案
      * @details handshake() 返回预设的 handshake_result，不做任何 I/O。
      */
-    class mock_scheme final : public psm::stealth::stealth_scheme
+    class mock_scheme final : public psm::handshake::stealth_scheme
     {
     public:
         mock_scheme(std::string name, psm::connect::protocol_type detected,
@@ -97,22 +97,22 @@ namespace
             return false;
         }
 
-        [[nodiscard]] auto active([[maybe_unused]] const psm::config &cfg) const noexcept
+        [[nodiscard]] auto active([[maybe_unused]] const psm::settings &cfg) const noexcept
             -> bool override
         {
             return enabled_;
         }
 
-        [[nodiscard]] auto guess([[maybe_unused]] const psm::config &cfg) const
-            -> psm::stealth::verify_result override
+        [[nodiscard]] auto guess([[maybe_unused]] const psm::settings &cfg) const
+            -> psm::handshake::verify_result override
         {
             return {.score = 100, .solo_flag = 0, .note = "mock"};
         }
 
-        [[nodiscard]] auto handshake(psm::stealth::handshake_context ctx)
-            -> net::awaitable<psm::stealth::handshake_result> override
+        [[nodiscard]] auto handshake(psm::handshake::handshake_context ctx)
+            -> net::awaitable<psm::handshake::handshake_result> override
         {
-            psm::stealth::handshake_result result;
+            psm::handshake::handshake_result result;
             result.detected = detected_;
             // 使用 mock transport 满足 executor 的成功条件检查
             // executor 要求 transport != nullptr 才认为执行成功
@@ -132,7 +132,7 @@ namespace
 
     void register_mocks()
     {
-        auto &reg = psm::stealth::scheme_registry::instance();
+        auto &reg = psm::handshake::scheme_registry::instance();
 
         // 避免重复注册（add 不幂等）
         if (reg.find("mock_a") != nullptr)
@@ -159,13 +159,13 @@ TEST(Executor, EmptyCandidates)
 {
     register_mocks();
 
-    auto &reg = psm::stealth::scheme_registry::instance();
-    psm::stealth::scheme_executor executor(reg);
+    auto &reg = psm::handshake::scheme_registry::instance();
+    psm::handshake::scheme_executor executor(reg);
 
     psm::recognition::analysis_result analysis;
     // candidates 为空
 
-    psm::stealth::handshake_context ctx{
+    psm::handshake::handshake_context ctx{
         .transport = nullptr,
         .cfg = nullptr,
         .outbound = nullptr,
@@ -206,13 +206,13 @@ TEST(Executor, EmptyCandidates)
 TEST(Executor, FindByOrder)
 {
     register_mocks();
-    auto &reg = psm::stealth::scheme_registry::instance();
-    psm::stealth::scheme_executor executor(reg);
+    auto &reg = psm::handshake::scheme_registry::instance();
+    psm::handshake::scheme_executor executor(reg);
 
     psm::recognition::analysis_result analysis;
     analysis.candidates.emplace_back("mock_b");
 
-    psm::stealth::handshake_context ctx{
+    psm::handshake::handshake_context ctx{
         .transport = nullptr,
         .cfg = nullptr,
         .outbound = nullptr,
@@ -251,15 +251,15 @@ TEST(Executor, FindByOrder)
 TEST(Executor, SkipDisabled)
 {
     register_mocks();
-    auto &reg = psm::stealth::scheme_registry::instance();
-    psm::stealth::scheme_executor executor(reg);
+    auto &reg = psm::handshake::scheme_registry::instance();
+    psm::handshake::scheme_executor executor(reg);
 
     psm::recognition::analysis_result analysis;
     analysis.candidates.emplace_back("mock_disabled");
     analysis.candidates.emplace_back("mock_b");
 
-    psm::config cfg;
-    psm::stealth::handshake_context ctx{
+    psm::settings cfg;
+    psm::handshake::handshake_context ctx{
         .inbound = nullptr,
         .cfg = &cfg,
         .router = nullptr,
@@ -298,14 +298,14 @@ TEST(Executor, SkipDisabled)
 TEST(Executor, NotFound)
 {
     register_mocks();
-    auto &reg = psm::stealth::scheme_registry::instance();
-    psm::stealth::scheme_executor executor(reg);
+    auto &reg = psm::handshake::scheme_registry::instance();
+    psm::handshake::scheme_executor executor(reg);
 
     psm::recognition::analysis_result analysis;
     analysis.candidates.emplace_back("nonexistent");
     analysis.candidates.emplace_back("mock_b");
 
-    psm::stealth::handshake_context ctx{
+    psm::handshake::handshake_context ctx{
         .transport = nullptr,
         .cfg = nullptr,
         .outbound = nullptr,
@@ -344,14 +344,14 @@ TEST(Executor, NotFound)
 TEST(Executor, Passthrough)
 {
     register_mocks();
-    auto &reg = psm::stealth::scheme_registry::instance();
-    psm::stealth::scheme_executor executor(reg);
+    auto &reg = psm::handshake::scheme_registry::instance();
+    psm::handshake::scheme_executor executor(reg);
 
     psm::recognition::analysis_result analysis;
     analysis.candidates.emplace_back("mock_a");
     analysis.candidates.emplace_back("mock_b");
 
-    psm::stealth::handshake_context ctx{
+    psm::handshake::handshake_context ctx{
         .transport = nullptr,
         .cfg = nullptr,
         .outbound = nullptr,

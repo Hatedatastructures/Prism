@@ -6,8 +6,8 @@
  */
 
 #include <prism/foundation/foundation.hpp>
-#include <prism/trace/spdlog.hpp>
-#include <prism/config/config.hpp>
+#include <prism/diagnose/log.hpp>
+#include <prism/settings/settings.hpp>
 
 #include <gtest/gtest.h>
 
@@ -17,10 +17,10 @@ namespace
 
     TEST(TraceSpdlogPure, MdcSetAndGet)
     {
-        psm::trace::mdc_clear();
-        psm::trace::mdc_set("session", "abc123");
+        psm::diagnose::mdc_clear();
+        psm::diagnose::mdc_set("session", "abc123");
 
-        auto prefix = psm::trace::build_mdc_prefix();
+        auto prefix = psm::diagnose::build_mdc_prefix();
         EXPECT_TRUE(!prefix.empty()) << "mdc: prefix non-empty after set";
         EXPECT_TRUE(prefix.find("session=abc123") != std::string::npos)
             << "mdc: prefix contains session=abc123";
@@ -28,51 +28,51 @@ namespace
 
     TEST(TraceSpdlogPure, MdcRemove)
     {
-        psm::trace::mdc_clear();
-        psm::trace::mdc_set("key1", "val1");
-        psm::trace::mdc_remove("key1");
+        psm::diagnose::mdc_clear();
+        psm::diagnose::mdc_set("key1", "val1");
+        psm::diagnose::mdc_remove("key1");
 
-        auto prefix = psm::trace::build_mdc_prefix();
+        auto prefix = psm::diagnose::build_mdc_prefix();
         EXPECT_TRUE(prefix.empty() || prefix.find("key1") == std::string::npos)
             << "mdc: prefix empty after remove";
     }
 
     TEST(TraceSpdlogPure, MdcClear)
     {
-        psm::trace::mdc_set("a", "1");
-        psm::trace::mdc_set("b", "2");
-        psm::trace::mdc_clear();
+        psm::diagnose::mdc_set("a", "1");
+        psm::diagnose::mdc_set("b", "2");
+        psm::diagnose::mdc_clear();
 
-        auto prefix = psm::trace::build_mdc_prefix();
+        auto prefix = psm::diagnose::build_mdc_prefix();
         EXPECT_TRUE(prefix.empty()) << "mdc: prefix empty after clear";
     }
 
     TEST(TraceSpdlogPure, MdcPrefixEmpty)
     {
-        psm::trace::mdc_clear();
-        auto prefix = psm::trace::build_mdc_prefix();
+        psm::diagnose::mdc_clear();
+        auto prefix = psm::diagnose::build_mdc_prefix();
         EXPECT_TRUE(prefix.empty()) << "mdc: prefix empty initially";
     }
 
     TEST(TraceSpdlogPure, MdcMultipleKeys)
     {
-        psm::trace::mdc_clear();
-        psm::trace::mdc_set("stream", "42");
-        psm::trace::mdc_set("proto", "trojan");
+        psm::diagnose::mdc_clear();
+        psm::diagnose::mdc_set("stream", "42");
+        psm::diagnose::mdc_set("proto", "trojan");
 
-        auto prefix = psm::trace::build_mdc_prefix();
+        auto prefix = psm::diagnose::build_mdc_prefix();
         EXPECT_TRUE(prefix.find("stream=42") != std::string::npos)
             << "mdc: multi contains stream=42";
         EXPECT_TRUE(prefix.find("proto=trojan") != std::string::npos)
             << "mdc: multi contains proto=trojan";
-        psm::trace::mdc_clear();
+        psm::diagnose::mdc_clear();
     }
 
     // ─── recorder 未初始化 ─────────────────────────
 
     TEST(TraceSpdlogPure, RecorderBeforeInit)
     {
-        auto logger = psm::trace::recorder();
+        auto logger = psm::diagnose::recorder();
         EXPECT_TRUE(logger != nullptr) << "recorder: returns non-null after init";
     }
 } // namespace

@@ -9,12 +9,11 @@
  */
 
 #include <prism/foundation/foundation.hpp>
-#include <prism/trace/spdlog.hpp>
+#include <prism/diagnose/log.hpp>
 
 #include "common/MockTransport.hpp"
 
-#include <prism/net/connect/pool/pool.hpp>
-#include <prism/net/connect/dial/router.hpp>
+#include <prism/net/connection/dialer/dialer.hpp>
 #include <prism/net/dns/resolver.hpp>
 #include <prism/protocol/multiplex/h2mux/control.hpp>
 
@@ -48,18 +47,16 @@ namespace
     {
         std::shared_ptr<MockTransport> transport;
         std::unique_ptr<net::io_context> ioc;
-        std::unique_ptr<psm::connect::connection_pool> pool;
-        std::unique_ptr<psm::connect::router> router_ptr;
+        std::unique_ptr<psm::connect::dialer> router_ptr;
         std::shared_ptr<h2mux::control> craft_obj;
 
         CraftFixture()
         {
             transport = std::make_shared<MockTransport>();
             ioc = std::make_unique<net::io_context>(1);
-            pool = std::make_unique<psm::connect::connection_pool>(*ioc);
             psm::dns::config dns_cfg;
-            psm::connect::router_options ropts{*pool, *ioc, dns_cfg};
-            router_ptr = std::make_unique<psm::connect::router>(std::move(ropts));
+            psm::connect::dialer_options ropts{*ioc, dns_cfg};
+            router_ptr = std::make_unique<psm::connect::dialer>(std::move(ropts));
             multiplex::multiplexer_options opts{transport, nullptr, g_cfg, nullptr};
             craft_obj = std::make_shared<h2mux::control>(std::move(opts), make_resolver());
         }
@@ -77,10 +74,9 @@ namespace
     {
         auto transport = std::make_shared<MockTransport>();
         auto ioc = std::make_unique<net::io_context>(1);
-        auto pool = std::make_unique<psm::connect::connection_pool>(*ioc);
         psm::dns::config dns_cfg;
-        psm::connect::router_options ropts{*pool, *ioc, dns_cfg};
-        auto router_ptr = std::make_unique<psm::connect::router>(std::move(ropts));
+        psm::connect::dialer_options ropts{*ioc, dns_cfg};
+        auto router_ptr = std::make_unique<psm::connect::dialer>(std::move(ropts));
         psm::memory::unsynchronized_pool mr;
         multiplex::multiplexer_options opts{transport, nullptr, g_cfg, &mr};
         auto c = std::make_shared<h2mux::control>(std::move(opts), make_resolver());

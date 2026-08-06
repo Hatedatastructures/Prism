@@ -14,7 +14,7 @@
 #pragma once
 
 #include <prism/foundation/memory/container.hpp>
-#include <prism/net/connect/types.hpp>
+#include <prism/net/connection/types.hpp>
 
 #include <boost/asio.hpp>
 

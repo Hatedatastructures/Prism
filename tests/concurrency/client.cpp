@@ -11,8 +11,8 @@
 #include <boost/beast/core/flat_buffer.hpp>
 
 #include <prism/foundation/foundation.hpp>
-#include <prism/config/transformer.hpp>
-#include <prism/trace/trace.hpp>
+#include <prism/settings/transformer.hpp>
+#include <prism/diagnose/diagnose.hpp>
 
 #include <algorithm>
 #include <atomic>
@@ -126,16 +126,16 @@ public:
      */
     void start()
     {
-        psm::trace::info("压测配置: ");
-        psm::trace::info("  代理地址: {}:{}", config_.proxy_host, config_.proxy_port);
-        psm::trace::info("  后端地址: {}:{}", config_.backend_host, config_.backend_port);
-        psm::trace::info("  请求路径: {}", config_.request_path);
-        psm::trace::info("  总请求数: {}", config_.total_requests);
-        psm::trace::info("  并发连接: {}", config_.concurrency);
-        psm::trace::info("  连接超时: {}秒", config_.connect_timeout_sec);
-        psm::trace::info("  请求超时: {}秒", config_.request_timeout_sec);
-        psm::trace::info("  重连延迟: {}毫秒", config_.reconnect_delay_ms);
-        psm::trace::info("  调试输出: {}", config_.debug_output ? "开启" : "关闭");
+        psm::diagnose::info("压测配置: ");
+        psm::diagnose::info("  代理地址: {}:{}", config_.proxy_host, config_.proxy_port);
+        psm::diagnose::info("  后端地址: {}:{}", config_.backend_host, config_.backend_port);
+        psm::diagnose::info("  请求路径: {}", config_.request_path);
+        psm::diagnose::info("  总请求数: {}", config_.total_requests);
+        psm::diagnose::info("  并发连接: {}", config_.concurrency);
+        psm::diagnose::info("  连接超时: {}秒", config_.connect_timeout_sec);
+        psm::diagnose::info("  请求超时: {}秒", config_.request_timeout_sec);
+        psm::diagnose::info("  重连延迟: {}毫秒", config_.reconnect_delay_ms);
+        psm::diagnose::info("  调试输出: {}", config_.debug_output ? "开启" : "关闭");
 
         net::co_spawn(ioc_, PrintStats(), net::detached);
 
@@ -146,7 +146,7 @@ public:
 
         std::vector<std::jthread> threads;
         int thread_count = std::thread::hardware_concurrency();
-        psm::trace::info("  工作线程: {}", thread_count);
+        psm::diagnose::info("  工作线程: {}", thread_count);
 
         threads.reserve(thread_count);
         for (int i = 0; i < thread_count; ++i)
@@ -210,7 +210,7 @@ private:
             double avg_latency = success > 0 ? (double)total_latency / success : 0.0;
             std::uint64_t display_min = min_latency == UINT64_MAX ? 0 : min_latency;
 
-            psm::trace::info("[实时统计] QPS: {} | 带宽: {} Mbps | 成功率: {}% | 活跃连接: {} | 总流量: {} MB | 延迟: avg={}ms, min={}ms, max={}ms | 错误: timeout={}, conn={}, proto={}",
+            psm::diagnose::info("[实时统计] QPS: {} | 带宽: {} Mbps | 成功率: {}% | 活跃连接: {} | 总流量: {} MB | 延迟: avg={}ms, min={}ms, max={}ms | 错误: timeout={}, conn={}, proto={}",
                              qps, mbps, success_rate, active, bytes / 1024 / 1024,
                              avg_latency, display_min, max_latency,
                              timeout_err, conn_err, proto_err);
@@ -270,7 +270,7 @@ private:
                 static std::atomic<int> send_debug_counter{0};
                 if (send_debug_counter.fetch_add(1, std::memory_order_relaxed) % 100 == 0)
                 {
-                    psm::trace::debug("[调试发送] 目标: http://{}:{}{}",
+                    psm::diagnose::debug("[调试发送] 目标: http://{}:{}{}",
                                       config_.backend_host, config_.backend_port, config_.request_path);
                 }
             }
@@ -278,7 +278,7 @@ private:
             co_await net::async_write(socket, net::buffer(request_data), net::redirect_error(net::use_awaitable, ec));
             if (ec)
             {
-                psm::trace::error("[错误] 发送请求失败: {}", ec.message());
+                psm::diagnose::error("[错误] 发送请求失败: {}", ec.message());
                 HandleError(socket, is_connected, ec);
                 continue;
             }
@@ -341,7 +341,7 @@ private:
         {
             if (config_.debug_output)
             {
-                psm::trace::debug("[连接] DNS 解析失败: {}", ToUtf8Message(ec.message()));
+                psm::diagnose::debug("[连接] DNS 解析失败: {}", ToUtf8Message(ec.message()));
             }
             stats_.connection_errors.fetch_add(1, std::memory_order_relaxed);
             co_return false;
@@ -352,7 +352,7 @@ private:
         {
             if (config_.debug_output)
             {
-                psm::trace::debug("[连接] 连接失败: {}", ToUtf8Message(ec.message()));
+                psm::diagnose::debug("[连接] 连接失败: {}", ToUtf8Message(ec.message()));
             }
             socket.close(ignore_ec);
             stats_.connection_errors.fetch_add(1, std::memory_order_relaxed);
@@ -364,7 +364,7 @@ private:
         socket.set_option(tcp::no_delay(true));
         if (config_.debug_output)
         {
-            psm::trace::debug("[连接] 连接成功");
+            psm::diagnose::debug("[连接] 连接成功");
         }
         co_return true;
     }
@@ -427,7 +427,7 @@ private:
                 {
                     if (ec == net::error::eof && config_.debug_output)
                     {
-                        psm::trace::debug("stress mode: server closed connection");
+                        psm::diagnose::debug("stress mode: server closed connection");
                     }
                     HandleDisconnect(socket, is_connected);
                     co_return;
@@ -473,7 +473,7 @@ private:
                 static std::atomic<int> debug_counter{0};
                 if (debug_counter.fetch_add(1, std::memory_order_relaxed) % 100 == 0)
                 {
-                    psm::trace::debug("[调试] stress响应: body={} bytes", body_size);
+                    psm::diagnose::debug("[调试] stress响应: body={} bytes", body_size);
                 }
             }
 
@@ -523,7 +523,7 @@ private:
                 net::redirect_error(net::use_awaitable, ec));
             if (ec)
             {
-                psm::trace::error("[错误] 读取响应失败");
+                psm::diagnose::error("[错误] 读取响应失败");
                 HandleError(socket, is_connected, ec);
                 co_return;
             }
@@ -600,7 +600,7 @@ private:
             static std::atomic<int> debug_counter{0};
             if (debug_counter.fetch_add(1, std::memory_order_relaxed) % 100 == 0)
             {
-                psm::trace::debug("[调试] 响应状态: {}, body大小: {} bytes, 延迟: {} ms",
+                psm::diagnose::debug("[调试] 响应状态: {}, body大小: {} bytes, 延迟: {} ms",
                                   status_code, body_size, latency_ms);
             }
         }
@@ -718,11 +718,11 @@ int main()
     SetConsoleOutputCP(CP_UTF8);
 #endif
 
-    psm::trace::config trace_config;
+    psm::diagnose::config trace_config;
     trace_config.enable_console = true;
     trace_config.enable_file = false;
     trace_config.log_level = "debug";
-    psm::trace::init(trace_config);
+    psm::diagnose::init(trace_config);
 
     try
     {
@@ -732,10 +732,10 @@ int main()
     }
     catch (const std::exception &e)
     {
-        psm::trace::error("发生异常: {}", e.what());
+        psm::diagnose::error("发生异常: {}", e.what());
     }
 
-    psm::trace::shutdown();
+    psm::diagnose::shutdown();
 
     return 0;
 }

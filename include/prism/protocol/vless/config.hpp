@@ -2,7 +2,7 @@
  * @file config.hpp
  * @brief VLESS 协议配置结构
  * @details 定义 VLESS 协议的配置参数。用户认证已统一到
- * agent::authentication 中，VLESS 通过 account::directory
+ * agent::authentication 中，VLESS 通过 user::directory
  * 查询 UUID 凭证
  */
 #pragma once

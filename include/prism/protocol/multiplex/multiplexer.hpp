@@ -23,8 +23,8 @@
 #include <prism/protocol/multiplex/codec.hpp>
 #include <prism/protocol/multiplex/config.hpp>
 #include <prism/protocol/multiplex/egress.hpp>
-#include <prism/net/connect/types.hpp>
-#include <prism/trace/context.hpp>
+#include <prism/net/connection/types.hpp>
+#include <prism/diagnose/context.hpp>
 #include <prism/net/transport/transmission.hpp>
 
 #include <boost/asio.hpp>
@@ -39,7 +39,7 @@
 namespace psm::outbound
 {
 
-    class proxy;
+    class direct;
 
 }
 
@@ -83,7 +83,7 @@ namespace psm::multiplex
     struct multiplexer_options
     {
         transport::shared_transmission transport; ///< 已建立的传输层连接（通常是 TLS 隧道）
-        outbound::proxy *outbound{nullptr};       ///< 出站代理接口（非拥有，worker 生命周期）
+        outbound::direct *outbound{nullptr};       ///< 出站代理接口（非拥有，worker 生命周期）
         const config &cfg;                        ///< 多路复用配置参数
         memory::resource_pointer mr = {};         ///< PMR 内存资源，为空时使用默认资源
         std::size_t channel_capacity{512};        ///< 发送通道容量（由子类按协议 max_streams 传入）
@@ -129,9 +129,9 @@ namespace psm::multiplex
 
         /**
          * @brief 设置会话日志前缀
-         * @param p 调用方的 trace_context shared_ptr
+         * @param p 调用方的 context shared_ptr
          */
-        void set_prefix(std::shared_ptr<trace::trace_context> p) noexcept
+        void set_prefix(std::shared_ptr<diagnose::context> p) noexcept
         {
             prefix_ = std::move(p);
         }
@@ -275,7 +275,7 @@ namespace psm::multiplex
 
         // 资源
         transport::shared_transmission transport_; ///< 底层传输连接
-        outbound::proxy *outbound_{nullptr};       ///< 出站代理接口（非拥有）
+        outbound::direct *outbound_{nullptr};       ///< 出站代理接口（非拥有）
         const config &config_;                     ///< 多路复用配置
         memory::resource_pointer mr_;              ///< PMR 内存资源
 
@@ -283,7 +283,7 @@ namespace psm::multiplex
         std::atomic<bool> active_{false}; ///< 会话活跃标志
 
         // 日志
-        std::shared_ptr<trace::trace_context> prefix_; ///< 会话日志前缀
+        std::shared_ptr<diagnose::context> prefix_; ///< 会话日志前缀
 
         // 流注册表
         memory::unordered_map<std::uint32_t, pending_entry> pending_;       ///< 待连接流

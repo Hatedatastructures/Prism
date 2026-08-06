@@ -13,7 +13,7 @@
 #include <prism/foundation/fault/code.hpp>
 #include <prism/net/transport/reliable.hpp>
 #include <prism/foundation/foundation.hpp>
-#include <prism/trace/spdlog.hpp>
+#include <prism/diagnose/log.hpp>
 #include <boost/asio.hpp>
 #include <iostream>
 #include <string>

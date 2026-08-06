@@ -2,12 +2,12 @@
  * @file dial.cpp
  * @brief outbound::dial 单元测试（类型与选项层）
  * @details 验证 dial_options/dial_result/dial_stats 结构体字段默认值合理。
- * 完整连接测试需真实 outbound::proxy + io_context + traffic_state（依赖
+ * 完整连接测试需真实 outbound::direct + io_context + traffic_state（依赖
  * OpenSSL/Asio 完整初始化），由集成测试覆盖。
  */
 
 #include <prism/foundation/fault/code.hpp>
-#include <prism/net/connect/outbound/dial.hpp>
+#include <prism/net/connection/outbound/dial.hpp>
 #include <prism/net/transport/transmission.hpp>
 
 #include <boost/asio.hpp>
@@ -65,5 +65,5 @@ TEST(OutboundDial, DialSignatureUsesHandlesPack)
 
 TEST(OutboundDial, ResolveDatagramSignatureUsesProxy)
 {
-    SUCCEED() << "resolve_datagram takes outbound::proxy& directly";
+    SUCCEED() << "resolve_datagram takes outbound::direct& directly";
 }

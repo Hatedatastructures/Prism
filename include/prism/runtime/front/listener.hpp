@@ -10,7 +10,7 @@
 
 #pragma once
 
-#include <prism/config/config.hpp>
+#include <prism/settings/settings.hpp>
 #include <prism/runtime/config.hpp>
 #include <prism/runtime/front/balancer.hpp>
 
@@ -47,7 +47,7 @@ namespace psm::runtime::front
          * 方法启动接受循环。配置中的监听地址必须有效，否则启动时将抛出
          * 异常。
          */
-        explicit listener(const psm::config &cfg, balancer &dispatcher);
+        explicit listener(const psm::settings &cfg, balancer &dispatcher);
 
         /**
          * @brief 启动监听

@@ -1,6 +1,6 @@
 #include <prism/protocol/multiplex/smux/frame.hpp>
-#include <prism/trace/trace.hpp>
-#include <prism/trace/context.hpp>
+#include <prism/diagnose/diagnose.hpp>
+#include <prism/diagnose/context.hpp>
 
 #ifdef _WIN32
 #include <ws2tcpip.h>
@@ -8,7 +8,7 @@
 #include <arpa/inet.h>
 #endif
 
-using namespace psm::trace;
+using namespace psm::diagnose;
 
 namespace psm::multiplex::smux
 {
@@ -164,7 +164,7 @@ namespace psm::multiplex::smux
             break;
         }
         default:
-            trace::warn(std::shared_ptr<trace::trace_context>{}, "unknown address type: {}", atype);
+            diagnose::warn(std::shared_ptr<diagnose::context>{}, "unknown address type: {}", atype);
             return std::nullopt;
         }
 
@@ -248,7 +248,7 @@ namespace psm::multiplex::smux
             break;
         }
         default:
-            trace::warn(std::shared_ptr<trace::trace_context>{}, "unknown UDP address type: {}", atype);
+            diagnose::warn(std::shared_ptr<diagnose::context>{}, "unknown UDP address type: {}", atype);
             return std::nullopt;
         }
 

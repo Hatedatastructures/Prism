@@ -11,16 +11,15 @@
  */
 
 #include <prism/foundation/foundation.hpp>
-#include <prism/net/connect/outbound/direct.hpp>
-#include <prism/trace/spdlog.hpp>
+#include <prism/net/connection/outbound/direct.hpp>
+#include <prism/diagnose/log.hpp>
 
 #include "common/MockTransport.hpp"
 
 #include <gtest/gtest.h>
 
 // 预包含依赖头文件（不打开 private）
-#include <prism/net/connect/pool/pool.hpp>
-#include <prism/net/connect/dial/router.hpp>
+#include <prism/net/connection/dialer/dialer.hpp>
 #include <prism/net/dns/resolver.hpp>
 #include <prism/protocol/multiplex/smux/frame.hpp>
 #include <boost/asio.hpp>
@@ -46,8 +45,7 @@ namespace
     struct CraftFixture
     {
         std::shared_ptr<MockTransport> transport;
-        std::unique_ptr<psm::connect::connection_pool> pool;
-        std::unique_ptr<psm::connect::router> router_ptr;
+        std::unique_ptr<psm::connect::dialer> router_ptr;
         std::unique_ptr<psm::outbound::direct> outbound_ptr;
         std::shared_ptr<smux::control> craft_obj;
         static multiplex::config cfg;
@@ -56,10 +54,9 @@ namespace
         {
             transport = std::make_shared<MockTransport>();
             auto &ioc = transport->get_io_context();
-            pool = std::make_unique<psm::connect::connection_pool>(ioc);
             psm::dns::config dns_cfg;
-            psm::connect::router_options ropts{*pool, ioc, dns_cfg};
-            router_ptr = std::make_unique<psm::connect::router>(std::move(ropts));
+            psm::connect::dialer_options ropts{ioc, dns_cfg};
+            router_ptr = std::make_unique<psm::connect::dialer>(std::move(ropts));
             outbound_ptr = std::make_unique<psm::outbound::direct>(*router_ptr);
             multiplex::multiplexer_options opts{transport, outbound_ptr.get(), cfg, nullptr};
             craft_obj = std::make_shared<smux::control>(std::move(opts));

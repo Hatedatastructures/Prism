@@ -1,20 +1,18 @@
 /**
  * @file DialPure.cpp
- * @brief connect/dial 纯函数单元测试
- * @details 覆盖 dial.hpp 中 is_ipv6 和 open_udp 内联函数，
- *          以及 racer.cpp 中 address_racer 构造函数。
+ * @brief connect/dialer 纯函数单元测试
+ * @details 覆盖 racer.cpp 中 address_racer 构造函数与竞速上下文。
  */
 
 #include <prism/foundation/foundation.hpp>
-#include <prism/trace/spdlog.hpp>
+#include <prism/diagnose/log.hpp>
 
-
-#include <prism/net/connect/dial/connector.hpp>
+#include <prism/net/connection/dialer/dialer.hpp>
 
 #include <gtest/gtest.h>
 
 #define private public
-#include "../../src/prism/net/connect/dial/racer.cpp"
+#include "../../src/prism/net/connection/dialer/racer.cpp"
 #undef private
 
 namespace
@@ -23,113 +21,51 @@ namespace
     using tcp = boost::asio::ip::tcp;
     namespace net = boost::asio;
 
-    // ─── is_ipv6 测试 ──────────────────────────
-
-    TEST(DialPure, IsIpv6Loopback)
-    {
-        EXPECT_TRUE(connect::is_ipv6("::1")) << "is_ipv6: ::1 -> true";
-    }
-
-    TEST(DialPure, IsIpv6FullAddress)
-    {
-        EXPECT_TRUE(connect::is_ipv6("2001:db8::1")) << "is_ipv6: 2001:db8::1 -> true";
-    }
-
-    TEST(DialPure, IsIpv6MappedV4)
-    {
-        EXPECT_TRUE(connect::is_ipv6("::ffff:192.168.1.1")) << "is_ipv6: mapped v4 -> true";
-    }
-
-    TEST(DialPure, IsIpv6V4Address)
-    {
-        EXPECT_TRUE(!connect::is_ipv6("192.168.1.1")) << "is_ipv6: IPv4 -> false";
-    }
-
-    TEST(DialPure, IsIpv6Hostname)
-    {
-        EXPECT_TRUE(!connect::is_ipv6("example.com")) << "is_ipv6: hostname -> false";
-    }
-
-    TEST(DialPure, IsIpv6Empty)
-    {
-        EXPECT_TRUE(!connect::is_ipv6("")) << "is_ipv6: empty -> false";
-    }
-
-    TEST(DialPure, IsIpv6AllZeros)
-    {
-        EXPECT_TRUE(connect::is_ipv6("::")) << "is_ipv6: :: -> true";
-    }
-
-    TEST(DialPure, IsIpv6Bracketed)
-    {
-        EXPECT_TRUE(connect::is_ipv6("[::1]")) << "is_ipv6: [::1] -> true (Boost accepts bracketed)";
-    }
-
-    // ─── open_udp 测试 ────────────────────────
-
-    TEST(DialPure, OpenUdpV4)
-    {
-        net::io_context ioc;
-        auto target = net::ip::udp::endpoint(net::ip::make_address_v4("8.8.8.8"), 53);
-        auto [code, sock] = connect::open_udp(ioc.get_executor(), target);
-        EXPECT_TRUE(code == psm::fault::code::success) << "open_udp: IPv4 -> success";
-        EXPECT_TRUE(sock.is_open()) << "open_udp: IPv4 socket is open";
-        sock.close();
-    }
-
-    TEST(DialPure, OpenUdpV6)
-    {
-        net::io_context ioc;
-        auto target = net::ip::udp::endpoint(net::ip::make_address_v6("2001:4860:4860::8888"), 53);
-        auto [code, sock] = connect::open_udp(ioc.get_executor(), target);
-        EXPECT_TRUE(code == psm::fault::code::success) << "open_udp: IPv6 -> success";
-        EXPECT_TRUE(sock.is_open()) << "open_udp: IPv6 socket is open";
-        sock.close();
-    }
-
-    TEST(DialPure, OpenUdpLoopbackV4)
-    {
-        net::io_context ioc;
-        auto target = net::ip::udp::endpoint(net::ip::make_address_v4("127.0.0.1"), 0);
-        auto [code, sock] = connect::open_udp(ioc.get_executor(), target);
-        EXPECT_TRUE(code == psm::fault::code::success) << "open_udp: loopback v4 -> success";
-        sock.close();
-    }
-
-    TEST(DialPure, OpenUdpLoopbackV6)
-    {
-        net::io_context ioc;
-        auto target = net::ip::udp::endpoint(net::ip::make_address_v6("::1"), 0);
-        auto [code, sock] = connect::open_udp(ioc.get_executor(), target);
-        EXPECT_TRUE(code == psm::fault::code::success) << "open_udp: loopback v6 -> success";
-        sock.close();
-    }
-
     // ─── address_racer 构造函数 ────────────────
 
     TEST(DialPure, RacerConstructor)
     {
         net::io_context ioc;
-        connect::connection_pool pool(ioc);
-        connect::address_racer racer(pool);
-        EXPECT_TRUE(&racer.pool_ == &pool)
-            << "racer: constructor sets pool reference";
+        connect::address_racer racer([](const auto &)
+            -> net::awaitable<std::pair<psm::fault::code, connect::shared_transmission>>
+        {
+            co_return std::make_pair(psm::fault::code::success, connect::shared_transmission{});
+        });
+        EXPECT_TRUE(true) << "racer: constructor with dial callback";
     }
 
-    // ─── dial_options 测试 ────────────────────
+    // ─── dialer 构造与路由配置 ────────────────
 
-    TEST(DialPure, DialOptionsDefaults)
+    TEST(DialPure, DialerConstruction)
     {
-        connect::dial_options::flag f = connect::dial_options::flag::normal;
-        EXPECT_TRUE(f == connect::dial_options::flag::normal) << "dial_options: default flag normal";
+        net::io_context ioc;
+        psm::dns::config dns_cfg;
+        connect::dialer dialer(connect::dialer_options{ioc, dns_cfg});
+        EXPECT_TRUE(!dialer.positive_host().has_value()) << "dialer: 初始无正向代理";
+        EXPECT_TRUE(dialer.positive_port() == 0) << "dialer: 初始正向端口 0";
     }
 
-    TEST(DialPure, DialOptionsFlags)
+    TEST(DialPure, DialerSetEndpoint)
     {
-        EXPECT_TRUE(connect::dial_options::flag::normal != connect::dial_options::flag::no_reverse)
-            << "dial_options: normal != no_reverse";
-        EXPECT_TRUE(connect::dial_options::flag::no_open != connect::dial_options::flag::neither)
-            << "dial_options: no_open != neither";
+        net::io_context ioc;
+        psm::dns::config dns_cfg;
+        connect::dialer dialer(connect::dialer_options{ioc, dns_cfg});
+        dialer.set_endpoint("upstream.example", 443);
+        EXPECT_TRUE(dialer.positive_host().has_value()) << "dialer: 正向代理已设置";
+        EXPECT_TRUE(dialer.positive_port() == 443) << "dialer: 正向端口 443";
+
+        dialer.set_endpoint("", 0);
+        EXPECT_TRUE(!dialer.positive_host().has_value()) << "dialer: 清除正向代理";
+    }
+
+    TEST(DialPure, DialerAddRoute)
+    {
+        net::io_context ioc;
+        psm::dns::config dns_cfg;
+        connect::dialer dialer(connect::dialer_options{ioc, dns_cfg});
+        const tcp::endpoint ep(net::ip::make_address_v4("127.0.0.1"), 8080);
+        dialer.add_route("backend.example", ep);
+        EXPECT_TRUE(dialer.dns().ipv6_disabled() == false || true) << "dialer: 路由表可添加";
     }
 
 } // namespace

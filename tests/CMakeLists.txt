@@ -41,7 +41,7 @@ endfunction()
 
 add_subdirectory(crypto)
 add_subdirectory(protocol)
-add_subdirectory(stealth)
+add_subdirectory(handshake)
 add_subdirectory(multiplex)
 add_subdirectory(resolve)
 add_subdirectory(connect)

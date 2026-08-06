@@ -4,7 +4,7 @@
 #include <thread>
 
 #include <boost/asio.hpp>
-#include <prism/trace/trace.hpp>
+#include <prism/diagnose/diagnose.hpp>
 
 #include "conversation.hpp"
 
@@ -34,7 +34,7 @@ namespace srv
 
         void start()
         {
-            psm::trace::debug("[server] 开始监听端口 {}...", acceptor_.local_endpoint().port());
+            psm::diagnose::debug("[server] 开始监听端口 {}...", acceptor_.local_endpoint().port());
 
             boost::asio::co_spawn(io_context_, AcceptLoop(), boost::asio::detached);
 
@@ -57,11 +57,11 @@ namespace srv
 
                 if (ec)
                 {
-                    psm::trace::error("[server] 接受连接失败: {}", ec.message());
+                    psm::diagnose::error("[server] 接受连接失败: {}", ec.message());
                     continue;
                 }
 
-                psm::trace::debug("[server] 新连接: {}:{}", socket.remote_endpoint().address().to_string(),
+                psm::diagnose::debug("[server] 新连接: {}:{}", socket.remote_endpoint().address().to_string(),
                                   socket.remote_endpoint().port());
 
                 const auto session = std::make_shared<conversation>(std::move(socket), response_delay_);

@@ -5,8 +5,8 @@
  */
 
 #include <prism/foundation/foundation.hpp>
-#include <prism/protocol/trojan/framing.hpp>
-#include <prism/trace/spdlog.hpp>
+#include <prism/protocol/trojan/codec/framing.hpp>
+#include <prism/diagnose/log.hpp>
 #include <prism/foundation/foundation.hpp>
 
 #include <array>

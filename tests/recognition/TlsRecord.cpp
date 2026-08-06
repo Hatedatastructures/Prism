@@ -8,7 +8,7 @@
 #include <prism/foundation/foundation.hpp>
 #include <prism/protocol/tls/record.hpp>
 #include <prism/protocol/tls/types.hpp>
-#include <prism/trace/spdlog.hpp>
+#include <prism/diagnose/log.hpp>
 #include <prism/net/transport/transmission.hpp>
 
 #include <array>

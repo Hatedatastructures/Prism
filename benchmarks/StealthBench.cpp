@@ -7,8 +7,8 @@
  */
 
 #include <benchmark/benchmark.h>
-#include <prism/stealth/facade/restls/crypto.hpp>
-#include <prism/stealth/facade/shadowtls/util/auth.hpp>
+#include <prism/handshake/facade/restls/crypto.hpp>
+#include <prism/handshake/facade/shadowtls/util/auth.hpp>
 
 #include <array>
 #include <cstdint>
@@ -27,7 +27,7 @@ namespace
 const auto test_password = std::string("test-password-for-benchmark-2024");
 
 /// 从密码派生的 RestlsSecret
-const auto test_secret = psm::stealth::restls::derive_secret(test_password);
+const auto test_secret = psm::handshake::restls::derive_secret(test_password);
 
 /// TLS ServerHello server_random（32 字节）
 std::array<std::uint8_t, 32> make_server_random()
@@ -169,7 +169,7 @@ void BM_Restls_DeriveSecret(benchmark::State &state)
 {
     for (auto _ : state)
     {
-        auto secret = psm::stealth::restls::derive_secret(test_password);
+        auto secret = psm::handshake::restls::derive_secret(test_password);
         benchmark::DoNotOptimize(secret.data());
     }
 }
@@ -179,7 +179,7 @@ void BM_Restls_ComputeServerMask(benchmark::State &state)
 {
     for (auto _ : state)
     {
-        auto mask = psm::stealth::restls::compute_server_mask(test_secret, test_server_random);
+        auto mask = psm::handshake::restls::compute_server_mask(test_secret, test_server_random);
         benchmark::DoNotOptimize(mask.data());
     }
 }
@@ -189,16 +189,16 @@ void BM_Restls_ComputeAuthMac_C2S(benchmark::State &state)
 {
     for (auto _ : state)
     {
-        psm::stealth::restls::auth_mac_input input{
+        psm::handshake::restls::auth_mac_input input{
             test_secret,
             test_server_random,
-            psm::stealth::restls::flow_direction::to_server,
+            psm::handshake::restls::flow_direction::to_server,
             1,
             test_client_finished,
             test_tls_header,
             test_payload,
         };
-        auto mac = psm::stealth::restls::compute_auth_mac(input);
+        auto mac = psm::handshake::restls::compute_auth_mac(input);
         benchmark::DoNotOptimize(mac.data());
     }
 }
@@ -208,16 +208,16 @@ void BM_Restls_ComputeAuthMac_S2C(benchmark::State &state)
 {
     for (auto _ : state)
     {
-        psm::stealth::restls::auth_mac_input input{
+        psm::handshake::restls::auth_mac_input input{
             test_secret,
             test_server_random,
-            psm::stealth::restls::flow_direction::to_client,
+            psm::handshake::restls::flow_direction::to_client,
             5,
             {}, // S2C 无 client_finished
             test_tls_header,
             test_payload,
         };
-        auto mac = psm::stealth::restls::compute_auth_mac(input);
+        auto mac = psm::handshake::restls::compute_auth_mac(input);
         benchmark::DoNotOptimize(mac.data());
     }
 }
@@ -227,14 +227,14 @@ void BM_Restls_ComputeMask_C2S(benchmark::State &state)
 {
     for (auto _ : state)
     {
-        psm::stealth::restls::mask_input input{
+        psm::handshake::restls::mask_input input{
             test_secret,
             test_server_random,
-            psm::stealth::restls::flow_direction::to_server,
+            psm::handshake::restls::flow_direction::to_server,
             1,
             test_plaintext_sample,
         };
-        auto mask = psm::stealth::restls::compute_mask(input);
+        auto mask = psm::handshake::restls::compute_mask(input);
         benchmark::DoNotOptimize(mask.data());
     }
 }
@@ -244,14 +244,14 @@ void BM_Restls_ComputeMask_S2C(benchmark::State &state)
 {
     for (auto _ : state)
     {
-        psm::stealth::restls::mask_input input{
+        psm::handshake::restls::mask_input input{
             test_secret,
             test_server_random,
-            psm::stealth::restls::flow_direction::to_client,
+            psm::handshake::restls::flow_direction::to_client,
             10,
             test_plaintext_sample,
         };
-        auto mask = psm::stealth::restls::compute_mask(input);
+        auto mask = psm::handshake::restls::compute_mask(input);
         benchmark::DoNotOptimize(mask.data());
     }
 }
@@ -259,12 +259,12 @@ BENCHMARK(BM_Restls_ComputeMask_S2C);
 
 void BM_Restls_XorWithMask_Small(benchmark::State &state)
 {
-    auto mask = psm::stealth::restls::compute_server_mask(test_secret, test_server_random);
+    auto mask = psm::handshake::restls::compute_server_mask(test_secret, test_server_random);
     std::size_t bytes_processed = 0;
     for (auto _ : state)
     {
         auto data = make_small_data();
-        psm::stealth::restls::xor_with_mask(data, mask);
+        psm::handshake::restls::xor_with_mask(data, mask);
         benchmark::DoNotOptimize(data.data());
         bytes_processed += data.size();
     }
@@ -274,12 +274,12 @@ BENCHMARK(BM_Restls_XorWithMask_Small);
 
 void BM_Restls_XorWithMask_Large(benchmark::State &state)
 {
-    auto mask = psm::stealth::restls::compute_server_mask(test_secret, test_server_random);
+    auto mask = psm::handshake::restls::compute_server_mask(test_secret, test_server_random);
     std::size_t bytes_processed = 0;
     for (auto _ : state)
     {
         auto data = make_large_data();
-        psm::stealth::restls::xor_with_mask(data, mask);
+        psm::handshake::restls::xor_with_mask(data, mask);
         benchmark::DoNotOptimize(data.data());
         bytes_processed += data.size();
     }
@@ -300,7 +300,7 @@ void BM_ShadowTLS_ComputeHmac(benchmark::State &state)
     }
     for (auto _ : state)
     {
-        auto hmac = psm::stealth::shadowtls::compute_hmac(
+        auto hmac = psm::handshake::shadowtls::compute_hmac(
             stls_password,
             reinterpret_cast<const std::byte *>(data.data()),
             data.size());
@@ -313,7 +313,7 @@ void BM_ShadowTLS_VerifyClientHello(benchmark::State &state)
 {
     for (auto _ : state)
     {
-        auto result = psm::stealth::shadowtls::verify_client_hello(stls_client_hello, stls_password);
+        auto result = psm::handshake::shadowtls::verify_client_hello(stls_client_hello, stls_password);
         benchmark::DoNotOptimize(result);
     }
 }
@@ -323,7 +323,7 @@ void BM_ShadowTLS_ComputeWriteHmac(benchmark::State &state)
 {
     for (auto _ : state)
     {
-        auto hmac = psm::stealth::shadowtls::compute_write_hmac(stls_password, stls_server_random, stls_payload);
+        auto hmac = psm::handshake::shadowtls::compute_write_hmac(stls_password, stls_server_random, stls_payload);
         benchmark::DoNotOptimize(hmac.data());
     }
 }
@@ -333,7 +333,7 @@ void BM_ShadowTLS_ComputeWriteKey(benchmark::State &state)
 {
     for (auto _ : state)
     {
-        auto key = psm::stealth::shadowtls::compute_write_key(stls_password, stls_server_random);
+        auto key = psm::handshake::shadowtls::compute_write_key(stls_password, stls_server_random);
         benchmark::DoNotOptimize(key.data());
     }
 }

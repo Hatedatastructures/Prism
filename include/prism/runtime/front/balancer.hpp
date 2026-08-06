@@ -11,7 +11,7 @@
 #pragma once
 
 #include <prism/foundation/memory/container.hpp>
-#include <prism/account/stats/snapshot.hpp>
+#include <prism/user/stats/snapshot.hpp>
 
 #include <boost/asio.hpp>
 

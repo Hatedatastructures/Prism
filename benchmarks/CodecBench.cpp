@@ -7,9 +7,9 @@
  */
 
 #include <benchmark/benchmark.h>
-#include <prism/protocol/http/parser.hpp>
-#include <prism/protocol/trojan/framing.hpp>
-#include <prism/protocol/shadowsocks/framing.hpp>
+#include <prism/protocol/http/codec/parser.hpp>
+#include <prism/protocol/trojan/codec/framing.hpp>
+#include <prism/protocol/shadowsocks/codec/framing.hpp>
 #include <prism/net/dns/detail/format.hpp>
 #include <prism/net/dns/detail/rules.hpp>
 #include <prism/crypto/sha224.hpp>

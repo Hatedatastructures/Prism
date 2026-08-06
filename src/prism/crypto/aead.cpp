@@ -1,13 +1,13 @@
 #include <prism/crypto/aead.hpp>
 
-#include <prism/trace/trace.hpp>
+#include <prism/diagnose/diagnose.hpp>
 
 #include <openssl/evp.h>
 
 #include <cstring>
 #include <memory>
 
-using namespace psm::trace;
+using namespace psm::diagnose;
 
 namespace psm::crypto
 {

@@ -6,11 +6,11 @@
  */
 
 #include <benchmark/benchmark.h>
-#include <prism/protocol/http/parser.hpp>
-#include <prism/protocol/socks5/framing.hpp>
-#include <prism/protocol/trojan/framing.hpp>
-#include <prism/protocol/vless/framing.hpp>
-#include <prism/protocol/shadowsocks/framing.hpp>
+#include <prism/protocol/http/codec/parser.hpp>
+#include <prism/protocol/socks5/codec/framing.hpp>
+#include <prism/protocol/trojan/codec/framing.hpp>
+#include <prism/protocol/vless/codec/framing.hpp>
+#include <prism/protocol/shadowsocks/codec/framing.hpp>
 #include <prism/crypto/sha224.hpp>
 #include <prism/crypto/base64.hpp>
 #include <prism/foundation/memory/pool.hpp>

@@ -3,7 +3,7 @@
  * @brief TLS ClientHello 特征位图单元测试
  */
 
-#include <prism/stealth/recognition/tls/features.hpp>
+#include <prism/handshake/recognition/tls/features.hpp>
 #include <prism/protocol/tls/types.hpp>
 #include <gtest/gtest.h>
 

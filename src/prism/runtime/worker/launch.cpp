@@ -1,11 +1,11 @@
 #include <prism/runtime/worker/launch.hpp>
 
-#include <prism/account/directory.hpp>
-#include <prism/config/config.hpp>
+#include <prism/user/directory.hpp>
+#include <prism/settings/settings.hpp>
 #include <prism/foundation/rate/counter.hpp>
 #include <prism/runtime/session/session.hpp>
 #include <prism/resource/session.hpp>
-#include <prism/trace/trace.hpp>
+#include <prism/diagnose/diagnose.hpp>
 #include <prism/net/transport/reliable.hpp>
 
 #include <cstring>
@@ -14,7 +14,7 @@
 #include <unistd.h>
 #endif
 
-using namespace psm::trace;
+using namespace psm::diagnose;
 
 namespace psm::runtime::worker::launch
 {
@@ -42,7 +42,7 @@ namespace psm::runtime::worker::launch
         migrated.assign(protocol, native_handle, ec);
         if (ec || !migrated.is_open())
         {
-            trace::error("socket migration failed: {}", ec.message());
+            diagnose::error("socket migration failed: {}", ec.message());
 #ifdef _WIN32
             ::closesocket(native_handle);
 #else
@@ -59,9 +59,9 @@ namespace psm::runtime::worker::launch
         auto &worker_res = params.worker;
         auto &metrics = params.metrics;
 
-        // L1 入口层：构造 request_metadata + trace_context
+        // L1 入口层：构造 request_metadata + context
         auto meta = std::make_shared<psm::resource::metadata>();
-        auto trace_ctx = std::make_shared<trace::trace_context>();
+        auto trace_ctx = std::make_shared<diagnose::context>();
 
         boost::system::error_code ep_ec;
         auto remote_ep = params.socket.remote_endpoint(ep_ec);
@@ -153,7 +153,7 @@ namespace psm::runtime::worker::launch
             }
             catch (const std::exception &e)
             {
-                trace::error("session launch failed: {}", e.what());
+                diagnose::error("session launch failed: {}", e.what());
             }
         };
         net::post(worker_res->ioc, std::move(start_session));

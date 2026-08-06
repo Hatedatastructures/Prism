@@ -3,15 +3,15 @@
  * @brief SNI 路由表单元测试
  */
 
-#include <prism/stealth/recognition/routes.hpp>
-#include <prism/config/config.hpp>
+#include <prism/handshake/recognition/routes.hpp>
+#include <prism/settings/settings.hpp>
 #include <gtest/gtest.h>
 
 namespace
 {
-    auto BuildTestConfig() -> psm::config
+    auto BuildTestConfig() -> psm::settings
     {
-        psm::config cfg;
+        psm::settings cfg;
 
         // Reality 配置
         cfg.stealth.reality.server_names.push_back("reality.example.com");

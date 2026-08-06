@@ -6,13 +6,13 @@
  */
 
 #include <prism/foundation/foundation.hpp>
-#include <prism/trace/spdlog.hpp>
+#include <prism/diagnose/log.hpp>
 
 #include <boost/asio.hpp>
 
 // 通过预处理器 hack 访问 private static 方法
 #define private public
-#include <prism/protocol/socks5/conn.hpp>
+#include <prism/protocol/socks5/handler/conn.hpp>
 #undef private
 
 #include <prism/protocol/socks5/constants.hpp>

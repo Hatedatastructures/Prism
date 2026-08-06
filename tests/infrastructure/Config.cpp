@@ -20,10 +20,10 @@
 #include <prism/protocol/trojan/config.hpp>
 #include <prism/protocol/vless/config.hpp>
 #include <prism/protocol/shadowsocks/config.hpp>
-#include <prism/stealth/facade/shadowtls/config.hpp>
-#include <prism/stealth/facade/reality/config.hpp>
+#include <prism/handshake/facade/shadowtls/config.hpp>
+#include <prism/handshake/facade/reality/config.hpp>
 #include <prism/foundation/foundation.hpp>
-#include <prism/trace/spdlog.hpp>
+#include <prism/diagnose/log.hpp>
 
 #include <gtest/gtest.h>
 
@@ -36,8 +36,8 @@ namespace
     namespace trojan = psm::protocol::trojan;
     namespace vless = psm::protocol::vless;
     namespace shadowsocks = psm::protocol::shadowsocks;
-    namespace shadowtls = psm::stealth::shadowtls;
-    namespace reality = psm::stealth::reality;
+    namespace shadowtls = psm::handshake::shadowtls;
+    namespace reality = psm::handshake::reality;
 
     TEST(Config, Socks5ConfigDefaults)
     {

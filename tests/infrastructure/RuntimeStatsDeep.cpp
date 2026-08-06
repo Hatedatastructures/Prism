@@ -7,14 +7,14 @@
  */
 
 #include <prism/foundation/foundation.hpp>
-#include <prism/trace/spdlog.hpp>
+#include <prism/diagnose/log.hpp>
 
 #include <gtest/gtest.h>
 
 #include <cstdint>
 
 // 包含源文件以获得 gcov 覆盖
-#include "../../src/prism/account/stats/runtime.cpp"
+#include "../../src/prism/user/stats/runtime.cpp"
 
 namespace
 {

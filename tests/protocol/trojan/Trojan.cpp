@@ -8,12 +8,12 @@
  */
 
 #include <prism/protocol/trojan/trojan.hpp>
-#include <prism/protocol/trojan/framing.hpp>
+#include <prism/protocol/trojan/codec/framing.hpp>
 #include <prism/foundation/exception/network.hpp>
 #include <prism/foundation/fault/code.hpp>
 #include <prism/net/transport/reliable.hpp>
 #include <prism/foundation/foundation.hpp>
-#include <prism/trace/spdlog.hpp>
+#include <prism/diagnose/log.hpp>
 #include <boost/asio.hpp>
 #include <iostream>
 #include <string>

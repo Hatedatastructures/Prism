@@ -10,7 +10,7 @@
 #include <prism/crypto/blake3.hpp>
 #include <prism/foundation/memory/container.hpp>
 #include <prism/protocol/shadowsocks/constants.hpp>
-#include <prism/protocol/shadowsocks/framing.hpp>
+#include <prism/protocol/shadowsocks/codec/framing.hpp>
 #include <prism/protocol/shadowsocks/util/replay.hpp>
 
 #include <boost/asio.hpp>

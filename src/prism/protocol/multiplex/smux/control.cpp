@@ -1,10 +1,10 @@
 #include <prism/protocol/multiplex/smux/control.hpp>
 
-#include <prism/net/connect/dial/connector.hpp>
-#include <prism/net/connect/outbound/proxy.hpp>
+#include <prism/net/connection/dialer/dialer.hpp>
+#include <prism/net/connection/outbound/direct.hpp>
 #include <prism/protocol/multiplex/datagram.hpp>
 #include <prism/protocol/multiplex/stream.hpp>
-#include <prism/trace/trace.hpp>
+#include <prism/diagnose/diagnose.hpp>
 
 #include <boost/asio/co_spawn.hpp>
 
@@ -12,7 +12,7 @@
 #include <charconv>
 #include <span>
 
-using namespace psm::trace;
+using namespace psm::diagnose;
 
 namespace psm::multiplex::smux
 {
@@ -27,11 +27,11 @@ namespace psm::multiplex::smux
             }
             catch (const std::exception &e)
             {
-                trace::debug("stream {} {} error: {}", stream_id, label, e.what());
+                diagnose::debug("stream {} {} error: {}", stream_id, label, e.what());
             }
             catch (...)
             {
-                trace::error("stream {} {} unknown error", stream_id, label);
+                diagnose::error("stream {} {} unknown error", stream_id, label);
             }
         }
 
@@ -118,7 +118,7 @@ namespace psm::multiplex::smux
         co_await transport::async_write(*transport_, bytes, ec);
         if (ec)
         {
-            trace::debug(prefix_, "send frame failed: {}", ec.message());
+            diagnose::debug(prefix_, "send frame failed: {}", ec.message());
             close();
         }
     }
@@ -127,7 +127,7 @@ namespace psm::multiplex::smux
     auto control::frame_loop()
         -> net::awaitable<void>
     {
-        trace::debug(prefix_, "frame loop started");
+        diagnose::debug(prefix_, "frame loop started");
 
         std::error_code ec;
         std::array<std::byte, frame_hdrsize> frame_buffer{};
@@ -140,7 +140,7 @@ namespace psm::multiplex::smux
             {
                 if (ec != std::errc::operation_canceled)
                 {
-                    trace::debug(prefix_, "read header failed: {}", ec.message());
+                    diagnose::debug(prefix_, "read header failed: {}", ec.message());
                 }
                 break;
             }
@@ -148,7 +148,7 @@ namespace psm::multiplex::smux
             const auto meta = codec_.decode_header(frame_buffer);
             if (meta.raw_type == 0 && meta.stream_id == 0 && meta.length == 0)
             {
-                trace::warn(prefix_, "invalid frame header, closing session");
+                diagnose::warn(prefix_, "invalid frame header, closing session");
                 break;
             }
 
@@ -159,7 +159,7 @@ namespace psm::multiplex::smux
                 const auto payload_n = co_await transport::async_read(*transport_, payload, ec);
                 if (ec || payload_n < meta.length)
                 {
-                    trace::debug(prefix_, "read payload failed: {}", ec.message());
+                    diagnose::debug(prefix_, "read payload failed: {}", ec.message());
                     break;
                 }
             }
@@ -185,7 +185,7 @@ namespace psm::multiplex::smux
             }
         }
 
-        trace::debug(prefix_, "frame loop ended");
+        diagnose::debug(prefix_, "frame loop ended");
     }
 
 
@@ -194,7 +194,7 @@ namespace psm::multiplex::smux
     {
         if (pending_.size() + streams_.size() + datagrams_.size() >= config_.smux.max_streams)
         {
-            trace::warn(prefix_, "max streams reached, rejecting stream {}", stream_id);
+            diagnose::warn(prefix_, "max streams reached, rejecting stream {}", stream_id);
             fin(stream_id);
             co_return;
         }
@@ -202,13 +202,13 @@ namespace psm::multiplex::smux
         // 检查 stream_id 是否已存在（冲突拒绝）
         if (pending_.contains(stream_id) || streams_.contains(stream_id) || datagrams_.contains(stream_id))
         {
-            trace::warn(prefix_, "duplicate SYN for stream {}, rejecting", stream_id);
+            diagnose::warn(prefix_, "duplicate SYN for stream {}, rejecting", stream_id);
             fin(stream_id);
             co_return;
         }
 
         pending_.emplace(stream_id, pending_entry(mr_));
-        trace::debug(prefix_, "stream {} pending, waiting for address", stream_id);
+        diagnose::debug(prefix_, "stream {} pending, waiting for address", stream_id);
     }
 
 
@@ -219,7 +219,7 @@ namespace psm::multiplex::smux
         if (const auto pit = pending_.find(stream_id); pit != pending_.end())
         {
             auto &entry = pit->second;
-            trace::debug(prefix_, "[up] push to pending stream={} {} bytes, buffer={}", stream_id, payload.size(), entry.buffer.size() + payload.size());
+            diagnose::debug(prefix_, "[up] push to pending stream={} {} bytes, buffer={}", stream_id, payload.size(), entry.buffer.size() + payload.size());
             entry.buffer.insert(entry.buffer.end(), payload.begin(), payload.end());
 
             if (!entry.connecting && entry.buffer.size() >= 7)
@@ -242,7 +242,7 @@ namespace psm::multiplex::smux
         const auto sit = streams_.find(stream_id);
         if (sit != streams_.end() && sit->second)
         {
-            trace::debug(prefix_, "[up] push to stream={} {} bytes", stream_id, payload.size());
+            diagnose::debug(prefix_, "[up] push to stream={} {} bytes", stream_id, payload.size());
             auto sp = sit->second;
 
             auto async_push = [self, sp, p = std::move(payload)]() mutable -> net::awaitable<void>
@@ -281,7 +281,7 @@ namespace psm::multiplex::smux
         }
 
         // 流不存在或已关闭：帧被丢弃（记录以便诊断上传数据丢失）
-        trace::debug(prefix_, "[up] DROP frame for closed stream={} {} bytes", stream_id, payload.size());
+        diagnose::debug(prefix_, "[up] DROP frame for closed stream={} {} bytes", stream_id, payload.size());
     }
 
 
@@ -289,7 +289,7 @@ namespace psm::multiplex::smux
     {
         if (pending_.erase(stream_id))
         {
-            trace::debug(prefix_, "stream {} fin while pending", stream_id);
+            diagnose::debug(prefix_, "stream {} fin while pending", stream_id);
             return;
         }
 
@@ -312,7 +312,7 @@ namespace psm::multiplex::smux
     auto control::send_addr_err(const std::uint32_t stream_id)
         -> net::awaitable<void>
     {
-        trace::warn(prefix_, "stream {} address parse failed", stream_id);
+        diagnose::warn(prefix_, "stream {} address parse failed", stream_id);
         memory::vector<std::byte> error_buf(mr_);
         error_buf.push_back(std::byte{0x01});
         co_await send(stream_id, std::move(error_buf));
@@ -324,7 +324,7 @@ namespace psm::multiplex::smux
     auto control::activate_udp(activate_opts opts)
         -> net::awaitable<void>
     {
-        trace::debug(prefix_, "stream {} creating UDP datagram", opts.stream_id);
+        diagnose::debug(prefix_, "stream {} creating UDP datagram", opts.stream_id);
 
         memory::vector<std::byte> success_buf(mr_);
         success_buf.push_back(std::byte{0x00});
@@ -377,14 +377,14 @@ namespace psm::multiplex::smux
             dp->close();
         }
 
-        trace::debug(prefix_, "stream {} UDP datagram created", opts.stream_id);
+        diagnose::debug(prefix_, "stream {} UDP datagram created", opts.stream_id);
     }
 
 
     auto control::activate_tcp(activate_opts opts)
         -> net::awaitable<void>
     {
-        trace::debug(prefix_, "stream {} connecting to {}:{}", opts.stream_id, opts.host, opts.port);
+        diagnose::debug(prefix_, "stream {} connecting to {}:{}", opts.stream_id, opts.host, opts.port);
 
         char port_buf[8];
         const auto [port_end, port_ec] = std::to_chars(port_buf, port_buf + sizeof(port_buf), opts.port);
@@ -399,7 +399,7 @@ namespace psm::multiplex::smux
 
         if (code != fault::code::success || !trans)
         {
-            trace::warn(prefix_, "stream {} connect to {}:{} failed", opts.stream_id, opts.host, opts.port);
+            diagnose::warn(prefix_, "stream {} connect to {}:{} failed", opts.stream_id, opts.host, opts.port);
             memory::vector<std::byte> error_buf(mr_);
             error_buf.push_back(std::byte{0x01});
             co_await send(opts.stream_id, std::move(error_buf));
@@ -424,7 +424,7 @@ namespace psm::multiplex::smux
             }
             pending_.erase(pit);
         }
-        trace::debug(prefix_, "[up] activate_tcp stream={} uplink {} bytes", opts.stream_id, opts.remaining.size());
+        diagnose::debug(prefix_, "[up] activate_tcp stream={} uplink {} bytes", opts.stream_id, opts.remaining.size());
 
         auto sp = make_stream(stream_options{
             .stream_id = opts.stream_id,
@@ -443,7 +443,7 @@ namespace psm::multiplex::smux
             co_await sp->on_data(std::move(opts.remaining));
         }
 
-        trace::debug(prefix_, "stream {} connected to {}:{}", opts.stream_id, opts.host, opts.port);
+        diagnose::debug(prefix_, "stream {} connected to {}:{}", opts.stream_id, opts.host, opts.port);
     }
 
 
@@ -588,11 +588,11 @@ namespace psm::multiplex::smux
         }
         catch (const std::exception &e)
         {
-            trace::debug(prefix_, "stream {} process udp error: {}", stream_id, e.what());
+            diagnose::debug(prefix_, "stream {} process udp error: {}", stream_id, e.what());
         }
         catch (...)
         {
-            trace::error(prefix_, "stream {} process udp unknown error", stream_id);
+            diagnose::error(prefix_, "stream {} process udp unknown error", stream_id);
         }
         entry.processing = false;
     }
@@ -601,7 +601,7 @@ namespace psm::multiplex::smux
     auto control::keepalive_loop()
         -> net::awaitable<void>
     {
-        trace::debug(prefix_, "keepalive loop started, interval={}ms", config_.smux.keepalive_interval);
+        diagnose::debug(prefix_, "keepalive loop started, interval={}ms", config_.smux.keepalive_interval);
         net::steady_timer timer(transport_->executor());
         try
         {
@@ -624,12 +624,12 @@ namespace psm::multiplex::smux
         }
         catch (const std::exception &e)
         {
-            trace::debug(prefix_, "keepalive loop error: {}", e.what());
+            diagnose::debug(prefix_, "keepalive loop error: {}", e.what());
         }
         catch (...)
         {
         }
-        trace::debug(prefix_, "keepalive loop ended");
+        diagnose::debug(prefix_, "keepalive loop ended");
     }
 
 

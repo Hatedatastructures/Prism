@@ -2,18 +2,18 @@ target_sources(${PROJECT_NAME}_static_library
         PRIVATE
 
         handler.cpp
-        socks5/conn.cpp
-        socks5/handler.cpp
-        trojan/conn.cpp
-        trojan/framing.cpp
-        trojan/handler.cpp
-        vless/conn.cpp
-        vless/framing.cpp
-        vless/handler.cpp
-        shadowsocks/conn.cpp
-        shadowsocks/framing.cpp
+        socks5/handler/conn.cpp
+        socks5/handler/handler.cpp
+        trojan/handler/conn.cpp
+        trojan/codec/framing.cpp
+        trojan/handler/handler.cpp
+        vless/handler/conn.cpp
+        vless/codec/framing.cpp
+        vless/handler/handler.cpp
+        shadowsocks/handler/conn.cpp
+        shadowsocks/codec/framing.cpp
         shadowsocks/util/datagram.cpp
-        shadowsocks/handler.cpp
+        shadowsocks/handler/handler.cpp
         tls/record.cpp
         tls/hello.cpp
 )
@@ -39,30 +39,30 @@ target_sources(${PROJECT_NAME}_static_library
             ${PROJECT_SOURCE_DIR}/include/prism/protocol/common/udprelay.hpp
             ${PROJECT_SOURCE_DIR}/include/prism/protocol/socks5/config.hpp
             ${PROJECT_SOURCE_DIR}/include/prism/protocol/socks5/constants.hpp
-            ${PROJECT_SOURCE_DIR}/include/prism/protocol/socks5/packet.hpp
-            ${PROJECT_SOURCE_DIR}/include/prism/protocol/socks5/conn.hpp
-            ${PROJECT_SOURCE_DIR}/include/prism/protocol/socks5/framing.hpp
-            ${PROJECT_SOURCE_DIR}/include/prism/protocol/socks5/handler.hpp
+            ${PROJECT_SOURCE_DIR}/include/prism/protocol/socks5/codec/packet.hpp
+            ${PROJECT_SOURCE_DIR}/include/prism/protocol/socks5/handler/conn.hpp
+            ${PROJECT_SOURCE_DIR}/include/prism/protocol/socks5/codec/framing.hpp
+            ${PROJECT_SOURCE_DIR}/include/prism/protocol/socks5/handler/handler.hpp
             ${PROJECT_SOURCE_DIR}/include/prism/protocol/trojan/config.hpp
             ${PROJECT_SOURCE_DIR}/include/prism/protocol/trojan/constants.hpp
-            ${PROJECT_SOURCE_DIR}/include/prism/protocol/trojan/packet.hpp
-            ${PROJECT_SOURCE_DIR}/include/prism/protocol/trojan/conn.hpp
-            ${PROJECT_SOURCE_DIR}/include/prism/protocol/trojan/framing.hpp
-            ${PROJECT_SOURCE_DIR}/include/prism/protocol/trojan/handler.hpp
+            ${PROJECT_SOURCE_DIR}/include/prism/protocol/trojan/codec/packet.hpp
+            ${PROJECT_SOURCE_DIR}/include/prism/protocol/trojan/handler/conn.hpp
+            ${PROJECT_SOURCE_DIR}/include/prism/protocol/trojan/codec/framing.hpp
+            ${PROJECT_SOURCE_DIR}/include/prism/protocol/trojan/handler/handler.hpp
             ${PROJECT_SOURCE_DIR}/include/prism/protocol/vless/vless.hpp
             ${PROJECT_SOURCE_DIR}/include/prism/protocol/vless/config.hpp
             ${PROJECT_SOURCE_DIR}/include/prism/protocol/vless/constants.hpp
-            ${PROJECT_SOURCE_DIR}/include/prism/protocol/vless/packet.hpp
-            ${PROJECT_SOURCE_DIR}/include/prism/protocol/vless/conn.hpp
-            ${PROJECT_SOURCE_DIR}/include/prism/protocol/vless/framing.hpp
-            ${PROJECT_SOURCE_DIR}/include/prism/protocol/vless/handler.hpp
+            ${PROJECT_SOURCE_DIR}/include/prism/protocol/vless/codec/packet.hpp
+            ${PROJECT_SOURCE_DIR}/include/prism/protocol/vless/handler/conn.hpp
+            ${PROJECT_SOURCE_DIR}/include/prism/protocol/vless/codec/framing.hpp
+            ${PROJECT_SOURCE_DIR}/include/prism/protocol/vless/handler/handler.hpp
             ${PROJECT_SOURCE_DIR}/include/prism/protocol/shadowsocks/shadowsocks.hpp
             ${PROJECT_SOURCE_DIR}/include/prism/protocol/shadowsocks/config.hpp
             ${PROJECT_SOURCE_DIR}/include/prism/protocol/shadowsocks/constants.hpp
-            ${PROJECT_SOURCE_DIR}/include/prism/protocol/shadowsocks/packet.hpp
-            ${PROJECT_SOURCE_DIR}/include/prism/protocol/shadowsocks/conn.hpp
-            ${PROJECT_SOURCE_DIR}/include/prism/protocol/shadowsocks/framing.hpp
-            ${PROJECT_SOURCE_DIR}/include/prism/protocol/shadowsocks/handler.hpp
+            ${PROJECT_SOURCE_DIR}/include/prism/protocol/shadowsocks/codec/packet.hpp
+            ${PROJECT_SOURCE_DIR}/include/prism/protocol/shadowsocks/handler/conn.hpp
+            ${PROJECT_SOURCE_DIR}/include/prism/protocol/shadowsocks/codec/framing.hpp
+            ${PROJECT_SOURCE_DIR}/include/prism/protocol/shadowsocks/handler/handler.hpp
             ${PROJECT_SOURCE_DIR}/include/prism/protocol/shadowsocks/util/salts.hpp
             ${PROJECT_SOURCE_DIR}/include/prism/protocol/shadowsocks/util/replay.hpp
             ${PROJECT_SOURCE_DIR}/include/prism/protocol/shadowsocks/util/tracker.hpp

@@ -6,7 +6,7 @@
  */
 
 #include <prism/protocol/shadowsocks/shadowsocks.hpp>
-#include <prism/protocol/shadowsocks/framing.hpp>
+#include <prism/protocol/shadowsocks/codec/framing.hpp>
 #include <prism/protocol/shadowsocks/util/salts.hpp>
 #include <prism/protocol/shadowsocks/constants.hpp>
 #include <prism/protocol/shadowsocks/config.hpp>
@@ -14,7 +14,7 @@
 #include <prism/crypto/blake3.hpp>
 #include <prism/crypto/base64.hpp>
 #include <prism/foundation/foundation.hpp>
-#include <prism/trace/spdlog.hpp>
+#include <prism/diagnose/log.hpp>
 #include <prism/foundation/foundation.hpp>
 #include <array>
 #include <cstdint>

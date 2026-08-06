@@ -10,14 +10,13 @@
  */
 
 #include <prism/foundation/foundation.hpp>
-#include <prism/net/connect/outbound/direct.hpp>
-#include <prism/trace/spdlog.hpp>
+#include <prism/net/connection/outbound/direct.hpp>
+#include <prism/diagnose/log.hpp>
 #include <prism/protocol/multiplex/bootstrap.hpp>
 #include <prism/protocol/multiplex/smux/control.hpp>
 #include <prism/protocol/multiplex/yamux/control.hpp>
 #include <prism/protocol/multiplex/h2mux/control.hpp>
-#include <prism/net/connect/dial/router.hpp>
-#include <prism/net/connect/pool/pool.hpp>
+#include <prism/net/connection/dialer/dialer.hpp>
 #include <prism/net/dns/resolver.hpp>
 #include <prism/net/transport/transmission.hpp>
 
@@ -123,8 +122,7 @@ namespace
     TEST(MuxBootstrap, Version0Protocol0Smux)
     {
         net::io_context ioc;
-        psm::connect::connection_pool pool(ioc);
-        psm::connect::router rtr({pool, ioc, psm::dns::config{}});
+        psm::connect::dialer rtr({pool, ioc, psm::dns::config{}});
         psm::outbound::direct ob(rtr);
         psm::multiplex::config mux_cfg;
 
@@ -173,8 +171,7 @@ namespace
     TEST(MuxBootstrap, Version0Protocol1Yamux)
     {
         net::io_context ioc;
-        psm::connect::connection_pool pool(ioc);
-        psm::connect::router rtr({pool, ioc, psm::dns::config{}});
+        psm::connect::dialer rtr({pool, ioc, psm::dns::config{}});
         psm::outbound::direct ob(rtr);
         psm::multiplex::config mux_cfg;
 
@@ -223,8 +220,7 @@ namespace
     TEST(MuxBootstrap, Version0Protocol2H2mux)
     {
         net::io_context ioc;
-        psm::connect::connection_pool pool(ioc);
-        psm::connect::router rtr({pool, ioc, psm::dns::config{}});
+        psm::connect::dialer rtr({pool, ioc, psm::dns::config{}});
         psm::outbound::direct ob(rtr);
         psm::multiplex::config mux_cfg;
 
@@ -274,8 +270,7 @@ namespace
     TEST(MuxBootstrap, InvalidVersionRejected)
     {
         net::io_context ioc;
-        psm::connect::connection_pool pool(ioc);
-        psm::connect::router rtr({pool, ioc, psm::dns::config{}});
+        psm::connect::dialer rtr({pool, ioc, psm::dns::config{}});
         psm::outbound::direct ob(rtr);
         psm::multiplex::config mux_cfg;
 
@@ -323,8 +318,7 @@ namespace
     TEST(MuxBootstrap, InvalidProtocolRejected)
     {
         net::io_context ioc;
-        psm::connect::connection_pool pool(ioc);
-        psm::connect::router rtr({pool, ioc, psm::dns::config{}});
+        psm::connect::dialer rtr({pool, ioc, psm::dns::config{}});
         psm::outbound::direct ob(rtr);
         psm::multiplex::config mux_cfg;
 

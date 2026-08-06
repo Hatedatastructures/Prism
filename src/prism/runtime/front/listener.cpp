@@ -1,10 +1,10 @@
 #include <prism/runtime/front/listener.hpp>
 #include <boost/asio/co_spawn.hpp>
-#include <prism/trace/trace.hpp>
+#include <prism/diagnose/diagnose.hpp>
 
 #include <array>
 
-using namespace psm::trace;
+using namespace psm::diagnose;
 
 namespace psm::runtime::front
 {
@@ -12,7 +12,7 @@ namespace psm::runtime::front
     // 构造 Listener：解析监听地址，打开 acceptor 并绑定端口。
     // ioc_(1) 表示独立线程的事件循环，不和其他 Worker 共享。
     // backpressure_delay_ 默认 2ms，全局背压时用这个延迟暂停接受。
-    listener::listener(const psm::config &cfg, balancer &dispatcher)
+    listener::listener(const psm::settings &cfg, balancer &dispatcher)
         : ioc_(1),acceptor_(ioc_),dispatcher_(dispatcher),
           buffer_size_(cfg.buffer.size),backpressure_delay_(2)
     {
@@ -119,7 +119,7 @@ namespace psm::runtime::front
                     co_return;
                 }
 
-                trace::warn("accept error: {}", ec.message());
+                diagnose::warn("accept error: {}", ec.message());
 
                 // 致命错误（文件描述符耗尽 / 内存不足）：指数退避，避免 CPU 空转
                 if (ec == boost::system::errc::too_many_files_open ||

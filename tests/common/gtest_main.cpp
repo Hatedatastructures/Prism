@@ -4,13 +4,13 @@
  */
 
 #include <prism/foundation/foundation.hpp>
-#include <prism/trace/spdlog.hpp>
+#include <prism/diagnose/log.hpp>
 #include <gtest/gtest.h>
 
 int main(int argc, char **argv)
 {
     psm::memory::system::enable_pooling();
-    psm::trace::init({});
+    psm::diagnose::init({});
     ::testing::InitGoogleTest(&argc, argv);
     return RUN_ALL_TESTS();
 }

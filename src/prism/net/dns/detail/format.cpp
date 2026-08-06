@@ -1,7 +1,7 @@
 #include <prism/net/dns/detail/format.hpp>
 
 #include <prism/foundation/memory/container.hpp>
-#include <prism/trace/trace.hpp>
+#include <prism/diagnose/diagnose.hpp>
 
 #include <algorithm>
 #include <array>
@@ -12,7 +12,7 @@
 #include <unordered_map>
 #include <utility>
 
-using namespace psm::trace;
+using namespace psm::diagnose;
 
 namespace psm::dns::detail
 {

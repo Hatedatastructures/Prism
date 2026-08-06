@@ -8,13 +8,13 @@
  */
 
 #include <prism/foundation/foundation.hpp>
-#include <prism/trace/spdlog.hpp>
+#include <prism/diagnose/log.hpp>
 
 
 #include <gtest/gtest.h>
 
 // #include 源文件增加覆盖率计数
-#include "../../src/prism/protocol/http/parser.cpp"
+#include "../../src/prism/protocol/http/codec/parser.cpp"
 
 namespace
 {

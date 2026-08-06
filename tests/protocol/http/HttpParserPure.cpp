@@ -5,8 +5,8 @@
  */
 
 #include <prism/foundation/foundation.hpp>
-#include <prism/protocol/http/parser.hpp>
-#include <prism/trace/spdlog.hpp>
+#include <prism/protocol/http/codec/parser.hpp>
+#include <prism/diagnose/log.hpp>
 
 
 #include <gtest/gtest.h>

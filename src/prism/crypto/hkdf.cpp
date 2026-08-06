@@ -1,6 +1,6 @@
 #include <prism/crypto/hkdf.hpp>
-#include <prism/trace/trace.hpp>
-#include <prism/trace/context.hpp>
+#include <prism/diagnose/diagnose.hpp>
+#include <prism/diagnose/context.hpp>
 
 #include <openssl/evp.h>
 #include <openssl/hmac.h>
@@ -8,7 +8,7 @@
 
 #include <cstring>
 
-using namespace psm::trace;
+using namespace psm::diagnose;
 
 namespace psm::crypto
 {

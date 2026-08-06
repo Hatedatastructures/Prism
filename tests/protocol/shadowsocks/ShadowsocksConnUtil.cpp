@@ -7,7 +7,7 @@
  */
 
 #include <prism/foundation/foundation.hpp>
-#include <prism/trace/spdlog.hpp>
+#include <prism/diagnose/log.hpp>
 
 // 在 #define private public 之前预包含所有传递依赖，防止类布局破坏
 #include <prism/crypto/aead.hpp>
@@ -15,11 +15,11 @@
 #include <prism/crypto/base64.hpp>
 #include <prism/foundation/foundation.hpp>
 #include <prism/protocol/common/address.hpp>
-#include <prism/net/connect/target.hpp>
+#include <prism/net/connection/target.hpp>
 #include <prism/protocol/shadowsocks/config.hpp>
 #include <prism/protocol/shadowsocks/constants.hpp>
-#include <prism/protocol/shadowsocks/framing.hpp>
-#include <prism/protocol/shadowsocks/packet.hpp>
+#include <prism/protocol/shadowsocks/codec/framing.hpp>
+#include <prism/protocol/shadowsocks/codec/packet.hpp>
 #include <prism/protocol/shadowsocks/util/salts.hpp>
 #include <prism/protocol/shadowsocks/util/cast.hpp>
 #include <prism/net/transport/transmission.hpp>
@@ -32,11 +32,11 @@
 
 // 所有传递依赖已包含，现在仅打开 conn.hpp 的 private
 #define private public
-#include <prism/protocol/shadowsocks/conn.hpp>
+#include <prism/protocol/shadowsocks/handler/conn.hpp>
 #undef private
 
 // 包含源文件以获得 gcov 覆盖
-#include "../../src/prism/protocol/shadowsocks/conn.cpp"
+#include "../../src/prism/protocol/shadowsocks/handler/conn.cpp"
 
 using psm::testing::MockTransport;
 

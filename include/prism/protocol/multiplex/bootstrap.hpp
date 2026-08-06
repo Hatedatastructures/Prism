@@ -9,8 +9,8 @@
 #include <prism/protocol/multiplex/config.hpp>
 #include <prism/protocol/multiplex/multiplexer.hpp>
 #include <prism/resource/session.hpp>
-#include <prism/trace/context.hpp>
-#include <prism/net/connect/types.hpp>
+#include <prism/diagnose/context.hpp>
+#include <prism/net/connection/types.hpp>
 #include <prism/net/transport/transmission.hpp>
 
 #include <boost/asio.hpp>

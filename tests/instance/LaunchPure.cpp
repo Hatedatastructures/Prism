@@ -6,7 +6,7 @@
  */
 
 #include <prism/foundation/foundation.hpp>
-#include <prism/trace/spdlog.hpp>
+#include <prism/diagnose/log.hpp>
 #include <prism/runtime/worker/launch.hpp>
 #include <gtest/gtest.h>
 

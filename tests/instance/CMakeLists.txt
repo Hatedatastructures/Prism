@@ -1,6 +1,5 @@
 # Session.cpp 暂时禁用：待 session_resources 测试适配
 # prism_add_test(Session.cpp)
-prism_add_test(Connection.cpp)
 prism_add_test(Transmission.cpp)
 # GracefulShutdown.cpp 暂时禁用：待 session_resources 测试适配
 # prism_add_test(GracefulShutdown.cpp)

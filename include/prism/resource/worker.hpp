@@ -8,15 +8,13 @@
 #pragma once
 
 #include <prism/resource/process.hpp>
-#include <prism/account/stats/traffic.hpp>
+#include <prism/user/stats/traffic.hpp>
 #include <prism/foundation/coroutine/registry.hpp>
 #include <prism/foundation/memory/pool.hpp>
 #include <prism/foundation/rate/counter.hpp>
-#include <prism/net/connect/dial/router.hpp>
-#include <prism/net/connect/outbound/direct.hpp>
-#include <prism/net/connect/outbound/proxy.hpp>
-#include <prism/net/connect/pool/pool.hpp>
-#include <prism/net/connect/route/table.hpp>
+#include <prism/net/connection/dialer/dialer.hpp>
+#include <prism/net/connection/outbound/direct.hpp>
+#include <prism/net/connection/route/table.hpp>
 #include <prism/net/dns/resolver.hpp>
 
 #include <boost/asio.hpp>
@@ -66,8 +64,7 @@ struct worker
 
     psm::memory::resource_pointer               memory;
     boost::asio::io_context                     ioc;
-    psm::connect::connection_pool               pool;
-    std::unique_ptr<psm::connect::router>       router;
+    std::unique_ptr<psm::connect::dialer>      dialer_;
     psm::connect::route_table                   routes;
     std::unique_ptr<psm::outbound::direct>      outbound;
     psm::stats::traffic::traffic_state          traffic;

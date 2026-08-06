@@ -1,12 +1,12 @@
 #include <prism/net/transport/preview.hpp>
 #include <prism/foundation/memory/container.hpp>
-#include <prism/trace/trace.hpp>
+#include <prism/diagnose/diagnose.hpp>
 
 #include <boost/asio/any_completion_handler.hpp>
 
 #include <cstring>
 
-using namespace psm::trace;
+using namespace psm::diagnose;
 
 namespace psm::transport
 {
@@ -21,7 +21,7 @@ namespace psm::transport
     {
         if (!inner_)
         {
-            trace::error("preview::executor() called with null inner transport");
+            diagnose::error("preview::executor() called with null inner transport");
             return executor_type{};
         }
         return inner_->executor();

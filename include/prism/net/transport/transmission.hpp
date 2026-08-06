@@ -13,7 +13,7 @@
 #pragma once
 
 #include <prism/foundation/fault/compatible.hpp>
-#include <prism/trace/context.hpp>
+#include <prism/diagnose/context.hpp>
 
 #include <boost/asio.hpp>
 #include <boost/asio/any_completion_handler.hpp>
@@ -76,15 +76,15 @@ namespace psm::transport
         /**
          * @brief 设置 trace 前缀
          * @details 显式传入 prefix，替代旧 thread_local 机制。
-         * 子类用 *prefix_ 做 trace::debug(*prefix_, "msg")。
+         * 子类用 *prefix_ 做 diagnose::debug(*prefix_, "msg")。
          */
-        auto set_prefix(std::shared_ptr<trace::trace_context> p) noexcept -> void
+        auto set_prefix(std::shared_ptr<diagnose::context> p) noexcept -> void
         {
             prefix_ = std::move(p);
         }
 
         [[nodiscard]] auto prefix() const noexcept
-            -> std::shared_ptr<trace::trace_context>
+            -> std::shared_ptr<diagnose::context>
         {
             return prefix_;
         }
@@ -253,7 +253,7 @@ namespace psm::transport
         }
 
     protected:
-        std::shared_ptr<trace::trace_context> prefix_; ///< trace 前缀（显式传参，替代 thread_local）
+        std::shared_ptr<diagnose::context> prefix_; ///< trace 前缀（显式传参，替代 thread_local）
     };
 
     /**

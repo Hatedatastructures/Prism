@@ -1,11 +1,11 @@
 #include <prism/protocol/multiplex/yamux/control.hpp>
 
-#include <prism/net/connect/dial/connector.hpp>
-#include <prism/net/connect/outbound/proxy.hpp>
+#include <prism/net/connection/dialer/dialer.hpp>
+#include <prism/net/connection/outbound/direct.hpp>
 #include <prism/protocol/multiplex/datagram.hpp>
 #include <prism/protocol/multiplex/smux/frame.hpp>
 #include <prism/protocol/multiplex/stream.hpp>
-#include <prism/trace/trace.hpp>
+#include <prism/diagnose/diagnose.hpp>
 
 #include <boost/asio/co_spawn.hpp>
 
@@ -14,7 +14,7 @@
 #include <limits>
 #include <span>
 
-using namespace psm::trace;
+using namespace psm::diagnose;
 
 namespace
 {
@@ -28,7 +28,7 @@ namespace psm::multiplex::yamux
     namespace
     {
         void log_spawn_error(const std::exception_ptr &ep, const std::uint32_t stream_id,
-                             std::string_view label, const std::shared_ptr<trace::trace_context> &prefix)
+                             std::string_view label, const std::shared_ptr<diagnose::context> &prefix)
         {
             try
             {
@@ -36,11 +36,11 @@ namespace psm::multiplex::yamux
             }
             catch (const std::exception &e)
             {
-                trace::debug(prefix, "stream {} {} error: {}", stream_id, label, e.what());
+                diagnose::debug(prefix, "stream {} {} error: {}", stream_id, label, e.what());
             }
             catch (...)
             {
-                trace::error(prefix, "stream {} {} unknown error", stream_id, label);
+                diagnose::error(prefix, "stream {} {} unknown error", stream_id, label);
             }
         }
     } // namespace
@@ -54,7 +54,7 @@ namespace psm::multiplex::yamux
           pending_timers_(mr_),
           udp_bufs_(mr_)
     {
-        trace::debug(prefix_, "constructed");
+        diagnose::debug(prefix_, "constructed");
     }
 
 
@@ -125,7 +125,7 @@ namespace psm::multiplex::yamux
                 window = get_window(stream_id);
                 if (!window)
                 {
-                    trace::debug(prefix_, "stream {} window removed while waiting", stream_id);
+                    diagnose::debug(prefix_, "stream {} window removed while waiting", stream_id);
                     co_return;
                 }
             }
@@ -197,7 +197,7 @@ namespace psm::multiplex::yamux
         co_await transport::async_write(*transport_, bytes, ec);
         if (ec)
         {
-            trace::debug(prefix_, "send frame failed: {}", ec.message());
+            diagnose::debug(prefix_, "send frame failed: {}", ec.message());
             close();
         }
     }
@@ -206,7 +206,7 @@ namespace psm::multiplex::yamux
     auto control::frame_loop()
         -> net::awaitable<void>
     {
-        trace::debug(prefix_, "frame loop started");
+        diagnose::debug(prefix_, "frame loop started");
 
         std::error_code ec;
         std::array<std::byte, frame_hdrsize> recv_buffer{};
@@ -219,7 +219,7 @@ namespace psm::multiplex::yamux
             {
                 if (ec != std::errc::operation_canceled)
                 {
-                    trace::debug(prefix_, "read header failed: {}", ec.message());
+                    diagnose::debug(prefix_, "read header failed: {}", ec.message());
                 }
                 break;
             }
@@ -227,7 +227,7 @@ namespace psm::multiplex::yamux
             const auto meta = codec_.decode_header(recv_buffer);
             if (meta.raw_type == 0 && meta.stream_id == 0 && meta.length == 0 && meta.flags == 0)
             {
-                trace::warn(prefix_, "invalid frame header, closing session");
+                diagnose::warn(prefix_, "invalid frame header, closing session");
                 break;
             }
 
@@ -237,7 +237,7 @@ namespace psm::multiplex::yamux
             {
                 if (meta.length > max_frame_payload)
                 {
-                    trace::warn(prefix_, "oversized Data frame: stream={}, length={}",
+                    diagnose::warn(prefix_, "oversized Data frame: stream={}, length={}",
                                 meta.stream_id, meta.length);
                     co_await push_control(message_type::go_away, flags::none, 0,
                                           static_cast<std::uint32_t>(away_code::protocol_error));
@@ -247,7 +247,7 @@ namespace psm::multiplex::yamux
                 const auto payload_n = co_await transport::async_read(*transport_, payload, ec);
                 if (ec || payload_n < meta.length)
                 {
-                    trace::debug(prefix_, "read payload failed: {}", ec.message());
+                    diagnose::debug(prefix_, "read payload failed: {}", ec.message());
                     break;
                 }
             }
@@ -278,7 +278,7 @@ namespace psm::multiplex::yamux
             }
         }
 
-        trace::debug(prefix_, "frame loop ended");
+        diagnose::debug(prefix_, "frame loop ended");
     }
 
 
@@ -314,7 +314,7 @@ namespace psm::multiplex::yamux
     {
         if (pending_.size() + streams_.size() + datagrams_.size() >= config_.yamux.max_streams)
         {
-            trace::warn(prefix_, "max streams reached, rejecting stream {}", stream_id);
+            diagnose::warn(prefix_, "max streams reached, rejecting stream {}", stream_id);
             co_await push_control(message_type::window_update, flags::rst, stream_id, 0);
             co_return;
         }
@@ -322,7 +322,7 @@ namespace psm::multiplex::yamux
         auto [it, inserted] = pending_.emplace(stream_id, pending_entry(mr_));
         if (!inserted)
         {
-            trace::warn(prefix_, "duplicate SYN for stream {}", stream_id);
+            diagnose::warn(prefix_, "duplicate SYN for stream {}", stream_id);
             co_return;
         }
 
@@ -362,7 +362,7 @@ namespace psm::multiplex::yamux
         }
         windows_.erase(stream_id);
         udp_bufs_.erase(stream_id);
-        trace::debug(prefix_, "stream {} reset", stream_id);
+        diagnose::debug(prefix_, "stream {} reset", stream_id);
     }
 
 
@@ -370,7 +370,7 @@ namespace psm::multiplex::yamux
     {
         if (pending_.erase(stream_id))
         {
-            trace::debug(prefix_, "stream {} fin while pending", stream_id);
+            diagnose::debug(prefix_, "stream {} fin while pending", stream_id);
             if (const auto wit = windows_.find(stream_id); wit != windows_.end())
             {
                 wit->second->window_signal->cancel();
@@ -392,7 +392,7 @@ namespace psm::multiplex::yamux
             it->second->close();
         }
 
-        trace::debug(prefix_, "stream {} fin", stream_id);
+        diagnose::debug(prefix_, "stream {} fin", stream_id);
     }
 
 
@@ -465,7 +465,7 @@ namespace psm::multiplex::yamux
             co_return;
         }
 
-        trace::debug(prefix_, "data for unknown stream {}", stream_id);
+        diagnose::debug(prefix_, "data for unknown stream {}", stream_id);
         co_await push_control(message_type::window_update, flags::rst, stream_id, 0);
     }
 
@@ -526,7 +526,7 @@ namespace psm::multiplex::yamux
             }
             windows_.erase(stream_id);
             udp_bufs_.erase(stream_id);
-            trace::debug(prefix_, "stream {} reset via window update", stream_id);
+            diagnose::debug(prefix_, "stream {} reset via window update", stream_id);
             co_return;
         }
 
@@ -549,7 +549,7 @@ namespace psm::multiplex::yamux
         {
             if (pending_.size() + streams_.size() + datagrams_.size() >= config_.yamux.max_streams)
             {
-                trace::warn(prefix_, "max streams reached, rejecting stream {}", stream_id);
+                diagnose::warn(prefix_, "max streams reached, rejecting stream {}", stream_id);
                 co_await push_control(message_type::window_update, flags::rst, stream_id, 0);
                 co_return;
             }
@@ -557,7 +557,7 @@ namespace psm::multiplex::yamux
             auto [it, inserted] = pending_.emplace(stream_id, pending_entry(mr_));
             if (!inserted)
             {
-                trace::warn(prefix_, "duplicate SYN for stream {}", stream_id);
+                diagnose::warn(prefix_, "duplicate SYN for stream {}", stream_id);
                 co_return;
             }
 
@@ -578,14 +578,14 @@ namespace psm::multiplex::yamux
 
             start_pending(stream_id);
 
-            trace::debug(prefix_, "stream {} opened via window update syn, client_window={}, using_window={}",
+            diagnose::debug(prefix_, "stream {} opened via window update syn, client_window={}, using_window={}",
                          stream_id, delta, client_window);
             co_return;
         }
 
         if (has_flag(hdr.flag, flags::syn) && has_flag(hdr.flag, flags::ack))
         {
-            trace::debug(prefix_, "stream {} syn+ack received", stream_id);
+            diagnose::debug(prefix_, "stream {} syn+ack received", stream_id);
             co_return;
         }
 
@@ -601,7 +601,7 @@ namespace psm::multiplex::yamux
                     new_val = std::numeric_limits<std::uint32_t>::max();
                 }
             } while (!window->send_window.compare_exchange_weak(old_val, new_val, std::memory_order_acq_rel));
-            trace::debug(prefix_, "stream {} window update received, delta={}, new_window={}",
+            diagnose::debug(prefix_, "stream {} window update received, delta={}, new_window={}",
                          stream_id, delta, new_val);
 
             window->window_signal->cancel();
@@ -628,7 +628,7 @@ namespace psm::multiplex::yamux
         -> net::awaitable<void>
     {
         const auto code = static_cast<away_code>(hdr.length);
-        trace::debug(prefix_, "go away received, code={}", static_cast<std::uint32_t>(code));
+        diagnose::debug(prefix_, "go away received, code={}", static_cast<std::uint32_t>(code));
         close();
         co_return;
     }
@@ -637,7 +637,7 @@ namespace psm::multiplex::yamux
     auto control::send_addr_err(const std::uint32_t stream_id)
         -> net::awaitable<void>
     {
-        trace::warn(prefix_, "stream {} address parse failed", stream_id);
+        diagnose::warn(prefix_, "stream {} address parse failed", stream_id);
         memory::vector<std::byte> error_buf(mr_);
         error_buf.push_back(std::byte{0x01});
         co_await send(stream_id, std::move(error_buf));
@@ -649,7 +649,7 @@ namespace psm::multiplex::yamux
     auto control::activate_udp(activate_opts opts)
         -> net::awaitable<void>
     {
-        trace::debug(prefix_, "stream {} creating UDP datagram", opts.stream_id);
+        diagnose::debug(prefix_, "stream {} creating UDP datagram", opts.stream_id);
 
         memory::vector<std::byte> success_buf(mr_);
         success_buf.push_back(std::byte{0x00});
@@ -701,14 +701,14 @@ namespace psm::multiplex::yamux
             co_await process_udp(opts.stream_id, std::move(opts.remaining));
         }
 
-        trace::debug(prefix_, "stream {} UDP datagram created", opts.stream_id);
+        diagnose::debug(prefix_, "stream {} UDP datagram created", opts.stream_id);
     }
 
 
     auto control::activate_tcp(activate_opts opts)
         -> net::awaitable<void>
     {
-        trace::debug(prefix_, "stream {} connecting to {}:{}", opts.stream_id, opts.host, opts.port);
+        diagnose::debug(prefix_, "stream {} connecting to {}:{}", opts.stream_id, opts.host, opts.port);
 
         char port_buf[8];
         const auto [port_end, port_ec] = std::to_chars(port_buf, port_buf + sizeof(port_buf), opts.port);
@@ -723,7 +723,7 @@ namespace psm::multiplex::yamux
 
         if (code != fault::code::success || !trans)
         {
-            trace::warn(prefix_, "stream {} connect to {}:{} failed", opts.stream_id, opts.host, opts.port);
+            diagnose::warn(prefix_, "stream {} connect to {}:{} failed", opts.stream_id, opts.host, opts.port);
             memory::vector<std::byte> error_buf(mr_);
             error_buf.push_back(std::byte{0x01});
             co_await send(opts.stream_id, std::move(error_buf));
@@ -766,7 +766,7 @@ namespace psm::multiplex::yamux
             co_await sp->on_data(std::move(opts.remaining));
         }
 
-        trace::debug(prefix_, "stream {} connected to {}:{}", opts.stream_id, opts.host, opts.port);
+        diagnose::debug(prefix_, "stream {} connected to {}:{}", opts.stream_id, opts.host, opts.port);
     }
 
 
@@ -919,11 +919,11 @@ namespace psm::multiplex::yamux
         }
         catch (const std::exception &e)
         {
-            trace::debug(prefix_, "stream {} process udp error: {}", stream_id, e.what());
+            diagnose::debug(prefix_, "stream {} process udp error: {}", stream_id, e.what());
         }
         catch (...)
         {
-            trace::error(prefix_, "stream {} process udp unknown error", stream_id);
+            diagnose::error(prefix_, "stream {} process udp unknown error", stream_id);
         }
         entry.processing = false;
     }
@@ -960,7 +960,7 @@ namespace psm::multiplex::yamux
         }
         if (pending_.count(stream_id))
         {
-            trace::warn(prefix_, "stream {} open timeout, resetting", stream_id);
+            diagnose::warn(prefix_, "stream {} open timeout, resetting", stream_id);
             pending_.erase(stream_id);
             pending_timers_.erase(stream_id);
             windows_.erase(stream_id);
@@ -1009,7 +1009,7 @@ namespace psm::multiplex::yamux
 
             co_await push_control(message_type::window_update, flags::none, stream_id, total_consumed);
 
-            trace::debug(prefix_, "stream {} window update sent, delta={}", stream_id, total_consumed);
+            diagnose::debug(prefix_, "stream {} window update sent, delta={}", stream_id, total_consumed);
         }
     }
 
@@ -1038,7 +1038,7 @@ namespace psm::multiplex::yamux
     auto control::ping_loop()
         -> net::awaitable<void>
     {
-        trace::debug(prefix_, "ping loop started, interval={}ms", config_.yamux.ping_interval);
+        diagnose::debug(prefix_, "ping loop started, interval={}ms", config_.yamux.ping_interval);
         net::steady_timer timer(transport_->executor());
         try
         {
@@ -1057,12 +1057,12 @@ namespace psm::multiplex::yamux
         }
         catch (const std::exception &e)
         {
-            trace::debug(prefix_, "ping loop error: {}", e.what());
+            diagnose::debug(prefix_, "ping loop error: {}", e.what());
         }
         catch (...)
         {
         }
-        trace::debug(prefix_, "ping loop ended");
+        diagnose::debug(prefix_, "ping loop ended");
     }
 
 

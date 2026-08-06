@@ -101,8 +101,6 @@ target_link_libraries(CryptoMiscBench PRIVATE ${PROJECT_NAME}_static_library ben
 add_executable(RecognitionPipeBench RecognitionPipeBench.cpp)
 target_link_libraries(RecognitionPipeBench PRIVATE ${PROJECT_NAME}_static_library benchmark::benchmark)
 
-add_executable(ConnectPoolBench ConnectPoolBench.cpp)
-target_link_libraries(ConnectPoolBench PRIVATE ${PROJECT_NAME}_static_library benchmark::benchmark)
 
 add_executable(TrustTunnelBench TrustTunnelBench.cpp)
 target_link_libraries(TrustTunnelBench PRIVATE ${PROJECT_NAME}_static_library benchmark::benchmark)
@@ -110,10 +108,10 @@ target_link_libraries(TrustTunnelBench PRIVATE ${PROJECT_NAME}_static_library be
 add_executable(DnsMessageBench DnsMessageBench.cpp)
 target_link_libraries(DnsMessageBench PRIVATE ${PROJECT_NAME}_static_library benchmark::benchmark)
 
-if(MINGW)
-    foreach(target_name IN ITEMS CodecBench MemoryBench MuxBench CryptoBench ProtocolBench IOBench MuxConnBench SessionBench RealityBench ScaleBench ResourceBench LatencyBench RecognitionBench StealthBench InfraBench H2MuxBench RegressionBench RealityAuthBench ResolveBench AnyTLSFrameBench StealthExtBench SsAntiReplayBench TlsFrameBench Socks5FrameBench CryptoMiscBench RecognitionPipeBench ConnectPoolBench TrustTunnelBench DnsMessageBench)
+foreach(target_name IN ITEMS CodecBench MemoryBench MuxBench CryptoBench ProtocolBench IOBench MuxConnBench SessionBench RealityBench ScaleBench ResourceBench LatencyBench RecognitionBench StealthBench InfraBench H2MuxBench RegressionBench RealityAuthBench ResolveBench AnyTLSFrameBench StealthExtBench SsAntiReplayBench TlsFrameBench Socks5FrameBench CryptoMiscBench RecognitionPipeBench TrustTunnelBench DnsMessageBench)
+    if(MINGW)
         if(TARGET ${target_name})
             target_compile_options(${target_name} PRIVATE -Wa,-mbig-obj)
         endif()
-    endforeach()
-endif()
+    endif()
+endforeach()

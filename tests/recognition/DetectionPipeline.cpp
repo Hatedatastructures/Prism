@@ -6,10 +6,10 @@
  */
 
 #include <prism/foundation/foundation.hpp>
-#include <prism/stealth/recognition/pipeline.hpp>
-#include <prism/stealth/scheme.hpp>
-#include <prism/config/config.hpp>
-#include <prism/trace/spdlog.hpp>
+#include <prism/handshake/recognition/pipeline.hpp>
+#include <prism/handshake/scheme.hpp>
+#include <prism/settings/settings.hpp>
+#include <prism/diagnose/log.hpp>
 #include <gtest/gtest.h>
 
 #include <cstdint>
@@ -19,14 +19,14 @@
 namespace
 {
     // 测试用 mock scheme，可配置各层返回值
-    struct mock_scheme final : psm::stealth::stealth_scheme
+    struct mock_scheme final : psm::handshake::stealth_scheme
     {
         std::string name_;
         std::uint8_t tier_{2};
         bool active_{true};
-        psm::stealth::sniff_result sniff_result_;
-        psm::stealth::verify_result verify_result_;
-        psm::stealth::verify_result guess_result_;
+        psm::handshake::sniff_result sniff_result_;
+        psm::handshake::verify_result verify_result_;
+        psm::handshake::verify_result guess_result_;
 
         explicit mock_scheme(std::string name, std::uint8_t tier = 2)
             : name_(std::move(name)), tier_(tier) {}
@@ -35,32 +35,32 @@ namespace
         [[nodiscard]] auto tier() const noexcept -> std::uint8_t override { return tier_; }
         [[nodiscard]] auto unique() const noexcept -> bool override { return false; }
 
-        [[nodiscard]] auto active(const psm::config & /*cfg*/) const noexcept
+        [[nodiscard]] auto active(const psm::settings & /*cfg*/) const noexcept
             -> bool override { return active_; }
 
         [[nodiscard]] auto sniff(std::uint32_t /*bitmap*/,
-                                 const psm::stealth::hello_features & /*features*/) const
-            -> psm::stealth::sniff_result override { return sniff_result_; }
+                                 const psm::handshake::hello_features & /*features*/) const
+            -> psm::handshake::sniff_result override { return sniff_result_; }
 
-        [[nodiscard]] auto verify(const psm::stealth::hello_features & /*features*/,
+        [[nodiscard]] auto verify(const psm::handshake::hello_features & /*features*/,
                                   std::span<const std::byte> /*raw*/,
-                                  const psm::config & /*cfg*/) const
-            -> psm::stealth::verify_result override { return verify_result_; }
+                                  const psm::settings & /*cfg*/) const
+            -> psm::handshake::verify_result override { return verify_result_; }
 
-        [[nodiscard]] auto guess(const psm::config & /*cfg*/) const
-            -> psm::stealth::verify_result override { return guess_result_; }
+        [[nodiscard]] auto guess(const psm::settings & /*cfg*/) const
+            -> psm::handshake::verify_result override { return guess_result_; }
 
-        [[nodiscard]] auto handshake(psm::stealth::handshake_context /*ctx*/)
-            -> boost::asio::awaitable<psm::stealth::handshake_result> override
+        [[nodiscard]] auto handshake(psm::handshake::handshake_context /*ctx*/)
+            -> boost::asio::awaitable<psm::handshake::handshake_result> override
         {
-            co_return psm::stealth::handshake_result{};
+            co_return psm::handshake::handshake_result{};
         }
     };
 
     auto make_schemes(std::initializer_list<std::pair<std::string, std::uint8_t>> defs)
-        -> std::vector<psm::stealth::shared_scheme>
+        -> std::vector<psm::handshake::shared_scheme>
     {
-        std::vector<psm::stealth::shared_scheme> result;
+        std::vector<psm::handshake::shared_scheme> result;
         for (auto &[n, t] : defs)
             result.push_back(std::make_shared<mock_scheme>(n, t));
         return result;
@@ -74,8 +74,8 @@ namespace
             {"restls", 2},
         });
         psm::recognition::layered_detection_pipeline pipeline(schemes);
-        psm::config cfg;
-        psm::stealth::hello_features features;
+        psm::settings cfg;
+        psm::handshake::hello_features features;
         psm::recognition::detect_input input{0, features, {}, cfg};
         // mock scheme 默认 sniff/verify 不命中，detect 应安全返回（可能空候选）
         auto result = pipeline.detect(input, {});
@@ -92,8 +92,8 @@ namespace
         psm::recognition::layered_detection_pipeline pipeline(schemes);
 
         // native scheme 应被识别为兜底 — 通过 tier2 空 matched_schemes 测试
-        psm::config cfg;
-        psm::stealth::hello_features features;
+        psm::settings cfg;
+        psm::handshake::hello_features features;
         psm::recognition::detect_input input{0, features, {}, cfg};
 
         auto result = pipeline.detect(input, {});
@@ -108,8 +108,8 @@ namespace
         s->sniff_result_ = {.hit = true, .solo = true, .hint = 900, .note = "session_id match"};
 
         psm::recognition::layered_detection_pipeline pipeline({s});
-        psm::config cfg;
-        psm::stealth::hello_features features;
+        psm::settings cfg;
+        psm::handshake::hello_features features;
         psm::recognition::detect_input input{0, features, {}, cfg};
 
         auto result = pipeline.detect(input, {});
@@ -127,8 +127,8 @@ namespace
         native->guess_result_ = {.score = 50, .solo_flag = 0, .note = "native"};
 
         psm::recognition::layered_detection_pipeline pipeline({s0, native});
-        psm::config cfg;
-        psm::stealth::hello_features features;
+        psm::settings cfg;
+        psm::handshake::hello_features features;
         psm::recognition::detect_input input{0, features, {}, cfg};
 
         auto result = pipeline.detect(input, {});
@@ -147,8 +147,8 @@ namespace
         s1->verify_result_ = {.score = 800, .solo_flag = 1, .note = "hmac match"};
 
         psm::recognition::layered_detection_pipeline pipeline({s0, s1});
-        psm::config cfg;
-        psm::stealth::hello_features features;
+        psm::settings cfg;
+        psm::handshake::hello_features features;
         psm::recognition::detect_input input{0, features, {}, cfg};
 
         auto result = pipeline.detect(input, {});
@@ -164,8 +164,8 @@ namespace
         s1->verify_result_ = {.score = 500, .solo_flag = 0, .note = "partial"};
 
         psm::recognition::layered_detection_pipeline pipeline({s1});
-        psm::config cfg;
-        psm::stealth::hello_features features;
+        psm::settings cfg;
+        psm::handshake::hello_features features;
         psm::recognition::detect_input input{0, features, {}, cfg};
 
         auto result = pipeline.detect(input, {});
@@ -183,8 +183,8 @@ namespace
         s2b->guess_result_ = {.score = 90, .solo_flag = 0, .note = "sni match"};
 
         psm::recognition::layered_detection_pipeline pipeline({s2a, s2b});
-        psm::config cfg;
-        psm::stealth::hello_features features;
+        psm::settings cfg;
+        psm::handshake::hello_features features;
         psm::recognition::detect_input input{0, features, {}, cfg};
 
         // 传入 matched_schemes
@@ -201,8 +201,8 @@ namespace
         auto s = std::make_shared<mock_scheme>("restls", 2);
         psm::recognition::layered_detection_pipeline pipeline({s});
 
-        psm::config cfg;
-        psm::stealth::hello_features features;
+        psm::settings cfg;
+        psm::handshake::hello_features features;
         psm::recognition::detect_input input{0, features, {}, cfg};
 
         // 空 matched_schemes，无 native
@@ -218,8 +218,8 @@ namespace
         native->active_ = true;
 
         psm::recognition::layered_detection_pipeline pipeline({native});
-        psm::config cfg;
-        psm::stealth::hello_features features;
+        psm::settings cfg;
+        psm::handshake::hello_features features;
         psm::recognition::detect_input input{0, features, {}, cfg};
 
         auto result = pipeline.detect(input, {});
@@ -234,8 +234,8 @@ namespace
         native->active_ = false;
 
         psm::recognition::layered_detection_pipeline pipeline({native});
-        psm::config cfg;
-        psm::stealth::hello_features features;
+        psm::settings cfg;
+        psm::handshake::hello_features features;
         psm::recognition::detect_input input{0, features, {}, cfg};
 
         auto result = pipeline.detect(input, {});
@@ -249,8 +249,8 @@ namespace
         s->sniff_result_ = {.hit = true, .solo = true, .hint = 900, .note = ""};
 
         psm::recognition::layered_detection_pipeline pipeline({s});
-        psm::config cfg;
-        psm::stealth::hello_features features;
+        psm::settings cfg;
+        psm::handshake::hello_features features;
         psm::recognition::detect_input input{0, features, {}, cfg};
 
         auto result = pipeline.detect(input, {});
@@ -260,8 +260,8 @@ namespace
     TEST(DetectionPipeline, EmptyPipeline)
     {
         psm::recognition::layered_detection_pipeline pipeline({});
-        psm::config cfg;
-        psm::stealth::hello_features features;
+        psm::settings cfg;
+        psm::handshake::hello_features features;
         psm::recognition::detect_input input{0, features, {}, cfg};
 
         auto result = pipeline.detect(input, {});

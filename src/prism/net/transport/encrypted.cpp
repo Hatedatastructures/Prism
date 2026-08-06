@@ -1,7 +1,7 @@
 #include <prism/net/transport/encrypted.hpp>
-#include <prism/trace/trace.hpp>
+#include <prism/diagnose/diagnose.hpp>
 
-using namespace psm::trace;
+using namespace psm::diagnose;
 
 namespace psm::transport
 {
@@ -11,7 +11,7 @@ namespace psm::transport
     {
         if (!inbound)
         {
-            trace::warn("No inbound transmission for TLS handshake");
+            diagnose::warn("No inbound transmission for TLS handshake");
             co_return std::make_tuple(fault::code::io_error, nullptr, nullptr);
         }
 
@@ -23,12 +23,12 @@ namespace psm::transport
         co_await stream->async_handshake(ssl::stream_base::server, token);
         if (ec)
         {
-            trace::warn("TLS handshake failed: {} ({})", ec.message(), ec.value());
+            diagnose::warn("TLS handshake failed: {} ({})", ec.message(), ec.value());
             auto recovered = stream->lowest_layer().release();
             co_return std::make_tuple(fault::to_code(ec), nullptr, std::move(recovered));
         }
 
-        trace::debug("TLS handshake succeeded");
+        diagnose::debug("TLS handshake succeeded");
         co_return std::make_tuple(fault::code::success, stream, nullptr);
     }
 

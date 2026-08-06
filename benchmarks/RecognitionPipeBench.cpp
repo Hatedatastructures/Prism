@@ -9,8 +9,8 @@
  */
 
 #include <benchmark/benchmark.h>
-#include <prism/stealth/recognition/tls/features.hpp>
-#include <prism/stealth/recognition/target.hpp>
+#include <prism/handshake/recognition/tls/features.hpp>
+#include <prism/handshake/recognition/target.hpp>
 #include <prism/foundation/memory/container.hpp>
 
 #include <cstdint>

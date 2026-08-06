@@ -10,7 +10,7 @@
 #include <prism/net/dns/resolver.hpp>
 #include <prism/net/dns/detail/cache.hpp>
 #include <prism/net/dns/detail/rules.hpp>
-#include <prism/trace/spdlog.hpp>
+#include <prism/diagnose/log.hpp>
 
 #include <any>
 #include <optional>

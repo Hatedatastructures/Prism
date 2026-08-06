@@ -8,8 +8,8 @@
  */
 
 #include <benchmark/benchmark.h>
-#include <prism/stealth/facade/restls/script.hpp>
-#include <prism/stealth/stack/anytls/padding.hpp>
+#include <prism/handshake/facade/restls/script.hpp>
+#include <prism/handshake/stack/anytls/padding.hpp>
 #include <prism/foundation/memory/container.hpp>
 
 #include <cstdint>
@@ -19,8 +19,8 @@
 namespace
 {
 
-using namespace psm::stealth::restls;
-using psm::stealth::anytls::padding_factory;
+using namespace psm::handshake::restls;
+using psm::handshake::anytls::padding_factory;
 
 // ============================================================
 // 测试数据

@@ -7,5 +7,5 @@ target_sources(${PROJECT_NAME}_static_library
 )
 
 add_subdirectory(transport)
-add_subdirectory(connect)
+add_subdirectory(connection)
 add_subdirectory(dns)

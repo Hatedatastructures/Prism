@@ -8,10 +8,10 @@
  */
 
 #include <prism/foundation/foundation.hpp>
-#include <prism/net/connect/util.hpp>
+#include <prism/net/connection/util.hpp>
 #include <prism/net/transport/preview.hpp>
-#include <prism/stealth/recognition/probe/probe.hpp>
-#include <prism/trace/spdlog.hpp>
+#include <prism/handshake/recognition/probe/probe.hpp>
+#include <prism/diagnose/log.hpp>
 
 #include <gtest/gtest.h>
 

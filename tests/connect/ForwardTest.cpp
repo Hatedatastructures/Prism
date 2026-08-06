@@ -8,16 +8,15 @@
 
 #include <gtest/gtest.h>
 
-#include <prism/config/config.hpp>
-#include <prism/net/connect/dial/router.hpp>
-#include <prism/net/connect/pool/pool.hpp>
-#include <prism/net/connect/tunnel/forward/basic.hpp>
-#include <prism/net/connect/tunnel/tunnel.hpp>
+#include <prism/settings/settings.hpp>
+#include <prism/net/connection/dialer/dialer.hpp>
+#include <prism/net/connection/tunnel/forward/basic.hpp>
+#include <prism/net/connection/tunnel/tunnel.hpp>
 #include <prism/resource/session.hpp>
 #include <prism/foundation/fault/handling.hpp>
 #include <prism/foundation/foundation.hpp>
 #include <prism/protocol/common/form.hpp>
-#include <prism/net/connect/target.hpp>
+#include <prism/net/connection/target.hpp>
 #include <prism/net/transport/transmission.hpp>
 
 #include <boost/asio.hpp>
@@ -78,7 +77,7 @@ TEST(Forward, TunnelOptionsStructure)
     auto outbound = std::make_shared<MockTransport>();
 
     // 创建最小资源上下文
-    auto cfg = std::make_shared<psm::config>();
+    auto cfg = std::make_shared<psm::settings>();
     auto proc_opts = psm::resource::process::options{cfg, nullptr, nullptr};
     auto proc = std::make_shared<psm::resource::process>(std::move(proc_opts));
     auto wrk_opts = psm::resource::worker::options{proc, psm::memory::system::global_pool()};

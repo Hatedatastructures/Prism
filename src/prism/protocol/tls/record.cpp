@@ -1,6 +1,6 @@
 #include <prism/protocol/tls/record.hpp>
 
-#include <prism/trace/trace.hpp>
+#include <prism/diagnose/diagnose.hpp>
 #include <cstring>
 
 namespace psm::tls

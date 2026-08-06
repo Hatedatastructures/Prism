@@ -12,10 +12,10 @@
 #include <prism/foundation/foundation.hpp>
 #include <prism/protocol/shadowsocks/config.hpp>
 #include <prism/protocol/shadowsocks/constants.hpp>
-#include <prism/protocol/shadowsocks/framing.hpp>
-#include <prism/protocol/shadowsocks/packet.hpp>
+#include <prism/protocol/shadowsocks/codec/framing.hpp>
+#include <prism/protocol/shadowsocks/codec/packet.hpp>
 #include <prism/protocol/shadowsocks/util/tracker.hpp>
-#include <prism/trace/trace.hpp>
+#include <prism/diagnose/diagnose.hpp>
 
 #include <boost/asio.hpp>
 
@@ -29,7 +29,7 @@
 
 namespace psm::protocol::shadowsocks
 {
-    using namespace psm::trace; // NOLINT(google-build-using-namespace)
+    using namespace psm::diagnose; // NOLINT(google-build-using-namespace)
 
     namespace net = boost::asio;
 
@@ -59,7 +59,7 @@ namespace psm::protocol::shadowsocks
     class udp_relay : public std::enable_shared_from_this<udp_relay>
     {
     public:
-        void set_prefix(std::shared_ptr<trace::trace_context> p) noexcept { prefix_ = std::move(p); }
+        void set_prefix(std::shared_ptr<diagnose::context> p) noexcept { prefix_ = std::move(p); }
 
         /**
          * @brief 构造函数
@@ -76,7 +76,7 @@ namespace psm::protocol::shadowsocks
             }
             else
             {
-                trace::error("PSK decode failed: {}", fault::describe(ec));
+                diagnose::error("PSK decode failed: {}", fault::describe(ec));
                 valid_ = false;
             }
             method_ = format::resolve_method(config_.method, psk_.size());
@@ -110,7 +110,7 @@ namespace psm::protocol::shadowsocks
 
     private:
         config config_;                                    // SS2022 协议配置
-        std::shared_ptr<trace::trace_context> prefix_;     // 日志前缀
+        std::shared_ptr<diagnose::context> prefix_;     // 日志前缀
         memory::vector<std::uint8_t> psk_;                    // 解码后的 PSK
         cipher_method method_{cipher_method::aes_128_gcm}; // 加密方法
         std::shared_ptr<session_tracker> sess_tracker_; // UDP 会话跟踪器

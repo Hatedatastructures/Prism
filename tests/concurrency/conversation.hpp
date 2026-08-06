@@ -3,8 +3,8 @@
 #include <chrono>
 #include <boost/asio.hpp>
 #include <prism/foundation/foundation.hpp>
-#include <prism/protocol/http/parser.hpp>
-#include <prism/trace/trace.hpp>
+#include <prism/protocol/http/codec/parser.hpp>
+#include <prism/diagnose/diagnose.hpp>
 #include "handler.hpp"
 
 namespace srv
@@ -53,7 +53,7 @@ namespace srv
                 {
                     if (ec != net::error::eof)
                     {
-                        psm::trace::error("initial read failed: {}", ec.message());
+                        psm::diagnose::error("initial read failed: {}", ec.message());
                     }
                     co_return;
                 }
@@ -65,7 +65,7 @@ namespace srv
             psm::protocol::http::proxy_request req;
             if (psm::fault::failed(psm::protocol::http::parse_req(raw, req)))
             {
-                psm::trace::error("parse request failed");
+                psm::diagnose::error("parse request failed");
                 co_return;
             }
 
@@ -73,7 +73,7 @@ namespace srv
 
             if (mode == srv::mode::stress)
             {
-                psm::trace::info("stress mode activated");
+                psm::diagnose::info("stress mode activated");
                 co_await HandleStress(socket_, psm::memory::current_resource());
             }
             else

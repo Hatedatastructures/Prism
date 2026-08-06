@@ -9,7 +9,7 @@
 #pragma once
 
 #include <prism/resource/session.hpp>
-#include <prism/trace/context.hpp>
+#include <prism/diagnose/context.hpp>
 
 #include <boost/asio.hpp>
 
