@@ -179,7 +179,7 @@ namespace psm::handshake::trusttunnel
         auto raw = connect::peel(std::move(ctx.transport));
         if (!raw)
         {
-            diagnose::warn(prefix_, "Cannot unwrap transport layers");
+            diagnose::debug(prefix_, "Cannot unwrap transport layers");
             result.error = fault::code::not_supported;
             co_return result;
         }
@@ -226,7 +226,7 @@ namespace psm::handshake::trusttunnel
         {
             ctx.transport = std::move(recovered);
             result.error = ssl_ec;
-            diagnose::warn(prefix_, "TLS handshake failed: {}", fault::describe(ssl_ec));
+            diagnose::debug(prefix_, "TLS handshake failed: {}", fault::describe(ssl_ec));
             co_return result;
         }
 
@@ -237,7 +237,7 @@ namespace psm::handshake::trusttunnel
         SSL_get0_alpn_selected(ssl_stream->native_handle(), &alpn, &alpn_len);
         if (!alpn || alpn_len != 2 || alpn[0] != 'h' || alpn[1] != '2')
         {
-            diagnose::warn(prefix_, "ALPN did not select h2");
+            diagnose::debug(prefix_, "ALPN did not select h2");
             result.detected = psm::connect::protocol_type::tls;
             result.transport = std::make_shared<transport::encrypted>(ssl_stream);
             co_return result;
@@ -248,7 +248,7 @@ namespace psm::handshake::trusttunnel
         auto tt_wr = ctx.session->worker;
         if (!tt_wr)
         {
-            diagnose::warn(prefix_, "worker resources expired before trusttunnel mux");
+            diagnose::debug(prefix_, "worker resources expired before trusttunnel mux");
             result.detected = psm::connect::protocol_type::tls;
             result.transport = encrypted_trans;
             co_return result;
@@ -263,7 +263,7 @@ namespace psm::handshake::trusttunnel
         auto first_opt = co_await craft->wait_first_connect();
         if (!first_opt)
         {
-            diagnose::warn(prefix_, "No CONNECT request received");
+            diagnose::debug(prefix_, "No CONNECT request received");
             result.detected = psm::connect::protocol_type::tls;
             result.transport = std::move(encrypted_trans);
             co_return result;

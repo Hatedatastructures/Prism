@@ -164,7 +164,7 @@ namespace psm::handshake::anytls
             auto raw = connect::peel(std::move(ctx.transport));
             if (!raw)
             {
-                diagnose::warn(ctx.session->trace, "Cannot unwrap transport layers");
+                diagnose::debug(ctx.session->trace, "Cannot unwrap transport layers");
                 res.error = fault::code::not_supported;
                 co_return res;
             }
@@ -179,7 +179,7 @@ namespace psm::handshake::anytls
             if (fault::failed(ssl_ec) || !ssl_stream)
             {
                 res.recovered = std::move(recovered);
-                diagnose::warn(ctx.session->trace, "TLS handshake failed: {}", fault::describe(ssl_ec));
+                diagnose::debug(ctx.session->trace, "TLS handshake failed: {}", fault::describe(ssl_ec));
                 res.error = ssl_ec;
                 co_return res;
             }
@@ -201,7 +201,7 @@ namespace psm::handshake::anytls
                 read_ec);
             if (read_ec || hash_read < 32)
             {
-                diagnose::warn(prefix_, "Failed to read password hash: {}", read_ec.message());
+                diagnose::debug(prefix_, "Failed to read password hash: {}", read_ec.message());
                 co_return fault::to_code(read_ec);
             }
 
@@ -210,7 +210,7 @@ namespace psm::handshake::anytls
                 std::span<std::byte>(pad_len_buf.data(), pad_len_buf.size()), read_ec);
             if (read_ec || pad_read < 2)
             {
-                diagnose::warn(prefix_, "Failed to read padding length: {}", read_ec.message());
+                diagnose::debug(prefix_, "Failed to read padding length: {}", read_ec.message());
                 co_return fault::to_code(read_ec);
             }
 
@@ -223,7 +223,7 @@ namespace psm::handshake::anytls
                     std::span<std::byte>(padding.data(), padding.size()), read_ec);
                 if (read_ec)
                 {
-                    diagnose::warn(prefix_, "Failed to read padding: {}", read_ec.message());
+                    diagnose::debug(prefix_, "Failed to read padding: {}", read_ec.message());
                     co_return fault::to_code(read_ec);
                 }
             }
@@ -258,7 +258,7 @@ namespace psm::handshake::anytls
         {
             if (preread_data.empty())
             {
-                diagnose::warn(prefix_, "Subsequent stream with empty preread");
+                diagnose::debug(prefix_, "Subsequent stream with empty preread");
                 co_return;
             }
 
@@ -276,7 +276,7 @@ namespace psm::handshake::anytls
                 co_return;
             }
 
-            diagnose::info(prefix_, "-> {}:{}", target.host, target.port);
+            diagnose::debug(prefix_, "-> {}:{}", target.host, target.port);
 
             // sing-mux 检测：客户端用 .mux.sing-box.arpa 标记地址触发多路复用
             auto mux_sw = psm::connect::mux_switch::off;
@@ -285,11 +285,11 @@ namespace psm::handshake::anytls
 
             if (psm::connect::is_mux(target.host, mux_sw))
             {
-                diagnose::info(prefix_, "anytls mux session started (subsequent stream)");
+                diagnose::debug(prefix_, "anytls mux session started (subsequent stream)");
                 auto mux_wr = session_ptr->worker;
                 if (!mux_wr)
                 {
-                    diagnose::warn(prefix_, "worker resources expired before anytls mux");
+                    diagnose::debug(prefix_, "worker resources expired before anytls mux");
                     inbound->close();
                     co_return;
                 }
@@ -325,7 +325,7 @@ namespace psm::handshake::anytls
             auto sub_wr = session_ptr->worker;
             if (!sub_wr)
             {
-                diagnose::warn(prefix_,
+                diagnose::debug(prefix_,
                     "worker resources expired before subsequent forward");
                 co_return;
             }
@@ -385,7 +385,7 @@ namespace psm::handshake::anytls
             auto [wait_ec, stream_info] = co_await anytls_sess->wait_first_stream();
             if (fault::failed(wait_ec))
             {
-                diagnose::warn(prefix_, "Failed to get first stream: {}", fault::describe(wait_ec));
+                diagnose::debug(prefix_, "Failed to get first stream: {}", fault::describe(wait_ec));
                 anytls_sess->close();
                 co_return wait_ec;
             }
@@ -413,14 +413,14 @@ namespace psm::handshake::anytls
                 co_return parse_ec;
             }
 
-            diagnose::info(prefix_, "-> {}:{}", target.host, target.port);
+            diagnose::debug(prefix_, "-> {}:{}", target.host, target.port);
 
             // 第一个流的 SYNACK：v2+ 客户端等待此确认后才发送后续数据
             std::error_code synack_ec;
             co_await anytls_sess->write_synack(stream_id, synack_ec);
             if (synack_ec)
             {
-                diagnose::warn(prefix_, "failed to send SYNACK for first stream: {}",
+                diagnose::debug(prefix_, "failed to send SYNACK for first stream: {}",
                     synack_ec.message());
             }
 
@@ -435,7 +435,7 @@ namespace psm::handshake::anytls
 
             if (psm::connect::is_mux(target.host, mux_sw))
             {
-                diagnose::info(prefix_, "anytls mux session started");
+                diagnose::debug(prefix_, "anytls mux session started");
                 auto mux_task = [session_ptr, keepalive = std::move(keepalive),
                                  cfg_ptr = cfg,
                                  stream_transport,
@@ -445,7 +445,7 @@ namespace psm::handshake::anytls
                     auto wr_inner = session_ptr->worker;
                     if (!wr_inner)
                     {
-                        diagnose::warn(prefix_, "worker resources expired in mux_task");
+                        diagnose::debug(prefix_, "worker resources expired in mux_task");
                         stream_transport->close();
                         co_return;
                     }
@@ -497,7 +497,7 @@ namespace psm::handshake::anytls
                     auto fwd_wr = session_ptr->worker;
                     if (!fwd_wr)
                     {
-                        diagnose::warn(prefix_,
+                        diagnose::debug(prefix_,
                             "worker resources expired before first stream forward");
                         co_return;
                     }

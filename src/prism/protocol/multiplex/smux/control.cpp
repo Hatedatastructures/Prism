@@ -148,7 +148,7 @@ namespace psm::multiplex::smux
             const auto meta = codec_.decode_header(frame_buffer);
             if (meta.raw_type == 0 && meta.stream_id == 0 && meta.length == 0)
             {
-                diagnose::warn(prefix_, "invalid frame header, closing session");
+                diagnose::debug(prefix_, "invalid frame header, closing session");
                 break;
             }
 

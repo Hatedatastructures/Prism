@@ -58,7 +58,7 @@ namespace psm::recognition
             }
         }
 
-        diagnose::info("built route table with {} SNI entries", table.route_map_.size());
+        diagnose::debug("built route table with {} SNI entries", table.route_map_.size());
         return table;
     }
 

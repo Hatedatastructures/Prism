@@ -110,19 +110,19 @@ namespace psm::multiplex
             {
             case protocol_type::yamux:
                 if (prefix_)
-                    diagnose::info(prefix_, "constructing yamux session");
+                    diagnose::debug(prefix_, "constructing yamux session");
                 {
                     auto session = std::make_shared<yamux::control>(
                         multiplexer_options{std::move(ctx.transport), outbound_ptr, mux_cfg, {}});
                     session->set_prefix(prefix_);
                     if (prefix_)
-                        diagnose::info(prefix_, "yamux session constructed");
+                        diagnose::debug(prefix_, "yamux session constructed");
                     co_return session;
                 }
 
             case protocol_type::h2mux:
                 if (prefix_)
-                    diagnose::info(prefix_, "constructing h2mux session");
+                    diagnose::debug(prefix_, "constructing h2mux session");
                 {
                     auto singmux_resolver = [](std::int32_t, const h2mux::h2_headers &) -> h2mux::stream_info
                     {
@@ -133,20 +133,20 @@ namespace psm::multiplex
                         singmux_resolver);
                     session->set_prefix(prefix_);
                     if (prefix_)
-                        diagnose::info(prefix_, "h2mux session constructed");
+                        diagnose::debug(prefix_, "h2mux session constructed");
                     co_return session;
                 }
 
             case protocol_type::smux:
             default:
                 if (prefix_)
-                    diagnose::info(prefix_, "constructing smux session");
+                    diagnose::debug(prefix_, "constructing smux session");
                 {
                     auto session = std::make_shared<smux::control>(
                         multiplexer_options{std::move(ctx.transport), outbound_ptr, mux_cfg, {}});
                     session->set_prefix(prefix_);
                     if (prefix_)
-                        diagnose::info(prefix_, "smux session constructed");
+                        diagnose::debug(prefix_, "smux session constructed");
                     co_return session;
                 }
             }

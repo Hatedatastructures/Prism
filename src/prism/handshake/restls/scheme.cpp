@@ -91,7 +91,7 @@ namespace psm::handshake::restls
             const auto n = co_await hs_result.transport->async_read_some(buf_span, probe_ec);
             if (probe_ec)
             {
-                diagnose::warn(                    "inner probe read failed: {}", probe_ec.message());
+                diagnose::debug(                    "inner probe read failed: {}", probe_ec.message());
                 break;
             }
             inner_n += n;

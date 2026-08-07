@@ -144,7 +144,7 @@ namespace psm::connect
         {
             if (!ec)
             {
-                diagnose::info(trace, "idle timeout, closing tunnel");
+                diagnose::debug(trace, "idle timeout, closing tunnel");
                 inbound->cancel();
                 outbound->cancel();
             }

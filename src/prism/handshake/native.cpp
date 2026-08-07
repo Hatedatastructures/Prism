@@ -49,7 +49,7 @@ namespace psm::handshake::native
 
         if (!ctx.session)
         {
-            diagnose::warn(prefix_, "No session context, aborting");
+            diagnose::debug(prefix_, "No session context, aborting");
             result.error = fault::code::not_supported;
             co_return result;
         }
@@ -63,7 +63,7 @@ namespace psm::handshake::native
 
         if (!ctx.transport)
         {
-            diagnose::warn(prefix_, "No inbound transport, aborting");
+            diagnose::debug(prefix_, "No inbound transport, aborting");
             result.error = fault::code::not_supported;
             co_return result;
         }
@@ -74,7 +74,7 @@ namespace psm::handshake::native
 
         if (!raw)
         {
-            diagnose::warn(prefix_, "Unwrap exhausted all layers, no raw transport");
+            diagnose::debug(prefix_, "Unwrap exhausted all layers, no raw transport");
             result.error = fault::code::not_supported;
             co_return result;
         }
@@ -94,7 +94,7 @@ namespace psm::handshake::native
         {
             ctx.transport = std::move(recovered);
             result.error = ssl_ec;
-            diagnose::warn(prefix_, "TLS handshake failed: {}", fault::describe(ssl_ec));
+            diagnose::debug(prefix_, "TLS handshake failed: {}", fault::describe(ssl_ec));
             co_return result;
         }
 
@@ -112,7 +112,7 @@ namespace psm::handshake::native
         if (ec && n == 0)
         {
             result.error = fault::to_code(ec);
-            diagnose::warn(prefix_, "Inner probe read failed: {}", ec.message());
+            diagnose::debug(prefix_, "Inner probe read failed: {}", ec.message());
             co_return result;
         }
 

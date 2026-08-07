@@ -155,7 +155,7 @@ namespace psm::runtime::session
             callback();
         }
         if (auto trace = res_->trace)
-            diagnose::info(*trace, "session closed");
+            diagnose::debug(*trace, "session closed");
     }
 
     auto session::diversion() -> net::awaitable<void>
@@ -180,7 +180,7 @@ namespace psm::runtime::session
         }
         else if (trace)
         {
-            diagnose::info(trace, "session established");
+            diagnose::debug(trace, "session established");
         }
 
         // 1. 完整识别流程
@@ -248,7 +248,7 @@ namespace psm::runtime::session
         res_->worker->traffic.on_protocol_detected(result.detected);
 
         if (trace)
-            diagnose::info(trace,
+            diagnose::debug(trace,
                 "recognized as {}", proto_view);
 
         // 2. 更新传输层

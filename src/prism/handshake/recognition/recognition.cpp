@@ -138,7 +138,7 @@ namespace psm::recognition
         }
         else
         {
-            diagnose::warn(prefix_, "identify failed: {}", fault::describe(result.error));
+            diagnose::debug(prefix_, "identify failed: {}", fault::describe(result.error));
         }
 
         co_return result;
@@ -160,7 +160,7 @@ namespace psm::recognition
         auto probe_res = co_await probe::probe(*opts.transport, 24);
         if (fault::failed(probe_res.ec))
         {
-            diagnose::warn(prefix_, "probe failed: {}", fault::describe(probe_res.ec));
+            diagnose::debug(prefix_, "probe failed: {}", fault::describe(probe_res.ec));
             result.error = probe_res.ec;
             co_return result;
         }
@@ -186,14 +186,14 @@ namespace psm::recognition
                 result.executed_scheme = std::move(id_result.executed_scheme);
                 result.success = true;
 
-                diagnose::info(prefix_, "recognized: {} -> {}",
+                diagnose::debug(prefix_, "recognized: {} -> {}",
                     result.executed_scheme,
                     psm::connect::to_string_view(result.detected));
             }
             else
             {
                 result.error = id_result.error;
-                diagnose::warn(prefix_, "identify failed: {}", fault::describe(result.error));
+                diagnose::debug(prefix_, "identify failed: {}", fault::describe(result.error));
             }
         }
         else

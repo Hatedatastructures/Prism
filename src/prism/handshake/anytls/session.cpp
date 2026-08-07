@@ -77,7 +77,7 @@ namespace psm::handshake::anytls
 
                 if (!header)
                 {
-                    diagnose::warn(prefix_, "invalid frame header");
+                    diagnose::debug(prefix_, "invalid frame header");
                     break;
                 }
 
@@ -101,7 +101,7 @@ namespace psm::handshake::anytls
                     co_await send_waste_frame(pkt_counter_, pad_ec);
                     if (pad_ec)
                     {
-                        diagnose::warn(prefix_, "padding frame failed: {}", pad_ec.message());
+                        diagnose::debug(prefix_, "padding frame failed: {}", pad_ec.message());
                     }
                     ++pkt_counter_;
                 }
@@ -173,7 +173,7 @@ namespace psm::handshake::anytls
             co_await write_frame(frame_input{command::heart_resp, 0, {}, heart_ec});
             if (heart_ec)
             {
-                diagnose::warn(prefix_, "heartbeat response failed: {}", heart_ec.message());
+                diagnose::debug(prefix_, "heartbeat response failed: {}", heart_ec.message());
             }
             else
             {
@@ -247,7 +247,7 @@ namespace psm::handshake::anytls
                     settings_text.size()), wr_ec});
             if (wr_ec)
             {
-                diagnose::warn(prefix_, "failed to send server settings: {}", wr_ec.message());
+                diagnose::debug(prefix_, "failed to send server settings: {}", wr_ec.message());
             }
         }
 
@@ -259,13 +259,13 @@ namespace psm::handshake::anytls
         // mihomo: 服务端在收到 Settings 之前忽略 SYN
         if (!received_settings_)
         {
-            diagnose::warn(prefix_, "SYN before Settings, ignoring");
+            diagnose::debug(prefix_, "SYN before Settings, ignoring");
             co_return;
         }
 
         if (stream_id == 0)
         {
-            diagnose::warn(prefix_, "SYN with stream_id=0");
+            diagnose::debug(prefix_, "SYN with stream_id=0");
             co_return;
         }
 
@@ -340,7 +340,7 @@ namespace psm::handshake::anytls
                 co_return;
             }
 
-            diagnose::warn(prefix_, "PSH for unknown stream_id={}", stream_id);
+            diagnose::debug(prefix_, "PSH for unknown stream_id={}", stream_id);
             co_return;
         }
 
@@ -352,7 +352,7 @@ namespace psm::handshake::anytls
         }
         else
         {
-            diagnose::warn(prefix_, "PSH for unknown stream_id={}", stream_id);
+            diagnose::debug(prefix_, "PSH for unknown stream_id={}", stream_id);
         }
     }
 
@@ -409,7 +409,7 @@ namespace psm::handshake::anytls
 
         if (input.ec)
         {
-            diagnose::warn(prefix_, "write_frame header failed: {}", input.ec.message());
+            diagnose::debug(prefix_, "write_frame header failed: {}", input.ec.message());
             co_return;
         }
 
@@ -419,7 +419,7 @@ namespace psm::handshake::anytls
             co_await transport::async_write(*transport_, input.data, input.ec);
             if (input.ec)
             {
-                diagnose::warn(prefix_, "write_frame payload failed: {}", input.ec.message());
+                diagnose::debug(prefix_, "write_frame payload failed: {}", input.ec.message());
             }
         }
 

@@ -27,7 +27,7 @@ namespace psm::connect
         if (psm::connect::is_mux(target.host, mux_sw))
         {
             if (opts.trace)
-                diagnose::info(opts.trace, "mux session started");
+                diagnose::debug(opts.trace, "mux session started");
             const auto ok = co_await spawn_mux_session(
                 mux_session_options{res, std::move(opts.inbound), opts.trace});
             if (!ok)

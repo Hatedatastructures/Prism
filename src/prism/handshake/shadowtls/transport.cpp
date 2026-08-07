@@ -100,7 +100,7 @@ namespace psm::handshake::shadowtls
         auto frame_opt = co_await read_tls_frame(ec);
         if (ec || !frame_opt)
         {
-            diagnose::warn(prefix_, "read_tls_frame failed: {}", ec.message());
+            diagnose::debug(prefix_, "read_tls_frame failed: {}", ec.message());
             co_return 0;
         }
 
@@ -131,13 +131,13 @@ namespace psm::handshake::shadowtls
         if (fault::failed(read_ec))
         {
             ec = std::make_error_code(std::errc::connection_reset);
-            diagnose::warn(prefix_, "read TLS record failed");
+            diagnose::debug(prefix_, "read TLS record failed");
             co_return std::nullopt;
         }
 
         if (rec.header().content_type != content_appdata)
         {
-            diagnose::warn(prefix_, "unexpected TLS record type: 0x{:02x}", rec.header().content_type);
+            diagnose::debug(prefix_, "unexpected TLS record type: 0x{:02x}", rec.header().content_type);
             ec = std::make_error_code(std::errc::protocol_error);
             co_return std::nullopt;
         }
@@ -146,7 +146,7 @@ namespace psm::handshake::shadowtls
 
         if (payload.size() < hmac_size)
         {
-            diagnose::warn(prefix_, "payload too small for HMAC: {}", payload.size());
+            diagnose::debug(prefix_, "payload too small for HMAC: {}", payload.size());
             ec = std::make_error_code(std::errc::protocol_error);
             co_return std::nullopt;
         }
@@ -159,7 +159,7 @@ namespace psm::handshake::shadowtls
 
         if (!hmac_read_ctx_)
         {
-            diagnose::warn(prefix_, "hmac_read_ctx is null, cannot verify HMAC");
+            diagnose::debug(prefix_, "hmac_read_ctx is null, cannot verify HMAC");
             ec = std::make_error_code(std::errc::protocol_error);
             co_return std::nullopt;
         }
@@ -182,7 +182,7 @@ namespace psm::handshake::shadowtls
 
         if (CRYPTO_memcmp(client_hmac.data(), expected_hmac.data(), hmac_size) != 0)
         {
-            diagnose::warn(prefix_, "HMAC mismatch in transport read_tls_frame");
+            diagnose::debug(prefix_, "HMAC mismatch in transport read_tls_frame");
             ec = std::make_error_code(std::errc::protocol_error);
             co_return std::nullopt;
         }
@@ -255,7 +255,7 @@ namespace psm::handshake::shadowtls
         if (write_ec)
         {
             ec = write_ec;
-            diagnose::warn(prefix_, "write TLS frame failed: {}", write_ec.message());
+            diagnose::debug(prefix_, "write TLS frame failed: {}", write_ec.message());
             co_return 0;
         }
 

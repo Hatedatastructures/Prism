@@ -73,7 +73,7 @@ namespace psm::protocol::shadowsocks
         if (psm::connect::is_mux(agent->target().host, mux_sw))
         {
             if (trace)
-                diagnose::info(trace, "mux session started");
+                diagnose::debug(trace, "mux session started");
             auto mux_proto = co_await multiplex::bootstrap(
                 multiplex::bootstrap_context{
                     .transport = std::static_pointer_cast<transport::transmission>(agent),

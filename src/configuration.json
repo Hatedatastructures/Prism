@@ -177,7 +177,7 @@
         "thread_count": 1,
         "enable_console": true,
         "enable_file": true,
-        "log_level": "debug",
+        "log_level": "info",
         "pattern": "[%Y-%m-%d %H:%M:%S.%e] [%5t] [%l] %v",
         "trace_name": "forward_engine"
     }

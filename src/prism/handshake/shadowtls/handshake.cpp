@@ -160,7 +160,7 @@ namespace psm::handshake::shadowtls
             auto frame_opt = co_await common::read_tls_frame(*args.client_trans, frame_ec);
             if (frame_ec || !frame_opt)
             {
-                diagnose::warn(args.trace, "read_tls_frame from client returned nullopt");
+                diagnose::debug(args.trace, "read_tls_frame from client returned nullopt");
                 co_return std::nullopt;
             }
 
@@ -315,7 +315,7 @@ namespace psm::handshake::shadowtls
         auto hmac_main = std::shared_ptr<HMAC_CTX>(HMAC_CTX_new(), HMAC_CTX_free);
         if (!hmac_main)
         {
-            diagnose::warn(args.trace, "failed to create HMAC_CTX");
+            diagnose::debug(args.trace, "failed to create HMAC_CTX");
             co_return;
         }
 
@@ -332,7 +332,7 @@ namespace psm::handshake::shadowtls
             auto frame_opt = co_await common::read_tls_frame(*args.backend_trans, frame_ec);
             if (frame_ec || !frame_opt)
             {
-                diagnose::warn(args.trace, "backend closed (nullopt), total_frames={}", frame_count);
+                diagnose::debug(args.trace, "backend closed (nullopt), total_frames={}", frame_count);
                 args.hmac_out = hmac_main;
                 co_return;
             }
@@ -513,7 +513,7 @@ namespace psm::handshake::shadowtls
         auto server_hello_opt = co_await common::read_tls_frame(*opts.backend_trans, server_hello_ec);
         if (server_hello_ec || !server_hello_opt)
         {
-            diagnose::warn(opts.trace, "Failed to read ServerHello from backend");
+            diagnose::debug(opts.trace, "Failed to read ServerHello from backend");
             res.error = fault::code::connection_refused;
             co_return res;
         }
@@ -547,7 +547,7 @@ namespace psm::handshake::shadowtls
         auto server_random_opt = extract_random(args.server_hello);
         if (!server_random_opt)
         {
-            diagnose::warn(args.trace, "Failed to extract ServerRandom");
+            diagnose::debug(args.trace, "Failed to extract ServerRandom");
             co_return std::nullopt;
         }
 
@@ -556,7 +556,7 @@ namespace psm::handshake::shadowtls
 
         if (args.cfg.strict_mode && !is_tls13_hello(args.server_hello))
         {
-            diagnose::warn(args.trace, "Backend does not support TLS 1.3, strict mode enabled");
+            diagnose::debug(args.trace, "Backend does not support TLS 1.3, strict mode enabled");
             co_return std::nullopt;
         }
 
@@ -600,7 +600,7 @@ namespace psm::handshake::shadowtls
 
         if (!first_frame_opt || !hmac_verify_ctx)
         {
-            diagnose::warn(args.trace, "HMAC match failed during handshake relay");
+            diagnose::debug(args.trace, "HMAC match failed during handshake relay");
             co_return std::nullopt;
         }
 
@@ -628,7 +628,7 @@ namespace psm::handshake::shadowtls
 
         if (opts.client_hello.empty())
         {
-            diagnose::warn(prefix_, "Empty ClientHello");
+            diagnose::debug(prefix_, "Empty ClientHello");
             result.error = fault::code::bad_message;
             co_return result;
         }

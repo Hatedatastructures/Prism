@@ -90,7 +90,7 @@ namespace psm::protocol::trojan
         case command::udp_associate:
         {
             if (trace)
-                diagnose::info(trace, "UDP_ASSOCIATE started");
+                diagnose::debug(trace, "UDP_ASSOCIATE started");
             using route_fn = std::function<net::awaitable<
                 std::pair<fault::code, net::ip::udp::endpoint>>(
                 std::string_view, std::string_view)>;
@@ -104,14 +104,14 @@ namespace psm::protocol::trojan
             }
             else if (trace)
             {
-                diagnose::info(trace, "UDP_ASSOCIATE completed");
+                diagnose::debug(trace, "UDP_ASSOCIATE completed");
             }
             break;
         }
         case command::mux:
         {
             if (trace)
-                diagnose::info(trace,
+                diagnose::debug(trace,
                     "mux session started (cmd=0x7F)");
             const auto mux_ok = co_await psm::connect::spawn_mux_session(
                 psm::connect::mux_session_options{res_, agent->release(), trace});

@@ -55,7 +55,7 @@ namespace psm::handshake::reality
 
             if (old_plaintext.size() < FINISHED_MSG_SIZE)
             {
-                diagnose::warn(trace, "plaintext too short for Finished: {}", old_plaintext.size());
+                diagnose::debug(trace, "plaintext too short for Finished: {}", old_plaintext.size());
                 return fault::code::kdferr;
             }
 
@@ -94,7 +94,7 @@ namespace psm::handshake::reality
 
             if (fault::failed(enc_ec))
             {
-                diagnose::warn(trace, "failed to encrypt handshake record");
+                diagnose::debug(trace, "failed to encrypt handshake record");
                 return enc_ec;
             }
 
@@ -116,7 +116,7 @@ namespace psm::handshake::reality
                 auto [read_ec, rec] = co_await ::psm::tls::record::read(inbound);
                 if (fault::failed(read_ec))
                 {
-                    diagnose::warn(trace, "failed to read client record");
+                    diagnose::debug(trace, "failed to read client record");
                     co_return fault::code::io_error;
                 }
 
@@ -178,7 +178,7 @@ namespace psm::handshake::reality
                     else
                     {
                         // 解密失败：客户端可能用了错误的密钥（说明不是合法 Reality 客户端）
-                        diagnose::warn(trace, "failed to decrypt client record (ec={}), raw {} bytes",
+                        diagnose::debug(trace, "failed to decrypt client record (ec={}), raw {} bytes",
                                     static_cast<int>(open_ec), rec_len);
                         co_return fault::code::hsfail;
                     }
@@ -230,7 +230,7 @@ namespace psm::handshake::reality
             if (fault::failed(read_ec))
             {   // 读取失败，可能连接异常或对方不是 TLS 客户端，无法继续握手,取消定时器并返回错误
                 args.deadline.cancel();
-                diagnose::warn(trace, "failed to read TLS record: {}", fault::describe(read_ec));
+                diagnose::debug(trace, "failed to read TLS record: {}", fault::describe(read_ec));
                 out.result.error = read_ec;
                 if (read_ec == fault::code::canceled)
                     out.result.error = fault::code::timeout;
@@ -242,7 +242,7 @@ namespace psm::handshake::reality
             if (fault::failed(parse_ec))
             {   // 解析失败，取消定时器并返回错误
                 args.deadline.cancel();
-                diagnose::warn(trace, "failed to parse ClientHello: {}", fault::describe(parse_ec));
+                diagnose::debug(trace, "failed to parse ClientHello: {}", fault::describe(parse_ec));
                 // ClientHello 格式异常，连解析都做不到，直接转发给真实网站兜底
                 const auto fb_ec = co_await fallback_dest(args.session, args.inbound, raw_record, args.trace);
                 if (fault::succeeded(fb_ec))
@@ -322,7 +322,7 @@ namespace psm::handshake::reality
                 co_return out;
             }
 
-            diagnose::info(trace, "authentication successful");
+            diagnose::debug(trace, "authentication successful");
             out.auth_res = std::move(auth_res);
             out.done = true;
             co_return out;
@@ -362,7 +362,7 @@ namespace psm::handshake::reality
             if (fault::failed(ephemeral_ec))
             {
                 deadline.cancel();
-                diagnose::warn(trace, "ephemeral X25519 key exchange failed");
+                diagnose::debug(trace, "ephemeral X25519 key exchange failed");
                 out.result.error = ephemeral_ec;
                 return out;
             }
@@ -382,7 +382,7 @@ namespace psm::handshake::reality
             if (fault::failed(sh_ec))
             {
                 deadline.cancel();
-                diagnose::warn(trace, "failed to generate ServerHello: {}", fault::describe(sh_ec));
+                diagnose::debug(trace, "failed to generate ServerHello: {}", fault::describe(sh_ec));
                 out.result.error = sh_ec;
                 return out;
             }
@@ -397,7 +397,7 @@ namespace psm::handshake::reality
             if (fault::failed(ks_ec))
             {
                 deadline.cancel();
-                diagnose::warn(trace, "failed to derive keys: {}", fault::describe(ks_ec));
+                diagnose::debug(trace, "failed to derive keys: {}", fault::describe(ks_ec));
                 out.result.error = ks_ec;
                 return out;
             }
@@ -455,7 +455,7 @@ namespace psm::handshake::reality
                 if (write_ec)
                 {
                     args.deadline.cancel();
-                    diagnose::warn(trace, "failed to send handshake records: {}", write_ec.message());
+                    diagnose::debug(trace, "failed to send handshake records: {}", write_ec.message());
                     auto err = fault::to_code(write_ec);
                     if (err == fault::code::canceled)
                         err = fault::code::timeout;
@@ -536,13 +536,13 @@ namespace psm::handshake::reality
             co_return fault::code::unreach;
         }
 
-        diagnose::info(trace, "falling back to {}:{}", dest_host, dest_port);
+        diagnose::debug(trace, "falling back to {}:{}", dest_host, dest_port);
 
         // 通过 outbound::dial 统一入口建立 TCP 连接到真实网站
         auto reality_wr = session.worker;
         if (!reality_wr)
         {
-            diagnose::warn(trace, "worker resources expired before reality fallback dial");
+            diagnose::debug(trace, "worker resources expired before reality fallback dial");
             co_return fault::code::unreach;
         }
         char dest_port_buf[8];
@@ -619,13 +619,13 @@ namespace psm::handshake::reality
             auto *rel = dest_trans->template lowest_layer<transport::reliable>();
             if (!rel)
             {
-                diagnose::warn(trace, "dest transport is not reliable");
+                diagnose::debug(trace, "dest transport is not reliable");
                 co_return std::pair{fault::code::st_certfail, empty_cert};
             }
             auto socket_opt = rel->release_socket();
             if (!socket_opt)
             {
-                diagnose::warn(trace, "dest transport has no raw socket");
+                diagnose::debug(trace, "dest transport has no raw socket");
                 co_return std::pair{fault::code::st_certfail, empty_cert};
             }
 
@@ -670,7 +670,7 @@ namespace psm::handshake::reality
 
             if (cert_der.empty())
             {
-                diagnose::warn(trace, "failed to extract certificate from dest");
+                diagnose::debug(trace, "failed to extract certificate from dest");
                 co_return std::pair{fault::code::st_certfail, empty_cert};
             }
 
@@ -679,7 +679,7 @@ namespace psm::handshake::reality
         }
         catch (const std::exception &e)
         {
-            diagnose::warn(trace, "exception fetching cert: {}", e.what());
+            diagnose::debug(trace, "exception fetching cert: {}", e.what());
             co_return std::pair{fault::code::st_certfail, empty_cert};
         }
     }
@@ -702,7 +702,7 @@ namespace psm::handshake::reality
 
         if (!inbound)
         {   // 传输层无效，无法继续握手
-            diagnose::warn(trace, "invalid inbound transmission");
+            diagnose::debug(trace, "invalid inbound transmission");
             result.error = fault::code::io_error;
             co_return result;
         }
@@ -755,7 +755,7 @@ namespace psm::handshake::reality
         if (fault::failed(app_ec))
         {   // 派生应用密钥失败，无法建立加密隧道
             deadline.cancel();
-            diagnose::warn(trace, "failed to derive application keys");
+            diagnose::debug(trace, "failed to derive application keys");
             result.error = app_ec;
             co_return result;
         }
@@ -776,7 +776,7 @@ namespace psm::handshake::reality
         if (read_inner_ec || inner_n == 0)
         {
             deadline.cancel();
-            diagnose::warn(trace, "failed to read inner data: {}", read_inner_ec.message());
+            diagnose::debug(trace, "failed to read inner data: {}", read_inner_ec.message());
             result.error = fault::to_code(read_inner_ec);
             co_return result;
         }
@@ -788,7 +788,7 @@ namespace psm::handshake::reality
         result.error = fault::code::success;
 
         deadline.cancel();
-        diagnose::info(trace, "handshake completed successfully");
+        diagnose::debug(trace, "handshake completed successfully");
         co_return result;
     }
 } // namespace psm::handshake::reality

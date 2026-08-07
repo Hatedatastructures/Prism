@@ -94,7 +94,7 @@ namespace psm::protocol::vless
         case command::udp:
         {
             if (trace)
-                diagnose::info(trace, "UDP associate started");
+                diagnose::debug(trace, "UDP associate started");
             using route_fn = std::function<net::awaitable<
                 std::pair<fault::code, net::ip::udp::endpoint>>(
                 std::string_view, std::string_view)>;
@@ -108,7 +108,7 @@ namespace psm::protocol::vless
             }
             else if (trace)
             {
-                diagnose::info(trace, "UDP associate completed");
+                diagnose::debug(trace, "UDP associate completed");
             }
             break;
         }
