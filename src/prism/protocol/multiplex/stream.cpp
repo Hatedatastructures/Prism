@@ -54,8 +54,17 @@ namespace psm::multiplex
                 self->close();
             });
 
-        // target 写循环：客户端 → mux → target（上传方向），写错误自行关闭
-        net::co_spawn(target_->executor(), target_writeloop(), net::detached);
+        // target 写循环：客户端 → mux → target（上传方向），写错误自行关闭。
+        // completion 捕获 self 保活：协程挂起期间 stream 可能被 control drop
+        // 析构（如连接失败/超时），detached 不保活会 UAF 崩溃
+        net::co_spawn(target_->executor(), target_writeloop(),
+            [self](const std::exception_ptr &ep)
+            {
+                if (ep)
+                {
+                    diagnose::debug(self->prefix_, "stream {} target write loop error", self->id_);
+                }
+            });
     }
 
 
