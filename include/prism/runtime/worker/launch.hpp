@@ -28,9 +28,9 @@ namespace psm::runtime::worker::launch
         -> std::optional<tcp::socket>;
 
     /**
-     * @brief 预配置 TCP socket 参数（TCP_NODELAY + 收发缓冲区）
+     * @brief 预配置 TCP socket 参数（TCP_NODELAY；收发缓冲交系统自动调优）
      */
-    auto prime(tcp::socket &socket, std::uint32_t buffer_size) noexcept -> void;
+    auto prime(tcp::socket &socket) noexcept -> void;
 
     /**
      * @struct launch_params

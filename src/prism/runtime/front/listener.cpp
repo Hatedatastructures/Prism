@@ -38,12 +38,10 @@ namespace psm::runtime::front
 
         // 设置 socket 选项：
         // - reuse_address：允许端口复用（重启时不用等 TIME_WAIT 过期）
-        // - 收发缓冲区大小：从配置中读取，影响吞吐量
+        // 收发缓冲不设固定值，交由 Windows 自动调优（accept 连接继承监听 socket 缓冲）
         const tcp::endpoint endpoint(addr, cfg.instance.addressable.port);
         acceptor_.open(endpoint.protocol());
         acceptor_.set_option(net::socket_base::reuse_address(true));
-        acceptor_.set_option(net::socket_base::receive_buffer_size(cfg.buffer.size));
-        acceptor_.set_option(net::socket_base::send_buffer_size(cfg.buffer.size));
         acceptor_.bind(endpoint);
         acceptor_.listen();
     }

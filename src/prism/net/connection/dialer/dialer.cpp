@@ -24,8 +24,9 @@ namespace psm::connect
          */
         struct socket_options
         {
-            std::uint32_t recv_bufsz = 65536U;   // 接收缓冲区大小（字节）
-            std::uint32_t send_bufsz = 65536U;   // 发送缓冲区大小（字节）
+            // 0 = 不设置，使用 Windows 自动调优（自适应 RTT/丢包，避免 64KB 窗口截断带宽）
+            std::uint32_t recv_bufsz = 0U;   // 接收缓冲区大小（字节）
+            std::uint32_t send_bufsz = 0U;   // 发送缓冲区大小（字节）
             bool tcp_nodelay = true;             // 是否启用 TCP_NODELAY
             bool keep_alive = true;              // 是否启用 SO_KEEPALIVE
         };

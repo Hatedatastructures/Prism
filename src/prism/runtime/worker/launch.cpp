@@ -19,12 +19,12 @@ using namespace psm::diagnose;
 namespace psm::runtime::worker::launch
 {
 
-    auto prime(tcp::socket &socket, std::uint32_t buffer_size) noexcept -> void
+    // 仅设 TCP_NODELAY；收发缓冲不设固定值，交由 Windows 自动调优
+    // 自适应 RTT/丢包（固定 256KB 会在手机 Wi-Fi 等高 RTT 下截断带宽）
+    auto prime(tcp::socket &socket) noexcept -> void
     {
         boost::system::error_code ec;
         socket.set_option(tcp::no_delay(true), ec);
-        socket.set_option(net::socket_base::receive_buffer_size(buffer_size), ec);
-        socket.set_option(net::socket_base::send_buffer_size(buffer_size), ec);
     }
 
     [[nodiscard]] auto migrate_executor(tcp::socket &sock, net::io_context &target_ioc) noexcept
@@ -145,7 +145,7 @@ namespace psm::runtime::worker::launch
             if (!migrated)
                 return;
 
-            prime(*migrated, worker_res->process->cfg->buffer.size);
+            prime(*migrated);
 
             try
             {

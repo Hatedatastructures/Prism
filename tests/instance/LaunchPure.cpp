@@ -16,7 +16,7 @@ namespace
     using tcp = net::ip::tcp;
 
     /**
-     * @brief prime 设置 TCP_NODELAY 和缓冲区大小不崩溃
+     * @brief prime 设置 TCP_NODELAY 不崩溃
      */
     TEST(LaunchPure, PrimeSocketNoCrash)
     {
@@ -28,11 +28,11 @@ namespace
         client.connect(ep);
         tcp::socket server = acceptor.accept();
 
-        psm::runtime::worker::launch::prime(server, 8192);
+        psm::runtime::worker::launch::prime(server);
         EXPECT_TRUE(server.is_open()) << "prime: socket still open after prime";
 
         // 再次调用也不崩溃
-        psm::runtime::worker::launch::prime(server, 4096);
+        psm::runtime::worker::launch::prime(server);
         EXPECT_TRUE(server.is_open()) << "prime: socket still open after second prime";
 
         server.close();
@@ -48,7 +48,7 @@ namespace
         net::io_context ioc;
         tcp::socket socket(ioc);
         // socket 未打开，prime 应该内部忽略所有 set_option 错误
-        psm::runtime::worker::launch::prime(socket, 8192);
+        psm::runtime::worker::launch::prime(socket);
         // prime 成功返回即验证了内部错误被安全忽略
         EXPECT_TRUE(socket.is_open() == false) << "prime: closed socket remains closed after prime";
     }

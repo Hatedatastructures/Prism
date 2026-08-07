@@ -26,7 +26,7 @@ namespace
         tcp::socket sock(ioc);
         sock.open(tcp::v4());
 
-        launch::prime(sock, 8192);
+        launch::prime(sock);
 
         boost::system::error_code ec;
         tcp::no_delay no_delay_opt;
@@ -45,34 +45,19 @@ namespace
         sock.close();
     }
 
-    TEST(LaunchDeep, PrimeSmallBuffer)
+    TEST(LaunchDeep, PrimeNoBufferConfig)
     {
+        // prime 不再设置收发缓冲（交系统自动调优），选项查询仍应正常
         net::io_context ioc;
         tcp::socket sock(ioc);
         sock.open(tcp::v4());
 
-        launch::prime(sock, 1024);
+        launch::prime(sock);
 
         boost::system::error_code ec;
         net::socket_base::receive_buffer_size rcv_opt;
         sock.get_option(rcv_opt, ec);
-        EXPECT_TRUE(!ec) << "prime: small buffer set without error";
-
-        sock.close();
-    }
-
-    TEST(LaunchDeep, PrimeLargeBuffer)
-    {
-        net::io_context ioc;
-        tcp::socket sock(ioc);
-        sock.open(tcp::v4());
-
-        launch::prime(sock, 1024 * 1024);
-
-        boost::system::error_code ec;
-        net::socket_base::receive_buffer_size rcv_opt;
-        sock.get_option(rcv_opt, ec);
-        EXPECT_TRUE(!ec) << "prime: large buffer set without error";
+        EXPECT_TRUE(!ec) << "prime: buffer option query without error";
 
         sock.close();
     }
@@ -91,7 +76,7 @@ namespace
         tcp::socket server(ioc);
         acceptor.accept(server);
 
-        launch::prime(client, 65536);
+        launch::prime(client);
 
         boost::system::error_code ec;
         tcp::no_delay no_delay_opt;
