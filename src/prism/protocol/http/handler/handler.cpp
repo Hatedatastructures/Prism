@@ -50,7 +50,7 @@ namespace psm::protocol::http
 
         const auto target = recognition::resolve(req);
         if (trace)
-            diagnose::info(trace,
+            diagnose::access(trace,
                 "{} {} -> {}:{}", req.method, req.target, target.host, target.port);
 
         psm::outbound::dial_options dial_opts;

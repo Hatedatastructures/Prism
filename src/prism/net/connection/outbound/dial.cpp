@@ -52,7 +52,7 @@ namespace psm::outbound
             handles.traffic.on_connect();
         }
 
-        diagnose::info(opts.trace,
+        diagnose::access(opts.trace,
             "outbound::dial: success, target: {}:{}, elapsed={}ms",
             target.host, target.port, result.elapsed.count());
 

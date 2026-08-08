@@ -9,7 +9,9 @@ namespace psm::recognition::probe
         if (peek_data.empty())
             return psm::connect::protocol_type::unknown;
 
-        if (peek_data[0] == 0x05)
+        // SOCKS5 须校验 NMETHODS（1-16）：SS2022 salt 首字节随机，单查 0x05 会 1/256 误判
+        if (peek_data.size() >= 2 && peek_data[0] == 0x05 &&
+            peek_data[1] >= 1 && peek_data[1] <= 16)
             return psm::connect::protocol_type::socks5;
 
         // TLS 须检查两字节 0x16 0x03，防止 SS2022 salt 首字节 0x16 误判

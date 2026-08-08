@@ -170,7 +170,7 @@ namespace psm::connect
         const auto end_time = std::chrono::steady_clock::now();
         if (const auto up = total_bytes[0], down = total_bytes[1]; up > 0 || down > 0)
         {
-            diagnose::info(opts.trace, "Transfer: up={}B down={}B, {}ms",
+            diagnose::access(opts.trace, "Transfer: up={}B down={}B, {}ms",
                                                         up, down,
                                                         std::chrono::duration_cast<std::chrono::milliseconds>(end_time - start_time).count());
         }

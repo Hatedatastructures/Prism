@@ -66,7 +66,7 @@ namespace psm::protocol::socks5
             target.port.assign(port_buf, std::distance(port_buf, pe));
             target.positive = true;
             if (trace)
-                diagnose::info(trace,
+                diagnose::access(trace,
                     "CONNECT -> {}:{}", target.host, target.port);
 
             psm::outbound::dial_options dial_opts;
@@ -120,7 +120,7 @@ namespace psm::protocol::socks5
             const auto target_port = std::string_view(
                 udp_port_buf, std::distance(udp_port_buf, upe));
             if (trace)
-                diagnose::info(trace,
+                diagnose::access(trace,
                     "UDP_ASSOCIATE -> {}:{}", target_host, target_port);
 
             auto datagram_router = res_.worker->outbound->make_router();

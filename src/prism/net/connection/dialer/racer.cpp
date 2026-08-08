@@ -135,7 +135,7 @@ namespace psm::connect
             {
                 ctx->result = std::move(conn);
 
-                diagnose::info(trace, "endpoint {} won the race", ep.address().to_string());
+                diagnose::access(trace, "endpoint {} won the race", ep.address().to_string());
 
                 ctx->signal.cancel();
             }

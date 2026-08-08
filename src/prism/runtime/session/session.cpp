@@ -173,7 +173,7 @@ namespace psm::runtime::session
         if (auto meta = res_->meta)
         {
             if (trace)
-                diagnose::info(trace,
+                diagnose::access(trace,
                     "session established, {} -> {}",
                     meta->src.address().to_string(),
                     meta->dst.address().to_string());

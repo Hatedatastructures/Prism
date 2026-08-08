@@ -61,7 +61,12 @@ namespace psm::diagnose
             }
             if (normalized == "off")
             {
-                return spdlog::level::off;
+                // 高于 access_level(7)，保证 off 时访问日志也关闭
+                return static_cast<spdlog::level::level_enum>(8);
+            }
+            if (normalized == "access")
+            {
+                return access_level;
             }
 
             return spdlog::level::info;
@@ -212,7 +217,19 @@ namespace psm::diagnose
         // 关键：异步 logger 必须显式 flush_on，否则 buffer 不会自动刷盘，
         // taskkill /F 或异常终止时会丢失所有日志
         logger->flush_on(spdlog::level::info);
-        logger->set_pattern(std::string(effective_cfg.pattern.c_str()));
+        auto effective_pattern = std::string(effective_cfg.pattern.c_str());
+        if (log_level == access_level)
+        {
+            // %l 对自定义级别（值 7）会越界访问编译库的 level_names 表，替换为固定 "access"
+            constexpr std::string_view level_token = "%l";
+            std::size_t pos = 0;
+            while ((pos = effective_pattern.find(level_token, pos)) != std::string::npos)
+            {
+                effective_pattern.replace(pos, level_token.size(), "access");
+                pos += 2;
+            }
+        }
+        logger->set_pattern(effective_pattern);
 
         spdlog::set_default_logger(logger);
         spdlog::set_level(log_level);

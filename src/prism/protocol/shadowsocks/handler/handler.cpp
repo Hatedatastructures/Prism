@@ -55,7 +55,7 @@ namespace psm::protocol::shadowsocks
         }
 
         if (trace)
-            diagnose::info(trace,
+            diagnose::access(trace,
                 "CONNECT -> {}:{}", agent->target().host, agent->target().port);
 
         auto ack_ec = co_await agent->acknowledge();

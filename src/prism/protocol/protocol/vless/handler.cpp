@@ -83,7 +83,7 @@ namespace psm::protocol::vless
             target.port.assign(port_buf, std::distance(port_buf, pe));
             target.positive = true;
             if (trace)
-                diagnose::info(trace,
+                diagnose::access(trace,
                     "CONNECT -> {}:{}", target.host, target.port);
 
             co_await psm::connect::forward_pipeline(res_, target,

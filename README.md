@@ -6,58 +6,85 @@
 ![Platform](https://img.shields.io/badge/Platform-Windows%20|%20Linux-lightgrey)
 ![License](https://img.shields.io/badge/License-MIT-green)
 
-**高性能协程代理引擎** — C++23 纯协程架构，PMR 热路径零堆分配
+**Clash 服务端** — 单端口服务全部协议
 
 </div>
 
 ---
 
-## 概述
+## 协议支持
 
-Prism 是从零构建的服务端代理引擎，用 C++23 协程替代回调、PMR 内存池消除堆分配、零拷贝减少数据搬移。每个连接由独立协程驱动，per-worker 独占 io_context 全链路无锁，热路径全程零 malloc。支持五种代理协议 + 六种 TLS 伪装方案，兼容 Mihomo 客户端。
+### 代理协议
+
+| 协议 | TCP | UDP | smux | yamux | h2mux | TLS 伪装 |
+|------|:---:|:---:|:---:|:---:|:---:|:--------:|
+| HTTP | ✅ | — | — | — | — | — |
+| SOCKS5 | ✅ | ✅ | — | — | — | — |
+| Trojan | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
+| VLESS | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
+| SS2022 | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
+| AnyTLS | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
+| TrustTunnel | ✅ | ✅ | — | — | — | ✅ |
+
+✅ 支持 · — 不支持
+
+### TLS 伪装方案
+
+| 方案 | 形态 | 说明 |
+|------|:---:|------|
+| Reality | 嵌套 | TLS 指纹伪装，X25519 密钥交换，免证书 |
+| ShadowTLS v3 | 嵌套 | TLS 握手代理，规避主动探测 |
+| Restls | 嵌套 | TLS 探测抵抗，自定义脚本认证 |
+| AnyTLS | 独立 | 自带 TLS + 应用层认证 + 内部多路复用 |
+| TrustTunnel | 独立 | 自带 TLS + HTTP/2 CONNECT，Basic Auth（仅 h2，不支持 QUIC）|
+
+- **嵌套**：TLS 传输层伪装，承载内层代理协议
+- **独立**：方案自身即完整代理协议（AnyTLS / TrustTunnel）
+- **多路复用**：smux v1（Mihomo/xtaci 兼容）· yamux（窗口流控）· h2mux，协商制通用层
+- **SNI 路由**：伪装方案按 SNI 识别（如 `www.microsoft.com` → Reality、`www.apple.com` → ShadowTLS），单端口可同时服务全部协议组合
 
 ---
 
-## 特性
 
-**架构**
-- C++23 `co_await` 全链路异步，无回调嵌套
-- PMR 全局池 + 线程独占池，热路径零堆分配
-- per-worker 独占 `io_context`，吞吐随核心数线性扩展
-- 首包协议检测 + TLS 透明剥离 + 二次探测，单端口服务所有协议
+## 架构概览
 
-**协议**
-- **HTTP** — 正向代理 + CONNECT 隧道 + Basic 认证
-- **SOCKS5** — RFC 1928，TCP CONNECT + UDP ASSOCIATE
-- **Trojan** — TLS + SHA224 凭据 + mux
-- **VLESS** — UUID 认证 + mux
-- **SS2022** — SIP022 AEAD (AES-128/256-GCM + XChaCha20-Poly1305)，BLAKE3 密钥派生，抗重放
+```
+listener ──► balancer（亲和性哈希 + 负载均衡）──► worker × N（独立 io_context）
+                                                   └─► session
+                                                        ├─ probe：首包识别协议类型
+                                                        ├─ 伪装方案 / 协议处理
+                                                        └─ 双向异步中继（含多路复用协商）
+```
 
-**伪装**
-- **Reality** — TLS 指纹伪装，X25519 密钥交换
-- **ShadowTLS v3** — TLS 握手代理，规避主动探测
-- **Restls** — TLS 探测抵抗，自定义脚本认证
-- **AnyTLS** — 标准 TLS + 应用层认证 + 内部多路复用
-- **TrustTunnel** — HTTP/2 CONNECT 代理，Basic Auth 认证（仅 h2 路径，不支持 QUIC）
-- **Native** — 原生 TLS 兜底
+详见 [架构说明](docs/ARCHITECTURE.md)
 
-**多路复用**
-- **smux v1** — 兼容 Mihomo/xtaci，TCP + UDP
-- **yamux** — 窗口流量控制，TCP + UDP
-- **h2mux** — HTTP/2 多路复用，nghttp2 帧编解码，TCP + UDP
+---
 
-**优化**
-- Happy Eyeballs (RFC 8305) — DNS 竞速 + 多 IP 连接竞速
-- 连接池 — 线程级复用 + 健康检查 + 自动回收
-- DNS 管道 — 规则匹配 → 缓存 → 合并 → 上游(UDP/TCP/DoT/DoH) → 黑名单 → TTL 钳制
-- 负载均衡 — 加权评分 + 亲和性哈希 + 过载反压
-- 会话日志 — 字段选择性前缀 (sid/client/protocol)，按日志等级自动渲染
+## 性能
+
+本机回环实测（Windows 11 · Release · 1GB/连接大文件，每组 3 轮取均值，单位 Gbps）
+
+| 协议 | 方向 | 单 worker | 8 worker |
+|------|------|:---:|:---:|
+| HTTP 代理 | 下行 | 19.6 | 65.0 |
+| HTTP 代理 | 上行 | 10.2 | 39.4 |
+| Trojan（TLS 内层）| 下行 | 8.1 | 32.0 * |
+| Trojan（TLS 内层）| 上行 | 6.8 | 30.7 |
+
+- 回环 I/O 上限约 13 GB/s（104 Gbps，CPU <5%），瓶颈为系统 I/O 栈，非计算
+- 同源 IP 连接集中于单 worker（上限 ~2.7 GB/s）；多客户端 IP 分散后吞吐随 worker 扩展
+- 实际网络取决于链路带宽与 RTT
+- \* TLS 8 worker 偶发识别失败，值为单次实测
 
 ---
 
 ## 快速开始
 
-环境要求：C++23 / CMake 3.23+ / MinGW 或 GCC 工具链
+### 环境要求
+
+C++23 / CMake 3.23+ / MinGW 或 GCC 工具链
+
+### 构建与启动
 
 ```bash
 git clone https://github.com/Hatedatastructures/Prism.git
@@ -70,23 +97,17 @@ cmake --build build --config Release -j 16
 # 配置
 cp src/configuration.json build/src/
 
-# 启动
-./build/src/Prism.exe                     # 自动加载同目录配置
-./build/src/Prism.exe /path/to/config     # 指定配置路径
+# 启动（自动加载同目录配置，或指定路径）
+./build/src/Prism.exe
+./build/src/Prism.exe /path/to/config
 
 # 测试
 ctest --test-dir build --output-on-failure -j 1 --timeout 30
-
-# 运行单个测试（gtest_discover_tests 自动注册用例）
-build/tests/Socks5
-
-# 按过滤条件运行
-ctest --test-dir build -R "Crypto" --output-on-failure
 ```
 
 > 配置文件中的路径需改为绝对路径，详见 [配置详解](docs/tutorial/configuration.md)
 
-**客户端示例**
+### 客户端示例（Mihomo/Clash）
 
 ```yaml
 proxies:
@@ -101,104 +122,21 @@ proxies:
 
 ---
 
-## 协议支持
-
-| 协议 | TCP | UDP | 认证 | Mux | 伪装 |
-|------|:---:|:---:|:-----|:---:|:----:|
-| HTTP | ✓ | — | Basic | — | — |
-| SOCKS5 | ✓ | ✓ | User/Pass | — | — |
-| Trojan | ✓ | ✓ | SHA224 | ✓ | Reality/ShadowTLS/Restls/AnyTLS/TrustTunnel/Native |
-| VLESS | ✓ | ✓ | UUID | ✓ | Reality/ShadowTLS/Restls/AnyTLS/TrustTunnel/Native |
-| SS2022 | ✓ | ✓ | PSK/BLAKE3 | — | ShadowTLS/Restls |
-
-| 伪装 | 状态 |
-|------|------|
-| Reality | 已完成 — TLS 指纹伪装，可叠加任意内层协议 |
-| ShadowTLS v3 | 已完成 — TLS 握手代理，可叠加 SS2022/任意内层协议 |
-| Restls | 已完成 — TLS 探测抵抗，可叠加 SS2022/任意内层协议 |
-| AnyTLS | 已完成 — 标准 TLS + 应用层认证 + 内部多路复用 |
-| TrustTunnel | 已完成 — HTTP/2 CONNECT 代理，Basic Auth 认证（仅 h2，不支持 QUIC）|
-| Native | 已完成 — 原生 TLS 兜底 |
-
----
-
-## 性能
-
-Intel i9-13900K + DDR4 64GB，Release (-O3)
-
-**协议握手**
-
-```
-BenchmarkSS2022握手            560000     1.35 us/op    731.4 k/s   纯内存，无网络往返
-BenchmarkTrojan握手              5600     131 us/op      7.63 k/s
-BenchmarkVLESS握手               5600     138 us/op      7.17 k/s
-BenchmarkSOCKS5握手              4480     146 us/op      6.83 k/s   双往返
-BenchmarkHTTP握手                4480     170 us/op      6.10 k/s
-```
-
-**吞吐量**
-
-```
-Benchmark隧道传输/128KB          18667     49.5 us/op     7.11 Gi/s  接近内存带宽
-BenchmarkAES256GCM加密           2358     298 us/op      225 Mi/s   64KB payload
-BenchmarkAES256GCM解密           2358     307 us/op      205 Mi/s
-BenchmarkReality握手            14452     47.6 us/op     22.6 k/s   X25519 占45.8%
-BenchmarkBLAKE3密钥派生        2800000    269 ns/op      144 Mi/s   SS2022 EK派生
-```
-
-**内存分配**
-
-```
-BenchmarkFrameArena           112000000    9.24 ns/op     3.75 Gi/s  帧内临时对象
-BenchmarkThreadLocalPool       37333333    17.7 ns/op     1.70 Gi/s  跨帧持久对象
-BenchmarkGlobalPool             5600000    119 ns/op      260 Mi/s  全局共享
-BenchmarkThreadLocal/4t        22300444    37.5 ns/op     103× vs Global  无竞争
-```
-
-[完整性能报告](docs/performance-report.md)
-
----
-
-## 依赖
-
-全部通过 CMake FetchContent 自动拉取，首次构建约 10 分钟。
-
-| 库 | 版本 | 用途 |
-|:---|:----:|:-----|
-| Boost.Asio | 1.89.0 | 协程异步 I/O |
-| BoringSSL | — | TLS (OpenSSL API 兼容) |
-| spdlog | 1.17.0 | 异步日志 |
-| glaze | 6.5.1 | JSON 序列化 |
-| BLAKE3 | 1.8.1 | SS2022 密钥派生 |
-| nghttp2 | 1.69.0 | h2mux HTTP/2 帧编解码 |
-| Google Benchmark | 1.9.5 | 性能测试 |
-| Google Test | 1.16.0 | 单元测试框架 |
-
----
-
 ## 开发路线
 
-- [x] 五协议完整实现 (HTTP/SOCKS5/Trojan/VLESS/SS2022)
-- [x] TLS 透明剥离 + 二次协议探测
-- [x] Recognition 模块 (协议智能识别 + ClientHello 特征分析)
-- [x] smux/yamux/h2mux 多路复用
-- [x] Happy Eyeballs (RFC 8305)
-- [x] 7 阶段 DNS 管道
-- [x] 连接池 + 健康检查
-- [x] 加权负载均衡 + 过载反压
-- [x] Reality TLS 伪装
-- [x] ShadowTLS v3 / Restls / AnyTLS / TrustTunnel
-- [x] 字段选择性会话日志 (sid/client/protocol 按等级自动渲染)
-- [x] 账户目录 · 租约 · 流量统计
-- [ ] QUIC / Hysteria2
-- [ ] smux v2
-- [ ] WebSocket
+规划中：QUIC / Hysteria2 · smux v2 · WebSocket
 
 ---
 
 ## 文档
 
-[快速开始](docs/tutorial/getting-started.md) · [配置详解](docs/tutorial/configuration.md) · [部署指南](docs/tutorial/deployment.md) · [故障排查](docs/tutorial/troubleshooting.md) · [常见问题](docs/tutorial/faq.md) · [性能报告](docs/performance-report.md)
+- [架构说明](docs/ARCHITECTURE.md)
+- [快速开始](docs/tutorial/getting-started.md)
+- [配置详解](docs/tutorial/configuration.md)
+- [部署指南](docs/tutorial/deployment.md)
+- [故障排查](docs/tutorial/troubleshooting.md)
+- [常见问题](docs/tutorial/faq.md)
+- [性能报告](docs/performance-report.md)
 
 ---
 
