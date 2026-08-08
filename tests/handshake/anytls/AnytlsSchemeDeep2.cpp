@@ -40,7 +40,7 @@ namespace
         sha256_hash hasher;
         auto h1 = hasher(key);
         auto h2 = hasher(key);
-        EXPECT_TRUE(h1 == h2) << "sha256_hash: deterministic";
+        EXPECT_EQ(h1, h2) << "sha256_hash: deterministic";
     }
 
     TEST(AnytlsSchemeDeep2, Sha256HashDifferentKeys)
@@ -54,7 +54,7 @@ namespace
         }
 
         sha256_hash hasher;
-        EXPECT_TRUE(hasher(key1) != hasher(key2))
+        EXPECT_NE(hasher(key1), hasher(key2))
             << "sha256_hash: different keys -> different hashes";
     }
 
@@ -81,7 +81,7 @@ namespace
         memory::vector<anytls::user> users;
         users.push_back({"alice", "password123"});
         auto map = build_user_map(users);
-        EXPECT_TRUE(map.size() == 1) << "build_user_map: 1 user -> size 1";
+        EXPECT_EQ(map.size(), 1) << "build_user_map: 1 user -> size 1";
         EXPECT_TRUE(!map.empty()) << "build_user_map: 1 user -> not empty";
     }
 
@@ -90,7 +90,7 @@ namespace
         memory::vector<anytls::user> users;
         users.push_back({"alice", "pass_a"});
         users.push_back({"bob", "pass_b"});
-        EXPECT_TRUE(users.size() == 2) << "build_user_map: 2 users created";
+        EXPECT_EQ(users.size(), 2) << "build_user_map: 2 users created";
     }
 
     // ─── verify_user ─────────────────────────────
@@ -121,7 +121,7 @@ namespace
                reinterpret_cast<std::uint8_t *>(frame.password_hash.data()));
 
         const auto *username = verify_user(frame, users, nullptr);
-        EXPECT_TRUE(username == nullptr) << "verify_user: wrong password -> nullptr";
+        EXPECT_EQ(username, nullptr) << "verify_user: wrong password -> nullptr";
     }
 
     TEST(AnytlsSchemeDeep2, VerifyUserEmpty)
@@ -130,7 +130,7 @@ namespace
 
         anytls::auth_frame frame{};
         const auto *username = verify_user(frame, users, nullptr);
-        EXPECT_TRUE(username == nullptr) << "verify_user: empty users -> nullptr";
+        EXPECT_EQ(username, nullptr) << "verify_user: empty users -> nullptr";
     }
 
     // ─── parse_socks_target ──────────────────────
@@ -158,8 +158,8 @@ namespace
             std::byte{0x00}, std::byte{0x50}};
         auto [ec, target] = parse_socks_target(data, make_mr());
         EXPECT_TRUE(!psm::fault::failed(ec)) << "parse_socks_target: IPv4 success";
-        EXPECT_TRUE(target.host == "127.0.0.1") << "parse_socks_target: IPv4 host";
-        EXPECT_TRUE(target.port == "80") << "parse_socks_target: IPv4 port";
+        EXPECT_EQ(target.host, "127.0.0.1") << "parse_socks_target: IPv4 host";
+        EXPECT_EQ(target.port, "80") << "parse_socks_target: IPv4 port";
     }
 
     TEST(AnytlsSchemeDeep2, ParseSocksTargetIPv6)
@@ -174,7 +174,7 @@ namespace
             std::byte{0x1F}, std::byte{0x90}};
         auto [ec, target] = parse_socks_target(data, make_mr());
         EXPECT_TRUE(!psm::fault::failed(ec)) << "parse_socks_target: IPv6 success";
-        EXPECT_TRUE(target.port == "8080") << "parse_socks_target: IPv6 port";
+        EXPECT_EQ(target.port, "8080") << "parse_socks_target: IPv6 port";
     }
 
     TEST(AnytlsSchemeDeep2, ParseSocksTargetIPv4Truncated)
@@ -204,13 +204,13 @@ namespace
     TEST(AnytlsSchemeDeep2, SchemeName)
     {
         psm::handshake::anytls::scheme s;
-        EXPECT_TRUE(s.name() == "anytls") << "scheme: name() == anytls";
+        EXPECT_EQ(s.name(), "anytls") << "scheme: name() == anytls";
     }
 
     TEST(AnytlsSchemeDeep2, SchemeTier)
     {
         psm::handshake::anytls::scheme s;
-        EXPECT_TRUE(s.tier() == 2) << "scheme: tier() == 2";
+        EXPECT_EQ(s.tier(), 2) << "scheme: tier() == 2";
     }
 
     TEST(AnytlsSchemeDeep2, SchemeUnique)
@@ -222,7 +222,7 @@ namespace
     TEST(AnytlsSchemeDeep2, SchemeCategory)
     {
         psm::handshake::anytls::scheme s;
-        EXPECT_TRUE(s.category() == psm::handshake::scheme_category::stack)
+        EXPECT_EQ(s.category(), psm::handshake::scheme_category::stack)
             << "scheme: category() == stack";
     }
 

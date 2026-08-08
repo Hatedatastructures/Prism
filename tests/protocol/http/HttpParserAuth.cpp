@@ -36,7 +36,7 @@ namespace
         req.version = "HTTP/1.1";
 
         auto result = http::build_fwd(req, std::pmr::get_default_resource());
-        EXPECT_TRUE(result == "GET /path/to/resource?query=1 HTTP/1.1\r\n")
+        EXPECT_EQ(result, "GET /path/to/resource?query=1 HTTP/1.1\r\n")
             << "build_fwd: GET request line";
     }
 
@@ -48,7 +48,7 @@ namespace
         req.version = "HTTP/1.1";
 
         auto result = http::build_fwd(req, std::pmr::get_default_resource());
-        EXPECT_TRUE(result == "CONNECT example.com:443 HTTP/1.1\r\n")
+        EXPECT_EQ(result, "CONNECT example.com:443 HTTP/1.1\r\n")
             << "build_fwd: CONNECT request line";
     }
 
@@ -60,7 +60,7 @@ namespace
         req.version = "HTTP/1.1";
 
         auto result = http::build_fwd(req, std::pmr::get_default_resource());
-        EXPECT_TRUE(result == "GET / HTTP/1.1\r\n")
+        EXPECT_EQ(result, "GET / HTTP/1.1\r\n")
             << "build_fwd: root path";
     }
 
@@ -72,7 +72,7 @@ namespace
         req.version = "HTTP/1.0";
 
         auto result = http::build_fwd(req, std::pmr::get_default_resource());
-        EXPECT_TRUE(result == "POST /api HTTP/1.0\r\n")
+        EXPECT_EQ(result, "POST /api HTTP/1.0\r\n")
             << "build_fwd: HTTP/1.0";
     }
 

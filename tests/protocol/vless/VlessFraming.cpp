@@ -126,9 +126,9 @@ namespace
     TEST(VlessFraming, MakeResponse)
     {
         auto resp = psm::protocol::vless::format::make_response();
-        EXPECT_TRUE(resp[0] == std::byte{0x00}) << "make_response byte 0 = 0x00";
-        EXPECT_TRUE(resp[1] == std::byte{0x00}) << "make_response byte 1 = 0x00";
-        EXPECT_TRUE(resp.size() == 2) << "make_response size = 2";
+        EXPECT_EQ(resp[0], std::byte{0x00}) << "make_response byte 0 = 0x00";
+        EXPECT_EQ(resp[1], std::byte{0x00}) << "make_response byte 1 = 0x00";
+        EXPECT_EQ(resp.size(), 2) << "make_response size = 2";
     }
 
     TEST(VlessFraming, BuildParseUdpIpv4)
@@ -140,12 +140,12 @@ namespace
 
         const std::byte payload[] = {std::byte{0x01}, std::byte{0x02}};
         auto ec = psm::protocol::vless::format::build_udp_pkt(frame, payload, out);
-        EXPECT_TRUE(ec == psm::fault::code::success) << "build vless udp ipv4: success";
+        EXPECT_EQ(ec, psm::fault::code::success) << "build vless udp ipv4: success";
 
         auto [pec, result] = psm::protocol::vless::format::parse_udp_pkt(out);
-        EXPECT_TRUE(pec == psm::fault::code::success) << "parse vless udp ipv4: success";
-        EXPECT_TRUE(result.destination_port == 443) << "parse vless udp ipv4: port=443";
-        EXPECT_TRUE(result.payload_size == 2) << "parse vless udp ipv4: payload_size=2";
+        EXPECT_EQ(pec, psm::fault::code::success) << "parse vless udp ipv4: success";
+        EXPECT_EQ(result.destination_port, 443) << "parse vless udp ipv4: port=443";
+        EXPECT_EQ(result.payload_size, 2) << "parse vless udp ipv4: payload_size=2";
     }
 
     TEST(VlessFraming, BuildParseUdpIpv6)
@@ -159,11 +159,11 @@ namespace
 
         const std::byte payload[] = {std::byte{0xCC}};
         auto ec = psm::protocol::vless::format::build_udp_pkt(frame, payload, out);
-        EXPECT_TRUE(ec == psm::fault::code::success) << "build vless udp ipv6: success";
+        EXPECT_EQ(ec, psm::fault::code::success) << "build vless udp ipv6: success";
 
         auto [pec, result] = psm::protocol::vless::format::parse_udp_pkt(out);
-        EXPECT_TRUE(pec == psm::fault::code::success) << "parse vless udp ipv6: success";
-        EXPECT_TRUE(result.destination_port == 8443) << "parse vless udp ipv6: port=8443";
+        EXPECT_EQ(pec, psm::fault::code::success) << "parse vless udp ipv6: success";
+        EXPECT_EQ(result.destination_port, 8443) << "parse vless udp ipv6: port=8443";
     }
 
     TEST(VlessFraming, BuildParseUdpDomain)
@@ -179,18 +179,18 @@ namespace
 
         const std::byte payload[] = {std::byte{0xAA}};
         auto ec = psm::protocol::vless::format::build_udp_pkt(frame, payload, out);
-        EXPECT_TRUE(ec == psm::fault::code::success) << "build vless udp domain: success";
+        EXPECT_EQ(ec, psm::fault::code::success) << "build vless udp domain: success";
 
         auto [pec, result] = psm::protocol::vless::format::parse_udp_pkt(out);
-        EXPECT_TRUE(pec == psm::fault::code::success) << "parse vless udp domain: success";
-        EXPECT_TRUE(result.destination_port == 53) << "parse vless udp domain: port=53";
+        EXPECT_EQ(pec, psm::fault::code::success) << "parse vless udp domain: success";
+        EXPECT_EQ(result.destination_port, 53) << "parse vless udp domain: port=53";
     }
 
     TEST(VlessFraming, ParseUdpTooShort)
     {
         std::byte buf[5]{};
         auto [ec, result] = psm::protocol::vless::format::parse_udp_pkt(buf);
-        EXPECT_TRUE(ec == psm::fault::code::bad_message) << "parse vless udp short: bad_message";
+        EXPECT_EQ(ec, psm::fault::code::bad_message) << "parse vless udp short: bad_message";
     }
 
 } // namespace

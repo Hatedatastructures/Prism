@@ -65,11 +65,11 @@ namespace
         auto reliable = std::make_shared<psm::transport::reliable>(std::move(sock)); shadowtls_transport transport(std::move(reliable), std::move(handover));
 
         EXPECT_TRUE(!transport.write_key_.empty()) << "hmac: write_key not empty";
-        EXPECT_TRUE(transport.write_key_.size() == 32) << "hmac: write_key 32 bytes";
-        EXPECT_TRUE(transport.hmac_write_ctx_ != nullptr) << "hmac: write ctx not null";
-        EXPECT_TRUE(transport.hmac_read_ctx_ != nullptr) << "hmac: read ctx not null";
+        EXPECT_EQ(transport.write_key_.size(), 32) << "hmac: write_key 32 bytes";
+        EXPECT_NE(transport.hmac_write_ctx_, nullptr) << "hmac: write ctx not null";
+        EXPECT_NE(transport.hmac_read_ctx_, nullptr) << "hmac: read ctx not null";
         EXPECT_TRUE(transport.initial_buffer_.empty()) << "hmac: init empty";
-        EXPECT_TRUE(transport.initial_offset_ == 0) << "hmac: init_off=0";
+        EXPECT_EQ(transport.initial_offset_, 0) << "hmac: init_off=0";
         EXPECT_TRUE(transport.pending_buffer_.empty()) << "hmac: pending empty";
 
         EXPECT_TRUE(std::memcmp(transport.server_random_.data(), server_random.data(), 32) == 0)
@@ -97,9 +97,9 @@ namespace
 
         auto reliable = std::make_shared<psm::transport::reliable>(std::move(sock)); shadowtls_transport transport(std::move(reliable), std::move(handover));
 
-        EXPECT_TRUE(transport.initial_buffer_.size() == 4) << "init: size=4";
-        EXPECT_TRUE(transport.initial_buffer_[0] == std::byte{0x01}) << "init: [0]=0x01";
-        EXPECT_TRUE(transport.initial_buffer_[3] == std::byte{0x04}) << "init: [3]=0x04";
+        EXPECT_EQ(transport.initial_buffer_.size(), 4) << "init: size=4";
+        EXPECT_EQ(transport.initial_buffer_[0], std::byte{0x01}) << "init: [0]=0x01";
+        EXPECT_EQ(transport.initial_buffer_[3], std::byte{0x04}) << "init: [3]=0x04";
     }
 
     TEST(ShadowtlsTransportDeep, ConstructNullHmac)
@@ -120,8 +120,8 @@ namespace
 
         auto reliable = std::make_shared<psm::transport::reliable>(std::move(sock)); shadowtls_transport transport(std::move(reliable), std::move(handover));
 
-        EXPECT_TRUE(transport.hmac_write_ctx_ == nullptr) << "null: write ctx null";
-        EXPECT_TRUE(transport.hmac_read_ctx_ == nullptr) << "null: read ctx null";
+        EXPECT_EQ(transport.hmac_write_ctx_, nullptr) << "null: write ctx null";
+        EXPECT_EQ(transport.hmac_read_ctx_, nullptr) << "null: read ctx null";
     }
 
     TEST(ShadowtlsTransportDeep, TransportType)
@@ -142,8 +142,8 @@ namespace
 
         auto reliable = std::make_shared<psm::transport::reliable>(std::move(sock)); shadowtls_transport transport(std::move(reliable), std::move(handover));
 
-        EXPECT_TRUE(transport.transport_type() == psm::transport::transmission::type::tcp) << "type: tcp";
-        EXPECT_TRUE(transport.next_layer() != nullptr) << "layer: reliable";
+        EXPECT_EQ(transport.transport_type(), psm::transport::transmission::type::tcp) << "type: tcp";
+        EXPECT_NE(transport.next_layer(), nullptr) << "layer: reliable";
     }
 
     TEST(ShadowtlsTransportDeep, Close)

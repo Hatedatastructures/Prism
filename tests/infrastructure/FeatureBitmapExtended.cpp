@@ -22,7 +22,7 @@ namespace
     {
         hello_features features;
         auto bitmap = build_bitmap(features);
-        EXPECT_TRUE(bitmap == 0) << "bitmap: empty features -> 0";
+        EXPECT_EQ(bitmap, 0) << "bitmap: empty features -> 0";
     }
 
     TEST(FeatureBitmapExtended, BitmapSNI)

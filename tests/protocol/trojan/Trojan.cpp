@@ -192,8 +192,8 @@ TEST(Trojan, UdpParseIPv4)
 
     auto* ipv4 = std::get_if<protocol::trojan::ipv4_address>(&result.destination_address);
     ASSERT_TRUE(ipv4 != nullptr) << "address type should be IPv4";
-    EXPECT_TRUE(result.destination_port == 80) << "port should be 80, got " << result.destination_port;
-    EXPECT_TRUE(result.payload_size == 5) << "payload size should be 5, got " << result.payload_size;
+    EXPECT_EQ(result.destination_port, 80) << "port should be 80, got " << result.destination_port;
+    EXPECT_EQ(result.payload_size, 5) << "payload size should be 5, got " << result.payload_size;
 }
 
 /**
@@ -223,7 +223,7 @@ TEST(Trojan, UdpParseDomain)
 
     auto* dom = std::get_if<protocol::trojan::domain_address>(&result.destination_address);
     ASSERT_TRUE(dom != nullptr) << "address type should be domain";
-    EXPECT_TRUE(result.destination_port == 443) << "port should be 443";
+    EXPECT_EQ(result.destination_port, 443) << "port should be 443";
 }
 
 /**
@@ -246,12 +246,12 @@ TEST(Trojan, UdpBuildParseRoundtrip)
     auto [parse_ec, result] = protocol::trojan::format::parse_udp_pkt(out);
     ASSERT_TRUE(psm::fault::succeeded(parse_ec)) << "parse_udp_packet roundtrip failed: " << psm::fault::describe(parse_ec);
 
-    EXPECT_TRUE(result.destination_port == 8080) << "roundtrip port should be 8080, got " << result.destination_port;
-    EXPECT_TRUE(result.payload_size == payload_str.size()) << "roundtrip payload_size mismatch";
+    EXPECT_EQ(result.destination_port, 8080) << "roundtrip port should be 8080, got " << result.destination_port;
+    EXPECT_EQ(result.payload_size, payload_str.size()) << "roundtrip payload_size mismatch";
 
     std::string_view parsed_payload(reinterpret_cast<const char*>(out.data() + result.payload_offset),
                                      result.payload_size);
-    EXPECT_TRUE(parsed_payload == payload_str) << "roundtrip payload content mismatch";
+    EXPECT_EQ(parsed_payload, payload_str) << "roundtrip payload content mismatch";
 }
 
 /**

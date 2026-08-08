@@ -22,7 +22,7 @@ namespace
             server_random[i] = static_cast<std::byte>(i);
 
         auto key = compute_write_key(password, server_random);
-        EXPECT_TRUE(key.size() == 32) << "compute_write_key: size=32";
+        EXPECT_EQ(key.size(), 32) << "compute_write_key: size=32";
 
         // 相同输入产生相同输出
         auto key2 = compute_write_key(password, server_random);
@@ -40,7 +40,7 @@ namespace
             server_random[i] = static_cast<std::byte>(i);
 
         auto key = compute_write_key(password, server_random);
-        EXPECT_TRUE(key.size() == 32) << "compute_write_key: empty password -> size=32";
+        EXPECT_EQ(key.size(), 32) << "compute_write_key: empty password -> size=32";
     }
 
     TEST(ShadowtlsTransportPure2, ComputeWriteKeyEmptyRandom)
@@ -49,7 +49,7 @@ namespace
         std::span<const std::byte> server_random;
 
         auto key = compute_write_key(password, server_random);
-        EXPECT_TRUE(key.size() == 32) << "compute_write_key: empty random -> size=32";
+        EXPECT_EQ(key.size(), 32) << "compute_write_key: empty random -> size=32";
     }
 
     TEST(ShadowtlsTransportPure2, ComputeWriteKeyDifferentPasswords)

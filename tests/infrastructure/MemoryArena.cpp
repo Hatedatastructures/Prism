@@ -24,12 +24,12 @@ namespace
         psm::memory::frame_arena arena;
 
         // get() 必须返回非空资源指针
-        EXPECT_TRUE(arena.get() != nullptr) << "arena.get() returns non-null resource pointer";
+        EXPECT_NE(arena.get(), nullptr) << "arena.get() returns non-null resource pointer";
 
         // 验证资源指针可创建 PMR 容器
         psm::memory::string str(arena.get());
         str = "hello arena";
-        EXPECT_TRUE(str == "hello arena") << "pmr::string constructed with arena resource works";
+        EXPECT_EQ(str, "hello arena") << "pmr::string constructed with arena resource works";
 
         psm::memory::vector<int> vec(arena.get());
         vec.push_back(42);
@@ -64,7 +64,7 @@ namespace
         // 验证新分配的数据可正确写入和读取
         char check_buf[128];
         std::memcpy(check_buf, buf2, msg_len);
-        EXPECT_TRUE(std::string_view(check_buf, msg_len) == "after reset")
+        EXPECT_EQ(std::string_view(check_buf, msg_len), "after reset")
             << "data written after reset is readable and correct";
     }
 
@@ -82,7 +82,7 @@ namespace
         ASSERT_TRUE(small2 != nullptr) << "second small allocate (200 bytes) succeeds";
 
         // 两个分配地址不同
-        EXPECT_TRUE(small1 != small2) << "two allocations return different addresses";
+        EXPECT_NE(small1, small2) << "two allocations return different addresses";
 
         // 分配 100 字节并写入数据，验证可用性
         std::memset(small1, 0xAB, 100);
@@ -102,7 +102,7 @@ namespace
         psm::memory::string str(res);
         str.reserve(64);
         str = "stack buffer test string for arena";
-        EXPECT_TRUE(str.size() == 34) << "pmr::string small allocation in stack buffer works";
+        EXPECT_EQ(str.size(), 34) << "pmr::string small allocation in stack buffer works";
     }
 
     TEST(MemoryArena, ArenaMultipleReset)
@@ -157,6 +157,6 @@ namespace
         {
             arena2.reset();
         }
-        EXPECT_TRUE(arena2.get() != nullptr) << "10 consecutive resets on empty arena do not crash";
+        EXPECT_NE(arena2.get(), nullptr) << "10 consecutive resets on empty arena do not crash";
     }
 } // namespace

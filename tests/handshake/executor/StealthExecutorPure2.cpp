@@ -29,7 +29,7 @@ namespace
     {
         psm::memory::vector<std::byte> preread;
         auto result = secondary_probe(preread);
-        EXPECT_TRUE(result == psm::connect::protocol_type::unknown)
+        EXPECT_EQ(result, psm::connect::protocol_type::unknown)
             << "secondary_probe: empty preread -> unknown";
     }
 
@@ -41,7 +41,7 @@ namespace
             preread.push_back(static_cast<std::byte>(c));
 
         auto result = secondary_probe(preread);
-        EXPECT_TRUE(result == psm::connect::protocol_type::http)
+        EXPECT_EQ(result, psm::connect::protocol_type::http)
             << "secondary_probe: HTTP GET -> http";
     }
 
@@ -68,7 +68,7 @@ namespace
         preread.push_back(static_cast<std::byte>(0xCC));
 
         auto result = secondary_probe(preread);
-        EXPECT_TRUE(result == psm::connect::protocol_type::shadowsocks)
+        EXPECT_EQ(result, psm::connect::protocol_type::shadowsocks)
             << "secondary_probe: garbage -> shadowsocks fallback";
     }
 
@@ -80,7 +80,7 @@ namespace
             preread.push_back(static_cast<std::byte>(c));
 
         auto result = secondary_probe(preread);
-        EXPECT_TRUE(result == psm::connect::protocol_type::http)
+        EXPECT_EQ(result, psm::connect::protocol_type::http)
             << "secondary_probe: CONNECT -> http";
     }
 
@@ -92,7 +92,7 @@ namespace
             preread.push_back(static_cast<std::byte>(c));
 
         auto result = secondary_probe(preread);
-        EXPECT_TRUE(result == psm::connect::protocol_type::http)
+        EXPECT_EQ(result, psm::connect::protocol_type::http)
             << "secondary_probe: POST -> http";
     }
 
@@ -105,7 +105,7 @@ namespace
 
         auto result = secondary_probe(preread);
         // SOCKS5 无 TLS 内层特征，detect_tls 返回 unknown → 回退 shadowsocks
-        EXPECT_TRUE(result == psm::connect::protocol_type::shadowsocks)
+        EXPECT_EQ(result, psm::connect::protocol_type::shadowsocks)
             << "secondary_probe: socks5 bytes -> shadowsocks (no TLS fingerprint)";
     }
 
@@ -138,7 +138,7 @@ namespace
         handshake::scheme_registry registry;
         registry.add(std::make_shared<psm::handshake::native::native>());
         auto schemes = registry.all();
-        EXPECT_TRUE(schemes.size() == 1) << "registry: add native -> size 1";
+        EXPECT_EQ(schemes.size(), 1) << "registry: add native -> size 1";
         EXPECT_TRUE(schemes[0]->name() == std::string_view("native"))
             << "registry: scheme name is native";
     }
@@ -149,7 +149,7 @@ namespace
         registry.add(std::make_shared<psm::handshake::native::native>());
         registry.add(std::make_shared<psm::handshake::reality::scheme>());
         auto schemes = registry.all();
-        EXPECT_TRUE(schemes.size() == 2) << "registry: 2 schemes";
+        EXPECT_EQ(schemes.size(), 2) << "registry: 2 schemes";
     }
 
     // ─── scheme_executor 构造 ──────────────────────────
@@ -167,7 +167,7 @@ namespace
         registry.add(std::make_shared<psm::handshake::native::native>());
         registry.add(std::make_shared<psm::handshake::reality::scheme>());
         handshake::scheme_executor executor(registry);
-        EXPECT_TRUE(registry.all().size() == 2) << "executor: constructed with 2 schemes";
+        EXPECT_EQ(registry.all().size(), 2) << "executor: constructed with 2 schemes";
     }
 
 } // namespace

@@ -61,7 +61,7 @@ namespace
         psm::multiplex::h2mux::h2_headers headers;
         headers.host = "_check";
         auto info = psm::handshake::trusttunnel::resolve_stream_target(1, headers);
-        EXPECT_TRUE(info.type == psm::multiplex::h2mux::stream_type::check) << "resolve: check type";
+        EXPECT_EQ(info.type, psm::multiplex::h2mux::stream_type::check) << "resolve: check type";
         EXPECT_TRUE(info.valid) << "resolve: check valid";
     }
 
@@ -71,8 +71,8 @@ namespace
         headers.host = "_udp2";
         headers.authority = "example.com:443";
         auto info = psm::handshake::trusttunnel::resolve_stream_target(1, headers);
-        EXPECT_TRUE(info.type == psm::multiplex::h2mux::stream_type::udp) << "resolve: udp type";
-        EXPECT_TRUE(info.port == 443) << "resolve: udp port=443";
+        EXPECT_EQ(info.type, psm::multiplex::h2mux::stream_type::udp) << "resolve: udp type";
+        EXPECT_EQ(info.port, 443) << "resolve: udp port=443";
         EXPECT_TRUE(info.valid) << "resolve: udp valid";
     }
 
@@ -82,7 +82,7 @@ namespace
         headers.host = "_icmp";
         headers.authority = "10.0.0.1:0";
         auto info = psm::handshake::trusttunnel::resolve_stream_target(1, headers);
-        EXPECT_TRUE(info.type == psm::multiplex::h2mux::stream_type::icmp) << "resolve: icmp type";
+        EXPECT_EQ(info.type, psm::multiplex::h2mux::stream_type::icmp) << "resolve: icmp type";
     }
 
     TEST(TrustTunnelAuthPure, ResolveStreamTcp)
@@ -91,8 +91,8 @@ namespace
         headers.host = "normal";
         headers.authority = "example.com:8080";
         auto info = psm::handshake::trusttunnel::resolve_stream_target(1, headers);
-        EXPECT_TRUE(info.type == psm::multiplex::h2mux::stream_type::tcp) << "resolve: tcp type";
-        EXPECT_TRUE(info.port == 8080) << "resolve: tcp port=8080";
+        EXPECT_EQ(info.type, psm::multiplex::h2mux::stream_type::tcp) << "resolve: tcp type";
+        EXPECT_EQ(info.port, 8080) << "resolve: tcp port=8080";
         EXPECT_TRUE(info.valid) << "resolve: tcp valid";
     }
 
@@ -102,7 +102,7 @@ namespace
         headers.host = "normal";
         headers.authority = "example.com";
         auto info = psm::handshake::trusttunnel::resolve_stream_target(1, headers);
-        EXPECT_TRUE(info.type == psm::multiplex::h2mux::stream_type::tcp) << "resolve: no port -> tcp";
+        EXPECT_EQ(info.type, psm::multiplex::h2mux::stream_type::tcp) << "resolve: no port -> tcp";
         EXPECT_TRUE(!info.valid) << "resolve: no port -> not valid";
     }
 

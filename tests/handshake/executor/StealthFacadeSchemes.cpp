@@ -21,13 +21,13 @@ namespace
     TEST(StealthFacadeSchemes, RealityName)
     {
         psm::handshake::reality::scheme s;
-        EXPECT_TRUE(s.name() == "reality") << "reality: name";
+        EXPECT_EQ(s.name(), "reality") << "reality: name";
     }
 
     TEST(StealthFacadeSchemes, RealityTier)
     {
         psm::handshake::reality::scheme s;
-        EXPECT_TRUE(s.tier() == 0) << "reality: tier=0";
+        EXPECT_EQ(s.tier(), 0) << "reality: tier=0";
     }
 
     TEST(StealthFacadeSchemes, RealityUnique)
@@ -39,7 +39,7 @@ namespace
     TEST(StealthFacadeSchemes, RealityCategory)
     {
         psm::handshake::reality::scheme s;
-        EXPECT_TRUE(s.category() == psm::handshake::scheme_category::facade)
+        EXPECT_EQ(s.category(), psm::handshake::scheme_category::facade)
             << "reality: category=facade";
     }
 
@@ -75,9 +75,9 @@ namespace
         cfg.stealth.reality.server_names.push_back(psm::memory::string("a.example.com"));
         cfg.stealth.reality.server_names.push_back(psm::memory::string("b.example.com"));
         auto snis = s.snis(cfg);
-        EXPECT_TRUE(snis.size() == 2) << "reality: snis count=2";
-        EXPECT_TRUE(snis[0] == "a.example.com") << "reality: snis[0]";
-        EXPECT_TRUE(snis[1] == "b.example.com") << "reality: snis[1]";
+        EXPECT_EQ(snis.size(), 2) << "reality: snis count=2";
+        EXPECT_EQ(snis[0], "a.example.com") << "reality: snis[0]";
+        EXPECT_EQ(snis[1], "b.example.com") << "reality: snis[1]";
     }
 
     TEST(StealthFacadeSchemes, RealitySnisEmpty)
@@ -93,8 +93,8 @@ namespace
         psm::handshake::reality::scheme s;
         psm::settings cfg;
         auto result = s.guess(cfg);
-        EXPECT_TRUE(result.score == 450) << "reality: guess score=450";
-        EXPECT_TRUE(result.solo_flag == 0) << "reality: guess solo_flag=0";
+        EXPECT_EQ(result.score, 450) << "reality: guess score=450";
+        EXPECT_EQ(result.solo_flag, 0) << "reality: guess solo_flag=0";
     }
 
     // ─── Restls ──────────────────────────────────────
@@ -102,13 +102,13 @@ namespace
     TEST(StealthFacadeSchemes, RestlsName)
     {
         psm::handshake::restls::scheme s;
-        EXPECT_TRUE(s.name() == "restls") << "restls: name";
+        EXPECT_EQ(s.name(), "restls") << "restls: name";
     }
 
     TEST(StealthFacadeSchemes, RestlsTier)
     {
         psm::handshake::restls::scheme s;
-        EXPECT_TRUE(s.tier() == 2) << "restls: tier=2";
+        EXPECT_EQ(s.tier(), 2) << "restls: tier=2";
     }
 
     TEST(StealthFacadeSchemes, RestlsUnique)
@@ -120,7 +120,7 @@ namespace
     TEST(StealthFacadeSchemes, RestlsCategory)
     {
         psm::handshake::restls::scheme s;
-        EXPECT_TRUE(s.category() == psm::handshake::scheme_category::facade)
+        EXPECT_EQ(s.category(), psm::handshake::scheme_category::facade)
             << "restls: category=facade";
     }
 
@@ -155,8 +155,8 @@ namespace
         psm::settings cfg;
         cfg.stealth.restls.server_names.push_back(psm::memory::string("x.example.com"));
         auto snis = s.snis(cfg);
-        EXPECT_TRUE(snis.size() == 1) << "restls: snis count=1";
-        EXPECT_TRUE(snis[0] == "x.example.com") << "restls: snis[0]";
+        EXPECT_EQ(snis.size(), 1) << "restls: snis count=1";
+        EXPECT_EQ(snis[0], "x.example.com") << "restls: snis[0]";
     }
 
     TEST(StealthFacadeSchemes, RestlsSnisEmpty)
@@ -172,8 +172,8 @@ namespace
         psm::handshake::restls::scheme s;
         psm::settings cfg;
         auto result = s.guess(cfg);
-        EXPECT_TRUE(result.score == 100) << "restls: guess score=100";
-        EXPECT_TRUE(result.solo_flag == 0) << "restls: guess solo_flag=0";
+        EXPECT_EQ(result.score, 100) << "restls: guess score=100";
+        EXPECT_EQ(result.solo_flag, 0) << "restls: guess solo_flag=0";
     }
 
     // ─── ShadowTLS ────────────────────────────────────
@@ -181,13 +181,13 @@ namespace
     TEST(StealthFacadeSchemes, ShadowtlsName)
     {
         psm::handshake::shadowtls::scheme s;
-        EXPECT_TRUE(s.name() == "shadowtls") << "shadowtls: name";
+        EXPECT_EQ(s.name(), "shadowtls") << "shadowtls: name";
     }
 
     TEST(StealthFacadeSchemes, ShadowtlsTier)
     {
         psm::handshake::shadowtls::scheme s;
-        EXPECT_TRUE(s.tier() == 1) << "shadowtls: tier=1";
+        EXPECT_EQ(s.tier(), 1) << "shadowtls: tier=1";
     }
 
     TEST(StealthFacadeSchemes, ShadowtlsUnique)
@@ -199,7 +199,7 @@ namespace
     TEST(StealthFacadeSchemes, ShadowtlsCategory)
     {
         psm::handshake::shadowtls::scheme s;
-        EXPECT_TRUE(s.category() == psm::handshake::scheme_category::facade)
+        EXPECT_EQ(s.category(), psm::handshake::scheme_category::facade)
             << "shadowtls: category=facade";
     }
 
@@ -262,8 +262,8 @@ namespace
         cfg.stealth.shadowtls.server_names.push_back(psm::memory::string("a.example.com"));
         cfg.stealth.shadowtls.server_names.push_back(psm::memory::string("b.example.com"));
         auto snis = s.snis(cfg);
-        EXPECT_TRUE(snis.size() == 2) << "shadowtls: snis count=2";
-        EXPECT_TRUE(snis[0] == "a.example.com") << "shadowtls: snis[0]";
+        EXPECT_EQ(snis.size(), 2) << "shadowtls: snis count=2";
+        EXPECT_EQ(snis[0], "a.example.com") << "shadowtls: snis[0]";
     }
 
     TEST(StealthFacadeSchemes, ShadowtlsSnisEmpty)
@@ -279,8 +279,8 @@ namespace
         psm::handshake::shadowtls::scheme s;
         psm::settings cfg;
         auto result = s.guess(cfg);
-        EXPECT_TRUE(result.score == 100) << "shadowtls: guess score=100";
-        EXPECT_TRUE(result.solo_flag == 0) << "shadowtls: guess solo_flag=0";
+        EXPECT_EQ(result.score, 100) << "shadowtls: guess score=100";
+        EXPECT_EQ(result.solo_flag, 0) << "shadowtls: guess solo_flag=0";
     }
 
 } // namespace

@@ -158,7 +158,7 @@ namespace
 
         auto [ec, ch] = psm::tls::client_hello::from_bytes(raw);
         EXPECT_TRUE(psm::fault::succeeded(ec)) << "valid ClientHello parses successfully";
-        EXPECT_TRUE(ch.sni() == "example.com") << "SNI extracted correctly";
+        EXPECT_EQ(ch.sni(), "example.com") << "SNI extracted correctly";
         EXPECT_TRUE(ch.has_x25519()) << "X25519 key_share detected";
         EXPECT_TRUE(!ch.versions().empty()) << "versions list not empty";
         EXPECT_TRUE(ch.session_id().empty()) << "empty session_id";
@@ -177,8 +177,8 @@ namespace
 
         auto [ec, ch] = psm::tls::client_hello::from_bytes(raw);
         EXPECT_TRUE(psm::fault::succeeded(ec)) << "ClientHello with session_id parses";
-        EXPECT_TRUE(ch.session_id().size() == 16) << "session_id length is 16";
-        EXPECT_TRUE(ch.session_id()[0] == 0xAB) << "session_id content preserved";
+        EXPECT_EQ(ch.session_id().size(), 16) << "session_id length is 16";
+        EXPECT_EQ(ch.session_id()[0], 0xAB) << "session_id content preserved";
     }
 
     TEST(TlsHello, ParseNoExtensions)
@@ -203,7 +203,7 @@ namespace
         auto [ec, ch] = psm::tls::client_hello::from_bytes(raw);
         EXPECT_TRUE(psm::fault::succeeded(ec)) << "ClientHello without key_share parses";
         EXPECT_TRUE(!ch.has_x25519()) << "has_x25519 is false";
-        EXPECT_TRUE(ch.sni() == "nokey.example.com") << "SNI still extracted";
+        EXPECT_EQ(ch.sni(), "nokey.example.com") << "SNI still extracted";
     }
 
     TEST(TlsHello, ParseNoVersions)
@@ -234,7 +234,7 @@ namespace
         std::vector<std::uint8_t> short_buf(10, 0x16);
         auto [ec, ch] = psm::tls::client_hello::from_bytes(short_buf);
         EXPECT_TRUE(psm::fault::failed(ec)) << "buffer < 44 bytes rejected";
-        EXPECT_TRUE(ec == psm::fault::code::recorderr) << "error code is recorderr";
+        EXPECT_EQ(ec, psm::fault::code::recorderr) << "error code is recorderr";
     }
 
     TEST(TlsHello, ParseWrongContentType)
@@ -326,9 +326,9 @@ namespace
         EXPECT_TRUE(psm::fault::succeeded(ec)) << "parse succeeds for to_features test";
 
         auto feat = ch.to_features();
-        EXPECT_TRUE(feat.server_name == "features.test") << "to_features: server_name";
-        EXPECT_TRUE(feat.has_x25519 == true) << "to_features: has_x25519";
-        EXPECT_TRUE(feat.x25519_key == expected_key) << "to_features: x25519_key";
+        EXPECT_EQ(feat.server_name, "features.test") << "to_features: server_name";
+        EXPECT_EQ(feat.has_x25519, true) << "to_features: has_x25519";
+        EXPECT_EQ(feat.x25519_key, expected_key) << "to_features: x25519_key";
         EXPECT_TRUE(!feat.versions.empty()) << "to_features: versions not empty";
         EXPECT_TRUE(feat.session_id.empty()) << "to_features: session_id empty";
         EXPECT_TRUE(!feat.raw_msg.empty()) << "to_features: raw_msg not empty";
@@ -345,7 +345,7 @@ namespace
 
         auto [ec, ch] = psm::tls::client_hello::from_bytes(raw);
         EXPECT_TRUE(psm::fault::succeeded(ec)) << "multiple versions parses";
-        EXPECT_TRUE(ch.versions().size() == 2) << "two versions extracted";
+        EXPECT_EQ(ch.versions().size(), 2) << "two versions extracted";
     }
 
     TEST(TlsHello, ParseX25519Mlkem768)
@@ -428,8 +428,8 @@ namespace
 
         auto [ec, ch] = psm::tls::client_hello::from_bytes(record);
         EXPECT_TRUE(psm::fault::succeeded(ec)) << "X25519MLKEM768 hybrid key_share parses";
-        EXPECT_TRUE(ch.has_x25519() == true) << "hybrid key_share sets has_x25519";
-        EXPECT_TRUE(ch.sni() == "hybrid.test") << "SNI still extracted with hybrid";
+        EXPECT_EQ(ch.has_x25519(), true) << "hybrid key_share sets has_x25519";
+        EXPECT_EQ(ch.sni(), "hybrid.test") << "SNI still extracted with hybrid";
     }
 
     TEST(TlsHello, ParseMaxSessionId)
@@ -441,7 +441,7 @@ namespace
 
         auto [ec, ch] = psm::tls::client_hello::from_bytes(raw);
         EXPECT_TRUE(psm::fault::succeeded(ec)) << "session_id = 32 bytes accepted";
-        EXPECT_TRUE(ch.session_id().size() == 32) << "session_id length is 32";
+        EXPECT_EQ(ch.session_id().size(), 32) << "session_id length is 32";
     }
 
     // === 解析边界条件测试 ===
@@ -556,7 +556,7 @@ namespace
 
         auto [ec, ch] = psm::tls::client_hello::from_bytes(record);
         EXPECT_TRUE(psm::fault::succeeded(ec)) << "SNI non-hostname type: parses";
-        EXPECT_TRUE(ch.sni() == "host.test") << "SNI non-hostname type: skips non-hostname, finds hostname";
+        EXPECT_EQ(ch.sni(), "host.test") << "SNI non-hostname type: skips non-hostname, finds hostname";
     }
 
     TEST(TlsHello, ParseKeyshareNonX25519Group)
@@ -626,8 +626,8 @@ namespace
 
         auto [ec, ch] = psm::tls::client_hello::from_bytes(record);
         EXPECT_TRUE(psm::fault::succeeded(ec)) << "P-256 key_share: parses";
-        EXPECT_TRUE(ch.has_x25519() == false) << "P-256 key_share: has_x25519=false";
-        EXPECT_TRUE(ch.sni() == "p256.test") << "P-256 key_share: SNI still extracted";
+        EXPECT_EQ(ch.has_x25519(), false) << "P-256 key_share: has_x25519=false";
+        EXPECT_EQ(ch.sni(), "p256.test") << "P-256 key_share: SNI still extracted";
     }
 
     TEST(TlsHello, ParseKeyshareTruncated)
@@ -698,7 +698,7 @@ namespace
 
         auto [ec, ch] = psm::tls::client_hello::from_bytes(record);
         EXPECT_TRUE(psm::fault::succeeded(ec)) << "truncated key_share: parses without crash";
-        EXPECT_TRUE(ch.has_x25519() == false) << "truncated key_share: has_x25519=false";
+        EXPECT_EQ(ch.has_x25519(), false) << "truncated key_share: has_x25519=false";
     }
 
     TEST(TlsHello, ParseVersionsEmpty)

@@ -66,7 +66,7 @@ namespace
     {
         CraftFixture fx;
         auto *w = fx.craft_obj->ensure_window(1);
-        EXPECT_TRUE(w != nullptr) << "ensure_window: creates new window";
+        EXPECT_NE(w, nullptr) << "ensure_window: creates new window";
         EXPECT_TRUE(fx.craft_obj->windows_.count(1) == 1) << "ensure_window: inserted into map";
     }
 
@@ -75,7 +75,7 @@ namespace
         CraftFixture fx;
         auto *w1 = fx.craft_obj->ensure_window(1);
         auto *w2 = fx.craft_obj->ensure_window(1);
-        EXPECT_TRUE(w1 == w2) << "ensure_window: returns same pointer";
+        EXPECT_EQ(w1, w2) << "ensure_window: returns same pointer";
         EXPECT_TRUE(fx.craft_obj->windows_.size() == 1) << "ensure_window: no duplicate entry";
     }
 
@@ -85,8 +85,8 @@ namespace
         auto *w1 = fx.craft_obj->ensure_window(1);
         auto *w2 = fx.craft_obj->ensure_window(2);
         auto *w3 = fx.craft_obj->ensure_window(3);
-        EXPECT_TRUE(w1 != w2) << "ensure_window: stream 1 != stream 2";
-        EXPECT_TRUE(w2 != w3) << "ensure_window: stream 2 != stream 3";
+        EXPECT_NE(w1, w2) << "ensure_window: stream 1 != stream 2";
+        EXPECT_NE(w2, w3) << "ensure_window: stream 2 != stream 3";
         EXPECT_TRUE(fx.craft_obj->windows_.size() == 3) << "ensure_window: 3 entries";
     }
 
@@ -96,7 +96,7 @@ namespace
     {
         CraftFixture fx;
         auto *w = fx.craft_obj->get_window(999);
-        EXPECT_TRUE(w == nullptr) << "get_window: not found -> nullptr";
+        EXPECT_EQ(w, nullptr) << "get_window: not found -> nullptr";
     }
 
     TEST(YamuxCraftDeep2, GetWindowFound)
@@ -104,7 +104,7 @@ namespace
         CraftFixture fx;
         fx.craft_obj->ensure_window(42);
         auto *w = fx.craft_obj->get_window(42);
-        EXPECT_TRUE(w != nullptr) << "get_window: found -> non-null";
+        EXPECT_NE(w, nullptr) << "get_window: found -> non-null";
     }
 
     TEST(YamuxCraftDeep2, GetWindowAfterErase)
@@ -113,7 +113,7 @@ namespace
         fx.craft_obj->ensure_window(10);
         fx.craft_obj->windows_.erase(10);
         auto *w = fx.craft_obj->get_window(10);
-        EXPECT_TRUE(w == nullptr) << "get_window: erased -> nullptr";
+        EXPECT_EQ(w, nullptr) << "get_window: erased -> nullptr";
     }
 
     // ─── handle_rst ──────────────────────────────
@@ -408,7 +408,7 @@ namespace
         CraftFixture fx;
         auto *w = fx.craft_obj->ensure_window(1);
         auto expiry = w->window_signal->expiry();
-        EXPECT_TRUE(expiry == net::steady_timer::time_point::max()) << "window: signal expires at max";
+        EXPECT_EQ(expiry, net::steady_timer::time_point::max()) << "window: signal expires at max";
     }
 
 } // namespace

@@ -40,7 +40,7 @@ TEST(ProtocolToString, AllProtocols)
     for (const auto &tc : cases)
     {
         const std::string_view result = psm::connect::to_string_view(tc.type);
-        EXPECT_TRUE(result == tc.expected)
+        EXPECT_EQ(result, tc.expected)
             << std::format("to_string_view({}) = \"{}\", expected \"{}\"",
                            static_cast<int>(tc.type), result, tc.expected);
     }
@@ -54,12 +54,12 @@ TEST(ProtocolToString, CoverageAndDefaultFallback)
     // 验证测试用例数量与协议枚举值数量一致
     constexpr int expected_count = 7; // unknown, http, socks5, trojan, vless, shadowsocks, tls
     constexpr int actual_count = static_cast<int>(psm::connect::protocol_type::tls) + 1;
-    EXPECT_TRUE(actual_count == expected_count)
+    EXPECT_EQ(actual_count, expected_count)
         << std::format("Protocol enum count mismatch: expected {}, got {}", expected_count, actual_count);
 
     // 验证默认分支：构造一个超出范围的枚举值，应回退到 "unknown"
     const auto invalid = static_cast<psm::connect::protocol_type>(999);
     const std::string_view result = psm::connect::to_string_view(invalid);
-    EXPECT_TRUE(result == "unknown")
+    EXPECT_EQ(result, "unknown")
         << std::format("to_string_view(invalid) = \"{}\", expected \"unknown\"", result);
 }

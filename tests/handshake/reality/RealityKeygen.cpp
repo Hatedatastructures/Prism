@@ -55,7 +55,7 @@ namespace
                 master_secret_zero = false;
         EXPECT_TRUE(!master_secret_zero) << "derive_hs_keys: master_secret not all zero";
 
-        EXPECT_TRUE(keys.server_finkey.size() == 32) << "derive_hs_keys: finkey 32 bytes";
+        EXPECT_EQ(keys.server_finkey.size(), 32) << "derive_hs_keys: finkey 32 bytes";
     }
 
     TEST(RealityKeygen, DeriveHsKeysDeterministic)
@@ -67,7 +67,7 @@ namespace
 
         auto [ec1, keys1] = psm::handshake::reality::derive_hs_keys(shared_secret, chello_msg, shello_msg);
         auto [ec2, keys2] = psm::handshake::reality::derive_hs_keys(shared_secret, chello_msg, shello_msg);
-        EXPECT_TRUE(ec1 == psm::fault::code::success) << "derive_hs_keys det: success";
+        EXPECT_EQ(ec1, psm::fault::code::success) << "derive_hs_keys det: success";
         EXPECT_TRUE(std::memcmp(keys1.server_hskey.data(), keys2.server_hskey.data(), 16) == 0)
             << "derive_hs_keys: deterministic";
     }
@@ -87,7 +87,7 @@ namespace
         std::array<std::uint8_t, 32> server_finhash{};
         psm::handshake::reality::key_material app_keys = keys;
         auto ec = psm::handshake::reality::derive_app_keys(keys.master_secret, server_finhash, app_keys);
-        EXPECT_TRUE(ec == psm::fault::code::success) << "derive_app_keys: success";
+        EXPECT_EQ(ec, psm::fault::code::success) << "derive_app_keys: success";
 
         bool server_appkey_zero = true;
         for (auto b : app_keys.server_appkey)
@@ -110,7 +110,7 @@ namespace
         transcript_hash[0] = 0xBB;
 
         auto verify = psm::handshake::reality::compute_verify(finished_key, transcript_hash);
-        EXPECT_TRUE(verify.size() == 32) << "compute_verify: 32 bytes";
+        EXPECT_EQ(verify.size(), 32) << "compute_verify: 32 bytes";
 
         // Deterministic
         auto verify2 = psm::handshake::reality::compute_verify(finished_key, transcript_hash);

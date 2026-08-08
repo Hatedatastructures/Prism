@@ -141,7 +141,7 @@ namespace
         auto executor = ioc.get_executor();
         auto reliable = psm::transport::make_reliable(executor);
 
-        EXPECT_TRUE(reliable != nullptr) << "ReliableConstructor: non-null";
+        EXPECT_NE(reliable, nullptr) << "ReliableConstructor: non-null";
         EXPECT_TRUE(reliable->executor() == executor) << "ReliableConstructor: executor matches";
         EXPECT_TRUE(reliable->transport_type() == psm::transport::transmission::type::tcp)
             << "ReliableConstructor: transport type is tcp";
@@ -158,7 +158,7 @@ namespace
         net::ip::tcp::socket socket(executor);
         auto reliable = psm::transport::make_reliable(std::move(socket));
 
-        EXPECT_TRUE(reliable != nullptr) << "ReliableFromSocket: non-null";
+        EXPECT_NE(reliable, nullptr) << "ReliableFromSocket: non-null";
         EXPECT_TRUE(reliable->executor() == executor) << "ReliableFromSocket: executor matches";
     }
 
@@ -195,7 +195,7 @@ namespace
             *transport, std::span<const std::byte>{write_buf.data(), test_message.size()}, write_ec);
 
         EXPECT_TRUE(!write_ec) << "ReliableReadWrite: write no error";
-        EXPECT_TRUE(written == test_message.size()) << "ReliableReadWrite: write complete";
+        EXPECT_EQ(written, test_message.size()) << "ReliableReadWrite: write complete";
 
         // 通过 reliable 读取回显
         std::array<std::byte, 128> read_buf{};
@@ -204,11 +204,11 @@ namespace
             *transport, std::span<std::byte>{read_buf.data(), test_message.size()}, read_ec);
 
         EXPECT_TRUE(!read_ec) << "ReliableReadWrite: read no error";
-        EXPECT_TRUE(n == test_message.size()) << "ReliableReadWrite: read size matches";
+        EXPECT_EQ(n, test_message.size()) << "ReliableReadWrite: read size matches";
 
         const auto received = std::string_view(
             reinterpret_cast<const char *>(read_buf.data()), n);
-        EXPECT_TRUE(received == test_message) << "ReliableReadWrite: echo content matches";
+        EXPECT_EQ(received, test_message) << "ReliableReadWrite: echo content matches";
 
         transport->close();
     }
@@ -299,7 +299,7 @@ namespace
         auto prev = std::make_shared<psm::transport::preview>(
             reliable, std::span<const std::byte>{preread});
 
-        EXPECT_TRUE(prev != nullptr) << "PreviewConstruction: non-null";
+        EXPECT_NE(prev, nullptr) << "PreviewConstruction: non-null";
         EXPECT_TRUE(prev->next_layer() != nullptr) << "PreviewConstruction: next_layer non-null";
         EXPECT_TRUE(prev->next_layer() == reliable.get()) << "PreviewConstruction: next_layer is reliable";
         EXPECT_TRUE(prev->transport_type() == psm::transport::transmission::type::tcp)
@@ -309,12 +309,12 @@ namespace
         // wrap_with_preview 辅助函数：空数据时应返回原始传输
         auto original = psm::transport::make_reliable(ioc.get_executor());
         auto wrapped = psm::transport::wrap_with_preview(original, {});
-        EXPECT_TRUE(wrapped == original) << "PreviewConstruction: wrap_with_preview empty returns original";
+        EXPECT_EQ(wrapped, original) << "PreviewConstruction: wrap_with_preview empty returns original";
 
         // wrap_with_preview 辅助函数：非空数据应返回 preview
         auto inner = psm::transport::make_reliable(ioc.get_executor());
         auto wrapped2 = psm::transport::wrap_with_preview(inner, std::span<const std::byte>{preread});
-        EXPECT_TRUE(wrapped2 != inner) << "PreviewConstruction: wrap_with_preview non-empty returns new";
+        EXPECT_NE(wrapped2, inner) << "PreviewConstruction: wrap_with_preview non-empty returns new";
         EXPECT_TRUE(wrapped2->next_layer() != nullptr) << "PreviewConstruction: wrapped next_layer non-null";
     }
 
@@ -346,7 +346,7 @@ namespace
         auto probe_n = co_await socket.async_read_some(net::buffer(probe_buf), token);
 
         EXPECT_TRUE(!probe_ec) << "PreviewPrereadReplay: probe read no error";
-        EXPECT_TRUE(probe_n == 4) << "PreviewPrereadReplay: probe read 4 bytes";
+        EXPECT_EQ(probe_n, 4) << "PreviewPrereadReplay: probe read 4 bytes";
         EXPECT_TRUE(std::string_view(probe_buf.data(), probe_n) == "ABCD")
             << "PreviewPrereadReplay: probe content is ABCD";
 
@@ -366,10 +366,10 @@ namespace
         const auto n1 = co_await prev->async_read_some(std::span<std::byte>{read_buf1}, read_ec1);
 
         EXPECT_TRUE(!read_ec1) << "PreviewPrereadReplay: first read no error";
-        EXPECT_TRUE(n1 == 4) << "PreviewPrereadReplay: first read returns 4 preread bytes";
+        EXPECT_EQ(n1, 4) << "PreviewPrereadReplay: first read returns 4 preread bytes";
 
         const auto got1 = std::string_view(reinterpret_cast<const char *>(read_buf1.data()), n1);
-        EXPECT_TRUE(got1 == "ABCD") << "PreviewPrereadReplay: first read content is ABCD";
+        EXPECT_EQ(got1, "ABCD") << "PreviewPrereadReplay: first read content is ABCD";
 
         // 第二次读取：预读已耗尽，委托给内部 reliable 从 socket 读取
         std::array<std::byte, 64> read_buf2{};
@@ -377,11 +377,11 @@ namespace
         const auto n2 = co_await prev->async_read_some(std::span<std::byte>{read_buf2}, read_ec2);
 
         EXPECT_TRUE(!read_ec2) << "PreviewPrereadReplay: second read no error";
-        EXPECT_TRUE(n2 > 0) << "PreviewPrereadReplay: second read returns data";
+        EXPECT_GT(n2, 0) << "PreviewPrereadReplay: second read returns data";
 
         const auto got2 = std::string_view(reinterpret_cast<const char *>(read_buf2.data()), n2);
         // 剩余服务端数据为 "EFGHIJ"（6 字节）
-        EXPECT_TRUE(got2 == "EFGHIJ") << "PreviewPrereadReplay: second read content is EFGHIJ";
+        EXPECT_EQ(got2, "EFGHIJ") << "PreviewPrereadReplay: second read content is EFGHIJ";
 
         prev->close();
     }
@@ -425,7 +425,7 @@ namespace
             std::span<const std::byte>{write_buf.data(), test_msg.size()}, write_ec);
 
         EXPECT_TRUE(!write_ec) << "PreviewWritePassthrough: write no error";
-        EXPECT_TRUE(written == test_msg.size()) << "PreviewWritePassthrough: write complete";
+        EXPECT_EQ(written, test_msg.size()) << "PreviewWritePassthrough: write complete";
 
         // 读取回显
         std::array<std::byte, 128> read_buf{};
@@ -434,11 +434,11 @@ namespace
             *prev, std::span<std::byte>{read_buf.data(), test_msg.size()}, read_ec);
 
         EXPECT_TRUE(!read_ec) << "PreviewWritePassthrough: read no error";
-        EXPECT_TRUE(n == test_msg.size()) << "PreviewWritePassthrough: read size matches";
+        EXPECT_EQ(n, test_msg.size()) << "PreviewWritePassthrough: read size matches";
 
         const auto received = std::string_view(
             reinterpret_cast<const char *>(read_buf.data()), n);
-        EXPECT_TRUE(received == test_msg) << "PreviewWritePassthrough: echo content matches";
+        EXPECT_EQ(received, test_msg) << "PreviewWritePassthrough: echo content matches";
 
         prev->close();
     }
@@ -479,7 +479,7 @@ namespace
         // 创建 encrypted 传输层
         auto enc = std::make_shared<psm::transport::encrypted>(ssl_stream);
 
-        EXPECT_TRUE(enc != nullptr) << "EncryptedConstructor: non-null";
+        EXPECT_NE(enc, nullptr) << "EncryptedConstructor: non-null";
         EXPECT_TRUE(enc->transport_type() == psm::transport::transmission::type::tcp)
             << "EncryptedConstructor: transport type is tcp";
         EXPECT_TRUE(enc->next_layer() == nullptr) << "EncryptedConstructor: next_layer is null";
@@ -490,13 +490,13 @@ namespace
 
         // 验证 release 转移所有权
         auto released = enc->release();
-        EXPECT_TRUE(released == ssl_stream) << "EncryptedConstructor: release returns stream";
+        EXPECT_EQ(released, ssl_stream) << "EncryptedConstructor: release returns stream";
 
         // make_encrypted 工厂函数
         auto ssl_stream2 = std::make_shared<psm::transport::encrypted::stream_type>(
             psm::transport::connector(reliable_transport), ssl_ctx);
         auto enc2 = psm::transport::make_encrypted(ssl_stream2);
-        EXPECT_TRUE(enc2 != nullptr) << "EncryptedConstructor: make_encrypted non-null";
+        EXPECT_NE(enc2, nullptr) << "EncryptedConstructor: make_encrypted non-null";
     }
 
 } // namespace

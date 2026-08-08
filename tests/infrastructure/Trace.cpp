@@ -17,14 +17,14 @@ namespace
     {
         psm::diagnose::config cfg;
 
-        EXPECT_TRUE(cfg.file_name == "prism.log") << "file_name default";
-        EXPECT_TRUE(cfg.path_name == "logs") << "path_name default";
-        EXPECT_TRUE(cfg.max_size == 64 * 1024 * 1024) << "max_size default";
-        EXPECT_TRUE(cfg.max_files == 8) << "max_files default";
+        EXPECT_EQ(cfg.file_name, "prism.log") << "file_name default";
+        EXPECT_EQ(cfg.path_name, "logs") << "path_name default";
+        EXPECT_EQ(cfg.max_size, 64 * 1024 * 1024) << "max_size default";
+        EXPECT_EQ(cfg.max_files, 8) << "max_files default";
         EXPECT_TRUE(cfg.enable_console) << "enable_console should be true";
         EXPECT_TRUE(cfg.enable_file) << "enable_file should be true";
-        EXPECT_TRUE(cfg.log_level == "info") << "log_level default";
-        EXPECT_TRUE(cfg.trace_name == "prism") << "trace_name default";
+        EXPECT_EQ(cfg.log_level, "info") << "log_level default";
+        EXPECT_EQ(cfg.trace_name, "prism") << "trace_name default";
     }
 
     TEST(Trace, ShutdownNullRecorder)
@@ -40,7 +40,7 @@ namespace
         psm::diagnose::shutdown();
 
         logger = psm::diagnose::recorder();
-        EXPECT_TRUE(logger == nullptr) << "recorder should be null after shutdown";
+        EXPECT_EQ(logger, nullptr) << "recorder should be null after shutdown";
     }
 
     TEST(Trace, LogWithoutInit)

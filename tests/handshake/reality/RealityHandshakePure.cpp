@@ -32,8 +32,8 @@ namespace
 
         const auto ok = psm::handshake::reality::parse_dest("www.example.com:443", host, port);
         EXPECT_TRUE(ok) << "parse_dest: host:port -> true";
-        EXPECT_TRUE(host == "www.example.com") << "parse_dest: host 提取正确";
-        EXPECT_TRUE(port == 443) << "parse_dest: port=443";
+        EXPECT_EQ(host, "www.example.com") << "parse_dest: host 提取正确";
+        EXPECT_EQ(port, 443) << "parse_dest: port=443";
     }
 
     /**
@@ -46,8 +46,8 @@ namespace
 
         const auto ok = psm::handshake::reality::parse_dest("example.com", host, port);
         EXPECT_TRUE(ok) << "parse_dest: 无冒号 -> true";
-        EXPECT_TRUE(host == "example.com") << "parse_dest: 仅 host 时 host 正确";
-        EXPECT_TRUE(port == 443) << "parse_dest: 无冒号默认 port=443";
+        EXPECT_EQ(host, "example.com") << "parse_dest: 仅 host 时 host 正确";
+        EXPECT_EQ(port, 443) << "parse_dest: 无冒号默认 port=443";
     }
 
     /**
@@ -60,8 +60,8 @@ namespace
 
         const auto ok = psm::handshake::reality::parse_dest("[::1]:8443", host, port);
         EXPECT_TRUE(ok) << "parse_dest: [::1]:8443 -> true";
-        EXPECT_TRUE(host == "::1") << "parse_dest: IPv6 host=::1";
-        EXPECT_TRUE(port == 8443) << "parse_dest: IPv6 port=8443";
+        EXPECT_EQ(host, "::1") << "parse_dest: IPv6 host=::1";
+        EXPECT_EQ(port, 8443) << "parse_dest: IPv6 port=8443";
     }
 
     /**
@@ -74,8 +74,8 @@ namespace
 
         const auto ok = psm::handshake::reality::parse_dest("[::1]", host, port);
         EXPECT_TRUE(ok) << "parse_dest: [::1] -> true";
-        EXPECT_TRUE(host == "::1") << "parse_dest: IPv6 无端口 host=::1";
-        EXPECT_TRUE(port == 443) << "parse_dest: IPv6 无端口默认 port=443";
+        EXPECT_EQ(host, "::1") << "parse_dest: IPv6 无端口 host=::1";
+        EXPECT_EQ(port, 443) << "parse_dest: IPv6 无端口默认 port=443";
     }
 
     /**
@@ -88,8 +88,8 @@ namespace
 
         const auto ok = psm::handshake::reality::parse_dest("[2001:db8::1]:12345", host, port);
         EXPECT_TRUE(ok) << "parse_dest: [2001:db8::1]:12345 -> true";
-        EXPECT_TRUE(host == "2001:db8::1") << "parse_dest: IPv6 host=2001:db8::1";
-        EXPECT_TRUE(port == 12345) << "parse_dest: IPv6 port=12345";
+        EXPECT_EQ(host, "2001:db8::1") << "parse_dest: IPv6 host=2001:db8::1";
+        EXPECT_EQ(port, 12345) << "parse_dest: IPv6 port=12345";
     }
 
     /**
@@ -126,8 +126,8 @@ namespace
 
         const auto ok = psm::handshake::reality::parse_dest("justahost", host, port);
         EXPECT_TRUE(ok) << "parse_dest: justahost -> true";
-        EXPECT_TRUE(host == "justahost") << "parse_dest: 无冒号 host 正确";
-        EXPECT_TRUE(port == 443) << "parse_dest: 无冒号 port=443";
+        EXPECT_EQ(host, "justahost") << "parse_dest: 无冒号 host 正确";
+        EXPECT_EQ(port, 443) << "parse_dest: 无冒号 port=443";
     }
 
     /**
@@ -140,8 +140,8 @@ namespace
 
         const auto ok = psm::handshake::reality::parse_dest("my.server:8080", host, port);
         EXPECT_TRUE(ok) << "parse_dest: my.server:8080 -> true";
-        EXPECT_TRUE(host == "my.server") << "parse_dest: host=my.server";
-        EXPECT_TRUE(port == 8080) << "parse_dest: port=8080";
+        EXPECT_EQ(host, "my.server") << "parse_dest: host=my.server";
+        EXPECT_EQ(port, 8080) << "parse_dest: port=8080";
     }
 
     /**

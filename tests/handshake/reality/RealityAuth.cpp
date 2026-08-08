@@ -112,15 +112,15 @@ namespace
     TEST(RealityAuth, HexDigit)
     {
         auto &hd = psm::handshake::reality::hex_digit;
-        EXPECT_TRUE(hd('0') == 0) << "hex_digit '0' == 0";
-        EXPECT_TRUE(hd('9') == 9) << "hex_digit '9' == 9";
-        EXPECT_TRUE(hd('a') == 10) << "hex_digit 'a' == 10";
-        EXPECT_TRUE(hd('f') == 15) << "hex_digit 'f' == 15";
-        EXPECT_TRUE(hd('A') == 10) << "hex_digit 'A' == 10";
-        EXPECT_TRUE(hd('F') == 15) << "hex_digit 'F' == 15";
-        EXPECT_TRUE(hd('g') == -1) << "hex_digit 'g' == -1";
-        EXPECT_TRUE(hd(' ') == -1) << "hex_digit ' ' == -1";
-        EXPECT_TRUE(hd('\0') == -1) << "hex_digit NUL == -1";
+        EXPECT_EQ(hd('0'), 0) << "hex_digit '0' == 0";
+        EXPECT_EQ(hd('9'), 9) << "hex_digit '9' == 9";
+        EXPECT_EQ(hd('a'), 10) << "hex_digit 'a' == 10";
+        EXPECT_EQ(hd('f'), 15) << "hex_digit 'f' == 15";
+        EXPECT_EQ(hd('A'), 10) << "hex_digit 'A' == 10";
+        EXPECT_EQ(hd('F'), 15) << "hex_digit 'F' == 15";
+        EXPECT_EQ(hd('g'), -1) << "hex_digit 'g' == -1";
+        EXPECT_EQ(hd(' '), -1) << "hex_digit ' ' == -1";
+        EXPECT_EQ(hd('\0'), -1) << "hex_digit NUL == -1";
     }
 
     TEST(RealityAuth, HexDecode)
@@ -128,10 +128,10 @@ namespace
         auto &hxd = psm::handshake::reality::hex_decode;
 
         auto result = hxd("0102FF");
-        EXPECT_TRUE(result.size() == 3) << "hex_decode length 3";
-        EXPECT_TRUE(result[0] == 0x01) << "hex_decode byte 0";
-        EXPECT_TRUE(result[1] == 0x02) << "hex_decode byte 1";
-        EXPECT_TRUE(result[2] == 0xFF) << "hex_decode byte 2";
+        EXPECT_EQ(result.size(), 3) << "hex_decode length 3";
+        EXPECT_EQ(result[0], 0x01) << "hex_decode byte 0";
+        EXPECT_EQ(result[1], 0x02) << "hex_decode byte 1";
+        EXPECT_EQ(result[2], 0xFF) << "hex_decode byte 2";
 
         auto empty = hxd("");
         EXPECT_TRUE(empty.empty()) << "hex_decode empty input";
@@ -140,8 +140,8 @@ namespace
         EXPECT_TRUE(invalid.empty()) << "hex_decode invalid chars returns empty";
 
         auto odd = hxd("ABC");
-        EXPECT_TRUE(odd.size() == 1) << "hex_decode odd length decodes first byte";
-        EXPECT_TRUE(odd[0] == 0xAB) << "hex_decode odd length byte 0";
+        EXPECT_EQ(odd.size(), 1) << "hex_decode odd length decodes first byte";
+        EXPECT_EQ(odd[0], 0xAB) << "hex_decode odd length byte 0";
     }
 
     // === authenticate 深度路径测试 ===
@@ -196,9 +196,9 @@ namespace
         auto [ec, result] = psm::handshake::reality::authenticate(
             cfg, feat, std::span<const std::uint8_t>{key.data(), key.size()});
 
-        EXPECT_TRUE(ec == psm::fault::code::badsni)
+        EXPECT_EQ(ec, psm::fault::code::badsni)
             << "authenticate: SNI mismatch -> badsni";
-        EXPECT_TRUE(result.authenticated == false)
+        EXPECT_EQ(result.authenticated, false)
             << "authenticate: SNI mismatch -> not authenticated";
     }
 
@@ -213,9 +213,9 @@ namespace
         auto [ec, result] = psm::handshake::reality::authenticate(
             cfg, feat, std::span<const std::uint8_t>{key.data(), key.size()});
 
-        EXPECT_TRUE(ec == psm::fault::code::unauth)
+        EXPECT_EQ(ec, psm::fault::code::unauth)
             << "authenticate: no X25519 -> unauth";
-        EXPECT_TRUE(result.authenticated == false)
+        EXPECT_EQ(result.authenticated, false)
             << "authenticate: no X25519 -> not authenticated";
     }
 
@@ -231,9 +231,9 @@ namespace
         auto [ec, result] = psm::handshake::reality::authenticate(
             cfg, feat, std::span<const std::uint8_t>{key.data(), key.size()});
 
-        EXPECT_TRUE(ec == psm::fault::code::unauth)
+        EXPECT_EQ(ec, psm::fault::code::unauth)
             << "authenticate: no TLS 1.3 -> unauth";
-        EXPECT_TRUE(result.authenticated == false)
+        EXPECT_EQ(result.authenticated, false)
             << "authenticate: no TLS 1.3 -> not authenticated";
     }
 
@@ -249,9 +249,9 @@ namespace
         auto [ec, result] = psm::handshake::reality::authenticate(
             cfg, feat, std::span<const std::uint8_t>{key.data(), key.size()});
 
-        EXPECT_TRUE(ec == psm::fault::code::unauth)
+        EXPECT_EQ(ec, psm::fault::code::unauth)
             << "authenticate: short session_id -> unauth";
-        EXPECT_TRUE(result.authenticated == false)
+        EXPECT_EQ(result.authenticated, false)
             << "authenticate: short session_id -> not authenticated";
     }
 
@@ -268,9 +268,9 @@ namespace
             cfg, feat, std::span<const std::uint8_t>{key.data(), key.size()});
 
         // 空 SNI 跳过 SNI 检查，但后续 X25519/AEAD 会失败
-        EXPECT_TRUE(ec != psm::fault::code::badsni)
+        EXPECT_NE(ec, psm::fault::code::badsni)
             << "authenticate: empty SNI -> not badsni";
-        EXPECT_TRUE(result.authenticated == false)
+        EXPECT_EQ(result.authenticated, false)
             << "authenticate: empty SNI -> not authenticated (crypto fails)";
     }
 
@@ -380,8 +380,8 @@ namespace
             cfg, feat, std::span<const std::uint8_t>{server_kp.private_key.data(), 32});
 
         EXPECT_TRUE(psm::fault::succeeded(auth_ec)) << "authenticate success: success";
-        EXPECT_TRUE(auth_result.authenticated == true) << "authenticate success: authenticated=true";
-        EXPECT_TRUE(auth_result.shared_secret == shared_secret) << "authenticate success: shared_secret matches";
+        EXPECT_EQ(auth_result.authenticated, true) << "authenticate success: authenticated=true";
+        EXPECT_EQ(auth_result.shared_secret, shared_secret) << "authenticate success: shared_secret matches";
     }
 
     TEST(RealityAuth, AuthenticateKexFail)
@@ -396,9 +396,9 @@ namespace
         auto [ec, result] = psm::handshake::reality::authenticate(
             cfg, feat, std::span<const std::uint8_t>{key.data(), key.size()});
 
-        EXPECT_TRUE(ec == psm::fault::code::kexfail)
+        EXPECT_EQ(ec, psm::fault::code::kexfail)
             << "authenticate: zero pubkey -> kexfail";
-        EXPECT_TRUE(result.authenticated == false)
+        EXPECT_EQ(result.authenticated, false)
             << "authenticate: zero pubkey -> not authenticated";
     }
 

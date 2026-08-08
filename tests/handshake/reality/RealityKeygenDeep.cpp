@@ -26,7 +26,7 @@ namespace
         psm::memory::vector<std::uint8_t> shello(psm::memory::current_resource());
 
         auto [ec, keys] = derive_hs_keys(shared_secret, chello, shello);
-        EXPECT_TRUE(ec == psm::fault::code::success) << "derive_hs: basic success";
+        EXPECT_EQ(ec, psm::fault::code::success) << "derive_hs: basic success";
         EXPECT_TRUE(!keys.master_secret.empty()) << "derive_hs: master_secret not empty";
     }
 
@@ -40,7 +40,7 @@ namespace
         for (std::size_t i = 0; i < 64; ++i) shello.push_back(static_cast<std::uint8_t>(i + 64));
 
         auto [ec, keys] = derive_hs_keys(shared_secret, chello, shello);
-        EXPECT_TRUE(ec == psm::fault::code::success) << "derive_hs: with messages success";
+        EXPECT_EQ(ec, psm::fault::code::success) << "derive_hs: with messages success";
     }
 
     TEST(RealityKeygenDeep, DeriveHsKeysDeterministic)
@@ -54,10 +54,10 @@ namespace
 
         auto [ec1, keys1] = derive_hs_keys(shared_secret, chello, shello);
         auto [ec2, keys2] = derive_hs_keys(shared_secret, chello, shello);
-        EXPECT_TRUE(ec1 == psm::fault::code::success) << "derive_hs: deterministic success";
-        EXPECT_TRUE(keys1.master_secret == keys2.master_secret) << "derive_hs: master_secret deterministic";
-        EXPECT_TRUE(keys1.server_hskey == keys2.server_hskey) << "derive_hs: server_hskey deterministic";
-        EXPECT_TRUE(keys1.client_hskey == keys2.client_hskey) << "derive_hs: client_hskey deterministic";
+        EXPECT_EQ(ec1, psm::fault::code::success) << "derive_hs: deterministic success";
+        EXPECT_EQ(keys1.master_secret, keys2.master_secret) << "derive_hs: master_secret deterministic";
+        EXPECT_EQ(keys1.server_hskey, keys2.server_hskey) << "derive_hs: server_hskey deterministic";
+        EXPECT_EQ(keys1.client_hskey, keys2.client_hskey) << "derive_hs: client_hskey deterministic";
     }
 
     TEST(RealityKeygenDeep, DeriveHsKeysDifferentSecret)
@@ -73,8 +73,8 @@ namespace
 
         auto [ec1, keys1] = derive_hs_keys(secret1, chello, shello);
         auto [ec2, keys2] = derive_hs_keys(secret2, chello, shello);
-        EXPECT_TRUE(ec1 == psm::fault::code::success) << "derive_hs: diff secret success";
-        EXPECT_TRUE(keys1.master_secret != keys2.master_secret) << "derive_hs: diff secret -> diff master";
+        EXPECT_EQ(ec1, psm::fault::code::success) << "derive_hs: diff secret success";
+        EXPECT_NE(keys1.master_secret, keys2.master_secret) << "derive_hs: diff secret -> diff master";
     }
 
     // ─── derive_app_keys ────────────────────────────
@@ -91,7 +91,7 @@ namespace
         // 模拟 server_finhash
         std::array<std::uint8_t, 32> server_finhash{};
         auto app_ec = derive_app_keys(keys.master_secret, server_finhash, keys);
-        EXPECT_TRUE(app_ec == psm::fault::code::success) << "derive_app: basic success";
+        EXPECT_EQ(app_ec, psm::fault::code::success) << "derive_app: basic success";
     }
 
     TEST(RealityKeygenDeep, DeriveAppKeysWithFinhash)
@@ -108,7 +108,7 @@ namespace
         std::array<std::uint8_t, 32> finhash{};
         finhash[0] = 0xCD;
         auto app_ec = derive_app_keys(keys.master_secret, finhash, keys);
-        EXPECT_TRUE(app_ec == psm::fault::code::success) << "derive_app: with finhash success";
+        EXPECT_EQ(app_ec, psm::fault::code::success) << "derive_app: with finhash success";
     }
 
     TEST(RealityKeygenDeep, DeriveAppKeysDeterministic)
@@ -123,9 +123,9 @@ namespace
         auto ec1 = derive_app_keys(keys1.master_secret, finhash, keys1);
         auto ec2 = derive_app_keys(keys2.master_secret, finhash, keys2);
 
-        EXPECT_TRUE(ec1 == psm::fault::code::success) << "derive_app: deterministic success";
-        EXPECT_TRUE(keys1.server_appkey == keys2.server_appkey) << "derive_app: server_appkey deterministic";
-        EXPECT_TRUE(keys1.client_appkey == keys2.client_appkey) << "derive_app: client_appkey deterministic";
+        EXPECT_EQ(ec1, psm::fault::code::success) << "derive_app: deterministic success";
+        EXPECT_EQ(keys1.server_appkey, keys2.server_appkey) << "derive_app: server_appkey deterministic";
+        EXPECT_EQ(keys1.client_appkey, keys2.client_appkey) << "derive_app: client_appkey deterministic";
     }
 
     // ─── compute_verify ─────────────────────────────
@@ -136,7 +136,7 @@ namespace
         std::array<std::uint8_t, 32> transcript_hash{};
 
         auto verify = compute_verify(finished_key, transcript_hash);
-        EXPECT_TRUE(verify.size() == 32) << "compute_verify: output size=32";
+        EXPECT_EQ(verify.size(), 32) << "compute_verify: output size=32";
     }
 
     TEST(RealityKeygenDeep, ComputeVerifyNonZero)
@@ -168,7 +168,7 @@ namespace
 
         auto v1 = compute_verify(finished_key, transcript_hash);
         auto v2 = compute_verify(finished_key, transcript_hash);
-        EXPECT_TRUE(v1 == v2) << "compute_verify: deterministic";
+        EXPECT_EQ(v1, v2) << "compute_verify: deterministic";
     }
 
     TEST(RealityKeygenDeep, ComputeVerifyDifferentKeys)
@@ -181,7 +181,7 @@ namespace
 
         auto v1 = compute_verify(key1, transcript_hash);
         auto v2 = compute_verify(key2, transcript_hash);
-        EXPECT_TRUE(v1 != v2) << "compute_verify: different keys -> different verify";
+        EXPECT_NE(v1, v2) << "compute_verify: different keys -> different verify";
     }
 
 } // namespace

@@ -30,29 +30,29 @@ namespace
         auto bytes = yamux::build_header(hdr);
 
         // 12 字节总长
-        EXPECT_TRUE(bytes.size() == 12) << "build_header: 总长 12 字节";
+        EXPECT_EQ(bytes.size(), 12) << "build_header: 总长 12 字节";
 
         // Version=0
-        EXPECT_TRUE(bytes[0] == std::byte{0x00}) << "build_header: version=0";
+        EXPECT_EQ(bytes[0], std::byte{0x00}) << "build_header: version=0";
 
         // Type=data=0x00
-        EXPECT_TRUE(bytes[1] == std::byte{0x00}) << "build_header: type=data";
+        EXPECT_EQ(bytes[1], std::byte{0x00}) << "build_header: type=data";
 
         // Flags=syn=0x0001, 大端序
-        EXPECT_TRUE(bytes[2] == std::byte{0x00}) << "build_header: flags 高字节";
-        EXPECT_TRUE(bytes[3] == std::byte{0x01}) << "build_header: flags 低字节";
+        EXPECT_EQ(bytes[2], std::byte{0x00}) << "build_header: flags 高字节";
+        EXPECT_EQ(bytes[3], std::byte{0x01}) << "build_header: flags 低字节";
 
         // StreamID=0x01020304, 大端序
-        EXPECT_TRUE(bytes[4] == std::byte{0x01}) << "build_header: stream_id[0]";
-        EXPECT_TRUE(bytes[5] == std::byte{0x02}) << "build_header: stream_id[1]";
-        EXPECT_TRUE(bytes[6] == std::byte{0x03}) << "build_header: stream_id[2]";
-        EXPECT_TRUE(bytes[7] == std::byte{0x04}) << "build_header: stream_id[3]";
+        EXPECT_EQ(bytes[4], std::byte{0x01}) << "build_header: stream_id[0]";
+        EXPECT_EQ(bytes[5], std::byte{0x02}) << "build_header: stream_id[1]";
+        EXPECT_EQ(bytes[6], std::byte{0x03}) << "build_header: stream_id[2]";
+        EXPECT_EQ(bytes[7], std::byte{0x04}) << "build_header: stream_id[3]";
 
         // Length=0x0A0B0C0D, 大端序
-        EXPECT_TRUE(bytes[8] == std::byte{0x0A}) << "build_header: length[0]";
-        EXPECT_TRUE(bytes[9] == std::byte{0x0B}) << "build_header: length[1]";
-        EXPECT_TRUE(bytes[10] == std::byte{0x0C}) << "build_header: length[2]";
-        EXPECT_TRUE(bytes[11] == std::byte{0x0D}) << "build_header: length[3]";
+        EXPECT_EQ(bytes[8], std::byte{0x0A}) << "build_header: length[0]";
+        EXPECT_EQ(bytes[9], std::byte{0x0B}) << "build_header: length[1]";
+        EXPECT_EQ(bytes[10], std::byte{0x0C}) << "build_header: length[2]";
+        EXPECT_EQ(bytes[11], std::byte{0x0D}) << "build_header: length[3]";
     }
 
     // ─── parse_header 正常解析 ─────────────────────
@@ -191,9 +191,9 @@ namespace
     {
         auto bytes = yamux::build_winupd(yamux::flags::syn, 1, yamux::default_window);
 
-        EXPECT_TRUE(bytes.size() == 12) << "build_winupd syn: 总长 12 字节";
-        EXPECT_TRUE(bytes[0] == std::byte{0x00}) << "build_winupd syn: version=0";
-        EXPECT_TRUE(bytes[1] == std::byte{0x01}) << "build_winupd syn: type=window_update";
+        EXPECT_EQ(bytes.size(), 12) << "build_winupd syn: 总长 12 字节";
+        EXPECT_EQ(bytes[0], std::byte{0x00}) << "build_winupd syn: version=0";
+        EXPECT_EQ(bytes[1], std::byte{0x01}) << "build_winupd syn: type=window_update";
 
         auto hdr = yamux::parse_header(bytes);
         ASSERT_TRUE(hdr.has_value()) << "build_winupd syn: 解析成功";
@@ -274,7 +274,7 @@ namespace
 
         auto frame = yamux::build_data(yamux::flags::none, 10, payload);
 
-        EXPECT_TRUE(frame.header.size() == 12) << "build_data: header 12 字节";
+        EXPECT_EQ(frame.header.size(), 12) << "build_data: header 12 字节";
         auto hdr = yamux::parse_header(frame.header);
         ASSERT_TRUE(hdr.has_value()) << "build_data: header 解析成功";
         EXPECT_TRUE(hdr->type == yamux::message_type::data) << "build_data: type=data";
@@ -282,10 +282,10 @@ namespace
         EXPECT_TRUE(hdr->stream_id == 10) << "build_data: stream_id=10";
         EXPECT_TRUE(hdr->length == 3) << "build_data: length=3";
 
-        EXPECT_TRUE(frame.payload.size() == 3) << "build_data: payload 3 字节";
-        EXPECT_TRUE(frame.payload[0] == std::byte{0xAA}) << "build_data: payload[0]";
-        EXPECT_TRUE(frame.payload[1] == std::byte{0xBB}) << "build_data: payload[1]";
-        EXPECT_TRUE(frame.payload[2] == std::byte{0xCC}) << "build_data: payload[2]";
+        EXPECT_EQ(frame.payload.size(), 3) << "build_data: payload 3 字节";
+        EXPECT_EQ(frame.payload[0], std::byte{0xAA}) << "build_data: payload[0]";
+        EXPECT_EQ(frame.payload[1], std::byte{0xBB}) << "build_data: payload[1]";
+        EXPECT_EQ(frame.payload[2], std::byte{0xCC}) << "build_data: payload[2]";
     }
 
     TEST(YamuxCraftPure, BuildDataEmpty)
@@ -314,7 +314,7 @@ namespace
         EXPECT_TRUE(hdr->flag == yamux::flags::syn) << "build_syn: flag=syn";
         EXPECT_TRUE(hdr->stream_id == 3) << "build_syn: stream_id=3";
         EXPECT_TRUE(hdr->length == 4) << "build_syn: length=4";
-        EXPECT_TRUE(frame.payload.size() == 4) << "build_syn: payload 4 字节";
+        EXPECT_EQ(frame.payload.size(), 4) << "build_syn: payload 4 字节";
     }
 
     // ─── build_fin 测试 ────────────────────────────
@@ -324,7 +324,7 @@ namespace
         auto bytes = yamux::build_fin(42);
         auto hdr = yamux::parse_header(bytes);
 
-        EXPECT_TRUE(bytes.size() == 12) << "build_fin: 总长 12 字节";
+        EXPECT_EQ(bytes.size(), 12) << "build_fin: 总长 12 字节";
         ASSERT_TRUE(hdr.has_value()) << "build_fin: 解析成功";
         EXPECT_TRUE(hdr->type == yamux::message_type::data) << "build_fin: type=data";
         EXPECT_TRUE(hdr->flag == yamux::flags::fin) << "build_fin: flag=fin";
@@ -401,21 +401,21 @@ namespace
     {
         auto bytes = yamux::build_winupd(yamux::flags::ack, 256, 262144);
 
-        EXPECT_TRUE(bytes[0] == std::byte{0x00}) << "winupd bytes: version=0";
-        EXPECT_TRUE(bytes[1] == std::byte{0x01}) << "winupd bytes: type=window_update";
+        EXPECT_EQ(bytes[0], std::byte{0x00}) << "winupd bytes: version=0";
+        EXPECT_EQ(bytes[1], std::byte{0x01}) << "winupd bytes: type=window_update";
         // flags=ack=0x0002, 大端
-        EXPECT_TRUE(bytes[2] == std::byte{0x00}) << "winupd bytes: flags 高字节";
-        EXPECT_TRUE(bytes[3] == std::byte{0x02}) << "winupd bytes: flags 低字节=ack";
+        EXPECT_EQ(bytes[2], std::byte{0x00}) << "winupd bytes: flags 高字节";
+        EXPECT_EQ(bytes[3], std::byte{0x02}) << "winupd bytes: flags 低字节=ack";
         // stream_id=256, 大端
-        EXPECT_TRUE(bytes[4] == std::byte{0x00}) << "winupd bytes: sid[0]";
-        EXPECT_TRUE(bytes[5] == std::byte{0x00}) << "winupd bytes: sid[1]";
-        EXPECT_TRUE(bytes[6] == std::byte{0x01}) << "winupd bytes: sid[2]";
-        EXPECT_TRUE(bytes[7] == std::byte{0x00}) << "winupd bytes: sid[3]";
+        EXPECT_EQ(bytes[4], std::byte{0x00}) << "winupd bytes: sid[0]";
+        EXPECT_EQ(bytes[5], std::byte{0x00}) << "winupd bytes: sid[1]";
+        EXPECT_EQ(bytes[6], std::byte{0x01}) << "winupd bytes: sid[2]";
+        EXPECT_EQ(bytes[7], std::byte{0x00}) << "winupd bytes: sid[3]";
         // length=262144, 大端
-        EXPECT_TRUE(bytes[8] == std::byte{0x00}) << "winupd bytes: len[0]";
-        EXPECT_TRUE(bytes[9] == std::byte{0x04}) << "winupd bytes: len[1]";
-        EXPECT_TRUE(bytes[10] == std::byte{0x00}) << "winupd bytes: len[2]";
-        EXPECT_TRUE(bytes[11] == std::byte{0x00}) << "winupd bytes: len[3]";
+        EXPECT_EQ(bytes[8], std::byte{0x00}) << "winupd bytes: len[0]";
+        EXPECT_EQ(bytes[9], std::byte{0x04}) << "winupd bytes: len[1]";
+        EXPECT_EQ(bytes[10], std::byte{0x00}) << "winupd bytes: len[2]";
+        EXPECT_EQ(bytes[11], std::byte{0x00}) << "winupd bytes: len[3]";
     }
 
     // ─── build_goaway 往返验证 ─────────────────────
@@ -480,7 +480,7 @@ namespace
         EXPECT_TRUE(syn_hdr->flag == data_hdr->flag) << "syn equiv: flag 相同";
         EXPECT_TRUE(syn_hdr->stream_id == data_hdr->stream_id) << "syn equiv: stream_id 相同";
         EXPECT_TRUE(syn_hdr->length == data_hdr->length) << "syn equiv: length 相同";
-        EXPECT_TRUE(syn_frame.payload == data_frame.payload) << "syn equiv: payload 相同";
+        EXPECT_EQ(syn_frame.payload, data_frame.payload) << "syn equiv: payload 相同";
     }
 
     // ─── 所有合法 message_type 往返 ────────────────

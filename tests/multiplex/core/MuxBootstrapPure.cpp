@@ -46,9 +46,9 @@ namespace
                 return -1;
             }
         };
-        EXPECT_TRUE(classify(pt::smux) == 0) << "protocol_type: switch smux -> 0";
-        EXPECT_TRUE(classify(pt::yamux) == 1) << "protocol_type: switch yamux -> 1";
-        EXPECT_TRUE(classify(pt::h2mux) == 2) << "protocol_type: switch h2mux -> 2";
+        EXPECT_EQ(classify(pt::smux), 0) << "protocol_type: switch smux -> 0";
+        EXPECT_EQ(classify(pt::yamux), 1) << "protocol_type: switch yamux -> 1";
+        EXPECT_EQ(classify(pt::h2mux), 2) << "protocol_type: switch h2mux -> 2";
         EXPECT_TRUE(classify(static_cast<pt>(99)) == -1) << "protocol_type: switch 未知值 -> -1";
     }
 
@@ -60,9 +60,9 @@ namespace
         psm::multiplex::smux::config sc;
         psm::multiplex::yamux::config yc;
         psm::multiplex::h2mux::config hc;
-        EXPECT_TRUE(sc.max_dgram == yc.max_dgram) << "max_dgram: smux == yamux";
-        EXPECT_TRUE(yc.max_dgram == hc.max_dgram) << "max_dgram: yamux == h2mux";
-        EXPECT_TRUE(sc.max_dgram == 65535) << "max_dgram: 全部为 65535";
+        EXPECT_EQ(sc.max_dgram, yc.max_dgram) << "max_dgram: smux == yamux";
+        EXPECT_EQ(yc.max_dgram, hc.max_dgram) << "max_dgram: yamux == h2mux";
+        EXPECT_EQ(sc.max_dgram, 65535) << "max_dgram: 全部为 65535";
     }
 
     /**
@@ -74,9 +74,9 @@ namespace
         cfg.smux.max_streams = 64;
         cfg.yamux.initial_window = 512 * 1024;
         cfg.h2mux.max_frame_size = 32768;
-        EXPECT_TRUE(cfg.smux.max_streams == 64) << "config: smux.max_streams 可修改";
-        EXPECT_TRUE(cfg.yamux.initial_window == 512 * 1024) << "config: yamux.initial_window 可修改";
-        EXPECT_TRUE(cfg.h2mux.max_frame_size == 32768) << "config: h2mux.max_frame_size 可修改";
+        EXPECT_EQ(cfg.smux.max_streams, 64) << "config: smux.max_streams 可修改";
+        EXPECT_EQ(cfg.yamux.initial_window, 512 * 1024) << "config: yamux.initial_window 可修改";
+        EXPECT_EQ(cfg.h2mux.max_frame_size, 32768) << "config: h2mux.max_frame_size 可修改";
     }
 
     /**
@@ -85,10 +85,10 @@ namespace
     TEST(MuxBootstrapPure, SmuxConfigDefaults)
     {
         psm::multiplex::smux::config cfg;
-        EXPECT_TRUE(cfg.max_streams == 32) << "smux: max_streams=32";
-        EXPECT_TRUE(cfg.buffer_size == 4096) << "smux: buffer_size=4096";
-        EXPECT_TRUE(cfg.keepalive_interval == 30000) << "smux: keepalive_interval=30000";
-        EXPECT_TRUE(cfg.idle_timeout == 60000) << "smux: idle_timeout=60000";
+        EXPECT_EQ(cfg.max_streams, 32) << "smux: max_streams=32";
+        EXPECT_EQ(cfg.buffer_size, 4096) << "smux: buffer_size=4096";
+        EXPECT_EQ(cfg.keepalive_interval, 30000) << "smux: keepalive_interval=30000";
+        EXPECT_EQ(cfg.idle_timeout, 60000) << "smux: idle_timeout=60000";
     }
 
     /**
@@ -97,12 +97,12 @@ namespace
     TEST(MuxBootstrapPure, YamuxConfigDefaults)
     {
         psm::multiplex::yamux::config cfg;
-        EXPECT_TRUE(cfg.max_streams == 32) << "yamux: max_streams=32";
-        EXPECT_TRUE(cfg.initial_window == 256 * 1024) << "yamux: initial_window=256KB";
-        EXPECT_TRUE(cfg.enable_ping == true) << "yamux: enable_ping=true";
-        EXPECT_TRUE(cfg.ping_interval == 30000) << "yamux: ping_interval=30000";
-        EXPECT_TRUE(cfg.open_timeout == 30000) << "yamux: open_timeout=30000";
-        EXPECT_TRUE(cfg.close_timeout == 30000) << "yamux: close_timeout=30000";
+        EXPECT_EQ(cfg.max_streams, 32) << "yamux: max_streams=32";
+        EXPECT_EQ(cfg.initial_window, 256 * 1024) << "yamux: initial_window=256KB";
+        EXPECT_EQ(cfg.enable_ping, true) << "yamux: enable_ping=true";
+        EXPECT_EQ(cfg.ping_interval, 30000) << "yamux: ping_interval=30000";
+        EXPECT_EQ(cfg.open_timeout, 30000) << "yamux: open_timeout=30000";
+        EXPECT_EQ(cfg.close_timeout, 30000) << "yamux: close_timeout=30000";
     }
 
     /**
@@ -111,10 +111,10 @@ namespace
     TEST(MuxBootstrapPure, H2muxConfigDefaults)
     {
         psm::multiplex::h2mux::config cfg;
-        EXPECT_TRUE(cfg.max_streams == 256) << "h2mux: max_streams=256";
-        EXPECT_TRUE(cfg.max_frame_size == 16384) << "h2mux: max_frame_size=16384";
-        EXPECT_TRUE(cfg.idle_timeout == 30000) << "h2mux: idle_timeout=30000";
-        EXPECT_TRUE(cfg.udp_idle == 60000) << "h2mux: udp_idle=60000";
+        EXPECT_EQ(cfg.max_streams, 256) << "h2mux: max_streams=256";
+        EXPECT_EQ(cfg.max_frame_size, 16384) << "h2mux: max_frame_size=16384";
+        EXPECT_EQ(cfg.idle_timeout, 30000) << "h2mux: idle_timeout=30000";
+        EXPECT_EQ(cfg.udp_idle, 60000) << "h2mux: udp_idle=60000";
     }
 
 } // namespace

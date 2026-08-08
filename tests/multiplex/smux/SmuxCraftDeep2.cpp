@@ -289,7 +289,7 @@ TEST(SmuxCraftDeep2, DispatchPushPendingAlreadyConnecting)
 
     fx.craft_obj->dispatch_push(1, std::move(payload));
 
-    EXPECT_TRUE(entry.buffer.size() == 1)
+    EXPECT_EQ(entry.buffer.size(), 1)
         << "dispatch_push: already connecting -> only accumulate";
     EXPECT_TRUE(entry.connecting)
         << "dispatch_push: connecting stays true";
@@ -687,11 +687,11 @@ TEST(SmuxCraftDeep2, PushFrameEncodesCorrectly)
 
     fx.poll();
 
-    EXPECT_TRUE(received_frame.stream_id == 42)
+    EXPECT_EQ(received_frame.stream_id, 42)
         << "push_frame: stream_id correct";
-    EXPECT_TRUE(received_frame.kind == multiplex::multiplexer::outbound_kind::data)
+    EXPECT_EQ(received_frame.kind, multiplex::multiplexer::outbound_kind::data)
         << "push_frame: kind is data";
-    EXPECT_TRUE(received_frame.payload.size() == 2)
+    EXPECT_EQ(received_frame.payload.size(), 2)
         << "push_frame: payload size = 2";
 }
 
@@ -722,11 +722,11 @@ TEST(SmuxCraftDeep2, SendDataPushesFrame)
 
     fx.poll();
 
-    EXPECT_TRUE(received_frame.stream_id == 7)
+    EXPECT_EQ(received_frame.stream_id, 7)
         << "send: stream_id correct";
-    EXPECT_TRUE(received_frame.kind == multiplex::multiplexer::outbound_kind::data)
+    EXPECT_EQ(received_frame.kind, multiplex::multiplexer::outbound_kind::data)
         << "send: kind is data";
-    EXPECT_TRUE(received_frame.payload.size() == 2)
+    EXPECT_EQ(received_frame.payload.size(), 2)
         << "send: payload preserved";
 }
 
@@ -752,9 +752,9 @@ TEST(SmuxCraftDeep2, SendFinSendsFinFrame)
     fx.poll();
 
     EXPECT_TRUE(got_frame) << "fin: frame received on channel";
-    EXPECT_TRUE(received_frame.stream_id == 5)
+    EXPECT_EQ(received_frame.stream_id, 5)
         << "fin: stream_id correct";
-    EXPECT_TRUE(received_frame.kind == multiplex::multiplexer::outbound_kind::fin)
+    EXPECT_EQ(received_frame.kind, multiplex::multiplexer::outbound_kind::fin)
         << "fin: kind is fin";
 }
 
@@ -793,7 +793,7 @@ TEST(SmuxCraftDeep2, SendAddrErrSendsErrorAndFin)
     fx.poll();
 
     EXPECT_TRUE(done) << "send_addr_err: completed";
-    EXPECT_TRUE(frame_count >= 2)
+    EXPECT_GT(frame_count, = 2)
         << "send_addr_err: sent error data + fin >= 2 frames";
     EXPECT_TRUE(fx.craft_obj->pending_.count(1) == 0)
         << "send_addr_err: pending erased";

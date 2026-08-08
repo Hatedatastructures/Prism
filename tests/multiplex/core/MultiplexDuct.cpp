@@ -49,11 +49,11 @@ namespace
     {
         psm::multiplex::smux::config cfg;
 
-        EXPECT_TRUE(cfg.max_streams == 32) << "smux::config::max_streams defaults to 32";
-        EXPECT_TRUE(cfg.buffer_size == 4096) << "smux::config::buffer_size defaults to 4096";
-        EXPECT_TRUE(cfg.keepalive_interval == 30000) << "smux::config::keepalive_interval defaults to 30000";
-        EXPECT_TRUE(cfg.idle_timeout == 60000) << "smux::config::idle_timeout defaults to 60000";
-        EXPECT_TRUE(cfg.max_dgram == 65535) << "smux::config::max_dgram defaults to 65535";
+        EXPECT_EQ(cfg.max_streams, 32) << "smux::config::max_streams defaults to 32";
+        EXPECT_EQ(cfg.buffer_size, 4096) << "smux::config::buffer_size defaults to 4096";
+        EXPECT_EQ(cfg.keepalive_interval, 30000) << "smux::config::keepalive_interval defaults to 30000";
+        EXPECT_EQ(cfg.idle_timeout, 60000) << "smux::config::idle_timeout defaults to 60000";
+        EXPECT_EQ(cfg.max_dgram, 65535) << "smux::config::max_dgram defaults to 65535";
     }
 
     // ─── yamux config ────────────────────────
@@ -66,15 +66,15 @@ namespace
     {
         psm::multiplex::yamux::config cfg;
 
-        EXPECT_TRUE(cfg.max_streams == 32) << "yamux::config::max_streams defaults to 32";
-        EXPECT_TRUE(cfg.buffer_size == 4096) << "yamux::config::buffer_size defaults to 4096";
-        EXPECT_TRUE(cfg.initial_window == 256 * 1024) << "yamux::config::initial_window defaults to 256KB";
-        EXPECT_TRUE(cfg.enable_ping == true) << "yamux::config::enable_ping defaults to true";
-        EXPECT_TRUE(cfg.ping_interval == 30000) << "yamux::config::ping_interval defaults to 30000";
-        EXPECT_TRUE(cfg.open_timeout == 30000) << "yamux::config::open_timeout defaults to 30000";
-        EXPECT_TRUE(cfg.close_timeout == 30000) << "yamux::config::close_timeout defaults to 30000";
-        EXPECT_TRUE(cfg.udp_idle == 60000) << "yamux::config::udp_idle defaults to 60000";
-        EXPECT_TRUE(cfg.max_dgram == 65535) << "yamux::config::max_dgram defaults to 65535";
+        EXPECT_EQ(cfg.max_streams, 32) << "yamux::config::max_streams defaults to 32";
+        EXPECT_EQ(cfg.buffer_size, 4096) << "yamux::config::buffer_size defaults to 4096";
+        EXPECT_EQ(cfg.initial_window, 256 * 1024) << "yamux::config::initial_window defaults to 256KB";
+        EXPECT_EQ(cfg.enable_ping, true) << "yamux::config::enable_ping defaults to true";
+        EXPECT_EQ(cfg.ping_interval, 30000) << "yamux::config::ping_interval defaults to 30000";
+        EXPECT_EQ(cfg.open_timeout, 30000) << "yamux::config::open_timeout defaults to 30000";
+        EXPECT_EQ(cfg.close_timeout, 30000) << "yamux::config::close_timeout defaults to 30000";
+        EXPECT_EQ(cfg.udp_idle, 60000) << "yamux::config::udp_idle defaults to 60000";
+        EXPECT_EQ(cfg.max_dgram, 65535) << "yamux::config::max_dgram defaults to 65535";
     }
 
     // ─── multiplex config ────────────────────
@@ -87,24 +87,24 @@ namespace
     {
         psm::multiplex::config cfg;
 
-        EXPECT_TRUE(cfg.enabled == false) << "multiplex::config::enabled defaults to false";
+        EXPECT_EQ(cfg.enabled, false) << "multiplex::config::enabled defaults to false";
 
         // 验证子配置继承各自默认值
-        EXPECT_TRUE(cfg.smux.max_streams == 32) << "multiplex::config::smux.max_streams defaults to 32";
-        EXPECT_TRUE(cfg.smux.buffer_size == 4096) << "multiplex::config::smux.buffer_size defaults to 4096";
-        EXPECT_TRUE(cfg.smux.keepalive_interval == 30000) << "multiplex::config::smux.keepalive_interval defaults to 30000";
-        EXPECT_TRUE(cfg.smux.idle_timeout == 60000) << "multiplex::config::smux.idle_timeout defaults to 60000";
-        EXPECT_TRUE(cfg.smux.max_dgram == 65535) << "multiplex::config::smux.max_dgram defaults to 65535";
+        EXPECT_EQ(cfg.smux.max_streams, 32) << "multiplex::config::smux.max_streams defaults to 32";
+        EXPECT_EQ(cfg.smux.buffer_size, 4096) << "multiplex::config::smux.buffer_size defaults to 4096";
+        EXPECT_EQ(cfg.smux.keepalive_interval, 30000) << "multiplex::config::smux.keepalive_interval defaults to 30000";
+        EXPECT_EQ(cfg.smux.idle_timeout, 60000) << "multiplex::config::smux.idle_timeout defaults to 60000";
+        EXPECT_EQ(cfg.smux.max_dgram, 65535) << "multiplex::config::smux.max_dgram defaults to 65535";
 
-        EXPECT_TRUE(cfg.yamux.max_streams == 32) << "multiplex::config::yamux.max_streams defaults to 32";
-        EXPECT_TRUE(cfg.yamux.buffer_size == 4096) << "multiplex::config::yamux.buffer_size defaults to 4096";
-        EXPECT_TRUE(cfg.yamux.initial_window == 256 * 1024) << "multiplex::config::yamux.initial_window defaults to 256KB";
-        EXPECT_TRUE(cfg.yamux.enable_ping == true) << "multiplex::config::yamux.enable_ping defaults to true";
-        EXPECT_TRUE(cfg.yamux.ping_interval == 30000) << "multiplex::config::yamux.ping_interval defaults to 30000";
-        EXPECT_TRUE(cfg.yamux.open_timeout == 30000) << "multiplex::config::yamux.open_timeout defaults to 30000";
-        EXPECT_TRUE(cfg.yamux.close_timeout == 30000) << "multiplex::config::yamux.close_timeout defaults to 30000";
-        EXPECT_TRUE(cfg.yamux.udp_idle == 60000) << "multiplex::config::yamux.udp_idle defaults to 60000";
-        EXPECT_TRUE(cfg.yamux.max_dgram == 65535) << "multiplex::config::yamux.max_dgram defaults to 65535";
+        EXPECT_EQ(cfg.yamux.max_streams, 32) << "multiplex::config::yamux.max_streams defaults to 32";
+        EXPECT_EQ(cfg.yamux.buffer_size, 4096) << "multiplex::config::yamux.buffer_size defaults to 4096";
+        EXPECT_EQ(cfg.yamux.initial_window, 256 * 1024) << "multiplex::config::yamux.initial_window defaults to 256KB";
+        EXPECT_EQ(cfg.yamux.enable_ping, true) << "multiplex::config::yamux.enable_ping defaults to true";
+        EXPECT_EQ(cfg.yamux.ping_interval, 30000) << "multiplex::config::yamux.ping_interval defaults to 30000";
+        EXPECT_EQ(cfg.yamux.open_timeout, 30000) << "multiplex::config::yamux.open_timeout defaults to 30000";
+        EXPECT_EQ(cfg.yamux.close_timeout, 30000) << "multiplex::config::yamux.close_timeout defaults to 30000";
+        EXPECT_EQ(cfg.yamux.udp_idle, 60000) << "multiplex::config::yamux.udp_idle defaults to 60000";
+        EXPECT_EQ(cfg.yamux.max_dgram, 65535) << "multiplex::config::yamux.max_dgram defaults to 65535";
     }
 
 } // namespace

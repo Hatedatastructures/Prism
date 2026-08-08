@@ -268,7 +268,7 @@ namespace
         ss::conn c(std::move(mock), cfg, std::move(salts));
 
         auto ex = c.executor();
-        EXPECT_TRUE(static_cast<bool>(ex));
+        EXPECT_LT(static_cast, bool>(ex));
     }
 
     // ─── make_conn 工厂函数 ────────────────────

@@ -16,7 +16,7 @@ namespace
     TEST(NativeSchemePure, NativeName)
     {
         psm::handshake::native::native scheme;
-        EXPECT_TRUE(scheme.name() == std::string_view("native"))
+        EXPECT_EQ(scheme.name(), std::string_view("native"))
             << "native: name() == 'native'";
     }
 
@@ -44,22 +44,22 @@ namespace
         psm::handshake::native::native scheme;
         auto result = scheme.guess(cfg);
 
-        EXPECT_TRUE(result.score == 50) << "native: guess score=50";
-        EXPECT_TRUE(result.solo_flag == 0) << "native: guess solo_flag=0";
-        EXPECT_TRUE(result.note == std::string_view("native TLS fallback"))
+        EXPECT_EQ(result.score, 50) << "native: guess score=50";
+        EXPECT_EQ(result.solo_flag, 0) << "native: guess solo_flag=0";
+        EXPECT_EQ(result.note, std::string_view("native TLS fallback"))
             << "native: guess note='native TLS fallback'";
     }
 
     TEST(NativeSchemePure, NativeTier)
     {
         psm::handshake::native::native scheme;
-        EXPECT_TRUE(scheme.tier() == 2) << "native: tier=2";
+        EXPECT_EQ(scheme.tier(), 2) << "native: tier=2";
     }
 
     TEST(NativeSchemePure, NativeCategory)
     {
         psm::handshake::native::native scheme;
-        EXPECT_TRUE(scheme.category() == psm::handshake::scheme_category::facade)
+        EXPECT_EQ(scheme.category(), psm::handshake::scheme_category::facade)
             << "native: category=facade";
     }
 
@@ -84,7 +84,7 @@ namespace
         psm::handshake::hello_features feat;
         psm::settings cfg;
         auto result = scheme.verify(feat, {}, cfg);
-        EXPECT_TRUE(result.score == 0) << "native: verify score=0";
+        EXPECT_EQ(result.score, 0) << "native: verify score=0";
     }
 
     TEST(NativeSchemePure, NativeGuessDefault)
@@ -93,8 +93,8 @@ namespace
         psm::handshake::native::native scheme;
         psm::settings cfg;
         auto result = scheme.guess(cfg);
-        EXPECT_TRUE(result.score == 50) << "native: guess score=50 (from weight)";
-        EXPECT_TRUE(result.solo_flag == 0) << "native: guess solo_flag=0";
+        EXPECT_EQ(result.score, 50) << "native: guess score=50 (from weight)";
+        EXPECT_EQ(result.solo_flag, 0) << "native: guess solo_flag=0";
     }
 
 } // namespace

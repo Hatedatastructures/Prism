@@ -43,13 +43,13 @@ namespace
     {
         socks5::config cfg;
 
-        EXPECT_TRUE(cfg.enable_tcp == true) << "enable_tcp defaults to true";
-        EXPECT_TRUE(cfg.enable_udp == true) << "enable_udp defaults to true";
-        EXPECT_TRUE(cfg.enable_bind == false) << "enable_bind defaults to false";
-        EXPECT_TRUE(cfg.bind_port == 0) << "bind_port defaults to 0";
-        EXPECT_TRUE(cfg.idle_timeout == 60) << "idle_timeout defaults to 60";
-        EXPECT_TRUE(cfg.max_dgram == 65535) << "max_dgram defaults to 65535";
-        EXPECT_TRUE(cfg.enable_auth == false) << "enable_auth defaults to false";
+        EXPECT_EQ(cfg.enable_tcp, true) << "enable_tcp defaults to true";
+        EXPECT_EQ(cfg.enable_udp, true) << "enable_udp defaults to true";
+        EXPECT_EQ(cfg.enable_bind, false) << "enable_bind defaults to false";
+        EXPECT_EQ(cfg.bind_port, 0) << "bind_port defaults to 0";
+        EXPECT_EQ(cfg.idle_timeout, 60) << "idle_timeout defaults to 60";
+        EXPECT_EQ(cfg.max_dgram, 65535) << "max_dgram defaults to 65535";
+        EXPECT_EQ(cfg.enable_auth, false) << "enable_auth defaults to false";
     }
 
     TEST(Config, Socks5ConfigValidate)
@@ -62,21 +62,21 @@ namespace
         cfg.max_dgram = 32768;
         cfg.bind_port = 9000;
 
-        EXPECT_TRUE(cfg.enable_auth == true) << "enable_auth can be set to true";
-        EXPECT_TRUE(cfg.enable_tcp == true) << "enable_tcp remains true";
-        EXPECT_TRUE(cfg.idle_timeout == 120) << "idle_timeout can be customized";
-        EXPECT_TRUE(cfg.max_dgram == 32768) << "max_dgram can be customized";
-        EXPECT_TRUE(cfg.bind_port == 9000) << "bind_port can be customized";
+        EXPECT_EQ(cfg.enable_auth, true) << "enable_auth can be set to true";
+        EXPECT_EQ(cfg.enable_tcp, true) << "enable_tcp remains true";
+        EXPECT_EQ(cfg.idle_timeout, 120) << "idle_timeout can be customized";
+        EXPECT_EQ(cfg.max_dgram, 32768) << "max_dgram can be customized";
+        EXPECT_EQ(cfg.bind_port, 9000) << "bind_port can be customized";
     }
 
     TEST(Config, TrojanConfigDefaults)
     {
         trojan::config cfg;
 
-        EXPECT_TRUE(cfg.enable_tcp == true) << "enable_tcp defaults to true";
-        EXPECT_TRUE(cfg.enable_udp == false) << "enable_udp defaults to false";
-        EXPECT_TRUE(cfg.idle_timeout == 60) << "idle_timeout defaults to 60";
-        EXPECT_TRUE(cfg.max_dgram == 65535) << "max_dgram defaults to 65535";
+        EXPECT_EQ(cfg.enable_tcp, true) << "enable_tcp defaults to true";
+        EXPECT_EQ(cfg.enable_udp, false) << "enable_udp defaults to false";
+        EXPECT_EQ(cfg.idle_timeout, 60) << "idle_timeout defaults to 60";
+        EXPECT_EQ(cfg.max_dgram, 65535) << "max_dgram defaults to 65535";
     }
 
     TEST(Config, TrojanConfigValidate)
@@ -87,19 +87,19 @@ namespace
         cfg.idle_timeout = 90;
         cfg.max_dgram = 32768;
 
-        EXPECT_TRUE(cfg.enable_tcp == true) << "enable_tcp can remain true";
-        EXPECT_TRUE(cfg.enable_udp == true) << "enable_udp can be set to true";
-        EXPECT_TRUE(cfg.idle_timeout == 90) << "idle_timeout can be customized";
-        EXPECT_TRUE(cfg.max_dgram == 32768) << "max_dgram can be customized";
+        EXPECT_EQ(cfg.enable_tcp, true) << "enable_tcp can remain true";
+        EXPECT_EQ(cfg.enable_udp, true) << "enable_udp can be set to true";
+        EXPECT_EQ(cfg.idle_timeout, 90) << "idle_timeout can be customized";
+        EXPECT_EQ(cfg.max_dgram, 32768) << "max_dgram can be customized";
     }
 
     TEST(Config, VlessConfigDefaults)
     {
         vless::config cfg;
 
-        EXPECT_TRUE(cfg.enable_udp == false) << "enable_udp defaults to false";
-        EXPECT_TRUE(cfg.idle_timeout == 60) << "idle_timeout defaults to 60";
-        EXPECT_TRUE(cfg.max_dgram == 65535) << "max_dgram defaults to 65535";
+        EXPECT_EQ(cfg.enable_udp, false) << "enable_udp defaults to false";
+        EXPECT_EQ(cfg.idle_timeout, 60) << "idle_timeout defaults to 60";
+        EXPECT_EQ(cfg.max_dgram, 65535) << "max_dgram defaults to 65535";
     }
 
     TEST(Config, VlessConfigValidate)
@@ -109,20 +109,20 @@ namespace
         cfg.idle_timeout = 30;
         cfg.max_dgram = 16384;
 
-        EXPECT_TRUE(cfg.enable_udp == true) << "enable_udp can be set to true";
-        EXPECT_TRUE(cfg.idle_timeout == 30) << "idle_timeout can be customized";
-        EXPECT_TRUE(cfg.max_dgram == 16384) << "max_dgram can be customized";
+        EXPECT_EQ(cfg.enable_udp, true) << "enable_udp can be set to true";
+        EXPECT_EQ(cfg.idle_timeout, 30) << "idle_timeout can be customized";
+        EXPECT_EQ(cfg.max_dgram, 16384) << "max_dgram can be customized";
     }
 
     TEST(Config, ShadowsocksConfigDefaults)
     {
         shadowsocks::config cfg;
 
-        EXPECT_TRUE(cfg.enable_tcp == true) << "enable_tcp defaults to true";
-        EXPECT_TRUE(cfg.enable_udp == false) << "enable_udp defaults to false";
-        EXPECT_TRUE(cfg.timestamp_window == 30) << "timestamp_window defaults to 30";
-        EXPECT_TRUE(cfg.salt_ttl == 60) << "salt_ttl defaults to 60";
-        EXPECT_TRUE(cfg.idle_timeout == 60) << "idle_timeout defaults to 60";
+        EXPECT_EQ(cfg.enable_tcp, true) << "enable_tcp defaults to true";
+        EXPECT_EQ(cfg.enable_udp, false) << "enable_udp defaults to false";
+        EXPECT_EQ(cfg.timestamp_window, 30) << "timestamp_window defaults to 30";
+        EXPECT_EQ(cfg.salt_ttl, 60) << "salt_ttl defaults to 60";
+        EXPECT_EQ(cfg.idle_timeout, 60) << "idle_timeout defaults to 60";
         EXPECT_TRUE(cfg.psk.empty()) << "psk defaults to empty";
         EXPECT_TRUE(cfg.method.empty()) << "method defaults to empty";
     }
@@ -138,22 +138,22 @@ namespace
         cfg.salt_ttl = 90;
 
         EXPECT_TRUE(!cfg.psk.empty()) << "psk can be set";
-        EXPECT_TRUE(cfg.method == "2022-blake3-aes-256-gcm") << "method can be set explicitly";
-        EXPECT_TRUE(cfg.enable_udp == true) << "enable_udp can be set to true";
-        EXPECT_TRUE(cfg.timestamp_window == 45) << "timestamp_window can be customized";
-        EXPECT_TRUE(cfg.salt_ttl == 90) << "salt_ttl can be customized";
+        EXPECT_EQ(cfg.method, "2022-blake3-aes-256-gcm") << "method can be set explicitly";
+        EXPECT_EQ(cfg.enable_udp, true) << "enable_udp can be set to true";
+        EXPECT_EQ(cfg.timestamp_window, 45) << "timestamp_window can be customized";
+        EXPECT_EQ(cfg.salt_ttl, 90) << "salt_ttl can be customized";
     }
 
     TEST(Config, ShadowtlsConfigDefaults)
     {
         shadowtls::config cfg;
 
-        EXPECT_TRUE(cfg.version == 3) << "version defaults to 3";
+        EXPECT_EQ(cfg.version, 3) << "version defaults to 3";
         EXPECT_TRUE(cfg.password.empty()) << "password defaults to empty";
         EXPECT_TRUE(cfg.users.empty()) << "users defaults to empty";
         EXPECT_TRUE(cfg.handshake_dest.empty()) << "handshake_dest defaults to empty";
-        EXPECT_TRUE(cfg.strict_mode == true) << "strict_mode defaults to true";
-        EXPECT_TRUE(cfg.hs_timeout == 5000) << "hs_timeout defaults to 5000";
+        EXPECT_EQ(cfg.strict_mode, true) << "strict_mode defaults to true";
+        EXPECT_EQ(cfg.hs_timeout, 5000) << "hs_timeout defaults to 5000";
     }
 
     TEST(Config, ShadowtlsConfigValidate)
@@ -165,10 +165,10 @@ namespace
         cfg_v2.handshake_dest = "www.example.com:443";
         cfg_v2.strict_mode = false;
 
-        EXPECT_TRUE(cfg_v2.version == 2) << "version can be set to 2";
+        EXPECT_EQ(cfg_v2.version, 2) << "version can be set to 2";
         EXPECT_TRUE(!cfg_v2.password.empty()) << "v2 password can be set";
-        EXPECT_TRUE(cfg_v2.handshake_dest == "www.example.com:443") << "handshake_dest can be set";
-        EXPECT_TRUE(cfg_v2.strict_mode == false) << "strict_mode can be disabled";
+        EXPECT_EQ(cfg_v2.handshake_dest, "www.example.com:443") << "handshake_dest can be set";
+        EXPECT_EQ(cfg_v2.strict_mode, false) << "strict_mode can be disabled";
 
         // v3 模式：使用多用户
         shadowtls::config cfg_v3;
@@ -177,11 +177,11 @@ namespace
         cfg_v3.users.push_back({"user2", "pass2"});
         cfg_v3.handshake_dest = "www.cloudflare.com:443";
 
-        EXPECT_TRUE(cfg_v3.version == 3) << "version defaults to 3";
-        EXPECT_TRUE(cfg_v3.users.size() == 2) << "v3 can have multiple users";
-        EXPECT_TRUE(cfg_v3.users[0].name == "user1") << "v3 user name can be set";
-        EXPECT_TRUE(cfg_v3.users[0].password == "pass1") << "v3 user password can be set";
-        EXPECT_TRUE(cfg_v3.users[1].name == "user2") << "second v3 user name can be set";
+        EXPECT_EQ(cfg_v3.version, 3) << "version defaults to 3";
+        EXPECT_EQ(cfg_v3.users.size(), 2) << "v3 can have multiple users";
+        EXPECT_EQ(cfg_v3.users[0].name, "user1") << "v3 user name can be set";
+        EXPECT_EQ(cfg_v3.users[0].password, "pass1") << "v3 user password can be set";
+        EXPECT_EQ(cfg_v3.users[1].name, "user2") << "second v3 user name can be set";
         EXPECT_TRUE(!cfg_v3.handshake_dest.empty()) << "v3 handshake_dest can be set";
     }
 
@@ -193,7 +193,7 @@ namespace
         EXPECT_TRUE(cfg.private_key.empty()) << "private_key defaults to empty";
         EXPECT_TRUE(cfg.server_names.empty()) << "server_names defaults to empty";
         EXPECT_TRUE(cfg.short_ids.empty()) << "short_ids defaults to empty";
-        EXPECT_TRUE(cfg.enabled() == false) << "enabled() returns false when unconfigured";
+        EXPECT_EQ(cfg.enabled(), false) << "enabled() returns false when unconfigured";
     }
 
     TEST(Config, RealityConfigValidate)
@@ -208,28 +208,28 @@ namespace
 
         EXPECT_TRUE(!cfg_full.dest.empty()) << "dest can be set";
         EXPECT_TRUE(!cfg_full.private_key.empty()) << "private_key can be set";
-        EXPECT_TRUE(cfg_full.server_names.size() == 2) << "server_names can have multiple entries";
-        EXPECT_TRUE(cfg_full.enabled() == true) << "enabled() returns true with full config";
+        EXPECT_EQ(cfg_full.server_names.size(), 2) << "server_names can have multiple entries";
+        EXPECT_EQ(cfg_full.enabled(), true) << "enabled() returns true with full config";
 
         // 缺少 private_key 时应禁用
         reality::config cfg_no_key;
         cfg_no_key.dest = "www.microsoft.com:443";
         cfg_no_key.server_names.push_back("www.microsoft.com");
 
-        EXPECT_TRUE(cfg_no_key.enabled() == false) << "enabled() returns false when private_key is empty";
+        EXPECT_EQ(cfg_no_key.enabled(), false) << "enabled() returns false when private_key is empty";
 
         // 缺少 server_names 时应禁用
         reality::config cfg_no_names;
         cfg_no_names.dest = "www.microsoft.com:443";
         cfg_no_names.private_key = "iIdwLBfO6L5E5n7nX7rG6r6H6g6f6e6d6c6b6a69";
 
-        EXPECT_TRUE(cfg_no_names.enabled() == false) << "enabled() returns false when server_names is empty";
+        EXPECT_EQ(cfg_no_names.enabled(), false) << "enabled() returns false when server_names is empty";
 
         // 缺少 dest 时应禁用
         reality::config cfg_no_dest;
         cfg_no_dest.private_key = "iIdwLBfO6L5E5n7nX7rG6r6H6g6f6e6d6c6b6a69";
         cfg_no_dest.server_names.push_back("www.microsoft.com");
 
-        EXPECT_TRUE(cfg_no_dest.enabled() == false) << "enabled() returns false when dest is empty";
+        EXPECT_EQ(cfg_no_dest.enabled(), false) << "enabled() returns false when dest is empty";
     }
 } // namespace

@@ -87,35 +87,35 @@ namespace
 TEST(Recognition, DetectAllProtocols)
 {
     // 空数据 -> unknown
-    EXPECT_TRUE(probe::detect("") == psm::connect::protocol_type::unknown)
+    EXPECT_EQ(probe::detect(""), psm::connect::protocol_type::unknown)
         << "detect: empty -> unknown";
 
     // SOCKS5 (首字节 0x05)
     std::string socks5 = "\x05\x01\x00";
-    EXPECT_TRUE(probe::detect(socks5) == psm::connect::protocol_type::socks5)
+    EXPECT_EQ(probe::detect(socks5), psm::connect::protocol_type::socks5)
         << "detect: 0x05 -> socks5";
 
     // TLS (0x16 0x03)
     std::string tls = "\x16\x03\x01\x00\x05";
-    EXPECT_TRUE(probe::detect(tls) == psm::connect::protocol_type::tls)
+    EXPECT_EQ(probe::detect(tls), psm::connect::protocol_type::tls)
         << "detect: 0x16 0x03 -> tls";
 
     // 单字节 0x16 但第二字节不是 0x03 -> shadowsocks fallback
     std::string not_tls = "\x16\x00";
-    EXPECT_TRUE(probe::detect(not_tls) == psm::connect::protocol_type::shadowsocks)
+    EXPECT_EQ(probe::detect(not_tls), psm::connect::protocol_type::shadowsocks)
         << "detect: 0x16 0x00 -> shadowsocks (not TLS)";
 
     // HTTP GET
-    EXPECT_TRUE(probe::detect("GET / HTTP/1.1\r\n") == psm::connect::protocol_type::http)
+    EXPECT_EQ(probe::detect("GET / HTTP/1.1\r\n"), psm::connect::protocol_type::http)
         << "detect: GET -> http";
 
     // HTTP POST
-    EXPECT_TRUE(probe::detect("POST /api HTTP/1.1\r\n") == psm::connect::protocol_type::http)
+    EXPECT_EQ(probe::detect("POST /api HTTP/1.1\r\n"), psm::connect::protocol_type::http)
         << "detect: POST -> http";
 
     // 随机字节 -> shadowsocks fallback
     std::string random = "\x42\x00\xFF\xAB\xCD";
-    EXPECT_TRUE(probe::detect(random) == psm::connect::protocol_type::shadowsocks)
+    EXPECT_EQ(probe::detect(random), psm::connect::protocol_type::shadowsocks)
         << "detect: random bytes -> shadowsocks";
 }
 
@@ -130,7 +130,7 @@ TEST(Recognition, SNIRouteTableBuild)
     auto table = psm::recognition::route_table::build(cfg);
 
     EXPECT_TRUE(!table.empty()) << "Route table should not be empty";
-    EXPECT_TRUE(table.registered_snis().size() == 5) << "Should have 5 registered SNIs";
+    EXPECT_EQ(table.registered_snis().size(), 5) << "Should have 5 registered SNIs";
 }
 
 /**
@@ -143,28 +143,28 @@ TEST(Recognition, SNIRouteTableLookup)
 
     // 测试 Reality SNI
     auto schemes = table.lookup("reality.example.com");
-    EXPECT_TRUE(schemes.size() == 1) << "Reality SNI should match 1 scheme";
-    EXPECT_TRUE(schemes[0] == "reality") << "Should be reality";
+    EXPECT_EQ(schemes.size(), 1) << "Reality SNI should match 1 scheme";
+    EXPECT_EQ(schemes[0], "reality") << "Should be reality";
 
     // 测试 ShadowTLS SNI
     schemes = table.lookup("shadowtls.example.com");
-    EXPECT_TRUE(schemes.size() == 1) << "ShadowTLS SNI should match 1 scheme";
-    EXPECT_TRUE(schemes[0] == "shadowtls") << "Should be shadowtls";
+    EXPECT_EQ(schemes.size(), 1) << "ShadowTLS SNI should match 1 scheme";
+    EXPECT_EQ(schemes[0], "shadowtls") << "Should be shadowtls";
 
     // 测试 Restls SNI
     schemes = table.lookup("restls.example.com");
-    EXPECT_TRUE(schemes.size() == 1) << "Restls SNI should match 1 scheme";
-    EXPECT_TRUE(schemes[0] == "restls") << "Should be restls";
+    EXPECT_EQ(schemes.size(), 1) << "Restls SNI should match 1 scheme";
+    EXPECT_EQ(schemes[0], "restls") << "Should be restls";
 
     // 测试 AnyTLS SNI
     schemes = table.lookup("anytls.example.com");
-    EXPECT_TRUE(schemes.size() == 1) << "AnyTLS SNI should match 1 scheme";
-    EXPECT_TRUE(schemes[0] == "anytls") << "Should be anytls";
+    EXPECT_EQ(schemes.size(), 1) << "AnyTLS SNI should match 1 scheme";
+    EXPECT_EQ(schemes[0], "anytls") << "Should be anytls";
 
     // 测试 TrustTunnel SNI
     schemes = table.lookup("trusttunnel.example.com");
-    EXPECT_TRUE(schemes.size() == 1) << "TrustTunnel SNI should match 1 scheme";
-    EXPECT_TRUE(schemes[0] == "trusttunnel") << "Should be trusttunnel";
+    EXPECT_EQ(schemes.size(), 1) << "TrustTunnel SNI should match 1 scheme";
+    EXPECT_EQ(schemes[0], "trusttunnel") << "Should be trusttunnel";
 
     // 测试未知 SNI
     schemes = table.lookup("unknown.example.com");
@@ -185,7 +185,7 @@ TEST(Recognition, FeatureBitmapBuild)
     // 测试空特征
     hello_features empty_features;
     auto bitmap = psm::recognition::tls::build_bitmap(empty_features);
-    EXPECT_TRUE(bitmap == 0) << "Empty features should produce 0 bitmap";
+    EXPECT_EQ(bitmap, 0) << "Empty features should produce 0 bitmap";
 
     // 测试有 SNI
     hello_features sni_features;
@@ -297,7 +297,7 @@ TEST(Recognition, RealitySniffExclusive)
 
     EXPECT_TRUE(result.hit) << "Reality marker should hit";
     EXPECT_TRUE(result.solo) << "Reality marker should be solo (exclusive)";
-    EXPECT_TRUE(result.hint >= 900) << "Reality marker should have high hint";
+    EXPECT_GT(result.hint, = 900) << "Reality marker should have high hint";
 
     // 无标记但有 X25519 + session_id=32 → 非独占
     hello_features no_marker_features;
@@ -323,12 +323,12 @@ TEST(Recognition, SchemeRegistry)
     psm::handshake::register_schemes();
     auto &reg = psm::handshake::scheme_registry::instance();
 
-    EXPECT_TRUE(reg.all().size() >= 4)
+    EXPECT_GT(reg.all().size(), = 4)
         << "registry: at least 4 schemes registered";
 
     // 按名称查找
     auto reality = reg.find("reality");
-    EXPECT_TRUE(reality != nullptr)
+    EXPECT_NE(reality, nullptr)
         << "registry: find('reality') succeeds";
     EXPECT_TRUE(reality->name() == "reality")
         << "registry: reality name matches";
@@ -338,14 +338,14 @@ TEST(Recognition, SchemeRegistry)
         << "registry: reality should have unique feature";
 
     auto native = reg.find("native");
-    EXPECT_TRUE(native != nullptr)
+    EXPECT_NE(native, nullptr)
         << "registry: find('native') succeeds";
     EXPECT_TRUE(native->tier() == 2)
         << "registry: native should be Tier 2";
 
     // 不存在的方案
     auto unknown = reg.find("nonexistent");
-    EXPECT_TRUE(unknown == nullptr)
+    EXPECT_EQ(unknown, nullptr)
         << "registry: find('nonexistent') returns nullptr";
 }
 
@@ -360,9 +360,9 @@ TEST(Recognition, ClientHelloFeaturesDefaults)
 
     EXPECT_TRUE(features.server_name.empty())
         << "hello_features: server_name empty";
-    EXPECT_TRUE(features.session_id_len == 0)
+    EXPECT_EQ(features.session_id_len, 0)
         << "hello_features: session_id_len = 0";
-    EXPECT_TRUE(features.has_x25519 == false)
+    EXPECT_EQ(features.has_x25519, false)
         << "hello_features: has_x25519 = false";
     EXPECT_TRUE(features.versions.empty())
         << "hello_features: versions empty";
@@ -377,11 +377,11 @@ TEST(Recognition, ProbeResultDefaults)
 {
     probe::probe_result result;
 
-    EXPECT_TRUE(result.type == psm::connect::protocol_type::unknown)
+    EXPECT_EQ(result.type, psm::connect::protocol_type::unknown)
         << "probe_result: default type = unknown";
-    EXPECT_TRUE(result.pre_read_size == 0)
+    EXPECT_EQ(result.pre_read_size, 0)
         << "probe_result: default pre_read_size = 0";
-    EXPECT_TRUE(result.ec == psm::fault::code::success)
+    EXPECT_EQ(result.ec, psm::fault::code::success)
         << "probe_result: default ec = success";
 }
 
@@ -392,9 +392,9 @@ TEST(Recognition, SniffResultDefaults)
 {
     psm::handshake::sniff_result result;
 
-    EXPECT_TRUE(result.hit == false) << "sniff_result: default hit = false";
-    EXPECT_TRUE(result.solo == false) << "sniff_result: default solo = false";
-    EXPECT_TRUE(result.hint == 0) << "sniff_result: default hint = 0";
+    EXPECT_EQ(result.hit, false) << "sniff_result: default hit = false";
+    EXPECT_EQ(result.solo, false) << "sniff_result: default solo = false";
+    EXPECT_EQ(result.hint, 0) << "sniff_result: default hint = 0";
 }
 
 /**
@@ -404,6 +404,6 @@ TEST(Recognition, VerifyResultDefaults)
 {
     psm::handshake::verify_result result;
 
-    EXPECT_TRUE(result.score == 0) << "verify_result: default score = 0";
-    EXPECT_TRUE(result.solo_flag == 0) << "verify_result: default solo_flag = 0";
+    EXPECT_EQ(result.score, 0) << "verify_result: default score = 0";
+    EXPECT_EQ(result.solo_flag, 0) << "verify_result: default solo_flag = 0";
 }

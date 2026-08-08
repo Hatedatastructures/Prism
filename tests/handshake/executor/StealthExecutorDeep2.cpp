@@ -39,7 +39,7 @@ namespace
 
         handshake::scheme_executor exec(registry);
         auto found = exec.find_scheme("native");
-        EXPECT_TRUE(found != nullptr) << "find_scheme: native found";
+        EXPECT_NE(found, nullptr) << "find_scheme: native found";
         EXPECT_TRUE(found->name() == std::string_view("native")) << "find_scheme: name matches";
     }
 
@@ -48,7 +48,7 @@ namespace
         handshake::scheme_registry registry;
         handshake::scheme_executor exec(registry);
         auto found = exec.find_scheme("nonexistent");
-        EXPECT_TRUE(found == nullptr) << "find_scheme: nonexistent returns nullptr";
+        EXPECT_EQ(found, nullptr) << "find_scheme: nonexistent returns nullptr";
     }
 
     TEST(StealthExecutorDeep2, FindSchemeMultiple)
@@ -61,9 +61,9 @@ namespace
         auto native = exec.find_scheme("native");
         auto reality = exec.find_scheme("reality");
         auto bad = exec.find_scheme("foo");
-        EXPECT_TRUE(native != nullptr) << "find_scheme multi: native found";
-        EXPECT_TRUE(reality != nullptr) << "find_scheme multi: reality found";
-        EXPECT_TRUE(bad == nullptr) << "find_scheme multi: foo not found";
+        EXPECT_NE(native, nullptr) << "find_scheme multi: native found";
+        EXPECT_NE(reality, nullptr) << "find_scheme multi: reality found";
+        EXPECT_EQ(bad, nullptr) << "find_scheme multi: foo not found";
     }
 
     // ─── pass_through ────────────────────────────────
@@ -78,7 +78,7 @@ namespace
         res.transport = mock;
 
         handshake::scheme_executor::pass_through(ctx, res);
-        EXPECT_TRUE(ctx.transport == mock) << "pass_through: sets transport";
+        EXPECT_EQ(ctx.transport, mock) << "pass_through: sets transport";
     }
 
     TEST(StealthExecutorDeep2, PassThroughNoTransport)
@@ -90,7 +90,7 @@ namespace
         res.transport = nullptr;
 
         handshake::scheme_executor::pass_through(ctx, res);
-        EXPECT_TRUE(ctx.transport == nullptr) << "pass_through: null transport keeps null";
+        EXPECT_EQ(ctx.transport, nullptr) << "pass_through: null transport keeps null";
     }
 
     TEST(StealthExecutorDeep2, PassThroughWithPrereadAndTransport)
@@ -106,10 +106,10 @@ namespace
         res.preread.push_back(std::byte{0x02});
 
         handshake::scheme_executor::pass_through(ctx, res);
-        EXPECT_TRUE(ctx.transport != mock) << "pass_through: wraps with preview";
-        EXPECT_TRUE(ctx.transport != nullptr) << "pass_through: not null after wrap";
+        EXPECT_NE(ctx.transport, mock) << "pass_through: wraps with preview";
+        EXPECT_NE(ctx.transport, nullptr) << "pass_through: not null after wrap";
         auto *pv = dynamic_cast<transport::preview *>(ctx.transport.get());
-        EXPECT_TRUE(pv != nullptr) << "pass_through: is preview";
+        EXPECT_NE(pv, nullptr) << "pass_through: is preview";
     }
 
     TEST(StealthExecutorDeep2, PassThroughEmptyPreread)
@@ -121,7 +121,7 @@ namespace
         handshake::handshake_result res;
         res.transport = mock;
         handshake::scheme_executor::pass_through(ctx, res);
-        EXPECT_TRUE(ctx.transport == mock) << "pass_through: empty preread no wrap";
+        EXPECT_EQ(ctx.transport, mock) << "pass_through: empty preread no wrap";
     }
 
     TEST(StealthExecutorDeep2, PassThroughPrereadNoTransport)
@@ -134,7 +134,7 @@ namespace
         res.preread.push_back(std::byte{0xAA});
 
         handshake::scheme_executor::pass_through(ctx, res);
-        EXPECT_TRUE(ctx.transport == nullptr) << "pass_through: preread but no transport stays null";
+        EXPECT_EQ(ctx.transport, nullptr) << "pass_through: preread but no transport stays null";
     }
 
     // ─── ensure_snapshot ─────────────────────────────
@@ -144,7 +144,7 @@ namespace
         handshake::handshake_context ctx;
         ctx.transport = nullptr;
         handshake::scheme_executor::ensure_snapshot(ctx);
-        EXPECT_TRUE(ctx.transport == nullptr) << "ensure_snapshot: null stays null";
+        EXPECT_EQ(ctx.transport, nullptr) << "ensure_snapshot: null stays null";
     }
 
     TEST(StealthExecutorDeep2, EnsureSnapshotAlreadySnapshot)
@@ -155,7 +155,7 @@ namespace
         ctx.transport = snap;
 
         handshake::scheme_executor::ensure_snapshot(ctx);
-        EXPECT_TRUE(ctx.transport == snap) << "ensure_snapshot: already snapshot unchanged";
+        EXPECT_EQ(ctx.transport, snap) << "ensure_snapshot: already snapshot unchanged";
     }
 
     TEST(StealthExecutorDeep2, EnsureSnapshotNotSnapshot)
@@ -165,9 +165,9 @@ namespace
         ctx.transport = mock;
 
         handshake::scheme_executor::ensure_snapshot(ctx);
-        EXPECT_TRUE(ctx.transport != mock) << "ensure_snapshot: wraps non-snapshot";
+        EXPECT_NE(ctx.transport, mock) << "ensure_snapshot: wraps non-snapshot";
         auto *snap = dynamic_cast<transport::snapshot *>(ctx.transport.get());
-        EXPECT_TRUE(snap != nullptr) << "ensure_snapshot: result is snapshot";
+        EXPECT_NE(snap, nullptr) << "ensure_snapshot: result is snapshot";
     }
 
     // ─── try_rewind ──────────────────────────────────
@@ -177,7 +177,7 @@ namespace
         handshake::handshake_context ctx;
         ctx.transport = std::make_shared<psm::testing::MockTransport>();
         auto result = handshake::scheme_executor::try_rewind(ctx, handshake::rewind_mode::polluted);
-        EXPECT_TRUE(result == false) << "try_rewind: polluted returns false";
+        EXPECT_EQ(result, false) << "try_rewind: polluted returns false";
     }
 
     TEST(StealthExecutorDeep2, TryRewindNullInbound)
@@ -185,7 +185,7 @@ namespace
         handshake::handshake_context ctx;
         ctx.transport = nullptr;
         auto result = handshake::scheme_executor::try_rewind(ctx, handshake::rewind_mode::clean);
-        EXPECT_TRUE(result == false) << "try_rewind: null inbound returns false";
+        EXPECT_EQ(result, false) << "try_rewind: null inbound returns false";
     }
 
     TEST(StealthExecutorDeep2, TryRewindNotSnapshot)
@@ -195,7 +195,7 @@ namespace
         ctx.transport = mock;
 
         auto result = handshake::scheme_executor::try_rewind(ctx, handshake::rewind_mode::clean);
-        EXPECT_TRUE(result == false) << "try_rewind: non-snapshot returns false";
+        EXPECT_EQ(result, false) << "try_rewind: non-snapshot returns false";
     }
 
     TEST(StealthExecutorDeep2, TryRewindSnapshotCannotRewind)
@@ -208,7 +208,7 @@ namespace
         ctx.transport = snap;
 
         auto result = handshake::scheme_executor::try_rewind(ctx, handshake::rewind_mode::clean);
-        EXPECT_TRUE(result == false) << "try_rewind: snapshot wrote_ returns false";
+        EXPECT_EQ(result, false) << "try_rewind: snapshot wrote_ returns false";
     }
 
     TEST(StealthExecutorDeep2, TryRewindSnapshotSuccess)
@@ -219,7 +219,7 @@ namespace
         ctx.transport = snap;
 
         auto result = handshake::scheme_executor::try_rewind(ctx, handshake::rewind_mode::clean);
-        EXPECT_TRUE(result == true) << "try_rewind: clean snapshot returns true";
+        EXPECT_EQ(result, true) << "try_rewind: clean snapshot returns true";
     }
 
 } // namespace

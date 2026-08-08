@@ -40,12 +40,12 @@ namespace
     {
         // Restls TLS 常量与 shadowtls 共享，此处仅验证值正确性
         using namespace psm::handshake::restls;
-        EXPECT_TRUE(tls_hdrsize == 5) << "TLS header size is 5 bytes";
-        EXPECT_TRUE(tls_rndsize == 32) << "TLS random size is 32 bytes";
-        EXPECT_TRUE(psm::handshake::shadowtls::content_handshake == 0x16) << "Handshake content type is 0x16";
-        EXPECT_TRUE(psm::handshake::shadowtls::content_appdata == 0x17) << "Application data content type is 0x17";
+        EXPECT_EQ(tls_hdrsize, 5) << "TLS header size is 5 bytes";
+        EXPECT_EQ(tls_rndsize, 32) << "TLS random size is 32 bytes";
+        EXPECT_EQ(psm::handshake::shadowtls::content_handshake, 0x16) << "Handshake content type is 0x16";
+        EXPECT_EQ(psm::handshake::shadowtls::content_appdata, 0x17) << "Application data content type is 0x17";
         constexpr std::size_t auth_tag_size = 4;
-        EXPECT_TRUE(auth_tag_size == 4) << "Auth tag size is 4 bytes";
+        EXPECT_EQ(auth_tag_size, 4) << "Auth tag size is 4 bytes";
     }
 
     TEST(Restls, VersionHint)
@@ -62,11 +62,11 @@ namespace
 
         // 设置 tls13
         cfg.version_hint = "tls13";
-        EXPECT_TRUE(cfg.version_hint == "tls13") << "Version hint can be set to tls13";
+        EXPECT_EQ(cfg.version_hint, "tls13") << "Version hint can be set to tls13";
 
         // 设置 tls12
         cfg.version_hint = "tls12";
-        EXPECT_TRUE(cfg.version_hint == "tls12") << "Version hint can be set to tls12";
+        EXPECT_EQ(cfg.version_hint, "tls12") << "Version hint can be set to tls12";
     }
 
 } // namespace

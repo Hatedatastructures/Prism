@@ -19,7 +19,7 @@ namespace
     {
         auto &a = handshake::scheme_registry::instance();
         auto &b = handshake::scheme_registry::instance();
-        EXPECT_TRUE(&a == &b) << "registry: same instance";
+        EXPECT_EQ(&a, &b) << "registry: same instance";
     }
 
     TEST(StealthRegistryDeep, RegisterSchemes)
@@ -29,7 +29,7 @@ namespace
         auto &all = reg.all();
         EXPECT_TRUE(!all.empty()) << "register_schemes: schemes not empty";
         // register_schemes 注册 6 个方案
-        EXPECT_TRUE(all.size() >= 6) << "register_schemes: >= 6 schemes";
+        EXPECT_GT(all.size(), = 6) << "register_schemes: >= 6 schemes";
     }
 
     TEST(StealthRegistryDeep, FindExisting)
@@ -37,14 +37,14 @@ namespace
         handshake::register_schemes();
         auto &reg = handshake::scheme_registry::instance();
         auto reality = reg.find("reality");
-        EXPECT_TRUE(reality != nullptr) << "find: reality found";
+        EXPECT_NE(reality, nullptr) << "find: reality found";
         EXPECT_TRUE(reality->name() == "reality") << "find: reality name match";
 
         auto shadowtls = reg.find("shadowtls");
-        EXPECT_TRUE(shadowtls != nullptr) << "find: shadowtls found";
+        EXPECT_NE(shadowtls, nullptr) << "find: shadowtls found";
 
         auto native = reg.find("native");
-        EXPECT_TRUE(native != nullptr) << "find: native found";
+        EXPECT_NE(native, nullptr) << "find: native found";
     }
 
     TEST(StealthRegistryDeep, FindAnytls)
@@ -52,7 +52,7 @@ namespace
         handshake::register_schemes();
         auto &reg = handshake::scheme_registry::instance();
         auto s = reg.find("anytls");
-        EXPECT_TRUE(s != nullptr) << "find: anytls found";
+        EXPECT_NE(s, nullptr) << "find: anytls found";
         EXPECT_TRUE(s->name() == "anytls") << "find: anytls name match";
     }
 
@@ -61,7 +61,7 @@ namespace
         handshake::register_schemes();
         auto &reg = handshake::scheme_registry::instance();
         auto s = reg.find("trusttunnel");
-        EXPECT_TRUE(s != nullptr) << "find: trusttunnel found";
+        EXPECT_NE(s, nullptr) << "find: trusttunnel found";
     }
 
     TEST(StealthRegistryDeep, FindRestls)
@@ -69,7 +69,7 @@ namespace
         handshake::register_schemes();
         auto &reg = handshake::scheme_registry::instance();
         auto s = reg.find("restls");
-        EXPECT_TRUE(s != nullptr) << "find: restls found";
+        EXPECT_NE(s, nullptr) << "find: restls found";
     }
 
     TEST(StealthRegistryDeep, FindNonexistent)
@@ -77,7 +77,7 @@ namespace
         handshake::register_schemes();
         auto &reg = handshake::scheme_registry::instance();
         auto s = reg.find("nonexistent_scheme");
-        EXPECT_TRUE(s == nullptr) << "find: nonexistent -> nullptr";
+        EXPECT_EQ(s, nullptr) << "find: nonexistent -> nullptr";
     }
 
     TEST(StealthRegistryDeep, FindEmptyName)
@@ -85,7 +85,7 @@ namespace
         handshake::register_schemes();
         auto &reg = handshake::scheme_registry::instance();
         auto s = reg.find("");
-        EXPECT_TRUE(s == nullptr) << "find: empty name -> nullptr";
+        EXPECT_EQ(s, nullptr) << "find: empty name -> nullptr";
     }
 
     TEST(StealthRegistryDeep, AllReturnsVector)
@@ -95,7 +95,7 @@ namespace
         auto &all = reg.all();
         for (const auto &s : all)
         {
-            EXPECT_TRUE(s != nullptr) << "all: scheme is not null";
+            EXPECT_NE(s, nullptr) << "all: scheme is not null";
             EXPECT_TRUE(!s->name().empty()) << "all: scheme has non-empty name";
         }
     }

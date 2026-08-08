@@ -42,7 +42,7 @@ namespace
         psm::dns::config dns_cfg;
         connect::dialer dialer(connect::dialer_options{ioc, dns_cfg});
         EXPECT_TRUE(!dialer.positive_host().has_value()) << "dialer: 初始无正向代理";
-        EXPECT_TRUE(dialer.positive_port() == 0) << "dialer: 初始正向端口 0";
+        EXPECT_EQ(dialer.positive_port(), 0) << "dialer: 初始正向端口 0";
     }
 
     TEST(DialPure, DialerSetEndpoint)
@@ -52,7 +52,7 @@ namespace
         connect::dialer dialer(connect::dialer_options{ioc, dns_cfg});
         dialer.set_endpoint("upstream.example", 443);
         EXPECT_TRUE(dialer.positive_host().has_value()) << "dialer: 正向代理已设置";
-        EXPECT_TRUE(dialer.positive_port() == 443) << "dialer: 正向端口 443";
+        EXPECT_EQ(dialer.positive_port(), 443) << "dialer: 正向端口 443";
 
         dialer.set_endpoint("", 0);
         EXPECT_TRUE(!dialer.positive_host().has_value()) << "dialer: 清除正向代理";

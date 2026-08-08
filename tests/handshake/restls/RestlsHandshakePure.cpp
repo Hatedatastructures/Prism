@@ -214,8 +214,8 @@ namespace
     {
         auto [host, port] = parse_host_port("example.com");
 
-        EXPECT_TRUE(host == "example.com") << "parse_host_port: 无端口时 host 正确";
-        EXPECT_TRUE(port == 443) << "parse_host_port: 无端口时默认 port=443";
+        EXPECT_EQ(host, "example.com") << "parse_host_port: 无端口时 host 正确";
+        EXPECT_EQ(port, 443) << "parse_host_port: 无端口时默认 port=443";
     }
 
     /**
@@ -226,8 +226,8 @@ namespace
     {
         auto [host, port] = parse_host_port("example.com:8443");
 
-        EXPECT_TRUE(host == "example.com") << "parse_host_port: 显式端口时 host 正确";
-        EXPECT_TRUE(port == 8443) << "parse_host_port: 显式端口时 port=8443";
+        EXPECT_EQ(host, "example.com") << "parse_host_port: 显式端口时 host 正确";
+        EXPECT_EQ(port, 8443) << "parse_host_port: 显式端口时 port=8443";
     }
 
 } // namespace

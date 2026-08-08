@@ -189,8 +189,8 @@ TEST(StealthExecutorDeep3, ExecuteSingle_PreservesTransport)
     ioc.run();
 
     ASSERT_TRUE(!ep);
-    EXPECT_TRUE(result.transport == mock_transport) << "execute_single preserves transport";
-    EXPECT_TRUE(result.detected == psm::connect::protocol_type::socks5) << "execute_single preserves detected";
+    EXPECT_EQ(result.transport, mock_transport) << "execute_single preserves transport";
+    EXPECT_EQ(result.detected, psm::connect::protocol_type::socks5) << "execute_single preserves detected";
 }
 
 // ─── execute_pipeline 测试 ──────────────────────────────────
@@ -223,7 +223,7 @@ TEST(StealthExecutorDeep3, ExecutePipeline_FacadeSuccess)
     ioc.run();
 
     ASSERT_TRUE(!ep);
-    EXPECT_TRUE(result.transport == mock_transport) << "pipeline facade success: transport set";
+    EXPECT_EQ(result.transport, mock_transport) << "pipeline facade success: transport set";
     EXPECT_EQ(result.scheme, "facade_ok") << "pipeline facade success: scheme name";
 }
 
@@ -460,7 +460,7 @@ TEST(StealthExecutorDeep3, ExecutePipeline_EmptyOrder_NotSupported)
     ioc.run();
 
     ASSERT_TRUE(!ep);
-    EXPECT_TRUE(result.error == psm::fault::code::not_supported) << "pipeline empty order -> not_supported";
+    EXPECT_EQ(result.error, psm::fault::code::not_supported) << "pipeline empty order -> not_supported";
 }
 
 // ─── execute_by_analysis 测试 ──────────────────────────────
@@ -560,7 +560,7 @@ TEST(StealthExecutorDeep3, Execute_DelegatesToPipeline)
 
     ASSERT_TRUE(!ep);
     EXPECT_EQ(result.scheme, "delegate_test") << "execute delegates to pipeline";
-    EXPECT_TRUE(result.transport == mock_transport) << "execute preserves transport";
+    EXPECT_EQ(result.transport, mock_transport) << "execute preserves transport";
 }
 
 TEST(StealthExecutorDeep3, Execute_MultipleCandidatesFirstWins)
@@ -601,7 +601,7 @@ TEST(StealthExecutorDeep3, Execute_MultipleCandidatesFirstWins)
 
     ASSERT_TRUE(!ep);
     EXPECT_EQ(result.scheme, "first") << "execute first candidate wins";
-    EXPECT_TRUE(result.detected == psm::connect::protocol_type::http) << "execute preserves first detected";
+    EXPECT_EQ(result.detected, psm::connect::protocol_type::http) << "execute preserves first detected";
 }
 
 // ─── pipeline 错误回退测试 ────────────────────────────────
@@ -683,7 +683,7 @@ TEST(StealthExecutorDeep3, ExecutePipeline_FacadeWithPrereadSecondaryProbe)
     EXPECT_EQ(result.scheme, "preread_probe") << "pipeline preread: scheme set";
     // detected 被 secondary_probe 覆盖
     // secondary_probe 调用 detect_tls("GET / HTTP") → 阶段1 HTTP 检测 → 返回 http
-    EXPECT_TRUE(result.detected == psm::connect::protocol_type::http)
+    EXPECT_EQ(result.detected, psm::connect::protocol_type::http)
         << "pipeline preread: HTTP preread detected as http";
 }
 

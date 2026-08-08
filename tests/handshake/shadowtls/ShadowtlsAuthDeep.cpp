@@ -26,17 +26,17 @@ namespace
         std::array<std::byte, 4> data{std::byte{0x01}, std::byte{0x02}, std::byte{0x03}, std::byte{0x04}};
 
         auto result = compute_hmac(key, data.data(), data.size());
-        EXPECT_TRUE(result.size() == 4) << "compute_hmac: size=4";
+        EXPECT_EQ(result.size(), 4) << "compute_hmac: size=4";
         // 确定性：相同输入产生相同输出
         auto result2 = compute_hmac(key, data.data(), data.size());
-        EXPECT_TRUE(result == result2) << "compute_hmac: deterministic";
+        EXPECT_EQ(result, result2) << "compute_hmac: deterministic";
     }
 
     TEST(ShadowtlsAuthDeep, ComputeHmacEmptyData)
     {
         const char *key = "password";
         auto result = compute_hmac(key, nullptr, 0);
-        EXPECT_TRUE(result.size() == 4) << "compute_hmac: empty data -> size=4";
+        EXPECT_EQ(result.size(), 4) << "compute_hmac: empty data -> size=4";
     }
 
     TEST(ShadowtlsAuthDeep, ComputeHmacDifferentKey)
@@ -45,7 +45,7 @@ namespace
 
         auto r1 = compute_hmac("key1", data.data(), data.size());
         auto r2 = compute_hmac("key2", data.data(), data.size());
-        EXPECT_TRUE(r1 != r2) << "compute_hmac: different key -> different result";
+        EXPECT_NE(r1, r2) << "compute_hmac: different key -> different result";
     }
 
     TEST(ShadowtlsAuthDeep, ComputeHmacDifferentData)
@@ -56,7 +56,7 @@ namespace
 
         auto r1 = compute_hmac(key, d1.data(), d1.size());
         auto r2 = compute_hmac(key, d2.data(), d2.size());
-        EXPECT_TRUE(r1 != r2) << "compute_hmac: different data -> different result";
+        EXPECT_NE(r1, r2) << "compute_hmac: different data -> different result";
     }
 
     // ─── verify_client_hello ───────────────────────
@@ -212,11 +212,11 @@ namespace
         std::array<std::byte, 16> payload{};
 
         auto result = compute_write_hmac(password, server_random, payload);
-        EXPECT_TRUE(result.size() == 4) << "compute_write_hmac: size=4";
+        EXPECT_EQ(result.size(), 4) << "compute_write_hmac: size=4";
 
         // 确定性
         auto result2 = compute_write_hmac(password, server_random, payload);
-        EXPECT_TRUE(result == result2) << "compute_write_hmac: deterministic";
+        EXPECT_EQ(result, result2) << "compute_write_hmac: deterministic";
     }
 
     TEST(ShadowtlsAuthDeep, ComputeWriteHmacDifferentPayload)
@@ -228,7 +228,7 @@ namespace
 
         auto r1 = compute_write_hmac(password, server_random, p1);
         auto r2 = compute_write_hmac(password, server_random, p2);
-        EXPECT_TRUE(r1 != r2) << "compute_write_hmac: different payload -> different";
+        EXPECT_NE(r1, r2) << "compute_write_hmac: different payload -> different";
     }
 
     // ─── compute_write_key ─────────────────────────
@@ -240,7 +240,7 @@ namespace
         for (std::size_t i = 0; i < 32; ++i) server_random[i] = std::byte{i};
 
         auto key = compute_write_key(password, server_random);
-        EXPECT_TRUE(key.size() == SHA256_DIGEST_LENGTH) << "compute_write_key: size=32";
+        EXPECT_EQ(key.size(), SHA256_DIGEST_LENGTH) << "compute_write_key: size=32";
     }
 
     TEST(ShadowtlsAuthDeep, ComputeWriteKeyDeterministic)
@@ -250,7 +250,7 @@ namespace
 
         auto k1 = compute_write_key(password, server_random);
         auto k2 = compute_write_key(password, server_random);
-        EXPECT_TRUE(k1 == k2) << "compute_write_key: deterministic";
+        EXPECT_EQ(k1, k2) << "compute_write_key: deterministic";
     }
 
     TEST(ShadowtlsAuthDeep, ComputeWriteKeyDifferentInputs)
@@ -261,7 +261,7 @@ namespace
 
         auto k1 = compute_write_key("password", rnd1);
         auto k2 = compute_write_key("password", rnd2);
-        EXPECT_TRUE(k1 != k2) << "compute_write_key: different random -> different key";
+        EXPECT_NE(k1, k2) << "compute_write_key: different random -> different key";
     }
 
 } // namespace

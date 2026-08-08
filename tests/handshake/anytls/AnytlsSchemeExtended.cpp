@@ -18,13 +18,13 @@ namespace
     TEST(AnytlsSchemeExtended, AnytlsName)
     {
         psm::handshake::anytls::scheme s;
-        EXPECT_TRUE(s.name() == "anytls") << "anytls: name";
+        EXPECT_EQ(s.name(), "anytls") << "anytls: name";
     }
 
     TEST(AnytlsSchemeExtended, AnytlsTier)
     {
         psm::handshake::anytls::scheme s;
-        EXPECT_TRUE(s.tier() == 2) << "anytls: tier=2";
+        EXPECT_EQ(s.tier(), 2) << "anytls: tier=2";
     }
 
     TEST(AnytlsSchemeExtended, AnytlsUnique)
@@ -36,7 +36,7 @@ namespace
     TEST(AnytlsSchemeExtended, AnytlsCategory)
     {
         psm::handshake::anytls::scheme s;
-        EXPECT_TRUE(s.category() == psm::handshake::scheme_category::stack)
+        EXPECT_EQ(s.category(), psm::handshake::scheme_category::stack)
             << "anytls: category=stack";
     }
 
@@ -68,7 +68,7 @@ namespace
         cfg.stealth.anytls.server_names.push_back(psm::memory::string("a.example.com"));
         cfg.stealth.anytls.server_names.push_back(psm::memory::string("b.example.com"));
         auto snis = s.snis(cfg);
-        EXPECT_TRUE(snis.size() == 2) << "anytls: snis count=2";
+        EXPECT_EQ(snis.size(), 2) << "anytls: snis count=2";
     }
 
     TEST(AnytlsSchemeExtended, AnytlsGuess)
@@ -76,8 +76,8 @@ namespace
         psm::handshake::anytls::scheme s;
         psm::settings cfg;
         auto result = s.guess(cfg);
-        EXPECT_TRUE(result.score == 100) << "anytls: guess score=100";
-        EXPECT_TRUE(result.solo_flag == 0) << "anytls: guess solo_flag=0";
+        EXPECT_EQ(result.score, 100) << "anytls: guess score=100";
+        EXPECT_EQ(result.solo_flag, 0) << "anytls: guess solo_flag=0";
     }
 
     TEST(AnytlsSchemeExtended, AnytlsVerifyNoEch)
@@ -87,6 +87,6 @@ namespace
         psm::protocol::tls::hello_features features{};
         std::array<std::byte, 64> raw{};
         auto result = s.verify(features, raw, cfg);
-        EXPECT_TRUE(result.score == 0) << "anytls: verify no ech -> score=0";
+        EXPECT_EQ(result.score, 0) << "anytls: verify no ech -> score=0";
     }
 } // namespace

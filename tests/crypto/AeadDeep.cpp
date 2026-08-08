@@ -43,7 +43,7 @@ namespace
     {
         auto key = make_key(16);
         aead_context ctx(aead_cipher::aes_128_gcm, key);
-        EXPECT_TRUE(ctx.ctx_ != nullptr) << "construct: aes128gcm ctx valid";
+        EXPECT_NE(ctx.ctx_, nullptr) << "construct: aes128gcm ctx valid";
         EXPECT_EQ(ctx.nonce_len_, 12) << "construct: aes128gcm nonce_len=12";
         EXPECT_EQ(ctx.key_length_, 16) << "construct: aes128gcm key_len=16";
     }
@@ -52,7 +52,7 @@ namespace
     {
         auto key = make_key(32);
         aead_context ctx(aead_cipher::aes_256_gcm, key);
-        EXPECT_TRUE(ctx.ctx_ != nullptr) << "construct: aes256gcm ctx valid";
+        EXPECT_NE(ctx.ctx_, nullptr) << "construct: aes256gcm ctx valid";
         EXPECT_EQ(ctx.nonce_len_, 12) << "construct: aes256gcm nonce_len=12";
     }
 
@@ -60,7 +60,7 @@ namespace
     {
         auto key = make_key(32);
         aead_context ctx(aead_cipher::chacha20_poly1305, key);
-        EXPECT_TRUE(ctx.ctx_ != nullptr) << "construct: chacha20 ctx valid";
+        EXPECT_NE(ctx.ctx_, nullptr) << "construct: chacha20 ctx valid";
         EXPECT_EQ(ctx.nonce_len_, 12) << "construct: chacha20 nonce_len=12";
     }
 
@@ -68,7 +68,7 @@ namespace
     {
         auto key = make_key(32);
         aead_context ctx(aead_cipher::xchacha20_poly1305, key);
-        EXPECT_TRUE(ctx.ctx_ != nullptr) << "construct: xchacha20 ctx valid";
+        EXPECT_NE(ctx.ctx_, nullptr) << "construct: xchacha20 ctx valid";
         EXPECT_EQ(ctx.nonce_len_, 24) << "construct: xchacha20 nonce_len=24";
     }
 
@@ -79,14 +79,14 @@ namespace
         auto key = make_key(16);
         // 使用强制转换传入无效值
         aead_context ctx(static_cast<aead_cipher>(99), key);
-        EXPECT_TRUE(ctx.ctx_ == nullptr) << "construct: invalid cipher -> null ctx";
+        EXPECT_EQ(ctx.ctx_, nullptr) << "construct: invalid cipher -> null ctx";
     }
 
     TEST(AeadDeep, ConstructWrongKeySize)
     {
         auto key = make_key(7);
         aead_context ctx(aead_cipher::aes_128_gcm, key);
-        EXPECT_TRUE(ctx.ctx_ == nullptr) << "construct: wrong key size -> null ctx";
+        EXPECT_EQ(ctx.ctx_, nullptr) << "construct: wrong key size -> null ctx";
     }
 
     // ─── seal/open 自动 nonce 往返 ──────────────────
@@ -279,7 +279,7 @@ namespace
         aead_context ctx2(std::move(ctx1));
         EXPECT_EQ(ctx2.ctx_.get(), original_ctx) << "move ctor: ctx transferred";
         EXPECT_EQ(ctx2.nonce_[0], 0x42) << "move ctor: nonce transferred";
-        EXPECT_TRUE(ctx1.ctx_ == nullptr) << "move ctor: source null";
+        EXPECT_EQ(ctx1.ctx_, nullptr) << "move ctor: source null";
         bool all_zero = true;
         for (auto b : ctx1.nonce_)
         {
@@ -303,7 +303,7 @@ namespace
 
         EXPECT_EQ(ctx2.ctx_.get(), original_ctx) << "move assign: ctx transferred";
         EXPECT_EQ(ctx2.nonce_[0], 0x99) << "move assign: nonce transferred";
-        EXPECT_TRUE(ctx1.ctx_ == nullptr) << "move assign: source null";
+        EXPECT_EQ(ctx1.ctx_, nullptr) << "move assign: source null";
     }
 
     TEST(AeadDeep, MoveSelfAssignment)

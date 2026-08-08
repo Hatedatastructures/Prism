@@ -20,7 +20,7 @@ namespace
         // 6 字节 < 7 → badpayload
         const std::byte data[6]{};
         auto result = ech::decrypt_ech_payload(data, "dummy-key");
-        EXPECT_TRUE(result.error == psm::fault::code::badpayload)
+        EXPECT_EQ(result.error, psm::fault::code::badpayload)
             << "ech: payload too short -> badpayload";
     }
 
@@ -28,7 +28,7 @@ namespace
     {
         std::span<const std::byte> empty;
         auto result = ech::decrypt_ech_payload(empty, "key");
-        EXPECT_TRUE(result.error == psm::fault::code::badpayload)
+        EXPECT_EQ(result.error, psm::fault::code::badpayload)
             << "ech: empty payload -> badpayload";
     }
 
@@ -41,7 +41,7 @@ namespace
             std::byte{0x00}, std::byte{0x02}, // payload_len
             std::byte{0xAA}, std::byte{0xBB}};
         auto result = ech::decrypt_ech_payload(data, "key");
-        EXPECT_TRUE(result.error == psm::fault::code::badver)
+        EXPECT_EQ(result.error, psm::fault::code::badver)
             << "ech: wrong version -> badver";
     }
 
@@ -55,7 +55,7 @@ namespace
             std::byte{0x00}, std::byte{0x02}, // payload_len
             std::byte{0xCC}};
         auto result = ech::decrypt_ech_payload(data, "key");
-        EXPECT_TRUE(result.error == psm::fault::code::not_supported)
+        EXPECT_EQ(result.error, psm::fault::code::not_supported)
             << "ech: correct version -> not_supported";
         EXPECT_TRUE(!result.valid) << "ech: not_supported -> valid=false";
     }
@@ -67,7 +67,7 @@ namespace
             std::byte{0x00}, std::byte{0x00}, std::byte{0x00},
             std::byte{0x00}, std::byte{0x00}};
         auto result = ech::decrypt_ech_payload(data, {});
-        EXPECT_TRUE(result.error == psm::fault::code::badver)
+        EXPECT_EQ(result.error, psm::fault::code::badver)
             << "ech: exactly 7 bytes bad version -> badver";
     }
 
@@ -78,7 +78,7 @@ namespace
             std::byte{0x00}, std::byte{0x00}, std::byte{0x00},
             std::byte{0x00}, std::byte{0x00}};
         auto result = ech::decrypt_ech_payload(data, {});
-        EXPECT_TRUE(result.error == psm::fault::code::not_supported)
+        EXPECT_EQ(result.error, psm::fault::code::not_supported)
             << "ech: exactly 7 bytes correct version -> not_supported";
     }
 } // namespace

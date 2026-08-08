@@ -23,15 +23,15 @@ namespace
 TEST(SmuxCraftPure, MakeSyn)
 {
     auto syn = smux::make_syn(42);
-    EXPECT_TRUE(syn.size() == 8) << "make_syn: size=8";
-    EXPECT_TRUE(syn[0] == std::byte{smux::protocol_version}) << "make_syn: version byte";
-    EXPECT_TRUE(syn[1] == static_cast<std::byte>(smux::command::syn)) << "make_syn: cmd=syn";
-    EXPECT_TRUE(syn[2] == std::byte{0}) << "make_syn: length LSB=0";
-    EXPECT_TRUE(syn[3] == std::byte{0}) << "make_syn: length MSB=0";
-    EXPECT_TRUE(syn[4] == std::byte{42}) << "make_syn: stream_id byte 0";
-    EXPECT_TRUE(syn[5] == std::byte{0}) << "make_syn: stream_id byte 1";
-    EXPECT_TRUE(syn[6] == std::byte{0}) << "make_syn: stream_id byte 2";
-    EXPECT_TRUE(syn[7] == std::byte{0}) << "make_syn: stream_id byte 3";
+    EXPECT_EQ(syn.size(), 8) << "make_syn: size=8";
+    EXPECT_EQ(syn[0], std::byte{smux::protocol_version}) << "make_syn: version byte";
+    EXPECT_EQ(syn[1], static_cast<std::byte>(smux::command::syn)) << "make_syn: cmd=syn";
+    EXPECT_EQ(syn[2], std::byte{0}) << "make_syn: length LSB=0";
+    EXPECT_EQ(syn[3], std::byte{0}) << "make_syn: length MSB=0";
+    EXPECT_EQ(syn[4], std::byte{42}) << "make_syn: stream_id byte 0";
+    EXPECT_EQ(syn[5], std::byte{0}) << "make_syn: stream_id byte 1";
+    EXPECT_EQ(syn[6], std::byte{0}) << "make_syn: stream_id byte 2";
+    EXPECT_EQ(syn[7], std::byte{0}) << "make_syn: stream_id byte 3";
 }
 
 // ─── make_fin ──────────────────────────────────
@@ -39,9 +39,9 @@ TEST(SmuxCraftPure, MakeSyn)
 TEST(SmuxCraftPure, MakeFin)
 {
     auto fin = smux::make_fin(7);
-    EXPECT_TRUE(fin.size() == 8) << "make_fin: size=8";
-    EXPECT_TRUE(fin[1] == static_cast<std::byte>(smux::command::fin)) << "make_fin: cmd=fin";
-    EXPECT_TRUE(fin[4] == std::byte{7}) << "make_fin: stream_id=7";
+    EXPECT_EQ(fin.size(), 8) << "make_fin: size=8";
+    EXPECT_EQ(fin[1], static_cast<std::byte>(smux::command::fin)) << "make_fin: cmd=fin";
+    EXPECT_EQ(fin[4], std::byte{7}) << "make_fin: stream_id=7";
 }
 
 // ─── make_data_frame ───────────────────────────
@@ -55,21 +55,21 @@ TEST(SmuxCraftPure, MakeDataFrame)
 
     auto frame = smux::make_data_frame(100, payload);
 
-    EXPECT_TRUE(frame.size() == 8 + 3) << "make_data: total size=11";
-    EXPECT_TRUE(frame[1] == static_cast<std::byte>(smux::command::push)) << "make_data: cmd=push";
-    EXPECT_TRUE(frame[2] == std::byte{3}) << "make_data: length LSB=3";
-    EXPECT_TRUE(frame[3] == std::byte{0}) << "make_data: length MSB=0";
-    EXPECT_TRUE(frame[4] == std::byte{100}) << "make_data: stream_id byte 0";
-    EXPECT_TRUE(frame[8] == std::byte{0x01}) << "make_data: payload[0]";
-    EXPECT_TRUE(frame[9] == std::byte{0x02}) << "make_data: payload[1]";
-    EXPECT_TRUE(frame[10] == std::byte{0x03}) << "make_data: payload[2]";
+    EXPECT_EQ(frame.size(), 8 + 3) << "make_data: total size=11";
+    EXPECT_EQ(frame[1], static_cast<std::byte>(smux::command::push)) << "make_data: cmd=push";
+    EXPECT_EQ(frame[2], std::byte{3}) << "make_data: length LSB=3";
+    EXPECT_EQ(frame[3], std::byte{0}) << "make_data: length MSB=0";
+    EXPECT_EQ(frame[4], std::byte{100}) << "make_data: stream_id byte 0";
+    EXPECT_EQ(frame[8], std::byte{0x01}) << "make_data: payload[0]";
+    EXPECT_EQ(frame[9], std::byte{0x02}) << "make_data: payload[1]";
+    EXPECT_EQ(frame[10], std::byte{0x03}) << "make_data: payload[2]";
 }
 
 TEST(SmuxCraftPure, MakeDataFrameEmpty)
 {
     psm::memory::vector<std::byte> payload;
     auto frame = smux::make_data_frame(0, payload);
-    EXPECT_TRUE(frame.size() == 8) << "make_data empty: header only";
+    EXPECT_EQ(frame.size(), 8) << "make_data empty: header only";
 }
 
 // ─── stream_id 字节序（大 ID） ─────────────────
@@ -77,10 +77,10 @@ TEST(SmuxCraftPure, MakeDataFrameEmpty)
 TEST(SmuxCraftPure, MakeSynLargeStreamId)
 {
     auto syn = smux::make_syn(0x01020304);
-    EXPECT_TRUE(syn[4] == std::byte{0x04}) << "syn: stream_id LE byte 0";
-    EXPECT_TRUE(syn[5] == std::byte{0x03}) << "syn: stream_id LE byte 1";
-    EXPECT_TRUE(syn[6] == std::byte{0x02}) << "syn: stream_id LE byte 2";
-    EXPECT_TRUE(syn[7] == std::byte{0x01}) << "syn: stream_id LE byte 3";
+    EXPECT_EQ(syn[4], std::byte{0x04}) << "syn: stream_id LE byte 0";
+    EXPECT_EQ(syn[5], std::byte{0x03}) << "syn: stream_id LE byte 1";
+    EXPECT_EQ(syn[6], std::byte{0x02}) << "syn: stream_id LE byte 2";
+    EXPECT_EQ(syn[7], std::byte{0x01}) << "syn: stream_id LE byte 3";
 }
 
 // ─── frame deserialization roundtrip ────────────

@@ -75,7 +75,7 @@ namespace
         EXPECT_TRUE(result->transport == psm::protocol::form::stream) << "parse_request: transport=stream";
 
         auto *ipv4 = std::get_if<psm::protocol::common::ipv4_address>(&result->destination_address);
-        EXPECT_TRUE(ipv4 != nullptr) << "parse_request: addr is IPv4";
+        EXPECT_NE(ipv4, nullptr) << "parse_request: addr is IPv4";
         EXPECT_TRUE(ipv4->bytes[0] == 127) << "parse_request: IPv4[0]=127";
         EXPECT_TRUE(ipv4->bytes[3] == 1) << "parse_request: IPv4[3]=1";
     }
@@ -127,7 +127,7 @@ namespace
         EXPECT_TRUE(result.has_value()) << "parse_request: domain -> has_value";
 
         auto *d = std::get_if<psm::protocol::common::domain_address>(&result->destination_address);
-        EXPECT_TRUE(d != nullptr) << "parse_request: addr is domain";
+        EXPECT_NE(d, nullptr) << "parse_request: addr is domain";
         EXPECT_TRUE(d->length == 11) << "parse_request: domain len=11";
     }
 
@@ -146,16 +146,16 @@ namespace
         EXPECT_TRUE(result.has_value()) << "parse_request: IPv6 -> has_value";
 
         auto *ipv6 = std::get_if<psm::protocol::common::ipv6_address>(&result->destination_address);
-        EXPECT_TRUE(ipv6 != nullptr) << "parse_request: addr is IPv6";
+        EXPECT_NE(ipv6, nullptr) << "parse_request: addr is IPv6";
         EXPECT_TRUE(ipv6->bytes[15] == 1) << "parse_request: IPv6[15]=1";
     }
 
     TEST(VlessFramingPure, MakeResponse)
     {
         auto resp = make_response();
-        EXPECT_TRUE(resp.size() == 2) << "make_response: size=2";
-        EXPECT_TRUE(resp[0] == std::byte{psm::protocol::vless::version}) << "make_response: byte[0]=version";
-        EXPECT_TRUE(resp[1] == std::byte{0x00}) << "make_response: byte[1]=0x00";
+        EXPECT_EQ(resp.size(), 2) << "make_response: size=2";
+        EXPECT_EQ(resp[0], std::byte{psm::protocol::vless::version}) << "make_response: byte[0]=version";
+        EXPECT_EQ(resp[1], std::byte{0x00}) << "make_response: byte[1]=0x00";
     }
 
     TEST(VlessFramingPure, BuildUdpPktIPv4Roundtrip)
@@ -167,13 +167,13 @@ namespace
         std::array<std::byte, 4> payload = {std::byte{0xAA}, std::byte{0xBB}, std::byte{0xCC}, std::byte{0xDD}};
 
         auto ec = build_udp_pkt(frame, payload, out);
-        EXPECT_TRUE(ec == psm::fault::code::success) << "build_udp IPv4: success";
+        EXPECT_EQ(ec, psm::fault::code::success) << "build_udp IPv4: success";
 
         auto [pec, result] = parse_udp_pkt(out);
-        EXPECT_TRUE(pec == psm::fault::code::success) << "roundtrip: parse success";
-        EXPECT_TRUE(result.destination_port == 80) << "roundtrip: port=80";
-        EXPECT_TRUE(result.payload_offset == 7) << "roundtrip: offset=7";
-        EXPECT_TRUE(result.payload_size == 4) << "roundtrip: payload_size=4";
+        EXPECT_EQ(pec, psm::fault::code::success) << "roundtrip: parse success";
+        EXPECT_EQ(result.destination_port, 80) << "roundtrip: port=80";
+        EXPECT_EQ(result.payload_offset, 7) << "roundtrip: offset=7";
+        EXPECT_EQ(result.payload_size, 4) << "roundtrip: payload_size=4";
     }
 
     TEST(VlessFramingPure, BuildUdpPktDomainRoundtrip)
@@ -189,18 +189,18 @@ namespace
         frame.destination_port = 443;
 
         auto ec = build_udp_pkt(frame, {}, out);
-        EXPECT_TRUE(ec == psm::fault::code::success) << "build_udp domain: success";
+        EXPECT_EQ(ec, psm::fault::code::success) << "build_udp domain: success";
 
         auto [pec, result] = parse_udp_pkt(out);
-        EXPECT_TRUE(pec == psm::fault::code::success) << "domain roundtrip: parse success";
-        EXPECT_TRUE(result.destination_port == 443) << "domain roundtrip: port=443";
+        EXPECT_EQ(pec, psm::fault::code::success) << "domain roundtrip: parse success";
+        EXPECT_EQ(result.destination_port, 443) << "domain roundtrip: port=443";
     }
 
     TEST(VlessFramingPure, ParseUdpPktTooShort)
     {
         std::array<std::byte, 3> buf{};
         auto [ec, result] = parse_udp_pkt(buf);
-        EXPECT_TRUE(ec == psm::fault::code::bad_message) << "parse_udp: too short";
+        EXPECT_EQ(ec, psm::fault::code::bad_message) << "parse_udp: too short";
     }
 
     TEST(VlessFramingPure, ParseUdpPktUnknownAtyp)
@@ -208,7 +208,7 @@ namespace
         std::array<std::byte, 10> buf{};
         buf[0] = std::byte{0xFF};
         auto [ec, result] = parse_udp_pkt(buf);
-        EXPECT_TRUE(ec == psm::fault::code::unsupported_address) << "parse_udp: unknown atyp";
+        EXPECT_EQ(ec, psm::fault::code::unsupported_address) << "parse_udp: unknown atyp";
     }
 
     TEST(VlessFramingPure, BuildUdpPktIPv6Roundtrip)
@@ -222,10 +222,10 @@ namespace
         frame.destination_port = 4433;
 
         auto ec = build_udp_pkt(frame, {}, out);
-        EXPECT_TRUE(ec == psm::fault::code::success) << "build_udp IPv6: success";
+        EXPECT_EQ(ec, psm::fault::code::success) << "build_udp IPv6: success";
 
         auto [pec, result] = parse_udp_pkt(out);
-        EXPECT_TRUE(pec == psm::fault::code::success) << "IPv6 roundtrip: parse success";
-        EXPECT_TRUE(result.destination_port == 4433) << "IPv6 roundtrip: port=4433";
+        EXPECT_EQ(pec, psm::fault::code::success) << "IPv6 roundtrip: parse success";
+        EXPECT_EQ(result.destination_port, 4433) << "IPv6 roundtrip: port=4433";
     }
 } // namespace

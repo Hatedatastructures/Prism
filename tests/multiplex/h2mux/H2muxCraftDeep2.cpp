@@ -85,7 +85,7 @@ namespace
     {
         CraftFixture fx;
         auto rc = fx.craft_obj->init_nghttp2();
-        EXPECT_TRUE(rc == 0) << "init_nghttp2: returns 0";
+        EXPECT_EQ(rc, 0) << "init_nghttp2: returns 0";
         EXPECT_TRUE(fx.craft_obj->session_ != nullptr) << "init_nghttp2: session not null";
     }
 
@@ -96,7 +96,7 @@ namespace
         CraftFixture fx;
         fx.craft_obj->init_nghttp2();
         auto rc = fx.craft_obj->respond_connect(1, 200);
-        EXPECT_TRUE(rc == 0) << "respond_connect: 200 -> 0";
+        EXPECT_EQ(rc, 0) << "respond_connect: 200 -> 0";
     }
 
     TEST(H2muxCraftDeep2, RespondConnect407)
@@ -104,7 +104,7 @@ namespace
         CraftFixture fx;
         fx.craft_obj->init_nghttp2();
         auto rc = fx.craft_obj->respond_connect(1, 407);
-        EXPECT_TRUE(rc == 0) << "respond_connect: 407 -> 0";
+        EXPECT_EQ(rc, 0) << "respond_connect: 407 -> 0";
     }
 
     TEST(H2muxCraftDeep2, RespondConnectOtherStatus)
@@ -112,7 +112,7 @@ namespace
         CraftFixture fx;
         fx.craft_obj->init_nghttp2();
         auto rc = fx.craft_obj->respond_connect(1, 500);
-        EXPECT_TRUE(rc == 0) << "respond_connect: 500 -> 0 (default 407)";
+        EXPECT_EQ(rc, 0) << "respond_connect: 500 -> 0 (default 407)";
     }
 
     // ─── handle_connect ───────────────────────────
@@ -183,7 +183,7 @@ namespace
         frame.headers.nvlen = 1;
 
         auto rc = h2mux::control::on_begin_headers(nullptr, &frame, fx.craft_obj.get());
-        EXPECT_TRUE(rc == 0) << "on_begin_headers: CONNECT returns 0";
+        EXPECT_EQ(rc, 0) << "on_begin_headers: CONNECT returns 0";
         EXPECT_TRUE(fx.craft_obj->h2_pending_.count(1) == 1) << "on_begin_headers: pending created";
     }
 
@@ -205,7 +205,7 @@ namespace
         frame.headers.nvlen = 1;
 
         auto rc = h2mux::control::on_begin_headers(nullptr, &frame, fx.craft_obj.get());
-        EXPECT_TRUE(rc == 0) << "on_begin_headers: GET returns 0";
+        EXPECT_EQ(rc, 0) << "on_begin_headers: GET returns 0";
         EXPECT_TRUE(fx.craft_obj->h2_pending_.empty()) << "on_begin_headers: GET -> no pending";
     }
 
@@ -218,7 +218,7 @@ namespace
         frame.hd.stream_id = 3;
 
         auto rc = h2mux::control::on_begin_headers(nullptr, &frame, fx.craft_obj.get());
-        EXPECT_TRUE(rc == 0) << "on_begin_headers: DATA frame -> 0";
+        EXPECT_EQ(rc, 0) << "on_begin_headers: DATA frame -> 0";
         EXPECT_TRUE(fx.craft_obj->h2_pending_.empty()) << "on_begin_headers: non-HEADERS -> no pending";
     }
 
@@ -232,7 +232,7 @@ namespace
         frame.headers.cat = NGHTTP2_HCAT_RESPONSE;
 
         auto rc = h2mux::control::on_begin_headers(nullptr, &frame, fx.craft_obj.get());
-        EXPECT_TRUE(rc == 0) << "on_begin_headers: RESPONSE cat -> 0";
+        EXPECT_EQ(rc, 0) << "on_begin_headers: RESPONSE cat -> 0";
         EXPECT_TRUE(fx.craft_obj->h2_pending_.empty()) << "on_begin_headers: non-REQUEST -> no pending";
     }
 
@@ -255,7 +255,7 @@ namespace
         auto *hvalue = reinterpret_cast<const std::uint8_t *>(value);
 
         auto rc = h2mux::control::on_header(nullptr, &frame, hname, 10, hvalue, 15, 0, fx.craft_obj.get());
-        EXPECT_TRUE(rc == 0) << "on_header: :authority -> 0";
+        EXPECT_EQ(rc, 0) << "on_header: :authority -> 0";
         EXPECT_TRUE(fx.craft_obj->h2_pending_[1].headers.authority == "example.com:443")
             << "on_header: authority set";
     }
@@ -277,7 +277,7 @@ namespace
         auto *hvalue = reinterpret_cast<const std::uint8_t *>(value);
 
         auto rc = h2mux::control::on_header(nullptr, &frame, hname, 4, hvalue, 11, 0, fx.craft_obj.get());
-        EXPECT_TRUE(rc == 0) << "on_header: host -> 0";
+        EXPECT_EQ(rc, 0) << "on_header: host -> 0";
         EXPECT_TRUE(fx.craft_obj->h2_pending_[2].headers.host == "example.com")
             << "on_header: host set";
     }
@@ -299,7 +299,7 @@ namespace
         auto *hvalue = reinterpret_cast<const std::uint8_t *>(value);
 
         auto rc = h2mux::control::on_header(nullptr, &frame, hname, 4, hvalue, 10, 0, fx.craft_obj.get());
-        EXPECT_TRUE(rc == 0) << "on_header: Host -> 0";
+        EXPECT_EQ(rc, 0) << "on_header: Host -> 0";
         EXPECT_TRUE(fx.craft_obj->h2_pending_[3].headers.host == "test.local")
             << "on_header: Host set";
     }
@@ -321,7 +321,7 @@ namespace
         auto *hvalue = reinterpret_cast<const std::uint8_t *>(value);
 
         auto rc = h2mux::control::on_header(nullptr, &frame, hname, 10, hvalue, 14, 0, fx.craft_obj.get());
-        EXPECT_TRUE(rc == 0) << "on_header: user-agent -> 0";
+        EXPECT_EQ(rc, 0) << "on_header: user-agent -> 0";
         EXPECT_TRUE(fx.craft_obj->h2_pending_[4].headers.user_agent == "TestClient/1.0")
             << "on_header: user_agent set";
     }
@@ -343,7 +343,7 @@ namespace
         auto *hvalue = reinterpret_cast<const std::uint8_t *>(value);
 
         auto rc = h2mux::control::on_header(nullptr, &frame, hname, 19, hvalue, 18, 0, fx.craft_obj.get());
-        EXPECT_TRUE(rc == 0) << "on_header: proxy-auth -> 0";
+        EXPECT_EQ(rc, 0) << "on_header: proxy-auth -> 0";
         EXPECT_TRUE(fx.craft_obj->h2_pending_[5].headers.proxy_auth == "Basic dGVzdDp0ZXN0")
             << "on_header: proxy_auth set";
     }
@@ -365,7 +365,7 @@ namespace
         auto *hvalue = reinterpret_cast<const std::uint8_t *>(value);
 
         auto rc = h2mux::control::on_header(nullptr, &frame, hname, 8, hvalue, 5, 0, fx.craft_obj.get());
-        EXPECT_TRUE(rc == 0) << "on_header: unknown -> 0";
+        EXPECT_EQ(rc, 0) << "on_header: unknown -> 0";
         EXPECT_TRUE(fx.craft_obj->h2_pending_[6].headers.authority.empty()) << "on_header: unknown -> no fields";
     }
 
@@ -382,7 +382,7 @@ namespace
         auto *hvalue = reinterpret_cast<const std::uint8_t *>(value);
 
         auto rc = h2mux::control::on_header(nullptr, &frame, hname, 9, hvalue, 8, 0, fx.craft_obj.get());
-        EXPECT_TRUE(rc == 0) << "on_header: not in pending -> 0";
+        EXPECT_EQ(rc, 0) << "on_header: not in pending -> 0";
     }
 
     // ─── on_frame_recv ────────────────────────────
@@ -395,7 +395,7 @@ namespace
         frame.hd.type = NGHTTP2_DATA;
 
         auto rc = h2mux::control::on_frame_recv(nullptr, &frame, fx.craft_obj.get());
-        EXPECT_TRUE(rc == 0) << "on_frame_recv: DATA -> 0";
+        EXPECT_EQ(rc, 0) << "on_frame_recv: DATA -> 0";
     }
 
     TEST(H2muxCraftDeep2, OnFrameRecvNonRequest)
@@ -407,7 +407,7 @@ namespace
         frame.headers.cat = NGHTTP2_HCAT_HEADERS;
 
         auto rc = h2mux::control::on_frame_recv(nullptr, &frame, fx.craft_obj.get());
-        EXPECT_TRUE(rc == 0) << "on_frame_recv: trailing headers -> 0";
+        EXPECT_EQ(rc, 0) << "on_frame_recv: trailing headers -> 0";
     }
 
     TEST(H2muxCraftDeep2, OnFrameRecvNotInPending)
@@ -420,7 +420,7 @@ namespace
         frame.headers.cat = NGHTTP2_HCAT_REQUEST;
 
         auto rc = h2mux::control::on_frame_recv(nullptr, &frame, fx.craft_obj.get());
-        EXPECT_TRUE(rc == 0) << "on_frame_recv: not in pending -> 0";
+        EXPECT_EQ(rc, 0) << "on_frame_recv: not in pending -> 0";
     }
 
     TEST(H2muxCraftDeep2, OnFrameRecvTriggersConnect)
@@ -437,7 +437,7 @@ namespace
         frame.headers.cat = NGHTTP2_HCAT_REQUEST;
 
         auto rc = h2mux::control::on_frame_recv(nullptr, &frame, fx.craft_obj.get());
-        EXPECT_TRUE(rc == 0) << "on_frame_recv: triggers handle_connect -> 0";
+        EXPECT_EQ(rc, 0) << "on_frame_recv: triggers handle_connect -> 0";
         EXPECT_TRUE(fx.craft_obj->connect_resolved_) << "on_frame_recv: resolved after connect";
     }
 
@@ -453,7 +453,7 @@ namespace
 
         std::uint8_t data[] = {0x01, 0x02, 0x03};
         auto rc = h2mux::control::on_data(nullptr, 0, 3, data, 3, fx.craft_obj.get());
-        EXPECT_TRUE(rc == 0) << "on_data: pending stream -> 0";
+        EXPECT_EQ(rc, 0) << "on_data: pending stream -> 0";
     }
 
     TEST(H2muxCraftDeep2, OnDataDuctNullPtr)
@@ -465,7 +465,7 @@ namespace
 
         std::uint8_t data[] = {0x01, 0x02};
         auto rc = h2mux::control::on_data(nullptr, 0, 5, data, 2, fx.craft_obj.get());
-        EXPECT_TRUE(rc == 0) << "on_data: duct null -> 0 (falls to RST)";
+        EXPECT_EQ(rc, 0) << "on_data: duct null -> 0 (falls to RST)";
     }
 
     TEST(H2muxCraftDeep2, OnDataParcelNullPtr)
@@ -477,7 +477,7 @@ namespace
 
         std::uint8_t data[] = {0x01, 0x02};
         auto rc = h2mux::control::on_data(nullptr, 0, 7, data, 2, fx.craft_obj.get());
-        EXPECT_TRUE(rc == 0) << "on_data: parcel null -> 0 (falls to RST)";
+        EXPECT_EQ(rc, 0) << "on_data: parcel null -> 0 (falls to RST)";
     }
 
     TEST(H2muxCraftDeep2, OnDataUnknownStream)
@@ -487,7 +487,7 @@ namespace
 
         std::uint8_t data[] = {0x01};
         auto rc = h2mux::control::on_data(nullptr, 0, 99, data, 1, fx.craft_obj.get());
-        EXPECT_TRUE(rc == 0) << "on_data: unknown -> 0 (RST submitted)";
+        EXPECT_EQ(rc, 0) << "on_data: unknown -> 0 (RST submitted)";
     }
 
     // ─── on_stream_close ──────────────────────────
@@ -499,7 +499,7 @@ namespace
         fx.craft_obj->h2_pending_[1] = std::move(entry);
 
         auto rc = h2mux::control::on_stream_close(nullptr, 1, 0, fx.craft_obj.get());
-        EXPECT_TRUE(rc == 0) << "on_stream_close: returns 0";
+        EXPECT_EQ(rc, 0) << "on_stream_close: returns 0";
         EXPECT_TRUE(fx.craft_obj->h2_pending_.count(1) == 0) << "on_stream_close: pending erased";
     }
 
@@ -509,7 +509,7 @@ namespace
         fx.craft_obj->streams_[3]; // null shared_ptr
 
         auto rc = h2mux::control::on_stream_close(nullptr, 3, 0, fx.craft_obj.get());
-        EXPECT_TRUE(rc == 0) << "on_stream_close: duct null -> 0";
+        EXPECT_EQ(rc, 0) << "on_stream_close: duct null -> 0";
         EXPECT_TRUE(fx.craft_obj->streams_.count(3) == 1) << "on_stream_close: duct entry remains";
     }
 
@@ -519,7 +519,7 @@ namespace
         fx.craft_obj->datagrams_[4]; // null shared_ptr
 
         auto rc = h2mux::control::on_stream_close(nullptr, 4, 0, fx.craft_obj.get());
-        EXPECT_TRUE(rc == 0) << "on_stream_close: parcel null -> 0";
+        EXPECT_EQ(rc, 0) << "on_stream_close: parcel null -> 0";
         EXPECT_TRUE(fx.craft_obj->datagrams_.count(4) == 1) << "on_stream_close: parcel entry remains";
     }
 
@@ -527,7 +527,7 @@ namespace
     {
         CraftFixture fx;
         auto rc = h2mux::control::on_stream_close(nullptr, 999, 0, fx.craft_obj.get());
-        EXPECT_TRUE(rc == 0) << "on_stream_close: no entries -> 0";
+        EXPECT_EQ(rc, 0) << "on_stream_close: no entries -> 0";
     }
 
 } // namespace

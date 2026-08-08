@@ -184,7 +184,7 @@ TEST(Vless, MakeResponse)
 {
     auto resp = protocol::vless::format::make_response();
 
-    EXPECT_TRUE(resp.size() == 2) << "response should be 2 bytes";
+    EXPECT_EQ(resp.size(), 2) << "response should be 2 bytes";
     EXPECT_TRUE(resp[0] == std::byte{0x00} && resp[1] == std::byte{0x00}) << "response should be {0x00, 0x00}";
 }
 
@@ -214,8 +214,8 @@ TEST(Vless, UdpParseIPv4)
 
     auto* ipv4 = std::get_if<protocol::vless::ipv4_address>(&result.destination_address);
     ASSERT_TRUE(ipv4 != nullptr) << "address type should be IPv4";
-    EXPECT_TRUE(result.destination_port == 80) << "port should be 80, got " << result.destination_port;
-    EXPECT_TRUE(result.payload_size == 5) << "payload size should be 5, got " << result.payload_size;
+    EXPECT_EQ(result.destination_port, 80) << "port should be 80, got " << result.destination_port;
+    EXPECT_EQ(result.payload_size, 5) << "payload size should be 5, got " << result.payload_size;
 }
 
 /**
@@ -243,7 +243,7 @@ TEST(Vless, UdpParseIPv6)
 
     auto* ipv6 = std::get_if<protocol::vless::ipv6_address>(&result.destination_address);
     ASSERT_TRUE(ipv6 != nullptr) << "address type should be IPv6";
-    EXPECT_TRUE(result.destination_port == 443) << "port should be 443, got " << result.destination_port;
+    EXPECT_EQ(result.destination_port, 443) << "port should be 443, got " << result.destination_port;
 }
 
 /**
@@ -271,8 +271,8 @@ TEST(Vless, UdpParseDomain)
 
     auto* dom = std::get_if<protocol::vless::domain_address>(&result.destination_address);
     ASSERT_TRUE(dom != nullptr) << "address type should be domain";
-    EXPECT_TRUE(result.destination_port == 443) << "port should be 443";
-    EXPECT_TRUE(result.payload_size == 4) << "payload size should be 4, got " << result.payload_size;
+    EXPECT_EQ(result.destination_port, 443) << "port should be 443";
+    EXPECT_EQ(result.payload_size, 4) << "payload size should be 4, got " << result.payload_size;
 }
 
 /**
@@ -300,7 +300,7 @@ TEST(Vless, UdpParseEmptyPayload)
 
     auto [ec, result] = protocol::vless::format::parse_udp_pkt(buf);
     ASSERT_TRUE(psm::fault::succeeded(ec)) << "parse_udp_pkt with empty payload should succeed";
-    EXPECT_TRUE(result.payload_size == 0) << "payload_size should be 0, got " << result.payload_size;
+    EXPECT_EQ(result.payload_size, 0) << "payload_size should be 0, got " << result.payload_size;
 }
 
 /**
@@ -325,13 +325,13 @@ TEST(Vless, UdpBuildParseRoundtrip)
     auto [parse_ec, result] = protocol::vless::format::parse_udp_pkt(out);
     ASSERT_TRUE(psm::fault::succeeded(parse_ec)) << "parse_udp_pkt roundtrip failed: " << psm::fault::describe(parse_ec);
 
-    EXPECT_TRUE(result.destination_port == 8080) << "roundtrip port should be 8080, got " << result.destination_port;
-    EXPECT_TRUE(result.payload_size == payload_str.size()) << "roundtrip payload_size mismatch";
+    EXPECT_EQ(result.destination_port, 8080) << "roundtrip port should be 8080, got " << result.destination_port;
+    EXPECT_EQ(result.payload_size, payload_str.size()) << "roundtrip payload_size mismatch";
 
     // 验证 payload 内容一致
     std::string_view parsed_payload(reinterpret_cast<const char*>(out.data() + result.payload_offset),
                                      result.payload_size);
-    EXPECT_TRUE(parsed_payload == payload_str) << "roundtrip payload content mismatch";
+    EXPECT_EQ(parsed_payload, payload_str) << "roundtrip payload content mismatch";
 }
 
 // ============================================================================

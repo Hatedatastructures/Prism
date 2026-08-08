@@ -38,8 +38,8 @@ namespace
         preview p(shared_transmission(mock), data);
 
         // 验证 next_layer 返回内部指针
-        EXPECT_TRUE(p.next_layer() == mock.get()) << "construct: next_layer == mock";
-        EXPECT_TRUE(p.inner() != nullptr) << "construct: inner not null";
+        EXPECT_EQ(p.next_layer(), mock.get()) << "construct: next_layer == mock";
+        EXPECT_NE(p.inner(), nullptr) << "construct: inner not null";
     }
 
     TEST(PreviewDeep, ConstructEmptyData)
@@ -47,15 +47,15 @@ namespace
         auto mock = make_mock();
         preview p(shared_transmission(mock), std::span<const std::byte>{});
 
-        EXPECT_TRUE(p.next_layer() == mock.get()) << "construct: empty preread -> next_layer ok";
+        EXPECT_EQ(p.next_layer(), mock.get()) << "construct: empty preread -> next_layer ok";
     }
 
     TEST(PreviewDeep, ConstructNullInner)
     {
         preview p(nullptr, std::span<const std::byte>{});
 
-        EXPECT_TRUE(p.next_layer() == nullptr) << "construct: null inner -> next_layer null";
-        EXPECT_TRUE(p.inner() == nullptr) << "construct: null inner -> inner null";
+        EXPECT_EQ(p.next_layer(), nullptr) << "construct: null inner -> next_layer null";
+        EXPECT_EQ(p.inner(), nullptr) << "construct: null inner -> inner null";
     }
 
     TEST(PreviewDeep, ConstructLargeData)
@@ -64,7 +64,7 @@ namespace
         std::vector<std::byte> big(4096, std::byte{0xAA});
         preview p(shared_transmission(mock), std::span<const std::byte>{big.data(), big.size()});
 
-        EXPECT_TRUE(p.next_layer() == mock.get()) << "construct: large preread -> ok";
+        EXPECT_EQ(p.next_layer(), mock.get()) << "construct: large preread -> ok";
     }
 
     // ─── executor() 测试 ──────────────────────
@@ -128,7 +128,7 @@ namespace
     TEST(PreviewDeep, TransportTypeNullInner)
     {
         preview p(nullptr, std::span<const std::byte>{});
-        EXPECT_TRUE(p.transport_type() == transmission::type::tcp)
+        EXPECT_EQ(p.transport_type(), transmission::type::tcp)
             << "transport_type: null inner -> tcp";
     }
 
@@ -137,7 +137,7 @@ namespace
         auto mock = make_mock();
         preview p(shared_transmission(mock), std::span<const std::byte>{});
         // MockTransport 使用默认 transport_type() → 沿 next_layer 链，最终返回 tcp
-        EXPECT_TRUE(p.transport_type() == transmission::type::tcp)
+        EXPECT_EQ(p.transport_type(), transmission::type::tcp)
             << "transport_type: mock inner -> tcp";
     }
 
@@ -148,7 +148,7 @@ namespace
         auto mock = make_mock();
         preview p(shared_transmission(mock), std::span<const std::byte>{});
         auto *nl = p.next_layer();
-        EXPECT_TRUE(nl == mock.get()) << "next_layer: mutable == mock";
+        EXPECT_EQ(nl, mock.get()) << "next_layer: mutable == mock";
     }
 
     TEST(PreviewDeep, NextLayerConst)
@@ -156,13 +156,13 @@ namespace
         auto mock = make_mock();
         const preview p(shared_transmission(mock), std::span<const std::byte>{});
         const auto *nl = p.next_layer();
-        EXPECT_TRUE(nl == mock.get()) << "next_layer: const == mock";
+        EXPECT_EQ(nl, mock.get()) << "next_layer: const == mock";
     }
 
     TEST(PreviewDeep, NextLayerNull)
     {
         preview p(nullptr, std::span<const std::byte>{});
-        EXPECT_TRUE(p.next_layer() == nullptr) << "next_layer: null inner -> null";
+        EXPECT_EQ(p.next_layer(), nullptr) << "next_layer: null inner -> null";
     }
 
     // ─── inner() 测试 ─────────────────────────
@@ -172,7 +172,7 @@ namespace
         auto mock = make_mock();
         preview p(shared_transmission(mock), std::span<const std::byte>{});
         auto inner = p.inner();
-        EXPECT_TRUE(inner == mock) << "inner: returns same shared_ptr";
+        EXPECT_EQ(inner, mock) << "inner: returns same shared_ptr";
     }
 
     // ─── wrap_with_preview() 测试 ──────────────
@@ -183,7 +183,7 @@ namespace
         auto original = shared_transmission(mock);
         auto result = transport::wrap_with_preview(original, std::span<const std::byte>{});
         // data 为空 → 不包装，返回原始
-        EXPECT_TRUE(result.get() == mock.get()) << "wrap: empty data -> original ptr";
+        EXPECT_EQ(result.get(), mock.get()) << "wrap: empty data -> original ptr";
     }
 
     TEST(PreviewDeep, WrapWithPreviewWithData)
@@ -193,9 +193,9 @@ namespace
         const std::byte data[] = {std::byte{0x01}, std::byte{0x02}};
         auto result = transport::wrap_with_preview(original, data);
         // data 非空 → 包装为 preview
-        EXPECT_TRUE(result.get() != mock.get()) << "wrap: with data -> different ptr";
+        EXPECT_NE(result.get(), mock.get()) << "wrap: with data -> different ptr";
         auto *pv = dynamic_cast<preview *>(result.get());
-        EXPECT_TRUE(pv != nullptr) << "wrap: result is preview";
+        EXPECT_NE(pv, nullptr) << "wrap: result is preview";
         EXPECT_TRUE(pv->next_layer() == mock.get()) << "wrap: preview wraps mock";
     }
 
@@ -222,10 +222,10 @@ namespace
 
         EXPECT_TRUE(called) << "completion_read: handler called immediately with preread";
         EXPECT_TRUE(!result_ec) << "completion_read: no error";
-        EXPECT_TRUE(result_n == 3) << "completion_read: 3 bytes from preread";
-        EXPECT_TRUE(buf[0] == std::byte{0xAA}) << "completion_read: byte 0 correct";
-        EXPECT_TRUE(buf[1] == std::byte{0xBB}) << "completion_read: byte 1 correct";
-        EXPECT_TRUE(buf[2] == std::byte{0xCC}) << "completion_read: byte 2 correct";
+        EXPECT_EQ(result_n, 3) << "completion_read: 3 bytes from preread";
+        EXPECT_EQ(buf[0], std::byte{0xAA}) << "completion_read: byte 0 correct";
+        EXPECT_EQ(buf[1], std::byte{0xBB}) << "completion_read: byte 1 correct";
+        EXPECT_EQ(buf[2], std::byte{0xCC}) << "completion_read: byte 2 correct";
     }
 
     TEST(PreviewDeep, CompletionReadPrereadExhaustedThenMockInner)
@@ -275,8 +275,8 @@ namespace
             });
 
         EXPECT_TRUE(called) << "completion_read_null: handler called";
-        EXPECT_TRUE(result_ec.value() != 0) << "completion_read_null: error set";
-        EXPECT_TRUE(result_n == 0) << "completion_read_null: 0 bytes";
+        EXPECT_NE(result_ec.value(), 0) << "completion_read_null: error set";
+        EXPECT_EQ(result_n, 0) << "completion_read_null: 0 bytes";
     }
 
     // ─── completion-handler async_write_some 测试 ──
@@ -299,8 +299,8 @@ namespace
             });
 
         EXPECT_TRUE(called) << "completion_write_null: handler called";
-        EXPECT_TRUE(result_ec.value() != 0) << "completion_write_null: error set";
-        EXPECT_TRUE(result_n == 0) << "completion_write_null: 0 bytes";
+        EXPECT_NE(result_ec.value(), 0) << "completion_write_null: error set";
+        EXPECT_EQ(result_n, 0) << "completion_write_null: 0 bytes";
     }
 
     TEST(PreviewDeep, CompletionWriteValidInner)
@@ -325,7 +325,7 @@ namespace
         mock->get_io_context().run();
         EXPECT_TRUE(called) << "completion_write: handler called";
         EXPECT_TRUE(!result_ec) << "completion_write: no error";
-        EXPECT_TRUE(result_n == 2) << "completion_write: 2 bytes";
+        EXPECT_EQ(result_n, 2) << "completion_write: 2 bytes";
     }
 
     // ─── lowest_layer 测试 ────────────────────
@@ -335,14 +335,14 @@ namespace
         auto mock = make_mock();
         preview p(shared_transmission(mock), std::span<const std::byte>{});
         auto *ll = p.lowest_layer<MockTransport>();
-        EXPECT_TRUE(ll == mock.get()) << "lowest_layer: navigates to mock";
+        EXPECT_EQ(ll, mock.get()) << "lowest_layer: navigates to mock";
     }
 
     TEST(PreviewDeep, LowestLayerNull)
     {
         preview p(nullptr, std::span<const std::byte>{});
         auto *ll = p.lowest_layer<transmission>();
-        EXPECT_TRUE(ll == &p) << "lowest_layer: null inner -> self";
+        EXPECT_EQ(ll, &p) << "lowest_layer: null inner -> self";
     }
 
 } // namespace

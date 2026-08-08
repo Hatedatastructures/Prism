@@ -14,52 +14,52 @@ namespace
     TEST(AnytlsPaddingPure, ParseRangeMinMax)
     {
         auto [lo, hi] = psm::handshake::anytls::parse_range("10-20");
-        EXPECT_TRUE(lo == 10) << "parse_range: lo=10";
-        EXPECT_TRUE(hi == 20) << "parse_range: hi=20";
+        EXPECT_EQ(lo, 10) << "parse_range: lo=10";
+        EXPECT_EQ(hi, 20) << "parse_range: hi=20";
     }
 
     TEST(AnytlsPaddingPure, ParseRangeSingleValue)
     {
         auto [lo, hi] = psm::handshake::anytls::parse_range("42");
-        EXPECT_TRUE(lo == 42) << "parse_range: single lo=42";
-        EXPECT_TRUE(hi == 42) << "parse_range: single hi=42";
+        EXPECT_EQ(lo, 42) << "parse_range: single lo=42";
+        EXPECT_EQ(hi, 42) << "parse_range: single hi=42";
     }
 
     TEST(AnytlsPaddingPure, ParseRangeZero)
     {
         auto [lo, hi] = psm::handshake::anytls::parse_range("0");
-        EXPECT_TRUE(lo == 0) << "parse_range: zero lo=0";
-        EXPECT_TRUE(hi == 0) << "parse_range: zero hi=0";
+        EXPECT_EQ(lo, 0) << "parse_range: zero lo=0";
+        EXPECT_EQ(hi, 0) << "parse_range: zero hi=0";
     }
 
     TEST(AnytlsPaddingPure, ComputeMd5Empty)
     {
         auto hex = psm::handshake::anytls::compute_md5_hex("");
-        EXPECT_TRUE(hex == "d41d8cd98f00b204e9800998ecf8427e") << "md5: empty string";
+        EXPECT_EQ(hex, "d41d8cd98f00b204e9800998ecf8427e") << "md5: empty string";
     }
 
     TEST(AnytlsPaddingPure, ComputeMd5Hello)
     {
         auto hex = psm::handshake::anytls::compute_md5_hex("hello");
-        EXPECT_TRUE(hex == "5d41402abc4b2a76b9719d911017c592") << "md5: hello";
+        EXPECT_EQ(hex, "5d41402abc4b2a76b9719d911017c592") << "md5: hello";
     }
 
     TEST(AnytlsPaddingPure, ComputeMd5Length)
     {
         auto hex = psm::handshake::anytls::compute_md5_hex("test");
-        EXPECT_TRUE(hex.size() == 32) << "md5: length=32";
+        EXPECT_EQ(hex.size(), 32) << "md5: length=32";
     }
 
     TEST(AnytlsPaddingPure, RandomInRangeEqual)
     {
         auto val = psm::handshake::anytls::random_in_range(5, 5);
-        EXPECT_TRUE(val == 5) << "random: lo==hi returns lo";
+        EXPECT_EQ(val, 5) << "random: lo==hi returns lo";
     }
 
     TEST(AnytlsPaddingPure, RandomInRangeGreater)
     {
         auto val = psm::handshake::anytls::random_in_range(10, 5);
-        EXPECT_TRUE(val == 10) << "random: lo>hi returns lo";
+        EXPECT_EQ(val, 10) << "random: lo>hi returns lo";
     }
 
     TEST(AnytlsPaddingPure, RandomInRangeBounds)

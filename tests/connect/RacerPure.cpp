@@ -37,7 +37,7 @@ namespace
         net::io_context ioc;
         psm::connect::address_racer::race_context ctx(3, ioc.get_executor());
 
-        EXPECT_TRUE(ctx.pending.load() == 3) << "race_context: 初始 pending=3";
+        EXPECT_EQ(ctx.pending.load(), 3) << "race_context: 初始 pending=3";
         EXPECT_TRUE(!ctx.winner.load(std::memory_order_acquire)) << "race_context: 初始 winner=false";
     }
 
@@ -49,7 +49,7 @@ namespace
         net::io_context ioc;
         psm::connect::address_racer::race_context ctx(1, ioc.get_executor());
 
-        EXPECT_TRUE(ctx.pending.load() == 1) << "race_context: 初始 pending=1";
+        EXPECT_EQ(ctx.pending.load(), 1) << "race_context: 初始 pending=1";
     }
 
     /**
@@ -60,7 +60,7 @@ namespace
         net::io_context ioc;
         psm::connect::address_racer::race_context ctx(0, ioc.get_executor());
 
-        EXPECT_TRUE(ctx.pending.load() == 0) << "race_context: 初始 pending=0";
+        EXPECT_EQ(ctx.pending.load(), 0) << "race_context: 初始 pending=0";
     }
 
     // ═══════════════════════════════════════════════════════════
@@ -76,10 +76,10 @@ namespace
         psm::connect::address_racer::race_context ctx(3, ioc.get_executor());
 
         ctx.complete();
-        EXPECT_TRUE(ctx.pending.load() == 2) << "complete: 3->2";
+        EXPECT_EQ(ctx.pending.load(), 2) << "complete: 3->2";
 
         ctx.complete();
-        EXPECT_TRUE(ctx.pending.load() == 1) << "complete: 2->1";
+        EXPECT_EQ(ctx.pending.load(), 1) << "complete: 2->1";
 
         // 先注册 async_wait，再让 complete() 触发 cancel
         boost::system::error_code wait_ec;
@@ -87,11 +87,11 @@ namespace
                               { wait_ec = ec; });
 
         ctx.complete();
-        EXPECT_TRUE(ctx.pending.load() == 0) << "complete: 1->0";
+        EXPECT_EQ(ctx.pending.load(), 0) << "complete: 1->0";
 
         // 驱动 io_context 使 cancel 回调执行
         ioc.poll();
-        EXPECT_TRUE(wait_ec == net::error::operation_aborted)
+        EXPECT_EQ(wait_ec, net::error::operation_aborted)
             << "signal: async_wait 收到 operation_aborted after cancel";
     }
 
@@ -109,11 +109,11 @@ namespace
                               { wait_ec = ec; });
 
         ctx.complete();
-        EXPECT_TRUE(ctx.pending.load() == 0) << "complete single: pending->0";
+        EXPECT_EQ(ctx.pending.load(), 0) << "complete single: pending->0";
 
         // 驱动 io_context 使 cancel 回调执行
         ioc.poll();
-        EXPECT_TRUE(wait_ec == net::error::operation_aborted)
+        EXPECT_EQ(wait_ec, net::error::operation_aborted)
             << "complete single: async_wait 收到 operation_aborted";
     }
 
@@ -130,7 +130,7 @@ namespace
 
         // 虽然环绕了，但不应该崩溃
         // 环绕后 pending 值应为一个非常大的数
-        EXPECT_TRUE(ctx.pending.load() > 1000u) << "complete underflow: wrapped around";
+        EXPECT_GT(ctx.pending.load(), 1000u) << "complete underflow: wrapped around";
     }
 
     // ═══════════════════════════════════════════════════════════
@@ -179,7 +179,7 @@ namespace
         psm::connect::address_racer::race_context ctx(2, ioc.get_executor());
 
         auto expiry = ctx.signal.expiry();
-        EXPECT_TRUE(expiry == net::steady_timer::time_point::max())
+        EXPECT_EQ(expiry, net::steady_timer::time_point::max())
             << "signal: 初始过期时间为 time_point::max";
     }
 
@@ -200,7 +200,7 @@ namespace
                               { ec_result = ec; });
         ctx.signal.cancel();
         ioc.poll();
-        EXPECT_TRUE(ec_result == net::error::operation_aborted)
+        EXPECT_EQ(ec_result, net::error::operation_aborted)
             << "signal cancel: operation_aborted";
     }
 
@@ -230,7 +230,7 @@ namespace
         // secondary_delay 是 address_racer 的 private static constexpr，
         // 通过 #include hack 已可访问
         constexpr auto delay = psm::connect::address_racer::secondary_delay;
-        EXPECT_TRUE(delay.count() == 250)
+        EXPECT_EQ(delay.count(), 250)
             << "secondary_delay: 250ms (RFC 8305)";
     }
 

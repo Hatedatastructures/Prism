@@ -216,9 +216,9 @@ TEST(MuxMaxStreams, ConfigDefaults)
 {
     config cfg;
 
-    EXPECT_TRUE(cfg.smux.max_streams == 32) << "smux default max_streams=32";
-    EXPECT_TRUE(cfg.yamux.max_streams == 32) << "yamux default max_streams=32";
-    EXPECT_TRUE(cfg.h2mux.max_streams == 256) << "h2mux default max_streams=256";
+    EXPECT_EQ(cfg.smux.max_streams, 32) << "smux default max_streams=32";
+    EXPECT_EQ(cfg.yamux.max_streams, 32) << "yamux default max_streams=32";
+    EXPECT_EQ(cfg.h2mux.max_streams, 256) << "h2mux default max_streams=256";
 }
 
 /**
@@ -231,9 +231,9 @@ TEST(MuxMaxStreams, ConfigSmall)
     cfg.yamux.max_streams = 1;
     cfg.h2mux.max_streams = 1;
 
-    EXPECT_TRUE(cfg.smux.max_streams == 1) << "smux max_streams=1 configured";
-    EXPECT_TRUE(cfg.yamux.max_streams == 1) << "yamux max_streams=1 configured";
-    EXPECT_TRUE(cfg.h2mux.max_streams == 1) << "h2mux max_streams=1 configured";
+    EXPECT_EQ(cfg.smux.max_streams, 1) << "smux max_streams=1 configured";
+    EXPECT_EQ(cfg.yamux.max_streams, 1) << "yamux max_streams=1 configured";
+    EXPECT_EQ(cfg.h2mux.max_streams, 1) << "h2mux max_streams=1 configured";
 }
 
 /**
@@ -246,9 +246,9 @@ TEST(MuxMaxStreams, ConfigZero)
     cfg.yamux.max_streams = 0;
     cfg.h2mux.max_streams = 0;
 
-    EXPECT_TRUE(cfg.smux.max_streams == 0) << "smux max_streams=0 configured";
-    EXPECT_TRUE(cfg.yamux.max_streams == 0) << "yamux max_streams=0 configured";
-    EXPECT_TRUE(cfg.h2mux.max_streams == 0) << "h2mux max_streams=0 configured";
+    EXPECT_EQ(cfg.smux.max_streams, 0) << "smux max_streams=0 configured";
+    EXPECT_EQ(cfg.yamux.max_streams, 0) << "yamux max_streams=0 configured";
+    EXPECT_EQ(cfg.h2mux.max_streams, 0) << "h2mux max_streams=0 configured";
 }
 
 // ── smux tests ───────────────────────────────────────────────────

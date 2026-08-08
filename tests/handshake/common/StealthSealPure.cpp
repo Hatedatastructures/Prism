@@ -41,7 +41,7 @@ namespace
         auto mock = std::make_shared<MockTransport>();
         auto km = make_test_key_material();
         auto s = std::make_shared<reality::seal>(mock, km);
-        EXPECT_TRUE(s != nullptr) << "seal: constructed";
+        EXPECT_NE(s, nullptr) << "seal: constructed";
     }
 
     TEST(StealthSealPure, SealExecutor)
@@ -51,7 +51,7 @@ namespace
         auto s = std::make_shared<reality::seal>(mock, km);
 
         auto ex = s->executor();
-        EXPECT_TRUE(ex != boost::asio::any_io_executor{}) << "seal: executor valid";
+        EXPECT_NE(ex, boost::asio::any_io_executor{}) << "seal: executor valid";
     }
 
     TEST(StealthSealPure, SealClose)

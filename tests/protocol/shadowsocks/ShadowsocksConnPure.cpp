@@ -42,7 +42,7 @@ namespace
             std::span<const std::uint8_t>(material.data(), 32),
             16);
 
-        EXPECT_TRUE(key.size() == 16) << "derive aes-128: key length=16";
+        EXPECT_EQ(key.size(), 16) << "derive aes-128: key length=16";
 
         // 用两个独立的 aead_context 分别 seal 和 open（每个 nonce 从 0 开始）
         psm::crypto::aead_context seal_ctx(psm::crypto::aead_cipher::aes_128_gcm, key);
@@ -51,13 +51,13 @@ namespace
         const std::uint8_t pt[] = {0x01, 0x02, 0x03, 0x04};
         std::vector<std::uint8_t> sealed(seal_ctx.seal_size(4));
         auto seal_ec = seal_ctx.seal(sealed, pt);
-        EXPECT_TRUE(seal_ec == psm::fault::code::success) << "derive aes-128: seal success";
-        EXPECT_TRUE(sealed.size() == 20) << "derive aes-128: sealed size=20";
+        EXPECT_EQ(seal_ec, psm::fault::code::success) << "derive aes-128: seal success";
+        EXPECT_EQ(sealed.size(), 20) << "derive aes-128: sealed size=20";
 
         std::vector<std::uint8_t> opened(open_ctx.open_size(sealed.size()));
         auto open_ec = open_ctx.open(opened, sealed);
-        EXPECT_TRUE(open_ec == psm::fault::code::success) << "derive aes-128: open success";
-        EXPECT_TRUE(opened.size() == 4) << "derive aes-128: opened size=4";
+        EXPECT_EQ(open_ec, psm::fault::code::success) << "derive aes-128: open success";
+        EXPECT_EQ(opened.size(), 4) << "derive aes-128: opened size=4";
         EXPECT_TRUE(std::memcmp(opened.data(), pt, 4) == 0)
                      << "derive aes-128: round-trip matches";
     }
@@ -81,7 +81,7 @@ namespace
             std::span<const std::uint8_t>(material.data(), 64),
             32);
 
-        EXPECT_TRUE(key.size() == 32) << "derive aes-256: key length=32";
+        EXPECT_EQ(key.size(), 32) << "derive aes-256: key length=32";
 
         psm::crypto::aead_context seal_ctx(psm::crypto::aead_cipher::aes_256_gcm, key);
         psm::crypto::aead_context open_ctx(psm::crypto::aead_cipher::aes_256_gcm, key);
@@ -90,7 +90,7 @@ namespace
         seal_ctx.seal(sealed, pt);
         std::vector<std::uint8_t> opened(open_ctx.open_size(sealed.size()));
         auto ec = open_ctx.open(opened, sealed);
-        EXPECT_TRUE(ec == psm::fault::code::success) << "derive aes-256: open success";
+        EXPECT_EQ(ec, psm::fault::code::success) << "derive aes-256: open success";
         EXPECT_TRUE(std::memcmp(opened.data(), pt, 3) == 0)
                      << "derive aes-256: round-trip matches";
     }
@@ -114,7 +114,7 @@ namespace
             std::span<const std::uint8_t>(material.data(), 64),
             32);
 
-        EXPECT_TRUE(key.size() == 32) << "derive chacha20: key length=32";
+        EXPECT_EQ(key.size(), 32) << "derive chacha20: key length=32";
 
         psm::crypto::aead_context seal_ctx(psm::crypto::aead_cipher::chacha20_poly1305, key);
         psm::crypto::aead_context open_ctx(psm::crypto::aead_cipher::chacha20_poly1305, key);
@@ -123,7 +123,7 @@ namespace
         seal_ctx.seal(sealed, pt);
         std::vector<std::uint8_t> opened(open_ctx.open_size(sealed.size()));
         auto ec = open_ctx.open(opened, sealed);
-        EXPECT_TRUE(ec == psm::fault::code::success) << "derive chacha20: open success";
+        EXPECT_EQ(ec, psm::fault::code::success) << "derive chacha20: open success";
         EXPECT_TRUE(std::memcmp(opened.data(), pt, 4) == 0)
                      << "derive chacha20: round-trip matches";
     }
@@ -138,7 +138,7 @@ namespace
         auto key2 = psm::crypto::derive_key(
             kdf_context, std::span<const std::uint8_t>(material.data(), 32), 16);
 
-        EXPECT_TRUE(key1.size() == key2.size()) << "derive: same size";
+        EXPECT_EQ(key1.size(), key2.size()) << "derive: same size";
         EXPECT_TRUE(std::memcmp(key1.data(), key2.data(), key1.size()) == 0)
                      << "derive: deterministic output";
     }
@@ -171,8 +171,8 @@ namespace
     {
         // Base64 编码 32 个 0x00 字节
         auto [ec, bytes] = ss_fmt::decode_psk("//////////////////////////////////////////8=");
-        EXPECT_TRUE(ec == psm::fault::code::success) << "decode_psk: valid base64 success";
-        EXPECT_TRUE(bytes.size() == 32) << "decode_psk: 32-byte key";
+        EXPECT_EQ(ec, psm::fault::code::success) << "decode_psk: valid base64 success";
+        EXPECT_EQ(bytes.size(), 32) << "decode_psk: 32-byte key";
     }
 
     TEST(ShadowsocksConnPure, FormatDecodePskEmpty)
@@ -185,25 +185,25 @@ namespace
     TEST(ShadowsocksConnPure, FormatResolveMethod)
     {
         auto m1 = ss_fmt::resolve_method("2022-blake3-aes-128-gcm", 16);
-        EXPECT_TRUE(m1 == cipher_method::aes_128_gcm) << "resolve: aes-128";
+        EXPECT_EQ(m1, cipher_method::aes_128_gcm) << "resolve: aes-128";
 
         auto m2 = ss_fmt::resolve_method("2022-blake3-aes-256-gcm", 32);
-        EXPECT_TRUE(m2 == cipher_method::aes_256_gcm) << "resolve: aes-256";
+        EXPECT_EQ(m2, cipher_method::aes_256_gcm) << "resolve: aes-256";
 
         auto m3 = ss_fmt::resolve_method("2022-blake3-chacha20-poly1305", 32);
-        EXPECT_TRUE(m3 == cipher_method::chacha20_poly1305) << "resolve: chacha20";
+        EXPECT_EQ(m3, cipher_method::chacha20_poly1305) << "resolve: chacha20";
 
         auto m4 = ss_fmt::resolve_method("", 16);
-        EXPECT_TRUE(m4 == cipher_method::aes_128_gcm) << "resolve: default for 16-byte PSK";
+        EXPECT_EQ(m4, cipher_method::aes_128_gcm) << "resolve: default for 16-byte PSK";
     }
 
     TEST(ShadowsocksConnPure, FormatKeysaltLen)
     {
-        EXPECT_TRUE(ss_fmt::keysalt_len(cipher_method::aes_128_gcm) == 16)
+        EXPECT_EQ(ss_fmt::keysalt_len(cipher_method::aes_128_gcm), 16)
                      << "keysalt_len: aes-128 = 16";
-        EXPECT_TRUE(ss_fmt::keysalt_len(cipher_method::aes_256_gcm) == 32)
+        EXPECT_EQ(ss_fmt::keysalt_len(cipher_method::aes_256_gcm), 32)
                      << "keysalt_len: aes-256 = 32";
-        EXPECT_TRUE(ss_fmt::keysalt_len(cipher_method::chacha20_poly1305) == 32)
+        EXPECT_EQ(ss_fmt::keysalt_len(cipher_method::chacha20_poly1305), 32)
                      << "keysalt_len: chacha20 = 32";
     }
 

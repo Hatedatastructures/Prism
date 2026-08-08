@@ -29,17 +29,17 @@ TEST(HttpParser, BasicGetRequest)
     // 解析成功是后续断言的前提
     ASSERT_TRUE(result == psm::fault::code::success) << "parse_req should return success for valid GET request";
     // 验证方法字段被正确提取
-    EXPECT_TRUE(req.method == "GET") << "method should be 'GET'";
+    EXPECT_EQ(req.method, "GET") << "method should be 'GET'";
     // 验证请求目标为路径形式
-    EXPECT_TRUE(req.target == "/index.html") << "target should be '/index.html'";
+    EXPECT_EQ(req.target, "/index.html") << "target should be '/index.html'";
     // 验证 HTTP 版本号
-    EXPECT_TRUE(req.version == "HTTP/1.1") << "version should be 'HTTP/1.1'";
+    EXPECT_EQ(req.version, "HTTP/1.1") << "version should be 'HTTP/1.1'";
     // 验证 Host 头值被正确提取
-    EXPECT_TRUE(req.host == "www.example.com") << "host should be 'www.example.com'";
+    EXPECT_EQ(req.host, "www.example.com") << "host should be 'www.example.com'";
     // line_end 标记请求行末尾，用于定位头部起始
-    EXPECT_TRUE(req.line_end != 0) << "line_end should not be 0";
+    EXPECT_NE(req.line_end, 0) << "line_end should not be 0";
     // header_end 标记头部终止符之后的位置
-    EXPECT_TRUE(req.hdr_end != 0) << "header_end should not be 0";
+    EXPECT_NE(req.hdr_end, 0) << "header_end should not be 0";
 }
 
 /**
@@ -54,9 +54,9 @@ TEST(HttpParser, ConnectRequest)
 
     ASSERT_TRUE(result == psm::fault::code::success) << "parse should succeed for CONNECT request";
     // 验证方法为 CONNECT
-    EXPECT_TRUE(req.method == "CONNECT") << "method should be 'CONNECT'";
+    EXPECT_EQ(req.method, "CONNECT") << "method should be 'CONNECT'";
     // CONNECT 目标应保留 host:port 原始形式
-    EXPECT_TRUE(req.target == "www.example.com:443") << "target should be 'www.example.com:443'";
+    EXPECT_EQ(req.target, "www.example.com:443") << "target should be 'www.example.com:443'";
 }
 
 /**
@@ -71,9 +71,9 @@ TEST(HttpParser, PostRequest)
 
     ASSERT_TRUE(result == psm::fault::code::success) << "parse should succeed for POST request";
     // 验证方法为 POST
-    EXPECT_TRUE(req.method == "POST") << "method should be 'POST'";
+    EXPECT_EQ(req.method, "POST") << "method should be 'POST'";
     // 验证 Host 正确，无关头部不干扰
-    EXPECT_TRUE(req.host == "api.example.com") << "host should be 'api.example.com'";
+    EXPECT_EQ(req.host, "api.example.com") << "host should be 'api.example.com'";
 }
 
 /**
@@ -88,7 +88,7 @@ TEST(HttpParser, ProxyAuthorization)
 
     ASSERT_TRUE(result == psm::fault::code::success) << "parse should succeed";
     // dXNlcjpwYXNz 是 "user:pass" 的 Base64 编码
-    EXPECT_TRUE(req.authorization == "Basic dXNlcjpwYXNz") << "authorization should be 'Basic dXNlcjpwYXNz'";
+    EXPECT_EQ(req.authorization, "Basic dXNlcjpwYXNz") << "authorization should be 'Basic dXNlcjpwYXNz'";
 }
 
 /**
@@ -103,9 +103,9 @@ TEST(HttpParser, BothAuthAndHost)
 
     ASSERT_TRUE(result == psm::fault::code::success) << "parse should succeed";
     // Host 头不应被认证头覆盖
-    EXPECT_TRUE(req.host == "secure.example.com") << "host should be 'secure.example.com'";
+    EXPECT_EQ(req.host, "secure.example.com") << "host should be 'secure.example.com'";
     // Bearer 类型认证也应正确识别
-    EXPECT_TRUE(req.authorization == "Bearer token123") << "authorization should be 'Bearer token123'";
+    EXPECT_EQ(req.authorization, "Bearer token123") << "authorization should be 'Bearer token123'";
 }
 
 /**
@@ -156,7 +156,7 @@ TEST(HttpParser, HeaderWhitespaceTrim)
 
     ASSERT_TRUE(result == psm::fault::code::success) << "parse should succeed";
     // 前导和尾部空白均应被去除
-    EXPECT_TRUE(req.host == "example.com") << "host should be trimmed to 'example.com'";
+    EXPECT_EQ(req.host, "example.com") << "host should be trimmed to 'example.com'";
 }
 
 /**
@@ -172,7 +172,7 @@ TEST(HttpParser, MalformedHeaderNoColon)
     // 解析不应因畸形行失败
     ASSERT_TRUE(result == psm::fault::code::success) << "parse should succeed despite malformed header line (silently skipped)";
     // 有效头部应仍被正确提取
-    EXPECT_TRUE(req.host == "example.com") << "host should still be 'example.com'";
+    EXPECT_EQ(req.host, "example.com") << "host should still be 'example.com'";
 }
 
 /**
@@ -189,7 +189,7 @@ TEST(HttpParser, RequestWithBodyData)
 
     // header_end 应指向 \r\n\r\n 之后、body 之前
     const std::size_t expected_header_end = raw.find("\r\n\r\n") + 4;
-    EXPECT_TRUE(req.hdr_end == expected_header_end) << "header_end should point to body start";
+    EXPECT_EQ(req.hdr_end, expected_header_end) << "header_end should point to body start";
 }
 
 /**
@@ -210,11 +210,11 @@ TEST(HttpParser, ReqLineAndHeaderEndOffsets)
 
     // 请求行结束位置：第一个 \r\n 之后
     const std::size_t expected_line_end = raw.find("\r\n") + 2; // 16
-    EXPECT_TRUE(req.line_end == expected_line_end) << "line_end offset incorrect";
+    EXPECT_EQ(req.line_end, expected_line_end) << "line_end offset incorrect";
 
     // 头部结束位置：\r\n\r\n 之后
     const std::size_t expected_header_end = raw.find("\r\n\r\n") + 4; // 31
-    EXPECT_TRUE(req.hdr_end == expected_header_end) << "header_end offset incorrect";
+    EXPECT_EQ(req.hdr_end, expected_header_end) << "header_end offset incorrect";
 }
 
 /**
@@ -228,7 +228,7 @@ TEST(HttpParser, MissingHeaderTerminator)
     auto result = psm::protocol::http::parse_req(raw, req);
 
     // 必须返回解析错误
-    EXPECT_TRUE(result == psm::fault::code::parse_error) << "should return parse_error when \\r\\n\\r\\n is missing";
+    EXPECT_EQ(result, psm::fault::code::parse_error) << "should return parse_error when \\r\\n\\r\\n is missing";
 }
 
 /**
@@ -241,7 +241,7 @@ TEST(HttpParser, MissingRequestLineCrlf)
     psm::protocol::http::proxy_request req{};
     auto result = psm::protocol::http::parse_req(raw, req);
 
-    EXPECT_TRUE(result == psm::fault::code::parse_error) << "should return parse_error when request line has no CRLF";
+    EXPECT_EQ(result, psm::fault::code::parse_error) << "should return parse_error when request line has no CRLF";
 }
 
 /**
@@ -254,7 +254,7 @@ TEST(HttpParser, EmptyInput)
     psm::protocol::http::proxy_request req{};
     auto result = psm::protocol::http::parse_req(raw, req);
 
-    EXPECT_TRUE(result == psm::fault::code::parse_error) << "should return parse_error for empty input";
+    EXPECT_EQ(result, psm::fault::code::parse_error) << "should return parse_error for empty input";
 }
 
 /**
@@ -265,13 +265,13 @@ TEST(HttpParser, ExtractPathFromAbsoluteUri)
     // 带 query 和 fragment 的完整 URI，提取路径部分
     {
         auto path = psm::protocol::http::rel_path("http://example.com/path?q=1#frag");
-        EXPECT_TRUE(path == "/path?q=1#frag") << "http://example.com/path?q=1#frag should extract '/path?q=1#frag'";
+        EXPECT_EQ(path, "/path?q=1#frag") << "http://example.com/path?q=1#frag should extract '/path?q=1#frag'";
     }
 
     // HTTPS 协议也应正确去除 authority 部分
     {
         auto path = psm::protocol::http::rel_path("https://example.com/api");
-        EXPECT_TRUE(path == "/api") << "https://example.com/api should extract '/api'";
+        EXPECT_EQ(path, "/api") << "https://example.com/api should extract '/api'";
     }
 }
 
@@ -283,12 +283,12 @@ TEST(HttpParser, ExtractPathNoPathComponent)
     // URI 无路径时默认返回根路径 "/"
     {
         auto path = psm::protocol::http::rel_path("http://example.com");
-        EXPECT_TRUE(path == "/") << "http://example.com should extract '/'";
+        EXPECT_EQ(path, "/") << "http://example.com should extract '/'";
     }
 
     {
         auto path = psm::protocol::http::rel_path("https://example.com");
-        EXPECT_TRUE(path == "/") << "https://example.com should extract '/'";
+        EXPECT_EQ(path, "/") << "https://example.com should extract '/'";
     }
 }
 
@@ -300,13 +300,13 @@ TEST(HttpParser, ExtractPathAlreadyRelative)
     // 已经是相对路径的输入应原样返回
     {
         auto path = psm::protocol::http::rel_path("/path?q=1");
-        EXPECT_TRUE(path == "/path?q=1") << "'/path?q=1' should be returned as-is";
+        EXPECT_EQ(path, "/path?q=1") << "'/path?q=1' should be returned as-is";
     }
 
     // CONNECT 风格的 host:port 不应被误判为路径
     {
         auto path = psm::protocol::http::rel_path("host:443");
-        EXPECT_TRUE(path == "host:443") << "'host:443' should be returned as-is";
+        EXPECT_EQ(path, "host:443") << "'host:443' should be returned as-is";
     }
 }
 
@@ -321,8 +321,8 @@ TEST(HttpParser, MinimalRequest)
     auto result = psm::protocol::http::parse_req(raw, req);
 
     ASSERT_TRUE(result == psm::fault::code::success) << "parse should succeed for minimal request";
-    EXPECT_TRUE(req.method == "GET") << "method should be 'GET'";
-    EXPECT_TRUE(req.target == "/") << "target should be '/'";
+    EXPECT_EQ(req.method, "GET") << "method should be 'GET'";
+    EXPECT_EQ(req.target, "/") << "target should be '/'";
     EXPECT_TRUE(req.host.empty()) << "host should be empty when no Host header present";
 }
 
@@ -336,8 +336,8 @@ TEST(HttpParser, Http10Version)
     auto result = psm::protocol::http::parse_req(raw, req);
 
     ASSERT_TRUE(result == psm::fault::code::success) << "parse should succeed for HTTP/1.0";
-    EXPECT_TRUE(req.version == "HTTP/1.0") << "version should be 'HTTP/1.0'";
-    EXPECT_TRUE(req.host == "example.com") << "host should be 'example.com'";
+    EXPECT_EQ(req.version, "HTTP/1.0") << "version should be 'HTTP/1.0'";
+    EXPECT_EQ(req.host, "example.com") << "host should be 'example.com'";
 }
 
 /**
@@ -351,7 +351,7 @@ TEST(HttpParser, HostWithPort)
     auto result = psm::protocol::http::parse_req(raw, req);
 
     ASSERT_TRUE(result == psm::fault::code::success) << "parse should succeed";
-    EXPECT_TRUE(req.host == "example.com:8080") << "host should be 'example.com:8080'";
+    EXPECT_EQ(req.host, "example.com:8080") << "host should be 'example.com:8080'";
 }
 
 /**
@@ -365,7 +365,7 @@ TEST(HttpParser, TabSeparator)
     auto result = psm::protocol::http::parse_req(raw, req);
 
     ASSERT_TRUE(result == psm::fault::code::success) << "parse should succeed with tab separator";
-    EXPECT_TRUE(req.host == "example.com") << "host should be 'example.com' (tab trimmed)";
+    EXPECT_EQ(req.host, "example.com") << "host should be 'example.com' (tab trimmed)";
 }
 
 /**
@@ -379,7 +379,7 @@ TEST(HttpParser, MultipleHostHeaders)
     auto result = psm::protocol::http::parse_req(raw, req);
 
     ASSERT_TRUE(result == psm::fault::code::success) << "parse should succeed";
-    EXPECT_TRUE(req.host == "second.com") << "host should be 'second.com' (last Host wins)";
+    EXPECT_EQ(req.host, "second.com") << "host should be 'second.com' (last Host wins)";
 }
 
 /**
@@ -401,8 +401,8 @@ TEST(HttpParser, OtherHeadersIgnored)
     auto result = psm::protocol::http::parse_req(raw, req);
 
     ASSERT_TRUE(result == psm::fault::code::success) << "parse should succeed";
-    EXPECT_TRUE(req.host == "example.com") << "host should be 'example.com'";
-    EXPECT_TRUE(req.authorization == "Basic abc123") << "authorization should be 'Basic abc123'";
+    EXPECT_EQ(req.host, "example.com") << "host should be 'example.com'";
+    EXPECT_EQ(req.authorization, "Basic abc123") << "authorization should be 'Basic abc123'";
 }
 
 /**
@@ -413,11 +413,11 @@ TEST(HttpParser, ExtractPathWithPort)
     // URI 带非标准端口，路径提取不受端口影响
     {
         auto path = psm::protocol::http::rel_path("http://example.com:8080/path");
-        EXPECT_TRUE(path == "/path") << "http://example.com:8080/path should extract '/path'";
+        EXPECT_EQ(path, "/path") << "http://example.com:8080/path should extract '/path'";
     }
 
     {
         auto path = psm::protocol::http::rel_path("https://example.com:443/api?q=1");
-        EXPECT_TRUE(path == "/api?q=1") << "https://example.com:443/api?q=1 should extract '/api?q=1'";
+        EXPECT_EQ(path, "/api?q=1") << "https://example.com:443/api?q=1 should extract '/api?q=1'";
     }
 }

@@ -37,11 +37,11 @@ namespace
         buf.push_back(std::byte{80});
 
         auto [ec, target] = parse_socks_target(buf, psm::memory::current_resource());
-        EXPECT_TRUE(ec == psm::fault::code::success)
+        EXPECT_EQ(ec, psm::fault::code::success)
             << "parse_socks_target: IPv4 成功";
-        EXPECT_TRUE(target.host == "127.0.0.1")
+        EXPECT_EQ(target.host, "127.0.0.1")
             << "parse_socks_target: IPv4 地址正确";
-        EXPECT_TRUE(target.port == "80")
+        EXPECT_EQ(target.port, "80")
             << "parse_socks_target: IPv4 端口正确";
     }
 
@@ -63,11 +63,11 @@ namespace
         buf.push_back(std::byte{0xBB});
 
         auto [ec, target] = parse_socks_target(buf, psm::memory::current_resource());
-        EXPECT_TRUE(ec == psm::fault::code::success)
+        EXPECT_EQ(ec, psm::fault::code::success)
             << "parse_socks_target: domain 成功";
-        EXPECT_TRUE(target.host == "example.com")
+        EXPECT_EQ(target.host, "example.com")
             << "parse_socks_target: domain 地址正确";
-        EXPECT_TRUE(target.port == "443")
+        EXPECT_EQ(target.port, "443")
             << "parse_socks_target: domain 端口正确";
     }
 
@@ -90,9 +90,9 @@ namespace
         buf.push_back(std::byte{0xBB});
 
         auto [ec, target] = parse_socks_target(buf, psm::memory::current_resource());
-        EXPECT_TRUE(ec == psm::fault::code::success)
+        EXPECT_EQ(ec, psm::fault::code::success)
             << "parse_socks_target: IPv6 成功";
-        EXPECT_TRUE(target.port == "443")
+        EXPECT_EQ(target.port, "443")
             << "parse_socks_target: IPv6 端口正确";
     }
 
@@ -104,7 +104,7 @@ namespace
     {
         std::span<const std::byte> empty_span;
         auto [ec, target] = parse_socks_target(empty_span, psm::memory::current_resource());
-        EXPECT_TRUE(ec == psm::fault::code::bad_message)
+        EXPECT_EQ(ec, psm::fault::code::bad_message)
             << "parse_socks_target: 空输入 → bad_message";
     }
 
@@ -121,7 +121,7 @@ namespace
         buf.push_back(std::byte{0});
 
         auto [ec, target] = parse_socks_target(buf, psm::memory::current_resource());
-        EXPECT_TRUE(ec == psm::fault::code::bad_message)
+        EXPECT_EQ(ec, psm::fault::code::bad_message)
             << "parse_socks_target: 无效 atyp → bad_message";
     }
 
@@ -157,7 +157,7 @@ namespace
                          .password = psm::memory::string("secret", mr)});
 
         auto map = build_user_map(users);
-        EXPECT_TRUE(map.size() == 2)
+        EXPECT_EQ(map.size(), 2)
             << "build_user_map: 包含 2 个条目";
 
         // 手动计算 SHA256("pass123") 查找 alice
@@ -166,7 +166,7 @@ namespace
         SHA256(reinterpret_cast<const std::uint8_t *>(pw),
                std::strlen(pw), digest.data());
         auto it = map.find(digest);
-        EXPECT_TRUE(it != map.end())
+        EXPECT_NE(it, map.end())
             << "build_user_map: 找到 alice 的密码哈希";
         EXPECT_TRUE(it->second == "alice")
             << "build_user_map: alice 用户名匹配";
@@ -191,9 +191,9 @@ namespace
                reinterpret_cast<std::uint8_t *>(frame.password_hash.data()));
 
         auto result = verify_user(frame, users, nullptr);
-        EXPECT_TRUE(result != nullptr)
+        EXPECT_NE(result, nullptr)
             << "verify_user: 正确密码 → 非 nullptr";
-        EXPECT_TRUE(*result == "admin")
+        EXPECT_EQ(*result, "admin")
             << "verify_user: 返回 admin 用户名";
     }
 
@@ -216,7 +216,7 @@ namespace
                reinterpret_cast<std::uint8_t *>(frame.password_hash.data()));
 
         auto result = verify_user(frame, users, nullptr);
-        EXPECT_TRUE(result == nullptr)
+        EXPECT_EQ(result, nullptr)
             << "verify_user: 错误密码 → nullptr";
     }
 
@@ -227,13 +227,13 @@ namespace
     TEST(AnytlsScheme, SchemeMetadata)
     {
         psm::handshake::anytls::scheme s;
-        EXPECT_TRUE(s.name() == std::string_view{"anytls"})
+        EXPECT_EQ(s.name(), std::string_view{"anytls"})
             << "scheme: name=anytls";
-        EXPECT_TRUE(s.tier() == 2)
+        EXPECT_EQ(s.tier(), 2)
             << "scheme: tier=2";
-        EXPECT_TRUE(s.unique() == false)
+        EXPECT_EQ(s.unique(), false)
             << "scheme: unique=false";
-        EXPECT_TRUE(s.category() == psm::handshake::scheme_category::stack)
+        EXPECT_EQ(s.category(), psm::handshake::scheme_category::stack)
             << "scheme: category=stack";
     }
 

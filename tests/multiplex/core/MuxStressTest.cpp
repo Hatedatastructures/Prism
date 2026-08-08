@@ -260,11 +260,11 @@ TEST(MuxStress, SmuxStreamLeak1000)
 
     auto result = parse_smux_stream(std::span<const std::byte>(buffer.data(), buffer.size()));
 
-    EXPECT_TRUE(result.open_count == stream_count)
+    EXPECT_EQ(result.open_count, stream_count)
         << std::format("smux open_count={} expected={}", result.open_count, stream_count);
-    EXPECT_TRUE(result.close_count == stream_count)
+    EXPECT_EQ(result.close_count, stream_count)
         << std::format("smux close_count={} expected={}", result.close_count, stream_count);
-    EXPECT_TRUE(result.total_frames == stream_count * 3)
+    EXPECT_EQ(result.total_frames, stream_count * 3)
         << std::format("smux total_frames={} expected={}", result.total_frames, stream_count * 3);
 
     // 流泄露检测：open == close 即无泄露
@@ -289,13 +289,13 @@ TEST(MuxStress, YamuxStreamLeak1000)
 
     auto result = parse_yamux_stream(std::span<const std::byte>(buffer.data(), buffer.size()));
 
-    EXPECT_TRUE(result.open_count == stream_count)
+    EXPECT_EQ(result.open_count, stream_count)
         << std::format("yamux open_count={} expected={}", result.open_count, stream_count);
-    EXPECT_TRUE(result.close_count == stream_count)
+    EXPECT_EQ(result.close_count, stream_count)
         << std::format("yamux close_count={} expected={}", result.close_count, stream_count);
 
     // yamux: SYN 帧 + Data 帧 + FIN 帧 = stream_count * 3
-    EXPECT_TRUE(result.total_frames == stream_count * 3)
+    EXPECT_EQ(result.total_frames, stream_count * 3)
         << std::format("yamux total_frames={} expected={}", result.total_frames, stream_count * 3);
 
     const bool no_leak = (result.open_count == result.close_count);
@@ -342,17 +342,17 @@ TEST(MuxStress, SmuxConcurrent32Streams)
 
     auto result = parse_smux_stream(std::span<const std::byte>(buffer.data(), buffer.size()));
 
-    EXPECT_TRUE(result.open_count == num_streams)
+    EXPECT_EQ(result.open_count, num_streams)
         << std::format("smux concurrent open={} expected={}", result.open_count, num_streams);
-    EXPECT_TRUE(result.close_count == num_streams)
+    EXPECT_EQ(result.close_count, num_streams)
         << std::format("smux concurrent close={} expected={}", result.close_count, num_streams);
 
     const auto expected_data = static_cast<std::uint64_t>(num_streams) * payload_per_stream;
-    EXPECT_TRUE(result.data_bytes == expected_data)
+    EXPECT_EQ(result.data_bytes, expected_data)
         << std::format("smux concurrent data={} expected={}", result.data_bytes, expected_data);
 
     // 验证总帧数 = 32 SYN + 32 PSH + 32 FIN = 96
-    EXPECT_TRUE(result.total_frames == num_streams * 3)
+    EXPECT_EQ(result.total_frames, num_streams * 3)
         << std::format("smux concurrent frames={} expected={}", result.total_frames, num_streams * 3);
 
     const bool no_leak = (result.open_count == result.close_count);
@@ -393,16 +393,16 @@ TEST(MuxStress, YamuxConcurrent32Streams)
 
     auto result = parse_yamux_stream(std::span<const std::byte>(buffer.data(), buffer.size()));
 
-    EXPECT_TRUE(result.open_count == num_streams)
+    EXPECT_EQ(result.open_count, num_streams)
         << std::format("yamux concurrent open={} expected={}", result.open_count, num_streams);
-    EXPECT_TRUE(result.close_count == num_streams)
+    EXPECT_EQ(result.close_count, num_streams)
         << std::format("yamux concurrent close={} expected={}", result.close_count, num_streams);
 
     const auto expected_data = static_cast<std::uint64_t>(num_streams) * payload_per_stream;
-    EXPECT_TRUE(result.data_bytes == expected_data)
+    EXPECT_EQ(result.data_bytes, expected_data)
         << std::format("yamux concurrent data={} expected={}", result.data_bytes, expected_data);
 
-    EXPECT_TRUE(result.total_frames == num_streams * 3)
+    EXPECT_EQ(result.total_frames, num_streams * 3)
         << std::format("yamux concurrent frames={} expected={}", result.total_frames, num_streams * 3);
 
     const bool no_leak = (result.open_count == result.close_count);
@@ -469,9 +469,9 @@ TEST(MuxStress, SmuxLargeTransfer100MB)
     }
     ++frames_encoded;
 
-    EXPECT_TRUE(bytes_encoded == actual_total)
+    EXPECT_EQ(bytes_encoded, actual_total)
         << std::format("smux 100MB transfer bytes={} expected={}", bytes_encoded, actual_total);
-    EXPECT_TRUE(frames_encoded == total_chunks + 2)
+    EXPECT_EQ(frames_encoded, total_chunks + 2)
         << std::format("smux 100MB transfer frames={} expected={}", frames_encoded, total_chunks + 2);
 
     // 验证每个 chunk 的校验和：对 64KB pattern 逐字节 XOR 得到 checksum
@@ -540,9 +540,9 @@ TEST(MuxStress, YamuxLargeTransfer100MB)
     }
     ++frames_encoded;
 
-    EXPECT_TRUE(bytes_encoded == total_size)
+    EXPECT_EQ(bytes_encoded, total_size)
         << std::format("yamux 100MB transfer bytes={} expected={}", bytes_encoded, total_size);
-    EXPECT_TRUE(frames_encoded == total_chunks + 2)
+    EXPECT_EQ(frames_encoded, total_chunks + 2)
         << std::format("yamux 100MB transfer frames={} expected={}", frames_encoded, total_chunks + 2);
 
     // 数据完整性校验
@@ -646,11 +646,11 @@ TEST(MuxStress, MixedProtocolStress)
         break;
     }
 
-    EXPECT_TRUE(smux_frame_count == expected_smux_frames)
+    EXPECT_EQ(smux_frame_count, expected_smux_frames)
         << std::format("mixed smux frames={} expected={}", smux_frame_count, expected_smux_frames);
-    EXPECT_TRUE(yamux_frame_count == expected_yamux_frames)
+    EXPECT_EQ(yamux_frame_count, expected_yamux_frames)
         << std::format("mixed yamux frames={} expected={}", yamux_frame_count, expected_yamux_frames);
-    EXPECT_TRUE(pos == buffer.size())
+    EXPECT_EQ(pos, buffer.size())
         << std::format("mixed buffer fully parsed: pos={} size={}", pos, buffer.size());
 }
 

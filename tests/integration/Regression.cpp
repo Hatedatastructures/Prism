@@ -37,36 +37,36 @@ TEST(Regression, IPv6Parsing)
     // IPv6 回环地址，方括号应被正确剥离
     {
         auto [h, p] = parse("[::1]:443");
-        EXPECT_TRUE(h == "::1") << "[::1]:443 host";
-        EXPECT_TRUE(p == "443") << "[::1]:443 port";
+        EXPECT_EQ(h, "::1") << "[::1]:443 host";
+        EXPECT_EQ(p, "443") << "[::1]:443 port";
     }
 
     // 含全局单播前缀的 IPv6 地址
     {
         auto [h, p] = parse("[2001:db8::1]:8080");
-        EXPECT_TRUE(h == "2001:db8::1") << "[2001:db8::1]:8080 host";
-        EXPECT_TRUE(p == "8080") << "[2001:db8::1]:8080 port";
+        EXPECT_EQ(h, "2001:db8::1") << "[2001:db8::1]:8080 host";
+        EXPECT_EQ(p, "8080") << "[2001:db8::1]:8080 port";
     }
 
     // 链路本地 IPv6 地址
     {
         auto [h, p] = parse("[fe80::1]:443");
-        EXPECT_TRUE(h == "fe80::1") << "[fe80::1]:443 host";
-        EXPECT_TRUE(p == "443") << "[fe80::1]:443 port";
+        EXPECT_EQ(h, "fe80::1") << "[fe80::1]:443 host";
+        EXPECT_EQ(p, "443") << "[fe80::1]:443 port";
     }
 
     // 普通域名应不受影响
     {
         auto [h, p] = parse("example.com:8080");
-        EXPECT_TRUE(h == "example.com") << "example.com:8080 host";
-        EXPECT_TRUE(p == "8080") << "example.com:8080 port";
+        EXPECT_EQ(h, "example.com") << "example.com:8080 host";
+        EXPECT_EQ(p, "8080") << "example.com:8080 port";
     }
 
     // IPv4 地址应正常解析
     {
         auto [h, p] = parse("192.168.1.1:443");
-        EXPECT_TRUE(h == "192.168.1.1") << "192.168.1.1:443 host";
-        EXPECT_TRUE(p == "443") << "192.168.1.1:443 port";
+        EXPECT_EQ(h, "192.168.1.1") << "192.168.1.1:443 host";
+        EXPECT_EQ(p, "443") << "192.168.1.1:443 port";
     }
 }
 
@@ -79,7 +79,7 @@ TEST(Regression, InnerProtocolDetection)
     {
         std::string http_request = "GET / HTTP/1.1\r\nHost: example.com\r\n\r\n";
         auto result = psm::recognition::probe::detect_tls(http_request);
-        EXPECT_TRUE(result == psm::connect::protocol_type::http)
+        EXPECT_EQ(result, psm::connect::protocol_type::http)
             << "HTTP detection";
     }
 
@@ -87,7 +87,7 @@ TEST(Regression, InnerProtocolDetection)
     {
         std::string partial_data = "GET ";
         auto result = psm::recognition::probe::detect_tls(partial_data);
-        EXPECT_TRUE(result == psm::connect::protocol_type::http)
+        EXPECT_EQ(result, psm::connect::protocol_type::http)
             << "partial HTTP detection";
     }
 
@@ -95,7 +95,7 @@ TEST(Regression, InnerProtocolDetection)
     {
         std::string short_data(30, 'a');
         auto result = psm::recognition::probe::detect_tls(short_data);
-        EXPECT_TRUE(result == psm::connect::protocol_type::unknown)
+        EXPECT_EQ(result, psm::connect::protocol_type::unknown)
             << "short data should be unknown (insufficient for detection)";
     }
 
@@ -103,7 +103,7 @@ TEST(Regression, InnerProtocolDetection)
     {
         std::string long_data(70, 'b');
         auto result = psm::recognition::probe::detect_tls(long_data);
-        EXPECT_TRUE(result == psm::connect::protocol_type::unknown)
+        EXPECT_EQ(result, psm::connect::protocol_type::unknown)
             << "long unrecognized data should be unknown";
     }
 
@@ -115,7 +115,7 @@ TEST(Regression, InnerProtocolDetection)
         trojan_like[58] = 0x01;
         trojan_like[59] = 0x01;
         auto result = psm::recognition::probe::detect_tls(trojan_like);
-        EXPECT_TRUE(result == psm::connect::protocol_type::trojan)
+        EXPECT_EQ(result, psm::connect::protocol_type::trojan)
             << "Trojan detection";
     }
 
@@ -124,7 +124,7 @@ TEST(Regression, InnerProtocolDetection)
         std::string invalid_trojan(60, 'a');
         invalid_trojan[56] = 'x';
         auto result = psm::recognition::probe::detect_tls(invalid_trojan);
-        EXPECT_TRUE(result == psm::connect::protocol_type::unknown)
+        EXPECT_EQ(result, psm::connect::protocol_type::unknown)
             << "invalid Trojan should be unknown";
     }
 }

@@ -24,7 +24,7 @@ namespace
     {
         psm::memory::vector<std::byte> empty_preread;
         auto result = psm::handshake::secondary_probe(empty_preread);
-        EXPECT_TRUE(result == psm::connect::protocol_type::unknown)
+        EXPECT_EQ(result, psm::connect::protocol_type::unknown)
             << "secondary_probe: empty preread -> unknown";
     }
 
@@ -37,7 +37,7 @@ namespace
         const auto *ptr = reinterpret_cast<const std::byte *>(http_get);
         psm::memory::vector<std::byte> preread(ptr, ptr + std::strlen(http_get));
         auto result = psm::handshake::secondary_probe(preread);
-        EXPECT_TRUE(result == psm::connect::protocol_type::http)
+        EXPECT_EQ(result, psm::connect::protocol_type::http)
             << "secondary_probe: HTTP GET -> http";
     }
 
@@ -50,7 +50,7 @@ namespace
         const auto *ptr = reinterpret_cast<const std::byte *>(random);
         psm::memory::vector<std::byte> preread(ptr, ptr + std::strlen(random));
         auto result = psm::handshake::secondary_probe(preread);
-        EXPECT_TRUE(result == psm::connect::protocol_type::shadowsocks)
+        EXPECT_EQ(result, psm::connect::protocol_type::shadowsocks)
             << "secondary_probe: random bytes -> shadowsocks";
     }
 
@@ -64,7 +64,7 @@ namespace
         psm::memory::vector<std::byte> preread(ptr, ptr + sizeof(socks5_data));
         auto result = psm::handshake::secondary_probe(preread);
         // SOCKS5 无 TLS 内层特征，detect_tls 返回 unknown → 回退 shadowsocks
-        EXPECT_TRUE(result == psm::connect::protocol_type::shadowsocks)
+        EXPECT_EQ(result, psm::connect::protocol_type::shadowsocks)
             << "secondary_probe: SOCKS5 -> shadowsocks (no TLS fingerprint)";
     }
 
@@ -87,7 +87,7 @@ namespace
         auto scheme = std::make_shared<psm::handshake::native::native>();
         registry.add(scheme);
         auto found = registry.find("native");
-        EXPECT_TRUE(found != nullptr) << "registry::find: native registered -> found";
+        EXPECT_NE(found, nullptr) << "registry::find: native registered -> found";
         EXPECT_TRUE(found->name() == std::string_view("native"))
             << "registry::find: found name == 'native'";
     }
@@ -113,6 +113,6 @@ namespace
         auto scheme = std::make_shared<psm::handshake::native::native>();
         registry.add(scheme);
         psm::handshake::scheme_executor executor(registry);
-        EXPECT_TRUE(registry.all().size() == 1) << "executor: registry contains 1 scheme after add";
+        EXPECT_EQ(registry.all().size(), 1) << "executor: registry contains 1 scheme after add";
     }
 } // namespace

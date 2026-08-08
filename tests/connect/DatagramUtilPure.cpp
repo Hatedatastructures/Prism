@@ -62,13 +62,13 @@ namespace
 
         auto nonce = local_make_nonce_aes(sid, pid);
 
-        EXPECT_TRUE(nonce.size() == 12) << "nonce: size=12";
-        EXPECT_TRUE(nonce[0] == 0xAA) << "nonce: byte 0 = sid[4]";
-        EXPECT_TRUE(nonce[1] == 0xBB) << "nonce: byte 1 = sid[5]";
-        EXPECT_TRUE(nonce[2] == 0xCC) << "nonce: byte 2 = sid[6]";
-        EXPECT_TRUE(nonce[3] == 0xDD) << "nonce: byte 3 = sid[7]";
-        EXPECT_TRUE(nonce[4] == 0x11) << "nonce: byte 4 = pid[0]";
-        EXPECT_TRUE(nonce[11] == 0x88) << "nonce: byte 11 = pid[7]";
+        EXPECT_EQ(nonce.size(), 12) << "nonce: size=12";
+        EXPECT_EQ(nonce[0], 0xAA) << "nonce: byte 0 = sid[4]";
+        EXPECT_EQ(nonce[1], 0xBB) << "nonce: byte 1 = sid[5]";
+        EXPECT_EQ(nonce[2], 0xCC) << "nonce: byte 2 = sid[6]";
+        EXPECT_EQ(nonce[3], 0xDD) << "nonce: byte 3 = sid[7]";
+        EXPECT_EQ(nonce[4], 0x11) << "nonce: byte 4 = pid[0]";
+        EXPECT_EQ(nonce[11], 0x88) << "nonce: byte 11 = pid[7]";
     }
 
     TEST(DatagramUtilPure, MakeNonceAesZeros)
@@ -110,7 +110,7 @@ namespace
     {
         std::array<std::uint8_t, 8> data{};
         auto val = local_read_u64_be(data.data());
-        EXPECT_TRUE(val == 0) << "read_u64_be: zero input -> 0";
+        EXPECT_EQ(val, 0) << "read_u64_be: zero input -> 0";
     }
 
     TEST(DatagramUtilPure, ReadU64BeMax)
@@ -118,7 +118,7 @@ namespace
         std::array<std::uint8_t, 8> data{};
         std::fill(data.begin(), data.end(), 0xFF);
         auto val = local_read_u64_be(data.data());
-        EXPECT_TRUE(val == 0xFFFFFFFFFFFFFFFFULL) << "read_u64_be: all FF -> max uint64";
+        EXPECT_EQ(val, 0xFFFFFFFFFFFFFFFFULL) << "read_u64_be: all FF -> max uint64";
     }
 
     TEST(DatagramUtilPure, ReadU64BeOne)
@@ -126,14 +126,14 @@ namespace
         std::array<std::uint8_t, 8> data{};
         data[7] = 0x01;
         auto val = local_read_u64_be(data.data());
-        EXPECT_TRUE(val == 1) << "read_u64_be: 0x01 at last byte -> 1";
+        EXPECT_EQ(val, 1) << "read_u64_be: 0x01 at last byte -> 1";
     }
 
     TEST(DatagramUtilPure, ReadU64BeKnownValue)
     {
         std::array<std::uint8_t, 8> data{0x01, 0x23, 0x45, 0x67, 0x89, 0xAB, 0xCD, 0xEF};
         auto val = local_read_u64_be(data.data());
-        EXPECT_TRUE(val == 0x0123456789ABCDEFULL) << "read_u64_be: known value";
+        EXPECT_EQ(val, 0x0123456789ABCDEFULL) << "read_u64_be: known value";
     }
 
     // ─── write_u64_be ───────────────────────────────
@@ -156,7 +156,7 @@ namespace
     {
         std::array<std::uint8_t, 8> data{};
         local_write_u64_be(data.data(), 1);
-        EXPECT_TRUE(data[7] == 1) << "write_u64_be: 1 -> last byte = 1";
+        EXPECT_EQ(data[7], 1) << "write_u64_be: 1 -> last byte = 1";
         bool prefix_zero = true;
         for (std::size_t i = 0; i < 7; ++i)
         {
@@ -185,7 +185,7 @@ namespace
         std::array<std::uint8_t, 8> buf{};
         local_write_u64_be(buf.data(), original);
         auto restored = local_read_u64_be(buf.data());
-        EXPECT_TRUE(restored == original) << "read/write roundtrip: preserved";
+        EXPECT_EQ(restored, original) << "read/write roundtrip: preserved";
     }
 
     TEST(DatagramUtilPure, ReadWriteRoundtripMany)
@@ -213,10 +213,10 @@ namespace
 
         auto nonce = local_make_nonce_aes(sid, pid);
 
-        EXPECT_TRUE(nonce[0] == sid[4]) << "nonce structure: byte 0 = sid[4]";
-        EXPECT_TRUE(nonce[3] == sid[7]) << "nonce structure: byte 3 = sid[7]";
-        EXPECT_TRUE(nonce[4] == pid[0]) << "nonce structure: byte 4 = pid[0]";
-        EXPECT_TRUE(nonce[11] == pid[7]) << "nonce structure: byte 11 = pid[7]";
+        EXPECT_EQ(nonce[0], sid[4]) << "nonce structure: byte 0 = sid[4]";
+        EXPECT_EQ(nonce[3], sid[7]) << "nonce structure: byte 3 = sid[7]";
+        EXPECT_EQ(nonce[4], pid[0]) << "nonce structure: byte 4 = pid[0]";
+        EXPECT_EQ(nonce[11], pid[7]) << "nonce structure: byte 11 = pid[7]";
     }
 
 } // namespace

@@ -18,13 +18,13 @@ namespace
     TEST(TrustTunnelPure, Name)
     {
         psm::handshake::trusttunnel::scheme s;
-        EXPECT_TRUE(s.name() == "trusttunnel") << "name: trusttunnel";
+        EXPECT_EQ(s.name(), "trusttunnel") << "name: trusttunnel";
     }
 
     TEST(TrustTunnelPure, Tier)
     {
         psm::handshake::trusttunnel::scheme s;
-        EXPECT_TRUE(s.tier() == 2) << "tier: 2";
+        EXPECT_EQ(s.tier(), 2) << "tier: 2";
     }
 
     TEST(TrustTunnelPure, Unique)
@@ -36,7 +36,7 @@ namespace
     TEST(TrustTunnelPure, Category)
     {
         psm::handshake::trusttunnel::scheme s;
-        EXPECT_TRUE(s.category() == psm::handshake::scheme_category::stack)
+        EXPECT_EQ(s.category(), psm::handshake::scheme_category::stack)
             << "category: stack";
     }
 
@@ -45,8 +45,8 @@ namespace
         psm::handshake::trusttunnel::scheme s;
         psm::settings cfg;
         auto result = s.guess(cfg);
-        EXPECT_TRUE(result.score == 100) << "guess: score=100";
-        EXPECT_TRUE(result.solo_flag == 0) << "guess: solo_flag=0";
+        EXPECT_EQ(result.score, 100) << "guess: score=100";
+        EXPECT_EQ(result.solo_flag, 0) << "guess: solo_flag=0";
     }
 
     TEST(TrustTunnelPure, ActiveDisabled)
@@ -81,9 +81,9 @@ namespace
         cfg.stealth.trusttunnel.server_names.push_back(psm::memory::string("b.example.com"));
 
         auto snis = s.snis(cfg);
-        EXPECT_TRUE(snis.size() == 2) << "snis: 2 entries";
-        EXPECT_TRUE(snis[0] == "a.example.com") << "snis: first";
-        EXPECT_TRUE(snis[1] == "b.example.com") << "snis: second";
+        EXPECT_EQ(snis.size(), 2) << "snis: 2 entries";
+        EXPECT_EQ(snis[0], "a.example.com") << "snis: first";
+        EXPECT_EQ(snis[1], "b.example.com") << "snis: second";
     }
 
     TEST(TrustTunnelPure, SnisEmpty)

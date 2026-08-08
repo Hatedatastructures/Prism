@@ -116,7 +116,7 @@ namespace
         EXPECT_TRUE(fx.session->streams_.empty()) << "constructor: no streams";
 
         auto ch = fx.session->get_stream_channel(42);
-        EXPECT_TRUE(ch == nullptr) << "get_stream_channel: empty -> nullptr";
+        EXPECT_EQ(ch, nullptr) << "get_stream_channel: empty -> nullptr";
 
         fx.session->close();
         EXPECT_TRUE(fx.session->closed_) << "close: closed_ set";
@@ -142,11 +142,11 @@ namespace
         fx.session->streams_[1] = ch;
 
         auto found = fx.session->get_stream_channel(1);
-        EXPECT_TRUE(found != nullptr) << "get_channel: stream 1 found";
-        EXPECT_TRUE(found.get() == ch.get()) << "get_channel: same channel";
+        EXPECT_NE(found, nullptr) << "get_channel: stream 1 found";
+        EXPECT_EQ(found.get(), ch.get()) << "get_channel: same channel";
 
         auto missing = fx.session->get_stream_channel(99);
-        EXPECT_TRUE(missing == nullptr) << "get_channel: missing -> nullptr";
+        EXPECT_EQ(missing, nullptr) << "get_channel: missing -> nullptr";
     }
 
     // ─── on_settings v1 ───────────────────────────
@@ -209,7 +209,7 @@ namespace
 
         // v2 会写 server_settings 帧，检查 written_data
         auto &written = fx.transport->written_data();
-        EXPECT_TRUE(written.size() >= 7) << "settings v2: server_settings written";
+        EXPECT_GT(written.size(), = 7) << "settings v2: server_settings written";
     }
 
     // ─── on_settings v2 + padding mismatch ────────
@@ -245,7 +245,7 @@ namespace
 
         // 应该写了 update_padding 帧 + server_settings 帧
         auto &written = fx.transport->written_data();
-        EXPECT_TRUE(written.size() >= 14) << "pad mismatch: frames written";
+        EXPECT_GT(written.size(), = 14) << "pad mismatch: frames written";
     }
 
     // ─── on_settings v2 + padding match ───────────
@@ -282,7 +282,7 @@ namespace
 
         // 匹配时不发送 update_padding，只发 server_settings
         auto &written = fx.transport->written_data();
-        EXPECT_TRUE(written.size() >= 7) << "pad match: server_settings written";
+        EXPECT_GT(written.size(), = 7) << "pad match: server_settings written";
     }
 
     // ─── on_syn 正常路径 ──────────────────────────
@@ -479,8 +479,8 @@ namespace
         if (ep) { try { std::rethrow_exception(ep); } catch (const std::exception &e) { FAIL() << e.what(); } }
 
         EXPECT_TRUE(fx.callback_called) << "psh sub callback: called";
-        EXPECT_TRUE(fx.cb_stream_id == 2) << "psh sub callback: stream_id 2";
-        EXPECT_TRUE(fx.cb_preread.size() == 2) << "psh sub callback: preread 2 bytes";
+        EXPECT_EQ(fx.cb_stream_id, 2) << "psh sub callback: stream_id 2";
+        EXPECT_EQ(fx.cb_preread.size(), 2) << "psh sub callback: preread 2 bytes";
         EXPECT_TRUE(fx.session->pending_syns_.count(2) == 0) << "psh sub callback: pending removed";
     }
 
@@ -521,7 +521,7 @@ namespace
 
         // v2 会发送 synack 帧
         auto &written = fx.transport->written_data();
-        EXPECT_TRUE(written.size() >= 7) << "psh v2 synack: frame written";
+        EXPECT_GT(written.size(), = 7) << "psh v2 synack: frame written";
     }
 
     // ─── on_psh 第一 stream 后续数据 ──────────────
@@ -749,12 +749,12 @@ namespace
 
         // heart_resp 应被写入
         auto &written = fx.transport->written_data();
-        EXPECT_TRUE(written.size() >= 7) << "heart_req: response written";
+        EXPECT_GT(written.size(), = 7) << "heart_req: response written";
 
         if (written.size() >= 7)
         {
             auto resp_cmd = static_cast<anytls::command>(written[0]);
-            EXPECT_TRUE(resp_cmd == anytls::command::heart_resp)
+            EXPECT_EQ(resp_cmd, anytls::command::heart_resp)
                 << "heart_req: cmd = heart_resp";
         }
     }
@@ -941,7 +941,7 @@ namespace
         auto coro = [&]() -> net::awaitable<void>
         {
             auto n = co_await fx.session->write_psh(1, data, ec);
-            EXPECT_TRUE(n == 2) << "write_psh: returned 2";
+            EXPECT_EQ(n, 2) << "write_psh: returned 2";
         };
         net::co_spawn(fx.ioc().get_executor(), coro(), [&](std::exception_ptr e)
                       { ep = e; fx.ioc().stop(); });
@@ -951,7 +951,7 @@ namespace
 
         EXPECT_TRUE(!ec) << "write_psh: no error";
         auto &written = fx.transport->written_data();
-        EXPECT_TRUE(written.size() >= 7 + 2) << "write_psh: data written";
+        EXPECT_GT(written.size(), = 7 + 2) << "write_psh: data written";
     }
 
     // ─── write_fin ───────────────────────────────
@@ -997,7 +997,7 @@ namespace
 
         EXPECT_TRUE(!ec) << "write_synack: no error";
         auto &written = fx.transport->written_data();
-        EXPECT_TRUE(written.size() >= 7) << "write_synack: frame written";
+        EXPECT_GT(written.size(), = 7) << "write_synack: frame written";
     }
 
     // ─── send_waste_frame 无 padding ─────────────
@@ -1048,7 +1048,7 @@ namespace
         EXPECT_TRUE(!ec) << "waste with pad: no error";
         // pkt=0 -> "10-10" -> 一个 10 字节 waste 帧
         auto &written = fx.transport->written_data();
-        EXPECT_TRUE(written.size() >= 7 + 10) << "waste with pad: waste written";
+        EXPECT_GT(written.size(), = 7 + 10) << "waste with pad: waste written";
     }
 
     // ─── send_waste_frame 超出 stop ──────────────

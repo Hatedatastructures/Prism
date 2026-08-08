@@ -64,13 +64,13 @@ namespace
         pid[4] = 0x55; pid[5] = 0x66; pid[6] = 0x77; pid[7] = 0x88;
 
         auto nonce = make_nonce_aes_local(sid, pid);
-        EXPECT_TRUE(nonce.size() == 12) << "make_nonce_aes: 12 bytes";
-        EXPECT_TRUE(nonce[0] == 0xAA) << "make_nonce_aes: nonce[0]=sid[4]";
-        EXPECT_TRUE(nonce[1] == 0xBB) << "make_nonce_aes: nonce[1]=sid[5]";
-        EXPECT_TRUE(nonce[2] == 0xCC) << "make_nonce_aes: nonce[2]=sid[6]";
-        EXPECT_TRUE(nonce[3] == 0xDD) << "make_nonce_aes: nonce[3]=sid[7]";
-        EXPECT_TRUE(nonce[4] == 0x11) << "make_nonce_aes: nonce[4]=pid[0]";
-        EXPECT_TRUE(nonce[11] == 0x88) << "make_nonce_aes: nonce[11]=pid[7]";
+        EXPECT_EQ(nonce.size(), 12) << "make_nonce_aes: 12 bytes";
+        EXPECT_EQ(nonce[0], 0xAA) << "make_nonce_aes: nonce[0]=sid[4]";
+        EXPECT_EQ(nonce[1], 0xBB) << "make_nonce_aes: nonce[1]=sid[5]";
+        EXPECT_EQ(nonce[2], 0xCC) << "make_nonce_aes: nonce[2]=sid[6]";
+        EXPECT_EQ(nonce[3], 0xDD) << "make_nonce_aes: nonce[3]=sid[7]";
+        EXPECT_EQ(nonce[4], 0x11) << "make_nonce_aes: nonce[4]=pid[0]";
+        EXPECT_EQ(nonce[11], 0x88) << "make_nonce_aes: nonce[11]=pid[7]";
     }
 
     TEST(ShadowsocksDatagramPure, MakeNonceAesZero)
@@ -80,7 +80,7 @@ namespace
         auto nonce = make_nonce_aes_local(sid, pid);
         for (std::size_t i = 0; i < 12; ++i)
         {
-            EXPECT_TRUE(nonce[i] == 0) << "make_nonce_aes: all zero";
+            EXPECT_EQ(nonce[i], 0) << "make_nonce_aes: all zero";
         }
     }
 
@@ -93,7 +93,7 @@ namespace
         auto nonce = make_nonce_aes_local(sid, pid);
         for (std::size_t i = 0; i < 12; ++i)
         {
-            EXPECT_TRUE(nonce[i] == 0xFF) << "make_nonce_aes: all 0xFF";
+            EXPECT_EQ(nonce[i], 0xFF) << "make_nonce_aes: all 0xFF";
         }
     }
 
@@ -103,14 +103,14 @@ namespace
     {
         std::uint8_t data[] = {0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08};
         auto val = read_u64_be_local(data);
-        EXPECT_TRUE(val == 0x0102030405060708ULL) << "read_u64_be: basic";
+        EXPECT_EQ(val, 0x0102030405060708ULL) << "read_u64_be: basic";
     }
 
     TEST(ShadowsocksDatagramPure, ReadU64BeZero)
     {
         std::uint8_t data[8]{};
         auto val = read_u64_be_local(data);
-        EXPECT_TRUE(val == 0) << "read_u64_be: zero";
+        EXPECT_EQ(val, 0) << "read_u64_be: zero";
     }
 
     TEST(ShadowsocksDatagramPure, ReadU64BeMax)
@@ -118,7 +118,7 @@ namespace
         std::uint8_t data[8];
         std::fill_n(data, 8, 0xFF);
         auto val = read_u64_be_local(data);
-        EXPECT_TRUE(val == 0xFFFFFFFFFFFFFFFFULL) << "read_u64_be: max";
+        EXPECT_EQ(val, 0xFFFFFFFFFFFFFFFFULL) << "read_u64_be: max";
     }
 
     TEST(ShadowsocksDatagramPure, ReadU64BeSingleByte)
@@ -126,7 +126,7 @@ namespace
         std::uint8_t data[8]{};
         data[7] = 0x42;
         auto val = read_u64_be_local(data);
-        EXPECT_TRUE(val == 0x42) << "read_u64_be: single byte at LSB";
+        EXPECT_EQ(val, 0x42) << "read_u64_be: single byte at LSB";
     }
 
     // ─── write_u64_be ─────────────────────────────
@@ -135,9 +135,9 @@ namespace
     {
         std::uint8_t data[8]{};
         write_u64_be_local(data, 0x0102030405060708ULL);
-        EXPECT_TRUE(data[0] == 0x01) << "write_u64_be: data[0]=0x01";
-        EXPECT_TRUE(data[1] == 0x02) << "write_u64_be: data[1]=0x02";
-        EXPECT_TRUE(data[7] == 0x08) << "write_u64_be: data[7]=0x08";
+        EXPECT_EQ(data[0], 0x01) << "write_u64_be: data[0]=0x01";
+        EXPECT_EQ(data[1], 0x02) << "write_u64_be: data[1]=0x02";
+        EXPECT_EQ(data[7], 0x08) << "write_u64_be: data[7]=0x08";
     }
 
     TEST(ShadowsocksDatagramPure, WriteU64BeZero)
@@ -147,7 +147,7 @@ namespace
         write_u64_be_local(data, 0);
         for (std::size_t i = 0; i < 8; ++i)
         {
-            EXPECT_TRUE(data[i] == 0) << "write_u64_be: zero";
+            EXPECT_EQ(data[i], 0) << "write_u64_be: zero";
         }
     }
 
@@ -157,7 +157,7 @@ namespace
         write_u64_be_local(data, 0xFFFFFFFFFFFFFFFFULL);
         for (std::size_t i = 0; i < 8; ++i)
         {
-            EXPECT_TRUE(data[i] == 0xFF) << "write_u64_be: max";
+            EXPECT_EQ(data[i], 0xFF) << "write_u64_be: max";
         }
     }
 
@@ -167,7 +167,7 @@ namespace
         std::uint8_t data[8]{};
         write_u64_be_local(data, original);
         auto restored = read_u64_be_local(data);
-        EXPECT_TRUE(restored == original) << "write+read_u64_be: round trip";
+        EXPECT_EQ(restored, original) << "write+read_u64_be: round trip";
     }
 
     // ─── parse_body_after_timestamp 错误路径 ──────
@@ -177,7 +177,7 @@ namespace
         psm::memory::vector<std::uint8_t> short_body(5, 0x00, psm::memory::current_resource());
         psm::protocol::shadowsocks::udp_dec_pkt result;
         auto ec = psm::protocol::shadowsocks::parse_body_after_timestamp(short_body, result);
-        EXPECT_TRUE(ec == psm::fault::code::bad_message) << "parse_body: too short -> bad_message";
+        EXPECT_EQ(ec, psm::fault::code::bad_message) << "parse_body: too short -> bad_message";
     }
 
     TEST(ShadowsocksDatagramPure, ParseBodyWrongType)
@@ -186,7 +186,7 @@ namespace
         body[0] = 0x01; // response_type instead of request_type (0x00)
         psm::protocol::shadowsocks::udp_dec_pkt result;
         auto ec = psm::protocol::shadowsocks::parse_body_after_timestamp(body, result);
-        EXPECT_TRUE(ec == psm::fault::code::bad_message) << "parse_body: wrong type -> bad_message";
+        EXPECT_EQ(ec, psm::fault::code::bad_message) << "parse_body: wrong type -> bad_message";
     }
 
 } // namespace

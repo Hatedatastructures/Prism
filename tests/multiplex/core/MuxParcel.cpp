@@ -233,7 +233,7 @@ namespace
         }
 
         // 所有字节已消费
-        EXPECT_TRUE(offset == combined.size()) << "multi-dgram: all bytes consumed";
+        EXPECT_EQ(offset, combined.size()) << "multi-dgram: all bytes consumed";
     }
 
     // ---------- 单帧多数据报：Length-prefixed 模式 ----------
@@ -286,7 +286,7 @@ namespace
             offset += r3->consumed;
         }
 
-        EXPECT_TRUE(offset == combined.size()) << "multi-LP: all bytes consumed";
+        EXPECT_EQ(offset, combined.size()) << "multi-LP: all bytes consumed";
     }
 
     // ---------- 部分完成 + 新数据到达（process_buffer 核心模式）----------
@@ -361,14 +361,14 @@ namespace
         small_payload.resize(10, std::byte{0xAB});
         auto enc_small = build_dgram({"127.0.0.1", 80, small_payload}, psm::memory::current_resource());
 
-        EXPECT_TRUE(enc_small.size() <= udp_max_dg) << "overflow: small datagram within limit";
+        EXPECT_LT(enc_small.size(), = udp_max_dg) << "overflow: small datagram within limit";
 
         // 构建超限数据报
         psm::memory::vector<std::byte> large_payload;
         large_payload.resize(128, std::byte{0xCD});
         auto enc_large = build_dgram({"127.0.0.1", 80, large_payload}, psm::memory::current_resource());
 
-        EXPECT_TRUE(enc_large.size() > udp_max_dg) << "overflow: large datagram exceeds limit";
+        EXPECT_GT(enc_large.size(), udp_max_dg) << "overflow: large datagram exceeds limit";
 
         // 模拟 parcel::mux_buffer_ 累积
         psm::memory::vector<std::byte> mux_buffer;
@@ -397,12 +397,12 @@ namespace
         lp_large.resize(100, std::byte{0xEE});
         auto enc_lp = build_prefixed(lp_large, psm::memory::current_resource());
 
-        EXPECT_TRUE(enc_lp.size() > udp_max_dg) << "overflow: LP datagram exceeds limit";
+        EXPECT_GT(enc_lp.size(), udp_max_dg) << "overflow: LP datagram exceeds limit";
 
         psm::memory::vector<std::byte> lp_buf;
         lp_buf.insert(lp_buf.end(), enc_lp.begin(), enc_lp.end());
 
-        EXPECT_TRUE(lp_buf.size() > udp_max_dg) << "overflow: LP buffer exceeds max";
+        EXPECT_GT(lp_buf.size(), udp_max_dg) << "overflow: LP buffer exceeds max";
     }
 
     // ---------- 空数据 / 边界情况 ----------
@@ -423,7 +423,7 @@ namespace
         // 零长度 payload（PacketAddr IPv4: 9 + 0 = 9 字节）
         const auto zero_span = std::span<const std::byte>{};
         auto enc_zero = build_dgram({"127.0.0.1", 1234, zero_span}, psm::memory::current_resource());
-        EXPECT_TRUE(enc_zero.size() == 9) << "zero-payload: IPv4 header is 9 bytes";
+        EXPECT_EQ(enc_zero.size(), 9) << "zero-payload: IPv4 header is 9 bytes";
 
         auto r3 = parse_dgram(enc_zero, psm::memory::current_resource());
         EXPECT_TRUE(r3.has_value()) << "zero-payload: parse succeeds";
@@ -435,7 +435,7 @@ namespace
 
         // 零长度 payload（Length-prefixed: 2 字节 header only）
         auto enc_lp_zero = build_prefixed(zero_span, psm::memory::current_resource());
-        EXPECT_TRUE(enc_lp_zero.size() == 2) << "zero-payload: LP header is 2 bytes";
+        EXPECT_EQ(enc_lp_zero.size(), 2) << "zero-payload: LP header is 2 bytes";
 
         auto r4 = parse_prefixed(enc_lp_zero);
         EXPECT_TRUE(r4.has_value()) << "zero-payload: LP parse succeeds";

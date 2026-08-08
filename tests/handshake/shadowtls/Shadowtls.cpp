@@ -39,10 +39,10 @@ namespace
         const auto hmac1 = compute_hmac(password, data.data(), data.size());
         const auto hmac2 = compute_hmac(password, data.data(), data.size());
 
-        EXPECT_TRUE(hmac1 == hmac2) << "HMAC deterministic output";
+        EXPECT_EQ(hmac1, hmac2) << "HMAC deterministic output";
 
         const auto hmac3 = compute_hmac("different_password", data.data(), data.size());
-        EXPECT_TRUE(hmac1 != hmac3) << "HMAC differs with different password";
+        EXPECT_NE(hmac1, hmac3) << "HMAC differs with different password";
     }
 
     TEST(Shadowtls, WriteKeyGeneration)
@@ -56,14 +56,14 @@ namespace
 
         const auto write_key = compute_write_key(password, server_random);
 
-        EXPECT_TRUE(write_key.size() == 32) << "WriteKey is 32 bytes (SHA256 output)";
+        EXPECT_EQ(write_key.size(), 32) << "WriteKey is 32 bytes (SHA256 output)";
         EXPECT_TRUE(!write_key.empty()) << "WriteKey is non-empty";
 
         const auto write_key2 = compute_write_key(password, server_random);
-        EXPECT_TRUE(write_key == write_key2) << "WriteKey deterministic";
+        EXPECT_EQ(write_key, write_key2) << "WriteKey deterministic";
 
         const auto write_key3 = compute_write_key("other_password", server_random);
-        EXPECT_TRUE(write_key != write_key3) << "WriteKey differs with different password";
+        EXPECT_NE(write_key, write_key3) << "WriteKey differs with different password";
     }
 
     TEST(Shadowtls, FrameHMACVerification)

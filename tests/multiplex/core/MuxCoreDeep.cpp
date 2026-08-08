@@ -230,7 +230,7 @@ namespace
     TEST(MuxCoreDeep, ResolveMrWithNullOpt)
     {
         auto *result = resolve_mr(nullptr);
-        EXPECT_TRUE(result == psm::memory::current_resource())
+        EXPECT_EQ(result, psm::memory::current_resource())
             << "resolve_mr: nullptr -> current_resource";
     }
 
@@ -238,6 +238,6 @@ namespace
     {
         psm::memory::unsynchronized_pool pool;
         auto *result = resolve_mr(&pool);
-        EXPECT_TRUE(result == &pool) << "resolve_mr: valid -> same ptr";
+        EXPECT_EQ(result, &pool) << "resolve_mr: valid -> same ptr";
     }
 } // namespace

@@ -123,8 +123,8 @@ TEST(Shadowsocks, FormatParseAddressPortIPv4)
     auto [ec, result] = psm::protocol::shadowsocks::format::parse_addr_port(buf);
     ASSERT_TRUE(psm::fault::succeeded(ec)) << "parse failed: " << psm::fault::describe(ec);
 
-    EXPECT_TRUE(result.port == 8080) << "port should be 8080, got " << result.port;
-    EXPECT_TRUE(result.offset == 7) << "offset should be 7, got " << result.offset;
+    EXPECT_EQ(result.port, 8080) << "port should be 8080, got " << result.port;
+    EXPECT_EQ(result.offset, 7) << "offset should be 7, got " << result.offset;
 
     auto *ipv4 = std::get_if<psm::protocol::shadowsocks::ipv4_address>(&result.addr);
     ASSERT_TRUE(ipv4 != nullptr) << "address type should be IPv4";
@@ -146,8 +146,8 @@ TEST(Shadowsocks, FormatParseAddressPortIPv6)
     auto [ec, result] = psm::protocol::shadowsocks::format::parse_addr_port(buf);
     ASSERT_TRUE(psm::fault::succeeded(ec)) << "parse failed: " << psm::fault::describe(ec);
 
-    EXPECT_TRUE(result.port == 80) << "port should be 80, got " << result.port;
-    EXPECT_TRUE(result.offset == 19) << "offset should be 19, got " << result.offset;
+    EXPECT_EQ(result.port, 80) << "port should be 80, got " << result.port;
+    EXPECT_EQ(result.offset, 19) << "offset should be 19, got " << result.offset;
 }
 
 /**
@@ -167,7 +167,7 @@ TEST(Shadowsocks, FormatParseAddressPortDomain)
     auto [ec, result] = psm::protocol::shadowsocks::format::parse_addr_port(buf);
     ASSERT_TRUE(psm::fault::succeeded(ec)) << "parse failed: " << psm::fault::describe(ec);
 
-    EXPECT_TRUE(result.port == 80) << "port should be 80, got " << result.port;
+    EXPECT_EQ(result.port, 80) << "port should be 80, got " << result.port;
 
     auto *dom = std::get_if<psm::protocol::shadowsocks::domain_address>(&result.addr);
     ASSERT_TRUE(dom != nullptr) << "address type should be domain";
@@ -183,7 +183,7 @@ TEST(Shadowsocks, FormatParseAddressPortEmpty)
     auto [ec, result] = psm::protocol::shadowsocks::format::parse_addr_port(empty);
 
     EXPECT_TRUE(psm::fault::failed(ec)) << "empty buffer should fail";
-    EXPECT_TRUE(ec == psm::fault::code::bad_message) << "expected bad_message error code";
+    EXPECT_EQ(ec, psm::fault::code::bad_message) << "expected bad_message error code";
 }
 
 // ============================================================================
@@ -203,7 +203,7 @@ TEST(Shadowsocks, FormatDecodePskValid)
 
     for (auto b : psk)
     {
-        EXPECT_TRUE(b == 0) << "PSK bytes should all be zero";
+        EXPECT_EQ(b, 0) << "PSK bytes should all be zero";
     }
 }
 
@@ -224,7 +224,7 @@ TEST(Shadowsocks, FormatDecodePskWrongLength)
     // "Zm9vYmFy" decodes to "foobar" = 6 bytes (neither 16 nor 32)
     auto [ec, psk] = psm::protocol::shadowsocks::format::decode_psk("Zm9vYmFy");
     EXPECT_TRUE(psm::fault::failed(ec)) << "wrong length PSK should fail";
-    EXPECT_TRUE(ec == psm::fault::code::invalid_psk) << "expected invalid_psk error code";
+    EXPECT_EQ(ec, psm::fault::code::invalid_psk) << "expected invalid_psk error code";
 }
 
 /**
@@ -234,6 +234,6 @@ TEST(Shadowsocks, FormatKeySaltLength)
 {
     using cm = psm::protocol::shadowsocks::cipher_method;
 
-    EXPECT_TRUE(psm::protocol::shadowsocks::format::keysalt_len(cm::aes_128_gcm) == 16) << "AES-128-GCM keysalt_len should be 16";
-    EXPECT_TRUE(psm::protocol::shadowsocks::format::keysalt_len(cm::aes_256_gcm) == 32) << "AES-256-GCM keysalt_len should be 32";
+    EXPECT_EQ(psm::protocol::shadowsocks::format::keysalt_len(cm::aes_128_gcm), 16) << "AES-128-GCM keysalt_len should be 16";
+    EXPECT_EQ(psm::protocol::shadowsocks::format::keysalt_len(cm::aes_256_gcm), 32) << "AES-256-GCM keysalt_len should be 32";
 }

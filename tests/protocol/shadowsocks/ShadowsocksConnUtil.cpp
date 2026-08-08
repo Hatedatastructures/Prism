@@ -49,9 +49,9 @@ namespace psm::protocol::shadowsocks
     {
         std::vector<std::byte> v = {std::byte{0x01}, std::byte{0x02}, std::byte{0x03}};
         auto span = as_u8_mut(v);
-        EXPECT_TRUE(span.size() == 3) << "as_u8_mut(vector): size=3";
-        EXPECT_TRUE(span[0] == 0x01) << "as_u8_mut(vector): first byte";
-        EXPECT_TRUE(span[2] == 0x03) << "as_u8_mut(vector): last byte";
+        EXPECT_EQ(span.size(), 3) << "as_u8_mut(vector): size=3";
+        EXPECT_EQ(span[0], 0x01) << "as_u8_mut(vector): first byte";
+        EXPECT_EQ(span[2], 0x03) << "as_u8_mut(vector): last byte";
     }
 
     TEST(ShadowsocksConnUtil, AsU8MutVectorEmpty)
@@ -67,8 +67,8 @@ namespace psm::protocol::shadowsocks
         auto span = as_u8_mut(v);
         span[0] = 0xAA;
         span[3] = 0xFF;
-        EXPECT_TRUE(v[0] == std::byte{0xAA}) << "as_u8_mut(vector): write modifies original";
-        EXPECT_TRUE(v[3] == std::byte{0xFF}) << "as_u8_mut(vector): write last byte";
+        EXPECT_EQ(v[0], std::byte{0xAA}) << "as_u8_mut(vector): write modifies original";
+        EXPECT_EQ(v[3], std::byte{0xFF}) << "as_u8_mut(vector): write last byte";
     }
 
     TEST(ShadowsocksConnUtil, AsU8MutPmrBasic)
@@ -77,8 +77,8 @@ namespace psm::protocol::shadowsocks
         v.push_back(std::byte{0x10});
         v.push_back(std::byte{0x20});
         auto span = as_u8_mut(v);
-        EXPECT_TRUE(span.size() == 2) << "as_u8_mut(pmr): size=2";
-        EXPECT_TRUE(span[0] == 0x10) << "as_u8_mut(pmr): first byte";
+        EXPECT_EQ(span.size(), 2) << "as_u8_mut(pmr): size=2";
+        EXPECT_EQ(span[0], 0x10) << "as_u8_mut(pmr): first byte";
     }
 
     TEST(ShadowsocksConnUtil, AsU8MutPmrEmpty)
@@ -94,17 +94,17 @@ namespace psm::protocol::shadowsocks
         auto span = as_u8_mut(v);
         span[0] = 0x42;
         span[7] = 0xFF;
-        EXPECT_TRUE(v[0] == std::byte{0x42}) << "as_u8_mut(pmr): write index 0";
-        EXPECT_TRUE(v[7] == std::byte{0xFF}) << "as_u8_mut(pmr): write index 7";
+        EXPECT_EQ(v[0], std::byte{0x42}) << "as_u8_mut(pmr): write index 0";
+        EXPECT_EQ(v[7], std::byte{0xFF}) << "as_u8_mut(pmr): write index 7";
     }
 
     TEST(ShadowsocksConnUtil, ToBytesUint8Vector)
     {
         std::vector<std::uint8_t> v = {0x01, 0x02, 0x03};
         auto bytes = to_bytes(v);
-        EXPECT_TRUE(bytes.size() == 3) << "to_bytes: size=3";
-        EXPECT_TRUE(bytes[0] == std::byte{0x01}) << "to_bytes: first byte";
-        EXPECT_TRUE(bytes[2] == std::byte{0x03}) << "to_bytes: last byte";
+        EXPECT_EQ(bytes.size(), 3) << "to_bytes: size=3";
+        EXPECT_EQ(bytes[0], std::byte{0x01}) << "to_bytes: first byte";
+        EXPECT_EQ(bytes[2], std::byte{0x03}) << "to_bytes: last byte";
     }
 
     TEST(ShadowsocksConnUtil, ToBytesEmpty)
@@ -118,7 +118,7 @@ namespace psm::protocol::shadowsocks
     {
         std::vector<std::uint32_t> v = {0x01020304, 0x05060708};
         auto bytes = to_bytes(v);
-        EXPECT_TRUE(bytes.size() == 8) << "to_bytes: uint32 vector -> 8 bytes";
+        EXPECT_EQ(bytes.size(), 8) << "to_bytes: uint32 vector -> 8 bytes";
     }
 
 } // namespace psm::protocol::shadowsocks
@@ -153,7 +153,7 @@ namespace
             salt[i] = static_cast<std::uint8_t>(i);
 
         auto ctx = c.derive_aead_context(salt);
-        EXPECT_TRUE(ctx != nullptr) << "derive: aes-128 context not null";
+        EXPECT_NE(ctx, nullptr) << "derive: aes-128 context not null";
     }
 
     TEST(ShadowsocksConnUtil, DeriveAeadContextAes256)
@@ -171,7 +171,7 @@ namespace
             salt[i] = static_cast<std::uint8_t>(i + 0x80);
 
         auto ctx = c.derive_aead_context(salt);
-        EXPECT_TRUE(ctx != nullptr) << "derive: aes-256 context not null";
+        EXPECT_NE(ctx, nullptr) << "derive: aes-256 context not null";
     }
 
     TEST(ShadowsocksConnUtil, DeriveAeadContextChaCha20)
@@ -189,7 +189,7 @@ namespace
             salt[i] = static_cast<std::uint8_t>(i);
 
         auto ctx = c.derive_aead_context(salt);
-        EXPECT_TRUE(ctx != nullptr) << "derive: chacha20 context not null";
+        EXPECT_NE(ctx, nullptr) << "derive: chacha20 context not null";
     }
 
     TEST(ShadowsocksConnUtil, DeriveAeadContextDifferentSalts)
@@ -208,8 +208,8 @@ namespace
 
         auto ctx1 = c.derive_aead_context(salt1);
         auto ctx2 = c.derive_aead_context(salt2);
-        EXPECT_TRUE(ctx1 != nullptr) << "derive: salt1 context";
-        EXPECT_TRUE(ctx2 != nullptr) << "derive: salt2 context";
+        EXPECT_NE(ctx1, nullptr) << "derive: salt1 context";
+        EXPECT_NE(ctx2, nullptr) << "derive: salt2 context";
     }
 
     TEST(ShadowsocksConnUtil, DeriveAeadContextEmptySalt)
@@ -222,7 +222,7 @@ namespace
         ss::conn c(std::move(mock), cfg, std::move(salts));
 
         auto ctx = c.derive_aead_context(std::span<const std::uint8_t>{});
-        EXPECT_TRUE(ctx != nullptr) << "derive: empty salt context";
+        EXPECT_NE(ctx, nullptr) << "derive: empty salt context";
     }
 
     TEST(ShadowsocksConnUtil, DeriveAeadContextEncryptDecrypt)
@@ -239,7 +239,7 @@ namespace
             salt[i] = static_cast<std::uint8_t>(i);
 
         auto seal_ctx = c.derive_aead_context(salt);
-        EXPECT_TRUE(seal_ctx != nullptr) << "derive: roundtrip seal context";
+        EXPECT_NE(seal_ctx, nullptr) << "derive: roundtrip seal context";
 
         std::array<std::uint8_t, 4> plaintext = {0xDE, 0xAD, 0xBE, 0xEF};
         std::vector<std::uint8_t> ciphertext(plaintext.size() + psm::crypto::aead_context::tag_length(), 0);
@@ -251,12 +251,12 @@ namespace
             plaintext,
             seal_nonce,
             {}});
-        EXPECT_TRUE(seal_rc == psm::fault::code::success) << "derive: seal success";
-        EXPECT_TRUE(ciphertext.size() == 4 + 16) << "derive: ciphertext = data + tag";
+        EXPECT_EQ(seal_rc, psm::fault::code::success) << "derive: seal success";
+        EXPECT_EQ(ciphertext.size(), 4 + 16) << "derive: ciphertext = data + tag";
 
         // 派生独立解密上下文（nonce 从 0 开始，与加密上下文一致）
         auto open_ctx = c.derive_aead_context(salt);
-        EXPECT_TRUE(open_ctx != nullptr) << "derive: roundtrip open context";
+        EXPECT_NE(open_ctx, nullptr) << "derive: roundtrip open context";
 
         // 使用显式 nonce 重载进行解密（nonce=0），绕过自动 nonce 递增问题
         std::array<std::uint8_t, 12> zero_nonce{};
@@ -266,10 +266,10 @@ namespace
             ciphertext,
             zero_nonce,
             {}});
-        EXPECT_TRUE(open_rc == psm::fault::code::success) << "derive: open success";
-        EXPECT_TRUE(decrypted.size() == 4) << "derive: decrypted size=4";
-        EXPECT_TRUE(decrypted[0] == 0xDE) << "derive: decrypted byte 0";
-        EXPECT_TRUE(decrypted[3] == 0xEF) << "derive: decrypted byte 3";
+        EXPECT_EQ(open_rc, psm::fault::code::success) << "derive: open success";
+        EXPECT_EQ(decrypted.size(), 4) << "derive: decrypted size=4";
+        EXPECT_EQ(decrypted[0], 0xDE) << "derive: decrypted byte 0";
+        EXPECT_EQ(decrypted[3], 0xEF) << "derive: decrypted byte 3";
     }
 
 } // namespace

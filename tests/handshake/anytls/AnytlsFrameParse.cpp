@@ -68,8 +68,8 @@ namespace
             hdr.stream_id = 0;
             hdr.length = 0;
             auto ser = hdr.serialize();
-            EXPECT_TRUE(ser.size() == frame_header_size) << "serialize: 7 bytes";
-            EXPECT_TRUE(ser[0] == static_cast<std::uint8_t>(cmd))
+            EXPECT_EQ(ser.size(), frame_header_size) << "serialize: 7 bytes";
+            EXPECT_EQ(ser[0], static_cast<std::uint8_t>(cmd))
                 << "serialize: cmd byte correct";
         }
     }
@@ -129,13 +129,13 @@ namespace
         hdr.stream_id = 0x01020304;
         hdr.length = 0x0506;
         auto ser = hdr.serialize();
-        EXPECT_TRUE(ser[0] == 0x02) << "layout: cmd byte";
-        EXPECT_TRUE(ser[1] == 0x01) << "layout: stream_id[0]";
-        EXPECT_TRUE(ser[2] == 0x02) << "layout: stream_id[1]";
-        EXPECT_TRUE(ser[3] == 0x03) << "layout: stream_id[2]";
-        EXPECT_TRUE(ser[4] == 0x04) << "layout: stream_id[3]";
-        EXPECT_TRUE(ser[5] == 0x05) << "layout: length[0]";
-        EXPECT_TRUE(ser[6] == 0x06) << "layout: length[1]";
+        EXPECT_EQ(ser[0], 0x02) << "layout: cmd byte";
+        EXPECT_EQ(ser[1], 0x01) << "layout: stream_id[0]";
+        EXPECT_EQ(ser[2], 0x02) << "layout: stream_id[1]";
+        EXPECT_EQ(ser[3], 0x03) << "layout: stream_id[2]";
+        EXPECT_EQ(ser[4], 0x04) << "layout: stream_id[3]";
+        EXPECT_EQ(ser[5], 0x05) << "layout: length[0]";
+        EXPECT_EQ(ser[6], 0x06) << "layout: length[1]";
     }
 
 } // namespace

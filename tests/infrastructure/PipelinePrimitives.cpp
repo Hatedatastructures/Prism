@@ -36,43 +36,43 @@ namespace
         using psm::connect::mux_switch;
 
         // mux 启用 + 匹配的 mux 标记地址 -> true
-        EXPECT_TRUE(is_mux("example.mux.sing-box.arpa", mux_switch::on) == true)
+        EXPECT_EQ(is_mux("example.mux.sing-box.arpa", mux_switch::on), true)
             << "mux enabled + matching host -> true";
 
         // mux 启用 + 嵌套子域名 -> true
-        EXPECT_TRUE(is_mux("foo.bar.mux.sing-box.arpa", mux_switch::on) == true)
+        EXPECT_EQ(is_mux("foo.bar.mux.sing-box.arpa", mux_switch::on), true)
             << "mux enabled + nested subdomain -> true";
 
         // mux 启用 + 恰好等于后缀 -> true
-        EXPECT_TRUE(is_mux(".mux.sing-box.arpa", mux_switch::on) == true)
+        EXPECT_EQ(is_mux(".mux.sing-box.arpa", mux_switch::on), true)
             << "mux enabled + exactly suffix -> true";
 
         // mux 启用 + 非匹配主机名 -> false
-        EXPECT_TRUE(is_mux("example.com", mux_switch::on) == false)
+        EXPECT_EQ(is_mux("example.com", mux_switch::on), false)
             << "mux enabled + non-matching host -> false";
 
         // mux 启用 + 类似但不匹配的后缀 -> false
-        EXPECT_TRUE(is_mux("mux.sing-box.arpa", mux_switch::on) == false)
+        EXPECT_EQ(is_mux("mux.sing-box.arpa", mux_switch::on), false)
             << "mux enabled + missing leading dot -> false";
 
         // mux 启用 + 拼写错误的后缀 -> false
-        EXPECT_TRUE(is_mux("example.mux.singbox.arpa", mux_switch::on) == false)
+        EXPECT_EQ(is_mux("example.mux.singbox.arpa", mux_switch::on), false)
             << "mux enabled + misspelled suffix -> false";
 
         // mux 启用 + 空主机名 -> false
-        EXPECT_TRUE(is_mux("", mux_switch::on) == false)
+        EXPECT_EQ(is_mux("", mux_switch::on), false)
             << "mux enabled + empty host -> false";
 
         // mux 启用 + 后缀的前缀（比后缀短） -> false
-        EXPECT_TRUE(is_mux("sing-box.arpa", mux_switch::on) == false)
+        EXPECT_EQ(is_mux("sing-box.arpa", mux_switch::on), false)
             << "mux enabled + partial suffix -> false";
 
         // mux 禁用 + 匹配的 mux 标记地址 -> false
-        EXPECT_TRUE(is_mux("example.mux.sing-box.arpa", mux_switch::off) == false)
+        EXPECT_EQ(is_mux("example.mux.sing-box.arpa", mux_switch::off), false)
             << "mux disabled + matching host -> false";
 
         // mux 禁用 + 任意主机名 -> false
-        EXPECT_TRUE(is_mux("anything", mux_switch::off) == false)
+        EXPECT_EQ(is_mux("anything", mux_switch::off), false)
             << "mux disabled + any host -> false";
     }
 
@@ -185,13 +185,13 @@ namespace
         // 测试默认构造状态
         {
             probe_result result;
-            EXPECT_TRUE(result.success() == false)
+            EXPECT_EQ(result.success(), false)
                 << "default constructed probe_result::success() == false";
-            EXPECT_TRUE(result.pre_read_size == 0)
+            EXPECT_EQ(result.pre_read_size, 0)
                 << "default constructed pre_read_size == 0";
-            EXPECT_TRUE(result.preload_view().empty() == true)
+            EXPECT_EQ(result.preload_view().empty(), true)
                 << "default constructed preload_view() is empty";
-            EXPECT_TRUE(result.preload_bytes().empty() == true)
+            EXPECT_EQ(result.preload_bytes().empty(), true)
                 << "default constructed preload_bytes() is empty";
         }
 
@@ -200,7 +200,7 @@ namespace
             probe_result result;
             result.type = protocol_type::http;
             result.ec = code::success;
-            EXPECT_TRUE(result.success() == true)
+            EXPECT_EQ(result.success(), true)
                 << "probe_result::success() == true when type != unknown and ec == success";
         }
 
@@ -209,7 +209,7 @@ namespace
             probe_result result;
             result.type = protocol_type::unknown;
             result.ec = code::success;
-            EXPECT_TRUE(result.success() == false)
+            EXPECT_EQ(result.success(), false)
                 << "success() == false when type == unknown even if ec == success";
         }
 
@@ -218,7 +218,7 @@ namespace
             probe_result result;
             result.type = protocol_type::tls;
             result.ec = code::eof;
-            EXPECT_TRUE(result.success() == false)
+            EXPECT_EQ(result.success(), false)
                 << "success() == false when ec != success even if type != unknown";
         }
 
@@ -235,9 +235,9 @@ namespace
             result.ec = code::success;
 
             const auto view = result.preload_view();
-            EXPECT_TRUE(view.size() == len)
+            EXPECT_EQ(view.size(), len)
                 << "preload_view() returns correct size";
-            EXPECT_TRUE(view == std::string_view("GET /"))
+            EXPECT_EQ(view, std::string_view("GET /"))
                 << "preload_view() returns correct content";
         }
 
@@ -259,7 +259,7 @@ namespace
             result.ec = code::success;
 
             const auto span = result.preload_bytes();
-            EXPECT_TRUE(span.size() == expected.size())
+            EXPECT_EQ(span.size(), expected.size())
                 << "preload_bytes() returns correct size";
 
             bool match = true;

@@ -26,8 +26,8 @@ namespace
         traffic::traffic_state st;
         st.on_connect();
         auto s = st.snapshot();
-        EXPECT_TRUE(s.total_connections == 1) << "on_connect: total_connections=1";
-        EXPECT_TRUE(s.total_active == 1) << "on_connect: total_active=1";
+        EXPECT_EQ(s.total_connections, 1) << "on_connect: total_connections=1";
+        EXPECT_EQ(s.total_active, 1) << "on_connect: total_active=1";
     }
 
     TEST(TrafficDeep, OnConnectMultiple)
@@ -37,8 +37,8 @@ namespace
         st.on_connect();
         st.on_connect();
         auto s = st.snapshot();
-        EXPECT_TRUE(s.total_connections == 3) << "on_connect: 3x -> total_connections=3";
-        EXPECT_TRUE(s.total_active == 3) << "on_connect: 3x -> total_active=3";
+        EXPECT_EQ(s.total_connections, 3) << "on_connect: 3x -> total_connections=3";
+        EXPECT_EQ(s.total_active, 3) << "on_connect: 3x -> total_active=3";
     }
 
     TEST(TrafficDeep, OnDisconnectDecrements)
@@ -48,7 +48,7 @@ namespace
         st.on_connect();
         st.on_disconnect(protocol_type::http);
         auto s = st.snapshot();
-        EXPECT_TRUE(s.total_active == 1) << "on_disconnect: total_active=1";
+        EXPECT_EQ(s.total_active, 1) << "on_disconnect: total_active=1";
     }
 
     // ─── on_protocol_detected ──────────────────
@@ -59,8 +59,8 @@ namespace
         st.on_protocol_detected(protocol_type::http);
         auto s = st.snapshot();
         auto i = static_cast<std::uint8_t>(protocol_type::http);
-        EXPECT_TRUE(s.protocols[i].connections == 1) << "on_protocol_detected: http connections=1";
-        EXPECT_TRUE(s.protocols[i].active == 1) << "on_protocol_detected: http active=1";
+        EXPECT_EQ(s.protocols[i].connections, 1) << "on_protocol_detected: http connections=1";
+        EXPECT_EQ(s.protocols[i].active, 1) << "on_protocol_detected: http active=1";
     }
 
     TEST(TrafficDeep, OnProtocolDetectedMultiple)
@@ -72,8 +72,8 @@ namespace
         auto s = st.snapshot();
         auto socks_idx = static_cast<std::uint8_t>(protocol_type::socks5);
         auto trojan_idx = static_cast<std::uint8_t>(protocol_type::trojan);
-        EXPECT_TRUE(s.protocols[socks_idx].connections == 2) << "on_protocol_detected: socks5 x2";
-        EXPECT_TRUE(s.protocols[trojan_idx].connections == 1) << "on_protocol_detected: trojan x1";
+        EXPECT_EQ(s.protocols[socks_idx].connections, 2) << "on_protocol_detected: socks5 x2";
+        EXPECT_EQ(s.protocols[trojan_idx].connections, 1) << "on_protocol_detected: trojan x1";
     }
 
     TEST(TrafficDeep, OnProtocolDetectedAllTypes)
@@ -86,7 +86,7 @@ namespace
         auto s = st.snapshot();
         for (std::uint8_t i = 0; i <= static_cast<std::uint8_t>(protocol_type::tls); ++i)
         {
-            EXPECT_TRUE(s.protocols[i].connections == 1) << "on_protocol_detected: all types have 1 connection";
+            EXPECT_EQ(s.protocols[i].connections, 1) << "on_protocol_detected: all types have 1 connection";
         }
     }
 
@@ -97,8 +97,8 @@ namespace
         st.on_disconnect(protocol_type::vless);
         auto s = st.snapshot();
         auto i = static_cast<std::uint8_t>(protocol_type::vless);
-        EXPECT_TRUE(s.protocols[i].connections == 1) << "on_disconnect: connections still 1";
-        EXPECT_TRUE(s.protocols[i].active == 0) << "on_disconnect: active decremented to 0";
+        EXPECT_EQ(s.protocols[i].connections, 1) << "on_disconnect: connections still 1";
+        EXPECT_EQ(s.protocols[i].active, 0) << "on_disconnect: active decremented to 0";
     }
 
     // ─── flush_traffic ─────────────────────────
@@ -108,10 +108,10 @@ namespace
         traffic::traffic_state st;
         st.flush_traffic(protocol_type::http, 1000, 0);
         auto s = st.snapshot();
-        EXPECT_TRUE(s.total_uplink == 1000) << "flush_traffic: uplink=1000";
-        EXPECT_TRUE(s.total_downlink == 0) << "flush_traffic: downlink=0 (not flushed)";
+        EXPECT_EQ(s.total_uplink, 1000) << "flush_traffic: uplink=1000";
+        EXPECT_EQ(s.total_downlink, 0) << "flush_traffic: downlink=0 (not flushed)";
         auto i = static_cast<std::uint8_t>(protocol_type::http);
-        EXPECT_TRUE(s.protocols[i].uplink_bytes == 1000) << "flush_traffic: http uplink=1000";
+        EXPECT_EQ(s.protocols[i].uplink_bytes, 1000) << "flush_traffic: http uplink=1000";
     }
 
     TEST(TrafficDeep, FlushTrafficDownlink)
@@ -119,10 +119,10 @@ namespace
         traffic::traffic_state st;
         st.flush_traffic(protocol_type::socks5, 0, 500);
         auto s = st.snapshot();
-        EXPECT_TRUE(s.total_uplink == 0) << "flush_traffic: uplink=0 (not flushed)";
-        EXPECT_TRUE(s.total_downlink == 500) << "flush_traffic: downlink=500";
+        EXPECT_EQ(s.total_uplink, 0) << "flush_traffic: uplink=0 (not flushed)";
+        EXPECT_EQ(s.total_downlink, 500) << "flush_traffic: downlink=500";
         auto i = static_cast<std::uint8_t>(protocol_type::socks5);
-        EXPECT_TRUE(s.protocols[i].downlink_bytes == 500) << "flush_traffic: socks5 downlink=500";
+        EXPECT_EQ(s.protocols[i].downlink_bytes, 500) << "flush_traffic: socks5 downlink=500";
     }
 
     TEST(TrafficDeep, FlushTrafficBoth)
@@ -130,8 +130,8 @@ namespace
         traffic::traffic_state st;
         st.flush_traffic(protocol_type::trojan, 200, 300);
         auto s = st.snapshot();
-        EXPECT_TRUE(s.total_uplink == 200) << "flush_traffic: both uplink=200";
-        EXPECT_TRUE(s.total_downlink == 300) << "flush_traffic: both downlink=300";
+        EXPECT_EQ(s.total_uplink, 200) << "flush_traffic: both uplink=200";
+        EXPECT_EQ(s.total_downlink, 300) << "flush_traffic: both downlink=300";
     }
 
     TEST(TrafficDeep, FlushTrafficZeroSkipped)
@@ -139,8 +139,8 @@ namespace
         traffic::traffic_state st;
         st.flush_traffic(protocol_type::http, 0, 0);
         auto s = st.snapshot();
-        EXPECT_TRUE(s.total_uplink == 0) << "flush_traffic: zero up -> skipped";
-        EXPECT_TRUE(s.total_downlink == 0) << "flush_traffic: zero down -> skipped";
+        EXPECT_EQ(s.total_uplink, 0) << "flush_traffic: zero up -> skipped";
+        EXPECT_EQ(s.total_downlink, 0) << "flush_traffic: zero down -> skipped";
     }
 
     TEST(TrafficDeep, FlushTrafficAccumulates)
@@ -149,8 +149,8 @@ namespace
         st.flush_traffic(protocol_type::http, 100, 50);
         st.flush_traffic(protocol_type::http, 200, 150);
         auto s = st.snapshot();
-        EXPECT_TRUE(s.total_uplink == 300) << "flush_traffic: accumulates uplink";
-        EXPECT_TRUE(s.total_downlink == 200) << "flush_traffic: accumulates downlink";
+        EXPECT_EQ(s.total_uplink, 300) << "flush_traffic: accumulates uplink";
+        EXPECT_EQ(s.total_downlink, 200) << "flush_traffic: accumulates downlink";
     }
 
     // ─── on_auth_success / on_auth_failure ──────
@@ -160,7 +160,7 @@ namespace
         traffic::traffic_state st;
         st.on_auth_success();
         auto s = st.snapshot();
-        EXPECT_TRUE(s.auth_success == 1) << "auth_success: count=1";
+        EXPECT_EQ(s.auth_success, 1) << "auth_success: count=1";
     }
 
     TEST(TrafficDeep, AuthFailure)
@@ -168,7 +168,7 @@ namespace
         traffic::traffic_state st;
         st.on_auth_failure();
         auto s = st.snapshot();
-        EXPECT_TRUE(s.auth_failure == 1) << "auth_failure: count=1";
+        EXPECT_EQ(s.auth_failure, 1) << "auth_failure: count=1";
     }
 
     TEST(TrafficDeep, AuthMultiple)
@@ -178,8 +178,8 @@ namespace
         st.on_auth_success();
         st.on_auth_failure();
         auto s = st.snapshot();
-        EXPECT_TRUE(s.auth_success == 2) << "auth: success=2";
-        EXPECT_TRUE(s.auth_failure == 1) << "auth: failure=1";
+        EXPECT_EQ(s.auth_success, 2) << "auth: success=2";
+        EXPECT_EQ(s.auth_failure, 1) << "auth: failure=1";
     }
 
     // ─── snapshot ──────────────────────────────
@@ -188,16 +188,16 @@ namespace
     {
         traffic::traffic_state st;
         auto s = st.snapshot();
-        EXPECT_TRUE(s.total_connections == 0) << "snapshot: initial connections=0";
-        EXPECT_TRUE(s.total_active == 0) << "snapshot: initial active=0";
-        EXPECT_TRUE(s.total_uplink == 0) << "snapshot: initial uplink=0";
-        EXPECT_TRUE(s.total_downlink == 0) << "snapshot: initial downlink=0";
-        EXPECT_TRUE(s.auth_success == 0) << "snapshot: initial auth_success=0";
-        EXPECT_TRUE(s.auth_failure == 0) << "snapshot: initial auth_failure=0";
+        EXPECT_EQ(s.total_connections, 0) << "snapshot: initial connections=0";
+        EXPECT_EQ(s.total_active, 0) << "snapshot: initial active=0";
+        EXPECT_EQ(s.total_uplink, 0) << "snapshot: initial uplink=0";
+        EXPECT_EQ(s.total_downlink, 0) << "snapshot: initial downlink=0";
+        EXPECT_EQ(s.auth_success, 0) << "snapshot: initial auth_success=0";
+        EXPECT_EQ(s.auth_failure, 0) << "snapshot: initial auth_failure=0";
         for (std::size_t i = 0; i < psm::stats::slot_count; ++i)
         {
-            EXPECT_TRUE(s.protocols[i].connections == 0) << "snapshot: initial protocol connections=0";
-            EXPECT_TRUE(s.protocols[i].active == 0) << "snapshot: initial protocol active=0";
+            EXPECT_EQ(s.protocols[i].connections, 0) << "snapshot: initial protocol connections=0";
+            EXPECT_EQ(s.protocols[i].active, 0) << "snapshot: initial protocol active=0";
         }
     }
 
@@ -209,11 +209,11 @@ namespace
         st.flush_traffic(protocol_type::http, 500, 600);
         st.on_auth_success();
         auto s = st.snapshot();
-        EXPECT_TRUE(s.total_connections == 1) << "snapshot: after ops connections=1";
-        EXPECT_TRUE(s.total_active == 1) << "snapshot: after ops active=1";
-        EXPECT_TRUE(s.total_uplink == 500) << "snapshot: after ops uplink=500";
-        EXPECT_TRUE(s.total_downlink == 600) << "snapshot: after ops downlink=600";
-        EXPECT_TRUE(s.auth_success == 1) << "snapshot: after ops auth_success=1";
+        EXPECT_EQ(s.total_connections, 1) << "snapshot: after ops connections=1";
+        EXPECT_EQ(s.total_active, 1) << "snapshot: after ops active=1";
+        EXPECT_EQ(s.total_uplink, 500) << "snapshot: after ops uplink=500";
+        EXPECT_EQ(s.total_downlink, 600) << "snapshot: after ops downlink=600";
+        EXPECT_EQ(s.auth_success, 1) << "snapshot: after ops auth_success=1";
     }
 
     // ─── reset ─────────────────────────────────
@@ -228,16 +228,16 @@ namespace
         st.on_auth_failure();
         st.reset();
         auto s = st.snapshot();
-        EXPECT_TRUE(s.total_connections == 0) << "reset: connections=0";
-        EXPECT_TRUE(s.total_active == 0) << "reset: active=0";
-        EXPECT_TRUE(s.total_uplink == 0) << "reset: uplink=0";
-        EXPECT_TRUE(s.total_downlink == 0) << "reset: downlink=0";
-        EXPECT_TRUE(s.auth_success == 0) << "reset: auth_success=0";
-        EXPECT_TRUE(s.auth_failure == 0) << "reset: auth_failure=0";
+        EXPECT_EQ(s.total_connections, 0) << "reset: connections=0";
+        EXPECT_EQ(s.total_active, 0) << "reset: active=0";
+        EXPECT_EQ(s.total_uplink, 0) << "reset: uplink=0";
+        EXPECT_EQ(s.total_downlink, 0) << "reset: downlink=0";
+        EXPECT_EQ(s.auth_success, 0) << "reset: auth_success=0";
+        EXPECT_EQ(s.auth_failure, 0) << "reset: auth_failure=0";
         for (std::size_t i = 0; i < psm::stats::slot_count; ++i)
         {
-            EXPECT_TRUE(s.protocols[i].connections == 0) << "reset: protocol connections=0";
-            EXPECT_TRUE(s.protocols[i].active == 0) << "reset: protocol active=0";
+            EXPECT_EQ(s.protocols[i].connections, 0) << "reset: protocol connections=0";
+            EXPECT_EQ(s.protocols[i].active, 0) << "reset: protocol active=0";
         }
     }
 
@@ -248,7 +248,7 @@ namespace
         st.reset();
         st.reset();
         auto s = st.snapshot();
-        EXPECT_TRUE(s.total_connections == 0) << "reset: double reset connections=0";
+        EXPECT_EQ(s.total_connections, 0) << "reset: double reset connections=0";
     }
 
     TEST(TrafficDeep, OperationsAfterReset)
@@ -259,8 +259,8 @@ namespace
         st.on_connect();
         st.on_connect();
         auto s = st.snapshot();
-        EXPECT_TRUE(s.total_connections == 2) << "reset: ops after reset work";
-        EXPECT_TRUE(s.total_active == 2) << "reset: active after reset work";
+        EXPECT_EQ(s.total_connections, 2) << "reset: ops after reset work";
+        EXPECT_EQ(s.total_active, 2) << "reset: active after reset work";
     }
 
     // ─── register_instance / unregister_instance / aggregate ────
@@ -279,9 +279,9 @@ namespace
         st2.flush_traffic(protocol_type::socks5, 50, 75);
 
         auto agg = traffic::traffic_state::aggregate();
-        EXPECT_TRUE(agg.total_connections == 3) << "aggregate: connections=3";
-        EXPECT_TRUE(agg.total_uplink == 150) << "aggregate: uplink=150";
-        EXPECT_TRUE(agg.total_downlink == 275) << "aggregate: downlink=275";
+        EXPECT_EQ(agg.total_connections, 3) << "aggregate: connections=3";
+        EXPECT_EQ(agg.total_uplink, 150) << "aggregate: uplink=150";
+        EXPECT_EQ(agg.total_downlink, 275) << "aggregate: downlink=275";
 
         traffic::traffic_state::unregister_instance(&st1);
         traffic::traffic_state::unregister_instance(&st2);
@@ -294,7 +294,7 @@ namespace
         // 注意：因为 COW 注册表是全局的，其他测试可能已注册了实例
         // 这里主要验证 aggregate 不崩溃
         auto agg = traffic::traffic_state::aggregate();
-        EXPECT_TRUE(agg.total_connections >= 0u) << "aggregate: returns valid snapshot";
+        EXPECT_GT(agg.total_connections, = 0u) << "aggregate: returns valid snapshot";
     }
 
     TEST(TrafficDeep, UnregisterNotRegistered)
@@ -303,7 +303,7 @@ namespace
         // unregister 一个未注册的实例不应崩溃
         traffic::traffic_state::unregister_instance(&st);
         auto agg = traffic::traffic_state::aggregate();
-        EXPECT_TRUE(agg.total_connections >= 0u) << "unregister not registered: aggregate still valid";
+        EXPECT_GT(agg.total_connections, = 0u) << "unregister not registered: aggregate still valid";
     }
 
     TEST(TrafficDeep, UnregisterNull)
@@ -311,7 +311,7 @@ namespace
         // unregister nullptr — 函数不会找到它，不崩溃即可
         traffic::traffic_state::unregister_instance(nullptr);
         auto agg2 = traffic::traffic_state::aggregate();
-        EXPECT_TRUE(agg2.total_connections >= 0u) << "unregister nullptr: aggregate still valid";
+        EXPECT_GT(agg2.total_connections, = 0u) << "unregister nullptr: aggregate still valid";
     }
 
 } // namespace

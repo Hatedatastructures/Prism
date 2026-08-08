@@ -339,7 +339,7 @@ namespace
         memory::vector<std::uint8_t> short_body(5, memory::current_resource());
         udp_dec_pkt result;
         auto ec = parse_body_after_timestamp(short_body, result);
-        EXPECT_TRUE(ec == psm::fault::code::bad_message) << "parse_body: too short -> bad_message";
+        EXPECT_EQ(ec, psm::fault::code::bad_message) << "parse_body: too short -> bad_message";
     }
 
     TEST(ShadowsocksDatagramDeep, ParseBodyBadRequestType)
@@ -349,7 +349,7 @@ namespace
         body[0] = 0xFF;
         udp_dec_pkt result;
         auto ec = parse_body_after_timestamp(body, result);
-        EXPECT_TRUE(ec == psm::fault::code::bad_message) << "parse_body: bad request type -> bad_message";
+        EXPECT_EQ(ec, psm::fault::code::bad_message) << "parse_body: bad request type -> bad_message";
     }
 
     TEST(ShadowsocksDatagramDeep, ParseBodyTimestampExpired)
@@ -362,7 +362,7 @@ namespace
             body[1 + i] = static_cast<std::uint8_t>((old_ts >> (56 - 8 * i)) & 0xFF);
         udp_dec_pkt result;
         auto ec = parse_body_after_timestamp(body, result);
-        EXPECT_TRUE(ec == psm::fault::code::timestamp_expired) << "parse_body: expired ts -> timestamp_expired";
+        EXPECT_EQ(ec, psm::fault::code::timestamp_expired) << "parse_body: expired ts -> timestamp_expired";
     }
 
     TEST(ShadowsocksDatagramDeep, ParseBodyBadAddress)
@@ -380,7 +380,7 @@ namespace
         body[9] = 0x05; // 无效 ATYP
         udp_dec_pkt result;
         auto ec = parse_body_after_timestamp(body, result);
-        EXPECT_TRUE(ec != psm::fault::code::success) << "parse_body: bad address -> error";
+        EXPECT_NE(ec, psm::fault::code::success) << "parse_body: bad address -> error";
     }
 
     TEST(ShadowsocksDatagramDeep, ParseBodyIpv4Success)
@@ -403,9 +403,9 @@ namespace
 
         udp_dec_pkt result;
         auto ec = parse_body_after_timestamp(body, result);
-        EXPECT_TRUE(ec == psm::fault::code::success) << "parse_body: IPv4 success";
-        EXPECT_TRUE(result.destination_port == 8080) << "parse_body: IPv4 port=8080";
-        EXPECT_TRUE(result.payload.size() == 3) << "parse_body: IPv4 payload size=3";
+        EXPECT_EQ(ec, psm::fault::code::success) << "parse_body: IPv4 success";
+        EXPECT_EQ(result.destination_port, 8080) << "parse_body: IPv4 port=8080";
+        EXPECT_EQ(result.payload.size(), 3) << "parse_body: IPv4 payload size=3";
     }
 
     TEST(ShadowsocksDatagramDeep, ParseBodyDomainSuccess)
@@ -435,9 +435,9 @@ namespace
 
         udp_dec_pkt result;
         auto ec = parse_body_after_timestamp(body, result);
-        EXPECT_TRUE(ec == psm::fault::code::success) << "parse_body: domain success";
-        EXPECT_TRUE(result.destination_port == 443) << "parse_body: domain port=443";
-        EXPECT_TRUE(result.payload.size() == 2) << "parse_body: domain payload size=2";
+        EXPECT_EQ(ec, psm::fault::code::success) << "parse_body: domain success";
+        EXPECT_EQ(result.destination_port, 443) << "parse_body: domain port=443";
+        EXPECT_EQ(result.payload.size(), 2) << "parse_body: domain payload size=2";
     }
 
     TEST(ShadowsocksDatagramDeep, ParseBodyWithPadding)
@@ -462,9 +462,9 @@ namespace
 
         udp_dec_pkt result;
         auto ec = parse_body_after_timestamp(body, result);
-        EXPECT_TRUE(ec == psm::fault::code::success) << "parse_body: padding success";
-        EXPECT_TRUE(result.payload.size() == 2) << "parse_body: padding payload size=2";
-        EXPECT_TRUE(result.payload[0] == 0x11) << "parse_body: padding payload[0]";
+        EXPECT_EQ(ec, psm::fault::code::success) << "parse_body: padding success";
+        EXPECT_EQ(result.payload.size(), 2) << "parse_body: padding payload size=2";
+        EXPECT_EQ(result.payload[0], 0x11) << "parse_body: padding payload[0]";
     }
 
     TEST(ShadowsocksDatagramDeep, ParseBodyNoPayload)
@@ -486,7 +486,7 @@ namespace
 
         udp_dec_pkt result;
         auto ec = parse_body_after_timestamp(body, result);
-        EXPECT_TRUE(ec == psm::fault::code::success) << "parse_body: no payload success";
+        EXPECT_EQ(ec, psm::fault::code::success) << "parse_body: no payload success";
         EXPECT_TRUE(result.payload.empty()) << "parse_body: no payload -> empty span";
     }
 
@@ -508,7 +508,7 @@ namespace
 
         udp_dec_pkt result;
         auto ec = parse_body_after_timestamp(body, result);
-        EXPECT_TRUE(ec == psm::fault::code::success) << "parse_body: no padding field success";
+        EXPECT_EQ(ec, psm::fault::code::success) << "parse_body: no padding field success";
         EXPECT_TRUE(result.payload.empty()) << "parse_body: no padding field -> empty payload";
     }
 
@@ -521,7 +521,7 @@ namespace
         auto relay = make_udp_relay(cfg, tracker);
 
         auto [dec_ec, psk_bytes] = format::decode_psk(cfg.psk);
-        EXPECT_TRUE(dec_ec == psm::fault::code::success) << "aes ipv4: decode psk";
+        EXPECT_EQ(dec_ec, psm::fault::code::success) << "aes ipv4: decode psk";
 
         std::array<std::uint8_t, 8> session_id{};
         session_id[0] = 0xAA;
@@ -532,11 +532,11 @@ namespace
         net::ip::udp::endpoint sender(net::ip::make_address("127.0.0.1"), 9999);
 
         auto [ec, result] = relay->decrypt_inbound(packet, sender);
-        EXPECT_TRUE(ec == psm::fault::code::success) << "aes ipv4 decrypt: success";
-        EXPECT_TRUE(result.destination_port == 80) << "aes ipv4 decrypt: port=80";
-        EXPECT_TRUE(result.payload.size() == 1) << "aes ipv4 decrypt: payload size=1";
-        EXPECT_TRUE(result.payload[0] == 0xAB) << "aes ipv4 decrypt: payload[0]=0xAB";
-        EXPECT_TRUE(result.relay_id == session_id) << "aes ipv4 decrypt: session_id";
+        EXPECT_EQ(ec, psm::fault::code::success) << "aes ipv4 decrypt: success";
+        EXPECT_EQ(result.destination_port, 80) << "aes ipv4 decrypt: port=80";
+        EXPECT_EQ(result.payload.size(), 1) << "aes ipv4 decrypt: payload size=1";
+        EXPECT_EQ(result.payload[0], 0xAB) << "aes ipv4 decrypt: payload[0]=0xAB";
+        EXPECT_EQ(result.relay_id, session_id) << "aes ipv4 decrypt: session_id";
     }
 
     TEST(ShadowsocksDatagramDeep, AesDecryptDomainSuccess)
@@ -546,7 +546,7 @@ namespace
         auto relay = make_udp_relay(cfg, tracker);
 
         auto [dec_ec, psk_bytes] = format::decode_psk(cfg.psk);
-        EXPECT_TRUE(dec_ec == psm::fault::code::success) << "aes domain: decode psk";
+        EXPECT_EQ(dec_ec, psm::fault::code::success) << "aes domain: decode psk";
 
         std::array<std::uint8_t, 8> session_id{};
         session_id[1] = 0xBB;
@@ -557,9 +557,9 @@ namespace
         net::ip::udp::endpoint sender(net::ip::make_address("127.0.0.1"), 9999);
 
         auto [ec, result] = relay->decrypt_inbound(packet, sender);
-        EXPECT_TRUE(ec == psm::fault::code::success) << "aes domain decrypt: success";
-        EXPECT_TRUE(result.destination_port == 443) << "aes domain decrypt: port=443";
-        EXPECT_TRUE(result.payload.size() == 1) << "aes domain decrypt: payload size=1";
+        EXPECT_EQ(ec, psm::fault::code::success) << "aes domain decrypt: success";
+        EXPECT_EQ(result.destination_port, 443) << "aes domain decrypt: port=443";
+        EXPECT_EQ(result.payload.size(), 1) << "aes domain decrypt: payload size=1";
     }
 
     TEST(ShadowsocksDatagramDeep, AesDecryptWithPadding)
@@ -569,7 +569,7 @@ namespace
         auto relay = make_udp_relay(cfg, tracker);
 
         auto [dec_ec, psk_bytes] = format::decode_psk(cfg.psk);
-        EXPECT_TRUE(dec_ec == psm::fault::code::success) << "aes padding: decode psk";
+        EXPECT_EQ(dec_ec, psm::fault::code::success) << "aes padding: decode psk";
 
         std::array<std::uint8_t, 8> session_id{};
         session_id[2] = 0xCC;
@@ -580,10 +580,10 @@ namespace
         net::ip::udp::endpoint sender(net::ip::make_address("127.0.0.1"), 9999);
 
         auto [ec, result] = relay->decrypt_inbound(packet, sender);
-        EXPECT_TRUE(ec == psm::fault::code::success) << "aes padding decrypt: success";
-        EXPECT_TRUE(result.payload.size() == 2) << "aes padding decrypt: payload size=2";
-        EXPECT_TRUE(result.payload[0] == 0xDD) << "aes padding decrypt: payload[0]=0xDD";
-        EXPECT_TRUE(result.payload[1] == 0xEE) << "aes padding decrypt: payload[1]=0xEE";
+        EXPECT_EQ(ec, psm::fault::code::success) << "aes padding decrypt: success";
+        EXPECT_EQ(result.payload.size(), 2) << "aes padding decrypt: payload size=2";
+        EXPECT_EQ(result.payload[0], 0xDD) << "aes padding decrypt: payload[0]=0xDD";
+        EXPECT_EQ(result.payload[1], 0xEE) << "aes padding decrypt: payload[1]=0xEE";
     }
 
     TEST(ShadowsocksDatagramDeep, AesDecryptReplay)
@@ -593,7 +593,7 @@ namespace
         auto relay = make_udp_relay(cfg, tracker);
 
         auto [dec_ec, psk_bytes] = format::decode_psk(cfg.psk);
-        EXPECT_TRUE(dec_ec == psm::fault::code::success) << "aes replay: decode psk";
+        EXPECT_EQ(dec_ec, psm::fault::code::success) << "aes replay: decode psk";
 
         std::array<std::uint8_t, 8> session_id{};
         session_id[3] = 0xDD;
@@ -605,11 +605,11 @@ namespace
 
         // 首次解密成功
         auto [ec1, res1] = relay->decrypt_inbound(packet, sender);
-        EXPECT_TRUE(ec1 == psm::fault::code::success) << "aes replay: first decrypt success";
+        EXPECT_EQ(ec1, psm::fault::code::success) << "aes replay: first decrypt success";
 
         // 重放同一包 -> AEAD nonce 自增导致解密失败（crypto_error，replay 检查在解密之后）
         auto [ec2, res2] = relay->decrypt_inbound(packet, sender);
-        EXPECT_TRUE(ec2 == psm::fault::code::crypto_error) << "aes replay: crypto_error (nonce mismatch)";
+        EXPECT_EQ(ec2, psm::fault::code::crypto_error) << "aes replay: crypto_error (nonce mismatch)";
     }
 
     // ─── 完整 ChaCha20 解密路径 ────────────────────────
@@ -621,7 +621,7 @@ namespace
         auto relay = make_udp_relay(cfg, tracker);
 
         auto [dec_ec, psk_bytes] = format::decode_psk(cfg.psk);
-        EXPECT_TRUE(dec_ec == psm::fault::code::success) << "chacha ipv6: decode psk";
+        EXPECT_EQ(dec_ec, psm::fault::code::success) << "chacha ipv6: decode psk";
 
         std::array<std::uint8_t, 8> session_id{};
         session_id[0] = 0xEE;
@@ -632,11 +632,11 @@ namespace
         net::ip::udp::endpoint sender(net::ip::make_address("::1"), 9999);
 
         auto [ec, result] = relay->decrypt_inbound(packet, sender);
-        EXPECT_TRUE(ec == psm::fault::code::success) << "chacha ipv6 decrypt: success";
-        EXPECT_TRUE(result.destination_port == 80) << "chacha ipv6 decrypt: port=80";
-        EXPECT_TRUE(result.payload.size() == 1) << "chacha ipv6 decrypt: payload size=1";
-        EXPECT_TRUE(result.payload[0] == 0xFF) << "chacha ipv6 decrypt: payload[0]=0xFF";
-        EXPECT_TRUE(result.relay_id == session_id) << "chacha ipv6 decrypt: session_id";
+        EXPECT_EQ(ec, psm::fault::code::success) << "chacha ipv6 decrypt: success";
+        EXPECT_EQ(result.destination_port, 80) << "chacha ipv6 decrypt: port=80";
+        EXPECT_EQ(result.payload.size(), 1) << "chacha ipv6 decrypt: payload size=1";
+        EXPECT_EQ(result.payload[0], 0xFF) << "chacha ipv6 decrypt: payload[0]=0xFF";
+        EXPECT_EQ(result.relay_id, session_id) << "chacha ipv6 decrypt: session_id";
     }
 
     TEST(ShadowsocksDatagramDeep, ChachaDecryptDomainSuccess)
@@ -646,7 +646,7 @@ namespace
         auto relay = make_udp_relay(cfg, tracker);
 
         auto [dec_ec, psk_bytes] = format::decode_psk(cfg.psk);
-        EXPECT_TRUE(dec_ec == psm::fault::code::success) << "chacha domain: decode psk";
+        EXPECT_EQ(dec_ec, psm::fault::code::success) << "chacha domain: decode psk";
 
         std::array<std::uint8_t, 8> session_id{};
         session_id[1] = 0xFF;
@@ -657,10 +657,10 @@ namespace
         net::ip::udp::endpoint sender(net::ip::make_address("::1"), 9999);
 
         auto [ec, result] = relay->decrypt_inbound(packet, sender);
-        EXPECT_TRUE(ec == psm::fault::code::success) << "chacha domain decrypt: success";
-        EXPECT_TRUE(result.destination_port == 443) << "chacha domain decrypt: port=443";
-        EXPECT_TRUE(result.payload.size() == 1) << "chacha domain decrypt: payload size=1";
-        EXPECT_TRUE(result.payload[0] == 0x77) << "chacha domain decrypt: payload[0]=0x77";
+        EXPECT_EQ(ec, psm::fault::code::success) << "chacha domain decrypt: success";
+        EXPECT_EQ(result.destination_port, 443) << "chacha domain decrypt: port=443";
+        EXPECT_EQ(result.payload.size(), 1) << "chacha domain decrypt: payload size=1";
+        EXPECT_EQ(result.payload[0], 0x77) << "chacha domain decrypt: payload[0]=0x77";
     }
 
     TEST(ShadowsocksDatagramDeep, ChachaDecryptReplay)
@@ -670,7 +670,7 @@ namespace
         auto relay = make_udp_relay(cfg, tracker);
 
         auto [dec_ec, psk_bytes] = format::decode_psk(cfg.psk);
-        EXPECT_TRUE(dec_ec == psm::fault::code::success) << "chacha replay: decode psk";
+        EXPECT_EQ(dec_ec, psm::fault::code::success) << "chacha replay: decode psk";
 
         std::array<std::uint8_t, 8> session_id{};
         session_id[2] = 0x11;
@@ -681,10 +681,10 @@ namespace
         net::ip::udp::endpoint sender(net::ip::make_address("::1"), 9999);
 
         auto [ec1, res1] = relay->decrypt_inbound(packet, sender);
-        EXPECT_TRUE(ec1 == psm::fault::code::success) << "chacha replay: first success";
+        EXPECT_EQ(ec1, psm::fault::code::success) << "chacha replay: first success";
 
         auto [ec2, res2] = relay->decrypt_inbound(packet, sender);
-        EXPECT_TRUE(ec2 == psm::fault::code::crypto_error) << "chacha replay: crypto_error (nonce mismatch)";
+        EXPECT_EQ(ec2, psm::fault::code::crypto_error) << "chacha replay: crypto_error (nonce mismatch)";
     }
 
     // ─── encrypt_out / send_chacha null entry ─────────────
@@ -697,7 +697,7 @@ namespace
 
         std::array<std::uint8_t, 8> sid{};
         auto [ec, enc] = relay->encrypt_out({}, sid, nullptr);
-        EXPECT_TRUE(ec == psm::fault::code::crypto_error) << "chacha encrypt null: crypto_error";
+        EXPECT_EQ(ec, psm::fault::code::crypto_error) << "chacha encrypt null: crypto_error";
     }
 
     TEST(ShadowsocksDatagramDeep, AesEncryptNoAeadCtx)
@@ -713,7 +713,7 @@ namespace
 
         const std::byte payload[] = {std::byte{0x01}};
         auto [ec, enc] = relay->encrypt_out(payload, sid, entry);
-        EXPECT_TRUE(ec == psm::fault::code::crypto_error) << "aes encrypt no ctx: crypto_error";
+        EXPECT_EQ(ec, psm::fault::code::crypto_error) << "aes encrypt no ctx: crypto_error";
     }
 
     // ─── decrypt_inbound 密文篡改 ─────────────────────
@@ -725,7 +725,7 @@ namespace
         auto relay = make_udp_relay(cfg, tracker);
 
         auto [dec_ec, psk_bytes] = format::decode_psk(cfg.psk);
-        EXPECT_TRUE(dec_ec == psm::fault::code::success) << "aes corrupt: decode psk";
+        EXPECT_EQ(dec_ec, psm::fault::code::success) << "aes corrupt: decode psk";
 
         std::array<std::uint8_t, 8> session_id{};
         std::array<std::uint8_t, 8> packet_id{};
@@ -738,7 +738,7 @@ namespace
 
         net::ip::udp::endpoint sender(net::ip::make_address("127.0.0.1"), 9999);
         auto [ec, result] = relay->decrypt_inbound(packet, sender);
-        EXPECT_TRUE(ec == psm::fault::code::crypto_error) << "aes corrupt body: crypto_error";
+        EXPECT_EQ(ec, psm::fault::code::crypto_error) << "aes corrupt body: crypto_error";
     }
 
     TEST(ShadowsocksDatagramDeep, ChachaDecryptCorruptedBody)
@@ -748,7 +748,7 @@ namespace
         auto relay = make_udp_relay(cfg, tracker);
 
         auto [dec_ec, psk_bytes] = format::decode_psk(cfg.psk);
-        EXPECT_TRUE(dec_ec == psm::fault::code::success) << "chacha corrupt: decode psk";
+        EXPECT_EQ(dec_ec, psm::fault::code::success) << "chacha corrupt: decode psk";
 
         std::array<std::uint8_t, 8> session_id{};
         session_id[4] = 0x22;
@@ -761,7 +761,7 @@ namespace
 
         net::ip::udp::endpoint sender(net::ip::make_address("::1"), 9999);
         auto [ec, result] = relay->decrypt_inbound(packet, sender);
-        EXPECT_TRUE(ec == psm::fault::code::crypto_error) << "chacha corrupt body: crypto_error";
+        EXPECT_EQ(ec, psm::fault::code::crypto_error) << "chacha corrupt body: crypto_error";
     }
 
 } // namespace

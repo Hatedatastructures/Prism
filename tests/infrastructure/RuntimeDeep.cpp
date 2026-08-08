@@ -24,9 +24,9 @@ namespace
     {
         runtime::worker_load wl;
         auto s = wl.snapshot();
-        EXPECT_TRUE(s.active_sessions == 0) << "worker_load: initial sessions=0";
-        EXPECT_TRUE(s.pending_handoffs == 0) << "worker_load: initial handoffs=0";
-        EXPECT_TRUE(s.lag_us == 0) << "worker_load: initial lag=0";
+        EXPECT_EQ(s.active_sessions, 0) << "worker_load: initial sessions=0";
+        EXPECT_EQ(s.pending_handoffs, 0) << "worker_load: initial handoffs=0";
+        EXPECT_EQ(s.lag_us, 0) << "worker_load: initial lag=0";
     }
 
     TEST(RuntimeDeep, WorkerLoadSessionOpen)
@@ -34,7 +34,7 @@ namespace
         runtime::worker_load wl;
         wl.session_open();
         auto s = wl.snapshot();
-        EXPECT_TRUE(s.active_sessions == 1) << "worker_load: session_open -> 1";
+        EXPECT_EQ(s.active_sessions, 1) << "worker_load: session_open -> 1";
     }
 
     TEST(RuntimeDeep, WorkerLoadSessionClose)
@@ -44,7 +44,7 @@ namespace
         wl.session_open();
         wl.session_close();
         auto s = wl.snapshot();
-        EXPECT_TRUE(s.active_sessions == 1) << "worker_load: open x2 close x1 -> 1";
+        EXPECT_EQ(s.active_sessions, 1) << "worker_load: open x2 close x1 -> 1";
     }
 
     TEST(RuntimeDeep, WorkerLoadSessionMultiple)
@@ -59,7 +59,7 @@ namespace
             wl.session_close();
         }
         auto s = wl.snapshot();
-        EXPECT_TRUE(s.active_sessions == 50) << "worker_load: 100 open 50 close -> 50";
+        EXPECT_EQ(s.active_sessions, 50) << "worker_load: 100 open 50 close -> 50";
     }
 
     // ─── handoff ──────────────────────────────
@@ -69,7 +69,7 @@ namespace
         runtime::worker_load wl;
         wl.handoff_push();
         auto s = wl.snapshot();
-        EXPECT_TRUE(s.pending_handoffs == 1) << "worker_load: handoff_push -> 1";
+        EXPECT_EQ(s.pending_handoffs, 1) << "worker_load: handoff_push -> 1";
     }
 
     TEST(RuntimeDeep, WorkerLoadHandoffPop)
@@ -79,7 +79,7 @@ namespace
         wl.handoff_push();
         wl.handoff_pop();
         auto s = wl.snapshot();
-        EXPECT_TRUE(s.pending_handoffs == 1) << "worker_load: push x2 pop x1 -> 1";
+        EXPECT_EQ(s.pending_handoffs, 1) << "worker_load: push x2 pop x1 -> 1";
     }
 
     TEST(RuntimeDeep, WorkerLoadHandoffMultiple)
@@ -94,7 +94,7 @@ namespace
             wl.handoff_pop();
         }
         auto s = wl.snapshot();
-        EXPECT_TRUE(s.pending_handoffs == 0) << "worker_load: 200 push 200 pop -> 0";
+        EXPECT_EQ(s.pending_handoffs, 0) << "worker_load: 200 push 200 pop -> 0";
     }
 
     // ─── session_counter ──────────────────────
@@ -103,14 +103,14 @@ namespace
     {
         runtime::worker_load wl;
         auto counter = wl.session_counter();
-        EXPECT_TRUE(counter != nullptr) << "worker_load: session_counter not null";
+        EXPECT_NE(counter, nullptr) << "worker_load: session_counter not null";
         EXPECT_TRUE(counter->load() == 0) << "worker_load: counter initial=0";
 
         wl.session_open();
         EXPECT_TRUE(counter->load() == 1) << "worker_load: counter after open=1";
 
         auto counter2 = wl.session_counter();
-        EXPECT_TRUE(counter.get() == counter2.get()) << "worker_load: same counter ptr";
+        EXPECT_EQ(counter.get(), counter2.get()) << "worker_load: same counter ptr";
     }
 
     // ─── snapshot ─────────────────────────────
@@ -122,8 +122,8 @@ namespace
         wl.session_open();
         wl.handoff_push();
         auto s = wl.snapshot();
-        EXPECT_TRUE(s.active_sessions == 2) << "worker_load: snapshot sessions=2";
-        EXPECT_TRUE(s.pending_handoffs == 1) << "worker_load: snapshot handoffs=1";
+        EXPECT_EQ(s.active_sessions, 2) << "worker_load: snapshot sessions=2";
+        EXPECT_EQ(s.pending_handoffs, 1) << "worker_load: snapshot handoffs=1";
     }
 
     // ─── system_state 单例 ─────────────────────
@@ -132,7 +132,7 @@ namespace
     {
         auto &a = runtime::system_state::instance();
         auto &b = runtime::system_state::instance();
-        EXPECT_TRUE(&a == &b) << "system_state: same instance";
+        EXPECT_EQ(&a, &b) << "system_state: same instance";
     }
 
     TEST(RuntimeDeep, SystemStateMarkStarted)
@@ -140,8 +140,8 @@ namespace
         auto &st = runtime::system_state::instance();
         st.mark_started(8);
         auto s = st.snapshot();
-        EXPECT_TRUE(s.worker_count == 8) << "system_state: worker_count=8 after mark_started";
-        EXPECT_TRUE(s.uptime_seconds >= 0) << "system_state: uptime >= 0 after mark_started";
+        EXPECT_EQ(s.worker_count, 8) << "system_state: worker_count=8 after mark_started";
+        EXPECT_GT(s.uptime_seconds, = 0) << "system_state: uptime >= 0 after mark_started";
     }
 
     TEST(RuntimeDeep, SystemStateMarkStartedIdempotent)
@@ -150,11 +150,11 @@ namespace
         // 每个测试用例独立进程，需先初始化
         st.mark_started(42);
         auto before = st.snapshot();
-        EXPECT_TRUE(before.worker_count == 42) << "system_state: first mark_started sets 42";
+        EXPECT_EQ(before.worker_count, 42) << "system_state: first mark_started sets 42";
         // 第二次调用应为空操作
         st.mark_started(999);
         auto after = st.snapshot();
-        EXPECT_TRUE(after.worker_count == 42) << "system_state: idempotent -> worker_count still 42";
+        EXPECT_EQ(after.worker_count, 42) << "system_state: idempotent -> worker_count still 42";
     }
 
     TEST(RuntimeDeep, SystemStateSnapshot)
@@ -162,8 +162,8 @@ namespace
         auto &st = runtime::system_state::instance();
         st.mark_started(16);
         auto s = st.snapshot();
-        EXPECT_TRUE(s.uptime_seconds >= 0) << "system_state: snapshot uptime non-negative";
-        EXPECT_TRUE(s.worker_count == 16) << "system_state: snapshot worker_count=16";
+        EXPECT_GT(s.uptime_seconds, = 0) << "system_state: snapshot uptime non-negative";
+        EXPECT_EQ(s.worker_count, 16) << "system_state: snapshot worker_count=16";
     }
 
 } // namespace

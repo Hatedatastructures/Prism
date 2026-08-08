@@ -248,7 +248,7 @@ TEST(SmuxFrameDeep, DeserLargeStreamId)
 TEST(SmuxFrameDeep, DeserExact8Bytes)
 {
     auto buf = make_header(0x01, psm::multiplex::smux::command::syn, 0, 0);
-    EXPECT_TRUE(buf.size() == 8) << "deser: exact 8 bytes";
+    EXPECT_EQ(buf.size(), 8) << "deser: exact 8 bytes";
     auto r = psm::multiplex::smux::deserialization(buf);
     EXPECT_TRUE(!!r) << "deser: exact size -> ok";
 }
@@ -722,8 +722,8 @@ TEST(SmuxFrameDeep, BuildDgramIpv4Basic)
     std::vector<std::byte> payload = {std::byte{0xAA}, std::byte{0xBB}};
     psm::multiplex::smux::datagram_params params{host, 443, payload};
     auto buf = psm::multiplex::smux::build_dgram(params, psm::memory::current_resource());
-    EXPECT_TRUE(buf.size() == 1 + 4 + 2 + 2 + 2) << "build_dgram: IPv4 size = 9+2";
-    EXPECT_TRUE(buf[0] == std::byte{0x01}) << "build_dgram: atype = IPv4";
+    EXPECT_EQ(buf.size(), 1 + 4 + 2 + 2 + 2) << "build_dgram: IPv4 size = 9+2";
+    EXPECT_EQ(buf[0], std::byte{0x01}) << "build_dgram: atype = IPv4";
 }
 
 TEST(SmuxFrameDeep, BuildDgramIpv4EmptyPayload)
@@ -732,7 +732,7 @@ TEST(SmuxFrameDeep, BuildDgramIpv4EmptyPayload)
     std::vector<std::byte> payload;
     psm::multiplex::smux::datagram_params params{host, 80, payload};
     auto buf = psm::multiplex::smux::build_dgram(params, psm::memory::current_resource());
-    EXPECT_TRUE(buf.size() == 1 + 4 + 2 + 2) << "build_dgram: IPv4 empty payload size = 9";
+    EXPECT_EQ(buf.size(), 1 + 4 + 2 + 2) << "build_dgram: IPv4 empty payload size = 9";
 }
 
 TEST(SmuxFrameDeep, BuildDgramIpv4Roundtrip)
@@ -757,7 +757,7 @@ TEST(SmuxFrameDeep, BuildDgramIpv6Basic)
     std::vector<std::byte> payload = {std::byte{0xCC}};
     psm::multiplex::smux::datagram_params params{host, 443, payload};
     auto buf = psm::multiplex::smux::build_dgram(params, psm::memory::current_resource());
-    EXPECT_TRUE(buf[0] == std::byte{0x04}) << "build_dgram: atype = IPv6";
+    EXPECT_EQ(buf[0], std::byte{0x04}) << "build_dgram: atype = IPv6";
 }
 
 TEST(SmuxFrameDeep, BuildDgramIpv6Roundtrip)
@@ -781,7 +781,7 @@ TEST(SmuxFrameDeep, BuildDgramDomainBasic)
     std::vector<std::byte> payload = {std::byte{0xDD}};
     psm::multiplex::smux::datagram_params params{host, 443, payload};
     auto buf = psm::multiplex::smux::build_dgram(params, psm::memory::current_resource());
-    EXPECT_TRUE(buf[0] == std::byte{0x03}) << "build_dgram: atype = domain";
+    EXPECT_EQ(buf[0], std::byte{0x03}) << "build_dgram: atype = domain";
 }
 
 TEST(SmuxFrameDeep, BuildDgramDomainRoundtrip)
@@ -815,16 +815,16 @@ TEST(SmuxFrameDeep, BuildPrefixedBasic)
 {
     std::vector<std::byte> payload = {std::byte{0x01}, std::byte{0x02}, std::byte{0x03}};
     auto buf = psm::multiplex::smux::build_prefixed(payload, psm::memory::current_resource());
-    EXPECT_TRUE(buf.size() == 5) << "build_prefixed: size = 5";
-    EXPECT_TRUE(buf[0] == std::byte{0x00}) << "build_prefixed: length high byte";
-    EXPECT_TRUE(buf[1] == std::byte{0x03}) << "build_prefixed: length low byte";
+    EXPECT_EQ(buf.size(), 5) << "build_prefixed: size = 5";
+    EXPECT_EQ(buf[0], std::byte{0x00}) << "build_prefixed: length high byte";
+    EXPECT_EQ(buf[1], std::byte{0x03}) << "build_prefixed: length low byte";
 }
 
 TEST(SmuxFrameDeep, BuildPrefixedEmpty)
 {
     std::vector<std::byte> payload;
     auto buf = psm::multiplex::smux::build_prefixed(payload, psm::memory::current_resource());
-    EXPECT_TRUE(buf.size() == 2) << "build_prefixed: empty payload size = 2";
+    EXPECT_EQ(buf.size(), 2) << "build_prefixed: empty payload size = 2";
     EXPECT_TRUE(buf[0] == std::byte{0x00} && buf[1] == std::byte{0x00})
         << "build_prefixed: length = 0";
 }
@@ -844,9 +844,9 @@ TEST(SmuxFrameDeep, BuildPrefixedLargeLength)
     // 测试大端编码：256 字节 -> 0x01 0x00
     std::vector<std::byte> payload(256, std::byte{0xFF});
     auto buf = psm::multiplex::smux::build_prefixed(payload, psm::memory::current_resource());
-    EXPECT_TRUE(buf[0] == std::byte{0x01}) << "build_prefixed: length high = 1";
-    EXPECT_TRUE(buf[1] == std::byte{0x00}) << "build_prefixed: length low = 0";
-    EXPECT_TRUE(buf.size() == 258) << "build_prefixed: total size = 258";
+    EXPECT_EQ(buf[0], std::byte{0x01}) << "build_prefixed: length high = 1";
+    EXPECT_EQ(buf[1], std::byte{0x00}) << "build_prefixed: length low = 0";
+    EXPECT_EQ(buf.size(), 258) << "build_prefixed: total size = 258";
 }
 
 // ─── build_dgram 往返测试（完整 roundtrip）──

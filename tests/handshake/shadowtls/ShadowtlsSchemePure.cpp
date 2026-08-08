@@ -22,7 +22,7 @@ namespace
         auto result = sch.sniff(bitmap, features);
         EXPECT_TRUE(result.hit) << "sniff: nonstd_session hit";
         EXPECT_TRUE(!result.solo) << "sniff: nonstd_session not solo";
-        EXPECT_TRUE(result.hint == 150) << "sniff: nonstd_session hint=150";
+        EXPECT_EQ(result.hint, 150) << "sniff: nonstd_session hint=150";
     }
 
     TEST(ShadowtlsSchemePure, SniffMiss)
@@ -50,8 +50,8 @@ namespace
         std::array<std::byte, 10> small{};
         psm::settings cfg;
         auto result = sch.verify(features, small, cfg);
-        EXPECT_TRUE(result.score == 50) << "verify: too short -> score=50";
-        EXPECT_TRUE(result.solo_flag == 0) << "verify: too short -> no solo";
+        EXPECT_EQ(result.score, 50) << "verify: too short -> score=50";
+        EXPECT_EQ(result.solo_flag, 0) << "verify: too short -> no solo";
     }
 
     TEST(ShadowtlsSchemePure, VerifyWrongSessionIdLen)
@@ -62,7 +62,7 @@ namespace
         std::array<std::byte, 100> buf{};
         psm::settings cfg;
         auto result = sch.verify(features, buf, cfg);
-        EXPECT_TRUE(result.score == 50) << "verify: wrong session_id_len -> score=50";
+        EXPECT_EQ(result.score, 50) << "verify: wrong session_id_len -> score=50";
     }
 
     TEST(ShadowtlsSchemePure, VerifyV3NoUsers)
@@ -74,7 +74,7 @@ namespace
         psm::settings cfg;
         cfg.stealth.shadowtls.version = 3;
         auto result = sch.verify(features, buf, cfg);
-        EXPECT_TRUE(result.score == 50) << "verify: v3 no users -> score=50";
+        EXPECT_EQ(result.score, 50) << "verify: v3 no users -> score=50";
     }
 
     TEST(ShadowtlsSchemePure, VerifyV2NoPassword)
@@ -86,7 +86,7 @@ namespace
         psm::settings cfg;
         cfg.stealth.shadowtls.version = 2;
         auto result = sch.verify(features, buf, cfg);
-        EXPECT_TRUE(result.score == 50) << "verify: v2 no password -> score=50";
+        EXPECT_EQ(result.score, 50) << "verify: v2 no password -> score=50";
     }
 
 } // namespace

@@ -36,29 +36,29 @@ namespace
     TEST(TrojanProcessPure, ConfigDefaults)
     {
         config cfg;
-        EXPECT_TRUE(cfg.enable_tcp == true) << "config: enable_tcp=true";
-        EXPECT_TRUE(cfg.enable_udp == false) << "config: enable_udp=false";
-        EXPECT_TRUE(cfg.idle_timeout == 60) << "config: idle_timeout=60";
-        EXPECT_TRUE(cfg.max_dgram == 65535) << "config: max_dgram=65535";
+        EXPECT_EQ(cfg.enable_tcp, true) << "config: enable_tcp=true";
+        EXPECT_EQ(cfg.enable_udp, false) << "config: enable_udp=false";
+        EXPECT_EQ(cfg.idle_timeout, 60) << "config: idle_timeout=60";
+        EXPECT_EQ(cfg.max_dgram, 65535) << "config: max_dgram=65535";
     }
 
     TEST(TrojanProcessPure, CommandEnumValues)
     {
-        EXPECT_TRUE(static_cast<std::uint8_t>(command::connect) == 0x01)
+        EXPECT_EQ(static_cast<std::uint8_t>(command::connect), 0x01)
             << "command: connect=0x01";
-        EXPECT_TRUE(static_cast<std::uint8_t>(command::udp_associate) == 0x03)
+        EXPECT_EQ(static_cast<std::uint8_t>(command::udp_associate), 0x03)
             << "command: udp_associate=0x03";
-        EXPECT_TRUE(static_cast<std::uint8_t>(command::mux) == 0x7f)
+        EXPECT_EQ(static_cast<std::uint8_t>(command::mux), 0x7f)
             << "command: mux=0x7f";
     }
 
     TEST(TrojanProcessPure, AddressTypeEnumValues)
     {
-        EXPECT_TRUE(static_cast<std::uint8_t>(address_type::ipv4) == 0x01)
+        EXPECT_EQ(static_cast<std::uint8_t>(address_type::ipv4), 0x01)
             << "address_type: ipv4=0x01";
-        EXPECT_TRUE(static_cast<std::uint8_t>(address_type::domain) == 0x03)
+        EXPECT_EQ(static_cast<std::uint8_t>(address_type::domain), 0x03)
             << "address_type: domain=0x03";
-        EXPECT_TRUE(static_cast<std::uint8_t>(address_type::ipv6) == 0x04)
+        EXPECT_EQ(static_cast<std::uint8_t>(address_type::ipv6), 0x04)
             << "address_type: ipv6=0x04";
     }
 
@@ -70,18 +70,18 @@ namespace
         req.destination_address = ipv4_address{{127, 0, 0, 1}};
         std::memset(req.credential.data(), 'a', 56);
 
-        EXPECT_TRUE(req.cmd == command::connect) << "request: cmd=connect";
-        EXPECT_TRUE(req.port == 443) << "request: port=443";
-        EXPECT_TRUE(std::holds_alternative<ipv4_address>(req.destination_address))
+        EXPECT_EQ(req.cmd, command::connect) << "request: cmd=connect";
+        EXPECT_EQ(req.port, 443) << "request: port=443";
+        EXPECT_LT(std::holds_alternative, ipv4_address>(req.destination_address))
             << "request: address type=ipv4";
-        EXPECT_TRUE(req.credential[0] == 'a') << "request: credential[0]='a'";
-        EXPECT_TRUE(req.credential[55] == 'a') << "request: credential[55]='a'";
+        EXPECT_EQ(req.credential[0], 'a') << "request: credential[0]='a'";
+        EXPECT_EQ(req.credential[55], 'a') << "request: credential[55]='a'";
     }
 
     TEST(TrojanProcessPure, RequestCredentialArray)
     {
         request req;
-        EXPECT_TRUE(req.credential.size() == 56) << "request: credential 56 bytes";
+        EXPECT_EQ(req.credential.size(), 56) << "request: credential 56 bytes";
     }
 
     TEST(TrojanProcessPure, ToStringIPv4)
@@ -89,7 +89,7 @@ namespace
         ipv4_address addr{{192, 168, 1, 1}};
         address var = addr;
         auto result = to_string(var);
-        EXPECT_TRUE(result == "192.168.1.1") << "to_string: IPv4 192.168.1.1";
+        EXPECT_EQ(result, "192.168.1.1") << "to_string: IPv4 192.168.1.1";
     }
 
     TEST(TrojanProcessPure, ToStringIPv6)
@@ -111,7 +111,7 @@ namespace
         std::memcpy(addr.value.data(), domain, 11);
         address var = addr;
         auto result = to_string(var);
-        EXPECT_TRUE(result == "example.com") << "to_string: domain example.com";
+        EXPECT_EQ(result, "example.com") << "to_string: domain example.com";
     }
 
     TEST(TrojanProcessPure, ConfigCustomValues)
@@ -122,10 +122,10 @@ namespace
         cfg.idle_timeout = 120;
         cfg.max_dgram = 1400;
 
-        EXPECT_TRUE(cfg.enable_tcp == false) << "config: enable_tcp=false";
-        EXPECT_TRUE(cfg.enable_udp == true) << "config: enable_udp=true";
-        EXPECT_TRUE(cfg.idle_timeout == 120) << "config: idle_timeout=120";
-        EXPECT_TRUE(cfg.max_dgram == 1400) << "config: max_dgram=1400";
+        EXPECT_EQ(cfg.enable_tcp, false) << "config: enable_tcp=false";
+        EXPECT_EQ(cfg.enable_udp, true) << "config: enable_udp=true";
+        EXPECT_EQ(cfg.idle_timeout, 120) << "config: idle_timeout=120";
+        EXPECT_EQ(cfg.max_dgram, 1400) << "config: max_dgram=1400";
     }
 
 } // namespace

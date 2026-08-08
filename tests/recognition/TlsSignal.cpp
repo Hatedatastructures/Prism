@@ -153,8 +153,8 @@ namespace
 
         auto [ec, feat] = psm::recognition::tls::parse_client_hello(raw);
         EXPECT_TRUE(psm::fault::succeeded(ec)) << "valid hello parses";
-        EXPECT_TRUE(feat.server_name == "example.com") << "SNI extracted";
-        EXPECT_TRUE(feat.has_x25519 == true) << "X25519 detected";
+        EXPECT_EQ(feat.server_name, "example.com") << "SNI extracted";
+        EXPECT_EQ(feat.has_x25519, true) << "X25519 detected";
         EXPECT_TRUE(!feat.versions.empty()) << "versions not empty";
         EXPECT_TRUE(feat.session_id.empty()) << "session_id empty";
     }
@@ -168,8 +168,8 @@ namespace
 
         auto [ec, feat] = psm::recognition::tls::parse_client_hello(raw);
         EXPECT_TRUE(psm::fault::succeeded(ec)) << "hello with session_id parses";
-        EXPECT_TRUE(feat.session_id_len == 16) << "session_id_len is 16";
-        EXPECT_TRUE(feat.session_id.size() == 16) << "session_id size is 16";
+        EXPECT_EQ(feat.session_id_len, 16) << "session_id_len is 16";
+        EXPECT_EQ(feat.session_id.size(), 16) << "session_id size is 16";
     }
 
     TEST(TlsSignal, ParseEchExtension)
@@ -181,7 +181,7 @@ namespace
 
         auto [ec, feat] = psm::recognition::tls::parse_client_hello(raw);
         EXPECT_TRUE(psm::fault::succeeded(ec)) << "hello with ECH parses";
-        EXPECT_TRUE(feat.has_ech == true) << "ECH extension detected";
+        EXPECT_EQ(feat.has_ech, true) << "ECH extension detected";
     }
 
     TEST(TlsSignal, ParseNoExtensions)
@@ -193,7 +193,7 @@ namespace
         auto [ec, feat] = psm::recognition::tls::parse_client_hello(raw);
         EXPECT_TRUE(psm::fault::succeeded(ec)) << "hello without extensions parses";
         EXPECT_TRUE(feat.server_name.empty()) << "no SNI";
-        EXPECT_TRUE(feat.has_x25519 == false) << "no key_share";
+        EXPECT_EQ(feat.has_x25519, false) << "no key_share";
         EXPECT_TRUE(feat.versions.empty()) << "no versions";
     }
 
@@ -242,7 +242,7 @@ namespace
 
         auto [ec, feat] = psm::recognition::tls::parse_client_hello(raw);
         EXPECT_TRUE(psm::fault::succeeded(ec)) << "session_id = 32 accepted";
-        EXPECT_TRUE(feat.session_id_len == 32) << "session_id_len is 32";
+        EXPECT_EQ(feat.session_id_len, 32) << "session_id_len is 32";
     }
 
     TEST(TlsSignal, ParseRecordBodyTruncated)
@@ -300,7 +300,7 @@ namespace
 
         auto [ec, feat] = psm::recognition::tls::parse_client_hello(raw);
         EXPECT_TRUE(psm::fault::succeeded(ec)) << "multiple versions parse";
-        EXPECT_TRUE(feat.versions.size() == 2) << "two versions extracted";
+        EXPECT_EQ(feat.versions.size(), 2) << "two versions extracted";
     }
 
     TEST(TlsSignal, ParseX25519Mlkem768)
@@ -350,7 +350,7 @@ namespace
 
         auto [ec, feat] = psm::recognition::tls::parse_client_hello(record);
         EXPECT_TRUE(psm::fault::succeeded(ec)) << "X25519MLKEM768 hybrid parses";
-        EXPECT_TRUE(feat.has_x25519 == true) << "hybrid sets has_x25519";
+        EXPECT_EQ(feat.has_x25519, true) << "hybrid sets has_x25519";
     }
 
     TEST(TlsSignal, ParseRawMsgPreserved)
@@ -363,7 +363,7 @@ namespace
         EXPECT_TRUE(psm::fault::succeeded(ec)) << "parse for raw_msg test";
         EXPECT_TRUE(!feat.raw_msg.empty()) << "raw_msg preserved";
         EXPECT_TRUE(!feat.raw_record.empty()) << "raw_record preserved";
-        EXPECT_TRUE(feat.raw_msg.size() < feat.raw_record.size()) << "raw_msg < raw_record";
+        EXPECT_LT(feat.raw_msg.size(), feat.raw_record.size()) << "raw_msg < raw_record";
     }
 
     TEST(TlsSignal, ParseEmptySni)
@@ -443,7 +443,7 @@ namespace
         run_with_timeout(mock->get_io_context());
 
         EXPECT_TRUE(psm::fault::succeeded(result_ec)) << "read_tls_record: success";
-        EXPECT_TRUE(result_data.size() == wire.size()) << "read_tls_record: full record size";
+        EXPECT_EQ(result_data.size(), wire.size()) << "read_tls_record: full record size";
         EXPECT_TRUE(std::memcmp(result_data.data(), wire.data(),
                      (std::min)(result_data.size(), wire.size())) == 0)
             << "read_tls_record: data matches wire";
@@ -471,7 +471,7 @@ namespace
 
         run_with_timeout(mock->get_io_context());
 
-        EXPECT_TRUE(result_ec == psm::fault::code::recorderr)
+        EXPECT_EQ(result_ec, psm::fault::code::recorderr)
             << "read_tls_record: non-handshake → recorderr";
     }
 
@@ -520,7 +520,7 @@ namespace
         run_with_timeout(mock->get_io_context());
 
         EXPECT_TRUE(psm::fault::succeeded(result_ec)) << "preread full: success";
-        EXPECT_TRUE(result_data.size() == wire.size()) << "preread full: correct size";
+        EXPECT_EQ(result_data.size(), wire.size()) << "preread full: correct size";
     }
 
     TEST(TlsSignal, ReadTlsRecordWithPrereadPartial)
@@ -549,7 +549,7 @@ namespace
         run_with_timeout(mock->get_io_context());
 
         EXPECT_TRUE(psm::fault::succeeded(result_ec)) << "preread partial: success";
-        EXPECT_TRUE(result_data.size() == wire.size()) << "preread partial: correct size";
+        EXPECT_EQ(result_data.size(), wire.size()) << "preread partial: correct size";
     }
 
     TEST(TlsSignal, ReadTlsRecordPrereadTooShort)
@@ -601,7 +601,7 @@ namespace
 
         run_with_timeout(mock->get_io_context());
 
-        EXPECT_TRUE(result_ec == psm::fault::code::recorderr)
+        EXPECT_EQ(result_ec, psm::fault::code::recorderr)
             << "preread non-handshake: recorderr";
     }
 
@@ -627,7 +627,7 @@ namespace
 
         run_with_timeout(mock->get_io_context());
 
-        EXPECT_TRUE(result_ec == psm::fault::code::recorderr)
+        EXPECT_EQ(result_ec, psm::fault::code::recorderr)
             << "preread oversized: recorderr";
     }
 } // namespace

@@ -85,8 +85,8 @@ namespace
         auto hello = build_server_hello(false);
         auto result = extract_random(hello);
         EXPECT_TRUE(result.has_value()) << "extract_random: valid";
-        EXPECT_TRUE((*result)[0] == std::byte{0x40}) << "extract_random: first byte=0x40";
-        EXPECT_TRUE((*result)[31] == std::byte{0x5F}) << "extract_random: last byte=0x5F";
+        EXPECT_EQ((*result)[0], std::byte{0x40}) << "extract_random: first byte=0x40";
+        EXPECT_EQ((*result)[31], std::byte{0x5F}) << "extract_random: last byte=0x5F";
     }
 
     TEST(ShadowtlsHandshakePure2, ExtractRandomTooShort)
@@ -129,7 +129,7 @@ namespace
         EXPECT_TRUE(result.has_value()) << "extract_random: all 0xFF valid";
         for (std::size_t i = 0; i < tls_rndsize; ++i)
         {
-            EXPECT_TRUE((*result)[i] == std::byte{0xFF}) << "extract_random: all 0xFF bytes";
+            EXPECT_EQ((*result)[i], std::byte{0xFF}) << "extract_random: all 0xFF bytes";
         }
     }
 
@@ -144,7 +144,7 @@ namespace
 
         auto result = extract_random(hello);
         EXPECT_TRUE(result.has_value()) << "extract_random: exact min size";
-        EXPECT_TRUE((*result)[0] == std::byte{0x42}) << "extract_random: exact first byte";
+        EXPECT_EQ((*result)[0], std::byte{0x42}) << "extract_random: exact first byte";
     }
 
     TEST(ShadowtlsHandshakePure2, ExtractRandomOneBelowMin)

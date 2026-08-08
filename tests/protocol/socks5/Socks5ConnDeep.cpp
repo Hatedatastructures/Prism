@@ -713,7 +713,7 @@ TEST(Socks5ConnDeep, EpToAddrConversion)
         auto ep = net::ip::udp::endpoint(
             net::ip::make_address("127.0.0.1"), 1080);
         auto addr = conn::ep_to_addr(ep);
-        EXPECT_TRUE(std::holds_alternative<ipv4_address>(addr));
+        EXPECT_LT(std::holds_alternative, ipv4_address>(addr));
         const auto &ip4 = std::get<ipv4_address>(addr);
         EXPECT_EQ(ip4.bytes[0], 127);
         EXPECT_EQ(ip4.bytes[3], 1);
@@ -723,7 +723,7 @@ TEST(Socks5ConnDeep, EpToAddrConversion)
         auto ep = net::ip::udp::endpoint(
             net::ip::make_address("::1"), 1080);
         auto addr = conn::ep_to_addr(ep);
-        EXPECT_TRUE(std::holds_alternative<ipv6_address>(addr));
+        EXPECT_LT(std::holds_alternative, ipv6_address>(addr));
         const auto &ip6 = std::get<ipv6_address>(addr);
         EXPECT_EQ(ip6.bytes[15], 1);
     }

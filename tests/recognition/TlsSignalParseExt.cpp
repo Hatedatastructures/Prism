@@ -21,56 +21,56 @@ namespace
     {
         std::uint8_t data[] = {0x01, 0x23};
         auto val = psm::recognition::tls::read_u16({data, 2}, 0);
-        EXPECT_TRUE(val == 0x0123) << "read_u16: 0x0123";
+        EXPECT_EQ(val, 0x0123) << "read_u16: 0x0123";
     }
 
     TEST(TlsSignalParseExt, ReadU16Zero)
     {
         std::uint8_t data[] = {0x00, 0x00};
         auto val = psm::recognition::tls::read_u16({data, 2}, 0);
-        EXPECT_TRUE(val == 0) << "read_u16: zero";
+        EXPECT_EQ(val, 0) << "read_u16: zero";
     }
 
     TEST(TlsSignalParseExt, ReadU16Max)
     {
         std::uint8_t data[] = {0xFF, 0xFF};
         auto val = psm::recognition::tls::read_u16({data, 2}, 0);
-        EXPECT_TRUE(val == 0xFFFF) << "read_u16: max";
+        EXPECT_EQ(val, 0xFFFF) << "read_u16: max";
     }
 
     TEST(TlsSignalParseExt, ReadU16Offset)
     {
         std::uint8_t data[] = {0x00, 0xAB, 0xCD};
         auto val = psm::recognition::tls::read_u16({data, 3}, 1);
-        EXPECT_TRUE(val == 0xABCD) << "read_u16: offset=1";
+        EXPECT_EQ(val, 0xABCD) << "read_u16: offset=1";
     }
 
     TEST(TlsSignalParseExt, ReadU24Basic)
     {
         std::uint8_t data[] = {0x01, 0x23, 0x45};
         auto val = psm::recognition::tls::read_u24({data, 3}, 0);
-        EXPECT_TRUE(val == 0x012345) << "read_u24: 0x012345";
+        EXPECT_EQ(val, 0x012345) << "read_u24: 0x012345";
     }
 
     TEST(TlsSignalParseExt, ReadU24Zero)
     {
         std::uint8_t data[] = {0x00, 0x00, 0x00};
         auto val = psm::recognition::tls::read_u24({data, 3}, 0);
-        EXPECT_TRUE(val == 0) << "read_u24: zero";
+        EXPECT_EQ(val, 0) << "read_u24: zero";
     }
 
     TEST(TlsSignalParseExt, ReadU24Max)
     {
         std::uint8_t data[] = {0xFF, 0xFF, 0xFF};
         auto val = psm::recognition::tls::read_u24({data, 3}, 0);
-        EXPECT_TRUE(val == 0xFFFFFF) << "read_u24: max";
+        EXPECT_EQ(val, 0xFFFFFF) << "read_u24: max";
     }
 
     TEST(TlsSignalParseExt, ReadU24Offset)
     {
         std::uint8_t data[] = {0x00, 0x00, 0x01, 0x02};
         auto val = psm::recognition::tls::read_u24({data, 4}, 1);
-        EXPECT_TRUE(val == 0x000102) << "read_u24: offset=1";
+        EXPECT_EQ(val, 0x000102) << "read_u24: offset=1";
     }
 
     // ─── parse_sni ──────────────────────────────
@@ -109,7 +109,7 @@ namespace
             buf.push_back(static_cast<std::uint8_t>(c));
 
         psm::recognition::tls::parse_sni({buf.data(), buf.size()}, features);
-        EXPECT_TRUE(features.server_name == "example.com") << "parse_sni: hostname found";
+        EXPECT_EQ(features.server_name, "example.com") << "parse_sni: hostname found";
     }
 
     TEST(TlsSignalParseExt, ParseSniNonHostnameType)
@@ -137,7 +137,7 @@ namespace
             buf.push_back(static_cast<std::uint8_t>(c));
 
         psm::recognition::tls::parse_sni({buf.data(), buf.size()}, features);
-        EXPECT_TRUE(features.server_name == "test.org") << "parse_sni: skips non-hostname, finds hostname";
+        EXPECT_EQ(features.server_name, "test.org") << "parse_sni: skips non-hostname, finds hostname";
     }
 
     TEST(TlsSignalParseExt, ParseSniTruncatedName)
@@ -186,8 +186,8 @@ namespace
 
         psm::recognition::tls::parse_key_share({buf.data(), buf.size()}, features);
         EXPECT_TRUE(features.has_x25519) << "parse_key_share: X25519 found";
-        EXPECT_TRUE(features.x25519_key[0] == 0xCA) << "parse_key_share: key[0]=0xCA";
-        EXPECT_TRUE(features.x25519_key[31] == 0xFE) << "parse_key_share: key[31]=0xFE";
+        EXPECT_EQ(features.x25519_key[0], 0xCA) << "parse_key_share: key[0]=0xCA";
+        EXPECT_EQ(features.x25519_key[31], 0xFE) << "parse_key_share: key[31]=0xFE";
     }
 
     TEST(TlsSignalParseExt, ParseKeyShareX25519Mlkem768)
@@ -213,8 +213,8 @@ namespace
 
         psm::recognition::tls::parse_key_share({buf.data(), buf.size()}, features);
         EXPECT_TRUE(features.has_x25519) << "parse_key_share: X25519MLKEM768 found";
-        EXPECT_TRUE(features.x25519_key[0] == 0xDE) << "parse_key_share: hybrid key[0]=0xDE";
-        EXPECT_TRUE(features.x25519_key[31] == 0xAD) << "parse_key_share: hybrid key[31]=0xAD";
+        EXPECT_EQ(features.x25519_key[0], 0xDE) << "parse_key_share: hybrid key[0]=0xDE";
+        EXPECT_EQ(features.x25519_key[31], 0xAD) << "parse_key_share: hybrid key[31]=0xAD";
     }
 
     TEST(TlsSignalParseExt, ParseKeyShareWrongGroup)
@@ -264,8 +264,8 @@ namespace
         tls_proto::hello_features features;
         std::uint8_t data[] = {0x02, 0x03, 0x03}; // list_len=2, version=0x0303
         psm::recognition::tls::parse_versions({data, 3}, features);
-        EXPECT_TRUE(features.versions.size() == 1) << "parse_versions: single version";
-        EXPECT_TRUE(features.versions[0] == 0x0303) << "parse_versions: TLS 1.2";
+        EXPECT_EQ(features.versions.size(), 1) << "parse_versions: single version";
+        EXPECT_EQ(features.versions[0], 0x0303) << "parse_versions: TLS 1.2";
     }
 
     TEST(TlsSignalParseExt, ParseVersionsMultiple)
@@ -274,10 +274,10 @@ namespace
         // list_len=6, versions: 0x0303, 0x0304, 0x0301
         std::uint8_t data[] = {0x06, 0x03, 0x03, 0x03, 0x04, 0x03, 0x01};
         psm::recognition::tls::parse_versions({data, 7}, features);
-        EXPECT_TRUE(features.versions.size() == 3) << "parse_versions: 3 versions";
-        EXPECT_TRUE(features.versions[0] == 0x0303) << "parse_versions: v[0]=TLS1.2";
-        EXPECT_TRUE(features.versions[1] == 0x0304) << "parse_versions: v[1]=TLS1.3";
-        EXPECT_TRUE(features.versions[2] == 0x0301) << "parse_versions: v[2]=TLS1.0";
+        EXPECT_EQ(features.versions.size(), 3) << "parse_versions: 3 versions";
+        EXPECT_EQ(features.versions[0], 0x0303) << "parse_versions: v[0]=TLS1.2";
+        EXPECT_EQ(features.versions[1], 0x0304) << "parse_versions: v[1]=TLS1.3";
+        EXPECT_EQ(features.versions[2], 0x0301) << "parse_versions: v[2]=TLS1.0";
     }
 
     TEST(TlsSignalParseExt, ParseVersionsOddLength)
@@ -286,7 +286,7 @@ namespace
         // list_len=3 (odd), but only 2 bytes available → parse 1 version
         std::uint8_t data[] = {0x03, 0x03, 0x03};
         psm::recognition::tls::parse_versions({data, 3}, features);
-        EXPECT_TRUE(features.versions.size() == 1) << "parse_versions: odd list -> 1 version";
+        EXPECT_EQ(features.versions.size(), 1) << "parse_versions: odd list -> 1 version";
     }
 
     // ─── parse_extensions ───────────────────────

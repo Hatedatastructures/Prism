@@ -26,8 +26,8 @@ namespace
         std::uint16_t port = 0;
         auto ok = psm::handshake::reality::parse_dest("www.example.com", host, port);
         EXPECT_TRUE(ok) << "parse_dest: no port -> success";
-        EXPECT_TRUE(host == "www.example.com") << "parse_dest: host without port";
-        EXPECT_TRUE(port == 443) << "parse_dest: default port=443";
+        EXPECT_EQ(host, "www.example.com") << "parse_dest: host without port";
+        EXPECT_EQ(port, 443) << "parse_dest: default port=443";
     }
 
     TEST(RealityParseDest, WithPort)
@@ -36,8 +36,8 @@ namespace
         std::uint16_t port = 0;
         auto ok = psm::handshake::reality::parse_dest("www.example.com:8443", host, port);
         EXPECT_TRUE(ok) << "parse_dest: with port -> success";
-        EXPECT_TRUE(host == "www.example.com") << "parse_dest: host extracted";
-        EXPECT_TRUE(port == 8443) << "parse_dest: port=8443";
+        EXPECT_EQ(host, "www.example.com") << "parse_dest: host extracted";
+        EXPECT_EQ(port, 8443) << "parse_dest: port=8443";
     }
 
     TEST(RealityParseDest, Ipv6)
@@ -46,8 +46,8 @@ namespace
         std::uint16_t port = 0;
         auto ok = psm::handshake::reality::parse_dest("[::1]:443", host, port);
         EXPECT_TRUE(ok) << "parse_dest: ipv6 -> success";
-        EXPECT_TRUE(host == "::1") << "parse_dest: ipv6 host=::1";
-        EXPECT_TRUE(port == 443) << "parse_dest: ipv6 port=443";
+        EXPECT_EQ(host, "::1") << "parse_dest: ipv6 host=::1";
+        EXPECT_EQ(port, 443) << "parse_dest: ipv6 port=443";
     }
 
     TEST(RealityParseDest, Ipv6NoPort)
@@ -56,8 +56,8 @@ namespace
         std::uint16_t port = 0;
         auto ok = psm::handshake::reality::parse_dest("[2001:db8::1]", host, port);
         EXPECT_TRUE(ok) << "parse_dest: ipv6 no port -> success";
-        EXPECT_TRUE(host == "2001:db8::1") << "parse_dest: ipv6 host extracted";
-        EXPECT_TRUE(port == 443) << "parse_dest: ipv6 default port=443";
+        EXPECT_EQ(host, "2001:db8::1") << "parse_dest: ipv6 host extracted";
+        EXPECT_EQ(port, 443) << "parse_dest: ipv6 default port=443";
     }
 
     TEST(RealityParseDest, InvalidPort)
@@ -84,8 +84,8 @@ namespace
         std::uint16_t port = 99;
         auto ok = psm::handshake::reality::parse_dest("host:0", host, port);
         EXPECT_TRUE(ok) << "parse_dest: port 0 -> success";
-        EXPECT_TRUE(host == "host") << "parse_dest: host for port 0";
-        EXPECT_TRUE(port == 0) << "parse_dest: port=0";
+        EXPECT_EQ(host, "host") << "parse_dest: host for port 0";
+        EXPECT_EQ(port, 0) << "parse_dest: port=0";
     }
 
     TEST(RealityParseDest, PortMax)
@@ -94,7 +94,7 @@ namespace
         std::uint16_t port = 0;
         auto ok = psm::handshake::reality::parse_dest("host:65535", host, port);
         EXPECT_TRUE(ok) << "parse_dest: port 65535 -> success";
-        EXPECT_TRUE(port == 65535) << "parse_dest: port=65535";
+        EXPECT_EQ(port, 65535) << "parse_dest: port=65535";
     }
 
 } // namespace

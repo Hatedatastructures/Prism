@@ -33,12 +33,12 @@ namespace
                        .payload(payload)
                        .build();
 
-        EXPECT_TRUE(rec.header().content_type == psm::protocol::tls::CT_HANDSHAKE)
+        EXPECT_EQ(rec.header().content_type, psm::protocol::tls::CT_HANDSHAKE)
             << "builder type";
-        EXPECT_TRUE(rec.header().version == psm::protocol::tls::VERSION_TLS12)
+        EXPECT_EQ(rec.header().version, psm::protocol::tls::VERSION_TLS12)
             << "builder version";
-        EXPECT_TRUE(rec.header().length == 4) << "builder length";
-        EXPECT_TRUE(rec.payload().size() == 4) << "builder payload size";
+        EXPECT_EQ(rec.header().length, 4) << "builder length";
+        EXPECT_EQ(rec.payload().size(), 4) << "builder payload size";
     }
 
     TEST(TlsRecord, BuilderPayloadU8)
@@ -51,9 +51,9 @@ namespace
                        .payload_u8(data)
                        .build();
 
-        EXPECT_TRUE(rec.header().content_type == psm::protocol::tls::CT_APPLICATION_DATA)
+        EXPECT_EQ(rec.header().content_type, psm::protocol::tls::CT_APPLICATION_DATA)
             << "builder_u8 type";
-        EXPECT_TRUE(rec.payload().size() == 3) << "builder_u8 payload size";
+        EXPECT_EQ(rec.payload().size(), 3) << "builder_u8 payload size";
 
         auto pl = rec.payload();
         EXPECT_TRUE(std::memcmp(pl.data(), data.data(), 3) == 0) << "builder_u8 payload content";
@@ -73,16 +73,16 @@ namespace
         auto serialized = rec.serialize();
 
         // 5 header bytes + 5 payload bytes = 10
-        EXPECT_TRUE(serialized.size() == 10) << "serialize total size";
+        EXPECT_EQ(serialized.size(), 10) << "serialize total size";
 
         // Content type
-        EXPECT_TRUE(serialized[0] == std::byte{0x17}) << "serialize content_type";
+        EXPECT_EQ(serialized[0], std::byte{0x17}) << "serialize content_type";
         // Version
-        EXPECT_TRUE(serialized[1] == std::byte{0x03}) << "serialize version hi";
-        EXPECT_TRUE(serialized[2] == std::byte{0x03}) << "serialize version lo";
+        EXPECT_EQ(serialized[1], std::byte{0x03}) << "serialize version hi";
+        EXPECT_EQ(serialized[2], std::byte{0x03}) << "serialize version lo";
         // Length
-        EXPECT_TRUE(serialized[3] == std::byte{0x00}) << "serialize length hi";
-        EXPECT_TRUE(serialized[4] == std::byte{0x05}) << "serialize length lo";
+        EXPECT_EQ(serialized[3], std::byte{0x00}) << "serialize length hi";
+        EXPECT_EQ(serialized[4], std::byte{0x05}) << "serialize length lo";
         // Payload
         EXPECT_TRUE(std::memcmp(serialized.data() + 5, original.data(), 5) == 0)
             << "serialize payload preserved";
@@ -97,7 +97,7 @@ namespace
                        .payload(payload)
                        .build();
 
-        EXPECT_TRUE(rec.size() == psm::protocol::tls::RECORD_HDR_LEN + 100)
+        EXPECT_EQ(rec.size(), psm::protocol::tls::RECORD_HDR_LEN + 100)
             << "record size = header + payload";
     }
 
@@ -109,11 +109,11 @@ namespace
                        .build();
 
         EXPECT_TRUE(rec.payload().empty()) << "empty payload";
-        EXPECT_TRUE(rec.header().length == 0) << "empty payload length = 0";
-        EXPECT_TRUE(rec.size() == psm::protocol::tls::RECORD_HDR_LEN) << "empty payload size = header only";
+        EXPECT_EQ(rec.header().length, 0) << "empty payload length = 0";
+        EXPECT_EQ(rec.size(), psm::protocol::tls::RECORD_HDR_LEN) << "empty payload size = header only";
 
         auto serialized = rec.serialize();
-        EXPECT_TRUE(serialized.size() == psm::protocol::tls::RECORD_HDR_LEN) << "empty payload serialize = header only";
+        EXPECT_EQ(serialized.size(), psm::protocol::tls::RECORD_HDR_LEN) << "empty payload serialize = header only";
     }
 
     TEST(TlsRecord, BuilderChaining)
@@ -130,7 +130,7 @@ namespace
                        .payload(data2)  // override payload
                        .build();
 
-        EXPECT_TRUE(rec.header().version == 0x0303) << "chaining: version overridden";
+        EXPECT_EQ(rec.header().version, 0x0303) << "chaining: version overridden";
         auto pl = rec.payload();
         EXPECT_TRUE(std::memcmp(pl.data(), data2.data(), 2) == 0) << "chaining: payload overridden";
     }
@@ -147,22 +147,22 @@ namespace
                        .payload(large)
                        .build();
 
-        EXPECT_TRUE(rec.payload().size() == 16384) << "large payload size";
-        EXPECT_TRUE(rec.size() == psm::protocol::tls::RECORD_HDR_LEN + 16384) << "large record size";
+        EXPECT_EQ(rec.payload().size(), 16384) << "large payload size";
+        EXPECT_EQ(rec.size(), psm::protocol::tls::RECORD_HDR_LEN + 16384) << "large record size";
 
         auto serialized = rec.serialize();
-        EXPECT_TRUE(serialized.size() == psm::protocol::tls::RECORD_HDR_LEN + 16384) << "large serialize size";
+        EXPECT_EQ(serialized.size(), psm::protocol::tls::RECORD_HDR_LEN + 16384) << "large serialize size";
         // Verify length field: 16384 = 0x4000
-        EXPECT_TRUE(serialized[3] == std::byte{0x40}) << "large length hi";
-        EXPECT_TRUE(serialized[4] == std::byte{0x00}) << "large length lo";
+        EXPECT_EQ(serialized[3], std::byte{0x40}) << "large length hi";
+        EXPECT_EQ(serialized[4], std::byte{0x00}) << "large length lo";
     }
 
     TEST(TlsRecord, FromRecordHeader)
     {
         psm::tls::record_header hdr;
-        EXPECT_TRUE(hdr.content_type == 0) << "default header content_type";
-        EXPECT_TRUE(hdr.version == 0x0303) << "default header version";
-        EXPECT_TRUE(hdr.length == 0) << "default header length";
+        EXPECT_EQ(hdr.content_type, 0) << "default header content_type";
+        EXPECT_EQ(hdr.version, 0x0303) << "default header version";
+        EXPECT_EQ(hdr.length, 0) << "default header length";
     }
 
     // === 异步 I/O 测试 ===
@@ -213,7 +213,7 @@ namespace
             }, net::detached);
 
         mock->get_io_context().run();
-        EXPECT_TRUE(*result_ec == psm::fault::code::io_error)
+        EXPECT_EQ(*result_ec, psm::fault::code::io_error)
             << "async read error: returns io_error on read failure";
     }
 
@@ -262,10 +262,10 @@ namespace
         mock->get_io_context().run();
 
         auto &written = mock->written_data();
-        EXPECT_TRUE(written.size() == 8) << "async write: 5 header + 3 payload = 8 bytes";
-        EXPECT_TRUE(written[0] == std::byte{0x17}) << "async write: CT=0x17";
-        EXPECT_TRUE(written[3] == std::byte{0x00}) << "async write: length hi";
-        EXPECT_TRUE(written[4] == std::byte{0x03}) << "async write: length lo=3";
+        EXPECT_EQ(written.size(), 8) << "async write: 5 header + 3 payload = 8 bytes";
+        EXPECT_EQ(written[0], std::byte{0x17}) << "async write: CT=0x17";
+        EXPECT_EQ(written[3], std::byte{0x00}) << "async write: length hi";
+        EXPECT_EQ(written[4], std::byte{0x03}) << "async write: length lo=3";
     }
 
     TEST(TlsRecord, AsyncWriteError)

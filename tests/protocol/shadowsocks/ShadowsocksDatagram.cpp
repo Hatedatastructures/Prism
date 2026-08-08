@@ -87,7 +87,7 @@ namespace
         auto cfg = make_aes128_config();
         auto tracker = std::make_shared<psm::protocol::shadowsocks::session_tracker>();
         auto relay = psm::protocol::shadowsocks::make_udp_relay(cfg, tracker);
-        EXPECT_TRUE(relay != nullptr) << "construct aes-128: not null";
+        EXPECT_NE(relay, nullptr) << "construct aes-128: not null";
         EXPECT_TRUE(relay->method() == psm::protocol::shadowsocks::cipher_method::aes_128_gcm)
                      << "construct aes-128: method=aes_128_gcm";
     }
@@ -97,7 +97,7 @@ namespace
         auto cfg = make_aes256_config();
         auto tracker = std::make_shared<psm::protocol::shadowsocks::session_tracker>();
         auto relay = psm::protocol::shadowsocks::make_udp_relay(cfg, tracker);
-        EXPECT_TRUE(relay != nullptr) << "construct aes-256: not null";
+        EXPECT_NE(relay, nullptr) << "construct aes-256: not null";
         EXPECT_TRUE(relay->method() == psm::protocol::shadowsocks::cipher_method::aes_256_gcm)
                      << "construct aes-256: method=aes_256_gcm";
     }
@@ -107,7 +107,7 @@ namespace
         auto cfg = make_chacha_config();
         auto tracker = std::make_shared<psm::protocol::shadowsocks::session_tracker>();
         auto relay = psm::protocol::shadowsocks::make_udp_relay(cfg, tracker);
-        EXPECT_TRUE(relay != nullptr) << "construct chacha20: not null";
+        EXPECT_NE(relay, nullptr) << "construct chacha20: not null";
         EXPECT_TRUE(relay->method() == psm::protocol::shadowsocks::cipher_method::chacha20_poly1305)
                      << "construct chacha20: method=chacha20_poly1305";
     }
@@ -123,11 +123,11 @@ namespace
         boost::asio::ip::udp::endpoint sender;
         std::array<std::byte, 64> packet{};
         auto [ec, result] = relay->decrypt_inbound(packet, sender);
-        EXPECT_TRUE(ec == psm::fault::code::invalid_psk) << "bad psk: decrypt returns invalid_psk";
+        EXPECT_EQ(ec, psm::fault::code::invalid_psk) << "bad psk: decrypt returns invalid_psk";
 
         std::array<std::uint8_t, 8> sid{};
         auto [ec2, enc] = relay->encrypt_out({}, sid, nullptr);
-        EXPECT_TRUE(ec2 == psm::fault::code::invalid_psk) << "bad psk: encrypt returns invalid_psk";
+        EXPECT_EQ(ec2, psm::fault::code::invalid_psk) << "bad psk: encrypt returns invalid_psk";
     }
 
     // 构造合法的 AES-GCM 入站包供 decrypt_inbound 解析
@@ -267,7 +267,7 @@ namespace
         // SeparateHeader(16) + AEAD tag(16) = 32 -> minimum for AES-GCM variant
         std::array<std::byte, 31> short_packet{};
         auto [ec, result] = relay->decrypt_inbound(short_packet, sender);
-        EXPECT_TRUE(ec == psm::fault::code::bad_message) << "aes128 decrypt short: bad_message";
+        EXPECT_EQ(ec, psm::fault::code::bad_message) << "aes128 decrypt short: bad_message";
     }
 
     TEST(ShadowsocksDatagram, Aes128EncryptOut)
@@ -282,16 +282,16 @@ namespace
             boost::asio::ip::make_address("127.0.0.1"), 12345);
 
         auto [dec_ec, psk_bytes] = psm::protocol::shadowsocks::format::decode_psk(cfg.psk);
-        EXPECT_TRUE(dec_ec == psm::fault::code::success) << "aes128 encrypt: decode psk";
+        EXPECT_EQ(dec_ec, psm::fault::code::success) << "aes128 encrypt: decode psk";
 
         auto entry = tracker->get_or_create({session_id, sender, psk_bytes,
             psm::protocol::shadowsocks::cipher_method::aes_128_gcm});
-        EXPECT_TRUE(entry != nullptr) << "aes128 encrypt: session created";
+        EXPECT_NE(entry, nullptr) << "aes128 encrypt: session created";
 
         const std::byte payload[] = {std::byte{0xDE}, std::byte{0xAD}};
         auto [enc_ec, ciphertext] = relay->encrypt_out(payload, session_id, entry);
-        EXPECT_TRUE(enc_ec == psm::fault::code::success) << "aes128 encrypt: success";
-        EXPECT_TRUE(ciphertext.size() > 16 + 16) << "aes128 encrypt: ciphertext size > header+tag";
+        EXPECT_EQ(enc_ec, psm::fault::code::success) << "aes128 encrypt: success";
+        EXPECT_GT(ciphertext.size(), 16 + 16) << "aes128 encrypt: ciphertext size > header+tag";
     }
 
     TEST(ShadowsocksDatagram, Chacha20DecryptInbound)
@@ -308,7 +308,7 @@ namespace
         // ChaCha20 variant minimum: SessionID(8) + PacketID(8) + AEAD tag(16) = 32
         std::array<std::byte, 31> short_packet{};
         auto [ec, result] = relay->decrypt_inbound(short_packet, sender);
-        EXPECT_TRUE(ec == psm::fault::code::bad_message) << "chacha decrypt short: bad_message";
+        EXPECT_EQ(ec, psm::fault::code::bad_message) << "chacha decrypt short: bad_message";
     }
 
     TEST(ShadowsocksDatagram, Chacha20EncryptOut)
@@ -323,7 +323,7 @@ namespace
             boost::asio::ip::make_address("::1"), 54321);
 
         auto [dec_ec, psk_bytes] = psm::protocol::shadowsocks::format::decode_psk(cfg.psk);
-        EXPECT_TRUE(dec_ec == psm::fault::code::success) << "chacha encrypt: decode psk";
+        EXPECT_EQ(dec_ec, psm::fault::code::success) << "chacha encrypt: decode psk";
 
         // ChaCha20 不预建 aead_ctx，get_or_create 跳过 derive_aead
         psm::memory::vector<std::uint8_t> empty_psk(psm::memory::current_resource());
@@ -332,8 +332,8 @@ namespace
 
         const std::byte payload[] = {std::byte{0x01}, std::byte{0x02}};
         auto [enc_ec, ciphertext] = relay->encrypt_out(payload, session_id, entry);
-        EXPECT_TRUE(enc_ec == psm::fault::code::success) << "chacha encrypt: success";
-        EXPECT_TRUE(ciphertext.size() > 16 + 16) << "chacha encrypt: ciphertext size > header+tag";
+        EXPECT_EQ(enc_ec, psm::fault::code::success) << "chacha encrypt: success";
+        EXPECT_GT(ciphertext.size(), 16 + 16) << "chacha encrypt: ciphertext size > header+tag";
     }
 
     TEST(ShadowsocksDatagram, DecryptTooShort)
@@ -345,7 +345,7 @@ namespace
         boost::asio::ip::udp::endpoint sender;
         std::array<std::byte, 5> tiny{};
         auto [ec, result] = relay->decrypt_inbound(tiny, sender);
-        EXPECT_TRUE(ec == psm::fault::code::bad_message) << "decrypt too short: bad_message";
+        EXPECT_EQ(ec, psm::fault::code::bad_message) << "decrypt too short: bad_message";
     }
 
     TEST(ShadowsocksDatagram, EncryptNullEntry)
@@ -356,7 +356,7 @@ namespace
 
         std::array<std::uint8_t, 8> sid{};
         auto [ec, enc] = relay->encrypt_out({}, sid, nullptr);
-        EXPECT_TRUE(ec != psm::fault::code::success) << "encrypt null entry: failure";
+        EXPECT_NE(ec, psm::fault::code::success) << "encrypt null entry: failure";
     }
 
     TEST(ShadowsocksDatagram, DecryptBadTimestamp)
@@ -366,7 +366,7 @@ namespace
         auto relay = psm::protocol::shadowsocks::make_udp_relay(cfg, tracker);
 
         auto [dec_ec, psk_bytes] = psm::protocol::shadowsocks::format::decode_psk(cfg.psk);
-        EXPECT_TRUE(dec_ec == psm::fault::code::success) << "bad ts: decode psk";
+        EXPECT_EQ(dec_ec, psm::fault::code::success) << "bad ts: decode psk";
 
         std::array<std::uint8_t, 8> session_id{};
         std::array<std::uint8_t, 8> packet_id{};
@@ -421,7 +421,7 @@ namespace
         boost::asio::ip::udp::endpoint sender(
             boost::asio::ip::make_address("127.0.0.1"), 9999);
         auto [ec, result] = relay->decrypt_inbound(packet, sender);
-        EXPECT_TRUE(ec == psm::fault::code::timestamp_expired) << "bad timestamp: timestamp_expired";
+        EXPECT_EQ(ec, psm::fault::code::timestamp_expired) << "bad timestamp: timestamp_expired";
     }
 
 } // namespace

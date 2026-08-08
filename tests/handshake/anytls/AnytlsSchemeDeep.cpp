@@ -32,9 +32,9 @@ namespace
             reinterpret_cast<const std::byte *>(buf.data()), buf.size());
 
         auto [ec, target] = parse_socks_target(span, psm::memory::current_resource());
-        EXPECT_TRUE(ec == psm::fault::code::success) << "parse_socks ipv4: success";
-        EXPECT_TRUE(target.host == "127.0.0.1") << "parse_socks ipv4: host";
-        EXPECT_TRUE(target.port == "80") << "parse_socks ipv4: port";
+        EXPECT_EQ(ec, psm::fault::code::success) << "parse_socks ipv4: success";
+        EXPECT_EQ(target.host, "127.0.0.1") << "parse_socks ipv4: host";
+        EXPECT_EQ(target.port, "80") << "parse_socks ipv4: port";
     }
 
     TEST(AnytlsSchemeDeep, ParseSocksTargetIPv4BadPort)
@@ -48,7 +48,7 @@ namespace
             reinterpret_cast<const std::byte *>(buf.data()), buf.size());
 
         auto [ec, target] = parse_socks_target(span, psm::memory::current_resource());
-        EXPECT_TRUE(ec != psm::fault::code::success) << "parse_socks ipv4: no port → error";
+        EXPECT_NE(ec, psm::fault::code::success) << "parse_socks ipv4: no port → error";
     }
 
     // ─── parse_socks_target: IPv6 ───────────────────
@@ -66,8 +66,8 @@ namespace
             reinterpret_cast<const std::byte *>(buf.data()), buf.size());
 
         auto [ec, target] = parse_socks_target(span, psm::memory::current_resource());
-        EXPECT_TRUE(ec == psm::fault::code::success) << "parse_socks ipv6: success";
-        EXPECT_TRUE(target.port == "80") << "parse_socks ipv6: port";
+        EXPECT_EQ(ec, psm::fault::code::success) << "parse_socks ipv6: success";
+        EXPECT_EQ(target.port, "80") << "parse_socks ipv6: port";
     }
 
     // ─── parse_socks_target: Domain ─────────────────
@@ -88,9 +88,9 @@ namespace
             reinterpret_cast<const std::byte *>(buf.data()), buf.size());
 
         auto [ec, target] = parse_socks_target(span, psm::memory::current_resource());
-        EXPECT_TRUE(ec == psm::fault::code::success) << "parse_socks domain: success";
-        EXPECT_TRUE(target.host == "example.com") << "parse_socks domain: host";
-        EXPECT_TRUE(target.port == "80") << "parse_socks domain: port";
+        EXPECT_EQ(ec, psm::fault::code::success) << "parse_socks domain: success";
+        EXPECT_EQ(target.host, "example.com") << "parse_socks domain: host";
+        EXPECT_EQ(target.port, "80") << "parse_socks domain: port";
     }
 
     // ─── parse_socks_target: 空输入 ─────────────────
@@ -99,7 +99,7 @@ namespace
     {
         auto span = std::span<const std::byte>();
         auto [ec, target] = parse_socks_target(span, psm::memory::current_resource());
-        EXPECT_TRUE(ec == psm::fault::code::bad_message) << "parse_socks: empty → bad_message";
+        EXPECT_EQ(ec, psm::fault::code::bad_message) << "parse_socks: empty → bad_message";
     }
 
     // ─── parse_socks_target: 无效 atyp ───────────────
@@ -113,7 +113,7 @@ namespace
             reinterpret_cast<const std::byte *>(buf.data()), buf.size());
 
         auto [ec, target] = parse_socks_target(span, psm::memory::current_resource());
-        EXPECT_TRUE(ec == psm::fault::code::bad_message) << "parse_socks: bad atyp → bad_message";
+        EXPECT_EQ(ec, psm::fault::code::bad_message) << "parse_socks: bad atyp → bad_message";
     }
 
     // ─── build_user_map / verify_user ───────────────
@@ -127,7 +127,7 @@ namespace
         users.push_back(u);
 
         auto map = build_user_map(users);
-        EXPECT_TRUE(map.size() == 1) << "user_map: size=1";
+        EXPECT_EQ(map.size(), 1) << "user_map: size=1";
 
         // 构造正确的 auth_frame
         auth_frame frame{};
@@ -137,8 +137,8 @@ namespace
         std::memcpy(frame.password_hash.data(), digest.data(), 32);
 
         auto result = verify_user(frame, users, nullptr);
-        EXPECT_TRUE(result != nullptr) << "verify_user: correct password → found";
-        EXPECT_TRUE(*result == "testuser") << "verify_user: username matches";
+        EXPECT_NE(result, nullptr) << "verify_user: correct password → found";
+        EXPECT_EQ(*result, "testuser") << "verify_user: username matches";
     }
 
     TEST(AnytlsSchemeDeep, VerifyUserWrongPassword)
@@ -157,7 +157,7 @@ namespace
         std::memcpy(frame.password_hash.data(), digest.data(), 32);
 
         auto result = verify_user(frame, users, nullptr);
-        EXPECT_TRUE(result == nullptr) << "verify_user: wrong password → nullptr";
+        EXPECT_EQ(result, nullptr) << "verify_user: wrong password → nullptr";
     }
 
     TEST(AnytlsSchemeDeep, VerifyUserEmptyUsers)
@@ -165,7 +165,7 @@ namespace
         psm::memory::vector<user> users(psm::memory::current_resource());
         auth_frame frame{};
         auto result = verify_user(frame, users, nullptr);
-        EXPECT_TRUE(result == nullptr) << "verify_user: empty users → nullptr";
+        EXPECT_EQ(result, nullptr) << "verify_user: empty users → nullptr";
     }
 
     TEST(AnytlsSchemeDeep, BuildUserMapMultiple)
@@ -180,7 +180,7 @@ namespace
         }
 
         auto map = build_user_map(users);
-        EXPECT_TRUE(map.size() == 5) << "user_map: 5 users → size=5";
+        EXPECT_EQ(map.size(), 5) << "user_map: 5 users → size=5";
     }
 
     // ─── sha256_hash ────────────────────────────────
@@ -198,7 +198,7 @@ namespace
 
         auto h1 = hasher(key1);
         auto h2 = hasher(key2);
-        EXPECT_TRUE(h1 == h2) << "sha256_hash: same input → same hash";
+        EXPECT_EQ(h1, h2) << "sha256_hash: same input → same hash";
     }
 
     TEST(AnytlsSchemeDeep, Sha256HashDifferent)
@@ -210,7 +210,7 @@ namespace
 
         auto h1 = hasher(key1);
         auto h2 = hasher(key2);
-        EXPECT_TRUE(h1 != h2) << "sha256_hash: different input → different hash";
+        EXPECT_NE(h1, h2) << "sha256_hash: different input → different hash";
     }
 
     // ─── scheme 公共方法 ────────────────────────────
@@ -218,10 +218,10 @@ namespace
     TEST(AnytlsSchemeDeep, SchemePublicMethods)
     {
         scheme s;
-        EXPECT_TRUE(s.name() == "anytls") << "scheme: name=anytls";
+        EXPECT_EQ(s.name(), "anytls") << "scheme: name=anytls";
 
         auto guess = s.guess(psm::settings{});
-        EXPECT_TRUE(guess.score == 100) << "scheme: guess score=100";
+        EXPECT_EQ(guess.score, 100) << "scheme: guess score=100";
 
         psm::settings cfg;
         // 未启用 anytls

@@ -44,7 +44,7 @@ namespace
         data.push_back(0x01);
         data.push_back(0x23);
         auto val = read_u16(data, 0);
-        EXPECT_TRUE(val == 0x0123) << "read_u16: basic value";
+        EXPECT_EQ(val, 0x0123) << "read_u16: basic value";
     }
 
     TEST(TlsHelloDeep, ReadU16Max)
@@ -53,7 +53,7 @@ namespace
         data.push_back(0xFF);
         data.push_back(0xFF);
         auto val = read_u16(data, 0);
-        EXPECT_TRUE(val == 0xFFFF) << "read_u16: max value";
+        EXPECT_EQ(val, 0xFFFF) << "read_u16: max value";
     }
 
     TEST(TlsHelloDeep, ReadU16Zero)
@@ -62,7 +62,7 @@ namespace
         data.push_back(0x00);
         data.push_back(0x00);
         auto val = read_u16(data, 0);
-        EXPECT_TRUE(val == 0) << "read_u16: zero";
+        EXPECT_EQ(val, 0) << "read_u16: zero";
     }
 
     TEST(TlsHelloDeep, ReadU16AtOffset)
@@ -73,7 +73,7 @@ namespace
         data.push_back(0xAB);
         data.push_back(0xCD);
         auto val = read_u16(data, 2);
-        EXPECT_TRUE(val == 0xABCD) << "read_u16: at offset 2";
+        EXPECT_EQ(val, 0xABCD) << "read_u16: at offset 2";
     }
 
     // ─── read_u24 ──────────────────────────────────────
@@ -85,7 +85,7 @@ namespace
         data.push_back(0x23);
         data.push_back(0x45);
         auto val = read_u24(data, 0);
-        EXPECT_TRUE(val == 0x012345) << "read_u24: basic value";
+        EXPECT_EQ(val, 0x012345) << "read_u24: basic value";
     }
 
     TEST(TlsHelloDeep, ReadU24Max)
@@ -95,7 +95,7 @@ namespace
         data.push_back(0xFF);
         data.push_back(0xFF);
         auto val = read_u24(data, 0);
-        EXPECT_TRUE(val == 0xFFFFFF) << "read_u24: max value";
+        EXPECT_EQ(val, 0xFFFFFF) << "read_u24: max value";
     }
 
     TEST(TlsHelloDeep, ReadU24Zero)
@@ -105,7 +105,7 @@ namespace
         data.push_back(0x00);
         data.push_back(0x00);
         auto val = read_u24(data, 0);
-        EXPECT_TRUE(val == 0) << "read_u24: zero";
+        EXPECT_EQ(val, 0) << "read_u24: zero";
     }
 
     // ─── parse_sni ─────────────────────────────────────
@@ -125,7 +125,7 @@ namespace
         psm::memory::string sni(psm::memory::current_resource());
         auto span = std::span<const std::uint8_t>(ext.data(), ext.size());
         parse_sni(span, sni);
-        EXPECT_TRUE(sni == "example.com") << "parse_sni: hostname extracted";
+        EXPECT_EQ(sni, "example.com") << "parse_sni: hostname extracted";
     }
 
     TEST(TlsHelloDeep, ParseSniEmptyExt)
@@ -184,7 +184,7 @@ namespace
         psm::memory::string sni(psm::memory::current_resource());
         auto span = std::span<const std::uint8_t>(ext.data(), ext.size());
         parse_sni(span, sni);
-        EXPECT_TRUE(sni == "test.io") << "parse_sni: mixed types -> hostname found";
+        EXPECT_EQ(sni, "test.io") << "parse_sni: mixed types -> hostname found";
     }
 
     TEST(TlsHelloDeep, ParseSniTruncatedNameLen)
@@ -244,8 +244,8 @@ namespace
         auto span = std::span<const std::uint8_t>(ext.data(), ext.size());
         parse_keyshare(span, has_key, key);
         EXPECT_TRUE(has_key) << "parse_keyshare: X25519 found";
-        EXPECT_TRUE(key[0] == 1) << "parse_keyshare: X25519 key[0]=1";
-        EXPECT_TRUE(key[31] == 32) << "parse_keyshare: X25519 key[31]=32";
+        EXPECT_EQ(key[0], 1) << "parse_keyshare: X25519 key[0]=1";
+        EXPECT_EQ(key[31], 32) << "parse_keyshare: X25519 key[31]=32";
     }
 
     TEST(TlsHelloDeep, ParseKeyshareMlKem)
@@ -262,8 +262,8 @@ namespace
         auto span = std::span<const std::uint8_t>(ext.data(), ext.size());
         parse_keyshare(span, has_key, key);
         EXPECT_TRUE(has_key) << "parse_keyshare: ML-KEM found";
-        EXPECT_TRUE(key[0] == 0) << "parse_keyshare: ML-KEM key[0]";
-        EXPECT_TRUE(key[31] == 31) << "parse_keyshare: ML-KEM key[31]";
+        EXPECT_EQ(key[0], 0) << "parse_keyshare: ML-KEM key[0]";
+        EXPECT_EQ(key[31], 31) << "parse_keyshare: ML-KEM key[31]";
     }
 
     TEST(TlsHelloDeep, ParseKeyshareEmpty)
@@ -344,7 +344,7 @@ namespace
         auto span = std::span<const std::uint8_t>(ext.data(), ext.size());
         parse_keyshare(span, has_key, key);
         EXPECT_TRUE(has_key) << "parse_keyshare: multiple entries -> X25519 found";
-        EXPECT_TRUE(key[0] == 10) << "parse_keyshare: second entry key[0]";
+        EXPECT_EQ(key[0], 10) << "parse_keyshare: second entry key[0]";
     }
 
     // ─── parse_versions ────────────────────────────────
@@ -359,9 +359,9 @@ namespace
         psm::memory::vector<std::uint16_t> versions(psm::memory::current_resource());
         auto span = std::span<const std::uint8_t>(ext.data(), ext.size());
         parse_versions(span, versions);
-        EXPECT_TRUE(versions.size() == 2) << "parse_versions: 2 versions";
-        EXPECT_TRUE(versions[0] == ptls::VERSION_TLS12) << "parse_versions: TLS 1.2";
-        EXPECT_TRUE(versions[1] == ptls::VERSION_TLS13) << "parse_versions: TLS 1.3";
+        EXPECT_EQ(versions.size(), 2) << "parse_versions: 2 versions";
+        EXPECT_EQ(versions[0], ptls::VERSION_TLS12) << "parse_versions: TLS 1.2";
+        EXPECT_EQ(versions[1], ptls::VERSION_TLS13) << "parse_versions: TLS 1.3";
     }
 
     TEST(TlsHelloDeep, ParseVersionsEmpty)
@@ -383,7 +383,7 @@ namespace
         psm::memory::vector<std::uint16_t> versions(psm::memory::current_resource());
         auto span = std::span<const std::uint8_t>(ext.data(), ext.size());
         parse_versions(span, versions);
-        EXPECT_TRUE(versions.size() == 1) << "parse_versions: odd list -> 1 version";
+        EXPECT_EQ(versions.size(), 1) << "parse_versions: odd list -> 1 version";
     }
 
     TEST(TlsHelloDeep, ParseVersionsSingleByteList)
@@ -449,9 +449,9 @@ namespace
         auto span = std::span<const std::uint8_t>(full_ext.data(), full_ext.size());
         parse_exts(span, state);
 
-        EXPECT_TRUE(sni == "ext.test") << "parse_exts: SNI parsed";
+        EXPECT_EQ(sni, "ext.test") << "parse_exts: SNI parsed";
         EXPECT_TRUE(has_key) << "parse_exts: key found";
-        EXPECT_TRUE(versions.size() == 1) << "parse_exts: 1 version";
+        EXPECT_EQ(versions.size(), 1) << "parse_exts: 1 version";
     }
 
     TEST(TlsHelloDeep, ParseExtsEmpty)
@@ -523,7 +523,7 @@ namespace
         psm::memory::vector<std::uint8_t> raw(44, static_cast<std::uint8_t>(0x17)); // 非 CT_HANDSHAKE
         raw[0] = 0x17; // Application Data
         auto [ec, ch] = client_hello::from_bytes(raw);
-        EXPECT_TRUE(ec == psm::fault::code::recorderr) << "from_bytes: bad content type -> error";
+        EXPECT_EQ(ec, psm::fault::code::recorderr) << "from_bytes: bad content type -> error";
     }
 
     TEST(TlsHelloDeep, FromBytesBodyTooLarge)
@@ -534,7 +534,7 @@ namespace
         raw[3] = 0xFF;
         raw[4] = 0xFF;
         auto [ec, ch] = client_hello::from_bytes(raw);
-        EXPECT_TRUE(ec == psm::fault::code::recorderr) << "from_bytes: body too large -> error";
+        EXPECT_EQ(ec, psm::fault::code::recorderr) << "from_bytes: body too large -> error";
     }
 
     TEST(TlsHelloDeep, FromBytesBadHandshakeType)
@@ -546,7 +546,7 @@ namespace
         raw[4] = 39;
         raw[5] = 0x02; // HS_SERVER_HELLO 而非 HS_CLIENT_HELLO
         auto [ec, ch] = client_hello::from_bytes(raw);
-        EXPECT_TRUE(ec == psm::fault::code::recorderr) << "from_bytes: bad handshake type -> error";
+        EXPECT_EQ(ec, psm::fault::code::recorderr) << "from_bytes: bad handshake type -> error";
     }
 
     TEST(TlsHelloDeep, FromBytesHandshakeLenOverflow)
@@ -561,7 +561,7 @@ namespace
         raw[7] = 0xFF;
         raw[8] = 0xFF;
         auto [ec, ch] = client_hello::from_bytes(raw);
-        EXPECT_TRUE(ec == psm::fault::code::recorderr) << "from_bytes: handshake len overflow -> error";
+        EXPECT_EQ(ec, psm::fault::code::recorderr) << "from_bytes: handshake len overflow -> error";
     }
 
     TEST(TlsHelloDeep, FromBytesSessionIdOutOfRange)
@@ -586,7 +586,7 @@ namespace
         raw.insert(raw.end(), body.begin(), body.end());
 
         auto [ec, ch] = client_hello::from_bytes(raw);
-        EXPECT_TRUE(ec == psm::fault::code::recorderr) << "from_bytes: sid out of range -> error";
+        EXPECT_EQ(ec, psm::fault::code::recorderr) << "from_bytes: sid out of range -> error";
     }
 
     TEST(TlsHelloDeep, FromBytesOddCipherLen)
@@ -615,7 +615,7 @@ namespace
         raw.insert(raw.end(), body.begin(), body.end());
 
         auto [ec, ch] = client_hello::from_bytes(raw);
-        EXPECT_TRUE(ec == psm::fault::code::recorderr) << "from_bytes: odd cipher_len -> error";
+        EXPECT_EQ(ec, psm::fault::code::recorderr) << "from_bytes: odd cipher_len -> error";
     }
 
     TEST(TlsHelloDeep, FromBytesCompLenOverflow)
@@ -641,7 +641,7 @@ namespace
         raw.insert(raw.end(), body.begin(), body.end());
 
         auto [ec, ch] = client_hello::from_bytes(raw);
-        EXPECT_TRUE(ec == psm::fault::code::recorderr) << "from_bytes: comp_len overflow -> error";
+        EXPECT_EQ(ec, psm::fault::code::recorderr) << "from_bytes: comp_len overflow -> error";
     }
 
     TEST(TlsHelloDeep, FromBytesWithExtensions)
@@ -706,20 +706,20 @@ namespace
         raw.insert(raw.end(), body.begin(), body.end());
 
         auto [ec, ch] = client_hello::from_bytes(raw);
-        EXPECT_TRUE(ec == psm::fault::code::success) << "from_bytes: full hello -> success";
-        EXPECT_TRUE(ch.sni() == "deep.test") << "from_bytes: sni";
+        EXPECT_EQ(ec, psm::fault::code::success) << "from_bytes: full hello -> success";
+        EXPECT_EQ(ch.sni(), "deep.test") << "from_bytes: sni";
         EXPECT_TRUE(ch.has_x25519()) << "from_bytes: has_x25519";
-        EXPECT_TRUE(ch.x25519_key()[0] == 100) << "from_bytes: key[0]=100";
-        EXPECT_TRUE(ch.versions().size() == 2) << "from_bytes: 2 versions";
-        EXPECT_TRUE(ch.session_id().size() == 4) << "from_bytes: session_id len=4";
-        EXPECT_TRUE(ch.random()[0] == 0) << "from_bytes: random[0]=0";
-        EXPECT_TRUE(ch.random()[31] == 31) << "from_bytes: random[31]=31";
+        EXPECT_EQ(ch.x25519_key()[0], 100) << "from_bytes: key[0]=100";
+        EXPECT_EQ(ch.versions().size(), 2) << "from_bytes: 2 versions";
+        EXPECT_EQ(ch.session_id().size(), 4) << "from_bytes: session_id len=4";
+        EXPECT_EQ(ch.random()[0], 0) << "from_bytes: random[0]=0";
+        EXPECT_EQ(ch.random()[31], 31) << "from_bytes: random[31]=31";
 
         auto feat = ch.to_features();
-        EXPECT_TRUE(feat.server_name == "deep.test") << "to_features: server_name";
-        EXPECT_TRUE(feat.session_id_len == 4) << "to_features: session_id_len=4";
+        EXPECT_EQ(feat.server_name, "deep.test") << "to_features: server_name";
+        EXPECT_EQ(feat.session_id_len, 4) << "to_features: session_id_len=4";
         EXPECT_TRUE(feat.has_x25519) << "to_features: has_x25519";
-        EXPECT_TRUE(feat.versions.size() == 2) << "to_features: 2 versions";
+        EXPECT_EQ(feat.versions.size(), 2) << "to_features: 2 versions";
     }
 
     TEST(TlsHelloDeep, FromBytesRandomOverflow)
@@ -746,7 +746,7 @@ namespace
         raw[4] = static_cast<std::uint8_t>(body.size() & 0xFF);
 
         auto [ec, ch] = client_hello::from_bytes(raw);
-        EXPECT_TRUE(ec == psm::fault::code::recorderr) << "from_bytes: random overflow -> error";
+        EXPECT_EQ(ec, psm::fault::code::recorderr) << "from_bytes: random overflow -> error";
     }
 
     TEST(TlsHelloDeep, FromBytesSidLenOverflow)
@@ -770,7 +770,7 @@ namespace
         raw.insert(raw.end(), body.begin(), body.end());
 
         auto [ec, ch] = client_hello::from_bytes(raw);
-        EXPECT_TRUE(ec == psm::fault::code::recorderr) << "from_bytes: sid overflow -> error";
+        EXPECT_EQ(ec, psm::fault::code::recorderr) << "from_bytes: sid overflow -> error";
     }
 
 } // namespace

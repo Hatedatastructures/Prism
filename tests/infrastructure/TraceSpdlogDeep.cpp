@@ -26,88 +26,88 @@ namespace
     TEST(TraceSpdlogDeep, ParseLevelTrace)
     {
         auto level = psm::diagnose::parse_spdlog_level("trace");
-        EXPECT_TRUE(level == spdlog::level::trace) << "parse_level: trace";
+        EXPECT_EQ(level, spdlog::level::trace) << "parse_level: trace";
     }
 
     TEST(TraceSpdlogDeep, ParseLevelDebug)
     {
         auto level = psm::diagnose::parse_spdlog_level("debug");
-        EXPECT_TRUE(level == spdlog::level::debug) << "parse_level: debug";
+        EXPECT_EQ(level, spdlog::level::debug) << "parse_level: debug";
     }
 
     TEST(TraceSpdlogDeep, ParseLevelInfo)
     {
         auto level = psm::diagnose::parse_spdlog_level("info");
-        EXPECT_TRUE(level == spdlog::level::info) << "parse_level: info";
+        EXPECT_EQ(level, spdlog::level::info) << "parse_level: info";
     }
 
     TEST(TraceSpdlogDeep, ParseLevelWarn)
     {
         auto level = psm::diagnose::parse_spdlog_level("warn");
-        EXPECT_TRUE(level == spdlog::level::warn) << "parse_level: warn";
+        EXPECT_EQ(level, spdlog::level::warn) << "parse_level: warn";
     }
 
     TEST(TraceSpdlogDeep, ParseLevelWarning)
     {
         auto level = psm::diagnose::parse_spdlog_level("warning");
-        EXPECT_TRUE(level == spdlog::level::warn) << "parse_level: warning -> warn";
+        EXPECT_EQ(level, spdlog::level::warn) << "parse_level: warning -> warn";
     }
 
     TEST(TraceSpdlogDeep, ParseLevelError)
     {
         auto level = psm::diagnose::parse_spdlog_level("error");
-        EXPECT_TRUE(level == spdlog::level::err) << "parse_level: error -> err";
+        EXPECT_EQ(level, spdlog::level::err) << "parse_level: error -> err";
     }
 
     TEST(TraceSpdlogDeep, ParseLevelErr)
     {
         auto level = psm::diagnose::parse_spdlog_level("err");
-        EXPECT_TRUE(level == spdlog::level::err) << "parse_level: err";
+        EXPECT_EQ(level, spdlog::level::err) << "parse_level: err";
     }
 
     TEST(TraceSpdlogDeep, ParseLevelCritical)
     {
         auto level = psm::diagnose::parse_spdlog_level("critical");
-        EXPECT_TRUE(level == spdlog::level::critical) << "parse_level: critical";
+        EXPECT_EQ(level, spdlog::level::critical) << "parse_level: critical";
     }
 
     TEST(TraceSpdlogDeep, ParseLevelFatal)
     {
         auto level = psm::diagnose::parse_spdlog_level("fatal");
-        EXPECT_TRUE(level == spdlog::level::critical) << "parse_level: fatal -> critical";
+        EXPECT_EQ(level, spdlog::level::critical) << "parse_level: fatal -> critical";
     }
 
     TEST(TraceSpdlogDeep, ParseLevelOff)
     {
         auto level = psm::diagnose::parse_spdlog_level("off");
-        EXPECT_TRUE(level == spdlog::level::off) << "parse_level: off";
+        EXPECT_EQ(level, spdlog::level::off) << "parse_level: off";
     }
 
     TEST(TraceSpdlogDeep, ParseLevelUnknown)
     {
         auto level = psm::diagnose::parse_spdlog_level("unknown_level");
-        EXPECT_TRUE(level == spdlog::level::info) << "parse_level: unknown -> info";
+        EXPECT_EQ(level, spdlog::level::info) << "parse_level: unknown -> info";
     }
 
     TEST(TraceSpdlogDeep, ParseLevelEmpty)
     {
         auto level = psm::diagnose::parse_spdlog_level("");
-        EXPECT_TRUE(level == spdlog::level::info) << "parse_level: empty -> info";
+        EXPECT_EQ(level, spdlog::level::info) << "parse_level: empty -> info";
     }
 
     TEST(TraceSpdlogDeep, ParseLevelCaseInsensitive)
     {
         auto t = psm::diagnose::parse_spdlog_level("TRACE");
-        EXPECT_TRUE(t == spdlog::level::trace) << "parse_level: TRACE upper";
+        EXPECT_EQ(t, spdlog::level::trace) << "parse_level: TRACE upper";
 
         auto d = psm::diagnose::parse_spdlog_level("Debug");
-        EXPECT_TRUE(d == spdlog::level::debug) << "parse_level: Debug mixed";
+        EXPECT_EQ(d, spdlog::level::debug) << "parse_level: Debug mixed";
 
         auto w = psm::diagnose::parse_spdlog_level("WARNING");
-        EXPECT_TRUE(w == spdlog::level::warn) << "parse_level: WARNING upper";
+        EXPECT_EQ(w, spdlog::level::warn) << "parse_level: WARNING upper";
 
         auto c = psm::diagnose::parse_spdlog_level("Critical");
-        EXPECT_TRUE(c == spdlog::level::critical) << "parse_level: Critical mixed";
+        EXPECT_EQ(c, spdlog::level::critical) << "parse_level: Critical mixed";
     }
 
     // ─── build_log_path 测试 ──────────────────
@@ -118,7 +118,7 @@ namespace
         cfg.path_name = "";
         cfg.file_name = "test.log";
         auto path = psm::diagnose::build_log_path(cfg);
-        EXPECT_TRUE(path.filename().string() == "test.log")
+        EXPECT_EQ(path.filename().string(), "test.log")
                      << "build_log_path: empty path_name -> just file_name";
     }
 
@@ -128,9 +128,9 @@ namespace
         cfg.path_name = "logs";
         cfg.file_name = "app.log";
         auto path = psm::diagnose::build_log_path(cfg);
-        EXPECT_TRUE(path.parent_path().string() == "logs")
+        EXPECT_EQ(path.parent_path().string(), "logs")
                      << "build_log_path: has parent directory";
-        EXPECT_TRUE(path.filename().string() == "app.log")
+        EXPECT_EQ(path.filename().string(), "app.log")
                      << "build_log_path: file_name correct";
     }
 
@@ -141,7 +141,7 @@ namespace
         cfg.file_name = "out.log";
         auto path = psm::diagnose::build_log_path(cfg);
         EXPECT_TRUE(!path.empty()) << "build_log_path: nested path non-empty";
-        EXPECT_TRUE(path.filename().string() == "out.log")
+        EXPECT_EQ(path.filename().string(), "out.log")
                      << "build_log_path: nested file_name correct";
     }
 
@@ -176,9 +176,9 @@ namespace
         psm::diagnose::mdc_set("id", "200");
 
         auto prefix = psm::diagnose::build_mdc_prefix();
-        EXPECT_TRUE(prefix.find("id=200") != std::string::npos)
+        EXPECT_NE(prefix.find("id=200"), std::string::npos)
                      << "mdc: overwrite key -> latest value";
-        EXPECT_TRUE(prefix.find("id=100") == std::string::npos)
+        EXPECT_EQ(prefix.find("id=100"), std::string::npos)
                      << "mdc: overwrite key -> old value gone";
         psm::diagnose::mdc_clear();
     }
@@ -197,7 +197,7 @@ namespace
     {
         psm::diagnose::init({});
         auto logger = psm::diagnose::recorder();
-        EXPECT_TRUE(logger != nullptr) << "recorder: non-null after init";
+        EXPECT_NE(logger, nullptr) << "recorder: non-null after init";
     }
 
     TEST(TraceSpdlogDeep, RecorderWithCustomConfig)
@@ -209,7 +209,7 @@ namespace
         psm::diagnose::init(cfg);
 
         auto logger = psm::diagnose::recorder();
-        EXPECT_TRUE(logger != nullptr) << "recorder: non-null with console-only config";
+        EXPECT_NE(logger, nullptr) << "recorder: non-null with console-only config";
     }
 
 } // namespace

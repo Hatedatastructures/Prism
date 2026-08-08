@@ -105,7 +105,7 @@ namespace
         headers.authority = string("host:8080");
 
         auto info = psm::handshake::trusttunnel::resolve_stream_target(1, headers);
-        EXPECT_TRUE(info.type == psm::multiplex::h2mux::stream_type::check)
+        EXPECT_EQ(info.type, psm::multiplex::h2mux::stream_type::check)
             << "resolve: _check host -> check type";
         EXPECT_TRUE(info.valid) << "resolve: _check host -> valid";
     }
@@ -117,7 +117,7 @@ namespace
         headers.authority = string("host:443");
 
         auto info = psm::handshake::trusttunnel::resolve_stream_target(3, headers);
-        EXPECT_TRUE(info.type == psm::multiplex::h2mux::stream_type::udp)
+        EXPECT_EQ(info.type, psm::multiplex::h2mux::stream_type::udp)
             << "resolve: _udp2 host -> udp type";
     }
 
@@ -128,7 +128,7 @@ namespace
         headers.authority = string("host:443");
 
         auto info = psm::handshake::trusttunnel::resolve_stream_target(5, headers);
-        EXPECT_TRUE(info.type == psm::multiplex::h2mux::stream_type::icmp)
+        EXPECT_EQ(info.type, psm::multiplex::h2mux::stream_type::icmp)
             << "resolve: _icmp host -> icmp type";
     }
 
@@ -139,13 +139,13 @@ namespace
         headers.authority = string("example.com:8443");
 
         auto info = psm::handshake::trusttunnel::resolve_stream_target(7, headers);
-        EXPECT_TRUE(info.type == psm::multiplex::h2mux::stream_type::tcp)
+        EXPECT_EQ(info.type, psm::multiplex::h2mux::stream_type::tcp)
             << "resolve: normal host -> tcp type";
         EXPECT_TRUE(info.valid) << "resolve: valid host:port -> valid";
         // 检查 host 和 port 解析
         auto info_host = std::string_view(info.host.data(), info.host.size());
-        EXPECT_TRUE(info_host == "example.com") << "resolve: host parsed correctly";
-        EXPECT_TRUE(info.port == 8443) << "resolve: port parsed correctly";
+        EXPECT_EQ(info_host, "example.com") << "resolve: host parsed correctly";
+        EXPECT_EQ(info.port, 8443) << "resolve: port parsed correctly";
     }
 
     TEST(TrustTunnelSchemeDeep, ResolveStreamTargetNoPort)
@@ -155,7 +155,7 @@ namespace
         headers.authority = string("example.com");
 
         auto info = psm::handshake::trusttunnel::resolve_stream_target(9, headers);
-        EXPECT_TRUE(info.type == psm::multiplex::h2mux::stream_type::tcp)
+        EXPECT_EQ(info.type, psm::multiplex::h2mux::stream_type::tcp)
             << "resolve: no port -> tcp type";
         EXPECT_TRUE(!info.valid) << "resolve: no port -> not valid";
     }
@@ -177,7 +177,7 @@ namespace
         headers.authority = string("");
 
         auto info = psm::handshake::trusttunnel::resolve_stream_target(13, headers);
-        EXPECT_TRUE(info.type == psm::multiplex::h2mux::stream_type::tcp)
+        EXPECT_EQ(info.type, psm::multiplex::h2mux::stream_type::tcp)
             << "resolve: empty authority -> tcp type";
         EXPECT_TRUE(!info.valid) << "resolve: empty authority -> not valid";
     }
@@ -187,13 +187,13 @@ namespace
     TEST(TrustTunnelSchemeDeep, SchemeName)
     {
         tt::scheme s;
-        EXPECT_TRUE(s.name() == "trusttunnel") << "scheme: name == trusttunnel";
+        EXPECT_EQ(s.name(), "trusttunnel") << "scheme: name == trusttunnel";
     }
 
     TEST(TrustTunnelSchemeDeep, SchemeTier)
     {
         tt::scheme s;
-        EXPECT_TRUE(s.tier() == 2) << "scheme: tier == 2";
+        EXPECT_EQ(s.tier(), 2) << "scheme: tier == 2";
     }
 
     TEST(TrustTunnelSchemeDeep, SchemeUnique)
@@ -205,7 +205,7 @@ namespace
     TEST(TrustTunnelSchemeDeep, SchemeCategory)
     {
         tt::scheme s;
-        EXPECT_TRUE(s.category() == psm::handshake::scheme_category::stack)
+        EXPECT_EQ(s.category(), psm::handshake::scheme_category::stack)
             << "scheme: category == stack";
     }
 
@@ -213,7 +213,7 @@ namespace
     {
         tt::scheme s;
         // weight() 是 protected，通过 guess 间接验证 scheme 存在即可
-        EXPECT_TRUE(s.tier() == 2) << "scheme: accessible methods work";
+        EXPECT_EQ(s.tier(), 2) << "scheme: accessible methods work";
     }
 
     TEST(TrustTunnelSchemeDeep, SchemeActiveEnabled)
@@ -241,7 +241,7 @@ namespace
         cfg.stealth.trusttunnel.server_names.push_back(string("a.com"));
         cfg.stealth.trusttunnel.server_names.push_back(string("b.com"));
         auto snis = s.snis(cfg);
-        EXPECT_TRUE(snis.size() == 2) << "scheme: snis size == 2";
+        EXPECT_EQ(snis.size(), 2) << "scheme: snis size == 2";
     }
 
     TEST(TrustTunnelSchemeDeep, SchemeGuess)
@@ -249,7 +249,7 @@ namespace
         tt::scheme s;
         psm::settings cfg;
         auto result = s.guess(cfg);
-        EXPECT_TRUE(result.score == 100) << "scheme: guess score == 100";
+        EXPECT_EQ(result.score, 100) << "scheme: guess score == 100";
     }
 
     // ─── config::enabled() 测试 ─────────────

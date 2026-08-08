@@ -23,32 +23,32 @@ namespace
 
     TEST(RealityAuthDeep, HexDigitDigits)
     {
-        EXPECT_TRUE(hex_digit('0') == 0) << "hex_digit: '0' -> 0";
-        EXPECT_TRUE(hex_digit('9') == 9) << "hex_digit: '9' -> 9";
-        EXPECT_TRUE(hex_digit('5') == 5) << "hex_digit: '5' -> 5";
+        EXPECT_EQ(hex_digit('0'), 0) << "hex_digit: '0' -> 0";
+        EXPECT_EQ(hex_digit('9'), 9) << "hex_digit: '9' -> 9";
+        EXPECT_EQ(hex_digit('5'), 5) << "hex_digit: '5' -> 5";
     }
 
     TEST(RealityAuthDeep, HexDigitLowerHex)
     {
-        EXPECT_TRUE(hex_digit('a') == 10) << "hex_digit: 'a' -> 10";
-        EXPECT_TRUE(hex_digit('f') == 15) << "hex_digit: 'f' -> 15";
+        EXPECT_EQ(hex_digit('a'), 10) << "hex_digit: 'a' -> 10";
+        EXPECT_EQ(hex_digit('f'), 15) << "hex_digit: 'f' -> 15";
     }
 
     TEST(RealityAuthDeep, HexDigitUpperHex)
     {
-        EXPECT_TRUE(hex_digit('A') == 10) << "hex_digit: 'A' -> 10";
-        EXPECT_TRUE(hex_digit('F') == 15) << "hex_digit: 'F' -> 15";
+        EXPECT_EQ(hex_digit('A'), 10) << "hex_digit: 'A' -> 10";
+        EXPECT_EQ(hex_digit('F'), 15) << "hex_digit: 'F' -> 15";
     }
 
     TEST(RealityAuthDeep, HexDigitInvalid)
     {
-        EXPECT_TRUE(hex_digit('g') == -1) << "hex_digit: 'g' -> -1";
-        EXPECT_TRUE(hex_digit('G') == -1) << "hex_digit: 'G' -> -1";
-        EXPECT_TRUE(hex_digit('z') == -1) << "hex_digit: 'z' -> -1";
-        EXPECT_TRUE(hex_digit('/') == -1) << "hex_digit: '/' -> -1";
-        EXPECT_TRUE(hex_digit(':') == -1) << "hex_digit: ':' -> -1";
-        EXPECT_TRUE(hex_digit(' ') == -1) << "hex_digit: ' ' -> -1";
-        EXPECT_TRUE(hex_digit('\0') == -1) << "hex_digit: NUL -> -1";
+        EXPECT_EQ(hex_digit('g'), -1) << "hex_digit: 'g' -> -1";
+        EXPECT_EQ(hex_digit('G'), -1) << "hex_digit: 'G' -> -1";
+        EXPECT_EQ(hex_digit('z'), -1) << "hex_digit: 'z' -> -1";
+        EXPECT_EQ(hex_digit('/'), -1) << "hex_digit: '/' -> -1";
+        EXPECT_EQ(hex_digit(':'), -1) << "hex_digit: ':' -> -1";
+        EXPECT_EQ(hex_digit(' '), -1) << "hex_digit: ' ' -> -1";
+        EXPECT_EQ(hex_digit('\0'), -1) << "hex_digit: NUL -> -1";
     }
 
     // ─── hex_decode ────────────────────────────────
@@ -62,25 +62,25 @@ namespace
     TEST(RealityAuthDeep, HexDecodeValid)
     {
         auto result = hex_decode("0123456789abcdef");
-        EXPECT_TRUE(result.size() == 8) << "hex_decode: 16 chars -> 8 bytes";
-        EXPECT_TRUE(result[0] == 0x01) << "hex_decode: byte 0 = 0x01";
-        EXPECT_TRUE(result[1] == 0x23) << "hex_decode: byte 1 = 0x23";
-        EXPECT_TRUE(result[7] == 0xEF) << "hex_decode: byte 7 = 0xEF";
+        EXPECT_EQ(result.size(), 8) << "hex_decode: 16 chars -> 8 bytes";
+        EXPECT_EQ(result[0], 0x01) << "hex_decode: byte 0 = 0x01";
+        EXPECT_EQ(result[1], 0x23) << "hex_decode: byte 1 = 0x23";
+        EXPECT_EQ(result[7], 0xEF) << "hex_decode: byte 7 = 0xEF";
     }
 
     TEST(RealityAuthDeep, HexDecodeUpperCase)
     {
         auto result = hex_decode("AABBCCDD");
-        EXPECT_TRUE(result.size() == 4) << "hex_decode: uppercase -> 4 bytes";
-        EXPECT_TRUE(result[0] == 0xAA) << "hex_decode: AA";
-        EXPECT_TRUE(result[1] == 0xBB) << "hex_decode: BB";
+        EXPECT_EQ(result.size(), 4) << "hex_decode: uppercase -> 4 bytes";
+        EXPECT_EQ(result[0], 0xAA) << "hex_decode: AA";
+        EXPECT_EQ(result[1], 0xBB) << "hex_decode: BB";
     }
 
     TEST(RealityAuthDeep, HexDecodeMixedCase)
     {
         auto result = hex_decode("aAbBcCdD");
-        EXPECT_TRUE(result.size() == 4) << "hex_decode: mixed case -> 4 bytes";
-        EXPECT_TRUE(result[0] == 0xAA) << "hex_decode: aA -> 0xAA";
+        EXPECT_EQ(result.size(), 4) << "hex_decode: mixed case -> 4 bytes";
+        EXPECT_EQ(result[0], 0xAA) << "hex_decode: aA -> 0xAA";
     }
 
     TEST(RealityAuthDeep, HexDecodeInvalidChars)
@@ -93,15 +93,15 @@ namespace
     {
         // 奇数长度，只处理前偶数个字符
         auto result = hex_decode("ABC");
-        EXPECT_TRUE(result.size() == 1) << "hex_decode: odd length -> 1 byte";
-        EXPECT_TRUE(result[0] == 0xAB) << "hex_decode: odd -> first byte only";
+        EXPECT_EQ(result.size(), 1) << "hex_decode: odd length -> 1 byte";
+        EXPECT_EQ(result[0], 0xAB) << "hex_decode: odd -> first byte only";
     }
 
     TEST(RealityAuthDeep, HexDecodeSinglePair)
     {
         auto result = hex_decode("FF");
-        EXPECT_TRUE(result.size() == 1) << "hex_decode: single pair -> 1 byte";
-        EXPECT_TRUE(result[0] == 0xFF) << "hex_decode: FF -> 0xFF";
+        EXPECT_EQ(result.size(), 1) << "hex_decode: single pair -> 1 byte";
+        EXPECT_EQ(result[0], 0xFF) << "hex_decode: FF -> 0xFF";
     }
 
     // ─── match_sni ─────────────────────────────────
@@ -217,7 +217,7 @@ namespace
         hello.session_id.assign(32, 0x42);
 
         auto ec = verify_client_hello(cfg, hello);
-        EXPECT_TRUE(ec == psm::fault::code::success) << "verify: success";
+        EXPECT_EQ(ec, psm::fault::code::success) << "verify: success";
     }
 
     TEST(RealityAuthDeep, VerifyClientHelloSniMismatch)
@@ -231,7 +231,7 @@ namespace
         hello.session_id.assign(32, 0x42);
 
         auto ec = verify_client_hello(cfg, hello);
-        EXPECT_TRUE(ec == psm::fault::code::badsni) << "verify: SNI mismatch -> badsni";
+        EXPECT_EQ(ec, psm::fault::code::badsni) << "verify: SNI mismatch -> badsni";
     }
 
     TEST(RealityAuthDeep, VerifyClientHelloEmptySni)
@@ -246,7 +246,7 @@ namespace
         hello.session_id.assign(32, 0x42);
 
         auto ec = verify_client_hello(cfg, hello);
-        EXPECT_TRUE(ec == psm::fault::code::success) << "verify: empty SNI -> success (skip check)";
+        EXPECT_EQ(ec, psm::fault::code::success) << "verify: empty SNI -> success (skip check)";
     }
 
     TEST(RealityAuthDeep, VerifyClientHelloNoX25519)
@@ -258,7 +258,7 @@ namespace
         hello.session_id.assign(32, 0x42);
 
         auto ec = verify_client_hello(cfg, hello);
-        EXPECT_TRUE(ec == psm::fault::code::unauth) << "verify: no x25519 -> unauth";
+        EXPECT_EQ(ec, psm::fault::code::unauth) << "verify: no x25519 -> unauth";
     }
 
     TEST(RealityAuthDeep, VerifyClientHelloNoTls13)
@@ -270,7 +270,7 @@ namespace
         hello.session_id.assign(32, 0x42);
 
         auto ec = verify_client_hello(cfg, hello);
-        EXPECT_TRUE(ec == psm::fault::code::unauth) << "verify: no TLS 1.3 -> unauth";
+        EXPECT_EQ(ec, psm::fault::code::unauth) << "verify: no TLS 1.3 -> unauth";
     }
 
     TEST(RealityAuthDeep, VerifyClientHelloSessionIdTooShort)
@@ -282,7 +282,7 @@ namespace
         hello.session_id.assign(16, 0x42);
 
         auto ec = verify_client_hello(cfg, hello);
-        EXPECT_TRUE(ec == psm::fault::code::unauth) << "verify: short session_id -> unauth";
+        EXPECT_EQ(ec, psm::fault::code::unauth) << "verify: short session_id -> unauth";
     }
 
     TEST(RealityAuthDeep, VerifyClientHelloNoVersions)
@@ -294,7 +294,7 @@ namespace
         hello.session_id.assign(32, 0x42);
 
         auto ec = verify_client_hello(cfg, hello);
-        EXPECT_TRUE(ec == psm::fault::code::unauth) << "verify: no versions -> unauth";
+        EXPECT_EQ(ec, psm::fault::code::unauth) << "verify: no versions -> unauth";
     }
 
     TEST(RealityAuthDeep, VerifyClientHelloEmptyServerNames)
@@ -309,7 +309,7 @@ namespace
         hello.session_id.assign(32, 0x42);
 
         auto ec = verify_client_hello(cfg, hello);
-        EXPECT_TRUE(ec == psm::fault::code::badsni) << "verify: empty server_names + SNI -> badsni";
+        EXPECT_EQ(ec, psm::fault::code::badsni) << "verify: empty server_names + SNI -> badsni";
     }
 
 } // namespace

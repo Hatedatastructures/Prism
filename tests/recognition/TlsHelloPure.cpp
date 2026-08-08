@@ -102,7 +102,7 @@ namespace
 
         auto [ec, ch] = psm::tls::client_hello::from(rec);
         EXPECT_TRUE(psm::fault::succeeded(ec)) << "from(record): success";
-        EXPECT_TRUE(ch.sni() == "fromrecord.test") << "from(record): sni";
+        EXPECT_EQ(ch.sni(), "fromrecord.test") << "from(record): sni";
         EXPECT_TRUE(ch.has_x25519()) << "from(record): has_x25519";
         EXPECT_TRUE(!ch.versions().empty()) << "from(record): versions";
         EXPECT_TRUE(!ch.raw_record().empty()) << "from(record): raw_record";
@@ -258,12 +258,12 @@ namespace
         EXPECT_TRUE(psm::fault::succeeded(ec)) << "to_features setup: success";
 
         auto feat = ch.to_features();
-        EXPECT_TRUE(feat.session_id_len == 0) << "to_features: session_id_len=0";
-        EXPECT_TRUE(feat.random[0] == 0x00) << "to_features: random[0]=0";
-        EXPECT_TRUE(feat.random[31] == 0x00) << "to_features: random[31]=0";
-        EXPECT_TRUE(feat.has_alpn == false) << "to_features: has_alpn=false";
-        EXPECT_TRUE(feat.has_psk == false) << "to_features: has_psk=false";
-        EXPECT_TRUE(feat.has_ech == false) << "to_features: has_ech=false";
+        EXPECT_EQ(feat.session_id_len, 0) << "to_features: session_id_len=0";
+        EXPECT_EQ(feat.random[0], 0x00) << "to_features: random[0]=0";
+        EXPECT_EQ(feat.random[31], 0x00) << "to_features: random[31]=0";
+        EXPECT_EQ(feat.has_alpn, false) << "to_features: has_alpn=false";
+        EXPECT_EQ(feat.has_psk, false) << "to_features: has_psk=false";
+        EXPECT_EQ(feat.has_ech, false) << "to_features: has_ech=false";
     }
 
     TEST(TlsHelloPure, FromRecordBadPayload)

@@ -79,7 +79,7 @@ namespace
         psm::recognition::detect_input input{0, features, {}, cfg};
         // mock scheme 默认 sniff/verify 不命中，detect 应安全返回（可能空候选）
         auto result = pipeline.detect(input, {});
-        EXPECT_TRUE(result.deterministic_hit == false)
+        EXPECT_EQ(result.deterministic_hit, false)
             << "constructor: tier partition + default mocks -> no deterministic hit";
     }
 
@@ -98,8 +98,8 @@ namespace
 
         auto result = pipeline.detect(input, {});
         // 有 native 兜底 → candidates 不为空
-        EXPECT_TRUE(result.candidates.size() == 1) << "native assignment: 1 candidate";
-        EXPECT_TRUE(result.candidates[0].name == "native") << "native assignment: name=native";
+        EXPECT_EQ(result.candidates.size(), 1) << "native assignment: 1 candidate";
+        EXPECT_EQ(result.candidates[0].name, "native") << "native assignment: name=native";
     }
 
     TEST(DetectionPipeline, Tier0DeterministicHit)
@@ -113,8 +113,8 @@ namespace
         psm::recognition::detect_input input{0, features, {}, cfg};
 
         auto result = pipeline.detect(input, {});
-        EXPECT_TRUE(result.deterministic_hit == true) << "tier0 deterministic: hit=true";
-        EXPECT_TRUE(result.exclusive_scheme == "reality") << "tier0 deterministic: scheme=reality";
+        EXPECT_EQ(result.deterministic_hit, true) << "tier0 deterministic: hit=true";
+        EXPECT_EQ(result.exclusive_scheme, "reality") << "tier0 deterministic: scheme=reality";
     }
 
     TEST(DetectionPipeline, Tier0NonSoloCandidate)
@@ -132,10 +132,10 @@ namespace
         psm::recognition::detect_input input{0, features, {}, cfg};
 
         auto result = pipeline.detect(input, {});
-        EXPECT_TRUE(result.deterministic_hit == false) << "tier0 non-solo: deterministic=false";
+        EXPECT_EQ(result.deterministic_hit, false) << "tier0 non-solo: deterministic=false";
         // tier0 候选在 detect() 中被丢弃，只有 tier2 native 兜底候选
         EXPECT_TRUE(!result.candidates.empty()) << "tier0 non-solo: has candidates from native fallback";
-        EXPECT_TRUE(result.candidates[0].name == "native") << "tier0 non-solo: native candidate";
+        EXPECT_EQ(result.candidates[0].name, "native") << "tier0 non-solo: native candidate";
     }
 
     TEST(DetectionPipeline, Tier1DeterministicHit)
@@ -152,8 +152,8 @@ namespace
         psm::recognition::detect_input input{0, features, {}, cfg};
 
         auto result = pipeline.detect(input, {});
-        EXPECT_TRUE(result.deterministic_hit == true) << "tier1 deterministic: hit=true";
-        EXPECT_TRUE(result.exclusive_scheme == "shadowtls") << "tier1 deterministic: scheme=shadowtls";
+        EXPECT_EQ(result.deterministic_hit, true) << "tier1 deterministic: hit=true";
+        EXPECT_EQ(result.exclusive_scheme, "shadowtls") << "tier1 deterministic: scheme=shadowtls";
     }
 
     TEST(DetectionPipeline, Tier1NonSoloCandidate)
@@ -169,7 +169,7 @@ namespace
         psm::recognition::detect_input input{0, features, {}, cfg};
 
         auto result = pipeline.detect(input, {});
-        EXPECT_TRUE(result.deterministic_hit == false) << "tier1 non-solo: deterministic=false";
+        EXPECT_EQ(result.deterministic_hit, false) << "tier1 non-solo: deterministic=false";
         // tier1 non-solo candidates 不被 detect() 传播，最终空结果
         EXPECT_TRUE(result.candidates.empty()) << "tier1 non-solo: no propagated candidates";
     }
@@ -189,11 +189,11 @@ namespace
 
         // 传入 matched_schemes
         auto result = pipeline.detect(input, {s2a, s2b});
-        EXPECT_TRUE(result.candidates.size() == 2) << "tier2 matched: 2 candidates";
+        EXPECT_EQ(result.candidates.size(), 2) << "tier2 matched: 2 candidates";
         // 排序后高分在前
-        EXPECT_TRUE(result.candidates[0].name == "trusttunnel") << "tier2 matched: sorted by score desc";
-        EXPECT_TRUE(result.candidates[0].score == 90) << "tier2 matched: first score=90";
-        EXPECT_TRUE(result.candidates[1].score == 70) << "tier2 matched: second score=70";
+        EXPECT_EQ(result.candidates[0].name, "trusttunnel") << "tier2 matched: sorted by score desc";
+        EXPECT_EQ(result.candidates[0].score, 90) << "tier2 matched: first score=90";
+        EXPECT_EQ(result.candidates[1].score, 70) << "tier2 matched: second score=70";
     }
 
     TEST(DetectionPipeline, Tier2EmptyNoNative)
@@ -208,7 +208,7 @@ namespace
         // 空 matched_schemes，无 native
         auto result = pipeline.detect(input, {});
         EXPECT_TRUE(result.candidates.empty()) << "tier2 no native: empty candidates";
-        EXPECT_TRUE(result.deterministic_hit == false) << "tier2 no native: deterministic=false";
+        EXPECT_EQ(result.deterministic_hit, false) << "tier2 no native: deterministic=false";
     }
 
     TEST(DetectionPipeline, Tier2EmptyWithNativeFallback)
@@ -223,9 +223,9 @@ namespace
         psm::recognition::detect_input input{0, features, {}, cfg};
 
         auto result = pipeline.detect(input, {});
-        EXPECT_TRUE(result.candidates.size() == 1) << "tier2 native fallback: 1 candidate";
-        EXPECT_TRUE(result.candidates[0].name == "native") << "tier2 native fallback: name=native";
-        EXPECT_TRUE(result.candidates[0].score == 50) << "tier2 native fallback: score=50";
+        EXPECT_EQ(result.candidates.size(), 1) << "tier2 native fallback: 1 candidate";
+        EXPECT_EQ(result.candidates[0].name, "native") << "tier2 native fallback: name=native";
+        EXPECT_EQ(result.candidates[0].score, 50) << "tier2 native fallback: score=50";
     }
 
     TEST(DetectionPipeline, Tier2NativeInactive)
@@ -254,7 +254,7 @@ namespace
         psm::recognition::detect_input input{0, features, {}, cfg};
 
         auto result = pipeline.detect(input, {});
-        EXPECT_TRUE(result.deterministic_hit == false) << "inactive skipped: deterministic=false";
+        EXPECT_EQ(result.deterministic_hit, false) << "inactive skipped: deterministic=false";
     }
 
     TEST(DetectionPipeline, EmptyPipeline)
@@ -266,6 +266,6 @@ namespace
 
         auto result = pipeline.detect(input, {});
         EXPECT_TRUE(result.candidates.empty()) << "empty pipeline: no candidates";
-        EXPECT_TRUE(result.deterministic_hit == false) << "empty pipeline: deterministic=false";
+        EXPECT_EQ(result.deterministic_hit, false) << "empty pipeline: deterministic=false";
     }
 } // namespace

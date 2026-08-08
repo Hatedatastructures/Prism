@@ -49,7 +49,7 @@ namespace
         auto table = psm::recognition::route_table::build(cfg);
 
         EXPECT_TRUE(!table.empty()) << "Route table should not be empty";
-        EXPECT_TRUE(table.registered_snis().size() == 5) << "Should have 5 registered SNIs";
+        EXPECT_EQ(table.registered_snis().size(), 5) << "Should have 5 registered SNIs";
     }
 
     TEST(SchemeRouteTable, Lookup)
@@ -59,13 +59,13 @@ namespace
 
         // 测试 Reality SNI
         auto schemes = table.lookup("reality.example.com");
-        EXPECT_TRUE(schemes.size() == 1) << "Reality SNI should match 1 scheme";
-        EXPECT_TRUE(schemes[0] == "reality") << "Should be reality";
+        EXPECT_EQ(schemes.size(), 1) << "Reality SNI should match 1 scheme";
+        EXPECT_EQ(schemes[0], "reality") << "Should be reality";
 
         // 测试 ShadowTLS SNI
         schemes = table.lookup("shadowtls.example.com");
-        EXPECT_TRUE(schemes.size() == 1) << "ShadowTLS SNI should match 1 scheme";
-        EXPECT_TRUE(schemes[0] == "shadowtls") << "Should be shadowtls";
+        EXPECT_EQ(schemes.size(), 1) << "ShadowTLS SNI should match 1 scheme";
+        EXPECT_EQ(schemes[0], "shadowtls") << "Should be shadowtls";
 
         // 测试未知 SNI
         schemes = table.lookup("unknown.example.com");

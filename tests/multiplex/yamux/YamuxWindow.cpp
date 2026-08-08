@@ -107,10 +107,10 @@ TEST(YamuxWindow, WindowExhaustionBlocksWrite)
         window.send_window.store(100, std::memory_order_release);
 
         EXPECT_TRUE(try_acquire_window(window, 60)) << "WindowExhaustion: acquire 60/100 bytes succeeds";
-        EXPECT_TRUE(window.send_window.load() == 40) << "WindowExhaustion: remaining window is 40";
+        EXPECT_EQ(window.send_window.load(), 40) << "WindowExhaustion: remaining window is 40";
 
         EXPECT_TRUE(try_acquire_window(window, 40)) << "WindowExhaustion: acquire 40/40 bytes succeeds (full drain)";
-        EXPECT_TRUE(window.send_window.load() == 0) << "WindowExhaustion: window is 0 (exhausted)";
+        EXPECT_EQ(window.send_window.load(), 0) << "WindowExhaustion: window is 0 (exhausted)";
 
         EXPECT_TRUE(!try_acquire_window(window, 1)) << "WindowExhaustion: acquire 1 byte fails when window is 0";
     }
@@ -121,7 +121,7 @@ TEST(YamuxWindow, WindowExhaustionBlocksWrite)
         constexpr auto initial = yamux::default_window; // 262144
 
         EXPECT_TRUE(try_acquire_window(window, initial)) << "WindowExhaustion: acquire full 256KB initial window succeeds";
-        EXPECT_TRUE(window.send_window.load() == 0) << "WindowExhaustion: window is 0 after full 256KB drain";
+        EXPECT_EQ(window.send_window.load(), 0) << "WindowExhaustion: window is 0 after full 256KB drain";
 
         EXPECT_TRUE(!try_acquire_window(window, 1)) << "WindowExhaustion: cannot acquire 1 more byte after full drain";
     }
@@ -153,23 +153,23 @@ TEST(YamuxWindow, WindowRecoveryResumesWrite)
 
     // 发送 WindowUpdate 恢复 1024 字节
     apply_window_update(window, 1024);
-    EXPECT_TRUE(window.send_window.load() == 1024) << "WindowRecovery: window restored to 1024";
+    EXPECT_EQ(window.send_window.load(), 1024) << "WindowRecovery: window restored to 1024";
 
     // 恢复后写入成功
     EXPECT_TRUE(try_acquire_window(window, 512)) << "WindowRecovery: acquire 512 bytes succeeds after recovery";
-    EXPECT_TRUE(window.send_window.load() == 512) << "WindowRecovery: remaining window is 512";
+    EXPECT_EQ(window.send_window.load(), 512) << "WindowRecovery: remaining window is 512";
 
     // 多次 WindowUpdate 累加
     apply_window_update(window, 100);
     apply_window_update(window, 200);
-    EXPECT_TRUE(window.send_window.load() == 812) << "WindowRecovery: multiple updates accumulate (512+100+200=812)";
+    EXPECT_EQ(window.send_window.load(), 812) << "WindowRecovery: multiple updates accumulate (512+100+200=812)";
 
     // 耗尽->恢复->耗尽->恢复循环
     window.send_window.store(0, std::memory_order_release);
     EXPECT_TRUE(!try_acquire_window(window, 1)) << "WindowRecovery: cycle - exhausted again";
 
     apply_window_update(window, 256 * 1024);
-    EXPECT_TRUE(window.send_window.load() == 256 * 1024) << "WindowRecovery: cycle - restored to 256KB";
+    EXPECT_EQ(window.send_window.load(), 256 * 1024) << "WindowRecovery: cycle - restored to 256KB";
     EXPECT_TRUE(try_acquire_window(window, 256 * 1024)) << "WindowRecovery: cycle - can acquire full 256KB after recovery";
 }
 
@@ -189,36 +189,36 @@ TEST(YamuxWindow, DeltaClamping)
     // 溢出钳制：(uint32_max - 100) + 200 -> uint32_max
     window.send_window.store(std::numeric_limits<std::uint32_t>::max() - 100, std::memory_order_release);
     apply_window_update(window, 200);
-    EXPECT_TRUE(window.send_window.load() == std::numeric_limits<std::uint32_t>::max())
+    EXPECT_EQ(window.send_window.load(), std::numeric_limits<std::uint32_t>::max())
         << "DeltaClamping: (uint32_max - 100) + 200 clamped to uint32_max";
 
     // 恰好不溢出：(uint32_max - 1) + 1 -> uint32_max
     window.send_window.store(std::numeric_limits<std::uint32_t>::max() - 1, std::memory_order_release);
     apply_window_update(window, 1);
-    EXPECT_TRUE(window.send_window.load() == std::numeric_limits<std::uint32_t>::max())
+    EXPECT_EQ(window.send_window.load(), std::numeric_limits<std::uint32_t>::max())
         << "DeltaClamping: (uint32_max - 1) + 1 == uint32_max (exact)";
 
     // 已是最大值再加：uint32_max + 1 -> uint32_max
     window.send_window.store(std::numeric_limits<std::uint32_t>::max(), std::memory_order_release);
     apply_window_update(window, 1);
-    EXPECT_TRUE(window.send_window.load() == std::numeric_limits<std::uint32_t>::max())
+    EXPECT_EQ(window.send_window.load(), std::numeric_limits<std::uint32_t>::max())
         << "DeltaClamping: uint32_max + 1 clamped to uint32_max";
 
     // 极端溢出：uint32_max + uint32_max -> uint32_max
     window.send_window.store(std::numeric_limits<std::uint32_t>::max(), std::memory_order_release);
     apply_window_update(window, std::numeric_limits<std::uint32_t>::max());
-    EXPECT_TRUE(window.send_window.load() == std::numeric_limits<std::uint32_t>::max())
+    EXPECT_EQ(window.send_window.load(), std::numeric_limits<std::uint32_t>::max())
         << "DeltaClamping: uint32_max + uint32_max clamped to uint32_max";
 
     // 正常加法不受影响
     window.send_window.store(1000, std::memory_order_release);
     apply_window_update(window, 500);
-    EXPECT_TRUE(window.send_window.load() == 1500) << "DeltaClamping: 1000 + 500 = 1500 (no clamping)";
+    EXPECT_EQ(window.send_window.load(), 1500) << "DeltaClamping: 1000 + 500 = 1500 (no clamping)";
 
     // delta = 0 不改变窗口
     window.send_window.store(1000, std::memory_order_release);
     apply_window_update(window, 0);
-    EXPECT_TRUE(window.send_window.load() == 1000) << "DeltaClamping: delta=0 leaves window unchanged";
+    EXPECT_EQ(window.send_window.load(), 1000) << "DeltaClamping: delta=0 leaves window unchanged";
 
     // WindowUpdate 帧编解码：delta 边界值
     {
@@ -255,7 +255,7 @@ TEST(YamuxWindow, RecvConsumedAutoWindowUpdate)
         yamux::stream_window window(ioc.get_executor());
         EXPECT_TRUE(!check_recv_window_threshold(window, 1024, initial))
             << "RecvAuto: 1024 bytes does not trigger (below threshold)";
-        EXPECT_TRUE(window.recv_consumed.load() == 1024)
+        EXPECT_EQ(window.recv_consumed.load(), 1024)
             << "RecvAuto: recv_consumed accumulated to 1024";
     }
 
@@ -272,7 +272,7 @@ TEST(YamuxWindow, RecvConsumedAutoWindowUpdate)
 
         triggered = check_recv_window_threshold(window, 1072, initial);
         EXPECT_TRUE(triggered) << "RecvAuto: 131072 bytes (exact threshold) triggers";
-        EXPECT_TRUE(window.recv_consumed.load() == 0)
+        EXPECT_EQ(window.recv_consumed.load(), 0)
             << "RecvAuto: recv_consumed reset to 0 after trigger";
     }
 
@@ -281,7 +281,7 @@ TEST(YamuxWindow, RecvConsumedAutoWindowUpdate)
         yamux::stream_window window(ioc.get_executor());
         EXPECT_TRUE(check_recv_window_threshold(window, initial, initial))
             << "RecvAuto: single 256KB consumption triggers immediately";
-        EXPECT_TRUE(window.recv_consumed.load() == 0)
+        EXPECT_EQ(window.recv_consumed.load(), 0)
             << "RecvAuto: recv_consumed reset after large trigger";
     }
 
@@ -296,7 +296,7 @@ TEST(YamuxWindow, RecvConsumedAutoWindowUpdate)
                 ++trigger_count;
             }
         }
-        EXPECT_TRUE(trigger_count == 4)
+        EXPECT_EQ(trigger_count, 4)
             << "RecvAuto: 4 rounds of (threshold+1) triggers 4 WindowUpdates";
     }
 
@@ -410,7 +410,7 @@ TEST(YamuxWindow, WindowUpdateFrameOverSocketPair)
         boost::system::error_code read_ec;
         const auto n = net::read(server_sock, net::buffer(recv_buf.data(), recv_buf.size()), read_ec);
         EXPECT_TRUE(!read_ec) << "SocketPair: read WindowUpdate frame succeeded";
-        EXPECT_TRUE(n == yamux::frame_hdrsize) << "SocketPair: received exactly 12 bytes";
+        EXPECT_EQ(n, yamux::frame_hdrsize) << "SocketPair: received exactly 12 bytes";
 
         auto parsed = yamux::parse_header(recv_buf);
         ASSERT_TRUE(parsed.has_value()) << "SocketPair: WindowUpdate header parse succeeded";

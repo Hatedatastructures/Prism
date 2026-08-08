@@ -24,28 +24,28 @@ namespace
 
     TEST(HttpParserDeep, ToLowerUppercase)
     {
-        EXPECT_TRUE(to_lower('A') == 'a') << "to_lower: A -> a";
-        EXPECT_TRUE(to_lower('Z') == 'z') << "to_lower: Z -> z";
-        EXPECT_TRUE(to_lower('M') == 'm') << "to_lower: M -> m";
+        EXPECT_EQ(to_lower('A'), 'a') << "to_lower: A -> a";
+        EXPECT_EQ(to_lower('Z'), 'z') << "to_lower: Z -> z";
+        EXPECT_EQ(to_lower('M'), 'm') << "to_lower: M -> m";
     }
 
     TEST(HttpParserDeep, ToLowerAlreadyLower)
     {
-        EXPECT_TRUE(to_lower('a') == 'a') << "to_lower: a -> a";
-        EXPECT_TRUE(to_lower('z') == 'z') << "to_lower: z -> z";
+        EXPECT_EQ(to_lower('a'), 'a') << "to_lower: a -> a";
+        EXPECT_EQ(to_lower('z'), 'z') << "to_lower: z -> z";
     }
 
     TEST(HttpParserDeep, ToLowerDigit)
     {
-        EXPECT_TRUE(to_lower('0') == '0') << "to_lower: 0 unchanged";
-        EXPECT_TRUE(to_lower('9') == '9') << "to_lower: 9 unchanged";
+        EXPECT_EQ(to_lower('0'), '0') << "to_lower: 0 unchanged";
+        EXPECT_EQ(to_lower('9'), '9') << "to_lower: 9 unchanged";
     }
 
     TEST(HttpParserDeep, ToLowerSpecial)
     {
-        EXPECT_TRUE(to_lower('-') == '-') << "to_lower: - unchanged";
-        EXPECT_TRUE(to_lower('_') == '_') << "to_lower: _ unchanged";
-        EXPECT_TRUE(to_lower(' ') == ' ') << "to_lower: space unchanged";
+        EXPECT_EQ(to_lower('-'), '-') << "to_lower: - unchanged";
+        EXPECT_EQ(to_lower('_'), '_') << "to_lower: _ unchanged";
+        EXPECT_EQ(to_lower(' '), ' ') << "to_lower: space unchanged";
     }
 
     // ─── iequals ───────────────────────────────────
@@ -80,33 +80,33 @@ namespace
 
     TEST(HttpParserDeep, TrimNoWhitespace)
     {
-        EXPECT_TRUE(trim("hello") == "hello") << "trim: no whitespace";
-        EXPECT_TRUE(trim("") == "") << "trim: empty string";
+        EXPECT_EQ(trim("hello"), "hello") << "trim: no whitespace";
+        EXPECT_EQ(trim(""), "") << "trim: empty string";
     }
 
     TEST(HttpParserDeep, TrimLeadingSpaces)
     {
-        EXPECT_TRUE(trim("  hello") == "hello") << "trim: leading spaces";
-        EXPECT_TRUE(trim("   hello world") == "hello world") << "trim: leading multi-space";
+        EXPECT_EQ(trim("  hello"), "hello") << "trim: leading spaces";
+        EXPECT_EQ(trim("   hello world"), "hello world") << "trim: leading multi-space";
     }
 
     TEST(HttpParserDeep, TrimTrailingSpaces)
     {
-        EXPECT_TRUE(trim("hello  ") == "hello") << "trim: trailing spaces";
-        EXPECT_TRUE(trim("hello world  ") == "hello world") << "trim: trailing multi-space";
+        EXPECT_EQ(trim("hello  "), "hello") << "trim: trailing spaces";
+        EXPECT_EQ(trim("hello world  "), "hello world") << "trim: trailing multi-space";
     }
 
     TEST(HttpParserDeep, TrimTabs)
     {
-        EXPECT_TRUE(trim("\thello") == "hello") << "trim: leading tab";
-        EXPECT_TRUE(trim("hello\t") == "hello") << "trim: trailing tab";
-        EXPECT_TRUE(trim("\t \t") == "") << "trim: only whitespace -> empty";
+        EXPECT_EQ(trim("\thello"), "hello") << "trim: leading tab";
+        EXPECT_EQ(trim("hello\t"), "hello") << "trim: trailing tab";
+        EXPECT_EQ(trim("\t \t"), "") << "trim: only whitespace -> empty";
     }
 
     TEST(HttpParserDeep, TrimBothSides)
     {
-        EXPECT_TRUE(trim("  hello  ") == "hello") << "trim: both sides";
-        EXPECT_TRUE(trim("\t value \t") == "value") << "trim: both sides with tabs";
+        EXPECT_EQ(trim("  hello  "), "hello") << "trim: both sides";
+        EXPECT_EQ(trim("\t value \t"), "value") << "trim: both sides with tabs";
     }
 
     // ─── iequals_prefix ────────────────────────────
@@ -153,7 +153,7 @@ namespace
         const char *raw = "NOSPACE\r\n\r\n";
         proxy_request req;
         auto ec = parse_req(raw, req);
-        EXPECT_TRUE(ec == psm::fault::code::parse_error)
+        EXPECT_EQ(ec, psm::fault::code::parse_error)
             << "parse_req: no space at all -> parse_error";
     }
 
@@ -163,7 +163,7 @@ namespace
         const char *raw = "TEST\r\n X\r\n\r\n";
         proxy_request req;
         auto ec = parse_req(raw, req);
-        EXPECT_TRUE(ec == psm::fault::code::parse_error)
+        EXPECT_EQ(ec, psm::fault::code::parse_error)
             << "parse_req: space after line_end -> parse_error";
     }
 
@@ -173,7 +173,7 @@ namespace
         const char *raw = "GET /\r\n \r\n";
         proxy_request req;
         auto ec = parse_req(raw, req);
-        EXPECT_TRUE(ec == psm::fault::code::parse_error)
+        EXPECT_EQ(ec, psm::fault::code::parse_error)
             << "parse_req: second space after line_end -> parse_error";
     }
 
@@ -183,9 +183,9 @@ namespace
         const char *raw = "GET / HTTP/1.1\r\nX-BadHeader\r\nHost: ok\r\n\r\n";
         proxy_request req;
         auto ec = parse_req(raw, req);
-        EXPECT_TRUE(ec == psm::fault::code::success)
+        EXPECT_EQ(ec, psm::fault::code::success)
             << "parse_req: header no colon -> success";
-        EXPECT_TRUE(req.host == "ok")
+        EXPECT_EQ(req.host, "ok")
             << "parse_req: header no colon -> host still parsed";
     }
 
@@ -195,9 +195,9 @@ namespace
         const char *raw = "GET / HTTP/1.1\r\nHost: x\r\n\r\n\r\n";
         proxy_request req;
         auto ec = parse_req(raw, req);
-        EXPECT_TRUE(ec == psm::fault::code::success)
+        EXPECT_EQ(ec, psm::fault::code::success)
             << "parse_req: empty mid line -> success";
-        EXPECT_TRUE(req.host == "x")
+        EXPECT_EQ(req.host, "x")
             << "parse_req: empty mid line -> host still parsed";
     }
 
@@ -207,9 +207,9 @@ namespace
         const char *raw = "GET / HTTP/1.1\r\nHost: test\r\n\r\n";
         proxy_request req;
         auto ec = parse_req(raw, req);
-        EXPECT_TRUE(ec == psm::fault::code::success)
+        EXPECT_EQ(ec, psm::fault::code::success)
             << "parse_req: single header -> success";
-        EXPECT_TRUE(req.host == "test")
+        EXPECT_EQ(req.host, "test")
             << "parse_req: single header -> host";
     }
 
@@ -220,11 +220,11 @@ namespace
                           "User-Agent: test\r\n\r\n";
         proxy_request req;
         auto ec = parse_req(raw, req);
-        EXPECT_TRUE(ec == psm::fault::code::success)
+        EXPECT_EQ(ec, psm::fault::code::success)
             << "parse_req: multiple headers -> success";
-        EXPECT_TRUE(req.host == "example.com")
+        EXPECT_EQ(req.host, "example.com")
             << "parse_req: multi header -> host";
-        EXPECT_TRUE(req.authorization == "Basic abc")
+        EXPECT_EQ(req.authorization, "Basic abc")
             << "parse_req: multi header -> auth";
     }
 
@@ -234,9 +234,9 @@ namespace
         const char *raw = "GET / HTTP/1.1\r\nHost: \t example.com \t\r\n\r\n";
         proxy_request req;
         auto ec = parse_req(raw, req);
-        EXPECT_TRUE(ec == psm::fault::code::success)
+        EXPECT_EQ(ec, psm::fault::code::success)
             << "parse_req: whitespace trim -> success";
-        EXPECT_TRUE(req.host == "example.com")
+        EXPECT_EQ(req.host, "example.com")
             << "parse_req: whitespace trim -> host trimmed";
     }
 
@@ -244,25 +244,25 @@ namespace
 
     TEST(HttpParserDeep, RelPathHttpsWithPathAndQuery)
     {
-        EXPECT_TRUE(rel_path("https://host/path?query=1#frag") == "/path?query=1#frag")
+        EXPECT_EQ(rel_path("https://host/path?query=1#frag"), "/path?query=1#frag")
             << "rel_path: https with path+query+frag";
     }
 
     TEST(HttpParserDeep, RelPathHttpRoot)
     {
-        EXPECT_TRUE(rel_path("http://host/") == "/")
+        EXPECT_EQ(rel_path("http://host/"), "/")
             << "rel_path: http root path";
     }
 
     TEST(HttpParserDeep, RelPathRelativeWithSlash)
     {
-        EXPECT_TRUE(rel_path("/already/relative") == "/already/relative")
+        EXPECT_EQ(rel_path("/already/relative"), "/already/relative")
             << "rel_path: already relative -> unchanged";
     }
 
     TEST(HttpParserDeep, RelPathBarePathNoSlash)
     {
-        EXPECT_TRUE(rel_path("nothttp://host/path") == "nothttp://host/path")
+        EXPECT_EQ(rel_path("nothttp://host/path"), "nothttp://host/path")
             << "rel_path: non-http scheme -> original";
     }
 

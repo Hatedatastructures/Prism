@@ -37,34 +37,34 @@ namespace
     TEST(VlessProcessPure, ConfigDefaults)
     {
         config cfg;
-        EXPECT_TRUE(cfg.enable_udp == false) << "config: 默认 enable_udp=false";
-        EXPECT_TRUE(cfg.idle_timeout == 60) << "config: 默认 idle_timeout=60";
-        EXPECT_TRUE(cfg.max_dgram == 65535) << "config: 默认 max_dgram=65535";
+        EXPECT_EQ(cfg.enable_udp, false) << "config: 默认 enable_udp=false";
+        EXPECT_EQ(cfg.idle_timeout, 60) << "config: 默认 idle_timeout=60";
+        EXPECT_EQ(cfg.max_dgram, 65535) << "config: 默认 max_dgram=65535";
     }
 
     TEST(VlessProcessPure, CommandEnumValues)
     {
-        EXPECT_TRUE(static_cast<std::uint8_t>(command::tcp) == 0x01)
+        EXPECT_EQ(static_cast<std::uint8_t>(command::tcp), 0x01)
             << "command: tcp=0x01";
-        EXPECT_TRUE(static_cast<std::uint8_t>(command::udp) == 0x02)
+        EXPECT_EQ(static_cast<std::uint8_t>(command::udp), 0x02)
             << "command: udp=0x02";
-        EXPECT_TRUE(static_cast<std::uint8_t>(command::mux) == 0x7F)
+        EXPECT_EQ(static_cast<std::uint8_t>(command::mux), 0x7F)
             << "command: mux=0x7F";
     }
 
     TEST(VlessProcessPure, AddressTypeEnumValues)
     {
-        EXPECT_TRUE(static_cast<std::uint8_t>(address_type::ipv4) == 0x01)
+        EXPECT_EQ(static_cast<std::uint8_t>(address_type::ipv4), 0x01)
             << "address_type: ipv4=0x01";
-        EXPECT_TRUE(static_cast<std::uint8_t>(address_type::domain) == 0x02)
+        EXPECT_EQ(static_cast<std::uint8_t>(address_type::domain), 0x02)
             << "address_type: domain=0x02";
-        EXPECT_TRUE(static_cast<std::uint8_t>(address_type::ipv6) == 0x03)
+        EXPECT_EQ(static_cast<std::uint8_t>(address_type::ipv6), 0x03)
             << "address_type: ipv6=0x03";
     }
 
     TEST(VlessProcessPure, VersionConstant)
     {
-        EXPECT_TRUE(version == 0x00) << "version: 固定为 0x00";
+        EXPECT_EQ(version, 0x00) << "version: 固定为 0x00";
     }
 
     TEST(VlessProcessPure, RequestConstruction)
@@ -77,18 +77,18 @@ namespace
         req.port = 8080;
         req.destination_address = ipv4_address{{10, 0, 0, 1}};
 
-        EXPECT_TRUE(req.cmd == command::tcp) << "request: cmd=tcp";
-        EXPECT_TRUE(req.port == 8080) << "request: port=8080";
-        EXPECT_TRUE(req.uuid[0] == 0x01) << "request: uuid[0]=0x01";
-        EXPECT_TRUE(req.uuid[15] == 0x10) << "request: uuid[15]=0x10";
-        EXPECT_TRUE(std::holds_alternative<ipv4_address>(req.destination_address))
+        EXPECT_EQ(req.cmd, command::tcp) << "request: cmd=tcp";
+        EXPECT_EQ(req.port, 8080) << "request: port=8080";
+        EXPECT_EQ(req.uuid[0], 0x01) << "request: uuid[0]=0x01";
+        EXPECT_EQ(req.uuid[15], 0x10) << "request: uuid[15]=0x10";
+        EXPECT_LT(std::holds_alternative, ipv4_address>(req.destination_address))
             << "request: 地址类型=ipv4";
     }
 
     TEST(VlessProcessPure, RequestUuidSize)
     {
         request req;
-        EXPECT_TRUE(req.uuid.size() == 16) << "request: uuid 固定 16 字节";
+        EXPECT_EQ(req.uuid.size(), 16) << "request: uuid 固定 16 字节";
     }
 
     TEST(VlessProcessPure, ToStringIPv4)
@@ -96,7 +96,7 @@ namespace
         ipv4_address addr{{127, 0, 0, 1}};
         address var = addr;
         auto result = to_string(var);
-        EXPECT_TRUE(result == "127.0.0.1") << "to_string: IPv4 loopback";
+        EXPECT_EQ(result, "127.0.0.1") << "to_string: IPv4 loopback";
     }
 
     TEST(VlessProcessPure, ToStringDomain)
@@ -107,7 +107,7 @@ namespace
         std::memcpy(addr.value.data(), domain, 7);
         address var = addr;
         auto result = to_string(var);
-        EXPECT_TRUE(result == "test.io") << "to_string: domain test.io";
+        EXPECT_EQ(result, "test.io") << "to_string: domain test.io";
     }
 
     TEST(VlessProcessPure, ConfigCustomValues)
@@ -117,9 +117,9 @@ namespace
         cfg.idle_timeout = 300;
         cfg.max_dgram = 9000;
 
-        EXPECT_TRUE(cfg.enable_udp == true) << "config: 自定义 enable_udp=true";
-        EXPECT_TRUE(cfg.idle_timeout == 300) << "config: 自定义 idle_timeout=300";
-        EXPECT_TRUE(cfg.max_dgram == 9000) << "config: 自定义 max_dgram=9000";
+        EXPECT_EQ(cfg.enable_udp, true) << "config: 自定义 enable_udp=true";
+        EXPECT_EQ(cfg.idle_timeout, 300) << "config: 自定义 idle_timeout=300";
+        EXPECT_EQ(cfg.max_dgram, 9000) << "config: 自定义 max_dgram=9000";
     }
 
 } // namespace

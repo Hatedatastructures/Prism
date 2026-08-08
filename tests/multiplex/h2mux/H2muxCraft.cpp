@@ -152,22 +152,22 @@ TEST(H2muxCraft, DataFrame)
     // 最终方案：直接手工编码 DATA 帧并验证格式理解正确
     // 然后通过 nghttp2 API 验证关键常量值
 
-    EXPECT_TRUE(NGHTTP2_DATA == 0x00) << "NGHTTP2_DATA == 0x00";
-    EXPECT_TRUE(NGHTTP2_HEADERS == 0x01) << "NGHTTP2_HEADERS == 0x01";
-    EXPECT_TRUE(NGHTTP2_RST_STREAM == 0x03) << "NGHTTP2_RST_STREAM == 0x03";
-    EXPECT_TRUE(NGHTTP2_SETTINGS == 0x04) << "NGHTTP2_SETTINGS == 0x04";
-    EXPECT_TRUE(NGHTTP2_PING == 0x06) << "NGHTTP2_PING == 0x06";
-    EXPECT_TRUE(NGHTTP2_GOAWAY == 0x07) << "NGHTTP2_GOAWAY == 0x07";
-    EXPECT_TRUE(NGHTTP2_WINDOW_UPDATE == 0x08) << "NGHTTP2_WINDOW_UPDATE == 0x08";
+    EXPECT_EQ(NGHTTP2_DATA, 0x00) << "NGHTTP2_DATA == 0x00";
+    EXPECT_EQ(NGHTTP2_HEADERS, 0x01) << "NGHTTP2_HEADERS == 0x01";
+    EXPECT_EQ(NGHTTP2_RST_STREAM, 0x03) << "NGHTTP2_RST_STREAM == 0x03";
+    EXPECT_EQ(NGHTTP2_SETTINGS, 0x04) << "NGHTTP2_SETTINGS == 0x04";
+    EXPECT_EQ(NGHTTP2_PING, 0x06) << "NGHTTP2_PING == 0x06";
+    EXPECT_EQ(NGHTTP2_GOAWAY, 0x07) << "NGHTTP2_GOAWAY == 0x07";
+    EXPECT_EQ(NGHTTP2_WINDOW_UPDATE, 0x08) << "NGHTTP2_WINDOW_UPDATE == 0x08";
 
     // 验证标志位常量
-    EXPECT_TRUE(NGHTTP2_FLAG_NONE == 0x00) << "NGHTTP2_FLAG_NONE == 0x00";
-    EXPECT_TRUE(NGHTTP2_FLAG_ACK == 0x01) << "NGHTTP2_FLAG_ACK == 0x01";
+    EXPECT_EQ(NGHTTP2_FLAG_NONE, 0x00) << "NGHTTP2_FLAG_NONE == 0x00";
+    EXPECT_EQ(NGHTTP2_FLAG_ACK, 0x01) << "NGHTTP2_FLAG_ACK == 0x01";
 
     // 验证错误码常量
-    EXPECT_TRUE(NGHTTP2_NO_ERROR == 0x00) << "NGHTTP2_NO_ERROR == 0x00";
-    EXPECT_TRUE(NGHTTP2_PROTOCOL_ERROR == 0x01) << "NGHTTP2_PROTOCOL_ERROR == 0x01";
-    EXPECT_TRUE(NGHTTP2_INTERNAL_ERROR == 0x02) << "NGHTTP2_INTERNAL_ERROR == 0x02";
+    EXPECT_EQ(NGHTTP2_NO_ERROR, 0x00) << "NGHTTP2_NO_ERROR == 0x00";
+    EXPECT_EQ(NGHTTP2_PROTOCOL_ERROR, 0x01) << "NGHTTP2_PROTOCOL_ERROR == 0x01";
+    EXPECT_EQ(NGHTTP2_INTERNAL_ERROR, 0x02) << "NGHTTP2_INTERNAL_ERROR == 0x02";
 }
 
 /**
@@ -196,19 +196,19 @@ TEST(H2muxCraft, SettingsFrame)
 
         // 验证长度字段 (空 SETTINGS = 0 字节载荷)
         const auto length = parse_length(raw);
-        EXPECT_TRUE(length == 0) << "SETTINGS frame: length == 0 (empty settings)";
+        EXPECT_EQ(length, 0) << "SETTINGS frame: length == 0 (empty settings)";
 
         // 验证类型
-        EXPECT_TRUE(raw[3] == NGHTTP2_SETTINGS) << "SETTINGS frame: type == 0x04";
+        EXPECT_EQ(raw[3], NGHTTP2_SETTINGS) << "SETTINGS frame: type == 0x04";
 
         // 验证标志位
-        EXPECT_TRUE(raw[4] == NGHTTP2_FLAG_NONE) << "SETTINGS frame: flags == 0x00";
+        EXPECT_EQ(raw[4], NGHTTP2_FLAG_NONE) << "SETTINGS frame: flags == 0x00";
 
         // 验证 stream_id == 0
         const auto sid = parse_stream_id(raw);
-        EXPECT_TRUE(sid == 0) << "SETTINGS frame: stream_id == 0";
+        EXPECT_EQ(sid, 0) << "SETTINGS frame: stream_id == 0";
 
-        EXPECT_TRUE(output.size() == 9) << "SETTINGS frame: total size == 9 (header only)";
+        EXPECT_EQ(output.size(), 9) << "SETTINGS frame: total size == 9 (header only)";
     }
 
     nghttp2_session_del(session);
@@ -244,23 +244,23 @@ TEST(H2muxCraft, SettingsFrameWithParams)
 
         // 2 个 settings entry = 2 * 6 = 12 字节载荷
         const auto length = parse_length(raw);
-        EXPECT_TRUE(length == 12)
+        EXPECT_EQ(length, 12)
             << "SettingsWithParams: length == 12 (2 entries x 6 bytes)";
 
-        EXPECT_TRUE(raw[3] == NGHTTP2_SETTINGS) << "SettingsWithParams: type == 0x04";
-        EXPECT_TRUE(raw[4] == NGHTTP2_FLAG_NONE) << "SettingsWithParams: flags == 0x00";
+        EXPECT_EQ(raw[3], NGHTTP2_SETTINGS) << "SettingsWithParams: type == 0x04";
+        EXPECT_EQ(raw[4], NGHTTP2_FLAG_NONE) << "SettingsWithParams: flags == 0x00";
 
         const auto sid = parse_stream_id(raw);
-        EXPECT_TRUE(sid == 0) << "SettingsWithParams: stream_id == 0";
+        EXPECT_EQ(sid, 0) << "SettingsWithParams: stream_id == 0";
 
         // 验证载荷长度
-        EXPECT_TRUE(output.size() == 9 + 12)
+        EXPECT_EQ(output.size(), 9 + 12)
             << "SettingsWithParams: total size == 21 (9 header + 12 payload)";
 
         // 验证第一个 settings entry 的 ID (big-endian)
         const std::uint16_t id1 = (static_cast<std::uint16_t>(raw[9]) << 8) |
                                    static_cast<std::uint16_t>(raw[10]);
-        EXPECT_TRUE(id1 == NGHTTP2_SETTINGS_MAX_CONCURRENT_STREAMS)
+        EXPECT_EQ(id1, NGHTTP2_SETTINGS_MAX_CONCURRENT_STREAMS)
             << "SettingsWithParams: first entry id == MAX_CONCURRENT_STREAMS (0x0003)";
 
         // 验证第一个 settings entry 的值 (big-endian)
@@ -268,7 +268,7 @@ TEST(H2muxCraft, SettingsFrameWithParams)
                                     (static_cast<std::uint32_t>(raw[12]) << 16) |
                                     (static_cast<std::uint32_t>(raw[13]) << 8) |
                                     static_cast<std::uint32_t>(raw[14]);
-        EXPECT_TRUE(val1 == 100) << "SettingsWithParams: first entry value == 100";
+        EXPECT_EQ(val1, 100) << "SettingsWithParams: first entry value == 100";
     }
 
     nghttp2_session_del(session);
@@ -304,20 +304,20 @@ TEST(H2muxCraft, PingFrame)
 
         // PING 帧固定 8 字节载荷
         const auto length = parse_length(raw);
-        EXPECT_TRUE(length == 8) << "PING frame: length == 8";
+        EXPECT_EQ(length, 8) << "PING frame: length == 8";
 
         // 类型 = PING (0x06)
-        EXPECT_TRUE(raw[3] == NGHTTP2_PING) << "PING frame: type == 0x06";
+        EXPECT_EQ(raw[3], NGHTTP2_PING) << "PING frame: type == 0x06";
 
         // 标志位 = 0 (非 ACK)
-        EXPECT_TRUE(raw[4] == NGHTTP2_FLAG_NONE) << "PING frame: flags == 0x00";
+        EXPECT_EQ(raw[4], NGHTTP2_FLAG_NONE) << "PING frame: flags == 0x00";
 
         // stream_id = 0
         const auto sid = parse_stream_id(raw);
-        EXPECT_TRUE(sid == 0) << "PING frame: stream_id == 0";
+        EXPECT_EQ(sid, 0) << "PING frame: stream_id == 0";
 
         // 验证载荷内容
-        EXPECT_TRUE(output.size() == 17) << "PING frame: total size == 17 (9 + 8)";
+        EXPECT_EQ(output.size(), 17) << "PING frame: total size == 17 (9 + 8)";
 
         bool payload_match = true;
         for (int i = 0; i < 8; ++i)
@@ -351,13 +351,13 @@ TEST(H2muxCraft, PingAckFrame)
     };
 
     // 验证帧头字段
-    EXPECT_TRUE(parse_length(ping_ack_frame) == 8)
+    EXPECT_EQ(parse_length(ping_ack_frame), 8)
         << "PING ACK: length == 8";
-    EXPECT_TRUE(ping_ack_frame[3] == NGHTTP2_PING)
+    EXPECT_EQ(ping_ack_frame[3], NGHTTP2_PING)
         << "PING ACK: type == 0x06";
-    EXPECT_TRUE(ping_ack_frame[4] == NGHTTP2_FLAG_ACK)
+    EXPECT_EQ(ping_ack_frame[4], NGHTTP2_FLAG_ACK)
         << "PING ACK: flags == 0x01 (ACK)";
-    EXPECT_TRUE(parse_stream_id(ping_ack_frame) == 0)
+    EXPECT_EQ(parse_stream_id(ping_ack_frame), 0)
         << "PING ACK: stream_id == 0";
 
     // 验证 PING ACK 的 opaque data 与原始 PING 相同 (RFC 7540 Section 6.7)
@@ -376,7 +376,7 @@ TEST(H2muxCraft, PingAckFrame)
 
     // 验证总帧大小
     constexpr std::size_t expected_size = 9 + 8; // header + 8 byte opaque
-    EXPECT_TRUE(sizeof(ping_ack_frame) == expected_size)
+    EXPECT_EQ(sizeof(ping_ack_frame), expected_size)
         << "PING ACK: total frame size == 17";
 }
 
@@ -401,7 +401,7 @@ TEST(H2muxCraft, GoawayFrame)
                                           0, // last_stream_id = 0
                                           NGHTTP2_NO_ERROR,
                                           nullptr, 0);
-    EXPECT_TRUE(rv == 0) << "GOAWAY submit succeeded";
+    EXPECT_EQ(rv, 0) << "GOAWAY submit succeeded";
 
     auto output = collect_pending(session);
 
@@ -413,17 +413,17 @@ TEST(H2muxCraft, GoawayFrame)
 
         // GOAWAY 最少载荷 = 8 字节 (last_stream_id + error_code)
         const auto length = parse_length(raw);
-        EXPECT_TRUE(length == 8) << "GOAWAY frame: length == 8 (no debug data)";
+        EXPECT_EQ(length, 8) << "GOAWAY frame: length == 8 (no debug data)";
 
         // 类型 = GOAWAY (0x07)
-        EXPECT_TRUE(raw[3] == NGHTTP2_GOAWAY) << "GOAWAY frame: type == 0x07";
+        EXPECT_EQ(raw[3], NGHTTP2_GOAWAY) << "GOAWAY frame: type == 0x07";
 
         // 标志位 = 0
-        EXPECT_TRUE(raw[4] == NGHTTP2_FLAG_NONE) << "GOAWAY frame: flags == 0x00";
+        EXPECT_EQ(raw[4], NGHTTP2_FLAG_NONE) << "GOAWAY frame: flags == 0x00";
 
         // stream_id = 0 (GOAWAY 始终在连接级别)
         const auto sid = parse_stream_id(raw);
-        EXPECT_TRUE(sid == 0) << "GOAWAY frame: stream_id == 0";
+        EXPECT_EQ(sid, 0) << "GOAWAY frame: stream_id == 0";
 
         // 验证 last_stream_id (payload bytes 0-3, big-endian)
         if (output.size() >= 13)
@@ -432,18 +432,18 @@ TEST(H2muxCraft, GoawayFrame)
                                    (static_cast<std::uint32_t>(raw[10]) << 16) |
                                    (static_cast<std::uint32_t>(raw[11]) << 8) |
                                    static_cast<std::uint32_t>(raw[12]);
-            EXPECT_TRUE(last_sid == 0) << "GOAWAY frame: last_stream_id == 0";
+            EXPECT_EQ(last_sid, 0) << "GOAWAY frame: last_stream_id == 0";
 
             // 验证 error_code (payload bytes 4-7, big-endian)
             const auto err_code = (static_cast<std::uint32_t>(raw[13]) << 24) |
                                    (static_cast<std::uint32_t>(raw[14]) << 16) |
                                    (static_cast<std::uint32_t>(raw[15]) << 8) |
                                    static_cast<std::uint32_t>(raw[16]);
-            EXPECT_TRUE(err_code == NGHTTP2_NO_ERROR)
+            EXPECT_EQ(err_code, NGHTTP2_NO_ERROR)
                 << "GOAWAY frame: error_code == NO_ERROR (0x00)";
         }
 
-        EXPECT_TRUE(output.size() == 17) << "GOAWAY frame: total size == 17 (9 + 8)";
+        EXPECT_EQ(output.size(), 17) << "GOAWAY frame: total size == 17 (9 + 8)";
     }
 
     nghttp2_session_del(session);
@@ -470,7 +470,7 @@ TEST(H2muxCraft, GoawayFrameWithDebugData)
                                           5, // last_stream_id
                                           NGHTTP2_INTERNAL_ERROR,
                                           debug_data, sizeof(debug_data));
-    EXPECT_TRUE(rv == 0) << "GOAWAY with debug: submit succeeded";
+    EXPECT_EQ(rv, 0) << "GOAWAY with debug: submit succeeded";
 
     auto output = collect_pending(session);
 
@@ -480,9 +480,9 @@ TEST(H2muxCraft, GoawayFrameWithDebugData)
 
         // 载荷 = 8 (固定) + 4 (debug_data) = 12
         const auto length = parse_length(raw);
-        EXPECT_TRUE(length == 12) << "GOAWAY debug: length == 12 (8 + 4 debug)";
+        EXPECT_EQ(length, 12) << "GOAWAY debug: length == 12 (8 + 4 debug)";
 
-        EXPECT_TRUE(raw[3] == NGHTTP2_GOAWAY) << "GOAWAY debug: type == 0x07";
+        EXPECT_EQ(raw[3], NGHTTP2_GOAWAY) << "GOAWAY debug: type == 0x07";
 
         // 验证 last_stream_id = 5
         if (output.size() >= 13)
@@ -491,7 +491,7 @@ TEST(H2muxCraft, GoawayFrameWithDebugData)
                                    (static_cast<std::uint32_t>(raw[10]) << 16) |
                                    (static_cast<std::uint32_t>(raw[11]) << 8) |
                                    static_cast<std::uint32_t>(raw[12]);
-            EXPECT_TRUE(last_sid == 5) << "GOAWAY debug: last_stream_id == 5";
+            EXPECT_EQ(last_sid, 5) << "GOAWAY debug: last_stream_id == 5";
         }
 
         // 验证 error_code = INTERNAL_ERROR (0x02)
@@ -501,7 +501,7 @@ TEST(H2muxCraft, GoawayFrameWithDebugData)
                                    (static_cast<std::uint32_t>(raw[14]) << 16) |
                                    (static_cast<std::uint32_t>(raw[15]) << 8) |
                                    static_cast<std::uint32_t>(raw[16]);
-            EXPECT_TRUE(err_code == NGHTTP2_INTERNAL_ERROR)
+            EXPECT_EQ(err_code, NGHTTP2_INTERNAL_ERROR)
                 << "GOAWAY debug: error_code == INTERNAL_ERROR (0x02)";
         }
 
@@ -520,7 +520,7 @@ TEST(H2muxCraft, GoawayFrameWithDebugData)
             EXPECT_TRUE(debug_match) << "GOAWAY debug: debug_data matches";
         }
 
-        EXPECT_TRUE(output.size() == 21) << "GOAWAY debug: total size == 21 (9 + 8 + 4)";
+        EXPECT_EQ(output.size(), 21) << "GOAWAY debug: total size == 21 (9 + 8 + 4)";
     }
 
     nghttp2_session_del(session);
@@ -553,7 +553,7 @@ TEST(H2muxCraft, RstStreamFrame)
     // 除非内部逻辑触发。
 
     // 因此直接验证 RST_STREAM 的格式规范常量
-    EXPECT_TRUE(NGHTTP2_RST_STREAM == 0x03) << "RST_STREAM type == 0x03";
+    EXPECT_EQ(NGHTTP2_RST_STREAM, 0x03) << "RST_STREAM type == 0x03";
 
     // 验证 RST_STREAM 帧格式约束：
     // - 固定 4 字节载荷 (RFC 7540 Section 6.4)
@@ -570,17 +570,17 @@ TEST(H2muxCraft, RstStreamFrame)
     };
 
     // 验证帧头字段
-    EXPECT_TRUE(parse_length(rst_frame) == 4) << "RST_STREAM: payload length == 4";
-    EXPECT_TRUE(rst_frame[3] == NGHTTP2_RST_STREAM) << "RST_STREAM: type byte == 0x03";
-    EXPECT_TRUE(rst_frame[4] == 0x00) << "RST_STREAM: flags == 0x00";
-    EXPECT_TRUE(parse_stream_id(rst_frame) == 3) << "RST_STREAM: stream_id == 3";
+    EXPECT_EQ(parse_length(rst_frame), 4) << "RST_STREAM: payload length == 4";
+    EXPECT_EQ(rst_frame[3], NGHTTP2_RST_STREAM) << "RST_STREAM: type byte == 0x03";
+    EXPECT_EQ(rst_frame[4], 0x00) << "RST_STREAM: flags == 0x00";
+    EXPECT_EQ(parse_stream_id(rst_frame), 3) << "RST_STREAM: stream_id == 3";
 
     // 验证错误码载荷 (big-endian)
     const auto err = (static_cast<std::uint32_t>(rst_frame[9]) << 24) |
                      (static_cast<std::uint32_t>(rst_frame[10]) << 16) |
                      (static_cast<std::uint32_t>(rst_frame[11]) << 8) |
                      static_cast<std::uint32_t>(rst_frame[12]);
-    EXPECT_TRUE(err == NGHTTP2_PROTOCOL_ERROR)
+    EXPECT_EQ(err, NGHTTP2_PROTOCOL_ERROR)
         << "RST_STREAM: error_code == PROTOCOL_ERROR (0x01)";
 
     nghttp2_session_del(session);
@@ -606,7 +606,7 @@ TEST(H2muxCraft, WindowUpdateFrame)
     const int rv = nghttp2_submit_window_update(session, NGHTTP2_FLAG_NONE,
                                                  0, // stream_id = 0 (connection level)
                                                  32768);
-    EXPECT_TRUE(rv == 0) << "WINDOW_UPDATE submit succeeded";
+    EXPECT_EQ(rv, 0) << "WINDOW_UPDATE submit succeeded";
 
     auto output = collect_pending(session);
 
@@ -621,13 +621,13 @@ TEST(H2muxCraft, WindowUpdateFrame)
         if (raw[3] == NGHTTP2_WINDOW_UPDATE)
         {
             // WINDOW_UPDATE 固定 4 字节载荷
-            EXPECT_TRUE(frame_len == 4) << "WINDOW_UPDATE: length == 4";
+            EXPECT_EQ(frame_len, 4) << "WINDOW_UPDATE: length == 4";
 
-            EXPECT_TRUE(raw[4] == NGHTTP2_FLAG_NONE)
+            EXPECT_EQ(raw[4], NGHTTP2_FLAG_NONE)
                 << "WINDOW_UPDATE: flags == 0x00";
 
             const auto sid = parse_stream_id(raw);
-            EXPECT_TRUE(sid == 0) << "WINDOW_UPDATE: stream_id == 0 (connection level)";
+            EXPECT_EQ(sid, 0) << "WINDOW_UPDATE: stream_id == 0 (connection level)";
 
             // 验证窗口增量 (big-endian, MSB reserved)
             if (output.size() >= offset + 13)
@@ -638,7 +638,7 @@ TEST(H2muxCraft, WindowUpdateFrame)
                     (static_cast<std::uint32_t>(raw[11]) << 8) |
                     static_cast<std::uint32_t>(raw[12]);
 
-                EXPECT_TRUE(increment == 32768)
+                EXPECT_EQ(increment, 32768)
                     << "WINDOW_UPDATE: increment == 32768 (0x8000)";
             }
 
@@ -652,7 +652,7 @@ TEST(H2muxCraft, WindowUpdateFrame)
     EXPECT_TRUE(found_wu) << "WINDOW_UPDATE: found in output";
 
     // 验证 WINDOW_UPDATE 帧格式规范常量
-    EXPECT_TRUE(NGHTTP2_WINDOW_UPDATE == 0x08)
+    EXPECT_EQ(NGHTTP2_WINDOW_UPDATE, 0x08)
         << "WINDOW_UPDATE type == 0x08";
 
     nghttp2_session_del(session);
@@ -675,23 +675,23 @@ TEST(H2muxCraft, HeadersFrame)
     };
 
     // 验证帧头字段
-    EXPECT_TRUE(parse_length(headers_frame) == 1)
+    EXPECT_EQ(parse_length(headers_frame), 1)
         << "HEADERS: length == 1 (minimal HPACK payload)";
-    EXPECT_TRUE(headers_frame[3] == NGHTTP2_HEADERS)
+    EXPECT_EQ(headers_frame[3], NGHTTP2_HEADERS)
         << "HEADERS: type == 0x01";
-    EXPECT_TRUE(headers_frame[4] == NGHTTP2_FLAG_END_HEADERS)
+    EXPECT_EQ(headers_frame[4], NGHTTP2_FLAG_END_HEADERS)
         << "HEADERS: flags == END_HEADERS (0x04)";
-    EXPECT_TRUE(parse_stream_id(headers_frame) == 1)
+    EXPECT_EQ(parse_stream_id(headers_frame), 1)
         << "HEADERS: stream_id == 1";
 
     // 验证 HPACK 载荷
-    EXPECT_TRUE(headers_frame[9] == 0x88)
+    EXPECT_EQ(headers_frame[9], 0x88)
         << "HEADERS: HPACK :status 200 (indexed 0x88)";
 
     // 验证 END_HEADERS 标志位含义
-    EXPECT_TRUE(NGHTTP2_FLAG_END_HEADERS == 0x04)
+    EXPECT_EQ(NGHTTP2_FLAG_END_HEADERS, 0x04)
         << "HEADERS: END_HEADERS constant == 0x04";
-    EXPECT_TRUE(NGHTTP2_FLAG_END_STREAM == 0x01)
+    EXPECT_EQ(NGHTTP2_FLAG_END_STREAM, 0x01)
         << "HEADERS: END_STREAM constant == 0x01";
 
     // 验证带 END_STREAM + END_HEADERS 的 HEADERS 帧
@@ -702,9 +702,9 @@ TEST(H2muxCraft, HeadersFrame)
         0x00, 0x00, 0x00, 0x03, // stream_id = 3
         0x88              // HPACK: :status 200
     };
-    EXPECT_TRUE(headers_frame_fin[4] == 0x05)
+    EXPECT_EQ(headers_frame_fin[4], 0x05)
         << "HEADERS+FIN: flags == 0x05 (END_STREAM | END_HEADERS)";
-    EXPECT_TRUE(parse_stream_id(headers_frame_fin) == 3)
+    EXPECT_EQ(parse_stream_id(headers_frame_fin), 3)
         << "HEADERS+FIN: stream_id == 3";
 }
 
@@ -722,7 +722,7 @@ TEST(H2muxCraft, FrameHeaderLengthEncoding)
         0x00,              // flags
         0x00, 0x00, 0x00, 0x01 // stream_id = 1
     };
-    EXPECT_TRUE(parse_length(frame_len_256) == 256)
+    EXPECT_EQ(parse_length(frame_len_256), 256)
         << "Frame length 256: 3-byte big-endian correct";
 
     // 长度 = 65535 (0x00FFFF)
@@ -731,7 +731,7 @@ TEST(H2muxCraft, FrameHeaderLengthEncoding)
         0x00, 0x00,
         0x00, 0x00, 0x00, 0x01
     };
-    EXPECT_TRUE(parse_length(frame_len_65535) == 65535)
+    EXPECT_EQ(parse_length(frame_len_65535), 65535)
         << "Frame length 65535: 3-byte big-endian correct";
 
     // 长度 = 16384 (0x004000) = HTTP/2 默认最大帧大小
@@ -740,7 +740,7 @@ TEST(H2muxCraft, FrameHeaderLengthEncoding)
         0x00, 0x00,
         0x00, 0x00, 0x00, 0x01
     };
-    EXPECT_TRUE(parse_length(frame_len_16384) == 16384)
+    EXPECT_EQ(parse_length(frame_len_16384), 16384)
         << "Frame length 16384: 3-byte big-endian correct";
 }
 
@@ -756,7 +756,7 @@ TEST(H2muxCraft, FrameHeaderStreamIdEncoding)
         0x00, 0x00,
         0x00, 0x00, 0x00, 0x01
     };
-    EXPECT_TRUE(parse_stream_id(frame_sid_1) == 1)
+    EXPECT_EQ(parse_stream_id(frame_sid_1), 1)
         << "Stream ID 1: big-endian correct";
 
     // stream_id = 0x7FFFFFFF (最大有效值)
@@ -765,7 +765,7 @@ TEST(H2muxCraft, FrameHeaderStreamIdEncoding)
         0x00, 0x00,
         0x7F, 0xFF, 0xFF, 0xFF
     };
-    EXPECT_TRUE(parse_stream_id(frame_sid_max) == 0x7FFFFFFF)
+    EXPECT_EQ(parse_stream_id(frame_sid_max), 0x7FFFFFFF)
         << "Stream ID max: 0x7FFFFFFF correct";
 
     // 验证保留位被忽略 (MSB 为 1 时，stream_id 仍应正确)
@@ -778,6 +778,6 @@ TEST(H2muxCraft, FrameHeaderStreamIdEncoding)
     // 这里验证原始值包含保留位
     const auto raw_sid = parse_stream_id(frame_sid_reserved);
     const auto masked_sid = raw_sid & 0x7FFFFFFF;
-    EXPECT_TRUE(masked_sid == 1)
+    EXPECT_EQ(masked_sid, 1)
         << "Stream ID with reserved bit: masked value == 1";
 }

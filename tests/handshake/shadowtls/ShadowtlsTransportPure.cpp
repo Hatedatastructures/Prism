@@ -27,7 +27,7 @@ namespace
             server_random[i] = std::byte{i};
 
         auto key = compute_write_key(password, server_random);
-        EXPECT_TRUE(key.size() == 32) << "compute_write_key: size=32";
+        EXPECT_EQ(key.size(), 32) << "compute_write_key: size=32";
     }
 
     TEST(ShadowtlsTransportPure, ComputeWriteKeyDeterministic)
@@ -39,7 +39,7 @@ namespace
 
         auto k1 = compute_write_key(password, server_random);
         auto k2 = compute_write_key(password, server_random);
-        EXPECT_TRUE(k1.size() == k2.size()) << "compute_write_key: same sizes";
+        EXPECT_EQ(k1.size(), k2.size()) << "compute_write_key: same sizes";
         bool identical = true;
         for (std::size_t i = 0; i < k1.size(); ++i)
             if (k1[i] != k2[i]) identical = false;
@@ -52,7 +52,7 @@ namespace
 
         auto k1 = compute_write_key("password1", server_random);
         auto k2 = compute_write_key("password2", server_random);
-        EXPECT_TRUE(k1 != k2) << "compute_write_key: different password -> different key";
+        EXPECT_NE(k1, k2) << "compute_write_key: different password -> different key";
     }
 
     TEST(ShadowtlsTransportPure, ComputeWriteKeyDifferentRandom)
@@ -63,14 +63,14 @@ namespace
 
         auto k1 = compute_write_key("password", sr1);
         auto k2 = compute_write_key("password", sr2);
-        EXPECT_TRUE(k1 != k2) << "compute_write_key: different random -> different key";
+        EXPECT_NE(k1, k2) << "compute_write_key: different random -> different key";
     }
 
     TEST(ShadowtlsTransportPure, ComputeWriteKeyEmptyPassword)
     {
         std::array<std::byte, 32> server_random{};
         auto key = compute_write_key("", server_random);
-        EXPECT_TRUE(key.size() == 32) << "compute_write_key: empty password -> size=32";
+        EXPECT_EQ(key.size(), 32) << "compute_write_key: empty password -> size=32";
         // 非全零
         bool all_zero = true;
         for (auto b : key)
@@ -82,7 +82,7 @@ namespace
     {
         std::span<const std::byte> empty_random;
         auto key = compute_write_key("password", empty_random);
-        EXPECT_TRUE(key.size() == 32) << "compute_write_key: empty random -> size=32";
+        EXPECT_EQ(key.size(), 32) << "compute_write_key: empty random -> size=32";
     }
 
     TEST(ShadowtlsTransportPure, ComputeWriteKeyLongPassword)
@@ -93,7 +93,7 @@ namespace
             server_random[i] = std::byte{i};
 
         auto key = compute_write_key(long_pw, server_random);
-        EXPECT_TRUE(key.size() == 32) << "compute_write_key: long password -> size=32";
+        EXPECT_EQ(key.size(), 32) << "compute_write_key: long password -> size=32";
     }
 
 } // namespace

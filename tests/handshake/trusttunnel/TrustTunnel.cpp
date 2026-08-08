@@ -94,9 +94,9 @@ namespace
         headers.authority = psm::memory::string("server_check.example.com:443", mr);
 
         auto info = resolve_stream_target(1, headers);
-        EXPECT_TRUE(info.type == psm::multiplex::h2mux::stream_type::check)
+        EXPECT_EQ(info.type, psm::multiplex::h2mux::stream_type::check)
             << "resolve: _check -> type=check";
-        EXPECT_TRUE(info.valid == true) << "resolve: _check -> valid=true";
+        EXPECT_EQ(info.valid, true) << "resolve: _check -> valid=true";
     }
 
     TEST(TrustTunnel, ResolveStreamTargetUdp)
@@ -107,10 +107,10 @@ namespace
         headers.authority = psm::memory::string("server_udp2.example.com:8443", mr);
 
         auto info = resolve_stream_target(3, headers);
-        EXPECT_TRUE(info.type == psm::multiplex::h2mux::stream_type::udp)
+        EXPECT_EQ(info.type, psm::multiplex::h2mux::stream_type::udp)
             << "resolve: _udp2 -> type=udp";
-        EXPECT_TRUE(info.port == 8443) << "resolve: _udp2 -> port=8443";
-        EXPECT_TRUE(info.valid == true) << "resolve: _udp2 -> valid=true";
+        EXPECT_EQ(info.port, 8443) << "resolve: _udp2 -> port=8443";
+        EXPECT_EQ(info.valid, true) << "resolve: _udp2 -> valid=true";
     }
 
     TEST(TrustTunnel, ResolveStreamTargetIcmp)
@@ -121,7 +121,7 @@ namespace
         headers.authority = psm::memory::string("server_icmp.example.com:0", mr);
 
         auto info = resolve_stream_target(5, headers);
-        EXPECT_TRUE(info.type == psm::multiplex::h2mux::stream_type::icmp)
+        EXPECT_EQ(info.type, psm::multiplex::h2mux::stream_type::icmp)
             << "resolve: _icmp -> type=icmp";
     }
 
@@ -133,11 +133,11 @@ namespace
         headers.authority = psm::memory::string("server.example.com:443", mr);
 
         auto info = resolve_stream_target(7, headers);
-        EXPECT_TRUE(info.type == psm::multiplex::h2mux::stream_type::tcp)
+        EXPECT_EQ(info.type, psm::multiplex::h2mux::stream_type::tcp)
             << "resolve: default -> type=tcp";
-        EXPECT_TRUE(info.host == "server.example.com") << "resolve: host match";
-        EXPECT_TRUE(info.port == 443) << "resolve: port=443";
-        EXPECT_TRUE(info.valid == true) << "resolve: valid=true";
+        EXPECT_EQ(info.host, "server.example.com") << "resolve: host match";
+        EXPECT_EQ(info.port, 443) << "resolve: port=443";
+        EXPECT_EQ(info.valid, true) << "resolve: valid=true";
     }
 
     TEST(TrustTunnel, ResolveStreamTargetNoPort)
@@ -148,7 +148,7 @@ namespace
         headers.authority = psm::memory::string("server.example.com", mr); // 无冒号
 
         auto info = resolve_stream_target(9, headers);
-        EXPECT_TRUE(info.valid == false) << "resolve: no port -> valid=false";
+        EXPECT_EQ(info.valid, false) << "resolve: no port -> valid=false";
     }
 
     TEST(TrustTunnel, ResolveStreamTargetBadPort)
@@ -159,23 +159,23 @@ namespace
         headers.authority = psm::memory::string("server.example.com:abc", mr);
 
         auto info = resolve_stream_target(11, headers);
-        EXPECT_TRUE(info.valid == false) << "resolve: bad port -> valid=false";
+        EXPECT_EQ(info.valid, false) << "resolve: bad port -> valid=false";
     }
 
     TEST(TrustTunnel, SchemeMetadata)
     {
         psm::handshake::trusttunnel::scheme s;
-        EXPECT_TRUE(s.name() == std::string_view{"trusttunnel"})
+        EXPECT_EQ(s.name(), std::string_view{"trusttunnel"})
             << "scheme: name=trusttunnel";
-        EXPECT_TRUE(s.tier() == 2) << "scheme: tier=2";
-        EXPECT_TRUE(s.unique() == false) << "scheme: unique=false";
-        EXPECT_TRUE(s.category() == psm::handshake::scheme_category::stack)
+        EXPECT_EQ(s.tier(), 2) << "scheme: tier=2";
+        EXPECT_EQ(s.unique(), false) << "scheme: unique=false";
+        EXPECT_EQ(s.category(), psm::handshake::scheme_category::stack)
             << "scheme: category=stack";
 
         psm::settings cfg;
         auto guess = s.guess(cfg);
-        EXPECT_TRUE(guess.score == 100) << "scheme: guess score=100";
-        EXPECT_TRUE(guess.solo_flag == 0) << "scheme: guess solo_flag=0";
+        EXPECT_EQ(guess.score, 100) << "scheme: guess score=100";
+        EXPECT_EQ(guess.solo_flag, 0) << "scheme: guess solo_flag=0";
     }
 
 } // namespace

@@ -44,7 +44,7 @@ namespace
     {
         auto view = std::string_view("GET / HTTP/1.1\r\n");
         auto detected = psm::recognition::probe::detect(view);
-        EXPECT_TRUE(detected == protocol_type::http)
+        EXPECT_EQ(detected, protocol_type::http)
             << "probe::detect: GET -> http";
     }
 
@@ -52,7 +52,7 @@ namespace
     {
         auto view = std::string_view("POST /api HTTP/1.1\r\n");
         auto detected = psm::recognition::probe::detect(view);
-        EXPECT_TRUE(detected == protocol_type::http)
+        EXPECT_EQ(detected, protocol_type::http)
             << "probe::detect: POST -> http";
     }
 
@@ -63,7 +63,7 @@ namespace
         data.push_back(static_cast<char>(0x01));
         data.push_back(static_cast<char>(0x00));
         auto detected = psm::recognition::probe::detect(std::string_view(data));
-        EXPECT_TRUE(detected == protocol_type::socks5)
+        EXPECT_EQ(detected, protocol_type::socks5)
             << "probe::detect: socks5 -> socks5";
     }
 
@@ -74,7 +74,7 @@ namespace
         data.push_back(static_cast<char>(0x03));
         data.push_back(static_cast<char>(0x01));
         auto detected = psm::recognition::probe::detect(std::string_view(data));
-        EXPECT_TRUE(detected == protocol_type::tls)
+        EXPECT_EQ(detected, protocol_type::tls)
             << "probe::detect: TLS ClientHello -> tls";
     }
 
@@ -82,7 +82,7 @@ namespace
     {
         std::string data(24, static_cast<char>(0x42));
         auto detected = psm::recognition::probe::detect(std::string_view(data));
-        EXPECT_TRUE(detected == protocol_type::shadowsocks)
+        EXPECT_EQ(detected, protocol_type::shadowsocks)
             << "probe::detect: random bytes -> shadowsocks (排除法回退)";
     }
 

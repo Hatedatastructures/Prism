@@ -24,7 +24,7 @@ namespace
         auto result = sch.sniff(bitmap, features);
         EXPECT_TRUE(result.hit) << "reality marker: hit";
         EXPECT_TRUE(result.solo) << "reality marker: solo";
-        EXPECT_TRUE(result.hint == 950) << "reality marker: hint=950";
+        EXPECT_EQ(result.hint, 950) << "reality marker: hint=950";
     }
 
     TEST(RealitySchemePure, SniffX25519FullSession)
@@ -35,7 +35,7 @@ namespace
         auto result = sch.sniff(bitmap, features);
         EXPECT_TRUE(result.hit) << "x25519+full: hit";
         EXPECT_TRUE(!result.solo) << "x25519+full: not solo";
-        EXPECT_TRUE(result.hint == 450) << "x25519+full: hint=450";
+        EXPECT_EQ(result.hint, 450) << "x25519+full: hint=450";
     }
 
     TEST(RealitySchemePure, SniffX25519NonstdSession)
@@ -46,7 +46,7 @@ namespace
         auto result = sch.sniff(bitmap, features);
         EXPECT_TRUE(result.hit) << "x25519+nonstd: hit";
         EXPECT_TRUE(!result.solo) << "x25519+nonstd: not solo";
-        EXPECT_TRUE(result.hint == 400) << "x25519+nonstd: hint=400";
+        EXPECT_EQ(result.hint, 400) << "x25519+nonstd: hint=400";
     }
 
     TEST(RealitySchemePure, SniffX25519Only)
@@ -57,7 +57,7 @@ namespace
         auto result = sch.sniff(bitmap, features);
         EXPECT_TRUE(result.hit) << "x25519 only: hit";
         EXPECT_TRUE(!result.solo) << "x25519 only: not solo";
-        EXPECT_TRUE(result.hint == 200) << "x25519 only: hint=200";
+        EXPECT_EQ(result.hint, 200) << "x25519 only: hint=200";
     }
 
     TEST(RealitySchemePure, SniffSniFullSession)
@@ -68,7 +68,7 @@ namespace
         auto result = sch.sniff(bitmap, features);
         EXPECT_TRUE(result.hit) << "sni+full: hit";
         EXPECT_TRUE(!result.solo) << "sni+full: not solo";
-        EXPECT_TRUE(result.hint == 100) << "sni+full: hint=100";
+        EXPECT_EQ(result.hint, 100) << "sni+full: hint=100";
     }
 
     TEST(RealitySchemePure, SniffSniOnly)
@@ -79,7 +79,7 @@ namespace
         auto result = sch.sniff(bitmap, features);
         EXPECT_TRUE(result.hit) << "sni only: hit";
         EXPECT_TRUE(!result.solo) << "sni only: not solo";
-        EXPECT_TRUE(result.hint == 100) << "sni only: hint=100";
+        EXPECT_EQ(result.hint, 100) << "sni only: hint=100";
     }
 
     TEST(RealitySchemePure, SniffMiss)

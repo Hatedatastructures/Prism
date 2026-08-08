@@ -68,7 +68,7 @@ namespace
 
         // 原始键仍可查找
         auto orig2 = dir.find("credential1");
-        EXPECT_TRUE(orig2 != nullptr) << "dir: original key still found";
+        EXPECT_NE(orig2, nullptr) << "dir: original key still found";
     }
 
     TEST(AccountDirectoryPure, DirectoryClear)
@@ -90,7 +90,7 @@ namespace
         dir.reserve(100);
         dir.upsert("user1", 1);
         auto entry = dir.find("user1");
-        EXPECT_TRUE(entry != nullptr) << "dir: find after reserve works";
+        EXPECT_NE(entry, nullptr) << "dir: find after reserve works";
     }
 
     TEST(AccountDirectoryPure, DirectoryContains)

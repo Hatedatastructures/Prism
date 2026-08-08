@@ -31,21 +31,21 @@ namespace
         {
             std::vector<std::uint8_t> input{'M', 'a', 'n'};
             auto result = psm::crypto::base64_encode(input);
-            EXPECT_TRUE(result == "TWFu") << "Base64('Man') == \"TWFu\"";
+            EXPECT_EQ(result, "TWFu") << "Base64('Man') == \"TWFu\"";
         }
 
         // "Ma" (2 bytes, 1 padding) -> "TWE="
         {
             std::vector<std::uint8_t> input{'M', 'a'};
             auto result = psm::crypto::base64_encode(input);
-            EXPECT_TRUE(result == "TWE=") << "Base64('Ma') == \"TWE=\"";
+            EXPECT_EQ(result, "TWE=") << "Base64('Ma') == \"TWE=\"";
         }
 
         // "M" (1 byte, 2 padding) -> "TQ=="
         {
             std::vector<std::uint8_t> input{'M'};
             auto result = psm::crypto::base64_encode(input);
-            EXPECT_TRUE(result == "TQ==") << "Base64('M') == \"TQ==\"";
+            EXPECT_EQ(result == "TQ, ") << "Base64('M') == \"TQ==\"";
         }
 
         // "Hello, World!" (13 bytes) -> "SGVsbG8sIFdvcmxkIQ=="
@@ -53,7 +53,7 @@ namespace
             std::string text = "Hello, World!";
             std::vector<std::uint8_t> input(text.begin(), text.end());
             auto result = psm::crypto::base64_encode(input);
-            EXPECT_TRUE(result == "SGVsbG8sIFdvcmxkIQ==") << "Base64('Hello, World!') == \"SGVsbG8sIFdvcmxkIQ==\"";
+            EXPECT_EQ(result == "SGVsbG8sIFdvcmxkIQ, ") << "Base64('Hello, World!') == \"SGVsbG8sIFdvcmxkIQ==\"";
         }
     }
 
@@ -63,42 +63,42 @@ namespace
         {
             std::vector<std::uint8_t> input{0xFF};
             auto result = psm::crypto::base64_encode(input);
-            EXPECT_TRUE(result == "/w==") << "1 byte input produces 2 padding chars";
+            EXPECT_EQ(result == "/w, ") << "1 byte input produces 2 padding chars";
         }
 
         // 2 bytes mod 3 -> 1 padding char
         {
             std::vector<std::uint8_t> input{0xFF, 0xFF};
             auto result = psm::crypto::base64_encode(input);
-            EXPECT_TRUE(result == "//8=") << "2 bytes input produces 1 padding char";
+            EXPECT_EQ(result, "//8=") << "2 bytes input produces 1 padding char";
         }
 
         // 3 bytes mod 3 -> no padding
         {
             std::vector<std::uint8_t> input{0xFF, 0xFF, 0xFF};
             auto result = psm::crypto::base64_encode(input);
-            EXPECT_TRUE(result == "////") << "3 bytes input produces no padding";
+            EXPECT_EQ(result, "////") << "3 bytes input produces no padding";
         }
 
         // 4 bytes (1 full group + 1 remaining) -> 2 padding
         {
             std::vector<std::uint8_t> input{0x00, 0x00, 0x00, 0x01};
             auto result = psm::crypto::base64_encode(input);
-            EXPECT_TRUE(result == "AAAAAQ==") << "4 bytes input ends with 2 padding";
+            EXPECT_EQ(result == "AAAAAQ, ") << "4 bytes input ends with 2 padding";
         }
 
         // 5 bytes (1 full group + 2 remaining) -> 1 padding
         {
             std::vector<std::uint8_t> input{0x00, 0x00, 0x00, 0x01, 0x00};
             auto result = psm::crypto::base64_encode(input);
-            EXPECT_TRUE(result == "AAAAAQA=") << "5 bytes input ends with 1 padding";
+            EXPECT_EQ(result, "AAAAAQA=") << "5 bytes input ends with 1 padding";
         }
 
         // 6 bytes (2 full groups) -> no padding
         {
             std::vector<std::uint8_t> input{0x00, 0x00, 0x00, 0x00, 0x00, 0x00};
             auto result = psm::crypto::base64_encode(input);
-            EXPECT_TRUE(result == "AAAAAAAA") << "6 bytes input produces no padding";
+            EXPECT_EQ(result, "AAAAAAAA") << "6 bytes input produces no padding";
         }
     }
 
@@ -115,13 +115,13 @@ namespace
         auto result = psm::crypto::base64_encode(input);
 
         // 32 bytes -> ceil(32/3)*4 = 44 characters
-        EXPECT_TRUE(result.size() == 44) << "32 bytes encode to 44 base64 characters";
+        EXPECT_EQ(result.size(), 44) << "32 bytes encode to 44 base64 characters";
 
         // Last 2 bytes (0xF9, 0xF8) -> 1 remaining byte mod 3 -> 2 padding
-        EXPECT_TRUE(result.back() == '=') << "Long input ends with padding";
+        EXPECT_EQ(result.back(), '=') << "Long input ends with padding";
 
         // Verify against known encoding of this specific 32-byte sequence
-        EXPECT_TRUE(result == "3q2+78r+ur4AAQIDBAUGBwgJCgsMDQ4P//79/Pv6+fg=")
+        EXPECT_EQ(result, "3q2+78r+ur4AAQIDBAUGBwgJCgsMDQ4P//79/Pv6+fg=")
             << "Long input matches expected base64 output";
     }
 } // namespace

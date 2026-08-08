@@ -104,7 +104,7 @@ namespace
         // 生成密钥材料
         std::array<std::uint8_t, 32> shared_secret{};
         auto [ks_ec, keys] = derive_hs_keys(shared_secret, chello_raw, chello_raw);
-        EXPECT_TRUE(ks_ec == psm::fault::code::success) << "derive_encrypt_fin: key derivation ok";
+        EXPECT_EQ(ks_ec, psm::fault::code::success) << "derive_encrypt_fin: key derivation ok";
 
         // 构造 shello_result，其中 enc_hs_plain >= 36 字节（FINISHED_MSG_SIZE）
         shello_result sh_result;
@@ -118,11 +118,11 @@ namespace
         sh_result.ccs_record.assign(5, std::uint8_t{0});
 
         auto ec = derive_and_encrypt_finished(keys, sh_result, chello_raw, nullptr);
-        EXPECT_TRUE(ec == psm::fault::code::success)
+        EXPECT_EQ(ec, psm::fault::code::success)
             << "derive_encrypt_fin: success with valid inputs";
-        EXPECT_TRUE(sh_result.enc_hs_record.size() > 0)
+        EXPECT_GT(sh_result.enc_hs_record.size(), 0)
             << "derive_encrypt_fin: encrypted record produced";
-        EXPECT_TRUE(sh_result.enc_hs_plain.size() >= 36)
+        EXPECT_GT(sh_result.enc_hs_plain.size(), = 36)
             << "derive_encrypt_fin: plaintext updated";
     }
 
@@ -139,7 +139,7 @@ namespace
         sh_result.shello_msg = chello_raw;
 
         auto ec = derive_and_encrypt_finished(keys, sh_result, chello_raw, nullptr);
-        EXPECT_TRUE(ec == psm::fault::code::kdferr)
+        EXPECT_EQ(ec, psm::fault::code::kdferr)
             << "derive_encrypt_fin: too short -> kdferr";
     }
 
@@ -160,7 +160,7 @@ namespace
         sh_result.ccs_record.assign(5, std::uint8_t{0});
 
         auto ec = derive_and_encrypt_finished(keys, sh_result, chello_raw, nullptr);
-        EXPECT_TRUE(ec == psm::fault::code::success)
+        EXPECT_EQ(ec, psm::fault::code::success)
             << "derive_encrypt_fin: exact min size success";
     }
 
@@ -177,7 +177,7 @@ namespace
         sh_result.shello_msg = chello_raw;
 
         auto ec = derive_and_encrypt_finished(keys, sh_result, chello_raw, nullptr);
-        EXPECT_TRUE(ec == psm::fault::code::kdferr)
+        EXPECT_EQ(ec, psm::fault::code::kdferr)
             << "derive_encrypt_fin: 35 bytes -> kdferr";
     }
 
@@ -192,7 +192,7 @@ namespace
         sh_result.shello_msg = chello_raw;
 
         auto ec = derive_and_encrypt_finished(keys, sh_result, chello_raw, nullptr);
-        EXPECT_TRUE(ec == psm::fault::code::kdferr)
+        EXPECT_EQ(ec, psm::fault::code::kdferr)
             << "derive_encrypt_fin: empty plaintext -> kdferr";
     }
 
@@ -229,9 +229,9 @@ namespace
 
         auto result = negotiate_tls(features, auth_res, timer, nullptr);
         EXPECT_TRUE(result.done) << "negotiate_tls: success -> done=true";
-        EXPECT_TRUE(result.result.error == psm::fault::code::success)
+        EXPECT_EQ(result.result.error, psm::fault::code::success)
             << "negotiate_tls: no error";
-        EXPECT_TRUE(result.keys.master_secret.size() == 32)
+        EXPECT_EQ(result.keys.master_secret.size(), 32)
             << "negotiate_tls: master_secret 32 bytes";
         EXPECT_TRUE(!result.sh_result.shello_record.empty())
             << "negotiate_tls: shello_record produced";

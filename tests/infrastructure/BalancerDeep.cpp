@@ -45,7 +45,7 @@ namespace
         // 相同亲和性值应选择相同的 worker
         auto r1 = b.select(12345);
         auto r2 = b.select(12345);
-        EXPECT_TRUE(r1.worker_index == r2.worker_index) << "mix_hash: same affinity -> same worker";
+        EXPECT_EQ(r1.worker_index, r2.worker_index) << "mix_hash: same affinity -> same worker";
     }
 
     TEST(BalancerDeep, MixHashDifferentAffinity)
@@ -77,7 +77,7 @@ namespace
 
         balancer b(std::move(bindings), cfg);
         auto result = b.select(42);
-        EXPECT_TRUE(result.worker_index < 2) << "score: idle workers -> valid selection";
+        EXPECT_LT(result.worker_index, 2) << "score: idle workers -> valid selection";
         EXPECT_TRUE(!result.backpressure) << "score: idle workers -> no backpressure";
     }
 
@@ -93,7 +93,7 @@ namespace
         // 多次选择，应该倾向于空闲的 worker 0
         // （由于 hash 可能选 primary 为 1，refresh_state 后可能过载切到 secondary）
         auto result = b.select(100);
-        EXPECT_TRUE(result.worker_index < 2) << "score: mixed load -> valid selection";
+        EXPECT_LT(result.worker_index, 2) << "score: mixed load -> valid selection";
     }
 
     // ─── 构造函数 + size ──────────────────────
@@ -103,7 +103,7 @@ namespace
         distribute_config cfg;
         vector<balancer::worker_binding> bindings;
         balancer b(std::move(bindings), cfg);
-        EXPECT_TRUE(b.size() == 0) << "constructor: empty bindings -> size=0";
+        EXPECT_EQ(b.size(), 0) << "constructor: empty bindings -> size=0";
     }
 
     TEST(BalancerDeep, ConstructorMultiple)
@@ -114,7 +114,7 @@ namespace
             bindings.push_back(make_binding({}));
 
         balancer b(std::move(bindings), cfg);
-        EXPECT_TRUE(b.size() == 4) << "constructor: 4 bindings -> size=4";
+        EXPECT_EQ(b.size(), 4) << "constructor: 4 bindings -> size=4";
     }
 
     // ─── select ────────────────────────────────
@@ -126,7 +126,7 @@ namespace
         balancer b(std::move(bindings), cfg);
 
         auto result = b.select(42);
-        EXPECT_TRUE(result.worker_index == 0) << "select: empty -> default result (index=0)";
+        EXPECT_EQ(result.worker_index, 0) << "select: empty -> default result (index=0)";
         EXPECT_TRUE(!result.overflowed) << "select: empty -> not overflowed";
         EXPECT_TRUE(!result.backpressure) << "select: empty -> no backpressure";
     }
@@ -139,7 +139,7 @@ namespace
 
         balancer b(std::move(bindings), cfg);
         auto result = b.select(42);
-        EXPECT_TRUE(result.worker_index == 0) << "select: single worker -> always index=0";
+        EXPECT_EQ(result.worker_index, 0) << "select: single worker -> always index=0";
     }
 
     TEST(BalancerDeep, SelectTwoWorkersPrimaryOverloaded)
@@ -163,7 +163,7 @@ namespace
         // 由于 binding 是 const 移动的，无法动态修改
         // 改为使用高负载初始值
         auto result = b.select(42);
-        EXPECT_TRUE(result.worker_index < 2) << "select: two idle workers -> valid index";
+        EXPECT_LT(result.worker_index, 2) << "select: two idle workers -> valid index";
         EXPECT_TRUE(!result.backpressure) << "select: two idle workers -> no backpressure";
     }
 
@@ -181,7 +181,7 @@ namespace
 
         balancer b(std::move(bindings), cfg);
         auto result = b.select(42);
-        EXPECT_TRUE(result.worker_index < 2) << "select: all overloaded -> valid fallback";
+        EXPECT_LT(result.worker_index, 2) << "select: all overloaded -> valid fallback";
         EXPECT_TRUE(result.backpressure) << "select: all overloaded -> backpressure";
     }
 
@@ -196,7 +196,7 @@ namespace
 
         balancer b(std::move(bindings), cfg);
         auto result = b.select(42);
-        EXPECT_TRUE(result.worker_index == 0) << "select: single overloaded -> index=0";
+        EXPECT_EQ(result.worker_index, 0) << "select: single overloaded -> index=0";
         EXPECT_TRUE(result.backpressure) << "select: single overloaded -> backpressure";
     }
 
@@ -231,7 +231,7 @@ namespace
         balancer b2(std::move(bindings2), cfg2);
         // 第一个 select 可能触发 worker 0 过载
         auto r2 = b2.select(42);
-        EXPECT_TRUE(r2.worker_index < 2) << "hysteresis: mixed load -> valid index";
+        EXPECT_LT(r2.worker_index, 2) << "hysteresis: mixed load -> valid index";
     }
 
     // ─── score 权重测试 ──────────────────────
@@ -252,7 +252,7 @@ namespace
 
         // 第二次 select 应该倾向于 worker 1（更低分数）
         auto result = b.select(42);
-        EXPECT_TRUE(result.worker_index < 2) << "score: custom weights -> valid index";
+        EXPECT_LT(result.worker_index, 2) << "score: custom weights -> valid index";
     }
 
     TEST(BalancerDeep, ScoreZeroCapacity)
@@ -267,7 +267,7 @@ namespace
 
         balancer b(std::move(bindings), cfg);
         auto result = b.select(42);
-        EXPECT_TRUE(result.worker_index == 0) << "score: zero capacity -> std::max fallback works";
+        EXPECT_EQ(result.worker_index, 0) << "score: zero capacity -> std::max fallback works";
     }
 
     // ─── dispatch（边界检查）───────────────────
@@ -281,7 +281,7 @@ namespace
         // 空 bindings 时不崩溃即可
         // 不能创建一个 disconnected socket 移交... 但 dispatch 内部会检查 empty
         // 空 bindings 时 dispatch 不崩溃
-        EXPECT_TRUE(b.size() == 0) << "dispatch: empty bindings confirmed, no crash";
+        EXPECT_EQ(b.size(), 0) << "dispatch: empty bindings confirmed, no crash";
     }
 
     // ─── 多 worker 分布均匀性 ──────────────────

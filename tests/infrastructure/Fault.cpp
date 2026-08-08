@@ -41,15 +41,15 @@ namespace
         }
 
         // success 码：代表操作成功的唯一正例
-        EXPECT_TRUE(psm::fault::describe(psm::fault::code::success) == "success")
+        EXPECT_EQ(psm::fault::describe(psm::fault::code::success), "success")
             << "describe(success) != 'success'";
 
         // eof 码：代表连接正常关闭（对端 EOF）
-        EXPECT_TRUE(psm::fault::describe(psm::fault::code::eof) == "eof")
+        EXPECT_EQ(psm::fault::describe(psm::fault::code::eof), "eof")
             << "describe(eof) != 'eof'";
 
         // timeout 码：代表异步操作超时
-        EXPECT_TRUE(psm::fault::describe(psm::fault::code::timeout) == "timeout")
+        EXPECT_EQ(psm::fault::describe(psm::fault::code::timeout), "timeout")
             << "describe(timeout) != 'timeout'";
     }
 
@@ -85,7 +85,7 @@ namespace
             const std::string_view desc = psm::fault::describe(c);
             const std::string &cached = psm::fault::cached_message(c);
 
-            EXPECT_TRUE(desc == cached)
+            EXPECT_EQ(desc, cached)
                 << "cached_message(code=" << i << ")='" << cached << "' != describe()='" << desc << "'";
         }
     }
@@ -94,14 +94,14 @@ namespace
     {
         // 显式构造：eof 的数值应为 3，类别名为 psm::fault
         const std::error_code ec = psm::fault::make_error_code(psm::fault::code::eof);
-        EXPECT_TRUE(ec.value() == 3)
+        EXPECT_EQ(ec.value(), 3)
             << "make_error_code(eof).value()=" << ec.value() << ", expected 3";
         EXPECT_TRUE(std::string_view(ec.category().name()) == "psm::fault")
             << "category name='" << ec.category().name() << "', expected 'psm::fault'";
 
         // 隐式转换：code 枚举应能直接赋值给 std::error_code
         const std::error_code ec2 = psm::fault::code::timeout;
-        EXPECT_TRUE(ec2.value() == 11)
+        EXPECT_EQ(ec2.value(), 11)
             << "implicit conversion: timeout value=" << ec2.value() << ", expected 11";
     }
 
@@ -109,7 +109,7 @@ namespace
     {
         // 验证 Boost 错误码的数值和类别与 std 版本一致
         const boost::system::error_code ec = boost::system::make_error_code(psm::fault::code::eof);
-        EXPECT_TRUE(ec.value() == 3)
+        EXPECT_EQ(ec.value(), 3)
             << "boost make_error_code(eof).value()=" << ec.value() << ", expected 3";
         EXPECT_TRUE(std::string_view(ec.category().name()) == "psm::fault")
             << "boost category name='" << ec.category().name() << "', expected 'psm::fault'";
@@ -121,18 +121,18 @@ namespace
         const psm::fault::code c = psm::fault::code::timeout;
         const boost::system::error_code ec = boost::system::make_error_code(c);
         const psm::fault::code back = psm::fault::to_code(ec);
-        EXPECT_TRUE(back == psm::fault::code::timeout)
+        EXPECT_EQ(back, psm::fault::code::timeout)
             << "boost round trip: expected timeout, got " << static_cast<int>(back);
 
         // 将 asio::eof 映射为 fault::eof，统一 EOF 语义
         const psm::fault::code eof_code = psm::fault::to_code(boost::asio::error::eof);
-        EXPECT_TRUE(eof_code == psm::fault::code::eof)
+        EXPECT_EQ(eof_code, psm::fault::code::eof)
             << "asio::eof -> code=" << static_cast<int>(eof_code)
             << ", expected eof(" << static_cast<int>(psm::fault::code::eof) << ")";
 
         // 将 asio::operation_aborted 映射为 fault::canceled
         const psm::fault::code abort_code = psm::fault::to_code(boost::asio::error::operation_aborted);
-        EXPECT_TRUE(abort_code == psm::fault::code::canceled)
+        EXPECT_EQ(abort_code, psm::fault::code::canceled)
             << "asio::operation_aborted -> code=" << static_cast<int>(abort_code)
             << ", expected canceled(" << static_cast<int>(psm::fault::code::canceled) << ")";
     }
@@ -143,18 +143,18 @@ namespace
         const psm::fault::code c = psm::fault::code::connection_refused;
         const std::error_code ec = psm::fault::make_error_code(c);
         const psm::fault::code back = psm::fault::to_code(ec);
-        EXPECT_TRUE(back == psm::fault::code::connection_refused)
+        EXPECT_EQ(back, psm::fault::code::connection_refused)
             << "std round trip: expected connection_refused, got " << static_cast<int>(back);
 
         // 将 std 超时错误映射为 fault::timeout
         const psm::fault::code timeout_code = psm::fault::to_code(std::make_error_code(std::errc::timed_out));
-        EXPECT_TRUE(timeout_code == psm::fault::code::timeout)
+        EXPECT_EQ(timeout_code, psm::fault::code::timeout)
             << "errc::timed_out -> code=" << static_cast<int>(timeout_code)
             << ", expected timeout(" << static_cast<int>(psm::fault::code::timeout) << ")";
 
         // 将 std 取消错误映射为 fault::canceled
         const psm::fault::code cancel_code = psm::fault::to_code(std::make_error_code(std::errc::operation_canceled));
-        EXPECT_TRUE(cancel_code == psm::fault::code::canceled)
+        EXPECT_EQ(cancel_code, psm::fault::code::canceled)
             << "errc::operation_canceled -> code=" << static_cast<int>(cancel_code)
             << ", expected canceled(" << static_cast<int>(psm::fault::code::canceled) << ")";
     }

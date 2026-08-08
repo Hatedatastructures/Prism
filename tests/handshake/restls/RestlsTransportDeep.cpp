@@ -49,17 +49,17 @@ namespace
 
         restls_transport transport(std::move(sock), std::move(handover));
 
-        EXPECT_TRUE(transport.secret_[0] == 0) << "basic: secret[0]=0";
-        EXPECT_TRUE(transport.secret_[31] == 31) << "basic: secret[31]=31";
-        EXPECT_TRUE(transport.server_random_[0] == 32) << "basic: srandom[0]=32";
-        EXPECT_TRUE(transport.server_random_[31] == 1) << "basic: srandom[31]=1";
+        EXPECT_EQ(transport.secret_[0], 0) << "basic: secret[0]=0";
+        EXPECT_EQ(transport.secret_[31], 31) << "basic: secret[31]=31";
+        EXPECT_EQ(transport.server_random_[0], 32) << "basic: srandom[0]=32";
+        EXPECT_EQ(transport.server_random_[31], 1) << "basic: srandom[31]=1";
         EXPECT_TRUE(transport.client_finished_.empty()) << "basic: cf empty";
         EXPECT_TRUE(transport.initial_buffer_.empty()) << "basic: init empty";
-        EXPECT_TRUE(transport.tls_version_ == tls_version::v13) << "basic: v13";
-        EXPECT_TRUE(transport.read_counter_ == 0) << "basic: rctr=0";
-        EXPECT_TRUE(transport.write_counter_ == 0) << "basic: wctr=0";
-        EXPECT_TRUE(transport.first_write_ == true) << "basic: first_write=true";
-        EXPECT_TRUE(transport.write_pending_ == false) << "basic: write_pending=false";
+        EXPECT_EQ(transport.tls_version_, tls_version::v13) << "basic: v13";
+        EXPECT_EQ(transport.read_counter_, 0) << "basic: rctr=0";
+        EXPECT_EQ(transport.write_counter_, 0) << "basic: wctr=0";
+        EXPECT_EQ(transport.first_write_, true) << "basic: first_write=true";
+        EXPECT_EQ(transport.write_pending_, false) << "basic: write_pending=false";
     }
 
     TEST(RestlsTransportDeep, ConstructWithClientFinished)
@@ -82,10 +82,10 @@ namespace
 
         restls_transport transport(std::move(sock), std::move(handover));
 
-        EXPECT_TRUE(transport.client_finished_.size() == 5) << "cf: size=5";
-        EXPECT_TRUE(transport.client_finished_[0] == 0x10) << "cf: [0]=0x10";
-        EXPECT_TRUE(transport.client_finished_[4] == 0x50) << "cf: [4]=0x50";
-        EXPECT_TRUE(transport.tls_version_ == tls_version::v12) << "cf: v12";
+        EXPECT_EQ(transport.client_finished_.size(), 5) << "cf: size=5";
+        EXPECT_EQ(transport.client_finished_[0], 0x10) << "cf: [0]=0x10";
+        EXPECT_EQ(transport.client_finished_[4], 0x50) << "cf: [4]=0x50";
+        EXPECT_EQ(transport.tls_version_, tls_version::v12) << "cf: v12";
     }
 
     TEST(RestlsTransportDeep, ConstructWithInitialData)
@@ -108,9 +108,9 @@ namespace
 
         restls_transport transport(std::move(sock), std::move(handover));
 
-        EXPECT_TRUE(transport.initial_buffer_.size() == 3) << "init: size=3";
-        EXPECT_TRUE(transport.initial_buffer_[0] == std::byte{0xAA}) << "init: [0]=0xAA";
-        EXPECT_TRUE(transport.initial_buffer_[2] == std::byte{0xCC}) << "init: [2]=0xCC";
+        EXPECT_EQ(transport.initial_buffer_.size(), 3) << "init: size=3";
+        EXPECT_EQ(transport.initial_buffer_[0], std::byte{0xAA}) << "init: [0]=0xAA";
+        EXPECT_EQ(transport.initial_buffer_[2], std::byte{0xCC}) << "init: [2]=0xCC";
     }
 
     TEST(RestlsTransportDeep, TransportType)
@@ -132,8 +132,8 @@ namespace
 
         restls_transport transport(std::move(sock), std::move(handover));
 
-        EXPECT_TRUE(transport.transport_type() == psm::transport::transmission::type::tcp) << "type: tcp";
-        EXPECT_TRUE(transport.next_layer() == nullptr) << "layer: null";
+        EXPECT_EQ(transport.transport_type(), psm::transport::transmission::type::tcp) << "type: tcp";
+        EXPECT_EQ(transport.next_layer(), nullptr) << "layer: null";
     }
 
     TEST(RestlsTransportDeep, Close)
