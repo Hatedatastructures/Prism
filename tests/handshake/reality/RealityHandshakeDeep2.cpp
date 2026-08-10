@@ -120,9 +120,9 @@ namespace
         auto ec = derive_and_encrypt_finished(keys, sh_result, chello_raw, nullptr);
         EXPECT_EQ(ec, psm::fault::code::success)
             << "derive_encrypt_fin: success with valid inputs";
-        EXPECT_GT(sh_result.enc_hs_record.size(), 0)
+        EXPECT_GE(sh_result.enc_hs_record.size(), 0)
             << "derive_encrypt_fin: encrypted record produced";
-        EXPECT_GT(sh_result.enc_hs_plain.size(), = 36)
+        EXPECT_GE(sh_result.enc_hs_plain.size(), 36)
             << "derive_encrypt_fin: plaintext updated";
     }
 

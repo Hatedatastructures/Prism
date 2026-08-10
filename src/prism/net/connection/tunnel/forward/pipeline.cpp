@@ -58,7 +58,15 @@ namespace psm::connect
         t_opts.traffic = &res.worker->traffic;
         t_opts.detected = res.detected;
         t_opts.lease = &res.lease;
-        if (res.worker->process->cfg->stealth.pad.enabled())
+        // 带自帧语义的协议（QUIC 族 + VMess/VLESS/Trojan/SS2022）有自己的
+        // 分块/加密结构，客户端不消费 transport 层 pad，注入会破坏协议帧
+        const auto self_framed = res.detected == psm::connect::protocol_type::hysteria2
+            || res.detected == psm::connect::protocol_type::tuic
+            || res.detected == psm::connect::protocol_type::vmess
+            || res.detected == psm::connect::protocol_type::vless
+            || res.detected == psm::connect::protocol_type::trojan
+            || res.detected == psm::connect::protocol_type::shadowsocks;
+        if (!self_framed && res.worker->process->cfg->stealth.pad.enabled())
         {
             t_opts.pad_cfg = &res.worker->process->cfg->stealth.pad;
         }

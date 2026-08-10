@@ -6,8 +6,11 @@ target_include_directories(${PROJECT_NAME}_static_library
         ${PROJECT_SOURCE_DIR}/include/prism
         ${boost_include_dir}
         ${Boost_INCLUDE_DIRS}
+        ${nghttp3_SOURCE_DIR}/lib/includes
         PRIVATE
         ${CMAKE_CURRENT_SOURCE_DIR}
+        ${ngtcp2_SOURCE_DIR}/lib/includes
+        ${ngtcp2_SOURCE_DIR}/crypto/includes
 )
 
 target_link_libraries(${PROJECT_NAME}_static_library
@@ -19,6 +22,9 @@ target_link_libraries(${PROJECT_NAME}_static_library
         OpenSSL::Crypto
         blake3_c
         nghttp2_static
+        ngtcp2_static
+        ngtcp2_crypto_boringssl_static
+        nghttp3_static
 )
 
 if(WIN32)
@@ -45,6 +51,14 @@ add_executable(${PROJECT_NAME}
 )
 
 set_target_properties(${PROJECT_NAME} PROPERTIES OUTPUT_NAME "Prism")
+
+# 同步默认配置到 exe 同目录（Prism 默认加载 exe 同目录 configuration.json，
+# 避免旧配置缺失 QUIC/Hysteria2/TUIC 导致网关不启动）
+add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+        ${CMAKE_CURRENT_SOURCE_DIR}/configuration.json
+        $<TARGET_FILE_DIR:${PROJECT_NAME}>/configuration.json
+)
 
 if(MINGW)
     # GCC 16.1.0 静态链接 libstdc++ 有未解析符号 (wctob/btowc)，使用动态链接

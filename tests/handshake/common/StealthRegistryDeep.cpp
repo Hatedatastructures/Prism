@@ -29,7 +29,7 @@ namespace
         auto &all = reg.all();
         EXPECT_TRUE(!all.empty()) << "register_schemes: schemes not empty";
         // register_schemes 注册 6 个方案
-        EXPECT_GT(all.size(), = 6) << "register_schemes: >= 6 schemes";
+        EXPECT_GE(all.size(), 6) << "register_schemes: >= 6 schemes";
     }
 
     TEST(StealthRegistryDeep, FindExisting)

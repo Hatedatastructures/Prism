@@ -45,7 +45,7 @@ namespace
         {
             std::vector<std::uint8_t> input{'M'};
             auto result = psm::crypto::base64_encode(input);
-            EXPECT_EQ(result == "TQ, ") << "Base64('M') == \"TQ==\"";
+            EXPECT_EQ(result, "TQ==") << "Base64('M') == \"TQ==\"";
         }
 
         // "Hello, World!" (13 bytes) -> "SGVsbG8sIFdvcmxkIQ=="
@@ -53,7 +53,7 @@ namespace
             std::string text = "Hello, World!";
             std::vector<std::uint8_t> input(text.begin(), text.end());
             auto result = psm::crypto::base64_encode(input);
-            EXPECT_EQ(result == "SGVsbG8sIFdvcmxkIQ, ") << "Base64('Hello, World!') == \"SGVsbG8sIFdvcmxkIQ==\"";
+            EXPECT_EQ(result, "SGVsbG8sIFdvcmxkIQ==") << "Base64('Hello, World!') == \"SGVsbG8sIFdvcmxkIQ==\"";
         }
     }
 
@@ -63,7 +63,7 @@ namespace
         {
             std::vector<std::uint8_t> input{0xFF};
             auto result = psm::crypto::base64_encode(input);
-            EXPECT_EQ(result == "/w, ") << "1 byte input produces 2 padding chars";
+            EXPECT_EQ(result, "/w==") << "1 byte input produces 2 padding chars";
         }
 
         // 2 bytes mod 3 -> 1 padding char
@@ -84,7 +84,7 @@ namespace
         {
             std::vector<std::uint8_t> input{0x00, 0x00, 0x00, 0x01};
             auto result = psm::crypto::base64_encode(input);
-            EXPECT_EQ(result == "AAAAAQ, ") << "4 bytes input ends with 2 padding";
+            EXPECT_EQ(result, "AAAAAQ==") << "4 bytes input ends with 2 padding";
         }
 
         // 5 bytes (1 full group + 2 remaining) -> 1 padding

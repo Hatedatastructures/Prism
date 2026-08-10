@@ -1,4 +1,4 @@
-/**
+﻿/**
  * @file conn.hpp
  * @brief SS2022 (SIP022) 协议中继器声明
  * @details SS2022 relay 是一个 AEAD 加密传输层装饰器。与 Trojan/VLESS 不同，
@@ -18,6 +18,7 @@
 #include <prism/protocol/shadowsocks/util/salts.hpp>
 #include <prism/net/connection/types.hpp>
 #include <prism/net/transport/transmission.hpp>
+#include <prism/net/transport/preview.hpp>
 
 #include <boost/asio.hpp>
 
@@ -56,6 +57,23 @@ namespace psm::protocol::shadowsocks
         [[nodiscard]] auto next_layer() const noexcept -> const transport::transmission * override
         {
             return next_layer_.get();
+        }
+
+        /**
+         * @brief 释放底层传输层所有权
+         * @return 底层传输层共享指针
+         * @details 供协议回退（fallback）时转移传输层使用。
+         *          握手失败时返回 preview 包装：回放已读原始字节
+         *          （salt + 固定头），使回退协议（VMess）可重新解析。
+         */
+        [[nodiscard]] auto release() -> shared_transmission
+        {
+            // 握手失败时回放已读原始字节（salt + 固定头），供回退协议重新解析
+            if (!fallback_raw_.empty())
+            {
+                return transport::wrap_with_preview(next_layer_, fallback_raw_);
+            }
+            return std::move(next_layer_);
         }
 
         /**
@@ -160,6 +178,8 @@ namespace psm::protocol::shadowsocks
 
         memory::vector<std::uint8_t> client_salt_; // 延迟响应所需的客户端 salt
         std::int64_t handshake_ts_{0};             // 握手时间戳
+
+        mutable memory::vector<std::byte> fallback_raw_; ///< 握手失败时已读的原始字节（salt+固定头）
 
         /**
          * @brief 从 PSK + salt 派生 AEAD 上下文

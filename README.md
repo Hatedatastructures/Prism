@@ -16,15 +16,18 @@
 
 ### 代理协议
 
-| 协议 | TCP | UDP | smux | yamux | h2mux | TLS 伪装 |
-|------|:---:|:---:|:---:|:---:|:---:|:--------:|
-| HTTP | ✅ | — | — | — | — | — |
-| SOCKS5 | ✅ | ✅ | — | — | — | — |
-| Trojan | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
-| VLESS | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
-| SS2022 | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
-| AnyTLS | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
-| TrustTunnel | ✅ | ✅ | — | — | — | ✅ |
+| 协议 | TCP | UDP | smux | yamux | h2mux | TLS 伪装 | QUIC |
+|------|:---:|:---:|:---:|:---:|:---:|:--------:|:----:|
+| HTTP | ✅ | — | — | — | — | — | — |
+| SOCKS5 | ✅ | ✅ | — | — | — | — | — |
+| Trojan | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | — |
+| VLESS | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | — |
+| SS2022 | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | — |
+| VMess | ✅ | ✅ | — | — | — | — | — |
+| AnyTLS | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | — |
+| TrustTunnel | ✅ | ✅ | — | — | — | ✅ | — |
+| Hysteria2 | ✅ | ✅ | — | — | — | — | ✅ |
+| TUIC v5 | ✅ | ✅ | — | — | — | — | ✅ |
 
 ✅ 支持 · — 不支持
 
@@ -37,11 +40,16 @@
 | Restls | 嵌套 | TLS 探测抵抗，自定义脚本认证 |
 | AnyTLS | 独立 | 自带 TLS + 应用层认证 + 内部多路复用 |
 | TrustTunnel | 独立 | 自带 TLS + HTTP/2 CONNECT，Basic Auth（仅 h2，不支持 QUIC）|
+| WebSocket | 嵌套 | TLS + HTTP/1.1 升级（WebSocket），SNI 路由 |
+| XHTTP | 嵌套 | TLS + HTTP/2（stream-one / stream-up / packet-up）|
+| gRPC (Gun) | 嵌套 | TLS + HTTP/2 + gRPC 帧伪装 |
+| ECH | 增强 | Encrypted Client Hello，隐藏 SNI |
 
 - **嵌套**：TLS 传输层伪装，承载内层代理协议
 - **独立**：方案自身即完整代理协议（AnyTLS / TrustTunnel）
 - **多路复用**：smux v1（Mihomo/xtaci 兼容）· yamux（窗口流控）· h2mux，协商制通用层
 - **SNI 路由**：伪装方案按 SNI 识别（如 `www.microsoft.com` → Reality、`www.apple.com` → ShadowTLS），单端口可同时服务全部协议组合
+- **QUIC 协议**（Hysteria2 / TUIC v5）：基于 ngtcp2 + nghttp3 的 UDP 网关，与 TCP 监听同端口共存
 
 ---
 
@@ -103,6 +111,9 @@ cp src/configuration.json build/src/
 
 # 测试
 ctest --test-dir build --output-on-failure -j 1 --timeout 30
+
+# Go 互操作测试（mihomo 同栈客户端，需 Go 1.22+）
+ctest --test-dir build -R GoCompat --output-on-failure -j 1
 ```
 
 > 配置文件中的路径需改为绝对路径，详见 [配置详解](docs/tutorial/configuration.md)
@@ -118,13 +129,35 @@ proxies:
     password: "prism"
     udp: true
     skip-cert-verify: true
+
+  - name: "Prism-VMess"
+    type: vmess
+    server: 192.168.x.x
+    port: 8081
+    uuid: "123e4567-e89b-12d3-a456-426614174000"
+    alterId: 0
+    cipher: auto
+    udp: true
+
+  - name: "Prism-TUIC"
+    type: tuic
+    server: 192.168.x.x
+    port: 8081
+    uuid: "123e4567-e89b-12d3-a456-426614174000"
+    password: "tuic_password"
+    udp: true
+    skip-cert-verify: true
 ```
+
+> VMess 复用 SS2022 探测通道（SS2022 握手失败自动回退）；TUIC/Hysteria2 走 UDP 端口，与 TCP 监听同端口共存。
 
 ---
 
 ## 开发路线
 
-规划中：QUIC / Hysteria2 · smux v2 · WebSocket
+- [x] QUIC / Hysteria2 / TUIC v5
+- [x] VMess / WebSocket / XHTTP / gRPC (Gun) / ECH
+- [ ] smux v2 · sing-mux 流控增强
 
 ---
 

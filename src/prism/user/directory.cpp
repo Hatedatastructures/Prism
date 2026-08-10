@@ -69,4 +69,23 @@ namespace psm::user
         return it->second;
     }
 
+
+    auto directory::enumerate(std::vector<std::string_view> &out) const
+        -> std::size_t
+    {   // 快照读取全部凭证键
+        const auto snapshot = entries_ptr_.load(std::memory_order_acquire);
+        if (!snapshot)
+        {
+            return 0;
+        }
+        out.clear();
+        out.reserve(snapshot->size());
+        for (const auto &[credential, entry] : *snapshot)
+        {
+            (void)entry;
+            out.push_back(std::string_view(credential));
+        }
+        return out.size();
+    }
+
 } // namespace psm::user

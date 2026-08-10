@@ -331,3 +331,47 @@ add_subdirectory(src)
 add_subdirectory(tests)
 add_subdirectory(benchmarks)
 add_subdirectory(stresses)
+
+# --- ngtcp2 v1.25.0 (QUIC) ---
+set(ENABLE_LIB_ONLY ON CACHE BOOL "" FORCE)
+set(ENABLE_HTTP3 OFF CACHE BOOL "" FORCE)
+set(ENABLE_OPENSSL OFF CACHE BOOL "" FORCE)
+set(ENABLE_BORINGSSL ON CACHE BOOL "" FORCE)
+set(BORINGSSL_INCLUDE_DIR "${CMAKE_BINARY_DIR}/_deps/boringssl-src/include" CACHE PATH "" FORCE)
+set(BORINGSSL_LIBRARIES "${CMAKE_BINARY_DIR}/_deps/boringssl-build/libssl.a;${CMAKE_BINARY_DIR}/_deps/boringssl-build/libcrypto.a" CACHE STRING "" FORCE)
+set(ENABLE_SHARED_LIB OFF CACHE BOOL "" FORCE)
+set(ENABLE_STATIC_LIB ON CACHE BOOL "" FORCE)
+set(BUILD_TESTING OFF CACHE BOOL "" FORCE)
+set(ENABLE_ASAN OFF CACHE BOOL "" FORCE)
+FetchContent_Declare(
+    ngtcp2
+    URL https://github.com/ngtcp2/ngtcp2/releases/download/v1.25.0/ngtcp2-1.25.0.tar.gz
+    URL_HASH SHA256=1C0843076528A87B65E9A9D455100941F4CB65D44F96C5DA6AE56DF146043955
+    DOWNLOAD_EXTRACT_TIMESTAMP TRUE
+)
+FetchContent_MakeAvailable(ngtcp2)# ngtcp2 Release 下禁用 assert（避免 Windows 断言弹窗阻塞）
+if(CMAKE_BUILD_TYPE STREQUAL "Release")
+    target_compile_options(ngtcp2_static PRIVATE -DNDEBUG)
+    target_compile_options(ngtcp2_crypto_boringssl_static PRIVATE -DNDEBUG)
+endif()
+
+# --- nghttp3 v1.18.0 (HTTP/3 帧层 + QPACK) ---
+# Hysteria2 认证需要完整 HTTP/3 客户端兼容（mihomo 用 quic-go http3 栈：
+# 控制流 SETTINGS + QPACK encoder stream 动态表 + HEADERS/DATA 帧）。
+# nghttp3 是纯帧层无 I/O 库，与 ngtcp2 同源（ngtcp2 官方 HTTP/3 实现），
+# 由调用方（Boost 协程）驱动读写，天然契合协程架构。
+set(ENABLE_LIB_ONLY ON CACHE BOOL "" FORCE)
+set(BUILD_STATIC_LIBS ON CACHE BOOL "" FORCE)
+set(BUILD_SHARED_LIBS OFF CACHE BOOL "" FORCE)
+set(BUILD_TESTING OFF CACHE BOOL "" FORCE)
+set(ENABLE_ZLIB OFF CACHE BOOL "" FORCE)
+set(ENABLE_WERROR OFF CACHE BOOL "" FORCE)
+FetchContent_Declare(
+    nghttp3
+    URL https://github.com/ngtcp2/nghttp3/releases/download/v1.18.0/nghttp3-1.18.0.tar.gz
+    URL_HASH SHA256=2812E9C06583FA24C8DC46BDB5291310A69196352CEACA8FBE98106FF36AE7D8
+    DOWNLOAD_EXTRACT_TIMESTAMP TRUE
+    PATCH_COMMAND ${CMAKE_COMMAND} -P
+        ${CMAKE_CURRENT_SOURCE_DIR}/scripts/patch-nghttp3.cmake <SOURCE_DIR>
+)
+FetchContent_MakeAvailable(nghttp3)

@@ -124,13 +124,14 @@ namespace psm::multiplex
                 if (prefix_)
                     diagnose::debug(prefix_, "constructing h2mux session");
                 {
+                    // sing-mux 模式：目标由各 stream 的 StreamRequest（首个 DATA 帧）解析
                     auto singmux_resolver = [](std::int32_t, const h2mux::h2_headers &) -> h2mux::stream_info
                     {
                         return {};
                     };
                     auto session = std::make_shared<h2mux::control>(
                         multiplexer_options{std::move(ctx.transport), outbound_ptr, mux_cfg, {}},
-                        singmux_resolver);
+                        singmux_resolver, true);
                     session->set_prefix(prefix_);
                     if (prefix_)
                         diagnose::debug(prefix_, "h2mux session constructed");

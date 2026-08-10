@@ -18,6 +18,7 @@
 #include <prism/runtime/config.hpp>
 #include <prism/runtime/front/balancer.hpp>
 #include <prism/runtime/front/listener.hpp>
+#include <prism/runtime/front/quic_gateway.hpp>
 #include <prism/runtime/session/session.hpp>
 #include <prism/runtime/worker/launch.hpp>
 #include <prism/runtime/worker/tls.hpp>

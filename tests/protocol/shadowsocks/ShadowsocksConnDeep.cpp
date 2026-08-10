@@ -268,7 +268,7 @@ namespace
         ss::conn c(std::move(mock), cfg, std::move(salts));
 
         auto ex = c.executor();
-        EXPECT_LT(static_cast, bool>(ex));
+        EXPECT_TRUE(static_cast<bool>(ex));
     }
 
     // ─── make_conn 工厂函数 ────────────────────
@@ -718,6 +718,60 @@ namespace
 
         EXPECT_EQ(*result_n, 4u);
         EXPECT_EQ(std::memcmp(result_buf->data(), plain_data.data(), 4), 0);
+    }
+
+    // ─── VMess 回退数据恢复 ────────────────────────────
+    // SS2022 握手失败（客户端实为 VMess）时，release() 必须回放
+    // 已读的原始字节（salt + 固定头），使 VMess 可从头重新解析。
+
+    TEST(ShadowsocksConnDeep, FallbackReleaseReplaysConsumedBytes)
+    {
+        ss::config cfg;
+        cfg.psk = psk128_b64();
+        auto mock = make_mock_transport();
+        auto *raw = mock.get();
+        auto salts = make_salts();
+        ss::conn c(std::move(mock), cfg, std::move(salts));
+
+        // 注入非 SS2022 首包（模拟 VMess 客户端首包）：16 字节 salt + 27 字节"固定头"
+        // 前 16 字节会被 SS2022 当 salt 消费，随后 27 字节解密必然失败。
+        std::vector<std::byte> wire(16 + 27);
+        for (auto &b : wire)
+            b = std::byte{0xAB}; // 任意数据（VMess authID + 密文）
+        raw->inject_read(wire);
+
+        auto result_ec = std::make_shared<psm::fault::code>();
+        net::co_spawn(raw->get_io_context(),
+            [&c, result_ec]() -> net::awaitable<void> {
+                auto [ec, req] = co_await c.handshake();
+                (void)req;
+                *result_ec = ec;
+                co_return;
+            }, net::detached);
+        raw->get_io_context().run();
+
+        // SS2022 握手必须失败（数据是 VMess 格式）
+        EXPECT_EQ(*result_ec, psm::fault::code::auth_failed);
+
+        // release() 返回 preview：应能完整重放 16+27=43 字节已消费数据
+        auto released = c.release();
+        ASSERT_NE(released, nullptr);
+
+        std::array<std::byte, 64> out{};
+        auto n = std::make_shared<std::size_t>(0);
+        net::co_spawn(raw->get_io_context(),
+            [released, &out, n]() -> net::awaitable<void> {
+                std::error_code e;
+                *n = co_await released->async_read_some(out, e);
+                co_return;
+            }, net::detached);
+        // poll 驱动（协程同步回放，一次 poll 即可完成）
+        for (int i = 0; i < 100 && *n == 0; ++i)
+            raw->get_io_context().poll();
+
+        EXPECT_EQ(*n, 43u) << "release 必须回放 salt+固定头 43 字节";
+        EXPECT_EQ(std::memcmp(out.data(), wire.data(), 43), 0)
+            << "回放数据必须与原始首包一致（VMess 可重新解析）";
     }
 
 } // namespace

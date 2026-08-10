@@ -81,6 +81,7 @@ namespace psm::multiplex::h2mux
     struct h2_headers
     {
         std::int32_t stream_id{0};      ///< HTTP/2 stream ID
+        memory::string method;          ///< :method 头（CONNECT 校验用）
         memory::string authority;       ///< :authority 头（CONNECT 目标）
         memory::string host;            ///< Host 头（用于类型判断）
         memory::string user_agent;      ///< User-Agent 头
@@ -108,9 +109,11 @@ namespace psm::multiplex::h2mux
      */
     struct h2_pending_entry
     {
-        h2_headers headers;      ///< 收集的 HTTP/2 请求头
-        stream_info info;        ///< resolver 返回的地址信息
-        bool connecting = false; ///< 是否已发起连接
+        h2_headers headers;                      ///< 收集的 HTTP/2 请求头
+        stream_info info;                        ///< resolver 返回的地址信息
+        bool connecting = false;                 ///< 是否已发起连接
+        memory::vector<std::byte> buffer;        ///< StreamRequest 累积缓冲
+        memory::vector<std::byte> pending_data;  ///< 解析后的剩余数据（转发给流）
     };
 
     /**
@@ -129,8 +132,10 @@ namespace psm::multiplex::h2mux
          * @brief 构造 h2mux 会话
          * @param opts 基类构造参数（传输层、出站代理、配置、内存资源）
          * @param resolver 地址解析回调（决定如何从 CONNECT 提取目标地址）
+         * @param sing_streams 是否 sing-mux 流（激活后前置 StreamResponse 状态字节）
          */
-        explicit control(multiplexer_options opts, address_resolver resolver);
+        explicit control(multiplexer_options opts, address_resolver resolver,
+                         bool sing_streams = false);
 
         ~control() noexcept override;
 
@@ -208,6 +213,14 @@ namespace psm::multiplex::h2mux
         void handle_connect(std::int32_t stream_id);
 
         /**
+         * @brief 尝试激活 stream（解析地址并 spawn activate_stream）
+         * @param stream_id 流标识符
+         * @details 供 handle_connect 与 on_data（sing-mux StreamRequest
+         *          解析完成后）共用，connecting 防重复激活。
+         */
+        void spawn_activate(std::uint32_t stream_id);
+
+        /**
          * @brief 处理单个 datagram 流的重组与发送
          * @details h2mux UDP 数据报为 length-prefixed 格式，目标地址在
          *          激活时确定（CONNECT 目标），此处累积跨帧数据并解析。
@@ -251,13 +264,25 @@ namespace psm::multiplex::h2mux
             explicit udp_entry(memory::resource_pointer mr) : buffer(mr), dest_host(mr) {}
         };
 
+        /**
+         * @struct data_source
+         * @brief nghttp2 DATA 数据源（生命周期绑定会话映射，防延迟读取悬垂）
+         */
+        struct data_source
+        {
+            std::shared_ptr<memory::vector<std::byte>> buf;
+            std::size_t offset{0};
+        };
+
         nghttp2_session *session_{nullptr};  ///< nghttp2 会话
         address_resolver resolver_;          ///< 地址解析回调
+        bool sing_streams_{false};           ///< sing-mux 流模式（激活前置状态字节）
         std::function<net::awaitable<std::pair<fault::code,
                                                net::ip::udp::endpoint>>(std::string_view, std::string_view)> router_fn_; ///< UDP 路由回调
 
         memory::unordered_map<std::uint32_t, h2_pending_entry> h2_pending_; ///< 等待解析的 HTTP/2 stream
         memory::unordered_map<std::uint32_t, udp_entry> udp_bufs_;          ///< UDP 重组缓冲表
+        memory::unordered_map<std::uint32_t, std::unique_ptr<data_source>> pending_data_; ///< DATA 数据源（随流存活）
 
         // 第一个 CONNECT 的通知机制（TrustTunnel auth 验证用）
         bool connect_resolved_{false};   ///< 首个 CONNECT 是否已到达

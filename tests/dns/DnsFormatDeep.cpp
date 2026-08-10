@@ -245,7 +245,7 @@ namespace
         msg.id = 0x1234;
         auto packed = msg.pack();
 
-        EXPECT_GT(packed.size(), = 12) << "pack: header present";
+        EXPECT_GE(packed.size(), 12) << "pack: header present";
 
         auto result = dns::message::unpack(packed);
         EXPECT_TRUE(!!result) << "unpack: success";

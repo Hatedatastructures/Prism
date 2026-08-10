@@ -81,7 +81,7 @@ namespace
         EXPECT_EQ(req.port, 8080) << "request: port=8080";
         EXPECT_EQ(req.uuid[0], 0x01) << "request: uuid[0]=0x01";
         EXPECT_EQ(req.uuid[15], 0x10) << "request: uuid[15]=0x10";
-        EXPECT_LT(std::holds_alternative, ipv4_address>(req.destination_address))
+        EXPECT_TRUE(std::holds_alternative<ipv4_address>(req.destination_address))
             << "request: 地址类型=ipv4";
     }
 

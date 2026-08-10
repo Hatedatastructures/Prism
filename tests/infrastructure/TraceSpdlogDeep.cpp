@@ -79,8 +79,9 @@ namespace
 
     TEST(TraceSpdlogDeep, ParseLevelOff)
     {
+        // off 实现返回自定义级别 8（高于 access_level=7），保证 off 时访问日志也关闭
         auto level = psm::diagnose::parse_spdlog_level("off");
-        EXPECT_EQ(level, spdlog::level::off) << "parse_level: off";
+        EXPECT_EQ(static_cast<int>(level), 8) << "parse_level: off";
     }
 
     TEST(TraceSpdlogDeep, ParseLevelUnknown)

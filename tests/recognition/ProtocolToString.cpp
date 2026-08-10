@@ -34,6 +34,9 @@ TEST(ProtocolToString, AllProtocols)
         {psm::connect::protocol_type::trojan,     "trojan"},
         {psm::connect::protocol_type::vless,      "vless"},
         {psm::connect::protocol_type::shadowsocks,"shadowsocks"},
+        {psm::connect::protocol_type::vmess,      "vmess"},
+        {psm::connect::protocol_type::hysteria2,  "hysteria2"},
+        {psm::connect::protocol_type::tuic,       "tuic"},
         {psm::connect::protocol_type::tls,        "tls"},
     };
 
@@ -52,7 +55,7 @@ TEST(ProtocolToString, AllProtocols)
 TEST(ProtocolToString, CoverageAndDefaultFallback)
 {
     // 验证测试用例数量与协议枚举值数量一致
-    constexpr int expected_count = 7; // unknown, http, socks5, trojan, vless, shadowsocks, tls
+    constexpr int expected_count = 10; // unknown, http, socks5, trojan, vless, shadowsocks, vmess, hysteria2, tuic, tls
     constexpr int actual_count = static_cast<int>(psm::connect::protocol_type::tls) + 1;
     EXPECT_EQ(actual_count, expected_count)
         << std::format("Protocol enum count mismatch: expected {}, got {}", expected_count, actual_count);

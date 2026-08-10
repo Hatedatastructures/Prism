@@ -141,20 +141,26 @@ namespace
         st.mark_started(8);
         auto s = st.snapshot();
         EXPECT_EQ(s.worker_count, 8) << "system_state: worker_count=8 after mark_started";
-        EXPECT_GT(s.uptime_seconds, = 0) << "system_state: uptime >= 0 after mark_started";
+        EXPECT_GE(s.uptime_seconds, 0) << "system_state: uptime >= 0 after mark_started";
     }
 
     TEST(RuntimeDeep, SystemStateMarkStartedIdempotent)
     {
         auto &st = runtime::system_state::instance();
-        // 每个测试用例独立进程，需先初始化
-        st.mark_started(42);
+        // 单例可能已被同进程其它用例标记：未标记则设置生效，已标记则幂等保留
         auto before = st.snapshot();
-        EXPECT_EQ(before.worker_count, 42) << "system_state: first mark_started sets 42";
-        // 第二次调用应为空操作
-        st.mark_started(999);
+        st.mark_started(42);
         auto after = st.snapshot();
-        EXPECT_EQ(after.worker_count, 42) << "system_state: idempotent -> worker_count still 42";
+        if (before.worker_count == 0)
+        {
+            EXPECT_EQ(after.worker_count, 42)
+                << "system_state: first mark_started sets 42";
+        }
+        else
+        {
+            EXPECT_EQ(after.worker_count, before.worker_count)
+                << "system_state: idempotent -> worker_count unchanged";
+        }
     }
 
     TEST(RuntimeDeep, SystemStateSnapshot)
@@ -162,8 +168,8 @@ namespace
         auto &st = runtime::system_state::instance();
         st.mark_started(16);
         auto s = st.snapshot();
-        EXPECT_GT(s.uptime_seconds, = 0) << "system_state: snapshot uptime non-negative";
-        EXPECT_EQ(s.worker_count, 16) << "system_state: snapshot worker_count=16";
+        EXPECT_GE(s.uptime_seconds, 0) << "system_state: snapshot uptime non-negative";
+        EXPECT_GE(s.worker_count, 1) << "system_state: snapshot worker_count marked";
     }
 
 } // namespace

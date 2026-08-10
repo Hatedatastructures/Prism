@@ -53,6 +53,7 @@ struct session
         std::array<std::byte, 16>                  src = {};
         std::shared_ptr<psm::diagnose::context> trace;
         std::shared_ptr<metadata>                  meta;
+        psm::connect::protocol_type                detected{};
     };
 
     explicit session(options opts);

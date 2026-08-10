@@ -297,7 +297,7 @@ TEST(Recognition, RealitySniffExclusive)
 
     EXPECT_TRUE(result.hit) << "Reality marker should hit";
     EXPECT_TRUE(result.solo) << "Reality marker should be solo (exclusive)";
-    EXPECT_GT(result.hint, = 900) << "Reality marker should have high hint";
+    EXPECT_GE(result.hint, 900) << "Reality marker should have high hint";
 
     // 无标记但有 X25519 + session_id=32 → 非独占
     hello_features no_marker_features;
@@ -323,7 +323,7 @@ TEST(Recognition, SchemeRegistry)
     psm::handshake::register_schemes();
     auto &reg = psm::handshake::scheme_registry::instance();
 
-    EXPECT_GT(reg.all().size(), = 4)
+    EXPECT_GE(reg.all().size(), 4)
         << "registry: at least 4 schemes registered";
 
     // 按名称查找

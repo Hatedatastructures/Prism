@@ -72,7 +72,7 @@ namespace
 
         EXPECT_EQ(req.cmd, command::connect) << "request: cmd=connect";
         EXPECT_EQ(req.port, 443) << "request: port=443";
-        EXPECT_LT(std::holds_alternative, ipv4_address>(req.destination_address))
+        EXPECT_TRUE(std::holds_alternative<ipv4_address>(req.destination_address))
             << "request: address type=ipv4";
         EXPECT_EQ(req.credential[0], 'a') << "request: credential[0]='a'";
         EXPECT_EQ(req.credential[55], 'a') << "request: credential[55]='a'";

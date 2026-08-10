@@ -66,7 +66,8 @@ struct glz::meta<psm::runtime::protocol::config>
         "socks5",       &T::socks5,
         "trojan",       &T::trojan,
         "vless",        &T::vless,
-        "shadowsocks",  &T::shadowsocks);
+        "shadowsocks",  &T::shadowsocks,
+        "vmess",        &T::vmess);
 };
 
 // ============================================================================
@@ -121,6 +122,18 @@ struct glz::meta<psm::protocol::shadowsocks::config>
 };
 
 template <>
+struct glz::meta<psm::protocol::vmess::config>
+{
+    using T = psm::protocol::vmess::config;
+    static constexpr auto value = glz::object(
+        "enable_tcp",        &T::enable_tcp,
+        "enable_udp",        &T::enable_udp,
+        "enable_mux",        &T::enable_mux,
+        "udp_idle_timeout",  &T::idle_timeout,
+        "udp_max_datagram",  &T::max_dgram);
+};
+
+template <>
 struct glz::meta<psm::runtime::stealth::config>
 {
     using T = psm::runtime::stealth::config;
@@ -130,6 +143,12 @@ struct glz::meta<psm::runtime::stealth::config>
         "restls",       &T::restls,
         "anytls",       &T::anytls,
         "trusttunnel",  &T::trusttunnel,
+        "gun",          &T::gun,
+        "ech",          &T::ech,
+        "ws",           &T::ws,
+        "xhttp",        &T::xhttp,
+        "hysteria2",    &T::hysteria2,
+        "tuic",         &T::tuic,
         "native_tls",   &T::native_tls,
         "pad",          &T::pad,
         "probe",        &T::probe);

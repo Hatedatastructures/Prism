@@ -294,7 +294,7 @@ namespace
         // 注意：因为 COW 注册表是全局的，其他测试可能已注册了实例
         // 这里主要验证 aggregate 不崩溃
         auto agg = traffic::traffic_state::aggregate();
-        EXPECT_GT(agg.total_connections, = 0u) << "aggregate: returns valid snapshot";
+        EXPECT_GE(agg.total_connections, 0u) << "aggregate: returns valid snapshot";
     }
 
     TEST(TrafficDeep, UnregisterNotRegistered)
@@ -303,7 +303,7 @@ namespace
         // unregister 一个未注册的实例不应崩溃
         traffic::traffic_state::unregister_instance(&st);
         auto agg = traffic::traffic_state::aggregate();
-        EXPECT_GT(agg.total_connections, = 0u) << "unregister not registered: aggregate still valid";
+        EXPECT_GE(agg.total_connections, 0u) << "unregister not registered: aggregate still valid";
     }
 
     TEST(TrafficDeep, UnregisterNull)
@@ -311,7 +311,7 @@ namespace
         // unregister nullptr — 函数不会找到它，不崩溃即可
         traffic::traffic_state::unregister_instance(nullptr);
         auto agg2 = traffic::traffic_state::aggregate();
-        EXPECT_GT(agg2.total_connections, = 0u) << "unregister nullptr: aggregate still valid";
+        EXPECT_GE(agg2.total_connections, 0u) << "unregister nullptr: aggregate still valid";
     }
 
 } // namespace

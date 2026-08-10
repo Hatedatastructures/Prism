@@ -1,11 +1,15 @@
 #include <prism/handshake/registry.hpp>
 
 #include <prism/handshake/anytls/scheme.hpp>
+#include <prism/handshake/ech/scheme.hpp>
+#include <prism/handshake/gun/scheme.hpp>
 #include <prism/handshake/native.hpp>
 #include <prism/handshake/reality/scheme.hpp>
 #include <prism/handshake/restls/scheme.hpp>
 #include <prism/handshake/shadowtls/scheme.hpp>
 #include <prism/handshake/trusttunnel/scheme.hpp>
+#include <prism/handshake/ws/scheme.hpp>
+#include <prism/handshake/xhttp/scheme.hpp>
 
 #include <algorithm>
 
@@ -22,6 +26,10 @@ namespace psm::handshake
         reg.add(std::make_shared<restls::scheme>());
         reg.add(std::make_shared<anytls::scheme>());
         reg.add(std::make_shared<trusttunnel::scheme>());
+        reg.add(std::make_shared<gun::scheme>());
+        reg.add(std::make_shared<ech::scheme>());
+        reg.add(std::make_shared<ws::scheme>());
+        reg.add(std::make_shared<xhttp::scheme>());
         reg.add(std::make_shared<native::native>());
     }
 

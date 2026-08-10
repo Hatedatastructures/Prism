@@ -118,7 +118,7 @@ namespace
 
         auto ec = build_udp_pkt(frame, payload, out);
         EXPECT_EQ(ec, psm::fault::code::success) << "trojan build_udp IPv4: success";
-        EXPECT_GT(out.size(), = 11) << "trojan build_udp IPv4: min size";
+        EXPECT_GE(out.size(), 11) << "trojan build_udp IPv4: min size";
 
         auto [pec, result] = parse_udp_pkt(out);
         EXPECT_EQ(pec, psm::fault::code::success) << "trojan roundtrip: parse success";

@@ -11,7 +11,7 @@ function(prism_add_test source_file)
     add_executable(${test_name} ${CMAKE_CURRENT_SOURCE_DIR}/${source_file})
     target_compile_options(${test_name} PRIVATE -g1 -Os)
     target_link_libraries(${test_name} PRIVATE
-        ${PROJECT_NAME}_static_library GTest::gtest)
+        ${PROJECT_NAME}_static_library GTest::gtest prism_test_common)
     target_sources(${test_name} PRIVATE ${_test_common_gtest_main})
     target_include_directories(${test_name} BEFORE PRIVATE
         ${CMAKE_SOURCE_DIR}/tests
@@ -40,20 +40,75 @@ function(prism_add_test source_file)
 endfunction()
 
 add_subdirectory(crypto)
+add_subdirectory(dns)
 add_subdirectory(protocol)
 add_subdirectory(handshake)
 add_subdirectory(multiplex)
-add_subdirectory(resolve)
 add_subdirectory(connect)
 add_subdirectory(transport)
-add_subdirectory(instance)
 add_subdirectory(recognition)
 add_subdirectory(foundation)
-add_subdirectory(context)
-add_subdirectory(outbound)
-add_subdirectory(config)
-add_subdirectory(worker)
+add_subdirectory(runtime)
+add_subdirectory(settings)
 add_subdirectory(infrastructure)
 add_subdirectory(integration)
 add_subdirectory(concurrency)
 add_subdirectory(perf)
+
+# 协议测试公共库（header-only，纯逻辑客户端/服务端实现）
+add_subdirectory(common)
+
+# --- Go 协议兼容性测试（真实 quic-go / sing-quic 客户端，与 mihomo 同栈） ---
+# 每个协议独立目录（tests/go/<protocol>/main.go），构建为独立可执行，
+# ctest 运行时由 run_go_test.ps1 启动 Prism（显式配置路径）再运行测试。
+find_program(GO_EXECUTABLE go)
+if(GO_EXECUTABLE AND MINGW)
+    set(_go_src_dir ${CMAKE_CURRENT_SOURCE_DIR}/go)
+    set(_go_bin_dir ${CMAKE_BINARY_DIR}/tests/go)
+    file(MAKE_DIRECTORY ${_go_bin_dir})
+    set(_go_test_targets)
+    foreach(_proto hysteria2 tuic)
+        add_custom_target(go_test_${_proto} ALL
+            COMMAND ${GO_EXECUTABLE} build -o ${_go_bin_dir}/${_proto}.exe ./${_proto}
+            WORKING_DIRECTORY ${_go_src_dir}
+            COMMENT "Building Go ${_proto} compatibility test"
+            VERBATIM)
+        list(APPEND _go_test_targets go_test_${_proto})
+    endforeach()
+    add_custom_target(go_test_vmess ALL
+        COMMAND ${GO_EXECUTABLE} build -o ${_go_bin_dir}/vmess_client.exe ./vmess_client
+        WORKING_DIRECTORY ${_go_src_dir}
+        COMMENT "Building Go vmess compatibility test"
+        VERBATIM)
+    list(APPEND _go_test_targets go_test_vmess)
+    add_custom_target(go_test_singvmess ALL
+        COMMAND ${GO_EXECUTABLE} build -o ${_go_bin_dir}/singvmess.exe ./singvmess
+        WORKING_DIRECTORY ${_go_src_dir}
+        COMMENT "Building Go sing-vmess compatibility test"
+        VERBATIM)
+    list(APPEND _go_test_targets go_test_singvmess)
+
+    set(_go_prism_exe ${CMAKE_BINARY_DIR}/src/Prism.exe)
+    set(_go_prism_cfg ${CMAKE_SOURCE_DIR}/src/configuration.json)
+    set(_go_runner ${_go_src_dir}/run_go_test.ps1)
+    foreach(_proto hysteria2 tuic)
+        add_test(NAME GoCompat_${_proto}
+            COMMAND powershell -ExecutionPolicy Bypass -File ${_go_runner}
+                    -GoExe ${_go_bin_dir}/${_proto}.exe
+                    -PrismExe ${_go_prism_exe}
+                    -Config ${_go_prism_cfg})
+        set_tests_properties(GoCompat_${_proto} PROPERTIES TIMEOUT 60)
+    endforeach()
+    add_test(NAME GoCompat_vmess
+        COMMAND powershell -ExecutionPolicy Bypass -File ${_go_runner}
+                -GoExe ${_go_bin_dir}/vmess_client.exe
+                -PrismExe ${_go_prism_exe}
+                -Config ${_go_prism_cfg})
+    set_tests_properties(GoCompat_vmess PROPERTIES TIMEOUT 60)
+    add_test(NAME GoCompat_singvmess
+        COMMAND powershell -ExecutionPolicy Bypass -File ${_go_runner}
+                -GoExe ${_go_bin_dir}/singvmess.exe
+                -PrismExe ${_go_prism_exe}
+                -Config ${_go_prism_cfg})
+    set_tests_properties(GoCompat_singvmess PROPERTIES TIMEOUT 60)
+endif()

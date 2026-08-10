@@ -204,9 +204,18 @@ namespace
         frame.headers.nva = nv;
         frame.headers.nvlen = 1;
 
+        // 新语义：begin_headers 无条件预注册 pending（nva 此时未填充），
+        // :method 校验在 on_frame_recv（HEADERS 完整到达）时执行
         auto rc = h2mux::control::on_begin_headers(nullptr, &frame, fx.craft_obj.get());
         EXPECT_EQ(rc, 0) << "on_begin_headers: GET returns 0";
-        EXPECT_TRUE(fx.craft_obj->h2_pending_.empty()) << "on_begin_headers: GET -> no pending";
+        EXPECT_TRUE(fx.craft_obj->h2_pending_.count(2) == 1) << "on_begin_headers: pending pre-registered";
+
+        // on_frame_recv 校验非 CONNECT 时清除 pending
+        h2mux::h2_pending_entry &entry = fx.craft_obj->h2_pending_[2];
+        entry.headers.method = "GET";
+        rc = h2mux::control::on_frame_recv(nullptr, &frame, fx.craft_obj.get());
+        EXPECT_EQ(rc, 0) << "on_frame_recv: GET returns 0";
+        EXPECT_TRUE(fx.craft_obj->h2_pending_.empty()) << "on_frame_recv: GET -> pending cleared";
     }
 
     TEST(H2muxCraftDeep2, OnBeginHeadersNonHeadersFrame)
@@ -428,6 +437,7 @@ namespace
         CraftFixture fx;
         h2mux::h2_pending_entry entry;
         entry.headers.stream_id = 7;
+        entry.headers.method = "CONNECT";
         fx.craft_obj->h2_pending_[7] = std::move(entry);
 
         nghttp2_frame frame;

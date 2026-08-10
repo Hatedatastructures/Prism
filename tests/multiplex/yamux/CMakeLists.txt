@@ -1,5 +1,3 @@
-prism_add_test(Yamux.cpp)
-prism_add_test(YamuxCraft.cpp)
 prism_add_test(YamuxCraftPure.cpp)
 prism_add_test(YamuxCraftDeep.cpp)
 prism_add_test(YamuxCraftDeep2.cpp)

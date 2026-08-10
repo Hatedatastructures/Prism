@@ -53,7 +53,7 @@ namespace
         cfg.salt_ttl = 300;
         cfg.idle_timeout = 180;
 
-        EXPECT_EQ(cfg.psk == "dGVzdA, ") << "config: 自定义 psk";
+        EXPECT_EQ(cfg.psk, "dGVzdA==") << "config: 自定义 psk";
         EXPECT_EQ(cfg.method, "2022-blake3-aes-128-gcm") << "config: 自定义 method";
         EXPECT_EQ(cfg.enable_tcp, false) << "config: 自定义 enable_tcp=false";
         EXPECT_EQ(cfg.enable_udp, true) << "config: 自定义 enable_udp=true";
@@ -84,7 +84,7 @@ namespace
 
         EXPECT_EQ(req.method, cipher_method::aes_256_gcm) << "request: method=aes_256_gcm";
         EXPECT_EQ(req.port, 443) << "request: port=443";
-        EXPECT_LT(std::holds_alternative, ipv4_address>(req.destination_address))
+        EXPECT_TRUE(std::holds_alternative<ipv4_address>(req.destination_address))
                      << "request: 地址类型=ipv4";
     }
 
@@ -133,7 +133,7 @@ namespace
 
         // variant 地址
         address addr = v4;
-        EXPECT_LT(std::holds_alternative, ipv4_address>(addr))
+        EXPECT_TRUE(std::holds_alternative<ipv4_address>(addr))
                      << "address: variant holds ipv4";
     }
 

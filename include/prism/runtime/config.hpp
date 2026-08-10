@@ -13,14 +13,21 @@
 #include <prism/protocol/socks5/config.hpp>
 #include <prism/protocol/trojan/config.hpp>
 #include <prism/protocol/vless/config.hpp>
+#include <prism/protocol/vmess/config.hpp>
 #include <prism/net/transport/pad.hpp>
 #include <prism/foundation/rate/counter.hpp>
 #include <prism/handshake/anytls/config.hpp>
+#include <prism/handshake/ech/config.hpp>
+#include <prism/handshake/gun/config.hpp>
 #include <prism/handshake/native/config.hpp>
 #include <prism/handshake/reality/config.hpp>
 #include <prism/handshake/restls/config.hpp>
 #include <prism/handshake/shadowtls/config.hpp>
 #include <prism/handshake/trusttunnel/config.hpp>
+#include <prism/handshake/ws/config.hpp>
+#include <prism/handshake/xhttp/config.hpp>
+#include <prism/handshake/hysteria2/config.hpp>
+#include <prism/handshake/tuic/config.hpp>
 
 
 namespace psm::runtime
@@ -145,6 +152,7 @@ namespace psm::runtime
             psm::protocol::trojan::config trojan;
             psm::protocol::vless::config vless;
             psm::protocol::shadowsocks::config shadowsocks;
+            psm::protocol::vmess::config vmess;
         };
     }
 
@@ -164,6 +172,12 @@ namespace psm::runtime
             psm::handshake::restls::config restls;
             psm::handshake::anytls::config anytls;
             psm::handshake::trusttunnel::config trusttunnel;
+            psm::handshake::gun::config gun;
+            psm::handshake::ech::config ech;
+            psm::handshake::ws::config ws;
+            psm::handshake::xhttp::config xhttp;
+            psm::handshake::hysteria2::config hysteria2;
+            psm::handshake::tuic::config tuic;
             psm::handshake::native::config native_tls;
             psm::transport::pad_config pad;
             psm::rate::probe_defense_config probe;

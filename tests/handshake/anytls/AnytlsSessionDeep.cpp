@@ -209,7 +209,7 @@ namespace
 
         // v2 会写 server_settings 帧，检查 written_data
         auto &written = fx.transport->written_data();
-        EXPECT_GT(written.size(), = 7) << "settings v2: server_settings written";
+        EXPECT_GE(written.size(), 7) << "settings v2: server_settings written";
     }
 
     // ─── on_settings v2 + padding mismatch ────────
@@ -245,7 +245,7 @@ namespace
 
         // 应该写了 update_padding 帧 + server_settings 帧
         auto &written = fx.transport->written_data();
-        EXPECT_GT(written.size(), = 14) << "pad mismatch: frames written";
+        EXPECT_GE(written.size(), 14) << "pad mismatch: frames written";
     }
 
     // ─── on_settings v2 + padding match ───────────
@@ -282,7 +282,7 @@ namespace
 
         // 匹配时不发送 update_padding，只发 server_settings
         auto &written = fx.transport->written_data();
-        EXPECT_GT(written.size(), = 7) << "pad match: server_settings written";
+        EXPECT_GE(written.size(), 7) << "pad match: server_settings written";
     }
 
     // ─── on_syn 正常路径 ──────────────────────────
@@ -521,7 +521,7 @@ namespace
 
         // v2 会发送 synack 帧
         auto &written = fx.transport->written_data();
-        EXPECT_GT(written.size(), = 7) << "psh v2 synack: frame written";
+        EXPECT_GE(written.size(), 7) << "psh v2 synack: frame written";
     }
 
     // ─── on_psh 第一 stream 后续数据 ──────────────
@@ -749,7 +749,7 @@ namespace
 
         // heart_resp 应被写入
         auto &written = fx.transport->written_data();
-        EXPECT_GT(written.size(), = 7) << "heart_req: response written";
+        EXPECT_GE(written.size(), 7) << "heart_req: response written";
 
         if (written.size() >= 7)
         {
@@ -951,7 +951,7 @@ namespace
 
         EXPECT_TRUE(!ec) << "write_psh: no error";
         auto &written = fx.transport->written_data();
-        EXPECT_GT(written.size(), = 7 + 2) << "write_psh: data written";
+        EXPECT_GE(written.size(), 7 + 2) << "write_psh: data written";
     }
 
     // ─── write_fin ───────────────────────────────
@@ -997,7 +997,7 @@ namespace
 
         EXPECT_TRUE(!ec) << "write_synack: no error";
         auto &written = fx.transport->written_data();
-        EXPECT_GT(written.size(), = 7) << "write_synack: frame written";
+        EXPECT_GE(written.size(), 7) << "write_synack: frame written";
     }
 
     // ─── send_waste_frame 无 padding ─────────────
@@ -1048,7 +1048,7 @@ namespace
         EXPECT_TRUE(!ec) << "waste with pad: no error";
         // pkt=0 -> "10-10" -> 一个 10 字节 waste 帧
         auto &written = fx.transport->written_data();
-        EXPECT_GT(written.size(), = 7 + 10) << "waste with pad: waste written";
+        EXPECT_GE(written.size(), 7 + 10) << "waste with pad: waste written";
     }
 
     // ─── send_waste_frame 超出 stop ──────────────

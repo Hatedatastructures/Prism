@@ -10,7 +10,7 @@ session::session(options opts)
     , buffer(opts.buffer)
     , inbound(std::move(opts.inbound))
     , outbound(nullptr)
-    , detected{}
+    , detected(opts.detected)
     , lease()
     , meta(std::move(opts.meta))
     , trace(std::move(opts.trace))
@@ -22,7 +22,7 @@ session::session(options opts)
 auto session::alive() const noexcept
     -> bool
 {
-    return true;
+    return worker && worker->alive();
 }
 
 } // namespace psm::resource

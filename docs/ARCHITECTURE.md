@@ -14,10 +14,10 @@ Prism 所有资源按所有权范围分四层：
 
 | 层 | 所有者 | 寿命 | 典型资源 | detached 协程可引用？ |
 |----|--------|------|---------|---------------------|
-| **L1 进程** | 进程 | 启动到退出 | `resource::process`（cfg / ssl / accounts）、`memory::system::global_pool()`、`stealth::scheme_registry` | ✅ 永远安全 |
+| **L1 进程** | 进程 | 启动到退出 | `resource::process`（cfg / ssl / accounts）、`memory::system::global_pool()`、`handshake::scheme_registry` | ✅ 永远安全 |
 | **L2 worker** | worker 线程 | worker 创建到销毁 | `resource::worker`（ioc / pool / router / dns / outbound / traffic / rate / tasks） | ✅ worker 不死即可 |
 | **L3 session** | session 对象 | 单次连接 | `resource::session`（conn / buffer / inbound / outbound / detected / lease / meta / trace / arena / src） | ❌ 严禁 |
-| **L4 detached** | detached 协程 | 协程启动到结束 | `multiplex::core.transport_`、`craft.prefix_`（值副本）、`craft.self`（shared_from_this） | 自带，不依赖外层 |
+| **L4 detached** | detached 协程 | 协程启动到结束 | `multiplexer.transport_`、`multiplexer.prefix_`（shared_ptr 值持有）、`multiplexer.self`（shared_from_this） | 自带，不依赖外层 |
 
 ---
 
@@ -36,8 +36,8 @@ detached 协程的 lambda 捕获列表：
 - 自身 `shared_from_this()`（典型 RAII 模式）
 
 ❌ **严禁捕获**：
-- `context::session&` 或 `context::session*`（裸引用/指针，session 可死）
-- `ctx.frame_arena.get()`（PMR allocator，session 级）
+- `resource::session&` 或 `resource::session*`（裸引用/指针，session 可死）
+- `ctx.arena.get()`（PMR allocator，session 级）
 - `ctx.inbound&` / `ctx.outbound&`（引用捕获，session 级）
 - 其他 L3 资源的裸引用/指针
 
@@ -47,7 +47,7 @@ detached 协程内需要的资源：
 
 - **session 资源** → 必须先 **move**（如 `transport` 所有权转移）或 **值拷贝**（如 `prefix_`、`proto_`）
 - **PMR allocator** → 必须用 L1/L2 资源（`global_pool` 或 `local_pool`），禁止用 `frame_arena.get()`
-- **router/traffic** → 通过 L2 引用（`ctx.worker_ctx.router`、`ctx.worker_ctx.traffic`）
+- **router/traffic** → 通过 L2 引用（`ctx.worker->outbound`、`ctx.worker->traffic`）
 
 ---
 
@@ -70,7 +70,7 @@ preview::preview(shared_transmission inner, span<const byte> preread, memory::re
     : preread_buffer_(preread.begin(), preread.end(), mr) {}
 ```
 
-调用方传入 `ctx.frame_arena.get()`，让 `preread_buffer_.m_resource` 指向 session 的 frame_arena。但 `preview` 可能被 `multiplex::core.transport_` 持有，core 是 detached 协程（`co_spawn(run_wrapper, detached)`），生命周期脱离 session。session 析构后 frame_arena 失效，preview 析构时 `m_resource` 悬垂 → 段错误。
+调用方传入 `ctx.arena.get()`，让 `preread_buffer_.m_resource` 指向 session 的 frame_arena。但 `preview` 可能被 `multiplexer.transport_` 持有，multiplexer 是 detached 协程（`co_spawn(run(), detached)`），生命周期脱离 session。session 析构后 frame_arena 失效，preview 析构时 `m_resource` 悬垂 → 段错误。
 
 **修复**：preview 构造去掉 `mr` 参数，内部强制用 `global_pool`（PMR 默认资源）。
 
@@ -78,27 +78,27 @@ preview::preview(shared_transmission inner, span<const byte> preread, memory::re
 
 ## 已知约束（Prism 现状）
 
-### multiplex::core 是 L4
+### multiplexer 是 L4
 
-`multiplex::core`（yamux/smux/h2mux 的基类）通过 `co_spawn(run_wrapper, detached)` 启动主循环，生命周期独立于 session。
+`multiplex::multiplexer`（smux/yamux/h2mux 的基类）通过 `co_spawn(run(), detached)` 启动帧循环，生命周期独立于 session。
 
-- `core.transport_`：通过 `multiplex::bootstrap` 从 caller move 进来。**若 transport 是 preview，preview 必须用 global_pool**
-- `core.router_`：L2 引用（`worker.router`），安全
-- `core.traffic_`：L2 指针（`worker.traffic`），安全
-- `core.prefix_`：值副本（`session_prefix` 是 POD），安全
-- `core.cfg_`：L1 引用（`config` 进程级），安全
+- `transport_`：通过 `multiplex::bootstrap` 从 caller move 进来。**若 transport 是 preview，preview 必须用 global_pool**
+- `outbound_`：L2 非拥有引用（`worker.outbound`），安全
+- `config_`：L1 值引用（多路复用配置），安全
+- `prefix_`：值持有 `shared_ptr<diagnose::context>`，安全
+- `mr_`：PMR 资源，必须用 L1/L2 资源（`global_pool` / `local_pool`），禁止 `frame_arena`
 
 ### anytls scheme.cpp 的 detached task
 
-`anytls::scheme::handle_first_stream` 启动 `mux_task` 和 `forward_task`（detached）。两个 task 捕获 `session_ptr`（`context::session*` 裸指针）。
+`anytls::scheme::handle_first_stream` 启动 `mux_task` 和 `forward_task`（detached）。两个 task 捕获 `session_ptr`（`resource::session*` 裸指针）。
 
-**安全性来源**：task 同时捕获 `keepalive`（`shared_ptr<session>`），keepalive 持有 session 引用计数，保证 session 在 task 期间不析构。因此 `session_ptr` 在 task 期间有效。
+**安全性来源**：task 同时捕获 `keepalive`（`shared_ptr`），keepalive 持有 session 引用计数，保证 session 在 task 期间不析构。因此 `session_ptr` 在 task 期间有效。
 
-**类型化要求**：`keepalive` 字段类型必须是 `std::shared_ptr<context::session>`（不是 `std::shared_ptr<void>`），让安全性在类型层面体现，防止未来误删 keepalive。
+**类型化要求**：`keepalive` 字段类型必须是 `std::shared_ptr`（不能是裸指针），让安全性在类型层面体现，防止未来误删 keepalive。
 
-### duct / parcel
+### stream / datagram
 
-`multiplex::duct` 和 `multiplex::parcel` 通过 `shared_from_this()` 持有自身，绑定到 `core`。它们继承 `core` 的 L4 属性，同样禁止使用 `frame_arena`。
+`multiplex::stream` 和 `multiplex::datagram` 通过 `shared_from_this()` 持有自身，绑定到 `multiplexer`。它们继承 `multiplexer` 的 L4 属性，同样禁止使用 `frame_arena`。
 
 ---
 
@@ -130,14 +130,14 @@ bash scripts/audit_detached.sh src/
 ### 安全的 detached 协程模式
 
 ```cpp
-// multiplex::core::start() 内部
-auto run_wrapper = [self = shared_from_this()]()  // self 是 shared_ptr<core>
-    -> net::awaitable<void>
+// multiplexer::start() 内部
+auto self = shared_from_this();          // self 是 shared_ptr<multiplexer>
+auto run_wrapper = [self]() -> net::awaitable<void>
 {
-    trace::scope_guard guard(self->prefix_);  // prefix_ 是 POD 值副本
-    co_await self->run();                      // self 持有 core，core 持有 transport_（global_pool）
+    co_await self->run();                // self 持有 multiplexer，multiplexer 持有 transport_（global_pool）
 };
-net::co_spawn(transport_->executor(), run_wrapper(), net::detached);
+net::co_spawn(transport_->executor(), run_wrapper(),
+    [self](const std::exception_ptr &ep) { self->on_exception(ep); });
 ```
 
 ### 危险模式（已被审计脚本检测）
@@ -214,51 +214,50 @@ auto ses = std::make_shared<resource::session>(std::move(ses_opts));
 ### 依赖层次（禁止反向）
 
 ```
-Level 0: foundation/  rate/           ← 零外部依赖
-Level 1: trace/  crypto/              ← foundation only
-Level 2: net/                         ← foundation + trace + crypto
-           ├── connect/types.hpp      ← protocol_type
-           ├── connect/target.hpp     ← target
-           ├── transport/
-           ├── connect/outbound/
-           ├── connect/tunnel/
-           └── dns/
-Level 3: account/                     ← foundation + crypto + net
-Level 4: protocol/                    ← net + account + crypto
-Level 5: stealth/                     ← net + protocol + crypto
-Level 5: resource/                    ← 纯聚合，仅被 runtime 头文件包含
-Level 6: config/  runtime/            ← 顶层编排
+Level 0: foundation/                  ← 零外部依赖（fault/exception/memory/coroutine/rate）
+Level 1: crypto/  diagnose/           ← 仅依赖 foundation
+Level 2: net/  user/                  ← foundation + diagnose + crypto
+Level 3: resource/                    ← 聚合 net/user/diagnose/settings（L1/L2/L3 纯数据容器）
+Level 4: protocol/                    ← net + user + crypto + resource
+Level 5: handshake/                   ← net + protocol + crypto + resource + settings
+Level 6: settings/  runtime/          ← 顶层：settings 聚合全量配置 schema，runtime 编排
 ```
 
 ### 允许/禁止表
 
 | 模块 | 可依赖 | 禁止依赖 |
 |------|--------|---------|
-| `foundation/` `rate/` | 无 | 任何其他 |
-| `trace/` | foundation | net, account, protocol, stealth, runtime |
-| `crypto/` | foundation | net, account, protocol, stealth, runtime |
-| `net/` | foundation, trace, crypto | resource, protocol, stealth, runtime |
-| `account/` | foundation, crypto, net | protocol, stealth, runtime |
-| `protocol/` | net, account, crypto | stealth, runtime |
-| `stealth/` | net, protocol, crypto | runtime |
-| `resource/` | net, account, crypto, trace | protocol, stealth, runtime |
-| `config/` `runtime/` | 所有下层 | 无（顶层） |
+| `foundation/` | 无 | 任何其他 |
+| `crypto/` `diagnose/` | foundation | net, protocol, handshake, resource, runtime |
+| `net/` | foundation, diagnose, user, resource | protocol, handshake, runtime |
+| `user/` | foundation, net | protocol, handshake, resource, runtime |
+| `resource/` | foundation, diagnose, net, user, settings | protocol, handshake, runtime |
+| `protocol/` | foundation, diagnose, net, user, crypto, resource | handshake, runtime |
+| `handshake/` | foundation, diagnose, net, protocol, crypto, resource, settings | runtime |
+| `settings/` `runtime/` | 所有下层 | 无（顶层） |
+
+### 已知依赖环（待治理）
+
+- `settings ↔ runtime`：`settings/settings.hpp` 引 `runtime/config.hpp` 聚合配置类型，`runtime/front/listener.hpp` 引 `settings/settings.hpp`
+- `net ↔ resource`：`net/connection/tunnel/tunnel.hpp` 引 `resource/session.hpp`（拿 `session` 资源），`resource/worker.hpp` 引 `net/...`（持有 dialer/routes）
+
+环本身能编译，但破坏严格的 DAG 分层。重构方向：把 `resource/session` 中 tunnel 所需的纯数据字段下沉到 `net`，或让 tunnel 改用抽象接口而非直接引 `resource/session`。
 
 ### 头文件规则
 
 - 前向声明优先：`.hpp` 中能前向声明就不 `#include`
 - `unique_ptr<T>` 的 T 前向声明时，析构函数在 `.cpp` 中定义
-- 禁止上行包含：下层 `.hpp` 绝不包含上层模块
+- 禁止上行包含：下层 `.hpp` 绝不包含上层模块（已知环除外）
 - 聚合头维护：新增子头文件须同步更新模块聚合头
 
 ### 审计
 
 ```bash
-grep -rn '#include <prism/\(resource\|stealth\|runtime\)' include/prism/net/
-grep -rn '#include <prism/\(net\|resource\|protocol\|stealth\|runtime\)' include/prism/foundation/
-grep -rn '#include <prism/\(stealth\|runtime\)' include/prism/protocol/
-grep -rn '#include <prism/\(protocol\|stealth\|runtime\)' include/prism/resource/
-# 全部应 0 命中
+grep -rn '#include <prism/\(protocol\|handshake\|runtime\)' include/prism/net/
+grep -rn '#include <prism/\(net\|protocol\|handshake\|resource\|runtime\)' include/prism/foundation/
+grep -rn '#include <prism/\(handshake\|runtime\)' include/prism/protocol/
+grep -rn '#include <prism/\(protocol\|handshake\|runtime\)' include/prism/resource/
+# 除已知环外应 0 命中
 ```
 
 ---

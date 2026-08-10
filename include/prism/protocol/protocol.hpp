@@ -19,6 +19,7 @@
 #include <prism/protocol/socks5/socks5.hpp>
 #include <prism/protocol/trojan/trojan.hpp>
 #include <prism/protocol/vless/vless.hpp>
+#include <prism/protocol/vmess/vmess.hpp>
 
 // Multiplex 子模块
 #include <prism/protocol/multiplex/bootstrap.hpp>

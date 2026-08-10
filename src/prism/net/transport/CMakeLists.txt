@@ -3,6 +3,7 @@ target_sources(${PROJECT_NAME}_static_library
         encrypted.cpp
         pad.cpp
         preview.cpp
+        quic/server.cpp
 )
 
 target_sources(${PROJECT_NAME}_static_library

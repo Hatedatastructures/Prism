@@ -16,7 +16,7 @@ namespace net = boost::asio;
 namespace
 {
     void start_read(const std::shared_ptr<net::ip::tcp::socket> &sock,
-                    const net::strand<net::io_context::executor_type> &strand)
+                    const net::strand<net::any_io_executor> &strand)
     {
         auto buf = std::make_shared<std::array<char, 65536>>();
         sock->async_read_some(net::buffer(*buf),
@@ -45,7 +45,7 @@ auto main(int argc, char **argv) -> int
             {
                 if (!ec)
                 {
-                    auto strand = std::make_shared<net::strand<net::io_context::executor_type>>(
+                    auto strand = std::make_shared<net::strand<net::any_io_executor>>(
                         net::make_strand(sock.get_executor()));
                     start_read(std::make_shared<net::ip::tcp::socket>(std::move(sock)), *strand);
                 }

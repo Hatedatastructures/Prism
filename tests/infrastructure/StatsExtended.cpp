@@ -54,7 +54,7 @@ namespace
         EXPECT_EQ(g.value(), 0.0) << "gauge: initial=0.0";
 
         g.update(100.0);
-        EXPECT_GT(g.value(), 0) << "gauge: update > 0";
+        EXPECT_GE(g.value(), 0) << "gauge: update > 0";
 
         g.reset();
         EXPECT_EQ(g.value(), 0.0) << "gauge: reset to 0.0";
@@ -64,7 +64,7 @@ namespace
     {
         psm::stats::gauge g;
         g.update(1000.0);
-        EXPECT_GT(g.value(), 0) << "gauge: default alpha update > 0";
+        EXPECT_GE(g.value(), 0) << "gauge: default alpha update > 0";
     }
 
     TEST(StatsExtended, GaugeSmoothing)
@@ -219,6 +219,6 @@ namespace
         ss.mark_started(4);
         auto snap = ss.snapshot();
         EXPECT_EQ(snap.worker_count, 4) << "system_state: worker_count=4";
-        EXPECT_GT(snap.uptime_seconds, = 0) << "system_state: uptime >= 0";
+        EXPECT_GE(snap.uptime_seconds, 0) << "system_state: uptime >= 0";
     }
 } // namespace

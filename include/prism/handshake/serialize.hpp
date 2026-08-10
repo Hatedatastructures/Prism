@@ -17,7 +17,10 @@
 #include <prism/handshake/restls/config.hpp>
 #include <prism/handshake/shadowtls/config.hpp>
 #include <prism/foundation/rate/counter.hpp>
+#include <prism/handshake/gun/config.hpp>
 #include <prism/handshake/trusttunnel/config.hpp>
+#include <prism/handshake/ws/config.hpp>
+#include <prism/handshake/xhttp/config.hpp>
 #include <prism/net/transport/pad.hpp>
 
 #include <glaze/glaze.hpp>
@@ -116,20 +119,6 @@ struct glz::meta<psm::handshake::anytls::config>
 };
 
 // ============================================================================
-// ech
-// ============================================================================
-
-// ech::config
-template <>
-struct glz::meta<psm::handshake::ech::config>
-{
-    using T = psm::handshake::ech::config;
-    static constexpr auto value = glz::object(
-        "ech_key",      &T::ech_key,
-        "public_name",  &T::public_name);
-};
-
-// ============================================================================
 // trusttunnel
 // ============================================================================
 
@@ -218,4 +207,92 @@ struct glz::meta<psm::rate::probe_defense_config>
         "track_window_sec",     &T::track_window_sec,
         "fail_threshold",       &T::fail_threshold,
         "max_records",          &T::max_records);
+};
+
+// ============================================================================
+// gun
+// ============================================================================
+
+template <>
+struct glz::meta<psm::handshake::gun::config>
+{
+    using T = psm::handshake::gun::config;
+    static constexpr auto value = glz::object(
+        "server_names",  &T::server_names,
+        "path",          &T::path,
+        "service_name",  &T::service_name);
+};
+// ============================================================================
+// ech
+// ============================================================================
+
+template <>
+struct glz::meta<psm::handshake::ech::config>
+{
+    using T = psm::handshake::ech::config;
+    static constexpr auto value = glz::object(
+        "server_names",  &T::server_names,
+        "key",           &T::key,
+        "public_name",   &T::public_name,
+        "max_name_len",  &T::max_name_len);
+};
+// ============================================================================
+// ws
+// ============================================================================
+
+template <>
+struct glz::meta<psm::handshake::ws::config>
+{
+    using T = psm::handshake::ws::config;
+    static constexpr auto value = glz::object(
+        "server_names",  &T::server_names,
+        "path",          &T::path);
+};
+// ============================================================================
+// xhttp
+// ============================================================================
+
+template <>
+struct glz::meta<psm::handshake::xhttp::config>
+{
+    using T = psm::handshake::xhttp::config;
+    static constexpr auto value = glz::object(
+        "server_names",  &T::server_names,
+        "path",          &T::path,
+        "stream_one",    &T::stream_one,
+        "stream_up",     &T::stream_up,
+        "packet_up",     &T::packet_up);
+};
+// ============================================================================
+// hysteria2
+// ============================================================================
+
+template <>
+struct glz::meta<psm::handshake::hysteria2::config>
+{
+    using T = psm::handshake::hysteria2::config;
+    static constexpr auto value = glz::object(
+        "enable",        &T::enable,
+        "users",         &T::users);
+};
+// ============================================================================
+// tuic
+// ============================================================================
+
+template <>
+struct glz::meta<psm::handshake::tuic::user>
+{
+    using T = psm::handshake::tuic::user;
+    static constexpr auto value = glz::object(
+        "uuid",          &T::uuid,
+        "password",      &T::password);
+};
+
+template <>
+struct glz::meta<psm::handshake::tuic::config>
+{
+    using T = psm::handshake::tuic::config;
+    static constexpr auto value = glz::object(
+        "enable",        &T::enable,
+        "users",         &T::users);
 };

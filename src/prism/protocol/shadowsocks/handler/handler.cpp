@@ -11,9 +11,12 @@
 #include <prism/net/connection/tunnel/forward_relay.hpp>
 #include <prism/protocol/multiplex/bootstrap.hpp>
 #include <prism/protocol/shadowsocks/handler/conn.hpp>
+#include <prism/protocol/vmess/handler/handler.hpp>
+#include <prism/protocol/vmess/vmess.hpp>
 #include <prism/diagnose/diagnose.hpp>
 #include <prism/net/transport/preview.hpp>
 
+#include <chrono>
 #include <utility>
 
 namespace psm::protocol::shadowsocks
@@ -45,9 +48,21 @@ namespace psm::protocol::shadowsocks
         auto agent = make_conn(std::move(inbound),
             res_.worker->process->cfg->protocol.shadowsocks, worker_salt_pool);
 
+        const auto hs_begin = std::chrono::steady_clock::now();
         auto [ec, req] = co_await agent->handshake();
         if (fault::failed(ec))
         {
+            // SS2022 握手失败：若启用 VMess，回退尝试（共享 probe fallback 通道）
+            const auto &vmess_cfg = res_.worker->process->cfg->protocol.vmess;
+            if (vmess_cfg.enable_tcp || vmess_cfg.enable_udp)
+            {
+                if (trace)
+                    diagnose::debug(trace,
+                        "ss2022 handshake failed ({}), falling back to vmess",
+                        fault::describe(ec));
+                co_await psm::protocol::vmess::fallback_run(res_, data_, agent->release());
+                co_return;
+            }
             if (trace)
                 diagnose::warn(trace,
                     "handshake failed: {}", fault::describe(ec));
@@ -55,8 +70,13 @@ namespace psm::protocol::shadowsocks
         }
 
         if (trace)
+        {
+            const auto hs_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
+                std::chrono::steady_clock::now() - hs_begin).count();
             diagnose::access(trace,
-                "CONNECT -> {}:{}", agent->target().host, agent->target().port);
+                "CONNECT -> {}:{} (ss2022 handshake {} ms)",
+                agent->target().host, agent->target().port, hs_ms);
+        }
 
         auto ack_ec = co_await agent->acknowledge();
         if (fault::failed(ack_ec))

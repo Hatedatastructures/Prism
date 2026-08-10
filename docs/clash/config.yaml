@@ -36,6 +36,13 @@ dns:
 # 每个协议使用不同的 SNI，确保单端口多协议确定性识别。
 # 所有 SNI 都是真实可访问的大厂域名，支持主动探测回退。
 # 客户端 sni/servername 必须与服务端 server_names 配置一致！
+#
+# QUIC 协议（Hysteria2/TUIC）走 UDP 8081，与 TCP 8081 共存：
+#   - Hysteria2：HTTP/3 认证（POST /auth + Hysteria-Auth 头），
+#     password 与服务端 stealth.hysteria2.users 一致
+#   - TUIC v5：uni stream 认证（ExportKeyingMaterial(label=UUID, context=password)），
+#     uuid/password 与服务端 stealth.tuic.users 一致
+# VMess 与 SS2022 共享裸 TCP 8081（SS2022 握手失败回退 VMess）
 
 # ---------- 协议测试节点 ----------
 proxies:
@@ -651,6 +658,48 @@ proxies:
       protocol: smux
       only-tcp: true
 
+  # VMess (AEAD, alterId=0) — 与 SS2022 共享裸 TCP 8081 探测通道
+  # Prism 在 SS2022 握手失败后回退尝试 VMess 认证头
+  - name: "VMess TCP"
+    type: vmess
+    server: 127.0.0.1
+    port: 8081
+    uuid: "123e4567-e89b-12d3-a456-426614174000"
+    alterId: 0
+    cipher: auto
+    udp: false
+
+  - name: "VMess UDP"
+    type: vmess
+    server: 127.0.0.1
+    port: 8081
+    uuid: "123e4567-e89b-12d3-a456-426614174000"
+    alterId: 0
+    cipher: auto
+    udp: true
+
+  # Hysteria2 (QUIC/UDP 8081)
+  # password 与服务端 stealth.hysteria2.users 一致
+  - name: "Hysteria2 TCP"
+    type: hysteria2
+    server: 127.0.0.1
+    port: 8081
+    password: "hysteria2_password"
+    sni: "quic-gateway-e2e"
+    skip-cert-verify: true
+
+  # TUIC v5 (QUIC/UDP 8081)
+  # uuid/password 与服务端 stealth.tuic.users 一致
+  - name: "TUIC v5 TCP"
+    type: tuic
+    server: 127.0.0.1
+    port: 8081
+    uuid: "123e4567-e89b-12d3-a456-426614174000"
+    password: "tuic_password"
+    disable-sni: true
+    reduce-rtt: true
+    udp-relay-mode: native
+
   # VLESS Reality 扩展 mux (4C64S = 4 conn x 64 streams)
   - name: "VLESS Reality Smux 4C64S TCP"
     type: vless
@@ -977,6 +1026,10 @@ proxy-groups:
       - "Trojan Reality Smux UDP"
       - "Trojan Reality Yamux TCP"
       - "Trojan Reality Yamux UDP"
+      - "VMess TCP"
+      - "VMess UDP"
+      - "Hysteria2 TCP"
+      - "TUIC v5 TCP"
 
   - name: "国内延迟测试(xiaomi)"
     type: url-test
@@ -1041,6 +1094,10 @@ proxy-groups:
       - "Trojan Reality Smux UDP"
       - "Trojan Reality Yamux TCP"
       - "Trojan Reality Yamux UDP"
+      - "VMess TCP"
+      - "VMess UDP"
+      - "Hysteria2 TCP"
+      - "TUIC v5 TCP"
 
     url: "http://connect.rom.miui.com/generate_204"
     interval: 300

@@ -1,4 +1,5 @@
 #include <prism/protocol/multiplex/h2mux/control.hpp>
+#include <prism/protocol/multiplex/h2mux/singmux.hpp>
 
 #include <prism/net/connection/dialer/dialer.hpp>
 #include <prism/net/connection/outbound/direct.hpp>
@@ -37,11 +38,12 @@ namespace psm::multiplex::h2mux
         }
     } // namespace
 
-    control::control(multiplexer_options opts, address_resolver resolver)
+    control::control(multiplexer_options opts, address_resolver resolver, const bool sing_streams)
         : multiplexer(multiplexer_options{
               std::move(opts.transport), opts.outbound, opts.cfg, opts.mr,
               opts.cfg.h2mux.max_streams}),
           resolver_(std::move(resolver)),
+          sing_streams_(sing_streams),
           router_fn_(outbound_ ? outbound_->make_router() : decltype(router_fn_){}),
           h2_pending_(mr_),
           udp_bufs_(mr_),
@@ -92,23 +94,26 @@ namespace psm::multiplex::h2mux
         }
 
         // 将载荷包装为 nghttp2 data provider，mem_send 时按需拷贝
-        auto payload = std::make_shared<memory::vector<std::byte>>(std::move(frame.payload));
-
-        struct data_source
-        {
-            std::shared_ptr<memory::vector<std::byte>> buf;
-            std::size_t offset{0};
-        };
-
-        auto src = std::make_unique<data_source>(data_source{payload, 0});
+        // 数据源存入会话映射：nghttp2 延迟读取时防悬垂
+        auto src = std::make_unique<data_source>();
+        src->buf = std::make_shared<memory::vector<std::byte>>(std::move(frame.payload));
+        auto *raw = src.get();
+        pending_data_[frame.stream_id] = std::move(src);
 
         nghttp2_data_provider dp;
-        dp.source.ptr = src.get();
-        dp.read_callback = [](nghttp2_session *, int32_t, uint8_t *buf,
+        dp.source.ptr = raw;
+        dp.read_callback = [](nghttp2_session *, int32_t stream_id, uint8_t *buf,
                               size_t length, uint32_t *data_flags,
-                              nghttp2_data_source *source, void *) -> ssize_t
+                              nghttp2_data_source *, void *user_data) -> ssize_t
         {
-            auto *ds = static_cast<data_source *>(source->ptr);
+            auto *self = static_cast<control *>(user_data);
+            auto it = self->pending_data_.find(stream_id);
+            if (it == self->pending_data_.end())
+            {
+                *data_flags |= NGHTTP2_DATA_FLAG_EOF;
+                return 0;
+            }
+            auto *ds = it->second.get();
             auto remaining = ds->buf->size() - ds->offset;
 
             if (remaining == 0)
@@ -133,12 +138,12 @@ namespace psm::multiplex::h2mux
                                                     static_cast<std::int32_t>(frame.stream_id), &dp);
         if (rv != 0)
         {
+            pending_data_.erase(frame.stream_id);
             diagnose::warn(prefix_, "nghttp2_submit_data failed: {}", nghttp2_strerror(rv));
             co_return;
         }
 
         co_await send_pending();
-        src.reset();
     }
 
 
@@ -157,7 +162,15 @@ namespace psm::multiplex::h2mux
         nghttp2_session_callbacks_set_on_data_chunk_recv_callback(callbacks, &control::on_data);
         nghttp2_session_callbacks_set_on_stream_close_callback(callbacks, &control::on_stream_close);
 
-        const std::int32_t rv = nghttp2_session_server_new2(&session_, callbacks, this, nullptr);
+        // 禁用 HTTP messaging 严格检查：sing-mux 的 CONNECT 请求携带
+        // body（StreamRequest），默认检查会以 messaging violation 拒绝
+        nghttp2_option *option = nullptr;
+        nghttp2_option_new(&option);
+        nghttp2_option_set_no_http_messaging(option, 1);
+
+        const std::int32_t rv = nghttp2_session_server_new3(&session_, callbacks, this, option, nullptr);
+        if (option)
+            nghttp2_option_del(option);
         nghttp2_session_callbacks_del(callbacks);
 
         if (rv != 0)
@@ -198,6 +211,8 @@ namespace psm::multiplex::h2mux
                 break;
             }
 
+            diagnose::debug(prefix_, "frame loop received {} bytes", n);
+
             // 安全：nghttp2 API 要求 uint8_t*，recv_buf 仅作只读输入
             const auto recv_len = nghttp2_session_mem_recv(
                 session_,
@@ -230,6 +245,7 @@ namespace psm::multiplex::h2mux
         {
             const std::uint8_t *data = nullptr;
             const auto len = nghttp2_session_mem_send(session_, &data);
+            diagnose::debug(prefix_, "send_pending mem_send rc={}", static_cast<int>(len));
             if (len <= 0)
             {
                 break;
@@ -265,7 +281,8 @@ namespace psm::multiplex::h2mux
 
         if (entry.info.valid)
         {
-            if (!connect_resolved_)
+            // sing-mux 模式直接激活；TrustTunnel 模式首个 CONNECT 供 auth 验证
+            if (!sing_streams_ && !connect_resolved_)
             {
                 first_connect_ = entry.headers;
                 connect_resolved_ = true;
@@ -273,19 +290,30 @@ namespace psm::multiplex::h2mux
                 return;
             }
 
-            entry.connecting = true;
-            auto self = std::static_pointer_cast<control>(shared_from_this());
-            const auto id = static_cast<std::uint32_t>(stream_id);
-            auto activate_task = [self, id]() -> net::awaitable<void>
-            {
-                co_await self->activate_stream(id);
-            };
-            auto on_error = [](const std::exception_ptr &ep)
-            {
-                if (ep) log_spawn_error(ep, "activate_stream");
-            };
-            net::co_spawn(transport_->executor(), std::move(activate_task), std::move(on_error));
+            spawn_activate(static_cast<std::uint32_t>(stream_id));
         }
+    }
+
+
+    void control::spawn_activate(const std::uint32_t stream_id)
+    {
+        auto it = h2_pending_.find(stream_id);
+        if (it == h2_pending_.end() || !it->second.info.valid || it->second.connecting)
+        {
+            return;
+        }
+
+        it->second.connecting = true;
+        auto self = std::static_pointer_cast<control>(shared_from_this());
+        auto activate_task = [self, id = stream_id]() -> net::awaitable<void>
+        {
+            co_await self->activate_stream(id);
+        };
+        auto on_error = [](const std::exception_ptr &ep)
+        {
+            if (ep) log_spawn_error(ep, "activate_stream");
+        };
+        net::co_spawn(transport_->executor(), std::move(activate_task), std::move(on_error));
     }
 
 
@@ -298,6 +326,7 @@ namespace psm::multiplex::h2mux
         }
 
         auto info = std::move(it->second.info);
+        auto pending_data = std::move(it->second.pending_data);
         h2_pending_.erase(it);
 
         switch (info.type)
@@ -333,6 +362,23 @@ namespace psm::multiplex::h2mux
             bit->second.dest_host.assign(info.host.data(), info.host.size());
             bit->second.dest_port = info.port;
 
+            // sing-mux：UDP 流首字节前置 StreamResponse 状态（0x00 成功）
+            if (sing_streams_)
+            {
+                auto status_payload = memory::vector<std::byte>(mr_);
+                status_payload.push_back(std::byte{0});
+                co_await write_frame(outbound_frame{
+                    stream_id,
+                    std::move(status_payload),
+                    outbound_kind::data});
+            }
+            // StreamRequest 后的剩余数据（length-prefixed UDP 包）交给重组缓冲
+            if (!pending_data.empty())
+            {
+                auto &buffer = bit->second.buffer;
+                buffer.insert(buffer.end(), pending_data.begin(), pending_data.end());
+            }
+
             auto dp = make_datagram(datagram_options{
                 .stream_id = stream_id,
                 .idle_timeout = config_.h2mux.udp_idle,
@@ -354,6 +400,22 @@ namespace psm::multiplex::h2mux
             {
                 udp_bufs_.erase(stream_id);
                 dp->close();
+            }
+
+            // StreamRequest 后已累积的 UDP 包需要立即处理（否则等待下一个 DATA 帧）
+            if (!pending_data.empty() && datagrams_.contains(stream_id))
+            {
+                auto self = std::static_pointer_cast<control>(shared_from_this());
+                auto process_task = [self, id = stream_id]() -> net::awaitable<void>
+                {
+                    co_await self->process_udp(id, memory::vector<std::byte>(self->mr_));
+                };
+                auto on_error = [](const std::exception_ptr &ep)
+                {
+                    if (ep)
+                        log_spawn_error(ep, "process pending udp");
+                };
+                net::co_spawn(transport_->executor(), std::move(process_task), std::move(on_error));
             }
 
             diagnose::debug(prefix_, "stream {} UDP datagram created", stream_id);
@@ -409,6 +471,22 @@ namespace psm::multiplex::h2mux
             });
             streams_[stream_id] = sp;
             sp->start();
+
+            // sing-mux：TCP 流首字节前置 StreamResponse 状态（0x00 成功）
+            if (sing_streams_)
+            {
+                auto status_payload = memory::vector<std::byte>(mr_);
+                status_payload.push_back(std::byte{0});
+                co_await write_frame(outbound_frame{
+                    stream_id,
+                    std::move(status_payload),
+                    outbound_kind::data});
+            }
+            // StreamRequest 后的剩余数据转发给流
+            if (!pending_data.empty())
+            {
+                co_await sp->on_data(std::move(pending_data));
+            }
 
             diagnose::debug(prefix_, "stream {} connected to {}:{}", stream_id, info.host, info.port);
         }
@@ -496,34 +574,17 @@ namespace psm::multiplex::h2mux
     {
         auto *self = static_cast<control *>(user_data);
 
+        // 注：begin_headers 阶段 frame->headers.nva 尚未填充（头在 on_header
+        // 回调中逐个到达），此处只按帧类型预注册 pending，:method 校验在
+        // on_frame_recv（HEADERS 完整到达）时执行。
         if (frame->hd.type == NGHTTP2_HEADERS &&
             frame->headers.cat == NGHTTP2_HCAT_REQUEST)
         {
-            const auto &nv = frame->headers.nva;
-            bool is_connect = false;
-            for (std::size_t i = 0; i < frame->headers.nvlen; ++i)
-            {
-                // 安全：将 nghttp2 头部名 (uint8_t*) 转为 string_view 解析 HTTP/2 头
-                const auto name = std::string_view(
-                    reinterpret_cast<const char *>(nv[i].name), nv[i].namelen);
-                const auto value = std::string_view(
-                    reinterpret_cast<const char *>(nv[i].value), nv[i].valuelen);
-
-                if (name == ":method" && value == "CONNECT")
-                {
-                    is_connect = true;
-                    break;
-                }
-            }
-
-            if (is_connect)
-            {
-                const auto stream_id = static_cast<std::uint32_t>(frame->hd.stream_id);
-                h2_pending_entry entry;
-                entry.headers.stream_id = frame->hd.stream_id;
-                self->h2_pending_[stream_id] = std::move(entry);
-                diagnose::debug(self->prefix_, "CONNECT detected on stream {}", stream_id);
-            }
+            const auto stream_id = static_cast<std::uint32_t>(frame->hd.stream_id);
+            h2_pending_entry entry;
+            entry.headers.stream_id = frame->hd.stream_id;
+            self->h2_pending_[stream_id] = std::move(entry);
+            diagnose::debug(self->prefix_, "request headers on stream {}", stream_id);
         }
         return 0;
     }
@@ -549,7 +610,11 @@ namespace psm::multiplex::h2mux
 
         auto &headers = it->second.headers;
 
-        if (hname == ":authority")
+        if (hname == ":method")
+        {
+            headers.method.assign(hvalue);
+        }
+        else if (hname == ":authority")
         {
             headers.authority.assign(hvalue);
         }
@@ -587,6 +652,16 @@ namespace psm::multiplex::h2mux
             return 0;
         }
 
+        // 注：nghttp2 1.69 在 on_frame_recv 阶段不填充 frame->headers.nva
+        //（仅 on_header_callback2 模式填充），:method 在 on_header 中收集
+        if (it->second.headers.method != "CONNECT")
+        {
+            // 非 CONNECT 请求：不代理，丢弃 pending
+            self->h2_pending_.erase(static_cast<std::uint32_t>(stream_id));
+            return 0;
+        }
+
+        diagnose::debug(self->prefix_, "CONNECT detected on stream {}", stream_id);
         self->handle_connect(stream_id);
 
         return 0;
@@ -601,7 +676,54 @@ namespace psm::multiplex::h2mux
 
         if (self->h2_pending_.contains(id))
         {
-            // TODO: 实现 StreamRequest 解析(#h2mux)
+            // sing-mux：首个 DATA 帧载荷为 StreamRequest，解析后激活
+            auto &entry = self->h2_pending_[id];
+            entry.buffer.insert(entry.buffer.end(),
+                                reinterpret_cast<const std::byte *>(data),
+                                reinterpret_cast<const std::byte *>(data) + len);
+
+            if (!entry.info.valid)
+            {
+                auto request = parse_sing_request(entry.buffer, self->mr_);
+                if (!request)
+                {
+                    // 数据不足：等待更多 DATA 帧（防无限累积）
+                    if (entry.buffer.size() > 512)
+                    {
+                        nghttp2_submit_rst_stream(self->session_, NGHTTP2_FLAG_NONE,
+                                                  stream_id, NGHTTP2_PROTOCOL_ERROR);
+                    }
+                    return 0;
+                }
+                if (request->consumed == 0)
+                {
+                    // 非法地址类型
+                    nghttp2_submit_rst_stream(self->session_, NGHTTP2_FLAG_NONE,
+                                              stream_id, NGHTTP2_PROTOCOL_ERROR);
+                    return 0;
+                }
+
+                entry.info.host = std::move(request->host);
+                entry.info.port = request->port;
+                entry.info.type = request->udp ? stream_type::udp : stream_type::tcp;
+                entry.info.valid = true;
+
+                // StreamRequest 之后的剩余数据暂存，激活后转发
+                if (request->consumed < entry.buffer.size())
+                {
+                    entry.pending_data.assign(
+                        entry.buffer.begin() + static_cast<std::ptrdiff_t>(request->consumed),
+                        entry.buffer.end());
+                }
+
+                self->spawn_activate(id);
+                return 0;
+            }
+
+            // 目标已解析：后续 DATA 直接累积转发（激活可能尚未完成）
+            entry.pending_data.insert(entry.pending_data.end(),
+                                      reinterpret_cast<const std::byte *>(data),
+                                      reinterpret_cast<const std::byte *>(data) + len);
             return 0;
         }
 
@@ -659,12 +781,14 @@ namespace psm::multiplex::h2mux
 
 
     auto control::on_stream_close(nghttp2_session *, const int32_t stream_id,
-                                  uint32_t, void *user_data) -> int
+                                  uint32_t error_code, void *user_data) -> int
     {
         auto *self = static_cast<control *>(user_data);
         const auto id = static_cast<std::uint32_t>(stream_id);
 
         self->h2_pending_.erase(id);
+        // 流关闭后数据源不再被读取，释放避免泄漏
+        self->pending_data_.erase(id);
 
         if (const auto it = self->streams_.find(id); it != self->streams_.end() && it->second)
         {

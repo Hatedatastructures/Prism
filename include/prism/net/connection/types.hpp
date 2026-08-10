@@ -27,6 +27,9 @@ enum class protocol_type : std::uint8_t
     trojan,
     vless,
     shadowsocks,
+    vmess,
+    hysteria2,
+    tuic,
     tls
 };
 
@@ -52,6 +55,12 @@ enum class protocol_type : std::uint8_t
         return "vless";
     case protocol_type::shadowsocks:
         return "shadowsocks";
+    case protocol_type::vmess:
+        return "vmess";
+    case protocol_type::hysteria2:
+        return "hysteria2";
+    case protocol_type::tuic:
+        return "tuic";
     case protocol_type::tls:
         return "tls";
     default:

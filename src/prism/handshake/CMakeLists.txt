@@ -24,7 +24,17 @@ target_sources(${PROJECT_NAME}_static_library
         anytls/padding.cpp
         anytls/session.cpp
         trusttunnel/scheme.cpp
-        ech/util/decrypt.cpp
+        gun/scheme.cpp
+        gun/session.cpp
+        gun/transport.cpp
+        gun/codec.cpp
+        ech/scheme.cpp
+        ech/util/keygen.cpp
+        ws/scheme.cpp
+        ws/transport.cpp
+        ws/codec.cpp
+        xhttp/scheme.cpp
+        xhttp/session.cpp
 
         recognition/recognition.cpp
         recognition/routes.cpp
@@ -75,7 +85,15 @@ target_sources(${PROJECT_NAME}_static_library
             ${PROJECT_SOURCE_DIR}/include/prism/handshake/trusttunnel/config.hpp
             ${PROJECT_SOURCE_DIR}/include/prism/handshake/trusttunnel/scheme.hpp
             ${PROJECT_SOURCE_DIR}/include/prism/handshake/ech/config.hpp
-            ${PROJECT_SOURCE_DIR}/include/prism/handshake/ech/util/decrypt.hpp
+            ${PROJECT_SOURCE_DIR}/include/prism/handshake/ech/scheme.hpp
+            ${PROJECT_SOURCE_DIR}/include/prism/handshake/ech/util/keygen.hpp
+            ${PROJECT_SOURCE_DIR}/include/prism/handshake/ws/config.hpp
+            ${PROJECT_SOURCE_DIR}/include/prism/handshake/ws/scheme.hpp
+            ${PROJECT_SOURCE_DIR}/include/prism/handshake/ws/transport.hpp
+            ${PROJECT_SOURCE_DIR}/include/prism/handshake/ws/codec.hpp
+            ${PROJECT_SOURCE_DIR}/include/prism/handshake/xhttp/config.hpp
+            ${PROJECT_SOURCE_DIR}/include/prism/handshake/xhttp/scheme.hpp
+            ${PROJECT_SOURCE_DIR}/include/prism/handshake/xhttp/session.hpp
             ${PROJECT_SOURCE_DIR}/include/prism/handshake/serialize.hpp
 
             ${PROJECT_SOURCE_DIR}/include/prism/handshake/recognition/recognition.hpp

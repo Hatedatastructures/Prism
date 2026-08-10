@@ -18,6 +18,7 @@
 #include <memory>
 #include <string_view>
 #include <utility>
+#include <vector>
 
 
 namespace psm::user
@@ -137,6 +138,16 @@ namespace psm::user
          */
         [[nodiscard]] auto find(std::string_view credential) const noexcept
             -> std::shared_ptr<entry>;
+
+        /**
+         * @brief 枚举全部账户凭证
+         * @param out 输出凭证列表
+         * @return 凭证数量
+         * @details 用于需要遍历全部账户的场景（如 VMess 认证头
+         *          逆推用户）。快照式返回，安全跨线程使用。
+         */
+        [[nodiscard]] auto enumerate(std::vector<std::string_view> &out) const
+            -> std::size_t;
 
     private:
         using unordered_map = memory::unordered_map<memory::string, std::shared_ptr<entry>, string_hash, string_equal>;

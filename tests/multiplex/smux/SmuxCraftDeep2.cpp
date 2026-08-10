@@ -793,7 +793,7 @@ TEST(SmuxCraftDeep2, SendAddrErrSendsErrorAndFin)
     fx.poll();
 
     EXPECT_TRUE(done) << "send_addr_err: completed";
-    EXPECT_GT(frame_count, = 2)
+    EXPECT_GE(frame_count, 2)
         << "send_addr_err: sent error data + fin >= 2 frames";
     EXPECT_TRUE(fx.craft_obj->pending_.count(1) == 0)
         << "send_addr_err: pending erased";

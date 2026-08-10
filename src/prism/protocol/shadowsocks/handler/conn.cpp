@@ -141,6 +141,12 @@ namespace psm::protocol::shadowsocks
             co_return fail(fault::code::connection_reset);
         }
 
+        // 记录已读原始字节（供 VMess 回退重放）
+        fallback_raw_.insert(fallback_raw_.end(),
+                             reinterpret_cast<const std::byte *>(client_salt_.data()),
+                             reinterpret_cast<const std::byte *>(client_salt_.data() + client_salt_.size()));
+        fallback_raw_.insert(fallback_raw_.end(), header_enc.begin(), header_enc.end());
+
         // AEAD 解密
         std::array<std::uint8_t, fixed_hdr_plain> header_plain{};
         if (const auto r = decrypt_ctx_->open(header_plain, as_u8(header_enc));
@@ -200,6 +206,9 @@ namespace psm::protocol::shadowsocks
             diagnose::warn(prefix_, "read variable header failed: {}", ec.message());
             co_return fault::code::connection_reset;
         }
+
+        // 记录已读原始字节（供 VMess 回退重放：变长头含目标地址与初始 payload）
+        fallback_raw_.insert(fallback_raw_.end(), var_header_enc.begin(), var_header_enc.end());
 
         // AEAD 解密
         memory::vector<std::uint8_t> var_header_plain(var_header_len);

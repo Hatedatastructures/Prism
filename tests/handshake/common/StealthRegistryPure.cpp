@@ -22,7 +22,7 @@ namespace
     {
         psm::handshake::register_schemes();
         auto &reg = psm::handshake::scheme_registry::instance();
-        EXPECT_GT(reg.all().size(), = 6) << "register: >= 6 schemes";
+        EXPECT_GE(reg.all().size(), 6) << "register: >= 6 schemes";
     }
 
     TEST(StealthRegistryPure, FindReality)

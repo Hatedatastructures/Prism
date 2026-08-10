@@ -193,6 +193,21 @@ int main(int argc, char *argv[])
         runtime::front::balancer dispatcher(std::move(bindings));
         runtime::front::listener service_listener(config_ref, dispatcher);
 
+        // QUIC 入站网关（Hysteria2 / TUIC v5）
+        std::shared_ptr<runtime::front::quic_gateway> quic_service;
+        if (config_ref.stealth.hysteria2.enabled() || config_ref.stealth.tuic.enabled())
+        {
+            psm::memory::vector<std::shared_ptr<psm::resource::worker>> worker_resources;
+            worker_resources.reserve(workers.size());
+            for (const auto &worker_ptr : workers)
+            {
+                worker_resources.push_back(worker_ptr->resources());
+            }
+            quic_service = std::make_shared<runtime::front::quic_gateway>(
+                config_ref, dispatcher, std::move(worker_resources));
+            quic_service->start();
+        }
+
         psm::memory::vector<std::jthread> threads;
         threads.reserve(workers_count + 1U);
 
@@ -238,12 +253,17 @@ int main(int argc, char *argv[])
         boost::asio::signal_set signals(signal_ioc, SIGINT, SIGTERM);
 
         signals.async_wait(
-            [&workers, &service_listener, &threads, &signal_ioc](
+            [&workers, &service_listener, &quic_service, &threads, &signal_ioc](
                 const boost::system::error_code & /*ec*/, int /*signo*/)
             {
                 psm::diagnose::info("received shutdown signal, stopping gracefully...");
 
                 service_listener.stop();
+
+                if (quic_service)
+                {
+                    quic_service->stop();
+                }
 
                 for (const auto &worker_ptr : workers)
                 {

@@ -107,7 +107,7 @@ namespace
         }
 
         net::ip::tcp::socket sock_;
-        net::strand<net::io_context::executor_type> strand_;
+        net::strand<net::any_io_executor> strand_;
         std::string root_;
         std::array<char, 262144> req_buf_{};
         std::array<char, 262144> file_buf_{};

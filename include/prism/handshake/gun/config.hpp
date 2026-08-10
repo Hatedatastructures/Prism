@@ -1,0 +1,33 @@
+/**
+ * @file config.hpp
+ * @brief gRPC (gun) 伪装方案配置
+ */
+
+#pragma once
+
+#include <prism/foundation/memory/container.hpp>
+
+#include <cstdint>
+
+namespace psm::handshake::gun
+{
+
+    /**
+     * @struct config
+     * @brief gun 传输伪装配置
+     * @details SNI 白名单决定该方案在识别流水线中的命中条件。
+     */
+    struct config
+    {
+        memory::vector<memory::string> server_names; ///< SNI 白名单
+        memory::string path{"/GunService/Tun"};      ///< gRPC 服务路径
+        memory::string service_name{"GunService"};   ///< gRPC 服务名
+
+        /// 是否启用
+        [[nodiscard]] auto enabled() const noexcept -> bool
+        {
+            return !server_names.empty();
+        }
+    };
+
+} // namespace psm::handshake::gun

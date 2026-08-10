@@ -57,6 +57,13 @@
             "enable_tcp": true,
             "enable_udp": false,
             "udp_idle_timeout": 60
+        },
+        "vmess": {
+            "enable_tcp": true,
+            "enable_udp": true,
+            "enable_mux": false,
+            "udp_idle_timeout": 60,
+            "udp_max_datagram": 65535
         }
     },
     "multiplex": {
@@ -102,8 +109,8 @@
             "handshake_timeout_ms": 5000
         },
         "restls": {
-            "server_names": ["www.apple.com"],
-            "host": "www.apple.com:443",
+            "server_names": ["www.nvidia.com"],
+            "host": "www.nvidia.com:443",
             "password": "restls_password",
             "version_hint": "tls13",
             "restls_script": "300?100<1,400~100,350~100,600~100,300~200,300~100",
@@ -140,6 +147,21 @@
         },
         "native_tls": {
             "enabled": true
+        },
+        "hysteria2": {
+            "enable": true,
+            "users": [
+                "hysteria2_password"
+            ]
+        },
+        "tuic": {
+            "enable": true,
+            "users": [
+                {
+                    "uuid": "123e4567-e89b-12d3-a456-426614174000",
+                    "password": "tuic_password"
+                }
+            ]
         }
     },
     "dns": {

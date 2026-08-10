@@ -14,6 +14,18 @@ target_sources(${PROJECT_NAME}_static_library
         shadowsocks/codec/framing.cpp
         shadowsocks/util/datagram.cpp
         shadowsocks/handler/handler.cpp
+        vmess/handler/conn.cpp
+        vmess/codec/auth.cpp
+        vmess/codec/chunk.cpp
+        vmess/codec/header.cpp
+        vmess/handler/handler.cpp
+        tuic/codec.cpp
+        tuic/handler.cpp
+        hysteria2/codec.cpp
+        hysteria2/handler.cpp
+        hysteria2/h3_auth.cpp
+        hysteria2/h3_server.cpp
+        hysteria2/qpack.cpp
         tls/record.cpp
         tls/hello.cpp
 )
@@ -56,6 +68,15 @@ target_sources(${PROJECT_NAME}_static_library
             ${PROJECT_SOURCE_DIR}/include/prism/protocol/vless/handler/conn.hpp
             ${PROJECT_SOURCE_DIR}/include/prism/protocol/vless/codec/framing.hpp
             ${PROJECT_SOURCE_DIR}/include/prism/protocol/vless/handler/handler.hpp
+            ${PROJECT_SOURCE_DIR}/include/prism/protocol/vmess/vmess.hpp
+            ${PROJECT_SOURCE_DIR}/include/prism/protocol/vmess/config.hpp
+            ${PROJECT_SOURCE_DIR}/include/prism/protocol/vmess/constants.hpp
+            ${PROJECT_SOURCE_DIR}/include/prism/protocol/vmess/codec/auth.hpp
+            ${PROJECT_SOURCE_DIR}/include/prism/protocol/vmess/codec/chunk.hpp
+            ${PROJECT_SOURCE_DIR}/include/prism/protocol/vmess/codec/header.hpp
+            ${PROJECT_SOURCE_DIR}/include/prism/protocol/vmess/codec/kdf.hpp
+            ${PROJECT_SOURCE_DIR}/include/prism/protocol/vmess/handler/conn.hpp
+            ${PROJECT_SOURCE_DIR}/include/prism/protocol/vmess/handler/handler.hpp
             ${PROJECT_SOURCE_DIR}/include/prism/protocol/shadowsocks/shadowsocks.hpp
             ${PROJECT_SOURCE_DIR}/include/prism/protocol/shadowsocks/config.hpp
             ${PROJECT_SOURCE_DIR}/include/prism/protocol/shadowsocks/constants.hpp
@@ -68,6 +89,13 @@ target_sources(${PROJECT_NAME}_static_library
             ${PROJECT_SOURCE_DIR}/include/prism/protocol/shadowsocks/util/tracker.hpp
             ${PROJECT_SOURCE_DIR}/include/prism/protocol/shadowsocks/util/datagram.hpp
             ${PROJECT_SOURCE_DIR}/include/prism/protocol/shadowsocks/util/cast.hpp
+            ${PROJECT_SOURCE_DIR}/include/prism/protocol/tuic/handler.hpp
+            ${PROJECT_SOURCE_DIR}/include/prism/protocol/tuic/codec.hpp
+            ${PROJECT_SOURCE_DIR}/include/prism/protocol/hysteria2/handler.hpp
+            ${PROJECT_SOURCE_DIR}/include/prism/protocol/hysteria2/codec.hpp
+            ${PROJECT_SOURCE_DIR}/include/prism/protocol/hysteria2/qpack.hpp
+            ${PROJECT_SOURCE_DIR}/include/prism/protocol/hysteria2/h3_auth.hpp
+            ${PROJECT_SOURCE_DIR}/include/prism/protocol/hysteria2/h3_server.hpp
 )
 
 add_subdirectory(http)

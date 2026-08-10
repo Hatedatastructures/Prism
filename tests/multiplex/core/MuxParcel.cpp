@@ -361,7 +361,7 @@ namespace
         small_payload.resize(10, std::byte{0xAB});
         auto enc_small = build_dgram({"127.0.0.1", 80, small_payload}, psm::memory::current_resource());
 
-        EXPECT_LT(enc_small.size(), = udp_max_dg) << "overflow: small datagram within limit";
+        EXPECT_LT(enc_small.size(), udp_max_dg) << "overflow: small datagram within limit";
 
         // 构建超限数据报
         psm::memory::vector<std::byte> large_payload;

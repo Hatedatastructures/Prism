@@ -1,0 +1,6 @@
+prism_add_test(VmessAuth.cpp)
+prism_add_test(VmessKdf.cpp)
+prism_add_test(VmessHeader.cpp)
+prism_add_test(VmessChunk.cpp)
+prism_add_test(VmessConnEcho.cpp)
+prism_add_test(VmessCommon.cpp)

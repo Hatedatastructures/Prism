@@ -1,8 +1,4 @@
-prism_add_test(Smux.cpp)
-prism_add_test(SmuxCraft.cpp)
 prism_add_test(SmuxCraftPure.cpp)
 prism_add_test(SmuxCraftDeep.cpp)
 prism_add_test(SmuxCraftDeep2.cpp)
-prism_add_test(SmuxFrameExtra.cpp)
-prism_add_test(SmuxFrameError.cpp)
 prism_add_test(SmuxFrameDeep.cpp)

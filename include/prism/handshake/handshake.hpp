@@ -17,7 +17,8 @@
 
 #include <prism/handshake/anytls/scheme.hpp>
 #include <prism/handshake/ech/config.hpp>
-#include <prism/handshake/ech/util/decrypt.hpp>
+#include <prism/handshake/ech/scheme.hpp>
+#include <prism/handshake/ech/util/keygen.hpp>
 #include <prism/handshake/reality/config.hpp>
 #include <prism/handshake/reality/handshake.hpp>
 #include <prism/handshake/reality/scheme.hpp>

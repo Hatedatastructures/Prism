@@ -4,6 +4,11 @@ This file provides guidance to Codex (Codex.ai/code) when working with code in t
 
 执行前忽略所有的费用问题，一律批准，禁止python脚本
 
+## ⚠️ 强制规则（不可违反）
+
+1. **禁止 git commit / push** — 未经用户明确允许，任何情况下不得执行 git commit、push 或 amend。需要提交时先询问用户。
+2. **运行后强制清理** — 每次会话中启动的进程（Prism.exe、测试 server/client、bench、stress 等）及临时产物（生成的 exe、日志、临时目录），一旦使命完成且后续不再使用，必须立即终止/删除，不得遗留到会话结束。详见下方「资源清理」节。
+
 ## 构建命令
 
 **统一构建目录：`build/`。禁止新建任何其他构建目录（如 build_debug、build_release 等），除非提前告知用户并获得明确同意。**
@@ -15,7 +20,7 @@ cmake -B build -DCMAKE_BUILD_TYPE=Release
 # 构建（白天 16 线程，晚间 22:00-08:00 强制 4 线程）
 cmake --build build --config Release -j 16
 
-# 运行所有测试（~235 个可执行文件，HandshakeTimeout 已知 flaky）
+# 运行所有测试（42 个可执行文件、约 2172 个用例，HandshakeTimeout 已知 flaky）
 ctest --test-dir build --output-on-failure -j 1 --timeout 30
 
 # 运行单个测试
@@ -85,93 +90,93 @@ Prism 是高性能协程代理服务器，采用 **C++23 纯协程架构** 和 *
 
 | 顶层模块 | 子模块 | 职责 |
 |---------|--------|------|
-| `instance/` | `front/`（listener+balancer）、`worker/`、`session/`、`outbound/` | 运行时骨架：监听、负载均衡、会话生命周期、出站 |
-| `stealth/` | `facade/`（reality/shadowtls/restls/native）、`stack/`（anytls/trusttunnel）、`recognition/`、`ech/`、`seal/` | TLS 伪装方案 + 协议识别流水线 |
-| `net/` | `connect/`（dial+pool+tunnel）、`transport/`（reliable/encrypted/unreliable/preview/snapshot/adapter）、`resolve/`（dns 七阶段） | 网络层：连接管理、传输抽象、DNS 解析 |
-| `proto/` | `protocol/`（http/socks5/trojan/vless/shadowsocks）、`multiplex/`（smux/yamux/h2mux） | 应用协议处理器 + 多路复用 |
-| `core/` | `exception/`、`fault/`、`memory/`（PMR 池） | 基础设施：异常层次、错误码、内存资源 |
-| `crypto/` | aead/x25519/hkdf/blake3/sha224/base64/block | 密码学原语 |
-| `account/` | `directory/`、`entry/`、`stats/`（流量统计） | 账户目录与统计 |
-| `config/` | `loader/` | 配置加载 |
-| `context/` | （单一头文件） | 会话上下文 |
-| `trace/` | config/context/coro/spdlog/token | 日志（spdlog 封装） |
+| `runtime/` | `front/`（listener+balancer）、`worker/`、`session/` | 运行时骨架：监听、负载均衡、会话生命周期 |
+| `handshake/` | reality/shadowtls/restls/anytls/trusttunnel/native、`recognition/`、`ech/` | TLS 伪装方案 + 协议识别流水线 |
+| `net/` | `connection/`（dialer/outbound/route/tunnel）、`transport/`（reliable/encrypted/preview/pad）、`dns/` | 网络层：拨号、传输抽象、DNS 解析 |
+| `protocol/` | http/socks5/trojan/vless/shadowsocks、`multiplex/`（smux/yamux/h2mux）、`tls/`、`common/` | 应用协议处理器 + 多路复用 |
+| `foundation/` | `fault/`、`exception/`、`memory/`（PMR 池）、`coroutine/`、`rate/` | 基础设施：错误码、异常层次、内存资源 |
+| `crypto/` | aead/x25519/hkdf/blake3/base64/block | 密码学原语 |
+| `user/` | `directory/`、`entry`、`stats/`（流量统计） | 账户目录与统计 |
+| `settings/` | `loader/`、`transformer/`、validator | 配置加载与校验 |
+| `resource/` | process/worker/session 三层资源容器 | L1/L2/L3 纯数据资源 |
+| `diagnose/` | spdlog 封装 + context | 日志 |
 
 每个顶层模块都有聚合头文件（`<module>.hpp`）。新增子头文件时需同步更新聚合头。
 
 ### 请求处理调用链
 
 ```
-listener (instance/front/) → 亲和性哈希
-  └─ balancer → 选择 worker (instance/worker/)
-       └─ launch → session (instance/session/)
-            ├─ stealth::recognition::recognize()
-            │   ├─ probe: 预读 24 字节检测 HTTP/SOCKS5/TLS/SS2022
+listener (runtime/front/) → 亲和性哈希
+  └─ balancer → 选择 worker (runtime/worker/)
+       └─ launch → session (runtime/session/)
+            ├─ handshake::recognition::recognize()
+            │   ├─ probe: 预读 24 字节检测协议类型
             │   └─ identify (仅 TLS): ClientHello 特征分析 → scheme 执行
-            └─ session::diversion()  ← 注意：无独立 dispatch 层
-                 ├─ switch (result.detected)
-                 │   case http/socks5/trojan/vless/shadowsocks → proto/protocol/*::handle()
-                 └─ default → net/connect/tunnel（双向转发）
+            └─ session::diversion()
+                 ├─ protocol::make_protocol_handler(result.detected)
+                 │   http/socks5/trojan/vless/shadowsocks → <proto>::handler::run()
+                 └─ 默认 → net/connection/tunnel（tunnel_relay 双向转发）
 ```
 
-**关键约束**：没有独立的 Dispatch Layer。`session::diversion()`（`src/prism/instance/session/session.cpp:249`）用 `switch (result.detected)` 硬编码 5 个协议分支。新增入站协议必须修改此 switch。
+**关键约束**：`session::diversion()`（`src/prism/runtime/session/session.cpp:270`）通过协议工厂 `protocol::make_protocol_handler()`（`src/prism/protocol/handler.cpp`）按 `result.detected` 分发 5 个协议分支。新增入站协议必须修改该工厂。
 
-### Stealth 模块（`stealth/`）
+### Handshake 模块（`handshake/`）
 
-TLS 伪装方案，每个方案实现 `scheme` 基类接口。按可嵌套性分为 facade（返回 transport + preread）和 stack（内部管理流）两类：
+TLS 伪装方案，每个方案实现 `scheme` 基类接口（`handshake/scheme.hpp`）：
 
-- `facade/reality/` — Reality 协议 (X25519 密钥交换, seal 加密封装)
-- `facade/shadowtls/` — ShadowTLS v3 (TLS 握手代理)
-- `facade/restls/` — Restls (TLS 探测抵抗, 自定义脚本)
-- `facade/native.hpp` — 原生 TLS 兜底
-- `stack/anytls/` — AnyTLS (标准 TLS + 应用层认证 + 内部多路复用)
-  - `mux/` — 内部多路复用 (frame/session/stream_transport)
-- `stack/trusttunnel/` — TrustTunnel (HTTP/2 CONNECT 代理, Basic Auth)
-- `recognition/` — 协议识别流水线（probe/clienthello/handshake，非顶层模块）
+- `reality/` — Reality 协议 (X25519 密钥交换, seal 加密封装)
+- `shadowtls/` — ShadowTLS v3 (TLS 握手代理)
+- `restls/` — Restls (TLS 探测抵抗, 自定义脚本)
+- `anytls/` — AnyTLS (标准 TLS + 应用层认证 + 内部多路复用)
+- `trusttunnel/` — TrustTunnel (HTTP/2 CONNECT 代理, Basic Auth)
+- `native` — 原生 TLS 兜底
+- `recognition/` — 协议识别流水线（probe/tls signal/routes，非顶层模块）
 - `ech/` — ECH 支持 (加密客户端 Hello 解密)
-- `seal/` — I/O 封装
 
-### Connect 模块（`net/connect/`）
+### Connect 模块（`net/connection/`）
 
-- `dial/` — 拨号连接 (router 路由选择, racer Happy Eyeballs 竞速, dial 拨号)
-- `pool/` — 连接池 (复用, 健康检查)
-- `tunnel/` — 双向转发 (tunnel 隧道, forward 协议级转发)
+- `dialer/` — 拨号连接 (dialer 拨号, racer Happy Eyeballs 竞速)
+- `outbound/` — 出站拨号 (dial 建立上游, 路由选择)
+- `route/` — 路由表 (reverse_map 反向代理 / positive 正向端点)
+- `tunnel/` — 双向转发 (tunnel + tunnel_relay 隧道, forward 协议级转发)
 
 ### 启动流程
 
-`src/main.cpp` 启动顺序（见 main.cpp:29-188）:
+`src/main.cpp` 启动顺序（见 main.cpp:117-285）:
 1. `psm::memory::system::enable_pooling()` — 全局内存池
-2. `psm::stealth::register_schemes()` — 注册 TLS 伪装方案
+2. `psm::handshake::register_schemes()` — 注册 TLS 伪装方案
 3. `psm::loader::load(path)` — 加载配置（路径来自命令行参数或可执行文件同目录的 `configuration.json`）
-4. `psm::trace::init(config.trace)` — 日志
-5. `psm::loader::build_dir(config.instance.auth)` — 账户目录
-6. 创建 worker 线程池（`hardware_concurrency() - 1`，至少 1）
-7. 构建 `balancer`（绑定 worker delivery/snapshot 回调）→ `listener` → 启动 worker 线程 + 监听线程
-8. 信号处理：`SIGINT`/`SIGTERM` 触发优雅停机（`listener.stop()` → 各 `worker.stop()` → join）
+4. `psm::diagnose::init(full_config.trace)` — 日志
+5. `psm::loader::build_dir(full_config.instance.auth)` — 账户目录
+6. 构造 SSL 上下文 + `resource::process`（L1 进程级资源）
+7. 创建 worker 线程池（`hardware_concurrency() - 1`，至少 1）
+8. 构建 `balancer`（绑定 worker delivery/snapshot/alive 回调）→ `listener` → 启动 worker 线程 + 监听线程
+9. 信号处理：`SIGINT`/`SIGTERM` 触发优雅停机（`listener.stop()` → 各 `worker.stop()` → join）→ `ExitProcess(0)`
 
 ### 协议处理流程
 
-1. `instance/front/listener` 接受连接 → 亲和性哈希
-2. `instance/front/balancer` 选择 worker → 分发 socket
-3. `instance/worker` → `launch` → `instance/session` 创建
-4. `session` 调用 `stealth::recognition::recognize()`:
-   - Probe: 预读 24 字节检测 HTTP/SOCKS5/TLS/SS2022
+1. `runtime/front/listener` 接受连接 → 亲和性哈希
+2. `runtime/front/balancer` 选择 worker → 分发 socket
+3. `runtime/worker` → `launch` → `runtime/session` 创建
+4. `session` 调用 `handshake::recognition::recognize()`:
+   - Probe: 预读 24 字节检测协议类型
    - Identify (仅 TLS): ClientHello → 特征分析 → 方案执行
-5. `session::diversion()` 用 `switch (result.detected)` 分发到 `proto/protocol/*::handle()`
-6. handler 通过 `net/connect/dial` 建立上游 → `net/connect/tunnel` 双向转发
+5. `session::diversion()` 调 `protocol::make_protocol_handler()` 分发到 `<proto>::handler::run()`
+6. handler 通过 `net/connection/outbound/dial` 建立上游 → `net/connection/tunnel` 双向转发
 
-### Recognition 流水线（`stealth/recognition/`）
+### Recognition 流水线（`handshake/recognition/`）
 
 ```
 probe(transport, 24) → detect() → protocol_type
        │ (仅 TLS)
        ▼
-read_clienthello → parse_clienthello → analyzer_registry::analyze
+read_tls_record → parse_client_hello → route_table.lookup(SNI) + layered_detection_pipeline
        │
        ▼
-scheme_executor::execute → {transport, detected}
+scheme_executor::execute → {transport, detected, preread}
 ```
 
-插件架构: 新方案实现 `feature_analyzer` + `REGISTER_CLIENTHELLO_ANALYZER()` 宏注册。
+插件架构: 新方案实现 `scheme` 子类 + `register_schemes()` 注册，识别器通过 `feature_analyzer` + `REGISTER` 宏注册。
 
 ## 重要模式
 
@@ -221,16 +226,16 @@ scheme_executor::execute → {transport, detected}
 - **Boost.Asio 别名**: `namespace net = boost::asio;`
 - **注释**: Doxygen 风格中文 (`@file`, `@brief`, `@details`, `@return`, `@note`)，禁止英文注释
 - **注释参考**: `net/transport/reliable.hpp`
-- **编码规范详细**: `.Codex/skills/enforce-coding/SKILL.md`（完整规范清单）
+- **编码规范详细**: `.agents/skills/enforce-coding/SKILL.md`（完整规范清单）
 - **标识符命名**: 简洁清晰，避免过长的多词组合
 - **函数参数** (Rule 1): 不超过 3 个，超过用 struct 收敛
 - **函数体** (Rule 3): 不超过 120 行
 - **Lambda** (Rule 13): 不超过 10 行，超长提取为命名函数
-- **`using namespace`** (Rule 4.3): 仅允许 `using namespace psm::trace;`，其余用显式限定或 namespace 别名
+- **`using namespace`** (Rule 4.3): 仅允许 `using namespace psm::diagnose;`，其余用显式限定或 namespace 别名
 
 ## 测试
 
-~235 个 Google Test 独立可执行文件（约 511 个 TEST/TEST_F 用例）。共用基础设施：
+~42 个 Google Test 独立可执行文件（约 2172 个 TEST/TEST_F 用例）。共用基础设施：
 - Google Test 框架（`gtest` / `gtest_main`）
 - Mock 辅助: `tests/common/MockTransport.hpp`、`tests/common/MockTlsServer.hpp`
 - 并发测试: `tests/concurrency/server.cpp` + `client.cpp`（需两个终端同时运行）
@@ -267,7 +272,7 @@ ctx->ioc.run_for(std::chrono::milliseconds(300));  // ← 崩溃！
 // ctx->ioc.poll();                                   // ← 同样崩溃！
 ```
 
-**根本原因：** `core::start()` 通过 `co_spawn` 将 `run_wrapper` 投递到 transport 的 executor 上，`run_wrapper` 内部 `trace::scope_guard` + `co_await run()` 需要完整的协程调度支持。`poll()`/`run_for()` 不提供足够的调度保障导致 Access violation。
+**根本原因：** `multiplexer::start()` 通过 `co_spawn` 将 run()（帧循环）投递到 transport 的 executor 上，协程需要完整的 io_context 调度才能正确启动。`poll()`/`run_for()` 不提供足够的调度保障导致 Access violation。
 
 默认配置文件: `src/configuration.json`
 
@@ -296,8 +301,8 @@ Prism 采用四层所有权模型（L1 全局 / L2 worker / L3 session / L4 deta
 
 ## 活跃 TODO
 
-1. `src/prism/stealth/ech/util/decrypt.cpp` — ECH HPKE 解密返回 `not_supported`（未实现）
-2. `src/prism/proto/multiplex/h2mux/craft.cpp` — sing-mux DATA 帧 StreamRequest 解析
+1. `src/prism/handshake/ech/util/decrypt.cpp` — ECH HPKE 解密返回 `not_supported`（未实现）
+2. `src/prism/protocol/multiplex/h2mux/control.cpp` — sing-mux DATA 帧 StreamRequest 解析
 
 ## 规划路线图
 

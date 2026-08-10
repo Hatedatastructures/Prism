@@ -5,6 +5,7 @@ target_sources(${PROJECT_NAME}_static_library
         datagram.cpp
         bootstrap.cpp
         h2mux/control.cpp
+        h2mux/singmux.cpp
         smux/frame.cpp
         smux/codec.cpp
         smux/control.cpp

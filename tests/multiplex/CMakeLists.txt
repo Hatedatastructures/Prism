@@ -1,4 +1,5 @@
-add_subdirectory(smux)
+﻿add_subdirectory(smux)
 add_subdirectory(yamux)
 add_subdirectory(h2mux)
 add_subdirectory(core)
+prism_add_test(MuxCommon.cpp)
