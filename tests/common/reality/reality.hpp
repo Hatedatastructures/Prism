@@ -1,26 +1,31 @@
 /**
  * @file reality.hpp
- * @brief Reality 密钥原语（客户端 + 服务端）
- * @details 纯逻辑（无锁）：
- *          1. base64url（无填充）编解码——Reality 公钥/私钥格式
- *          2. X25519 密钥对生成与公钥派生
- *          3. Short ID 十六进制编解码
- *          命名空间 psm_test::reality，参考 mihomo listener/reality。
+ * @brief Reality 伪装方案密钥工具（纯逻辑）
+ * @details 实现 X25519 密钥对生成/派生、base64url 编解码、
+ *          短 ID 解析等 Reality 方案基础工具。
+ * @note 参考 Reality 协议规范与 mihomo transport/reality。
  */
 
 #pragma once
 
-#include <common/common.hpp>
-
 #include <openssl/evp.h>
 
-namespace psm_test::reality
+#include <array>
+#include <cstddef>
+#include <cstdint>
+#include <span>
+#include <string>
+#include <string_view>
+#include <vector>
+
+namespace psmtest::reality
 {
 
+    /// 密钥长度（X25519 32 字节）
     inline constexpr std::size_t key_len = 32;
 
-    /// base64url（RFC 4648，无填充）
-    [[nodiscard]] inline auto base64url_encode(const view data) -> std::string
+    /// @brief base64url 编码（RFC 4648，无填充）
+    [[nodiscard]] inline auto base64url_encode(std::span<const std::uint8_t> data) -> std::string
     {
         static constexpr char table[] = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
         std::string out;
@@ -28,8 +33,8 @@ namespace psm_test::reality
         std::size_t i = 0;
         for (; i + 2 < data.size(); i += 3)
         {
-            const auto n = static_cast<std::uint32_t>(data[i]) << 16
-                | static_cast<std::uint32_t>(data[i + 1]) << 8 | data[i + 2];
+            const auto n = static_cast<std::uint32_t>(data[i]) << 16 |
+                           static_cast<std::uint32_t>(data[i + 1]) << 8 | data[i + 2];
             out.push_back(table[(n >> 18) & 0x3F]);
             out.push_back(table[(n >> 12) & 0x3F]);
             out.push_back(table[(n >> 6) & 0x3F]);
@@ -43,8 +48,8 @@ namespace psm_test::reality
         }
         else if (i + 2 == data.size())
         {
-            const auto n = static_cast<std::uint32_t>(data[i]) << 16
-                | static_cast<std::uint32_t>(data[i + 1]) << 8;
+            const auto n = static_cast<std::uint32_t>(data[i]) << 16 |
+                           static_cast<std::uint32_t>(data[i + 1]) << 8;
             out.push_back(table[(n >> 18) & 0x3F]);
             out.push_back(table[(n >> 12) & 0x3F]);
             out.push_back(table[(n >> 6) & 0x3F]);
@@ -52,10 +57,10 @@ namespace psm_test::reality
         return out;
     }
 
-    /// base64url 解码（无填充，失败返回空）
-    [[nodiscard]] inline auto base64url_decode(const std::string_view s) -> buffer
+    /// @brief base64url 解码（无填充，失败返回空）
+    [[nodiscard]] inline auto base64url_decode(std::string_view s) -> std::vector<std::uint8_t>
     {
-        auto val = [](const char c) -> int
+        auto val = [](char c) -> int
         {
             if (c >= 'A' && c <= 'Z')
                 return c - 'A';
@@ -69,7 +74,7 @@ namespace psm_test::reality
                 return 63;
             return -1;
         };
-        buffer out;
+        std::vector<std::uint8_t> out;
         std::uint32_t acc = 0;
         int bits = 0;
         for (const char c : s)
@@ -88,94 +93,96 @@ namespace psm_test::reality
         return out;
     }
 
-    /// 生成 X25519 密钥对：返回 {私钥 32B, 公钥 32B}
-    [[nodiscard]] inline auto generate_keypair() -> std::pair<std::array<std::uint8_t, key_len>,
-                                                              std::array<std::uint8_t, key_len>>
+    /// @brief 生成 X25519 密钥对
+    /// @param priv 输出私钥（32 字节）
+    /// @param pub 输出公钥（32 字节）
+    /// @return 成功返回 false（对齐测试断言习惯）
+    [[nodiscard]] inline auto generate_keypair(std::array<std::uint8_t, key_len> &priv,
+                                               std::array<std::uint8_t, key_len> &pub) -> bool
     {
-        std::array<std::uint8_t, key_len> priv{};
-        std::array<std::uint8_t, key_len> pub{};
-        for (auto &b : priv)
-            b = static_cast<std::uint8_t>(std::rand() & 0xFF);
-
         EVP_PKEY_CTX *ctx = EVP_PKEY_CTX_new_id(EVP_PKEY_X25519, nullptr);
         if (!ctx)
-            return {};
+            return true;
         EVP_PKEY *pkey = nullptr;
-        if (EVP_PKEY_keygen_init(ctx) > 0 && EVP_PKEY_keygen(ctx, &pkey) > 0)
+        if (EVP_PKEY_keygen_init(ctx) <= 0 || EVP_PKEY_keygen(ctx, &pkey) <= 0)
         {
-            // 覆盖随机私钥：用生成的密钥对
-            std::size_t len = key_len;
-            EVP_PKEY_get_raw_private_key(pkey, priv.data(), &len);
-            len = key_len;
-            EVP_PKEY_get_raw_public_key(pkey, pub.data(), &len);
-            EVP_PKEY_free(pkey);
+            EVP_PKEY_CTX_free(ctx);
+            return true;
         }
-        EVP_PKEY_CTX_free(ctx);
-        return {priv, pub};
-    }
-
-    /// 从私钥派生 X25519 公钥（成功返回 true，输出到 pub）
-    [[nodiscard]] inline auto derive_public_key(const std::span<const std::uint8_t> priv,
-                                                std::span<std::uint8_t> pub) -> bool
-    {
-        if (priv.size() != key_len || pub.size() < key_len)
-            return false;
-        EVP_PKEY *pkey = EVP_PKEY_new_raw_private_key(EVP_PKEY_X25519, nullptr, priv.data(), key_len);
-        if (!pkey)
-            return false;
-        std::size_t len = key_len;
-        const auto ok = EVP_PKEY_get_raw_public_key(pkey, pub.data(), &len) > 0;
+        std::size_t priv_len = key_len, pub_len = key_len;
+        EVP_PKEY_get_raw_private_key(pkey, priv.data(), &priv_len);
+        EVP_PKEY_get_raw_public_key(pkey, pub.data(), &pub_len);
         EVP_PKEY_free(pkey);
-        return ok && len == key_len;
+        EVP_PKEY_CTX_free(ctx);
+        return false;
     }
 
-    /// 解析配置私钥（base64url 32 字节 → 校验长度）
-    [[nodiscard]] inline auto parse_private_key(const std::string_view encoded) -> buffer
+    /// @brief 由私钥派生公钥
+    /// @param priv 私钥（32 字节）
+    /// @param pub 输出公钥（32 字节）
+    /// @return 成功返回 false
+    [[nodiscard]] inline auto derive_public_key(std::span<const std::uint8_t> priv,
+                                                std::array<std::uint8_t, key_len> &pub) -> bool
     {
-        auto key = base64url_decode(encoded);
-        if (key.size() != key_len)
-            return {};
-        return key;
+        EVP_PKEY *pkey = EVP_PKEY_new_raw_private_key(EVP_PKEY_X25519, nullptr,
+                                                      priv.data(), priv.size());
+        if (!pkey)
+            return true;
+        std::size_t pub_len = key_len;
+        const auto ok = EVP_PKEY_get_raw_public_key(pkey, pub.data(), &pub_len) > 0;
+        EVP_PKEY_free(pkey);
+        return !ok;
     }
 
-    /// 编码公钥（base64url）
-    [[nodiscard]] inline auto encode_public_key(const std::span<const std::uint8_t> pub) -> std::string
+    /// @brief 解析 base64url 私钥
+    /// @param encoded base64url 字符串
+    /// @param out 输出私钥（32 字节）
+    /// @return 成功返回 false
+    [[nodiscard]] inline auto parse_private_key(std::string_view encoded,
+                                                std::array<std::uint8_t, key_len> &out) -> bool
+    {
+        const auto raw = base64url_decode(encoded);
+        if (raw.size() != key_len)
+            return true;
+        std::copy(raw.begin(), raw.end(), out.begin());
+        return false;
+    }
+
+    /// @brief 编码公钥为 base64url
+    [[nodiscard]] inline auto encode_public_key(std::span<const std::uint8_t> pub) -> std::string
     {
         return base64url_encode(pub);
     }
 
-    /// Short ID 十六进制 → 8 字节（不足填 0）
-    [[nodiscard]] inline auto parse_short_id(const std::string_view hex) -> std::array<std::uint8_t, 8>
+    /// @brief 解析 16 进制短 ID（最多 8 字节）
+    /// @param hex 16 进制字符串
+    /// @param out 输出短 ID（8 字节，不足补 0）
+    /// @return 成功返回 false
+    [[nodiscard]] inline auto parse_short_id(std::string_view hex,
+                                             std::array<std::uint8_t, 8> &out) -> bool
     {
-        std::array<std::uint8_t, 8> out{};
-        std::size_t n = 0;
-        bool hi = true;
-        std::uint8_t nibble = 0;
-        for (const char c : hex)
+        if (hex.empty() || hex.size() > 16 || hex.size() % 2 != 0)
+            return true;
+        auto nibble = [](char c) -> int
         {
-            if (n >= 8)
-                break;
-            std::uint8_t d = 0;
             if (c >= '0' && c <= '9')
-                d = static_cast<std::uint8_t>(c - '0');
-            else if (c >= 'a' && c <= 'f')
-                d = static_cast<std::uint8_t>(c - 'a' + 10);
-            else if (c >= 'A' && c <= 'F')
-                d = static_cast<std::uint8_t>(c - 'A' + 10);
-            else
-                continue;
-            if (hi)
-            {
-                nibble = static_cast<std::uint8_t>(d << 4);
-                hi = false;
-            }
-            else
-            {
-                out[n++] = static_cast<std::uint8_t>(nibble | d);
-                hi = true;
-            }
+                return c - '0';
+            if (c >= 'a' && c <= 'f')
+                return c - 'a' + 10;
+            if (c >= 'A' && c <= 'F')
+                return c - 'A' + 10;
+            return -1;
+        };
+        std::size_t pos = 0;
+        for (std::size_t i = 0; i < hex.size(); i += 2)
+        {
+            const int hi = nibble(hex[i]);
+            const int lo = nibble(hex[i + 1]);
+            if (hi < 0 || lo < 0)
+                return true;
+            out[pos++] = static_cast<std::uint8_t>((hi << 4) | lo);
         }
-        return out;
+        return false;
     }
 
-} // namespace psm_test::reality
+} // namespace psmtest::reality

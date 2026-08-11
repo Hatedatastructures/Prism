@@ -3,9 +3,9 @@
  * @brief 多路复用帧层 common 模块测试（smux/yamux/h2mux 帧编解码）
  */
 
-#include <common/mux/smux.hpp>
-#include <common/mux/yamux.hpp>
-#include <common/mux/h2mux.hpp>
+#include <common/mock/mux/smux.hpp>
+#include <common/mock/mux/yamux.hpp>
+#include <common/mock/mux/h2mux.hpp>
 
 #include <gtest/gtest.h>
 

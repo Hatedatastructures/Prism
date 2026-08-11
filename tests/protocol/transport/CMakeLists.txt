@@ -1,0 +1,2 @@
+prism_add_test(TransportTest.cpp)
+target_link_libraries(TransportTest PRIVATE vmtest_common)

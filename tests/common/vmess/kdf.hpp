@@ -1,43 +1,50 @@
 /**
  * @file kdf.hpp
- * @brief VMess 密钥派生与校验原语
- * @details 纯逻辑（无锁）：MD5/HMAC-SHA256 链式 KDF、CmdKey、AuthID 生成、
- *          CRC32-IEEE、FNV1a。命名空间 psm_test::vmess，参考 mihomo transport/vmess。
+ * @brief VMess 密钥派生（KDF）
+ * @details 实现 VMess AEAD KDF 链式哈希（对齐 mihomo/sing-vmess 嵌套
+ *          HMAC 结构）与 UUID → cmdKey 派生：
+ *          - kdf(key, paths...)：嵌套 HMAC-SHA256 链
+ *          - cmd_key_from_uuid()：MD5(uuid || uuid_salt)
+ *          - parse_uuid()：36 字符 UUID → 16 字节
+ * @note 纯逻辑零 I/O，无状态。
  */
 
 #pragma once
 
-#include <common/common.hpp>
+#include <common/vmess/types.hpp>
 
 #include <openssl/evp.h>
 #include <openssl/hmac.h>
 
-namespace psm_test::vmess
-{
+#include <array>
+#include <cstdint>
+#include <functional>
+#include <span>
+#include <string_view>
+#include <type_traits>
+#include <vector>
 
-    inline constexpr std::string_view kdf_salt_auth_id_enc = "AES Auth ID Encryption";
-    inline constexpr std::string_view kdf_salt_aead_kdf = "VMess AEAD KDF";
-    inline constexpr std::string_view kdf_salt_header_key = "VMess Header AEAD Key";
-    inline constexpr std::string_view kdf_salt_header_iv = "VMess Header AEAD Nonce";
-    inline constexpr std::string_view kdf_salt_header_len_key = "VMess Header AEAD Key_Length";
-    inline constexpr std::string_view kdf_salt_header_len_iv = "VMess Header AEAD Nonce_Length";
-    inline constexpr std::string_view cmd_key_const = "c48619fe-8f02-49e0-b9e9-edf763e17e21";
+namespace psmtest::vmess
+{
 
     namespace detail
     {
 
         /// HMAC-SHA256 单次
-        inline auto hmac_sha256(const view key, const view data) -> std::array<std::uint8_t, 32>
+        [[nodiscard]] inline auto hmac_sha256(std::span<const std::uint8_t> key,
+                                              std::span<const std::uint8_t> data)
+            -> std::array<std::uint8_t, 32>
         {
             std::array<std::uint8_t, 32> out{};
             unsigned int len = 0;
-            HMAC(EVP_sha256(), key.data(), static_cast<int>(key.size()), data.data(), data.size(),
-                 out.data(), &len);
+            HMAC(EVP_sha256(), key.data(), static_cast<int>(key.size()),
+                 data.data(), data.size(), out.data(), &len);
             return out;
         }
 
         /// MD5 摘要（16 字节）
-        inline auto md5(const view data) -> std::array<std::uint8_t, 16>
+        [[nodiscard]] inline auto md5(std::span<const std::uint8_t> data)
+            -> std::array<std::uint8_t, 16>
         {
             std::array<std::uint8_t, 16> out{};
             unsigned int len = 0;
@@ -46,7 +53,8 @@ namespace psm_test::vmess
         }
 
         /// SHA-256 摘要（32 字节）
-        inline auto sha256(const view data) -> std::array<std::uint8_t, 32>
+        [[nodiscard]] inline auto sha256(std::span<const std::uint8_t> data)
+            -> std::array<std::uint8_t, 32>
         {
             std::array<std::uint8_t, 32> out{};
             unsigned int len = 0;
@@ -54,93 +62,123 @@ namespace psm_test::vmess
             return out;
         }
 
-        /// CRC32-IEEE（与 Go hash/crc32 一致）
-        inline auto crc32_ieee(const view data) -> std::uint32_t
+        /// 路径转字节视图（支持 string_view / span / array）
+        template <typename Path>
+        [[nodiscard]] inline auto as_bytes(const Path &path) -> std::span<const std::uint8_t>
         {
-            std::uint32_t crc = 0xFFFFFFFF;
-            for (const auto b : data)
+            if constexpr (std::is_convertible_v<Path, std::string_view>)
             {
-                crc ^= b;
-                for (int i = 0; i < 8; ++i)
-                    crc = (crc >> 1) ^ (0xEDB88320U & -(crc & 1));
+                const std::string_view sv(path);
+                return {reinterpret_cast<const std::uint8_t *>(sv.data()), sv.size()};
             }
-            return ~crc;
+            else
+            {
+                return std::span<const std::uint8_t>(path);
+            }
         }
 
-        /// FNV1a 32 位（与 Go hash/fnv 一致）
-        inline auto fnv1a32(const view data) -> std::uint32_t
+        /// 路径填充到 64 字节块（对齐 Go hmac copyPad）
+        [[nodiscard]] inline auto xor_pad(std::span<const std::uint8_t> path,
+                                          std::uint8_t mask) -> std::array<std::uint8_t, 64>
         {
-            std::uint32_t hash = 0x811C9DC5;
-            for (const auto b : data)
-            {
-                hash ^= b;
-                hash *= 0x01000193;
-            }
-            return hash;
+            std::array<std::uint8_t, 64> out{};
+            const auto n = std::min(path.size(), out.size());
+            std::copy(path.begin(), path.begin() + static_cast<std::ptrdiff_t>(n), out.begin());
+            for (auto &b : out)
+                b ^= mask;
+            return out;
         }
 
     } // namespace detail
 
-    /**
-     * @brief VMess AEAD 链式 KDF（HMAC-SHA256 嵌套）
-     * @param key 基础密钥
-     * @param paths 路径段（从内到外）
-     * @return 32 字节派生密钥
-     * @details kdf(key, p1, p2) = HMAC(p2, HMAC(p1, HMAC("VMess AEAD KDF", key)))
-     */
-    [[nodiscard]] inline auto kdf(const view key, const std::vector<std::string_view> &paths)
+    /// @brief 执行 VMess AEAD KDF 链式哈希（对齐 Go 嵌套 HMAC 结构）
+    /// @tparam Path 路径类型（string_view / span / array）
+    /// @param key 初始密钥
+    /// @param paths KDF 路径列表
+    /// @return 32 字节派生密钥
+    template <typename... Path>
+    [[nodiscard]] auto kdf(std::span<const std::uint8_t> key, const Path &...paths)
         -> std::array<std::uint8_t, 32>
     {
-        auto out = detail::hmac_sha256(view(
-            reinterpret_cast<const std::uint8_t *>(kdf_salt_aead_kdf.data()),
-            kdf_salt_aead_kdf.size()), key);
-        for (const auto &p : paths)
+        std::function<std::array<std::uint8_t, 32>(std::span<const std::uint8_t>)> h =
+            [](std::span<const std::uint8_t> msg) -> std::array<std::uint8_t, 32>
         {
-            out = detail::hmac_sha256(
-                view(reinterpret_cast<const std::uint8_t *>(p.data()), p.size()), out);
-        }
-        return out;
+            return detail::hmac_sha256(detail::as_bytes(kdf_inner_marker), msg);
+        };
+
+        auto wrap = [&h](std::span<const std::uint8_t> path)
+        {
+            const auto prev = h;
+            const auto ipad = detail::xor_pad(path, 0x36);
+            const auto opad = detail::xor_pad(path, 0x5C);
+            h = [prev, ipad, opad](std::span<const std::uint8_t> msg)
+                -> std::array<std::uint8_t, 32>
+            {
+                std::vector<std::uint8_t> inner_in(64 + msg.size());
+                std::copy(ipad.begin(), ipad.end(), inner_in.begin());
+                std::copy(msg.begin(), msg.end(), inner_in.begin() + 64);
+                const auto inner = prev(inner_in);
+
+                std::array<std::uint8_t, 64 + 32> outer_in{};
+                std::copy(opad.begin(), opad.end(), outer_in.begin());
+                std::copy(inner.begin(), inner.end(), outer_in.begin() + 64);
+                return prev(outer_in);
+            };
+        };
+
+        (wrap(detail::as_bytes(paths)), ...);
+        return h(key);
     }
 
-    /// 单段 KDF 便捷重载
-    [[nodiscard]] inline auto kdf(const view key, const std::string_view path)
-        -> std::array<std::uint8_t, 32>
-    {
-        return kdf(key, std::vector<std::string_view>{path});
-    }
-
-    /// 计算 CmdKey = MD5(UUID 16B + 常量)
-    [[nodiscard]] inline auto cmd_key(const std::span<const std::uint8_t> uuid)
+    /// @brief 由 UUID 16 字节派生 cmdKey
+    /// @param uuid 16 字节 UUID 原始字节
+    /// @return 16 字节 cmdKey = MD5(uuid || uuid_salt)
+    [[nodiscard]] inline auto cmd_key_from_uuid(std::span<const std::uint8_t, 16> uuid)
         -> std::array<std::uint8_t, 16>
     {
-        byte_writer w;
-        w.write_bytes(uuid);
-        w.write_bytes(cmd_key_const);
-        return detail::md5(w.data());
+        std::array<std::uint8_t, 16 + 36> input{};
+        std::copy(uuid.begin(), uuid.end(), input.begin());
+        const auto salt = detail::as_bytes(uuid_salt);
+        std::copy(salt.begin(), salt.end(), input.begin() + 16);
+        return detail::md5(input);
     }
 
-    /// 生成 AuthID：AES-128-ECB 加密(time 8B BE + random 4B + crc32 4B BE)
-    [[nodiscard]] inline auto create_auth_id(const view cmd_key, const std::uint64_t time_sec,
-                                             const view random4) -> std::array<std::uint8_t, 16>
+    /// @brief 解析 36 字符 UUID 字符串为 16 字节
+    /// @param uuid UUID 字符串
+    /// @param out 输出 16 字节
+    /// @return 成功返回 true
+    [[nodiscard]] inline auto parse_uuid(std::string_view uuid, std::span<std::uint8_t, 16> out) -> bool
     {
-        byte_writer w;
-        for (int i = 7; i >= 0; --i)
-            w.write_u8(static_cast<std::uint8_t>(time_sec >> (i * 8)));
-        w.write_bytes(random4);
-        const auto crc = detail::crc32_ieee(w.data());
-        w.write_u32(crc);
-
-        const auto aes_key = kdf(cmd_key, kdf_salt_auth_id_enc);
-        std::array<std::uint8_t, 16> out{};
-        EVP_CIPHER_CTX *ctx = EVP_CIPHER_CTX_new();
-        if (!ctx)
-            return out;
-        int len = 0;
-        EVP_EncryptInit_ex(ctx, EVP_aes_128_ecb(), nullptr, aes_key.data(), nullptr);
-        EVP_CIPHER_CTX_set_padding(ctx, 0); // AES-ECB 单块，禁用 PKCS7 padding
-        EVP_EncryptUpdate(ctx, out.data(), &len, w.data().data(), 16);
-        EVP_CIPHER_CTX_free(ctx);
-        return out;
+        if (uuid.size() != 36)
+            return false;
+        auto nibble = [](char c) -> int
+        {
+            if (c >= '0' && c <= '9')
+                return c - '0';
+            if (c >= 'a' && c <= 'f')
+                return c - 'a' + 10;
+            if (c >= 'A' && c <= 'F')
+                return c - 'A' + 10;
+            return -1;
+        };
+        std::size_t pos = 0;
+        for (std::size_t i = 0; i < uuid.size();)
+        {
+            if (uuid[i] == '-')
+            {
+                ++i;
+                continue;
+            }
+            if (i + 1 >= uuid.size())
+                return false;
+            const int hi = nibble(uuid[i]);
+            const int lo = nibble(uuid[i + 1]);
+            if (hi < 0 || lo < 0)
+                return false;
+            out[pos++] = static_cast<std::uint8_t>((hi << 4) | lo);
+            i += 2;
+        }
+        return pos == 16;
     }
 
-} // namespace psm_test::vmess
+} // namespace psmtest::vmess

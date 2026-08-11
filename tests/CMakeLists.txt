@@ -41,6 +41,7 @@ endfunction()
 
 add_subdirectory(crypto)
 add_subdirectory(dns)
+add_subdirectory(common)
 add_subdirectory(protocol)
 add_subdirectory(handshake)
 add_subdirectory(multiplex)
@@ -56,7 +57,6 @@ add_subdirectory(concurrency)
 add_subdirectory(perf)
 
 # 协议测试公共库（header-only，纯逻辑客户端/服务端实现）
-add_subdirectory(common)
 
 # --- Go 协议兼容性测试（真实 quic-go / sing-quic 客户端，与 mihomo 同栈） ---
 # 每个协议独立目录（tests/go/<protocol>/main.go），构建为独立可执行，

@@ -1,4 +1,4 @@
-﻿/**
+/**
  * @file InteropSs2022Server.cpp
  * @brief SS2022 互操作测试：C++ common 服务端 ← Go 真实客户端（sing-shadowsocks v0.2.12）
  * @details 用 tests/common/shadowsocks2022 的纯逻辑服务端 + Boost.Asio socket：
@@ -9,7 +9,7 @@
  * @param argv[1] 监听地址（默认 127.0.0.1:19080）
  */
 
-#include <common/shadowsocks2022/server.hpp>
+#include <common/mock/shadowsocks2022/server.hpp>
 
 #include <boost/asio.hpp>
 

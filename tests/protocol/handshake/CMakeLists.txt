@@ -1,5 +1,2 @@
-﻿prism_add_test(ShadowtlsCommon.cpp)
-prism_add_test(TrusttunnelCommon.cpp)
-prism_add_test(RealityCommon.cpp)
-prism_add_test(AnytlsCommon.cpp)
-prism_add_test(RestlsCommon.cpp)
+prism_add_test(StealthMuxBeastTest.cpp)
+target_link_libraries(StealthMuxBeastTest PRIVATE vmtest_common)

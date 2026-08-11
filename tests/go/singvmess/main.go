@@ -18,6 +18,9 @@ const (
 	addr = "127.0.0.1:8081"
 )
 
+// serverAddr 服务端地址（可被命令行参数覆盖）
+var serverAddr = addr
+
 func echoServer() (uint16, error) {
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
@@ -61,7 +64,7 @@ func testTCP() error {
 	if err != nil {
 		return err
 	}
-	raw, err := net.Dial("tcp", addr)
+	raw, err := net.Dial("tcp", serverAddr)
 	if err != nil {
 		return fmt.Errorf("dial: %w", err)
 	}
@@ -99,7 +102,7 @@ func testUDP() error {
 	if err != nil {
 		return err
 	}
-	raw, err := net.Dial("tcp", addr)
+	raw, err := net.Dial("tcp", serverAddr)
 	if err != nil {
 		return fmt.Errorf("dial: %w", err)
 	}
@@ -133,6 +136,9 @@ func testUDP() error {
 }
 
 func main() {
+	if len(os.Args) > 1 {
+		serverAddr = os.Args[1]
+	}
 	if err := testTCP(); err != nil {
 		fmt.Printf("FAIL: tcp: %v\n", err)
 		os.Exit(1)

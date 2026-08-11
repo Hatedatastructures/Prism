@@ -1,3 +1,5 @@
 prism_add_test(Socks5.cpp)
-prism_add_test(Socks5ConnDeep.cpp)
-prism_add_test(Socks5Common.cpp)
+prism_add_test(Socks5BeastTest.cpp)
+prism_add_test(Socks5ClientServerPerf.cpp)
+target_link_libraries(Socks5BeastTest PRIVATE vmtest_common)
+target_link_libraries(Socks5ClientServerPerf PRIVATE vmtest_common)

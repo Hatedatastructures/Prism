@@ -1,93 +1,145 @@
-﻿/**
+/**
  * @file client.hpp
- * @brief Shadowsocks 2022 客户端（握手编码）
- * @details 纯逻辑（无锁）：
- *          首包 = [salt 16][seal(固定头 11B)][seal(变长头)]
- *          变长头 = [ATYP][ADDR][PORT][padLen 2B][pad][payload]
- *          命名空间 psm_test::shadow2022，参考 mihomo shadowaead_2022/method.go。
+ * @brief Shadowsocks 2022 客户端封装（对象，包装传输）
+ * @details 借鉴 Boost.Beast 客户端模式：connect() 完成握手：
+ *          1. 生成随机 salt
+ *          2. 派生会话密钥（BLAKE3 DeriveKey）
+ *          3. 构造固定头（type + 时间戳 + 变长头长度）
+ *          4. 构造变长头（地址 + padding）
+ *          5. 加密并发送 [salt][固定头密文][变长头密文]
+ *          6. 读取并校验响应固定头
+ *          7. 返回分块会话
+ * @note 参考 SIP022 规范与 mihomo transport/shadowsocks2022。
  */
 
 #pragma once
 
-#include <common/common.hpp>
-#include <common/socks5/socks5.hpp>
+#include <common/core/error.hpp>
+#include <common/core/session_base.hpp>
+#include <common/core/transport/transport_base.hpp>
+#include <common/shadowsocks2022/chunk.hpp>
 #include <common/shadowsocks2022/codec.hpp>
+#include <common/shadowsocks2022/kdf.hpp>
+#include <common/shadowsocks2022/session.hpp>
+#include <common/shadowsocks2022/types.hpp>
 
-namespace psm_test::shadow2022
+#include <boost/asio/any_io_executor.hpp>
+#include <boost/asio/awaitable.hpp>
+#include <boost/asio/use_awaitable.hpp>
+
+#include <array>
+#include <chrono>
+#include <cstdint>
+#include <memory>
+#include <random>
+#include <span>
+
+namespace psmtest::ss2022
 {
 
-    using address = socks5::address;
+    /// SS2022 客户端配置
+    struct client_config
+    {
+        /// 预共享密钥（16 字节 aes-128-gcm）
+        std::array<std::uint8_t, 16> psk{};
+        /// 会话读超时
+        std::chrono::milliseconds timeout{0};
+    };
 
-    /**
-     * @class client
-     * @brief Shadowsocks 2022 客户端
-     */
+    /// @brief Shadowsocks 2022 客户端
     class client
     {
     public:
-        explicit client(const std::span<const std::uint8_t> psk)
+        /// @brief 构造
+        /// @param cfg 客户端配置
+        explicit client(const client_config &cfg)
+            : cfg_(cfg)
         {
-            std::copy(psk.begin(), psk.end(), psk_.begin());
         }
 
-        /**
-         * @brief 构造完整握手首包
-         * @param dst 目标地址
-         * @param payload 初始载荷（可选，写入变长头内）
-         * @param time_sec UTC 秒
-         * @return 首包字节
-         */
-        [[nodiscard]] auto handshake(const address &dst, const view payload,
-                                     const std::uint64_t time_sec) -> buffer
+        /// 不可拷贝
+        client(const client &) = delete;
+        auto operator=(const client &) -> client & = delete;
+
+        /// 获取执行器（连接后有效）
+        [[nodiscard]] auto executor() const -> net::any_io_executor
         {
-            // 变长头明文
-            byte_writer var;
-            encode_host(var, dst.type, dst.host);
-            var.write_u16(dst.port);
-            // padding（mihomo 客户端行为：载荷小时至少 1 字节随机填充，
-            // sing-shadowsocks 服务端强制要求 padding 存在）
-            const std::uint8_t pad_len = static_cast<std::uint8_t>(1 + std::rand() % 16);
-            var.write_u16(pad_len);
-            for (std::uint8_t i = 0; i < pad_len; ++i)
-                var.write_u8(static_cast<std::uint8_t>(std::rand() & 0xFF));
-            if (!payload.empty())
-                var.write_bytes(payload);
+            return ex_;
+        }
 
-            // 固定头明文
-            const auto var_len = static_cast<std::uint16_t>(var.size());
-            const auto fixed = build_fixed_header(header_type_client, time_sec, var_len);
+        /// @brief 建立连接并完成 SS2022 握手
+        /// @param raw 底层传输
+        /// @param target 目标地址
+        /// @param timeout 握手超时
+        /// @return 数据会话；nullptr = 握手失败
+        auto connect(std::shared_ptr<transport_base> raw, const address &target,
+                     std::chrono::milliseconds timeout = std::chrono::milliseconds{5000})
+            -> net::awaitable<std::shared_ptr<session>>
+        {
+            if (!raw || !raw->is_open())
+                co_return nullptr;
+            ex_ = raw->executor();
+            if (timeout.count() > 0)
+                raw->set_timeout(timeout);
 
-            // 加密（同一会话密钥，nonce 从 0 递增）
-            salt_ = rand16();
-            const auto key = session_key(psk_, salt_);
+            // 1. 生成随机 salt
+            std::random_device rd;
+            std::array<std::uint8_t, 16> salt{};
+            for (auto &b : salt)
+                b = static_cast<std::uint8_t>(rd() & 0xFF);
+
+            // 2. 派生会话密钥
+            const auto key = session_key(cfg_.psk, salt, 16);
+
+            // 3. 固定头 + 变长头
+            const auto time_sec = std::chrono::system_clock::now().time_since_epoch().count() / 1000000000;
+            const auto pad_len = static_cast<std::uint16_t>(1 + rd() % 16);
+            const auto var_plain = build_var_header(target, pad_len);
+            const auto fixed_plain = build_fixed_header(header_type_client, time_sec,
+                                                        static_cast<std::uint16_t>(var_plain.size()));
+
+            // 4. 加密
             chunk_codec codec(key);
-            const auto fixed_enc = codec.seal_raw(fixed);
-            const auto var_enc = codec.seal_raw(var.data());
+            const auto fixed_enc = codec.seal(fixed_plain);
+            const auto var_enc = codec.seal(var_plain);
 
-            byte_writer w;
-            w.write_bytes(salt_);
-            w.write_bytes(fixed_enc);
-            w.write_bytes(var_enc);
-            return w.data();
-        }
+            // 5. 发送 [salt][fixed][var]
+            std::vector<std::uint8_t> handshake;
+            handshake.reserve(salt.size() + fixed_enc.size() + var_enc.size());
+            handshake.insert(handshake.end(), salt.begin(), salt.end());
+            handshake.insert(handshake.end(), fixed_enc.begin(), fixed_enc.end());
+            handshake.insert(handshake.end(), var_enc.begin(), var_enc.end());
+            const auto ec = co_await raw->write_all(handshake);
+            if (ec)
+                co_return nullptr;
 
-        /// 上次握手使用的 salt（供响应解析派生密钥）
-        [[nodiscard]] auto salt() const noexcept -> const std::array<std::uint8_t, key_len> &
-        {
-            return salt_;
+            // 6. 读取响应（服务端 seal 输出 = 18B len 块 + 27B 固定头密文）
+            std::array<std::uint8_t, len_block_size + fixed_hdr_size> resp_enc{};
+            std::size_t done = 0;
+            while (done < resp_enc.size())
+            {
+                const auto n = co_await raw->read_some(
+                    std::span<std::uint8_t>(resp_enc.data() + done, resp_enc.size() - done));
+                if (n == 0)
+                    co_return nullptr;
+                done += n;
+            }
+            chunk_codec resp_codec(key);
+            const auto resp_plain = resp_codec.open(resp_enc, done);
+            if (resp_plain.size() != fixed_hdr_plain)
+                co_return nullptr;
+            if (resp_plain[0] != header_type_server)
+                co_return nullptr;
+
+            session_options opt;
+            opt.timeout = cfg_.timeout;
+            // 发送侧用 codec（握手已消耗 nonce 0-3），接收侧用 resp_codec（nonce 0）
+            co_return session::create(std::move(raw), std::move(codec), std::move(resp_codec), opt);
         }
 
     private:
-        [[nodiscard]] static auto rand16() -> std::array<std::uint8_t, key_len>
-        {
-            std::array<std::uint8_t, key_len> out{};
-            for (auto &b : out)
-                b = static_cast<std::uint8_t>(std::rand() & 0xFF);
-            return out;
-        }
-
-        std::array<std::uint8_t, key_len> psk_{};
-        std::array<std::uint8_t, key_len> salt_{};
+        client_config cfg_;
+        net::any_io_executor ex_;
     };
 
-} // namespace psm_test::shadow2022
+} // namespace psmtest::ss2022

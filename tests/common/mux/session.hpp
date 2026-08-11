@@ -1,0 +1,496 @@
+/**
+ * @file session.hpp
+ * @brief 多路复用共享会话框架（模板注入帧编解码策略）
+ * @details 借鉴 Boost.Beast 模板策略模式：流表管理、帧循环、队列、
+ *          背压只实现一次，smux/yamux/h2mux 通过 frame_codec 策略
+ *          注入帧构造（open/data/fin）与帧事件判定（open/data/fin/rst），
+ *          实现"一套会话逻辑，三个协议"。
+ *          会话拥有多条虚拟流（stream_handle），每条流满足统一
+ *          session_base 接口，供上层协议（vmess/vless/...）承载。
+ *          底层传输经 transport_base 类型擦除，支持内存流/套接字流。
+ * @note 帧策略需额外提供（concept 之外，经 if constexpr 检测）：
+ *          - build_open(id) / build_data(id, payload) / build_fin(id)
+ *          - frame_event(frame) / frame_stream_id(frame)
+ */
+
+#pragma once
+
+#include <common/core/error.hpp>
+#include <common/core/session_base.hpp>
+#include <common/core/transport/stream.hpp>
+#include <common/core/transport/transport_base.hpp>
+#include <common/mux/codec.hpp>
+
+#include <boost/asio/any_io_executor.hpp>
+#include <boost/asio/awaitable.hpp>
+#include <boost/asio/co_spawn.hpp>
+#include <boost/asio/detached.hpp>
+#include <boost/asio/experimental/awaitable_operators.hpp>
+#include <boost/asio/experimental/channel.hpp>
+#include <boost/asio/steady_timer.hpp>
+#include <boost/asio/use_awaitable.hpp>
+
+#include <chrono>
+#include <cstddef>
+#include <cstdint>
+#include <cstdio>
+
+#include <deque>
+#include <map>
+#include <memory>
+#include <span>
+#include <vector>
+
+namespace psmtest::mux
+{
+
+    /// 会话内部接口（供虚拟流回调，类型擦除）
+    class session_iface
+    {
+    public:
+        virtual ~session_iface() = default;
+
+        /// 推送数据帧到流
+        virtual auto push_data(std::uint32_t stream_id, std::span<const std::uint8_t> data)
+            -> net::awaitable<protocol_ec> = 0;
+
+        /// 发送 FIN（半关）
+        virtual auto send_fin(std::uint32_t stream_id) -> net::awaitable<void> = 0;
+
+        /// 流从表中移除（清理）
+        virtual auto remove_stream(std::uint32_t stream_id) -> void = 0;
+
+        /// 会话是否打开
+        [[nodiscard]] virtual auto is_open() const -> bool = 0;
+
+        /// 获取执行器
+        [[nodiscard]] virtual auto executor() const -> net::any_io_executor = 0;
+    };
+
+    /// 虚拟流句柄（复用会话底层连接，满足 session_base）
+    class stream_handle : public session_base
+    {
+    public:
+        /// @brief 构造
+        /// @param id 流标识
+        /// @param session 所属会话
+        /// @param ex 执行器
+        stream_handle(std::uint32_t id, std::shared_ptr<session_iface> session,
+                      net::any_io_executor ex)
+            : id_(id), session_(std::move(session)), ex_(std::move(ex)), notify_(ex_, 1), timer_(ex_)
+        {
+        }
+
+        /// 流标识
+        [[nodiscard]] auto id() const noexcept -> std::uint32_t
+        {
+            return id_;
+        }
+
+        /// 读取数据（0 = 对端半关/关闭/超时）
+        auto read_some(std::span<std::uint8_t> buf) -> net::awaitable<std::size_t> override
+        {
+            using namespace boost::asio::experimental::awaitable_operators;
+
+            while (true)
+            {
+                if (closed_ || canceled_)
+                {
+                    canceled_ = false;
+                    co_return 0;
+                }
+                if (!rx_.empty())
+                {
+                    const auto &front = rx_.front();
+                    const auto n = std::min(buf.size(), front.size());
+                    std::memcpy(buf.data(), front.data(), n);
+                    if (n < front.size())
+                        rx_.front().erase(rx_.front().begin(),
+                                          rx_.front().begin() + static_cast<std::ptrdiff_t>(n));
+                    else
+                        rx_.pop_front();
+                    co_return n;
+                }
+                if (peer_eof_)
+                    co_return 0;
+
+                notify_.reset();
+                if (timeout_.count() > 0)
+                {
+                    timer_.expires_after(timeout_);
+                    auto result = co_await (notify_.async_receive(net::use_awaitable) ||
+                                            timer_.async_wait(net::use_awaitable));
+                    if (result.index() == 1)
+                        co_return 0;
+                }
+                else
+                {
+                    co_await notify_.async_receive(net::use_awaitable);
+                }
+            }
+        }
+
+        /// 写入数据（经会话封装为数据帧）
+        auto write_all(std::span<const std::uint8_t> buf) -> net::awaitable<protocol_ec> override
+        {
+            if (closed_ || !session_ || !session_->is_open())
+                co_return make_error_code(error::broken_pipe);
+            co_return co_await session_->push_data(id_, buf);
+        }
+
+        /// 半关（发 FIN）
+        auto shutdown() -> net::awaitable<void> override
+        {
+            if (session_)
+                co_await session_->send_fin(id_);
+            peer_eof_ = true;
+            co_return;
+        }
+
+        /// 关闭
+        auto close() -> net::awaitable<void> override
+        {
+            closed_ = true;
+            notify_.try_send(boost::system::error_code{});
+            if (session_)
+                session_->remove_stream(id_);
+            co_return;
+        }
+
+        /// 取消挂起读
+        auto cancel() -> void override
+        {
+            canceled_ = true;
+            notify_.try_send(boost::system::error_code{});
+        }
+
+        /// 设置读超时
+        auto set_timeout(std::chrono::milliseconds ms) -> void override
+        {
+            timeout_ = ms;
+        }
+
+        /// 流是否打开
+        [[nodiscard]] auto is_open() const -> bool override
+        {
+            return !closed_ && session_ && session_->is_open();
+        }
+
+        /// 获取执行器
+        [[nodiscard]] auto executor() const -> net::any_io_executor override
+        {
+            return ex_;
+        }
+
+        /// 内部：推送数据到接收队列（会话帧循环调用）
+        auto push_rx(std::span<const std::uint8_t> data) -> void
+        {
+            rx_.emplace_back(data.begin(), data.end());
+            notify_.try_send(boost::system::error_code{});
+        }
+
+        /// 内部：对端半关（FIN/RST 处理）
+        auto set_peer_eof() -> void
+        {
+            peer_eof_ = true;
+            notify_.try_send(boost::system::error_code{});
+        }
+
+    private:
+        std::uint32_t id_;
+        std::shared_ptr<session_iface> session_;
+        net::any_io_executor ex_;
+        std::deque<std::vector<std::uint8_t>> rx_;
+        boost::asio::experimental::channel<void(boost::system::error_code)> notify_;
+        net::steady_timer timer_;
+        std::chrono::milliseconds timeout_{0};
+        bool peer_eof_{false};
+        bool closed_{false};
+        bool canceled_{false};
+    };
+
+    /// 多路复用会话选项
+    struct session_options
+    {
+        /// 最大并发流数
+        std::size_t max_streams{256};
+        /// 读超时（0 = 禁用）
+        std::chrono::milliseconds timeout{0};
+    };
+
+    /// @brief 多路复用会话（共享框架，模板注入帧编解码策略）
+    /// @tparam C 帧编解码策略（frame_codec concept）
+    template <typename C>
+    class session : public session_iface, public std::enable_shared_from_this<session<C>>
+    {
+    public:
+        using frame_type = typename C::frame_type;
+
+        /// @brief 创建会话（同时启动帧循环）
+        /// @param raw 底层传输（类型擦除）
+        /// @param opt 会话选项
+        /// @return 会话实例
+        static auto create(std::shared_ptr<transport_base> raw, const session_options &opt)
+            -> std::shared_ptr<session<C>>
+        {
+            auto self = std::shared_ptr<session<C>>(new session<C>(std::move(raw), opt));
+            self->start();
+            return self;
+        }
+
+        /// @brief 打开新流（客户端视角）
+        /// @return 流句柄；nullptr = 会话已关闭
+        auto open_stream() -> net::awaitable<std::shared_ptr<stream_handle>>
+        {
+            if (!raw_ || !raw_->is_open())
+                co_return nullptr;
+            const auto id = allocate_id();
+            if (id == 0)
+                co_return nullptr;
+            co_await raw_->write_all(C::build_open(id));
+            auto handle = std::make_shared<stream_handle>(id, this->shared_from_this(), ex_);
+            streams_[id] = handle;
+            co_return handle;
+        }
+
+        /// @brief 接受新流（服务端视角，阻塞直到新流到达或会话关闭）
+        /// @return 流句柄；nullptr = 会话关闭
+        auto accept_stream() -> net::awaitable<std::shared_ptr<stream_handle>>
+        {
+            while (raw_ && raw_->is_open())
+            {
+                if (!incoming_.empty())
+                {
+                    auto handle = incoming_.front();
+                    incoming_.pop_front();
+                    co_return handle;
+                }
+                if (session_closed_)
+                {
+                    co_return nullptr;
+                }
+                accept_notify_.reset();
+                co_await accept_notify_.async_receive(net::use_awaitable);
+            }
+            co_return nullptr;
+        }
+
+        /// 推送数据帧到流（stream_handle 回调）
+        auto push_data(std::uint32_t stream_id, std::span<const std::uint8_t> data)
+            -> net::awaitable<protocol_ec> override
+        {
+            if (!raw_ || !raw_->is_open())
+                co_return make_error_code(error::broken_pipe);
+            // 大负载分块发送（smux 帧长上限 64KB，yamux/h2mux 无此限制）
+            const auto chunk = C::max_payload_len > 0 ? C::max_payload_len : data.size();
+            std::size_t done = 0;
+            while (done < data.size())
+            {
+                const auto n = std::min(chunk, data.size() - done);
+                co_await raw_->write_all(C::build_data(stream_id, data.subspan(done, n)));
+                done += n;
+            }
+            co_return boost::system::error_code{};
+        }
+
+        /// 发送 FIN（stream_handle 回调）
+        auto send_fin(std::uint32_t stream_id) -> net::awaitable<void> override
+        {
+            if (raw_ && raw_->is_open())
+                co_await raw_->write_all(C::build_fin(stream_id));
+            co_return;
+        }
+
+        /// 移除流（stream_handle 回调）
+        auto remove_stream(std::uint32_t stream_id) -> void override
+        {
+            streams_.erase(stream_id);
+        }
+
+        /// 会话是否打开
+        [[nodiscard]] auto is_open() const -> bool override
+        {
+            return !session_closed_ && raw_ && raw_->is_open();
+        }
+
+        /// 获取执行器
+        [[nodiscard]] auto executor() const -> net::any_io_executor override
+        {
+            return ex_;
+        }
+
+        /// 关闭会话（全部流 + 底层连接）
+        auto close() -> net::awaitable<void>
+        {
+            session_closed_ = true;
+            accept_notify_.try_send(boost::system::error_code{});
+            for (auto &[id, handle] : streams_)
+            {
+                if (handle)
+                    handle->set_peer_eof();
+            }
+            streams_.clear();
+            if (raw_)
+                co_await raw_->close();
+            co_return;
+        }
+
+    private:
+        /// @brief 构造（私有，经 create 创建）
+        session(std::shared_ptr<transport_base> raw, const session_options &opt)
+            : raw_(std::move(raw)), opt_(opt), ex_(raw_->executor()),
+              accept_notify_(ex_, 1)
+        {
+        }
+
+        /// 启动帧循环（detached 协程）
+        auto start() -> void
+        {
+            auto self = this->shared_from_this();
+            net::co_spawn(ex_, [self]() -> net::awaitable<void>
+                          {
+                co_await self->frame_loop();
+            }, net::detached);
+        }
+
+        /// 帧循环：读帧 → 分发
+        auto frame_loop() -> net::awaitable<void>
+        {
+            std::vector<std::uint8_t> header(C::header_len);
+            std::vector<std::uint8_t> payload;
+
+            while (raw_ && raw_->is_open() && !session_closed_)
+            {
+                // 读帧头
+                std::size_t done = 0;
+                while (done < C::header_len)
+                {
+                    const auto n = co_await raw_->read_some(
+                        std::span<std::uint8_t>(header.data() + done, C::header_len - done));
+                    if (n == 0)
+                    {
+                        session_closed_ = true;
+                        accept_notify_.try_send(boost::system::error_code{});
+                        co_return;
+                    }
+                    done += n;
+                }
+
+                // 解析帧头
+                frame_type frame{};
+                if (C::parse_header(header, frame) != error::none)
+                    continue;
+
+                // 读负载
+                const auto len = C::payload_len(frame);
+                if (len == 0)
+                {
+                    dispatch(frame, {});
+                    continue;
+                }
+                if (len > C::max_payload_len)
+                    continue;
+                payload.resize(len);
+                done = 0;
+                while (done < len)
+                {
+                    const auto n = co_await raw_->read_some(
+                        std::span<std::uint8_t>(payload.data() + done, len - done));
+                    if (n == 0)
+                    {
+                        session_closed_ = true;
+                        accept_notify_.try_send(boost::system::error_code{});
+                        co_return;
+                    }
+                    done += n;
+                }
+                dispatch(frame, payload);
+            }
+            session_closed_ = true;
+            accept_notify_.try_send(boost::system::error_code{});
+            co_return;
+        }
+
+        /// 分发帧到流 / 控制逻辑
+        auto dispatch(const frame_type &frame, std::span<const std::uint8_t> payload) -> void
+        {
+            const auto event = C::frame_event(frame);
+            switch (event)
+            {
+                case stream_event::open:
+                {
+                    const auto id = C::frame_stream_id(frame);
+                    if (id == 0 || streams_.contains(id))
+                        break;
+                    auto handle = std::make_shared<stream_handle>(id, this->shared_from_this(), ex_);
+                    streams_[id] = handle;
+                    incoming_.push_back(handle);
+                    accept_notify_.try_send(boost::system::error_code{});
+                    if (!payload.empty())
+                        handle->push_rx(payload);
+                    break;
+                }
+                case stream_event::data:
+                {
+                    const auto id = C::frame_stream_id(frame);
+                    const auto it = streams_.find(id);
+                    if (it != streams_.end() && it->second)
+                    {
+                        it->second->push_rx(payload);
+                        break;
+                    }
+                    // 隐式开流（h2mux 无 SYN 帧：首数据帧即开流）
+                    if (id == 0)
+                        break;
+                    auto handle = std::make_shared<stream_handle>(id, this->shared_from_this(), ex_);
+                    streams_[id] = handle;
+                    incoming_.push_back(handle);
+                    accept_notify_.try_send(boost::system::error_code{});
+                    if (!payload.empty())
+                        handle->push_rx(payload);
+                    break;
+                }
+                case stream_event::fin:
+                {
+                    const auto id = C::frame_stream_id(frame);
+                    const auto it = streams_.find(id);
+                    if (it != streams_.end() && it->second)
+                        it->second->set_peer_eof();
+                    break;
+                }
+                case stream_event::rst:
+                {
+                    const auto id = C::frame_stream_id(frame);
+                    streams_.erase(id);
+                    break;
+                }
+                default:
+                    break; // 会话级/心跳帧：忽略
+            }
+        }
+
+        /// 分配流 ID（递增，0 跳过）
+        auto allocate_id() -> std::uint32_t
+        {
+            if (streams_.size() >= opt_.max_streams)
+                return 0;
+            for (std::size_t i = 0; i < 65536; ++i)
+            {
+                next_id_ = next_id_ == 0 ? 1 : (next_id_ % 65535) + 1;
+                if (!streams_.contains(next_id_))
+                    return next_id_;
+            }
+            return 0;
+        }
+
+        std::shared_ptr<transport_base> raw_;
+        session_options opt_;
+        net::any_io_executor ex_;
+        boost::asio::experimental::channel<void(boost::system::error_code)> accept_notify_;
+        std::map<std::uint32_t, std::shared_ptr<stream_handle>> streams_;
+        std::deque<std::shared_ptr<stream_handle>> incoming_;
+        std::uint32_t next_id_{0};
+        bool session_closed_{false};
+    };
+
+} // namespace psmtest::mux

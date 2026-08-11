@@ -1,0 +1,6 @@
+prism_add_test(MuxCodecTest.cpp)
+target_link_libraries(MuxCodecTest PRIVATE vmtest_common)
+prism_add_test(MuxSessionTest.cpp)
+target_link_libraries(MuxSessionTest PRIVATE vmtest_common)
+prism_add_test(MuxPerf.cpp)
+target_link_libraries(MuxPerf PRIVATE vmtest_common)

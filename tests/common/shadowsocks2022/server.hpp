@@ -1,164 +1,170 @@
-﻿/**
+/**
  * @file server.hpp
- * @brief Shadowsocks 2022 服务端（握手解析 + 响应）
- * @details 纯逻辑（无锁）：
- *          解析 = [salt 16][open(固定头)][open(变长头)]
- *          响应 = [serverSalt 16][seal(固定头 27B)][seal(空块)]
- *          命名空间 psm_test::shadow2022，参考 mihomo shadowaead_2022/method.go。
+ * @brief Shadowsocks 2022 服务端封装（对象，包装传输）
+ * @details 借鉴 Boost.Beast 服务端模式：accept() 完成握手：
+ *          1. 读取 salt（16 字节）
+ *          2. 派生会话密钥
+ *          3. 读取并解密固定头（时间窗校验）
+ *          4. 读取并解密变长头（地址解析）
+ *          5. 发送响应固定头
+ *          6. 返回分块会话
+ * @note 参考 SIP022 规范与 mihomo transport/shadowsocks2022。
  */
 
 #pragma once
 
-#include <common/common.hpp>
-#include <common/socks5/socks5.hpp>
+#include <common/core/error.hpp>
+#include <common/core/session_base.hpp>
+#include <common/core/transport/transport_base.hpp>
+#include <common/shadowsocks2022/chunk.hpp>
 #include <common/shadowsocks2022/codec.hpp>
+#include <common/shadowsocks2022/kdf.hpp>
+#include <common/shadowsocks2022/session.hpp>
+#include <common/shadowsocks2022/types.hpp>
 
-namespace psm_test::shadow2022
+#include <boost/asio/any_io_executor.hpp>
+#include <boost/asio/awaitable.hpp>
+#include <boost/asio/use_awaitable.hpp>
+
+#include <array>
+#include <chrono>
+#include <cstdint>
+#include <memory>
+#include <span>
+
+namespace psmtest::ss2022
 {
 
-    using address = socks5::address;
+    /// SS2022 服务端配置
+    struct server_config
+    {
+        /// 预共享密钥（16 字节 aes-128-gcm）
+        std::array<std::uint8_t, 16> psk{};
+        /// 时间容忍窗口（秒）
+        std::uint64_t time_window{90};
+        /// 会话读超时
+        std::chrono::milliseconds timeout{0};
+    };
 
-    /**
-     * @class server
-     * @brief Shadowsocks 2022 服务端
-     */
+    /// @brief Shadowsocks 2022 服务端
     class server
     {
     public:
-        explicit server(const std::span<const std::uint8_t> psk)
+        /// @brief 构造
+        /// @param cfg 服务端配置
+        explicit server(const server_config &cfg)
+            : cfg_(cfg)
         {
-            std::copy(psk.begin(), psk.end(), psk_.begin());
         }
 
-        /// 解析结果
-        struct request
-        {
-            address dst;
-            buffer initial_payload;
-            bool valid{false};
-        };
+        /// 不可拷贝
+        server(const server &) = delete;
+        auto operator=(const server &) -> server & = delete;
 
-        /**
-         * @brief 解析握手首包
-         * @param data 完整首包（>= 16 + 27 + 16）
-         * @param time_sec 当前 UTC 秒（时间窗口校验）
-         * @param window 时间窗口（秒）
-         */
-        [[nodiscard]] auto parse(const view data, const std::uint64_t time_sec,
-                                 const std::uint64_t window = 90) -> request
+        /// 获取执行器（accept 后有效）
+        [[nodiscard]] auto executor() const -> net::any_io_executor
         {
-            request req;
-            if (data.size() < 16 + 27 + 16)
-                return req;
-            const view salt(data.data(), key_len);
-            const view fixed_enc(data.data() + key_len, fixed_header_len + aead_tag_len);
-            const view var_enc(data.data() + key_len + fixed_header_len + aead_tag_len, data.size() - key_len - fixed_header_len - aead_tag_len);
+            return ex_;
+        }
 
-            const auto key = session_key(psk_, salt);
+        /// @brief 接收连接并完成 SS2022 握手
+        /// @param raw 底层传输
+        /// @param target 输出参数：客户端请求的目标地址
+        /// @param timeout 握手超时
+        /// @return 数据会话；nullptr = 认证失败
+        auto accept(std::shared_ptr<transport_base> raw, address &target,
+                    std::chrono::milliseconds timeout = std::chrono::milliseconds{5000})
+            -> net::awaitable<std::shared_ptr<session>>
+        {
+            if (!raw || !raw->is_open())
+                co_return nullptr;
+            ex_ = raw->executor();
+            if (timeout.count() > 0)
+                raw->set_timeout(timeout);
+
+            // 1. 读取 salt（16 字节）
+            std::array<std::uint8_t, 16> salt{};
+            std::size_t done = 0;
+            while (done < salt.size())
+            {
+                const auto n = co_await raw->read_some(
+                    std::span<std::uint8_t>(salt.data() + done, salt.size() - done));
+                if (n == 0)
+                    co_return nullptr;
+                done += n;
+            }
+
+            // 2. 派生会话密钥
+            const auto key = session_key(cfg_.psk, salt, 16);
+
+            // 3. 读取并解密固定头（seal 输出 = 18B len + 27B body）
+            std::array<std::uint8_t, len_block_size + fixed_hdr_size> fixed_enc{};
+            done = 0;
+            while (done < fixed_enc.size())
+            {
+                const auto n = co_await raw->read_some(
+                    std::span<std::uint8_t>(fixed_enc.data() + done, fixed_enc.size() - done));
+                if (n == 0)
+                    co_return nullptr;
+                done += n;
+            }
             chunk_codec codec(key);
+            std::size_t consumed = 0;
+            const auto fixed_plain = codec.open(fixed_enc, consumed);
+            if (fixed_plain.size() != fixed_hdr_plain)
+                co_return nullptr;
+            if (fixed_plain[0] != header_type_client)
+                co_return nullptr;
 
-            const auto fixed = codec.open_raw(fixed_enc, fixed_buf_);
-            if (!fixed || fixed_buf_.size() != fixed_header_len)
-                return req;
-            if (fixed_buf_[0] != header_type_client)
-                return req;
-
-            // 时间戳窗口
+            // 时间戳校验
             std::uint64_t ts = 0;
             for (std::size_t i = 0; i < 8; ++i)
-                ts = (ts << 8) | fixed_buf_[1 + i];
-            const auto diff = time_sec > ts ? time_sec - ts : ts - time_sec;
-            if (diff > window)
-                return req;
+                ts = (ts << 8) | fixed_plain[1 + i];
+            const auto now = static_cast<std::uint64_t>(
+                std::chrono::system_clock::now().time_since_epoch().count() / 1000000000);
+            const auto diff = now > ts ? now - ts : ts - now;
+            const auto var_len = static_cast<std::size_t>(fixed_plain[9]) << 8 | fixed_plain[10];
+            if (diff > cfg_.time_window)
+                co_return nullptr;
 
-            // 变长头
-            const auto var_len = static_cast<std::size_t>(
-                (fixed_buf_[9] << 8) | fixed_buf_[10]);
-            if (var_enc.size() < var_len + aead_tag_len)
-                return req;
-            if (!codec.open_raw(var_enc, var_buf_))
-                return req;
+            // 4. 读取并解密变长头（seal 输出 = 18B len + var_len + 16B tag）
+            std::vector<std::uint8_t> var_enc(len_block_size + var_len + aead_tag_len);
+            done = 0;
+            while (done < var_enc.size())
+            {
+                const auto n = co_await raw->read_some(
+                    std::span<std::uint8_t>(var_enc.data() + done, var_enc.size() - done));
+                if (n == 0)
+                    co_return nullptr;
+                done += n;
+            }
+            const auto var_plain = codec.open(var_enc, consumed);
+            if (var_plain.empty())
+                co_return nullptr;
+            std::span<const std::uint8_t> payload;
+            if (parse_var_header(var_plain, target, payload) != error::none)
+                co_return nullptr;
 
-            byte_reader r(var_buf_);
-            if (!parse_host(r, req.dst.type, req.dst.host))
-                return req;
-            if (!r.read_u16(req.dst.port))
-                return req;
-            std::uint16_t pad_len = 0;
-            if (!r.read_u16(pad_len))
-                return req;
-            if (!r.skip(pad_len))
-                return req;
-            req.initial_payload.assign(var_buf_.begin() + static_cast<std::ptrdiff_t>(r.offset()),
-                                       var_buf_.end());
-            req.valid = true;
-            return req;
-        }
+            // 5. 发送响应固定头（独立 nonce：响应方向从 0 开始）
+            chunk_codec resp_codec(key);
+            const auto resp_plain = build_fixed_header(header_type_server,
+                                                       static_cast<std::uint64_t>(
+                                                           std::chrono::system_clock::now().time_since_epoch().count() / 1000000000),
+                                                       0);
+            const auto resp_enc = resp_codec.seal(resp_plain);
+            const auto ec = co_await raw->write_all(resp_enc);
+            if (ec)
+                co_return nullptr;
 
-        /**
-         * @brief 构造服务端响应（mihomo 兼容）
-         * @param client_salt 客户端 salt（写入响应固定头 requestSalt 字段）
-         * @param server_time 服务端时间戳
-         * @param server_salt 输出服务端 salt（随机）
-         * @return 响应字节：[serverSalt 16][seal(固定头 27B) 43B][seal(空块) 16B]
-         */
-        [[nodiscard]] auto respond(const view client_salt, const std::uint64_t server_time,
-                                   std::array<std::uint8_t, key_len> &server_salt) -> buffer
-        {
-            for (auto &b : server_salt)
-                b = static_cast<std::uint8_t>(std::rand() & 0xFF);
-
-            // 响应固定头明文 27 字节：type + ts + requestSalt 16 + paddingLen 2
-            std::array<std::uint8_t, 1 + 8 + key_len + 2> plain{};
-            plain[0] = header_type_server;
-            for (std::size_t i = 0; i < 8; ++i)
-                plain[1 + i] = static_cast<std::uint8_t>(server_time >> (56 - 8 * i));
-            std::copy(client_salt.begin(), client_salt.end(), plain.begin() + 9);
-            plain[9 + key_len] = 0;
-            plain[9 + key_len + 1] = 0;
-
-            const auto key = session_key(psk_, server_salt);
-            chunk_codec codec(key);
-            const auto fixed_enc = codec.seal_raw(plain);
-            // 空块：v0.2.12 客户端 readResponse 在 payloadLen=0 时仍直读 16B（ReadWithLength(0)）
-            const auto empty_enc = codec.seal_raw({});
-
-            byte_writer w;
-            w.write_bytes(server_salt);
-            w.write_bytes(fixed_enc);
-            w.write_bytes(empty_enc);
-            return w.data();
-        }
-
-        /// 校验服务端响应（客户端侧，mihomo 服务端兼容）：
-        /// [serverSalt 16][open(固定头 43)][payloadLen > 0 时: open(载荷 payloadLen+16)]
-        [[nodiscard]] static auto verify_response(const view resp, const view psk) -> bool
-        {
-            if (resp.size() < 16 + 43)
-                return false;
-            const view salt(resp.data(), key_len);
-            const auto key = session_key(psk, salt);
-            chunk_codec codec(key);
-            buffer fixed;
-            if (!codec.open_raw(view(resp.data() + key_len, 43), fixed))
-                return false;
-            if (fixed.size() != 1 + 8 + key_len + 2 || fixed[0] != header_type_server)
-                return false;
-            const auto payload_len = static_cast<std::size_t>(
-                (fixed[9 + key_len] << 8) | fixed[9 + key_len + 1]);
-            if (payload_len == 0)
-                return true;
-            if (resp.size() < 16 + 43 + payload_len + aead_tag_len)
-                return false;
-            buffer payload;
-            return codec.open_raw(view(resp.data() + key_len + 43, payload_len + aead_tag_len),
-                                  payload);
+            session_options opt;
+            opt.timeout = cfg_.timeout;
+            // 接收侧用 codec（握手已消耗 nonce 0-3），发送侧用 resp_codec（nonce 0）
+            co_return session::create(std::move(raw), std::move(resp_codec), std::move(codec), opt);
         }
 
     private:
-        std::array<std::uint8_t, key_len> psk_{};
-        buffer fixed_buf_;
-        buffer var_buf_;
+        server_config cfg_;
+        net::any_io_executor ex_;
     };
 
-} // namespace psm_test::shadow2022
+} // namespace psmtest::ss2022
