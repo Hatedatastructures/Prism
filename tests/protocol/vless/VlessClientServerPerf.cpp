@@ -56,8 +56,6 @@ namespace
     {
         net::io_context ioc;
         auto [a, b] = make_memory_pair(ioc.get_executor());
-        vless::client cl(vless::client_config{make_uuid()});
-        vless::server sv(vless::server_config{make_uuid()});
 
         constexpr std::size_t kTotal = 100 * 1024 * 1024;
         constexpr std::size_t kBlock = 64 * 1024;
@@ -65,53 +63,68 @@ namespace
                  {
             auto server_coro = [&]() -> net::awaitable<void>
             {
-                vless::address req{};
-                auto s = co_await sv.accept(std::make_shared<memory_stream>(std::move(b)), req);
-                if (!s)
+                auto [err, req, srv] = co_await vless::accept(
+                    std::make_shared<memory_stream>(std::move(b)), vless::server_config{make_uuid()});
+                if (err != error::none)
                 {
                     EXPECT_TRUE(false) << "accept failed";
                     co_return;
                 }
-                EXPECT_EQ(req.port, 443u);
-                std::array<std::uint8_t, kBlock> buf{};
+                EXPECT_EQ(req.target.port, 443u);
+                std::array<std::byte, kBlock> buf{};
                 std::size_t got = 0;
                 while (got < kTotal)
                 {
-                    const auto n = co_await s->read_some(buf);
-                    if (n == 0)
+                    std::error_code ec;
+                    const auto n = co_await srv->async_read_some(buf, ec);
+                    if (ec || n == 0)
                         break;
                     got += n;
                 }
                 EXPECT_EQ(got, kTotal);
-                co_await s->close();
+                srv->close();
             };
-            net::co_spawn(b.executor(), server_coro(), net::detached);
+            net::co_spawn(ioc.get_executor(), server_coro(), net::detached);
 
-            auto s = co_await cl.connect(std::make_shared<memory_stream>(std::move(a)), make_dst());
-            if (!s)
+            auto [herr, cli] = co_await vless::connect(
+                std::make_shared<memory_stream>(std::move(a)), vless::client_config{make_uuid()}, make_dst());
+            if (herr != error::none || !cli)
             {
                 EXPECT_TRUE(false) << "connect failed";
                 co_return;
             }
             std::vector<std::uint8_t> payload(kBlock, 0x3C);
             std::size_t sent = 0;
+            std::size_t yield_cnt = 0;
             while (sent < kTotal)
             {
+                if ((++yield_cnt % 16) == 0)
+                    co_await net::post(ioc.get_executor(), net::use_awaitable);
                 const auto n = std::min(kBlock, kTotal - sent);
-                (void)co_await s->write_all(
-                    std::span<const std::uint8_t>(payload.data(), n));
+                std::size_t done = 0;
+                while (done < n)
+                {
+                    std::error_code ec;
+                    const auto w = co_await cli->async_write_some(
+                        std::span<const std::byte>(
+                            reinterpret_cast<const std::byte *>(payload.data() + done), n - done),
+                        ec);
+                    if (ec || w == 0)
+                        break;
+                    done += w;
+                }
+                if (done < n)
+                    break;
                 sent += n;
             }
             EXPECT_EQ(sent, kTotal);
-            co_await s->close(); });
+            cli->close(); });
     }
 
     TEST(VlessClientServer, ThroughputLatency)
     {
         net::io_context ioc;
         auto [a, b] = make_memory_pair(ioc.get_executor());
-        vless::client cl(vless::client_config{make_uuid()});
-        vless::server sv(vless::server_config{make_uuid()});
 
         bench_report tp{};
         bench_report lat{};
@@ -119,58 +132,60 @@ namespace
                  {
             auto server_coro = [&]() -> net::awaitable<void>
             {
-                vless::address req{};
-                auto s = co_await sv.accept(std::make_shared<memory_stream>(std::move(b)), req);
-                if (!s)
+                auto [err, req, srv] = co_await vless::accept(
+                    std::make_shared<memory_stream>(std::move(b)), vless::server_config{make_uuid()});
+                if (err != error::none)
                     co_return;
-                std::array<std::uint8_t, 128 * 1024> buf{};
+                std::array<std::byte, 128 * 1024> buf{};
                 while (true)
                 {
-                    const auto n = co_await s->read_some(buf);
-                    if (n == 0)
+                    std::error_code ec;
+                    const auto n = co_await srv->async_read_some(buf, ec);
+                    if (ec || n == 0)
                         break;
-                    (void)co_await s->write_all(
-                        std::span<const std::uint8_t>(buf.data(), n));
+                    co_await srv->async_write_some(std::span(buf.data(), n), ec);
                 }
-                co_await s->close();
+                srv->close();
             };
-            net::co_spawn(b.executor(), server_coro(), net::detached);
+            net::co_spawn(ioc.get_executor(), server_coro(), net::detached);
 
-            auto s = co_await cl.connect(std::make_shared<memory_stream>(std::move(a)), make_dst());
-            if (!s)
+            auto [herr, cli] = co_await vless::connect(
+                std::make_shared<memory_stream>(std::move(a)), vless::client_config{make_uuid()}, make_dst());
+            if (herr != error::none || !cli)
                 co_return;
             bench_options opt;
             opt.total = 64 * 1024 * 1024;
             opt.block = 64 * 1024;
-            tp = co_await bench_throughput(*s, *s, opt);
+            tp = co_await bench_throughput_tx(*cli, *cli, opt);
             // 延迟用新连接（回环小包 RTT）
             auto [a2, b2] = make_memory_pair(ioc.get_executor());
             auto server_coro2 = [&]() -> net::awaitable<void>
             {
-                vless::address req{};
-                auto s = co_await sv.accept(std::make_shared<memory_stream>(std::move(b2)), req);
-                if (!s)
+                auto [err, req, srv] = co_await vless::accept(
+                    std::make_shared<memory_stream>(std::move(b2)), vless::server_config{make_uuid()});
+                if (err != error::none)
                     co_return;
-                std::array<std::uint8_t, 128 * 1024> buf{};
+                std::array<std::byte, 128 * 1024> buf{};
                 while (true)
                 {
-                    const auto n = co_await s->read_some(buf);
-                    if (n == 0)
+                    std::error_code ec;
+                    const auto n = co_await srv->async_read_some(buf, ec);
+                    if (ec || n == 0)
                         break;
-                    (void)co_await s->write_all(
-                        std::span<const std::uint8_t>(buf.data(), n));
+                    co_await srv->async_write_some(std::span(buf.data(), n), ec);
                 }
-                co_await s->close();
+                srv->close();
             };
-            net::co_spawn(b2.executor(), server_coro2(), net::detached);
-            auto s2 = co_await cl.connect(std::make_shared<memory_stream>(std::move(a2)), make_dst());
-            if (!s2)
+            net::co_spawn(ioc.get_executor(), server_coro2(), net::detached);
+            auto [herr2, cli2] = co_await vless::connect(
+                std::make_shared<memory_stream>(std::move(a2)), vless::client_config{make_uuid()}, make_dst());
+            if (herr2 != error::none || !cli2)
                 co_return;
             bench_options lopt;
             lopt.total = 1000 * 4 * 1024;
             lopt.block = 4 * 1024;
-            lat = co_await bench_throughput(*s2, *s2, lopt);
-            co_await s2->close(); });
+            lat = co_await bench_throughput_tx(*cli2, *cli2, lopt);
+            cli2->close(); });
 
         std::printf("vless throughput: %.1f MB/s | latency(ms): avg %.3f p50 %.3f p95 %.3f p99 %.3f (min %.3f max %.3f) samples=%zu\n",
                     tp.mbps, lat.latency_avg, lat.latency_p50, lat.latency_p95,
@@ -178,4 +193,3 @@ namespace
     }
 
 } // namespace
-

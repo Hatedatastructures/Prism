@@ -123,7 +123,12 @@ namespace psmtest::mux::smux
         return error::none;
     }
 
-    /// 帧编解码策略（供共享会话框架模板传参）
+    /**
+     * @struct codec
+     * @brief smux 帧编解码策略（供共享会话框架模板传参）
+     * @details 实现 frame_codec concept：帧构造与帧事件判定。
+     *          协议无独立 RST 帧，build_rst 以 FIN 帧近似（见下）。
+     */
     struct codec
     {
         /// 帧类型
@@ -135,25 +140,35 @@ namespace psmtest::mux::smux
         /// 最大负载长度
         static inline constexpr std::size_t max_payload_len = max_frame_length;
 
-        /// 由帧头计算负载长度
+        /// @brief 由帧头计算负载长度
+        /// @param frame 帧头
+        /// @return 负载长度
         [[nodiscard]] static auto payload_len(const frame_type &frame) noexcept -> std::size_t
         {
             return frame.length;
         }
 
-        /// 解析帧头
+        /// @brief 解析帧头
+        /// @param data 帧头字节
+        /// @param out 输出帧头
+        /// @return 错误码
         static auto parse_header(std::span<const std::uint8_t> data, frame_type &out) -> error
         {
             return smux::parse_header(data, out);
         }
 
-        /// 解析负载
+        /// @brief 解析负载
+        /// @param frame 帧头
+        /// @param data 负载字节
+        /// @return 错误码（恒为 none）
         static auto parse_payload(frame_type &frame, std::span<const std::uint8_t> data) -> error
         {
             return smux::parse_payload(frame, data);
         }
 
-        /// 帧事件判定
+        /// @brief 帧事件判定
+        /// @param frame 帧头
+        /// @return 流事件（syn=开流 / fin=半关 / push=数据 / 其余=rst）
         [[nodiscard]] static auto frame_event(const frame_type &frame) noexcept -> mux::stream_event
         {
             switch (frame.cmd)
@@ -169,31 +184,57 @@ namespace psmtest::mux::smux
             }
         }
 
-        /// 帧流标识
+        /// @brief 会话级控制帧判定
+        /// @param frame 帧头
+        /// @return true = 会话级（nop 心跳，忽略）
+        [[nodiscard]] static auto is_control(const frame_type &frame) noexcept -> bool
+        {
+            return frame.cmd == command::nop;
+        }
+
+        /// @brief 取帧流标识
+        /// @param frame 帧头
+        /// @return 流标识符
         [[nodiscard]] static auto frame_stream_id(const frame_type &frame) noexcept -> std::uint32_t
         {
             return frame.stream_id;
         }
 
-        /// 构造开流帧
+        /// @brief 构造开流帧（SYN）
+        /// @param id 流标识符
+        /// @return 完整帧
         [[nodiscard]] static auto build_open(std::uint32_t id) -> std::vector<std::uint8_t>
         {
             const auto frame = smux::build_syn(id);
             return {frame.begin(), frame.end()};
         }
 
-        /// 构造数据帧
+        /// @brief 构造数据帧（PSH）
+        /// @param id 流标识符
+        /// @param data 负载
+        /// @return 完整帧
         [[nodiscard]] static auto build_data(std::uint32_t id, std::span<const std::uint8_t> data)
             -> std::vector<std::uint8_t>
         {
             return smux::build_push(id, data);
         }
 
-        /// 构造 FIN 帧
+        /// @brief 构造 FIN 帧（半关）
+        /// @param id 流标识符
+        /// @return 完整帧
         [[nodiscard]] static auto build_fin(std::uint32_t id) -> std::vector<std::uint8_t>
         {
             const auto frame = smux::build_fin(id);
             return {frame.begin(), frame.end()};
+        }
+
+        /// @brief 构造 RST 帧
+        /// @param id 流标识符
+        /// @return 完整帧
+        /// @warning smux 协议无 RST 帧，以 FIN 帧近似（对端按半关处理）
+        [[nodiscard]] static auto build_rst(std::uint32_t id) -> std::vector<std::uint8_t>
+        {
+            return build_fin(id);
         }
     };
 

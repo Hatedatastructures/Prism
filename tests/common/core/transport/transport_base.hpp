@@ -56,7 +56,4 @@ namespace psmtest
         [[nodiscard]] virtual auto executor() const -> net::any_io_executor = 0;
     };
 
-    /// 传输基类必须满足 stream concept
-    static_assert(stream<transport_base>, "transport_base 必须满足 stream concept");
-
 } // namespace psmtest

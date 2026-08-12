@@ -31,11 +31,15 @@ target_sources(prism_test_common INTERFACE
         trojan/trojan.hpp
         shadowsocks2022/shadowsocks2022.hpp
         socks5/socks5.hpp
-        http/http.hpp
         hysteria2/hysteria2.hpp
         tuic/tuic.hpp
         reality/reality.hpp
-        stealth/stealth.hpp
+        shadowtls/shadowtls.hpp
+        restls/restls.hpp
+        anytls/anytls.hpp
+        trusttunnel/trusttunnel.hpp
+        ws/ws.hpp
+        gun/gun.hpp
 )
 
 target_link_libraries(prism_test_common INTERFACE
@@ -85,56 +89,69 @@ target_sources(vmtest_common INTERFACE
         mux/h2mux/server.hpp
         mux/h2mux/h2mux.hpp
         vmess/types.hpp
-        vmess/kdf.hpp
         vmess/codec.hpp
-        vmess/chunk.hpp
-        vmess/handshake.hpp
-        vmess/session.hpp
-        vmess/client.hpp
-        vmess/server.hpp
+        vmess/conn.hpp
+        vmess/dgram.hpp
         vmess/vmess.hpp
         vless/types.hpp
         vless/codec.hpp
-        vless/session.hpp
-        vless/client.hpp
-        vless/server.hpp
+        vless/conn.hpp
+        vless/dgram.hpp
         vless/vless.hpp
         trojan/types.hpp
         trojan/codec.hpp
-        trojan/session.hpp
-        trojan/client.hpp
-        trojan/server.hpp
+        trojan/conn.hpp
+        trojan/dgram.hpp
         trojan/trojan.hpp
         shadowsocks2022/types.hpp
-        shadowsocks2022/kdf.hpp
         shadowsocks2022/codec.hpp
-        shadowsocks2022/chunk.hpp
-        shadowsocks2022/handshake.hpp
-        shadowsocks2022/session.hpp
-        shadowsocks2022/client.hpp
-        shadowsocks2022/server.hpp
+        shadowsocks2022/conn.hpp
+        shadowsocks2022/dgram.hpp
         shadowsocks2022/shadowsocks2022.hpp
         socks5/types.hpp
         socks5/codec.hpp
-        socks5/session.hpp
-        socks5/client.hpp
-        socks5/server.hpp
+        socks5/conn.hpp
+        socks5/dgram.hpp
         socks5/socks5.hpp
-        http/types.hpp
-        http/codec.hpp
-        http/session.hpp
-        http/client.hpp
-        http/server.hpp
-        http/http.hpp
         hysteria2/types.hpp
         hysteria2/codec.hpp
-        hysteria2/session.hpp
+        hysteria2/conn.hpp
+        hysteria2/dgram.hpp
         hysteria2/hysteria2.hpp
         tuic/types.hpp
         tuic/codec.hpp
+        tuic/conn.hpp
+        tuic/dgram.hpp
         tuic/tuic.hpp
+        reality/types.hpp
+        reality/codec.hpp
+        reality/conn.hpp
         reality/reality.hpp
-        stealth/stealth.hpp
+        shadowtls/types.hpp
+        shadowtls/codec.hpp
+        shadowtls/conn.hpp
+        shadowtls/shadowtls.hpp
+        restls/types.hpp
+        restls/codec.hpp
+        restls/conn.hpp
+        restls/restls.hpp
+        anytls/types.hpp
+        anytls/codec.hpp
+        anytls/conn.hpp
+        anytls/anytls.hpp
+        trusttunnel/types.hpp
+        trusttunnel/codec.hpp
+        trusttunnel/conn.hpp
+        trusttunnel/dgram.hpp
+        trusttunnel/trusttunnel.hpp
+        ws/types.hpp
+        ws/codec.hpp
+        ws/conn.hpp
+        ws/ws.hpp
+        gun/types.hpp
+        gun/codec.hpp
+        gun/conn.hpp
+        gun/gun.hpp
 )
 
 target_link_libraries(vmtest_common INTERFACE

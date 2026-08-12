@@ -4,7 +4,12 @@
  */
 
 #include <common/reality/reality.hpp>
-#include <common/stealth/stealth.hpp>
+#include <common/shadowtls/shadowtls.hpp>
+#include <common/restls/restls.hpp>
+#include <common/anytls/anytls.hpp>
+#include <common/trusttunnel/trusttunnel.hpp>
+#include <common/ws/ws.hpp>
+#include <common/gun/gun.hpp>
 #include <common/mux/h2mux/session.hpp>
 #include <common/mux/smux/session.hpp>
 #include <common/mux/yamux/session.hpp>
@@ -39,72 +44,131 @@ namespace
         EXPECT_TRUE(reality::parse_short_id("xyz", sid));
     }
 
-    TEST(ShadowTlsBeast, FirstPacketRoundtrip)
+    TEST(ShadowTlsBeast, SessionIdRoundtrip)
     {
         const std::string password = "shadowtls_password";
-        const std::array<std::uint8_t, 8> handshake{0x16, 0x03, 0x01, 0x00, 0x2A, 1, 2, 3};
-        const std::string payload = "hello";
+        // 构造固定 ClientHello（含 TLS 头）：记录头 + 握手头 + version + random + sidLen + sid
+        std::vector<std::uint8_t> hello(5 + shadowtls::session_id_start + 32 + 16, 0);
+        hello[0] = 0x16;
+        hello[5] = shadowtls::hs_type_clienthello;
+        hello[5 + shadowtls::session_id_start - 1] = shadowtls::tls_session_id_sz;
+        for (std::size_t i = 0; i < shadowtls::tls_rnd_size; ++i)
+            hello[5 + 1 + 3 + 2 + i] = static_cast<std::uint8_t>(i);
 
-        std::string pkt;
-        EXPECT_FALSE(shadowtls::build_first_packet(password, handshake,
-                                                   std::span<const std::uint8_t>(
-                                                       reinterpret_cast<const std::uint8_t *>(payload.data()),
-                                                       payload.size()),
-                                                   pkt));
-        std::array<std::uint8_t, shadowtls::hash_len> hash{};
-        std::size_t offset = 0;
-        EXPECT_FALSE(shadowtls::parse_first_packet(
-            std::span<const std::uint8_t>(
-                reinterpret_cast<const std::uint8_t *>(pkt.data()), pkt.size()),
-            hash, offset));
-        EXPECT_EQ(offset, 5 + shadowtls::hash_len);
+        std::array<std::uint8_t, shadowtls::tls_session_id_sz> session_id{};
+        for (std::size_t i = 0; i < shadowtls::tls_session_id_sz - shadowtls::hmac_size; ++i)
+            session_id[i] = static_cast<std::uint8_t>(i * 7 + 3);
+        const auto handshake = std::span<const std::uint8_t>(hello).subspan(shadowtls::tls_hdrsize);
+        EXPECT_EQ(shadowtls::generate_session_id(password, handshake, session_id), error::none);
+        std::memcpy(hello.data() + 5 + shadowtls::session_id_start, session_id.data(),
+                    shadowtls::tls_session_id_sz);
 
-        std::array<std::uint8_t, shadowtls::hash_len> calc{};
-        shadowtls::compute_hash(password, handshake, calc);
-        EXPECT_EQ(hash, calc);
+        // 校验通过
+        EXPECT_TRUE(shadowtls::verify_client_hello(
+            password, std::span<const std::byte>(
+                          reinterpret_cast<const std::byte *>(hello.data()), hello.size())));
+
+        // 错误密码校验失败
+        EXPECT_FALSE(shadowtls::verify_client_hello(
+            "wrong_password", std::span<const std::byte>(
+                                  reinterpret_cast<const std::byte *>(hello.data()), hello.size())));
     }
 
-    TEST(RestlsBeast, AuthPayload)
+    TEST(RestlsBeast, AuthKeyDerivation)
     {
         const std::string password = "restls_password";
-        const std::array<std::uint8_t, 4> handshake{0x16, 0x03, 0x03, 0x2A};
-        std::array<std::uint8_t, 32> key{};
-        EXPECT_FALSE(restls::derive_auth_key(password, handshake, key));
+        const auto secret = restls::derive_secret(password);
+        EXPECT_EQ(secret.size(), 32u);
 
-        std::array<std::uint8_t, restls::auth_payload_len> payload{};
-        EXPECT_FALSE(restls::build_auth_payload(1, key, payload));
-        EXPECT_EQ(payload[0], 1);
-        EXPECT_EQ(std::memcmp(payload.data() + 1, key.data(), 32), 0);
+        std::array<std::uint8_t, 32> server_random{};
+        for (std::size_t i = 0; i < 32; ++i)
+            server_random[i] = static_cast<std::uint8_t>(i);
+        const auto mask = restls::compute_server_mask(secret, server_random);
+        EXPECT_EQ(mask.size(), restls::hs_maclen);
+
+        // 相同输入 → 相同输出
+        const auto mask2 = restls::compute_server_mask(secret, server_random);
+        EXPECT_EQ(mask, mask2);
     }
 
-    TEST(AnyTlsBeast, SessionKeyAndFrame)
+    TEST(AnyTlsBeast, AuthFrame)
     {
-        const std::string secret = "tls-secret";
-        std::array<std::uint8_t, 32> key1{};
-        std::array<std::uint8_t, 32> key2{};
-        const auto secret_span = std::span<const std::uint8_t>(
-            reinterpret_cast<const std::uint8_t *>(secret.data()), secret.size());
-        EXPECT_FALSE(anytls::derive_session_key(secret_span, {}, "ctx", key1));
-        EXPECT_FALSE(anytls::derive_session_key(secret_span, {}, "ctx", key2));
-        EXPECT_EQ(key1, key2);
-
-        const std::array<std::uint8_t, 5> payload{1, 2, 3, 4, 5};
+        const std::string password = "anytls_password";
         std::string frame;
-        EXPECT_FALSE(anytls::build_auth_frame(payload, frame));
-        EXPECT_EQ(frame.size(), 7);
-        EXPECT_EQ(frame[0], 0);
-        EXPECT_EQ(frame[1], 5);
+        EXPECT_EQ(anytls::build_auth_frame(password, 16, frame), error::none);
+        EXPECT_EQ(frame.size(), anytls::auth_frame_hdrlen + 16);
+
+        std::array<std::uint8_t, anytls::password_hash_len> hash{};
+        std::uint16_t pad_len = 0;
+        EXPECT_EQ(anytls::parse_auth_frame(
+                      std::span<const std::uint8_t>(
+                          reinterpret_cast<const std::uint8_t *>(frame.data()), frame.size()),
+                      hash, pad_len),
+                  error::none);
+        EXPECT_EQ(pad_len, 16u);
+        EXPECT_TRUE(anytls::verify_auth(password, hash));
+        EXPECT_FALSE(anytls::verify_auth("wrong", hash));
     }
 
-    TEST(TrustTunnelBeast, BasicAuthAndHeaders)
+    TEST(TrustTunnelBeast, BasicAuth)
     {
-        std::string auth;
-        EXPECT_FALSE(trusttunnel::basic_auth("user", "pass", auth));
+        const auto auth = trusttunnel::basic_auth("user", "pass");
         EXPECT_EQ(auth, "Basic dXNlcjpwYXNz");
 
-        std::string headers;
-        EXPECT_FALSE(trusttunnel::h2_connect_headers("example.com", 443, auth, headers));
-        EXPECT_EQ(static_cast<std::uint8_t>(headers[0]), 0x80 | 7);
+        std::string user, pass;
+        EXPECT_TRUE(trusttunnel::parse_basic_auth(auth, user, pass));
+        EXPECT_EQ(user, "user");
+        EXPECT_EQ(pass, "pass");
+        EXPECT_TRUE(trusttunnel::verify_basic_auth(auth, "user", "pass"));
+        EXPECT_FALSE(trusttunnel::verify_basic_auth(auth, "user", "wrong"));
+        EXPECT_FALSE(trusttunnel::parse_basic_auth("Bearer token", user, pass));
+    }
+
+    TEST(WsBeast, AcceptAndFrame)
+    {
+        // Sec-WebSocket-Accept 标准测试向量（RFC 6455 示例）
+        const auto accept = ws::compute_accept("dGhlIHNhbXBsZSBub25jZQ==");
+        EXPECT_EQ(accept, "s3pPLMBiTxaQ9kYGzzhZRbK+xOo=");
+
+        // 帧编解码往返
+        const std::string payload = "hello websocket";
+        std::array<std::byte, 128> out{};
+        const auto n = ws::encode_frame(ws::opcode::binary, true,
+                                        std::span<const std::byte>(
+                                            reinterpret_cast<const std::byte *>(payload.data()),
+                                            payload.size()),
+                                        out);
+        EXPECT_GT(n, 0u);
+
+        ws::frame_header hdr{};
+        EXPECT_TRUE(ws::parse_frame_header(std::span<const std::byte>(out).first(n), hdr));
+        EXPECT_TRUE(hdr.fin);
+        EXPECT_EQ(hdr.opcode, static_cast<std::uint8_t>(ws::opcode::binary));
+        EXPECT_FALSE(hdr.masked);
+        EXPECT_EQ(hdr.payload_len, payload.size());
+        EXPECT_EQ(hdr.header_len, 2u);
+    }
+
+    TEST(GunBeast, FrameRoundtrip)
+    {
+        const std::string payload = "hello gun grpc";
+        const auto frame = gun::encode_frame(std::span<const std::uint8_t>(
+            reinterpret_cast<const std::uint8_t *>(payload.data()), payload.size()));
+
+        gun::frame_header hdr{};
+        EXPECT_TRUE(gun::parse_frame_header(
+            std::span<const std::uint8_t>(
+                reinterpret_cast<const std::uint8_t *>(frame.data()), frame.size()),
+            hdr));
+        EXPECT_EQ(hdr.payload_len, payload.size());
+        EXPECT_EQ(hdr.header_len + hdr.payload_len, frame.size());
+
+        // varint 编解码
+        std::array<std::uint8_t, 5> vb{};
+        const auto vn = gun::encode_varint(300, vb);
+        std::uint32_t val = 0;
+        EXPECT_EQ(gun::decode_varint(std::span<const std::uint8_t>(vb).first(vn), val), vn);
+        EXPECT_EQ(val, 300u);
     }
 
     TEST(MuxBeast, SmuxFrame)

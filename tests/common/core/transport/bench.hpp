@@ -13,6 +13,7 @@
 #include <common/core/transport/stream.hpp>
 
 #include <boost/asio/awaitable.hpp>
+#include <boost/system/error_code.hpp>
 
 #include <algorithm>
 #include <chrono>
@@ -54,14 +55,24 @@ namespace psmtest
         std::size_t samples{0};
     };
 
-    /// @brief 吞吐 + 延迟测量（单向：s 写入，r 读取）
-    /// @tparam S stream concept 满足类型
+    /// 旧接口传输概念（read_some/write_all，供 bench 消费）
+    /// @tparam T 传输类型（协议 session / memory_stream 均满足）
+    template <typename T>
+    concept bench_stream = requires(T &s, std::span<std::uint8_t> buf,
+                                    std::span<const std::uint8_t> wbuf)
+    {
+        { s.read_some(buf) } -> std::same_as<net::awaitable<std::size_t>>;
+        { s.write_all(wbuf) } -> std::same_as<net::awaitable<boost::system::error_code>>;
+    };
+
+    /// @brief 吞吐 + 延迟测量（旧接口版本：read_some/write_all）
+    /// @tparam S bench_stream 满足类型
     /// @param w 写入端
     /// @param r 读取端
     /// @param opt 测试选项
     /// @return 测量报告
     /// @note 延迟为写读往返时间（写 1 块 + 读回 1 块），p50/p95/p99 分位数
-    template <stream S>
+    template <bench_stream S>
     auto bench_throughput(S &w, S &r, const bench_options &opt)
         -> net::awaitable<bench_report>
     {
@@ -86,6 +97,102 @@ namespace psmtest
             {
                 const auto n = co_await r.read_some(std::span<std::uint8_t>(echo.data() + got, chunk - got));
                 if (n == 0)
+                    break;
+                got += n;
+            }
+            if (got < chunk)
+                break;
+            const auto t2 = std::chrono::steady_clock::now();
+            const double ms = std::chrono::duration<double, std::milli>(t2 - t1).count();
+            latencies.push_back(ms);
+            sent += chunk;
+        }
+
+        const auto t3 = std::chrono::steady_clock::now();
+        rep.bytes = sent;
+        rep.samples = latencies.size();
+        if (!latencies.empty())
+        {
+            const double sec = std::chrono::duration<double>(t3 - t0).count();
+            rep.mbps = static_cast<double>(sent) / (1024.0 * 1024.0) / (sec > 0 ? sec : 1e-9);
+            std::sort(latencies.begin(), latencies.end());
+            const auto q = [&](double p) -> double
+            {
+                const auto idx = static_cast<std::size_t>(p * static_cast<double>(latencies.size() - 1));
+                return latencies[idx];
+            };
+            rep.latency_avg = std::accumulate(latencies.begin(), latencies.end(), 0.0) /
+                              static_cast<double>(latencies.size());
+            rep.latency_p50 = q(0.50);
+            rep.latency_p95 = q(0.95);
+            rep.latency_p99 = q(0.99);
+            rep.latency_min = latencies.front();
+            rep.latency_max = latencies.back();
+        }
+        co_return rep;
+    }
+
+    /// 新接口传输概念（async_read_some/async_write_some，供 bench 消费）
+    /// @tparam T 传输类型（协议 server/client / memory_stream 均满足）
+    template <typename T>
+    concept bench_tx = requires(T &s, std::span<std::byte> buf,
+                                std::span<const std::byte> wbuf, std::error_code &ec)
+    {
+        { s.async_read_some(buf, ec) } -> std::same_as<net::awaitable<std::size_t>>;
+        { s.async_write_some(wbuf, ec) } -> std::same_as<net::awaitable<std::size_t>>;
+    };
+
+    /**
+     * @brief 吞吐 + 延迟测量（transmission 接口版本）
+     * @tparam S bench_tx 满足类型（transmission 装饰器链）
+     * @param w 写入端
+     * @param r 读取端
+     * @param opt 测试选项
+     * @return 测量报告
+     * @details 与 bench_throughput 语义一致，面向新接口协议会话
+     * （server/client 分离设计）。
+     */
+    template <bench_tx S>
+    auto bench_throughput_tx(S &w, S &r, const bench_options &opt)
+        -> net::awaitable<bench_report>
+    {
+        bench_report rep;
+        const auto t0 = std::chrono::steady_clock::now();
+
+        std::vector<std::uint8_t> block(opt.block, 0x5a);
+        std::vector<std::uint8_t> echo(opt.block);
+        std::vector<double> latencies;
+        latencies.reserve(opt.total / opt.block);
+
+        std::size_t sent = 0;
+        while (sent < opt.total)
+        {
+            const auto chunk = std::min(opt.block, opt.total - sent);
+            const auto t1 = std::chrono::steady_clock::now();
+            std::error_code ec;
+            std::size_t done = 0;
+            while (done < chunk)
+            {
+                const auto n = co_await w.async_write_some(
+                    std::span<const std::byte>(
+                        reinterpret_cast<const std::byte *>(block.data() + done), chunk - done),
+                    ec);
+                if (ec)
+                    break;
+                if (n == 0)
+                    break;
+                done += n;
+            }
+            if (ec || done < chunk)
+                break;
+            std::size_t got = 0;
+            while (got < chunk)
+            {
+                const auto n = co_await r.async_read_some(
+                    std::span<std::byte>(
+                        reinterpret_cast<std::byte *>(echo.data() + got), chunk - got),
+                    ec);
+                if (ec || n == 0)
                     break;
                 got += n;
             }

@@ -67,6 +67,20 @@ if(GO_EXECUTABLE AND MINGW)
     set(_go_bin_dir ${CMAKE_BINARY_DIR}/tests/go)
     file(MAKE_DIRECTORY ${_go_bin_dir})
     set(_go_test_targets)
+
+    # --- handshake 方案字节级对照工具（纯逻辑，无 Prism 依赖） ---
+    # realitycmp / shadowtlscmp / restlscmp / anytlscmp / trusttunnelcmp / wscmp / guncmp
+    foreach(_cmp realitycmp shadowtlscmp restlscmp anytlscmp trusttunnelcmp wscmp guncmp)
+        add_custom_target(go_cmp_${_cmp} ALL
+            COMMAND ${GO_EXECUTABLE} build -o ${_go_bin_dir}/${_cmp}.exe ./${_cmp}
+            WORKING_DIRECTORY ${_go_src_dir}
+            COMMENT "Building Go ${_cmp} reference tool"
+            VERBATIM)
+        add_test(NAME GoCmp_${_cmp}
+            COMMAND ${_go_bin_dir}/${_cmp}.exe)
+        set_tests_properties(GoCmp_${_cmp} PROPERTIES TIMEOUT 30)
+    endforeach()
+
     foreach(_proto hysteria2 tuic)
         add_custom_target(go_test_${_proto} ALL
             COMMAND ${GO_EXECUTABLE} build -o ${_go_bin_dir}/${_proto}.exe ./${_proto}

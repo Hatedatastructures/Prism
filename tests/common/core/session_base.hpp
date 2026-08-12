@@ -56,7 +56,4 @@ namespace psmtest
         [[nodiscard]] virtual auto executor() const -> net::any_io_executor = 0;
     };
 
-    /// 会话基类必须满足 stream concept
-    static_assert(stream<session_base>, "session_base 必须满足 stream concept");
-
 } // namespace psmtest

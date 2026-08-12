@@ -15,7 +15,7 @@
 
 #include <common/core/error.hpp>
 #include <common/core/transport/stream.hpp>
-#include <common/core/transport/transport_base.hpp>
+#include <common/core/transmission.hpp>
 
 #include <boost/asio/awaitable.hpp>
 #include <boost/asio/error.hpp>
@@ -37,7 +37,7 @@ namespace psmtest
 {
 
     /// 内存管道流端点
-    class memory_stream : public transport_base
+    class memory_stream : public transmission
     {
     public:
         /// 默认读超时（0 = 禁用）
@@ -76,7 +76,7 @@ namespace psmtest
 
         /// @brief 读取最多 buf.size() 字节
         /// @return 实际读取字节数；0 = 对端半关 / 超时 / 取消
-        auto read_some(std::span<std::uint8_t> buf) -> net::awaitable<std::size_t> override
+        auto read_some(std::span<std::uint8_t> buf) -> net::awaitable<std::size_t>
         {
             using namespace boost::asio::experimental::awaitable_operators;
 
@@ -124,7 +124,7 @@ namespace psmtest
 
         /// @brief 写入全部数据到对端
         /// @return 错误码（成功 = 空；对端全关 = broken_pipe）
-        auto write_all(std::span<const std::uint8_t> buf) -> net::awaitable<protocol_ec> override
+        auto write_all(std::span<const std::uint8_t> buf) -> net::awaitable<protocol_ec>
         {
             const auto peer = peer_.lock();
             if (!peer || peer->closed)
@@ -136,7 +136,7 @@ namespace psmtest
         }
 
         /// @brief 半关：发送 EOF（对端读返回 0），本端仍可读
-        auto shutdown() -> net::awaitable<void> override
+        auto shutdown() -> net::awaitable<void>
         {
             const auto peer = peer_.lock();
             if (peer)
@@ -148,7 +148,7 @@ namespace psmtest
         }
 
         /// @brief 全关：本端不可读，对端写返回 broken_pipe
-        auto close() -> net::awaitable<void> override
+        auto close() -> void override
         {
             in_->closed = true;
             in_->read_channel.try_send(boost::system::error_code{});
@@ -158,7 +158,6 @@ namespace psmtest
                 peer->peer_eof = true;
                 peer->read_channel.try_send(boost::system::error_code{});
             }
-            co_return;
         }
 
         /// @brief 取消挂起的读（立即返回 0）
@@ -169,15 +168,42 @@ namespace psmtest
         }
 
         /// @brief 设置读超时（0 = 禁用）
-        auto set_timeout(std::chrono::milliseconds ms) -> void override
+        auto set_timeout(std::chrono::milliseconds ms) -> void
         {
             in_->timeout = ms;
         }
 
         /// 流是否打开（未全关）
-        [[nodiscard]] auto is_open() const -> bool override
+        [[nodiscard]] auto is_open() const -> bool
         {
             return !in_->closed;
+        }
+
+        /// @brief 异步读取（transmission 接口，字节视图）
+        /// @details 桥接到 read_some 内部逻辑，ec 恒为空（超时/取消返回 0）。
+        [[nodiscard]] auto async_read_some(std::span<std::byte> buffer, std::error_code &ec)
+            -> net::awaitable<std::size_t> override
+        {
+            ec.clear();
+            const auto n = co_await read_some(std::span<std::uint8_t>(
+                reinterpret_cast<std::uint8_t *>(buffer.data()), buffer.size()));
+            co_return n;
+        }
+
+        /// @brief 异步写入（transmission 接口，字节视图）
+        /// @details 桥接到 write_all，错误码存入 ec。
+        [[nodiscard]] auto async_write_some(std::span<const std::byte> buffer, std::error_code &ec)
+            -> net::awaitable<std::size_t> override
+        {
+            const auto err = co_await write_all(std::span<const std::uint8_t>(
+                reinterpret_cast<const std::uint8_t *>(buffer.data()), buffer.size()));
+            if (err)
+            {
+                ec = err;
+                co_return 0;
+            }
+            ec.clear();
+            co_return buffer.size();
         }
 
         /// 获取执行器

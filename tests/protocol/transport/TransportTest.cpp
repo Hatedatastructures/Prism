@@ -55,7 +55,7 @@ namespace
         auto [a, b] = make_memory_pair(ioc.get_executor());
         run_coro(ioc, [&]() -> net::awaitable<void>
                  {
-            co_await a.close();
+            a.close();
             // 对端读返回 0
             std::array<std::uint8_t, 8> buf{};
             const auto n = co_await b.read_some(buf);

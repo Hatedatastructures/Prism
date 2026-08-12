@@ -13,7 +13,7 @@
 
 #include <common/core/error.hpp>
 #include <common/core/transport/stream.hpp>
-#include <common/core/transport/transport_base.hpp>
+#include <common/core/transmission.hpp>
 
 #include <boost/asio/awaitable.hpp>
 #include <boost/asio/error.hpp>
@@ -33,7 +33,7 @@ namespace psmtest
 {
 
     /// TCP 套接字流
-    class socket_stream : public transport_base
+    class socket_stream : public transmission
     {
     public:
         /// 默认读超时（0 = 禁用）
@@ -88,7 +88,7 @@ namespace psmtest
 
         /// @brief 读取最多 buf.size() 字节
         /// @return 实际读取字节数；0 = 对端关闭或超时
-        auto read_some(std::span<std::uint8_t> buf) -> net::awaitable<std::size_t> override
+        auto read_some(std::span<std::uint8_t> buf) -> net::awaitable<std::size_t>
         {
             using namespace boost::asio::experimental::awaitable_operators;
 
@@ -111,7 +111,7 @@ namespace psmtest
 
         /// @brief 写入全部 buf 字节
         /// @return 错误码（成功 = 空）
-        auto write_all(std::span<const std::uint8_t> buf) -> net::awaitable<protocol_ec> override
+        auto write_all(std::span<const std::uint8_t> buf) -> net::awaitable<protocol_ec>
         {
             boost::system::error_code ec;
             co_await net::async_write(sock_, net::buffer(buf.data(), buf.size()),
@@ -122,7 +122,7 @@ namespace psmtest
         }
 
         /// @brief 半关（发送侧）
-        auto shutdown() -> net::awaitable<void> override
+        auto shutdown() -> net::awaitable<void>
         {
             boost::system::error_code ec;
             sock_.shutdown(net::ip::tcp::socket::shutdown_send, ec);
@@ -130,11 +130,10 @@ namespace psmtest
         }
 
         /// @brief 全关
-        auto close() -> net::awaitable<void> override
+        auto close() -> void override
         {
             boost::system::error_code ec;
             sock_.close(ec);
-            co_return;
         }
 
         /// @brief 取消挂起操作
@@ -146,7 +145,7 @@ namespace psmtest
         }
 
         /// @brief 设置读超时（0 = 禁用）
-        auto set_timeout(std::chrono::milliseconds ms) -> void override
+        auto set_timeout(std::chrono::milliseconds ms) -> void
         {
             if (ms.count() > 0)
             {
@@ -161,9 +160,32 @@ namespace psmtest
         }
 
         /// 流是否打开
-        [[nodiscard]] auto is_open() const -> bool override
+        [[nodiscard]] auto is_open() const -> bool
         {
             return sock_.is_open();
+        }
+
+        /// @brief 异步读取（transmission 接口，字节视图）
+        [[nodiscard]] auto async_read_some(std::span<std::byte> buffer, std::error_code &ec)
+            -> net::awaitable<std::size_t> override
+        {
+            ec.clear();
+            co_return co_await read_some(std::span<std::uint8_t>(
+                reinterpret_cast<std::uint8_t *>(buffer.data()), buffer.size()));
+        }
+
+        /// @brief 异步写入（transmission 接口，字节视图）
+        /// @details 直接单次系统调用（不经过 write_all 的组合操作），
+        /// 返回真实写入字节数（部分写语义）。
+        [[nodiscard]] auto async_write_some(std::span<const std::byte> buffer, std::error_code &ec)
+            -> net::awaitable<std::size_t> override
+        {
+            boost::system::error_code bec;
+            const auto n = co_await sock_.async_write_some(
+                net::buffer(buffer.data(), buffer.size()),
+                net::redirect_error(net::use_awaitable, bec));
+            ec = bec;
+            co_return n;
         }
 
         /// 获取执行器
@@ -183,6 +205,9 @@ namespace psmtest
         {
             return sock_;
         }
+
+        /// 引入基类模板 lowest_layer<T>()
+        using transmission::lowest_layer;
 
     private:
         mutable net::ip::tcp::socket sock_;

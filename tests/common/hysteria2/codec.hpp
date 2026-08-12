@@ -1,10 +1,12 @@
 /**
  * @file codec.hpp
- * @brief Hysteria2 帧编解码（纯函数，零状态）
+ * @brief Hysteria2 帧编解码（纯函数 + serializer/parser 类）
  * @details 帧格式（简化对齐 hysteria2 测试协议）：
  *          TCP：[Kind 1B][ATYP 1B][ADDR][PORT 2B BE][Payload]
  *          UDP：[Kind 1B][SessionID 4B LE][PacketID 4B LE][ATYP 1B][ADDR][PORT 2B BE][Payload]
- * @note 提供 build/parse 纯函数，serializer/parser 类在 session 层。
+ *          另含认证请求构造（make_auth_request，HTTP/3 HEADERS 风格）
+ *          与 Beast 风格 serializer/parser 类。
+ * @note 参考 hysteria2 协议规范。
  */
 
 #pragma once
@@ -12,12 +14,16 @@
 #include <common/core/error.hpp>
 #include <common/hysteria2/types.hpp>
 
+#include <boost/asio/buffer.hpp>
+
 #include <array>
 #include <cstddef>
 #include <cstdint>
 #include <cstdio>
 #include <span>
 #include <string>
+#include <string_view>
+#include <system_error>
 #include <vector>
 
 namespace psmtest::hysteria2
@@ -187,5 +193,133 @@ namespace psmtest::hysteria2
         consumed = data.size();
         return error::none;
     }
+
+    // ==================== auth（认证请求）合并 ====================
+
+    /// 认证请求（HTTP/3 HEADERS 帧，首字节 0x01）
+    [[nodiscard]] inline auto make_auth_request(std::string_view password) -> std::string
+    {
+        // QUIC HEADERS 帧：[Type 0x01][Length varint][HTTP/3 头块]
+        // 简化头块：:method POST、:path /auth、authorization: <password>
+        std::string payload = "POST /auth HTTP/1.1\r\n";
+        payload += "Host: hysteria2\r\n";
+        payload += "Authorization: " + std::string(password) + "\r\n";
+        payload += "\r\n";
+        std::string out;
+        out.push_back(static_cast<char>(0x01)); // HEADERS 帧类型
+        out.push_back(static_cast<char>(payload.size())); // 长度（简化 1 字节）
+        out += payload;
+        return out;
+    }
+    // ==================== session.hpp（serializer/parser）合并 ====================
+
+    /// @brief Hysteria2 帧序列化器（对象 → wire）
+    class serializer
+    {
+    public:
+        /// @brief 重置并绑定消息
+        /// @param msg 待序列化消息
+        auto reset(const message &msg) -> void
+        {
+            if (msg.type == message::kind::udp)
+                wire_ = build_udp(msg.session_id, msg.packet_id, msg.dst,
+                                  std::span<const std::uint8_t>(
+                                      reinterpret_cast<const std::uint8_t *>(msg.payload.data()),
+                                      msg.payload.size()));
+            else
+                wire_ = build_tcp(msg.dst,
+                                  std::span<const std::uint8_t>(
+                                      reinterpret_cast<const std::uint8_t *>(msg.payload.data()),
+                                      msg.payload.size()));
+            offset_ = 0;
+        }
+
+        /// @brief 增量输出 wire 字节
+        /// @param buffer 输出缓冲
+        /// @param ec 输出错误码
+        /// @return 本次写入字节数
+        auto get(boost::asio::mutable_buffer buffer, std::error_code &ec) -> std::size_t
+        {
+            ec.clear();
+            const auto space = buffer.size();
+            const auto remain = wire_.size() - offset_;
+            const auto n = std::min(space, remain);
+            std::memcpy(buffer.data(), wire_.data() + offset_, n);
+            offset_ += n;
+            return n;
+        }
+
+        /// 是否已全部输出
+        [[nodiscard]] auto is_done() const -> bool
+        {
+            return offset_ >= wire_.size();
+        }
+
+        /// 剩余未输出字节数
+        [[nodiscard]] auto remaining() const -> std::size_t
+        {
+            return wire_.size() - offset_;
+        }
+
+    private:
+        std::vector<std::uint8_t> wire_;
+        std::size_t offset_{0};
+    };
+
+    /// @brief Hysteria2 帧解析器（wire → 对象）
+    class parser
+    {
+    public:
+        /// @brief 增量喂入 wire 字节
+        /// @param buffer 输入缓冲
+        /// @param ec 输出错误码
+        /// @return 本次消耗字节数
+        auto put(boost::asio::const_buffer buffer, std::error_code &ec) -> std::size_t
+        {
+            ec.clear();
+            const auto data = std::span<const std::uint8_t>(
+                static_cast<const std::uint8_t *>(buffer.data()), buffer.size());
+            buf_.insert(buf_.end(), data.begin(), data.end());
+            std::size_t consumed = 0;
+            const auto err = parse(buf_, msg_, consumed);
+            if (err == error::need_more)
+            {
+                ec = make_error_code(error::need_more);
+                return 0;
+            }
+            if (err != error::none)
+            {
+                ec = make_error_code(err);
+                return 0;
+            }
+            done_ = true;
+            return consumed;
+        }
+
+        /// 是否解析完成
+        [[nodiscard]] auto is_done() const -> bool
+        {
+            return done_;
+        }
+
+        /// 解析结果（done 后有效）
+        [[nodiscard]] auto get() const -> const message &
+        {
+            return msg_;
+        }
+
+        /// 重置解析器
+        auto reset() -> void
+        {
+            buf_.clear();
+            msg_ = message{};
+            done_ = false;
+        }
+
+    private:
+        std::vector<std::uint8_t> buf_;
+        message msg_{};
+        bool done_{false};
+    };
 
 } // namespace psmtest::hysteria2

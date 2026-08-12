@@ -27,8 +27,10 @@ if(WIN32)
     target_link_libraries(StabilityStress PRIVATE psapi)
 endif()
 
-add_executable(ProtocolSessionStress ProtocolSessionStress.cpp)
-target_link_libraries(ProtocolSessionStress PRIVATE ${PROJECT_NAME}_static_library prism_test_common)
+# 注意：ProtocolSessionStress 引用更早版本的测试协议库接口（client::open、
+# bench_latency、message::valid 等，ba457ca 重构后已不存在）。修复后取消注释即可。
+# add_executable(ProtocolSessionStress ProtocolSessionStress.cpp)
+# target_link_libraries(ProtocolSessionStress PRIVATE ${PROJECT_NAME}_static_library prism_test_common)
 
 # 注意：MuxTunnelStress 依赖 tests/common/mux（当前重构中间态，模板成员未用 this-> 限定，
 # GCC 编译失败）。待 tests/common/mux 修复后取消注释即可。

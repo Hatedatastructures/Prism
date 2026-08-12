@@ -30,9 +30,116 @@
 namespace psmtest::vless
 {
 
-    /// @brief 构造 VLESS 请求头字节
-    /// @param hdr 请求头
-    /// @return 字节序列
+    /**
+     * @brief 编码地址为字节（ATYP + ADDR + PORT 2B BE）
+     * @param addr 目标地址
+     * @return 字节序列
+     */
+    [[nodiscard]] inline auto encode_address(const address &addr) -> std::vector<std::uint8_t>
+    {
+        std::vector<std::uint8_t> out;
+        out.push_back(static_cast<std::uint8_t>(addr.type));
+        switch (addr.type)
+        {
+            case address_type::ipv4:
+            {
+                std::array<std::uint8_t, 4> ip{};
+                std::size_t a = 0, p = 0;
+                for (const char ch : addr.host)
+                {
+                    if (ch == '.')
+                    {
+                        ip[a++] = static_cast<std::uint8_t>(p);
+                        p = 0;
+                    }
+                    else
+                    {
+                        p = p * 10 + static_cast<std::size_t>(ch - '0');
+                    }
+                }
+                ip[a] = static_cast<std::uint8_t>(p);
+                out.insert(out.end(), ip.begin(), ip.end());
+                break;
+            }
+            case address_type::ipv6:
+            {
+                out.insert(out.end(), addr.host.begin(), addr.host.end());
+                break;
+            }
+            case address_type::domain:
+            default:
+            {
+                out.push_back(static_cast<std::uint8_t>(addr.host.size()));
+                out.insert(out.end(), addr.host.begin(), addr.host.end());
+                break;
+            }
+        }
+        out.push_back(static_cast<std::uint8_t>((addr.port >> 8) & 0xFF));
+        out.push_back(static_cast<std::uint8_t>(addr.port & 0xFF));
+        return out;
+    }
+
+    /**
+     * @brief 解析地址字节（ATYP + ADDR + PORT 2B BE，增量）
+     * @param data 输入数据
+     * @param out 输出地址
+     * @param off 输入起始偏移，输出结束偏移
+     * @return 错误码；need_more = 数据不足
+     */
+    [[nodiscard]] inline auto parse_address(std::span<const std::uint8_t> data, address &out,
+                                            std::size_t &off) -> error
+    {
+        if (off >= data.size())
+            return error::need_more;
+        out.type = static_cast<address_type>(data[off++]);
+        switch (out.type)
+        {
+            case address_type::ipv4:
+            {
+                if (data.size() < off + 4)
+                    return error::need_more;
+                std::array<char, 16> buf{};
+                std::snprintf(buf.data(), buf.size(), "%u.%u.%u.%u",
+                              data[off], data[off + 1], data[off + 2], data[off + 3]);
+                out.host = buf.data();
+                off += 4;
+                break;
+            }
+            case address_type::ipv6:
+            {
+                if (data.size() < off + 16)
+                    return error::need_more;
+                out.host.assign(reinterpret_cast<const char *>(data.data() + off), 16);
+                off += 16;
+                break;
+            }
+            case address_type::domain:
+            default:
+            {
+                if (off >= data.size())
+                    return error::need_more;
+                const auto len = data[off++];
+                if (data.size() < off + len)
+                    return error::need_more;
+                out.host.assign(reinterpret_cast<const char *>(data.data() + off), len);
+                off += len;
+                break;
+            }
+        }
+        if (data.size() < off + 2)
+            return error::need_more;
+        out.port = static_cast<std::uint16_t>(data[off]) << 8 | data[off + 1];
+        off += 2;
+        return error::none;
+    }
+
+    /**
+     * @brief 构造 VLESS 请求头字节
+     * @param hdr 请求头
+     * @return 字节序列
+     * @details 格式 [Version 1B][UUID 16B][AddnlLen 1B][Addnl var][Cmd 1B]
+     * [Port 2B BE][Atyp 1B][Addr var]（Port 在 ATYP 之前，与 UDP 帧相反）。
+     */
     [[nodiscard]] inline auto build_request(const request_header &hdr) -> std::vector<std::uint8_t>
     {
         std::vector<std::uint8_t> out;
@@ -83,11 +190,13 @@ namespace psmtest::vless
         return out;
     }
 
-    /// @brief 解析 VLESS 请求头
-    /// @param data 输入数据
-    /// @param out 输出请求头
-    /// @param consumed 输出消耗字节数
-    /// @return 错误码；need_more = 数据不足
+    /**
+     * @brief 解析 VLESS 请求头（增量）
+     * @param data 输入数据
+     * @param out 输出请求头
+     * @param consumed 输出消耗字节数
+     * @return 错误码；need_more = 数据不足
+     */
     [[nodiscard]] inline auto parse_request(std::span<const std::uint8_t> data,
                                             request_header &out, std::size_t &consumed) -> error
     {
@@ -144,8 +253,50 @@ namespace psmtest::vless
         return error::none;
     }
 
-    /// @brief 构造响应字节（固定 2 字节）
-    /// @return [Version 0x00][Addons Length 0x00]
+    /**
+     * @brief 构造 VLESS UDP 帧（Xray 兼容）
+     * @param target 目标地址
+     * @param payload UDP 载荷
+     * @return 帧字节：[ATYP 1B][ADDR var][PORT 2B BE][payload]
+     * @details 帧内无长度字段、无 CRLF：地址头之后剩余全部字节即为
+     * 载荷，边界由调用方（一次底层读）约定。
+     * @note 地址类型为 VLESS 值体系（IPv4 0x01 / Domain 0x02 / IPv6 0x03）
+     */
+    [[nodiscard]] inline auto build_udp_pkt(const address &target,
+                                            std::span<const std::uint8_t> payload)
+        -> std::vector<std::uint8_t>
+    {
+        std::vector<std::uint8_t> out;
+        out.reserve(1 + target.host.size() + 2 + payload.size());
+        const auto addr = encode_address(target);
+        out.insert(out.end(), addr.begin(), addr.end());
+        out.insert(out.end(), payload.begin(), payload.end());
+        return out;
+    }
+
+    /**
+     * @brief 解析 VLESS UDP 帧
+     * @param data 输入数据
+     * @param target 输出目标地址
+     * @param payload 输出载荷（视图指向 data）
+     * @return 错误码；need_more = 地址不完整
+     * @details 地址解析后剩余全部字节即为载荷（帧无长度字段）。
+     */
+    [[nodiscard]] inline auto parse_udp_pkt(std::span<const std::uint8_t> data, address &target,
+                                            std::span<const std::uint8_t> &payload) -> error
+    {
+        std::size_t off = 0;
+        auto err = parse_address(data, target, off);
+        if (err != error::none)
+            return err;
+        payload = data.subspan(off);
+        return error::none;
+    }
+
+    /**
+     * @brief 构造响应字节（固定 2 字节）
+     * @return [Version 0x00][Addons Length 0x00]
+     */
     [[nodiscard]] inline constexpr auto make_response() -> std::array<std::uint8_t, 2>
     {
         return {protocol_version, 0x00};
@@ -168,15 +319,20 @@ namespace psmtest::vless
     class serializer
     {
     public:
-        /// @brief 构造
-        /// @param uuid 用户 UUID
+        /**
+         * @brief 构造
+         * @param uuid 用户 UUID
+         */
         explicit serializer(const std::array<std::uint8_t, uuid_len> &uuid)
             : uuid_(uuid)
         {
         }
 
-        /// @brief 重置并绑定消息
-        /// @param msg 消息
+        /**
+         * @brief 重置并绑定消息
+         * @param msg 消息
+         * @details 按消息编为请求头 wire 字节，随后可通过 get() 增量输出。
+         */
         auto reset(const message &msg) -> void
         {
             request_header hdr;
@@ -188,7 +344,12 @@ namespace psmtest::vless
             offset_ = 0;
         }
 
-        /// @brief 增量输出
+        /**
+         * @brief 增量输出
+         * @param buffer 输出缓冲区
+         * @param ec 错误码输出参数
+         * @return 写入字节数
+         */
         auto get(boost::asio::mutable_buffer buffer, std::error_code &ec) -> std::size_t
         {
             ec.clear();
@@ -198,7 +359,10 @@ namespace psmtest::vless
             return n;
         }
 
-        /// 是否已全部输出
+        /**
+         * @brief 是否已全部输出
+         * @return true = 全部输出完毕
+         */
         [[nodiscard]] auto is_done() const -> bool
         {
             return offset_ >= wire_.size();
@@ -214,14 +378,21 @@ namespace psmtest::vless
     class parser
     {
     public:
-        /// @brief 构造
-        /// @param uuid 期望的用户 UUID（校验用）
+        /**
+         * @brief 构造
+         * @param uuid 期望的用户 UUID（校验用）
+         */
         explicit parser(const std::array<std::uint8_t, uuid_len> &uuid)
             : uuid_(uuid)
         {
         }
 
-        /// @brief 增量喂入
+        /**
+         * @brief 增量喂入
+         * @param buffer 输入数据
+         * @param ec 错误码输出参数
+         * @return 本次消耗的字节数（0 = 半帧等待）
+         */
         auto put(boost::asio::const_buffer buffer, std::error_code &ec) -> std::size_t
         {
             ec.clear();
@@ -255,19 +426,28 @@ namespace psmtest::vless
             return consumed;
         }
 
-        /// 是否解析完成
+        /**
+         * @brief 是否解析完成
+         * @return true = 解析完成
+         */
         [[nodiscard]] auto is_done() const -> bool
         {
             return done_;
         }
 
-        /// 解析结果
+        /**
+         * @brief 解析结果
+         * @return 消息引用（解析完成后调用）
+         */
         [[nodiscard]] auto get() const -> const message &
         {
             return msg_;
         }
 
-        /// 重置
+        /**
+         * @brief 重置
+         * @details 清空内部缓冲与解析状态，可复用同一解析器。
+         */
         auto reset() -> void
         {
             buf_.clear();

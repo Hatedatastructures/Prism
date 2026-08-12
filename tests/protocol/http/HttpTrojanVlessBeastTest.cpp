@@ -1,9 +1,8 @@
 /**
  * @file HttpTrojanVlessBeastTest.cpp
- * @brief HTTP/Trojan/VLESS Beast 风格组件测试
+ * @brief Trojan/VLESS Beast 风格组件测试
  */
 
-#include <common/http/http.hpp>
 #include <common/trojan/trojan.hpp>
 #include <common/vless/vless.hpp>
 
@@ -14,78 +13,6 @@
 namespace
 {
     using namespace psmtest;
-
-    // ---------- HTTP ----------
-
-    TEST(HttpBeast, SerializerRequest)
-    {
-        http::message msg;
-        msg.type = http::message::kind::request;
-        msg.host = "example.com";
-        msg.port = 443;
-        http::serializer s;
-        s.reset(msg);
-        std::error_code ec;
-        std::array<std::uint8_t, 128> out{};
-        const auto n = s.get(net::mutable_buffer(out.data(), out.size()), ec);
-        EXPECT_FALSE(ec);
-        EXPECT_TRUE(s.is_done());
-        const auto text = std::string(reinterpret_cast<const char *>(out.data()), n);
-        EXPECT_TRUE(text.starts_with("CONNECT example.com:443 HTTP/1.1"));
-    }
-
-    TEST(HttpBeast, ParserRequestFull)
-    {
-        const std::string wire = "CONNECT 127.0.0.1:8081 HTTP/1.1\r\nHost: 127.0.0.1:8081\r\n\r\n";
-        http::parser p;
-        p.expect(http::message::kind::request);
-        std::error_code ec;
-        const auto n = p.put(net::const_buffer(wire.data(), wire.size()), ec);
-        EXPECT_FALSE(ec);
-        EXPECT_EQ(n, wire.size());
-        EXPECT_TRUE(p.is_done());
-        EXPECT_EQ(p.get().host, "127.0.0.1");
-        EXPECT_EQ(p.get().port, 8081);
-    }
-
-    TEST(HttpBeast, ParserRequestHalfFrame)
-    {
-        http::parser p;
-        p.expect(http::message::kind::request);
-        std::error_code ec;
-        const std::string part1 = "CONNECT 127.0.0.1:8081 HTTP/1.1\r\n";
-        const auto n1 = p.put(net::const_buffer(part1.data(), part1.size()), ec);
-        EXPECT_FALSE(ec);
-        EXPECT_EQ(n1, 0);
-        EXPECT_FALSE(p.is_done());
-        const std::string part2 = "Host: 127.0.0.1:8081\r\n\r\n";
-        const auto n2 = p.put(net::const_buffer(part2.data(), part2.size()), ec);
-        EXPECT_FALSE(ec);
-        EXPECT_TRUE(p.is_done());
-        EXPECT_EQ(p.get().port, 8081);
-    }
-
-    TEST(HttpBeast, ParserResponse)
-    {
-        const std::string wire = "HTTP/1.1 200 Connection established\r\n\r\n";
-        http::parser p;
-        p.expect(http::message::kind::response);
-        std::error_code ec;
-        p.put(net::const_buffer(wire.data(), wire.size()), ec);
-        EXPECT_FALSE(ec);
-        EXPECT_TRUE(p.is_done());
-        EXPECT_EQ(p.get().status, 200);
-    }
-
-    TEST(HttpBeast, ParserRejectsBad)
-    {
-        http::parser p;
-        p.expect(http::message::kind::request);
-        std::error_code ec;
-        const std::string wire = "GET / HTTP/1.1\r\n\r\n";
-        p.put(net::const_buffer(wire.data(), wire.size()), ec);
-        EXPECT_EQ(ec, error::bad_message);
-    }
 
     // ---------- Trojan ----------
 

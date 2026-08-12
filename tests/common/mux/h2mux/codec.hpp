@@ -60,10 +60,9 @@ namespace psmtest::mux::h2mux
     [[nodiscard]] inline auto build_winupd(std::uint32_t stream_id, std::uint32_t delta)
         -> std::array<std::uint8_t, frame_hdrsize>
     {
-        const auto frame = build(frame_type::window_update, stream_id,
-                                 std::span<const std::uint8_t>(
-                                     reinterpret_cast<const std::uint8_t *>(&delta),
-                                     sizeof(delta)));
+        const auto raw = std::span<const std::uint8_t>(
+            reinterpret_cast<const std::uint8_t *>(&delta), sizeof(delta));
+        const auto frame = build(frame_type::window_update, stream_id, raw);
         std::array<std::uint8_t, frame_hdrsize> out{};
         std::memcpy(out.data(), frame.data(), frame_hdrsize);
         return out;
@@ -123,7 +122,13 @@ namespace psmtest::mux::h2mux
         return error::none;
     }
 
-    /// 帧编解码策略（供共享会话框架模板传参）
+    /**
+     * @struct codec
+     * @brief sing-mux 帧编解码策略（供共享会话框架模板传参）
+     * @details 实现 frame_codec concept：帧构造与帧事件判定。
+     *          协议无 SYN/RST 独立帧：开流 = 首 DATA 帧（隐式），
+     *          关闭/重置均以 CLOSE 帧表达。
+     */
     struct codec
     {
         /// 帧类型
@@ -135,25 +140,36 @@ namespace psmtest::mux::h2mux
         /// 最大负载长度
         static inline constexpr std::size_t max_payload_len = max_frame_length;
 
-        /// 由帧头计算负载长度
+        /// @brief 由帧头计算负载长度
+        /// @param frame 帧头
+        /// @return 负载长度
         [[nodiscard]] static auto payload_len(const frame_type &frame) noexcept -> std::size_t
         {
             return frame.length;
         }
 
-        /// 解析帧头
+        /// @brief 解析帧头
+        /// @param data 帧头字节
+        /// @param out 输出帧头
+        /// @return 错误码
         static auto parse_header(std::span<const std::uint8_t> data, frame_type &out) -> error
         {
             return h2mux::parse_header(data, out);
         }
 
-        /// 解析负载
+        /// @brief 解析负载
+        /// @param frame 帧头
+        /// @param data 负载字节
+        /// @return 错误码（恒为 none）
         static auto parse_payload(frame_type &frame, std::span<const std::uint8_t> data) -> error
         {
             return h2mux::parse_payload(frame, data);
         }
 
-        /// 帧事件判定（DATA = 数据/隐式开流，CLOSE = 关闭，WINDOW_UPDATE/PING = 会话级）
+        /// @brief 帧事件判定
+        /// @param frame 帧头
+        /// @return 流事件（DATA=数据/隐式开流，CLOSE=半关，
+        ///          WINDOW_UPDATE/PING=rst 忽略）
         [[nodiscard]] static auto frame_event(const frame_type &frame) noexcept -> mux::stream_event
         {
             switch (frame.type)
@@ -167,30 +183,58 @@ namespace psmtest::mux::h2mux
             }
         }
 
-        /// 帧流标识
+        /// @brief 会话级控制帧判定
+        /// @param frame 帧头
+        /// @return true = 会话级（window_update / ping，忽略）
+        [[nodiscard]] static auto is_control(const frame_type &frame) noexcept -> bool
+        {
+            return frame.type != h2mux::frame_type::data &&
+                   frame.type != h2mux::frame_type::close;
+        }
+
+        /// @brief 取帧流标识
+        /// @param frame 帧头
+        /// @return 流标识符
         [[nodiscard]] static auto frame_stream_id(const frame_type &frame) noexcept -> std::uint32_t
         {
             return frame.stream_id;
         }
 
-        /// 构造开流帧（h2mux 无 SYN：首数据帧即开流，此处为空帧）
+        /// @brief 构造开流帧
+        /// @param id 流标识符
+        /// @return 完整帧
+        /// @details h2mux 无 SYN 帧：首数据帧即开流，此处为空帧。
         [[nodiscard]] static auto build_open(std::uint32_t id) -> std::vector<std::uint8_t>
         {
             return build_data(id, {});
         }
 
-        /// 构造数据帧
+        /// @brief 构造数据帧（DATA）
+        /// @param id 流标识符
+        /// @param data 负载
+        /// @return 完整帧
         [[nodiscard]] static auto build_data(std::uint32_t id, std::span<const std::uint8_t> data)
             -> std::vector<std::uint8_t>
         {
             return h2mux::build_data(id, data);
         }
 
-        /// 构造 FIN 帧（CLOSE）
+        /// @brief 构造 FIN 帧（CLOSE，半关）
+        /// @param id 流标识符
+        /// @return 完整帧
         [[nodiscard]] static auto build_fin(std::uint32_t id) -> std::vector<std::uint8_t>
         {
             const auto frame = h2mux::build_close(id);
             return {frame.begin(), frame.end()};
+        }
+
+        /// @brief 构造 RST 帧（CLOSE，重置流）
+        /// @param id 流标识符
+        /// @return 完整帧
+        /// @warning sing-mux 无独立 RST 帧，以 CLOSE 帧近似（对端按半关处理）
+        [[nodiscard]] static auto build_rst(std::uint32_t id) -> std::vector<std::uint8_t>
+        {
+            return build_fin(id);
         }
     };
 

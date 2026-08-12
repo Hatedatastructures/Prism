@@ -14,7 +14,6 @@
 #include <cstddef>
 #include <cstdint>
 #include <string>
-#include <string_view>
 
 namespace psmtest::hysteria2
 {
@@ -64,21 +63,5 @@ namespace psmtest::hysteria2
         /// 载荷
         std::string payload;
     };
-
-    /// 认证请求（HTTP/3 HEADERS 帧，首字节 0x01）
-    [[nodiscard]] inline auto make_auth_request(std::string_view password) -> std::string
-    {
-        // QUIC HEADERS 帧：[Type 0x01][Length varint][HTTP/3 头块]
-        // 简化头块：:method POST、:path /auth、authorization: <password>
-        std::string payload = "POST /auth HTTP/1.1\r\n";
-        payload += "Host: hysteria2\r\n";
-        payload += "Authorization: " + std::string(password) + "\r\n";
-        payload += "\r\n";
-        std::string out;
-        out.push_back(static_cast<char>(0x01)); // HEADERS 帧类型
-        out.push_back(static_cast<char>(payload.size())); // 长度（简化 1 字节）
-        out += payload;
-        return out;
-    }
 
 } // namespace psmtest::hysteria2

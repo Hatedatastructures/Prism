@@ -76,47 +76,51 @@ namespace
         -> net::awaitable<mux_result>
     {
         mux_result result{};
-        auto [client_raw, server_raw] = make_memory_pair(ioc);
-        auto csess = cl.connect(std::make_shared<memory_stream>(std::move(client_raw)));
-        auto ssess = sv.accept(std::make_shared<memory_stream>(std::move(server_raw)));
+        auto [client_raw, server_raw] = make_memory_pair(ioc.get_executor());
+        if (!cl.connect(std::make_shared<memory_stream>(std::move(client_raw))))
+            co_return result;
+        if (!sv.accept(std::make_shared<memory_stream>(std::move(server_raw))))
+            co_return result;
 
         // 服务端：接受 N 流并回显（每流独立回显协程，流对象由协程自持）
-        net::co_spawn(ssess->executor(), [&]() -> net::awaitable<void>
+        net::co_spawn(ioc.get_executor(), [&]() -> net::awaitable<void>
                       {
             for (std::size_t i = 0; i < sc.streams; ++i)
             {
-                auto s = co_await ssess->accept_stream();
+                auto s = co_await sv.accept_stream();
                 if (!s)
                     co_return;
-                net::co_spawn(ssess->executor(), [s]() -> net::awaitable<void>
+                net::co_spawn(ioc.get_executor(), [s]() -> net::awaitable<void>
                               {
-                    std::array<std::uint8_t, 131072> buf{};
+                    std::array<std::byte, 131072> buf{};
                     while (true)
                     {
-                        const auto n = co_await s->read_some(buf);
-                        if (n == 0)
+                        std::error_code ec;
+                        const auto n = co_await s->async_read_some(std::span<std::byte>(buf), ec);
+                        if (ec || n == 0)
                             break;
-                        (void)co_await s->write_all(std::span<const std::uint8_t>(buf.data(), n));
+                        ec.clear();
+                        (void)co_await s->async_write_some(std::span<const std::byte>(buf.data(), n), ec);
                     }
-                    co_await s->close(); }, net::detached);
+                    s->close(); }, net::detached);
             } }, net::detached);
 
         // 客户端：N 流并发打开并独立 bench（流对象由协程自持）
         std::vector<bench_report> reports(sc.streams);
         std::atomic<std::size_t> pending{sc.streams};
-        const auto ex = csess->executor();
+        const auto ex = ioc.get_executor();
         for (std::size_t i = 0; i < sc.streams; ++i)
         {
             net::co_spawn(ex, [&, i]() -> net::awaitable<void>
                           {
-                auto s = co_await csess->open_stream();
+                auto s = co_await cl.open_stream();
                 if (s)
                 {
                     bench_options opt;
                     opt.total = sc.per_stream;
                     opt.block = sc.block;
-                    reports[i] = co_await bench_throughput(*s, *s, opt);
-                    co_await s->close();
+                    reports[i] = co_await bench_throughput_tx(*s, *s, opt);
+                    s->close();
                 }
                 pending.fetch_sub(1, std::memory_order_release); }, net::detached);
         }
@@ -142,22 +146,22 @@ namespace
         result.mbps = (total_sec > 0) ? total_bytes * 8.0 / 1e6 / (total_sec / static_cast<double>(sc.streams)) : 0;
 
         // 延迟：新流单流测量
-        auto s2 = co_await csess->open_stream();
+        auto s2 = co_await cl.open_stream();
         if (s2)
         {
             bench_options opt;
             opt.total = 1000 * 4096;
             opt.block = 4096;
-            auto lat = co_await bench_throughput(*s2, *s2, opt);
+            auto lat = co_await bench_throughput_tx(*s2, *s2, opt);
             result.avg_us = lat.latency_avg * 1000.0;
             result.p50_us = lat.latency_p50 * 1000.0;
             result.p95_us = lat.latency_p95 * 1000.0;
             result.p99_us = lat.latency_p99 * 1000.0;
-            co_await s2->close();
+            s2->close();
         }
 
-        co_await csess->close();
-        co_await ssess->close();
+        cl.close();
+        sv.close();
         result.pass = (total_bytes > 0);
         co_return result;
     }
@@ -236,20 +240,20 @@ int main(const int argc, char **argv)
         {
             if (sc.muxer == "smux")
             {
-                mux::smux::client cl({});
-                mux::smux::server sv({});
+                mux::smux::client cl;
+                mux::smux::server sv;
                 result = co_await run_mux_case(ioc, cl, sv, sc);
             }
             else if (sc.muxer == "yamux")
             {
-                mux::yamux::client cl({});
-                mux::yamux::server sv({});
+                mux::yamux::client cl;
+                mux::yamux::server sv;
                 result = co_await run_mux_case(ioc, cl, sv, sc);
             }
             else
             {
-                mux::h2mux::client cl({});
-                mux::h2mux::server sv({});
+                mux::h2mux::client cl;
+                mux::h2mux::server sv;
                 result = co_await run_mux_case(ioc, cl, sv, sc);
             }
         };

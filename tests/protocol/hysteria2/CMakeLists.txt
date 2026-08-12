@@ -2,3 +2,6 @@ prism_add_test(Hysteria2Codec.cpp)
 
 prism_add_test(Hysteria2TuicBeastTest.cpp)
 target_link_libraries(Hysteria2TuicBeastTest PRIVATE vmtest_common)
+
+prism_add_test(Hysteria2ClientServerPerf.cpp)
+target_link_libraries(Hysteria2ClientServerPerf PRIVATE vmtest_common)

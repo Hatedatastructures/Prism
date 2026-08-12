@@ -10,4 +10,30 @@
 #include <common/mux/smux/client.hpp>
 #include <common/mux/smux/server.hpp>
 #include <common/mux/smux/session.hpp>
+#include <common/mux/stream.hpp>
 #include <common/mux/smux/types.hpp>
+
+namespace psmtest::mux::smux
+{
+
+    /// 服务端会话容器（共享模板实例化）
+    using server = mux::server<codec>;
+
+    /// 客户端会话容器（共享模板实例化）
+    using client = mux::client<codec>;
+
+    /// 创建客户端会话（工厂）
+    [[nodiscard]] inline auto connect(shared_transmission upstream,
+                                      const session_options &opt = {}) -> mux::client<codec>
+    {
+        return mux::connect<codec>(std::move(upstream), opt);
+    }
+
+    /// 创建服务端会话（工厂）
+    [[nodiscard]] inline auto accept(shared_transmission upstream,
+                                     const session_options &opt = {}) -> mux::server<codec>
+    {
+        return mux::accept<codec>(std::move(upstream), opt);
+    }
+
+} // namespace psmtest::mux::smux

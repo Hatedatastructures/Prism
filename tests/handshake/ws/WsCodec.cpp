@@ -31,8 +31,9 @@ namespace
 TEST(WsCodec, AcceptKeyKnownVector)
 {
     // RFC 6455 示例：key "dGhlIHNhbXBsZSBub25jZQ==" → "s3pPLMBiTxaQ9kYGzzhZRbK+xOo="
-    std::array<char, 28> accept{};
-    ASSERT_TRUE(compute_accept("dGhlIHNhbXBsZSBub25jZQ==", accept));
+    std::array<char, 29> accept{};
+    ASSERT_TRUE(compute_accept("dGhlIHNhbXBsZSBub25jZQ==",
+                               std::span<char, 28>(accept.data(), 28)));
     EXPECT_EQ(std::string_view(accept.data(), 28), "s3pPLMBiTxaQ9kYGzzhZRbK+xOo=");
 }
 

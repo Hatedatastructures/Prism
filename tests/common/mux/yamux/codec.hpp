@@ -190,7 +190,13 @@ namespace psmtest::mux::yamux
         return error::none;
     }
 
-    /// 帧编解码策略（供共享会话框架模板传参）
+    /**
+     * @struct codec
+     * @brief yamux 帧编解码策略（供共享会话框架模板传参）
+     * @details 实现 frame_codec concept：帧构造与帧事件判定。
+     *          开流 = WindowUpdate(SYN)，数据/半关/重置均为 Data 帧
+     *          + 对应标志位。
+     */
     struct codec
     {
         /// 帧类型
@@ -202,25 +208,36 @@ namespace psmtest::mux::yamux
         /// 最大负载长度（yamux 无硬限制，取 16MB）
         static inline constexpr std::size_t max_payload_len = 16 * 1024 * 1024;
 
-        /// 由帧头计算负载长度
+        /// @brief 由帧头计算负载长度
+        /// @param frame 帧头
+        /// @return 负载长度（非 Data 帧恒为 0）
         [[nodiscard]] static auto payload_len(const frame_type &frame) noexcept -> std::size_t
         {
             return frame.type == message_type::data ? frame.length : 0;
         }
 
-        /// 解析帧头
+        /// @brief 解析帧头
+        /// @param data 帧头字节
+        /// @param out 输出帧头
+        /// @return 错误码
         static auto parse_header(std::span<const std::uint8_t> data, frame_type &out) -> error
         {
             return yamux::parse_header(data, out);
         }
 
-        /// 解析负载
+        /// @brief 解析负载
+        /// @param frame 帧头
+        /// @param data 负载字节
+        /// @return 错误码（恒为 none）
         static auto parse_payload(frame_type &frame, std::span<const std::uint8_t> data) -> error
         {
             return yamux::parse_payload(frame, data);
         }
 
-        /// 帧事件判定（Data+SYN = 开流，Data+FIN = 半关，Data+RST = 重置）
+        /// @brief 帧事件判定
+        /// @param frame 帧头
+        /// @return 流事件（Data+SYN=开流 / Data+FIN=半关 / Data+RST=重置 /
+        ///          Data=数据 / 其余=rst 忽略）
         [[nodiscard]] static auto frame_event(const frame_type &frame) noexcept -> mux::stream_event
         {
             if (frame.type == message_type::data)
@@ -236,31 +253,56 @@ namespace psmtest::mux::yamux
             return mux::stream_event::rst; // winupd/ping/goaway：会话级，忽略
         }
 
-        /// 帧流标识
+        /// @brief 会话级控制帧判定
+        /// @param frame 帧头
+        /// @return true = 会话级（window_update / ping / go_away，忽略）
+        [[nodiscard]] static auto is_control(const frame_type &frame) noexcept -> bool
+        {
+            return frame.type != message_type::data;
+        }
+
+        /// @brief 取帧流标识
+        /// @param frame 帧头
+        /// @return 流标识符
         [[nodiscard]] static auto frame_stream_id(const frame_type &frame) noexcept -> std::uint32_t
         {
             return frame.stream_id;
         }
 
-        /// 构造开流帧（WindowUpdate+SYN，Length = 初始窗口）
+        /// @brief 构造开流帧（WindowUpdate+SYN，Length = 初始窗口）
+        /// @param id 流标识符
+        /// @return 完整帧
         [[nodiscard]] static auto build_open(std::uint32_t id) -> std::vector<std::uint8_t>
         {
             const auto frame = yamux::build_winupd(flags::syn, id, default_window);
             return {frame.begin(), frame.end()};
         }
 
-        /// 构造数据帧
+        /// @brief 构造数据帧（Data）
+        /// @param id 流标识符
+        /// @param data 负载
+        /// @return 完整帧
         [[nodiscard]] static auto build_data(std::uint32_t id, std::span<const std::uint8_t> data)
             -> std::vector<std::uint8_t>
         {
             return yamux::build_data(flags::none, id, data);
         }
 
-        /// 构造 FIN 帧
+        /// @brief 构造 FIN 帧（Data+FIN，半关）
+        /// @param id 流标识符
+        /// @return 完整帧
         [[nodiscard]] static auto build_fin(std::uint32_t id) -> std::vector<std::uint8_t>
         {
             const auto frame = yamux::build_fin(id);
             return {frame.begin(), frame.end()};
+        }
+
+        /// @brief 构造 RST 帧（Data+RST，重置流）
+        /// @param id 流标识符
+        /// @return 完整帧
+        [[nodiscard]] static auto build_rst(std::uint32_t id) -> std::vector<std::uint8_t>
+        {
+            return yamux::build_data(flags::rst, id, {});
         }
     };
 

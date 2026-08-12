@@ -59,6 +59,8 @@ namespace psmtest
         kdf_error,
         /// 不支持的特性（加密套件 / 命令类型）
         unsupported,
+        /// I/O 错误（底层传输失败）
+        io_error,
     };
 
     namespace detail
@@ -112,6 +114,8 @@ namespace psmtest
                         return "key derivation failed";
                     case error::unsupported:
                         return "unsupported feature";
+                    case error::io_error:
+                        return "io error";
                 }
                 return "unknown protocol error";
             }

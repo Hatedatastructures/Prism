@@ -48,11 +48,11 @@ namespace psmtest::trojan
     /// @brief 计算密码凭据（SHA224 hex 56 字符）
     /// @param password 密码
     /// @return 56 字符 hex 凭据
-    [[nodiscard]] inline auto credential(std::string_view password) -> std::string
+    [[nodiscard]] inline auto credential(std::string_view password) 
+        -> std::string
     {
-        const auto hash = detail::sha224(
-            std::span<const std::uint8_t>(reinterpret_cast<const std::uint8_t *>(password.data()),
-                                          password.size()));
+        const auto ref = std::span<const std::uint8_t>(reinterpret_cast<const std::uint8_t *>(password.data()),password.size());
+        const auto hash = detail::sha224(std::move(ref));
         std::string out;
         out.reserve(credential_len);
         static constexpr char hex[] = "0123456789abcdef";
@@ -107,6 +107,107 @@ namespace psmtest::trojan
         out.push_back(static_cast<std::uint8_t>((addr.port >> 8) & 0xFF));
         out.push_back(static_cast<std::uint8_t>(addr.port & 0xFF));
         return out;
+    }
+
+    /// @brief 解析地址字节（ATYP + ADDR + PORT 2B BE）
+    /// @param data 输入数据
+    /// @param out 输出地址
+    /// @param consumed 输出消耗字节数
+    /// @return 错误码；need_more = 数据不足
+    [[nodiscard]] inline auto parse_address(std::span<const std::uint8_t> data, address &out,
+                                            std::size_t &consumed) -> error
+    {
+        if (data.empty())
+            return error::need_more;
+        out.type = static_cast<address_type>(data[0]);
+        std::size_t off = 1;
+        switch (out.type)
+        {
+            case address_type::ipv4:
+            {
+                if (data.size() < off + 4 + 2)
+                    return error::need_more;
+                std::array<char, 16> buf{};
+                std::snprintf(buf.data(), buf.size(), "%u.%u.%u.%u", data[off], data[off + 1],
+                              data[off + 2], data[off + 3]);
+                out.host = buf.data();
+                off += 4;
+                break;
+            }
+            case address_type::ipv6:
+            {
+                if (data.size() < off + 16 + 2)
+                    return error::need_more;
+                out.host.assign(reinterpret_cast<const char *>(data.data() + off), 16);
+                off += 16;
+                break;
+            }
+            case address_type::domain:
+            {
+                if (data.size() < off + 1)
+                    return error::need_more;
+                const auto len = data[off++];
+                if (data.size() < off + len + 2)
+                    return error::need_more;
+                out.host.assign(reinterpret_cast<const char *>(data.data() + off), len);
+                off += len;
+                break;
+            }
+            default:
+                return error::bad_message;
+        }
+        out.port = static_cast<std::uint16_t>(data[off]) << 8 | data[off + 1];
+        off += 2;
+        consumed = off;
+        return error::none;
+    }
+
+    /// @brief 构造 Trojan UDP 帧（mihomo 兼容）
+    /// @param target 目标地址
+    /// @param payload UDP 载荷
+    /// @return 帧字节：[ATYP][ADDR][PORT 2B][LEN 2B BE][CRLF][payload]
+    /// @details 帧内嵌目标地址与载荷长度，CRLF 分隔头部与载荷
+    /// （对齐主库 framing::build_udp_pkt）。
+    [[nodiscard]] inline auto build_udp_pkt(const address &target,
+                                            std::span<const std::uint8_t> payload)
+        -> std::vector<std::uint8_t>
+    {
+        std::vector<std::uint8_t> out;
+        const auto addr = encode_address(target);
+        out.reserve(addr.size() + 4 + payload.size());
+        out.insert(out.end(), addr.begin(), addr.end());
+        out.push_back(static_cast<std::uint8_t>((payload.size() >> 8) & 0xFF));
+        out.push_back(static_cast<std::uint8_t>(payload.size() & 0xFF));
+        out.push_back('\r');
+        out.push_back('\n');
+        out.insert(out.end(), payload.begin(), payload.end());
+        return out;
+    }
+
+    /// @brief 解析 Trojan UDP 帧
+    /// @param data 输入数据（完整帧）
+    /// @param target 输出目标地址
+    /// @param payload 输出载荷（视图指向 data）
+    /// @return 错误码；need_more = 数据不足
+    /// @details 需先读满地址 + 4 字节头部才能确定载荷长度；
+    /// 调用方需按长度补读完整帧后再解析。
+    [[nodiscard]] inline auto parse_udp_pkt(std::span<const std::uint8_t> data, address &target,
+                                            std::span<const std::uint8_t> &payload) -> error
+    {
+        std::size_t consumed = 0;
+        auto err = parse_address(data, target, consumed);
+        if (err != error::none)
+            return err;
+        if (data.size() < consumed + 4)
+            return error::need_more;
+        const auto len = static_cast<std::size_t>(data[consumed]) << 8 | data[consumed + 1];
+        if (data[consumed + 2] != '\r' || data[consumed + 3] != '\n')
+            return error::bad_magic;
+        const auto payload_start = consumed + 4;
+        if (data.size() < payload_start + len)
+            return error::need_more;
+        payload = data.subspan(payload_start, len);
+        return error::none;
     }
 
     /// @brief 构造完整请求头（凭据 + CRLF + 命令地址 + CRLF）

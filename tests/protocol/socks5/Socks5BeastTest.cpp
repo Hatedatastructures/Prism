@@ -18,8 +18,7 @@ namespace
     {
         socks5::message msg;
         msg.type = socks5::message::kind::greeting;
-        msg.methods[0] = socks5::auth_none;
-        msg.method_count = 1;
+        msg.methods = {socks5::auth_none};
         return msg;
     }
 
@@ -28,10 +27,10 @@ namespace
     {
         socks5::message msg;
         msg.type = socks5::message::kind::request;
-        msg.cmd = socks5::cmd_connect;
-        msg.dst.type = socks5::address_type::ipv4;
-        msg.dst.host = "127.0.0.1";
-        msg.dst.port = 8080;
+        msg.cmd = socks5::command::connect;
+        msg.addr.type = socks5::address_type::ipv4;
+        msg.addr.host = "127.0.0.1";
+        msg.addr.port = 8080;
         return msg;
     }
 
@@ -84,7 +83,7 @@ namespace
         EXPECT_EQ(consumed, 3);
         EXPECT_TRUE(p.is_done());
         EXPECT_EQ(p.get().type, socks5::message::kind::greeting);
-        EXPECT_EQ(p.get().method_count, 1);
+        EXPECT_EQ(p.get().methods.size(), 1u);
         EXPECT_EQ(p.get().methods[0], socks5::auth_none);
     }
 
@@ -126,9 +125,9 @@ namespace
         EXPECT_EQ(consumed, req_len);
         EXPECT_TRUE(p.is_done());
         EXPECT_EQ(p.get().type, socks5::message::kind::request);
-        EXPECT_EQ(p.get().cmd, socks5::cmd_connect);
-        EXPECT_EQ(p.get().dst.host, "127.0.0.1");
-        EXPECT_EQ(p.get().dst.port, 8080);
+        EXPECT_EQ(p.get().cmd, socks5::command::connect);
+        EXPECT_EQ(p.get().addr.host, "127.0.0.1");
+        EXPECT_EQ(p.get().addr.port, 8080);
     }
 
     TEST(Socks5Beast, ParserRejectsBadVersion)
@@ -175,7 +174,7 @@ namespace
         p.expect(socks5::message::kind::greeting);
         p.put(net::const_buffer(g.data(), g.size()), ec);
         EXPECT_TRUE(p.is_done());
-        EXPECT_EQ(p.get().method_count, 1);
+        EXPECT_EQ(p.get().methods.size(), 1u);
     }
 
 } // namespace

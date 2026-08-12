@@ -9,6 +9,8 @@
 #include <boost/asio/co_spawn.hpp>
 #include <boost/asio/detached.hpp>
 #include <boost/asio/io_context.hpp>
+#include <boost/asio/post.hpp>
+#include <boost/asio/use_awaitable.hpp>
 
 #include <array>
 #include <memory>
@@ -30,92 +32,97 @@ namespace
     {
         std::exception_ptr ep;
         net::co_spawn(ioc, std::move(coro), [&](std::exception_ptr e)
-                      { ep = e; if (e) ioc.stop(); });
+                      { ep = e; ioc.stop(); });
         ioc.run();
         if (ep)
             std::rethrow_exception(ep);
     }
 
-    /// 通用会话测试：cl/sv 为 (client, server) 对象，payload 回显
+    /// 通用会话测试：cl/sv 为 (client, server) 值对象，payload 回显
     template <typename Client, typename Server>
     auto run_session(net::io_context &ioc, Client &cl, Server &sv,
                      const std::size_t payload_size) -> std::size_t
     {
         auto [a, b] = make_memory_pair(ioc.get_executor());
-        auto csess = cl.connect(std::make_shared<memory_stream>(std::move(a)));
-        auto ssess = sv.accept(std::make_shared<memory_stream>(std::move(b)));
+        EXPECT_TRUE(cl.connect(std::make_shared<memory_stream>(std::move(a))));
+        EXPECT_TRUE(sv.accept(std::make_shared<memory_stream>(std::move(b))));
 
         std::size_t received = 0;
         run_coro(ioc, [&]() -> net::awaitable<void>
                  {
             auto server_coro = [&]() -> net::awaitable<void>
             {
-                auto s = co_await ssess->accept_stream();
+                auto s = co_await sv.accept_stream();
                 if (!s)
                 {
                     EXPECT_TRUE(false) << "accept failed";
                     co_return;
                 }
-                std::array<std::uint8_t, 64 * 1024> buf{};
+                std::array<std::byte, 64 * 1024> buf{};
                 while (true)
                 {
-                    const auto n = co_await s->read_some(buf);
-                    if (n == 0)
+                    std::error_code ec;
+                    const auto n = co_await s->async_read_some(std::span<std::byte>(buf), ec);
+                    if (ec || n == 0)
                         break;
                     received += n;
-                    (void)co_await s->write_all(
-                        std::span<const std::uint8_t>(buf.data(), n));
+                    ec.clear();
+                    (void)co_await s->async_write_some(
+                        std::span<const std::byte>(buf.data(), n), ec);
                 }
-                co_await s->close();
+                s->close();
             };
-            net::co_spawn(ssess->executor(), server_coro(), net::detached);
+            net::co_spawn(ioc.get_executor(), server_coro(), net::detached);
 
-            auto s = co_await csess->open_stream();
+            auto s = co_await cl.open_stream();
             if (!s)
             {
                 EXPECT_TRUE(false) << "open failed";
                 co_return;
             }
             std::string payload(payload_size, 'M');
-            (void)co_await s->write_all(std::span<const std::uint8_t>(
-                reinterpret_cast<const std::uint8_t *>(payload.data()), payload.size()));
+            std::error_code ec;
+            (void)co_await s->async_write_some(
+                std::span<const std::byte>(
+                    reinterpret_cast<const std::byte *>(payload.data()), payload.size()), ec);
             std::string echoed;
-            std::array<std::uint8_t, 64 * 1024> buf{};
+            std::array<std::byte, 64 * 1024> buf{};
             while (echoed.size() < payload.size())
             {
-                const auto n = co_await s->read_some(buf);
-                if (n == 0)
+                ec.clear();
+                const auto n = co_await s->async_read_some(std::span<std::byte>(buf), ec);
+                if (ec || n == 0)
                     break;
                 echoed.append(reinterpret_cast<const char *>(buf.data()), n);
             }
             EXPECT_EQ(echoed, payload);
-            co_await s->close();
-            co_await csess->close();
-            co_await ssess->close(); });
+            s->close();
+            cl.close();
+            sv.close(); });
         return received;
     }
 
     TEST(MuxSession, SmuxEcho)
     {
         net::io_context ioc;
-        smux::client cl(session_options{});
-        smux::server sv(session_options{});
+        smux::client cl;
+        smux::server sv;
         EXPECT_EQ(run_session(ioc, cl, sv, 100 * 1024), 100 * 1024u);
     }
 
     TEST(MuxSession, YamuxEcho)
     {
         net::io_context ioc;
-        yamux::client cl(session_options{});
-        yamux::server sv(session_options{});
+        yamux::client cl;
+        yamux::server sv;
         EXPECT_EQ(run_session(ioc, cl, sv, 100 * 1024), 100 * 1024u);
     }
 
     TEST(MuxSession, H2muxEcho)
     {
         net::io_context ioc;
-        h2mux::client cl(session_options{});
-        h2mux::server sv(session_options{});
+        h2mux::client cl;
+        h2mux::server sv;
         EXPECT_EQ(run_session(ioc, cl, sv, 100 * 1024), 100 * 1024u);
     }
 
@@ -123,10 +130,10 @@ namespace
     {
         net::io_context ioc;
         auto [a, b] = make_memory_pair(ioc.get_executor());
-        smux::client cl(session_options{});
-        smux::server sv(session_options{});
-        auto csess = cl.connect(std::make_shared<memory_stream>(std::move(a)));
-        auto ssess = sv.accept(std::make_shared<memory_stream>(std::move(b)));
+        smux::client cl;
+        smux::server sv;
+        ASSERT_TRUE(cl.connect(std::make_shared<memory_stream>(std::move(a))));
+        ASSERT_TRUE(sv.accept(std::make_shared<memory_stream>(std::move(b))));
 
         constexpr int kStreams = 8;
         constexpr std::size_t kPayload = 64 * 1024;
@@ -134,75 +141,82 @@ namespace
                  {
             auto server_coro = [&]() -> net::awaitable<void>
             {
-                std::array<std::uint8_t, 4096> buf{};
+                std::array<std::byte, 4096> buf{};
                 for (int i = 0; i < kStreams; ++i)
                 {
-                    auto s = co_await ssess->accept_stream();
+                    auto s = co_await sv.accept_stream();
                     if (!s)
                         continue;
                     std::size_t got = 0;
                     while (got < kPayload)
                     {
-                        const auto n = co_await s->read_some(buf);
-                        if (n == 0)
+                        std::error_code ec;
+                        const auto n = co_await s->async_read_some(std::span<std::byte>(buf), ec);
+                        if (ec || n == 0)
                             break;
                         got += n;
                     }
                     EXPECT_EQ(got, kPayload);
-                    co_await s->close();
+                    s->close();
                 }
             };
-            net::co_spawn(ssess->executor(), server_coro(), net::detached);
+            net::co_spawn(ioc.get_executor(), server_coro(), net::detached);
 
             std::string payload(kPayload, 'C');
             for (int i = 0; i < kStreams; ++i)
             {
-                auto s = co_await csess->open_stream();
+                auto s = co_await cl.open_stream();
                 if (!s)
                     continue;
-                (void)co_await s->write_all(std::span<const std::uint8_t>(
-                    reinterpret_cast<const std::uint8_t *>(payload.data()), payload.size()));
-                co_await s->close();
+                std::error_code ec;
+                (void)co_await s->async_write_some(
+                    std::span<const std::byte>(
+                        reinterpret_cast<const std::byte *>(payload.data()), payload.size()), ec);
+                s->close();
+                // 让出调度：保证对端 accept 与帧循环有机会推进
+                co_await net::post(ioc.get_executor(), net::use_awaitable);
             }
-            co_await csess->close();
-            co_await ssess->close(); });
+            cl.close();
+            sv.close(); });
     }
 
     TEST(MuxSession, FactorySmux)
     {
         net::io_context ioc;
         auto [a, b] = make_memory_pair(ioc.get_executor());
-        smux::client cl(session_options{});
-        smux::server sv(session_options{});
-        auto csess = cl.connect(std::make_shared<memory_stream>(std::move(a)));
-        auto ssess = sv.accept(std::make_shared<memory_stream>(std::move(b)));
-        ASSERT_NE(csess, nullptr);
-        ASSERT_NE(ssess, nullptr);
+        smux::client cl;
+        smux::server sv;
+        ASSERT_TRUE(cl.connect(std::make_shared<memory_stream>(std::move(a))));
+        ASSERT_TRUE(sv.accept(std::make_shared<memory_stream>(std::move(b))));
         run_coro(ioc, [&]() -> net::awaitable<void>
                  {
             auto server_coro = [&]() -> net::awaitable<void>
             {
-                auto s = co_await ssess->accept_stream();
+                auto s = co_await sv.accept_stream();
                 if (!s)
                     co_return;
-                std::array<std::uint8_t, 4096> buf{};
+                std::array<std::byte, 4096> buf{};
                 while (true)
                 {
-                    const auto n = co_await s->read_some(buf);
-                    if (n == 0)
+                    std::error_code ec;
+                    const auto n = co_await s->async_read_some(std::span<std::byte>(buf), ec);
+                    if (ec || n == 0)
                         break;
                 }
+                s->close();
             };
-            net::co_spawn(ssess->executor(), server_coro(), net::detached);
-            auto s = co_await csess->open_stream();
+            net::co_spawn(ioc.get_executor(), server_coro(), net::detached);
+            auto s = co_await cl.open_stream();
             if (!s)
                 co_return;
             const std::string payload = "factory smux";
-            (void)co_await s->write_all(std::span<const std::uint8_t>(
-                reinterpret_cast<const std::uint8_t *>(payload.data()), payload.size()));
-            co_await s->close();
-            co_await csess->close();
-            co_await ssess->close(); });
+            std::error_code ec;
+            (void)co_await s->async_write_some(
+                std::span<const std::byte>(
+                    reinterpret_cast<const std::byte *>(payload.data()), payload.size()), ec);
+            s->close();
+            cl.close();
+            sv.close(); });
     }
 
 } // namespace

@@ -1,2 +1,14 @@
 prism_add_test(StealthMuxBeastTest.cpp)
 target_link_libraries(StealthMuxBeastTest PRIVATE vmtest_common)
+
+prism_add_test(StealthNestedPerf.cpp)
+target_link_libraries(StealthNestedPerf PRIVATE vmtest_common)
+
+prism_add_test(RealityKeygenTest.cpp)
+target_link_libraries(RealityKeygenTest PRIVATE vmtest_common)
+
+prism_add_test(StealthNestedPerf2.cpp)
+target_link_libraries(StealthNestedPerf2 PRIVATE vmtest_common)
+
+prism_add_test(StealthNestedPerf3.cpp)
+target_link_libraries(StealthNestedPerf3 PRIVATE vmtest_common)

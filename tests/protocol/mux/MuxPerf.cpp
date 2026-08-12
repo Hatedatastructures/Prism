@@ -21,12 +21,9 @@
 
 #include <common/core/transport/bench.hpp>
 #include <common/core/transport/memory_stream.hpp>
-#include <common/mux/h2mux/client.hpp>
-#include <common/mux/h2mux/server.hpp>
-#include <common/mux/smux/client.hpp>
-#include <common/mux/smux/server.hpp>
-#include <common/mux/yamux/client.hpp>
-#include <common/mux/yamux/server.hpp>
+#include <common/mux/smux/smux.hpp>
+#include <common/mux/yamux/yamux.hpp>
+#include <common/mux/h2mux/h2mux.hpp>
 
 namespace
 {
@@ -60,8 +57,8 @@ namespace
     auto run_transfer(net::io_context &ioc, Client &cl, Server &sv) -> void
     {
         auto [a, b] = make_memory_pair(ioc.get_executor());
-        auto csess = cl.connect(std::make_shared<memory_stream>(std::move(a)));
-        auto ssess = sv.accept(std::make_shared<memory_stream>(std::move(b)));
+        ASSERT_TRUE(cl.connect(std::make_shared<memory_stream>(std::move(a))));
+        ASSERT_TRUE(sv.accept(std::make_shared<memory_stream>(std::move(b))));
 
         constexpr std::size_t kTotal = 100 * 1024 * 1024;
         constexpr std::size_t kBlock = 64 * 1024;
@@ -69,27 +66,28 @@ namespace
                  {
             auto server_coro = [&]() -> net::awaitable<void>
             {
-                auto s = co_await ssess->accept_stream();
+                auto s = co_await sv.accept_stream();
                 if (!s)
                 {
                     EXPECT_TRUE(false) << "accept failed";
                     co_return;
                 }
-                std::array<std::uint8_t, kBlock> buf{};
+                std::array<std::byte, kBlock> buf{};
                 std::size_t got = 0;
                 while (got < kTotal)
                 {
-                    const auto n = co_await s->read_some(buf);
-                    if (n == 0)
+                    std::error_code ec;
+                    const auto n = co_await s->async_read_some(std::span<std::byte>(buf), ec);
+                    if (ec || n == 0)
                         break;
                     got += n;
                 }
                 EXPECT_EQ(got, kTotal);
-                co_await s->close();
+                s->close();
             };
-            net::co_spawn(ssess->executor(), server_coro(), net::detached);
+            net::co_spawn(ioc.get_executor(), server_coro(), net::detached);
 
-            auto s = co_await csess->open_stream();
+            auto s = co_await cl.open_stream();
             if (!s)
             {
                 EXPECT_TRUE(false) << "open failed";
@@ -101,17 +99,21 @@ namespace
             while (sent < kTotal)
             {
                 const auto n = std::min(kBlock, kTotal - sent);
-                (void)co_await s->write_all(
-                    std::span<const std::uint8_t>(payload.data(), n));
-                sent += n;
+                std::error_code ec;
+                const auto w = co_await s->async_write_some(
+                    std::span<const std::byte>(
+                        reinterpret_cast<const std::byte *>(payload.data()), n), ec);
+                if (ec || w == 0)
+                    break;
+                sent += w;
                 // 让出调度：memory_stream 写同步完成，不 yield 会饿死对端协程
                 if ((++block_idx & 0x0F) == 0)
-                    co_await net::post(ssess->executor(), net::use_awaitable);
+                    co_await net::post(ioc.get_executor(), net::use_awaitable);
             }
             EXPECT_EQ(sent, kTotal);
-            co_await s->close();
-            co_await csess->close();
-            co_await ssess->close(); });
+            s->close();
+            cl.close();
+            sv.close(); });
     }
 
     /// 吞吐 + 延迟报告
@@ -119,40 +121,42 @@ namespace
     auto run_bench(net::io_context &ioc, Client &cl, Server &sv, const char *name) -> void
     {
         auto [a, b] = make_memory_pair(ioc.get_executor());
-        auto csess = cl.connect(std::make_shared<memory_stream>(std::move(a)));
-        auto ssess = sv.accept(std::make_shared<memory_stream>(std::move(b)));
+        ASSERT_TRUE(cl.connect(std::make_shared<memory_stream>(std::move(a))));
+        ASSERT_TRUE(sv.accept(std::make_shared<memory_stream>(std::move(b))));
 
         bench_report rep{};
         run_coro(ioc, [&]() -> net::awaitable<void>
                  {
             auto server_coro = [&]() -> net::awaitable<void>
             {
-                auto s = co_await ssess->accept_stream();
+                auto s = co_await sv.accept_stream();
                 if (!s)
                     co_return;
-                std::array<std::uint8_t, 128 * 1024> buf{};
+                std::array<std::byte, 128 * 1024> buf{};
                 while (true)
                 {
-                    const auto n = co_await s->read_some(buf);
-                    if (n == 0)
+                    std::error_code ec;
+                    const auto n = co_await s->async_read_some(std::span<std::byte>(buf), ec);
+                    if (ec || n == 0)
                         break;
-                    (void)co_await s->write_all(
-                        std::span<const std::uint8_t>(buf.data(), n));
+                    ec.clear();
+                    (void)co_await s->async_write_some(
+                        std::span<const std::byte>(buf.data(), n), ec);
                 }
-                co_await s->close();
+                s->close();
             };
-            net::co_spawn(ssess->executor(), server_coro(), net::detached);
+            net::co_spawn(ioc.get_executor(), server_coro(), net::detached);
 
-            auto s = co_await csess->open_stream();
+            auto s = co_await cl.open_stream();
             if (!s)
                 co_return;
             bench_options opt;
             opt.total = 64 * 1024 * 1024;
             opt.block = 64 * 1024;
-            rep = co_await bench_throughput(*s, *s, opt);
-            co_await s->close();
-            co_await csess->close();
-            co_await ssess->close(); });
+            rep = co_await bench_throughput_tx(*s, *s, opt);
+            s->close();
+            cl.close();
+            sv.close(); });
 
         std::printf("%s throughput: %.1f MB/s | latency(ms): avg %.3f p50 %.3f p95 %.3f p99 %.3f (min %.3f max %.3f) samples=%zu\n",
                     name, rep.mbps, rep.latency_avg, rep.latency_p50,
@@ -163,48 +167,48 @@ namespace
     TEST(MuxPerf, SmuxTransfer100MB)
     {
         net::io_context ioc;
-        smux::client cl({});
-        smux::server sv({});
+        smux::client cl;
+        smux::server sv;
         run_transfer(ioc, cl, sv);
     }
 
     TEST(MuxPerf, YamuxTransfer100MB)
     {
         net::io_context ioc;
-        yamux::client cl({});
-        yamux::server sv({});
+        yamux::client cl;
+        yamux::server sv;
         run_transfer(ioc, cl, sv);
     }
 
     TEST(MuxPerf, H2muxTransfer100MB)
     {
         net::io_context ioc;
-        h2mux::client cl({});
-        h2mux::server sv({});
+        h2mux::client cl;
+        h2mux::server sv;
         run_transfer(ioc, cl, sv);
     }
 
     TEST(MuxPerf, SmuxThroughputLatency)
     {
         net::io_context ioc;
-        smux::client cl({});
-        smux::server sv({});
+        smux::client cl;
+        smux::server sv;
         run_bench(ioc, cl, sv, "smux ");
     }
 
     TEST(MuxPerf, YamuxThroughputLatency)
     {
         net::io_context ioc;
-        yamux::client cl({});
-        yamux::server sv({});
+        yamux::client cl;
+        yamux::server sv;
         run_bench(ioc, cl, sv, "yamux");
     }
 
     TEST(MuxPerf, H2muxThroughputLatency)
     {
         net::io_context ioc;
-        h2mux::client cl({});
-        h2mux::server sv({});
+        h2mux::client cl;
+        h2mux::server sv;
         run_bench(ioc, cl, sv, "h2mux");
     }
 
