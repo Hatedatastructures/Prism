@@ -66,7 +66,8 @@ namespace psmtest::tuic
          * @param target 目标地址
          * @return 错误码
          */
-        [[nodiscard]] auto write_handshake(const address &target) -> net::awaitable<error>
+        [[nodiscard]] auto write_handshake(const address &target)
+        -> net::awaitable<error>
         {
             message msg;
             msg.cmd = cmd_connect;
@@ -83,7 +84,8 @@ namespace psmtest::tuic
          * @brief 服务端握手：读 connect 帧
          * @return 错误码与解析的消息
          */
-        [[nodiscard]] auto read_handshake() -> net::awaitable<std::pair<error, message>>
+        [[nodiscard]] auto read_handshake()
+        -> net::awaitable<std::pair<error, message>>
         {
             message msg;
             auto err = co_await read_frame(msg);
@@ -111,7 +113,7 @@ namespace psmtest::tuic
          */
         [[nodiscard]] auto async_send_datagram(const address &target,
                                                std::span<const std::uint8_t> payload)
-            -> net::awaitable<error>
+        -> net::awaitable<error>
         {
             if (!handshaken_)
                 co_return error::not_open;
@@ -133,7 +135,7 @@ namespace psmtest::tuic
          */
         [[nodiscard]] auto async_receive_datagram(address &target,
                                                   std::vector<std::uint8_t> &payload)
-            -> net::awaitable<error>
+        -> net::awaitable<error>
         {
             if (!handshaken_)
                 co_return error::not_open;
@@ -150,7 +152,7 @@ namespace psmtest::tuic
 
         /// @brief 透传读取（握手后数据面为裸流）
         [[nodiscard]] auto async_read_some(std::span<std::byte> buffer, std::error_code &ec)
-            -> net::awaitable<std::size_t> override
+        -> net::awaitable<std::size_t> override
         {
             if (!handshaken_)
             {
@@ -163,7 +165,7 @@ namespace psmtest::tuic
         /// @brief 透传写入（握手后数据面为裸流）
         [[nodiscard]] auto async_write_some(std::span<const std::byte> buffer,
                                             std::error_code &ec)
-            -> net::awaitable<std::size_t> override
+        -> net::awaitable<std::size_t> override
         {
             if (!handshaken_)
             {
@@ -211,7 +213,8 @@ namespace psmtest::tuic
          * @details 帧无长度字段：精确分段读取头部，剩余一次读为
          * 载荷（packet 命令）。
          */
-        [[nodiscard]] auto read_frame(message &msg) -> net::awaitable<error>
+        [[nodiscard]] auto read_frame(message &msg)
+        -> net::awaitable<error>
         {
             std::array<std::uint8_t, 2> head{};
             if (co_await read_exact(std::span<std::uint8_t>(head)))
@@ -267,7 +270,8 @@ namespace psmtest::tuic
          * @param dst 目标缓冲区
          * @return true = 失败（EOF / 底层错误）
          */
-        [[nodiscard]] auto read_exact(std::span<std::uint8_t> dst) -> net::awaitable<bool>
+        [[nodiscard]] auto read_exact(std::span<std::uint8_t> dst)
+        -> net::awaitable<bool>
         {
             std::size_t done = 0;
             while (done < dst.size())
@@ -287,7 +291,7 @@ namespace psmtest::tuic
          * @return true = 失败
          */
         [[nodiscard]] auto send_bytes(std::span<const std::uint8_t> data) const
-            -> net::awaitable<bool>
+        -> net::awaitable<bool>
         {
             std::size_t done = 0;
             while (done < data.size())
@@ -306,7 +310,8 @@ namespace psmtest::tuic
          * @param addr 输出地址
          * @return 错误码
          */
-        [[nodiscard]] auto read_address_body(address &addr) -> net::awaitable<error>
+        [[nodiscard]] auto read_address_body(address &addr)
+        -> net::awaitable<error>
         {
             switch (addr.type)
             {

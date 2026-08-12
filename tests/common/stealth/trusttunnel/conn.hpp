@@ -66,7 +66,7 @@ namespace psmtest::trusttunnel
          * @return 错误码
          */
         [[nodiscard]] auto write_handshake(std::string_view target, std::uint16_t port)
-            -> net::awaitable<error>
+        -> net::awaitable<error>
         {
             const auto auth = basic_auth(user_, pass_);
             std::string header;
@@ -74,8 +74,7 @@ namespace psmtest::trusttunnel
             header += "CONNECT " + std::string(target) + ":" + std::to_string(port) + " HTTP/2\r\n";
             header += "Proxy-Authorization: " + auth + "\r\n";
             header += "\r\n";
-            if (co_await send_bytes(std::span<const std::uint8_t>(
-                    reinterpret_cast<const std::uint8_t *>(header.data()), header.size())))
+            if (co_await send_bytes(as_u8_span(header)))
                 co_return error::io_error;
             target_ = std::string(target);
             handshaken_ = true;
@@ -87,7 +86,8 @@ namespace psmtest::trusttunnel
          * @param target 输出目标主机
          * @return 错误码；bad_auth = 认证失败
          */
-        [[nodiscard]] auto read_handshake(std::string &target) -> net::awaitable<error>
+        [[nodiscard]] auto read_handshake(std::string &target)
+        -> net::awaitable<error>
         {
             // 读取头块（简化：读到空行）
             std::array<std::uint8_t, 256> chunk{};
@@ -139,7 +139,7 @@ namespace psmtest::trusttunnel
 
         /// @brief 透传读取（数据面原样）
         [[nodiscard]] auto async_read_some(std::span<std::byte> buffer, std::error_code &ec)
-            -> net::awaitable<std::size_t> override
+        -> net::awaitable<std::size_t> override
         {
             if (!handshaken_)
             {
@@ -152,7 +152,7 @@ namespace psmtest::trusttunnel
         /// @brief 透传写入（数据面原样）
         [[nodiscard]] auto async_write_some(std::span<const std::byte> buffer,
                                             std::error_code &ec)
-            -> net::awaitable<std::size_t> override
+        -> net::awaitable<std::size_t> override
         {
             if (!handshaken_)
             {
@@ -199,7 +199,7 @@ namespace psmtest::trusttunnel
          * @return true = 失败
          */
         [[nodiscard]] auto send_bytes(std::span<const std::uint8_t> data) const
-            -> net::awaitable<bool>
+        -> net::awaitable<bool>
         {
             std::size_t done = 0;
             while (done < data.size())

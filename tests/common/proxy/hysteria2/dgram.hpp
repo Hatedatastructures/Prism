@@ -75,9 +75,9 @@ namespace psmtest::hysteria2
          */
         [[nodiscard]] auto async_send_to(const address &dest,
                                          std::span<const std::uint8_t> payload)
-            -> net::awaitable<error>
+        -> net::awaitable<error>
         {
-            const auto wire = build_udp(session_id_, ++packet_id_, dest, payload);
+            const auto wire = build_udp(udp_frame_input{session_id_, ++packet_id_, &dest, payload});
             std::size_t done = 0;
             while (done < wire.size())
             {
@@ -98,7 +98,7 @@ namespace psmtest::hysteria2
          * @return 错误码
          */
         [[nodiscard]] auto async_receive_from(address &src, std::vector<std::uint8_t> &payload)
-            -> net::awaitable<error>
+        -> net::awaitable<error>
         {
             // 1. Kind + SessionID(4) + PacketID(4)
             std::array<std::uint8_t, 9> head{};
@@ -132,7 +132,7 @@ namespace psmtest::hysteria2
 
         /// @brief 透传读取（底层数据报原样）
         [[nodiscard]] auto async_read_some(std::span<std::byte> buffer, std::error_code &ec)
-            -> net::awaitable<std::size_t> override
+        -> net::awaitable<std::size_t> override
         {
             co_return co_await next_layer_->async_read_some(buffer, ec);
         }
@@ -140,7 +140,7 @@ namespace psmtest::hysteria2
         /// @brief 透传写入（底层数据报原样）
         [[nodiscard]] auto async_write_some(std::span<const std::byte> buffer,
                                             std::error_code &ec)
-            -> net::awaitable<std::size_t> override
+        -> net::awaitable<std::size_t> override
         {
             co_return co_await next_layer_->async_write_some(buffer, ec);
         }
@@ -187,7 +187,8 @@ namespace psmtest::hysteria2
          * @param dst 目标缓冲区
          * @return true = 失败（EOF / 底层错误）
          */
-        [[nodiscard]] auto read_exact(std::span<std::uint8_t> dst) -> net::awaitable<bool>
+        [[nodiscard]] auto read_exact(std::span<std::uint8_t> dst)
+        -> net::awaitable<bool>
         {
             std::size_t done = 0;
             while (done < dst.size())
@@ -206,7 +207,8 @@ namespace psmtest::hysteria2
          * @param addr 输出地址
          * @return 错误码
          */
-        [[nodiscard]] auto read_address_body(address &addr) -> net::awaitable<error>
+        [[nodiscard]] auto read_address_body(address &addr)
+        -> net::awaitable<error>
         {
             switch (addr.type)
             {

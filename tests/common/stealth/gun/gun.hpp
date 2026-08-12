@@ -33,7 +33,7 @@ namespace psmtest::gun
      * @return 错误码与协议连接（失败时连接为空）
      */
     [[nodiscard]] inline auto connect(shared_transmission upstream, std::string_view host)
-        -> net::awaitable<std::pair<error, shared_conn>>
+    -> net::awaitable<std::pair<error, shared_conn>>
     {
         auto c = std::make_shared<conn>(std::move(upstream));
         const auto err = co_await c->write_handshake(host);
@@ -47,7 +47,7 @@ namespace psmtest::gun
      * @return 错误码、解析的目标与协议连接（失败时连接为空）
      */
     [[nodiscard]] inline auto accept(shared_transmission upstream)
-        -> net::awaitable<std::tuple<error, std::string, shared_conn>>
+    -> net::awaitable<std::tuple<error, std::string, shared_conn>>
     {
         auto c = std::make_shared<conn>(std::move(upstream));
         std::string host;

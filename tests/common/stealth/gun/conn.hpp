@@ -59,11 +59,11 @@ namespace psmtest::gun
          * @param host 目标主机
          * @return 错误码
          */
-        [[nodiscard]] auto write_handshake(std::string_view host) -> net::awaitable<error>
+        [[nodiscard]] auto write_handshake(std::string_view host)
+        -> net::awaitable<error>
         {
             const std::string header = "CONNECT " + std::string(host) + " HTTP/2\r\n\r\n";
-            if (co_await send_bytes(std::span<const std::uint8_t>(
-                    reinterpret_cast<const std::uint8_t *>(header.data()), header.size())))
+            if (co_await send_bytes(as_u8_span(header)))
                 co_return error::io_error;
             handshaken_ = true;
             co_return error::none;
@@ -74,7 +74,8 @@ namespace psmtest::gun
          * @param host 输出目标主机
          * @return 错误码；bad_magic = 非 CONNECT 帧
          */
-        [[nodiscard]] auto read_handshake(std::string &host) -> net::awaitable<error>
+        [[nodiscard]] auto read_handshake(std::string &host)
+        -> net::awaitable<error>
         {
             std::array<std::uint8_t, 256> chunk{};
             std::string header;
@@ -99,7 +100,7 @@ namespace psmtest::gun
 
         /// @brief 透传读取（数据面原样）
         [[nodiscard]] auto async_read_some(std::span<std::byte> buffer, std::error_code &ec)
-            -> net::awaitable<std::size_t> override
+        -> net::awaitable<std::size_t> override
         {
             if (!handshaken_)
             {
@@ -112,7 +113,7 @@ namespace psmtest::gun
         /// @brief 透传写入（数据面原样）
         [[nodiscard]] auto async_write_some(std::span<const std::byte> buffer,
                                             std::error_code &ec)
-            -> net::awaitable<std::size_t> override
+        -> net::awaitable<std::size_t> override
         {
             if (!handshaken_)
             {
@@ -159,7 +160,7 @@ namespace psmtest::gun
          * @return true = 失败
          */
         [[nodiscard]] auto send_bytes(std::span<const std::uint8_t> data) const
-            -> net::awaitable<bool>
+        -> net::awaitable<bool>
         {
             std::size_t done = 0;
             while (done < data.size())

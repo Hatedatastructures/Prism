@@ -71,7 +71,7 @@ namespace psmtest::vmess
     [[nodiscard]] inline auto connect(shared_transmission upstream, const client_config &cfg,
                                       const address &target,
                                       command cmd = command::tcp)
-        -> net::awaitable<std::pair<error, shared_conn>>
+    -> net::awaitable<std::pair<error, shared_conn>>
     {
         auto c = std::make_shared<conn>(cfg.uuid);
         const auto err = co_await c->write_handshake(std::move(upstream), target, cmd);
@@ -88,7 +88,7 @@ namespace psmtest::vmess
      */
     [[nodiscard]] inline auto connect_packet(shared_transmission upstream,
                                              const client_config &cfg, const address &target)
-        -> net::awaitable<std::pair<error, shared_dgram>>
+    -> net::awaitable<std::pair<error, shared_dgram>>
     {
         auto [err, conn] = co_await connect(std::move(upstream), cfg, target, command::udp);
         if (err != error::none)
@@ -103,7 +103,7 @@ namespace psmtest::vmess
      * @return 错误码、解析的请求与协议连接（失败时连接为空）
      */
     [[nodiscard]] inline auto accept(shared_transmission upstream, const server_config &cfg)
-        -> net::awaitable<std::tuple<error, message, shared_conn>>
+    -> net::awaitable<std::tuple<error, message, shared_conn>>
     {
         auto c = std::make_shared<conn>(cfg.uuid);
         auto [err, req] = co_await c->read_handshake(std::move(upstream));
@@ -118,7 +118,7 @@ namespace psmtest::vmess
      * @return 错误码、解析的请求与包连接（失败时连接为空）
      */
     [[nodiscard]] inline auto accept_packet(shared_transmission upstream, const server_config &cfg)
-        -> net::awaitable<std::tuple<error, message, shared_dgram>>
+    -> net::awaitable<std::tuple<error, message, shared_dgram>>
     {
         auto [err, req, conn] = co_await accept(std::move(upstream), cfg);
         if (err != error::none)

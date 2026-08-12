@@ -68,7 +68,7 @@ namespace psmtest::vless
          * @return 实际读取字节数
          */
         [[nodiscard]] auto async_read_some(std::span<std::byte> buffer, std::error_code &ec)
-            -> net::awaitable<std::size_t> override
+        -> net::awaitable<std::size_t> override
         {
             ec.clear();
             if (used_ > 0)
@@ -91,7 +91,7 @@ namespace psmtest::vless
 
         /// @brief 异步写入（透传）
         [[nodiscard]] auto async_write_some(std::span<const std::byte> buffer, std::error_code &ec)
-            -> net::awaitable<std::size_t> override
+        -> net::awaitable<std::size_t> override
         {
             co_return co_await next_layer_->async_write_some(buffer, ec);
         }
@@ -137,7 +137,8 @@ namespace psmtest::vless
          * 读取 2 字节响应校验 Version 回显（对齐 Xray）。
          */
         [[nodiscard]] auto write_handshake(const address &target,
-                                           command cmd = command::tcp) -> net::awaitable<error>
+                                           command cmd = command::tcp)
+        -> net::awaitable<error>
         {
             request_header hdr;
             hdr.version = protocol_version;
@@ -168,7 +169,7 @@ namespace psmtest::vless
          */
         [[nodiscard]] auto read_handshake(bool enable_tcp = true, bool enable_udp = true,
                                           bool enable_mux = true)
-            -> net::awaitable<std::pair<error, request_header>>
+        -> net::awaitable<std::pair<error, request_header>>
         {
             // 1. 固定前缀：Version(1) + UUID(16) + AddnlLen(1)
             std::array<std::uint8_t, 18> prefix{};
@@ -232,7 +233,8 @@ namespace psmtest::vless
          * @param dst 目标缓冲区
          * @return true = 失败（EOF / 底层错误）
          */
-        [[nodiscard]] auto read_exact(std::span<std::uint8_t> dst) -> net::awaitable<bool>
+        [[nodiscard]] auto read_exact(std::span<std::uint8_t> dst)
+        -> net::awaitable<bool>
         {
             return read_exact_impl(dst);
         }
@@ -243,7 +245,8 @@ namespace psmtest::vless
          * @param addr 输出地址
          * @return 错误码
          */
-        [[nodiscard]] auto read_address_body(address &addr) -> net::awaitable<error>
+        [[nodiscard]] auto read_address_body(address &addr)
+        -> net::awaitable<error>
         {
             switch (addr.type)
             {
@@ -287,7 +290,8 @@ namespace psmtest::vless
          * @param dst 目标缓冲区
          * @return true = 失败（EOF / 底层错误）
          */
-        [[nodiscard]] auto read_exact_impl(std::span<std::uint8_t> dst) -> net::awaitable<bool>
+        [[nodiscard]] auto read_exact_impl(std::span<std::uint8_t> dst)
+        -> net::awaitable<bool>
         {
             std::size_t done = 0;
             while (done < dst.size())
@@ -328,7 +332,7 @@ namespace psmtest::vless
          * @return true = 失败
          */
         [[nodiscard]] auto send_bytes(std::span<const std::uint8_t> data) const
-            -> net::awaitable<bool>
+        -> net::awaitable<bool>
         {
             std::size_t done = 0;
             while (done < data.size())

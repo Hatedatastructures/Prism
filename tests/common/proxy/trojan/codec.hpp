@@ -10,6 +10,7 @@
 
 #pragma once
 
+#include <common/core/byte_span.hpp>
 #include <common/core/error.hpp>
 #include <common/proxy/trojan/types.hpp>
 
@@ -35,7 +36,7 @@ namespace psmtest::trojan
 
         /// SHA-224 摘要
         [[nodiscard]] inline auto sha224(std::span<const std::uint8_t> data)
-            -> std::array<std::uint8_t, 28>
+        -> std::array<std::uint8_t, 28>
         {
             std::array<std::uint8_t, 28> out{};
             unsigned int len = 0;
@@ -49,10 +50,9 @@ namespace psmtest::trojan
     /// @param password 密码
     /// @return 56 字符 hex 凭据
     [[nodiscard]] inline auto credential(std::string_view password) 
-        -> std::string
+    -> std::string
     {
-        const auto ref = std::span<const std::uint8_t>(reinterpret_cast<const std::uint8_t *>(password.data()),password.size());
-        const auto hash = detail::sha224(std::move(ref));
+        const auto hash = detail::sha224(as_u8_span(password));
         std::string out;
         out.reserve(credential_len);
         static constexpr char hex[] = "0123456789abcdef";
@@ -65,7 +65,8 @@ namespace psmtest::trojan
     }
 
     /// @brief 编码地址为字节（ATYP + ADDR + PORT 2B BE）
-    [[nodiscard]] inline auto encode_address(const address &addr) -> std::vector<std::uint8_t>
+    [[nodiscard]] inline auto encode_address(const address &addr)
+    -> std::vector<std::uint8_t>
     {
         std::vector<std::uint8_t> out;
         out.push_back(static_cast<std::uint8_t>(addr.type));
@@ -170,7 +171,7 @@ namespace psmtest::trojan
     /// （对齐主库 framing::build_udp_pkt）。
     [[nodiscard]] inline auto build_udp_pkt(const address &target,
                                             std::span<const std::uint8_t> payload)
-        -> std::vector<std::uint8_t>
+    -> std::vector<std::uint8_t>
     {
         std::vector<std::uint8_t> out;
         const auto addr = encode_address(target);
@@ -216,7 +217,8 @@ namespace psmtest::trojan
     /// @param target 目标地址
     /// @return 请求头字节
     [[nodiscard]] inline auto build_request(std::string_view cred, command cmd,
-                                            const address &target) -> std::vector<std::uint8_t>
+                                            const address &target)
+    -> std::vector<std::uint8_t>
     {
         std::vector<std::uint8_t> out;
         out.reserve(credential_len + 2 + 1 + target.host.size() + 2 + 2);

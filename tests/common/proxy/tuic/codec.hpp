@@ -29,7 +29,8 @@ namespace psmtest::tuic
 {
 
     /// @brief 编码地址（ATYP + ADDR + PORT 2B BE）
-    [[nodiscard]] inline auto encode_address(const address &addr) -> std::vector<std::uint8_t>
+    [[nodiscard]] inline auto encode_address(const address &addr)
+    -> std::vector<std::uint8_t>
     {
         std::vector<std::uint8_t> out;
         out.push_back(static_cast<std::uint8_t>(addr.type));
@@ -127,7 +128,8 @@ namespace psmtest::tuic
     /// @brief 构造消息帧
     /// @param msg 消息
     /// @return wire 字节
-    [[nodiscard]] inline auto build(const message &msg) -> std::vector<std::uint8_t>
+    [[nodiscard]] inline auto build(const message &msg)
+    -> std::vector<std::uint8_t>
     {
         std::vector<std::uint8_t> out;
         out.push_back(protocol_version);

@@ -34,7 +34,8 @@ namespace psmtest::ws
      * @return 28 字节 base64 结果；失败返回空
      * @details base64(SHA1(key + "258EAFA5-E914-47DA-95CA-C5AB0DC85B11"))。
      */
-    [[nodiscard]] inline auto compute_accept(std::string_view key) -> std::string
+    [[nodiscard]] inline auto compute_accept(std::string_view key)
+    -> std::string
     {
         std::string combined(key);
         combined.append(ws_guid);
@@ -126,19 +127,24 @@ namespace psmtest::ws
             data[i] = static_cast<std::byte>(static_cast<std::uint8_t>(data[i]) ^ mask[i % 4]);
     }
 
+    /// 帧编码输入（op + fin + payload）
+    struct frame_input
+    {
+        opcode op{opcode::binary};         ///< 帧类型
+        bool fin{true};                    ///< 是否 FIN
+        std::span<const std::byte> payload; ///< 载荷
+    };
+
     /**
      * @brief 编码服务端帧（不掩码）
-     * @param op 帧类型
-     * @param fin 是否 FIN
-     * @param payload 载荷
+     * @param in 帧输入
      * @param out 输出缓冲区
      * @return 写入字节数，0 = 缓冲区不足
      */
-    [[nodiscard]] inline auto encode_frame(opcode op, bool fin,
-                                           std::span<const std::byte> payload,
+    [[nodiscard]] inline auto encode_frame(const frame_input &in,
                                            std::span<std::byte> out) -> std::size_t
     {
-        const auto len = payload.size();
+        const auto len = in.payload.size();
         std::size_t header_len = 2;
         if (len >= 126 && len <= 0xFFFF)
             header_len += 2;
@@ -147,8 +153,8 @@ namespace psmtest::ws
         if (out.size() < header_len + len)
             return 0;
 
-        const auto b0 = static_cast<std::uint8_t>(static_cast<std::uint8_t>(op)) |
-                        (fin ? 0x80 : 0x00);
+        const auto b0 = static_cast<std::uint8_t>(static_cast<std::uint8_t>(in.op)) |
+                        (in.fin ? 0x80 : 0x00);
         out[0] = static_cast<std::byte>(b0);
         std::size_t offset = 2;
         if (len < 126)
@@ -167,7 +173,7 @@ namespace psmtest::ws
             for (int i = 7; i >= 0; --i)
                 out[offset++] = static_cast<std::byte>((len >> (8 * i)) & 0xFF);
         }
-        std::memcpy(out.data() + offset, payload.data(), len);
+        std::memcpy(out.data() + offset, in.payload.data(), len);
         return header_len + len;
     }
 

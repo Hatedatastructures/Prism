@@ -35,7 +35,8 @@ namespace psmtest::vless
      * @param addr 目标地址
      * @return 字节序列
      */
-    [[nodiscard]] inline auto encode_address(const address &addr) -> std::vector<std::uint8_t>
+    [[nodiscard]] inline auto encode_address(const address &addr)
+    -> std::vector<std::uint8_t>
     {
         std::vector<std::uint8_t> out;
         out.push_back(static_cast<std::uint8_t>(addr.type));
@@ -140,7 +141,8 @@ namespace psmtest::vless
      * @details 格式 [Version 1B][UUID 16B][AddnlLen 1B][Addnl var][Cmd 1B]
      * [Port 2B BE][Atyp 1B][Addr var]（Port 在 ATYP 之前，与 UDP 帧相反）。
      */
-    [[nodiscard]] inline auto build_request(const request_header &hdr) -> std::vector<std::uint8_t>
+    [[nodiscard]] inline auto build_request(const request_header &hdr)
+    -> std::vector<std::uint8_t>
     {
         std::vector<std::uint8_t> out;
         out.reserve(22 + hdr.addons.size() + hdr.target.host.size());
@@ -264,7 +266,7 @@ namespace psmtest::vless
      */
     [[nodiscard]] inline auto build_udp_pkt(const address &target,
                                             std::span<const std::uint8_t> payload)
-        -> std::vector<std::uint8_t>
+    -> std::vector<std::uint8_t>
     {
         std::vector<std::uint8_t> out;
         out.reserve(1 + target.host.size() + 2 + payload.size());
@@ -297,7 +299,8 @@ namespace psmtest::vless
      * @brief 构造响应字节（固定 2 字节）
      * @return [Version 0x00][Addons Length 0x00]
      */
-    [[nodiscard]] inline constexpr auto make_response() -> std::array<std::uint8_t, 2>
+    [[nodiscard]] inline constexpr auto make_response()
+    -> std::array<std::uint8_t, 2>
     {
         return {protocol_version, 0x00};
     }

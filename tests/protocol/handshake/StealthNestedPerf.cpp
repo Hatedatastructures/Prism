@@ -320,7 +320,9 @@ namespace
             reality::client_config cfg;
             cfg.private_key = cli_priv;
             cfg.short_id.fill(0x42);
-            auto [err, c] = co_await reality::connect(std::move(up), cfg, srv_pub, random, hello);
+            auto [err, c] = co_await reality::connect(
+                std::move(up), cfg, srv_pub,
+                reality::handshake_params{random, hello, cfg.short_id});
             co_return std::pair{err, err == error::none ? shared_transmission(std::move(c))
                                                         : shared_transmission{}};
         }
@@ -329,8 +331,8 @@ namespace
             reality::server_config cfg;
             cfg.private_key = srv_priv;
             cfg.short_id.fill(0x42);
-            auto [err, got_sid, c] = co_await reality::accept(std::move(up), cfg, cli_pub,
-                                                              random, hello);
+            auto [err, got_sid, c] = co_await reality::accept(
+                std::move(up), cfg, cli_pub, reality::handshake_params{random, hello});
             (void)got_sid;
             co_return std::pair{err, err == error::none ? shared_transmission(std::move(c))
                                                         : shared_transmission{}};

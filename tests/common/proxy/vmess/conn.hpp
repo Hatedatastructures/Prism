@@ -88,7 +88,7 @@ namespace psmtest::vmess
          * @warning 未握手或已结束时返回 0 并置 ec
          */
         [[nodiscard]] auto async_read_some(std::span<std::byte> buffer, std::error_code &ec)
-            -> net::awaitable<std::size_t> override
+        -> net::awaitable<std::size_t> override
         {
             if (!handshaken_)
             {
@@ -130,7 +130,7 @@ namespace psmtest::vmess
          * @warning 未握手时返回 0 并置 ec
          */
         [[nodiscard]] auto async_write_some(std::span<const std::byte> buffer, std::error_code &ec)
-            -> net::awaitable<std::size_t> override
+        -> net::awaitable<std::size_t> override
         {
             if (!handshaken_)
             {
@@ -222,7 +222,8 @@ namespace psmtest::vmess
          * @warning 调用前必须确保 next_layer_ 已建立连接
          */
         [[nodiscard]] auto write_handshake(shared_transmission upstream, const address &target,
-                                      command cmd = command::tcp) -> net::awaitable<error>
+                                      command cmd = command::tcp)
+        -> net::awaitable<error>
         {
             next_layer_ = std::move(upstream);
             // 1. 生成随机参数
@@ -250,9 +251,9 @@ namespace psmtest::vmess
             hdr.opt = 0x01; // chunk_stream 分块传输
             hdr.sec = security::aes_128_gcm;
             hdr.target = target;
-            const auto plain = build_request_header(hdr, iv, key, v, p);
+            const auto plain = build_request_header(hdr, request_meta{iv, key, v, p});
             const auto cmd_key = cmd_key_from_uuid(uuid_);
-            const auto sealed = seal_auth_header(cmd_key, plain, time_sec, random4);
+            const auto sealed = seal_auth_header(cmd_key, auth_header_input{plain, time_sec, random4});
             const auto auth_id = create_auth_id(time_sec, random4);
             if (co_await send_bytes(sealed))
                 co_return error::io_error;
@@ -275,7 +276,7 @@ namespace psmtest::vmess
             std::memcpy(rlk.data(), resp_len_key.data(), 16);
             std::array<std::uint8_t, 12> rliv{};
             std::memcpy(rliv.data(), resp_len_iv.data(), 12);
-            const auto len_plain = detail::aes_gcm_open(rlk, rliv, len_enc, auth_id);
+            const auto len_plain = detail::aes_gcm_open(detail::open_input{rlk, rliv, len_enc, auth_id});
             if (len_plain.size() != 2)
                 co_return error::bad_auth;
             const auto resp_len = static_cast<std::size_t>(len_plain[0]) << 8 | len_plain[1];
@@ -291,7 +292,7 @@ namespace psmtest::vmess
             std::array<std::uint8_t, 12> riv{};
             std::memcpy(riv.data(), resp_iv.data(), 12);
             response_header rh;
-            if (open_response_header(rk, riv, resp_enc, auth_id, rh) != error::none)
+            if (open_response_header(rk, resp_header_parse_input{riv, resp_enc, auth_id}, rh) != error::none)
                 co_return error::bad_auth;
             if (rh.version != v)
                 co_return error::bad_auth;
@@ -319,7 +320,7 @@ namespace psmtest::vmess
          * 模式与流式模式互斥，同一会话不可混用
          */
         [[nodiscard]] auto async_send_datagram(std::span<const std::uint8_t> payload)
-            -> net::awaitable<error>
+        -> net::awaitable<error>
         {
             if (!handshaken_)
                 co_return error::not_open;
@@ -341,7 +342,7 @@ namespace psmtest::vmess
          * 模式与流式模式互斥，同一会话不可混用
          */
         [[nodiscard]] auto async_receive_datagram(std::vector<std::uint8_t> &payload)
-            -> net::awaitable<error>
+        -> net::awaitable<error>
         {
             if (!handshaken_)
                 co_return error::not_open;
@@ -366,7 +367,7 @@ namespace psmtest::vmess
          * 派生分块密钥。认证失败不发送响应，静默断开。
          */
         [[nodiscard]] auto read_handshake(shared_transmission upstream)
-            -> net::awaitable<std::pair<error, message>>
+        -> net::awaitable<std::pair<error, message>>
         {
             next_layer_ = std::move(upstream);
             message out;
@@ -415,7 +416,8 @@ namespace psmtest::vmess
          * 剩余密文 → 组装解析（cmdKey 解密失败即 UUID 不匹配）→
          * 显式 UUID 校验。
          */
-        [[nodiscard]] auto read_request(message &out) -> net::awaitable<error>
+        [[nodiscard]] auto read_request(message &out)
+        -> net::awaitable<error>
         {
             // 1. 读取认证头前缀（16 AuthID + 18 LenEnc + 8 Nonce = 42 字节）
             std::array<std::uint8_t, 42> prefix{};
@@ -433,8 +435,8 @@ namespace psmtest::vmess
             std::memcpy(lk.data(), len_key.data(), 16);
             std::array<std::uint8_t, 12> liv{};
             std::memcpy(liv.data(), len_iv.data(), 12);
-            const auto len_plain = detail::aes_gcm_open(
-                lk, liv, std::span<const std::uint8_t>(prefix).subspan(16, 18), auth_id);
+            const auto len_plain = detail::aes_gcm_open(detail::open_input{
+                lk, liv, std::span<const std::uint8_t>(prefix).subspan(16, 18), auth_id});
             if (len_plain.size() != 2)
                 co_return error::bad_auth;
             const auto length = static_cast<std::size_t>(len_plain[0]) << 8 | len_plain[1];
@@ -485,7 +487,7 @@ namespace psmtest::vmess
             std::memcpy(rk.data(), resp_key.data(), 16);
             std::array<std::uint8_t, 12> riv{};
             std::memcpy(riv.data(), resp_iv.data(), 12);
-            const auto resp_enc = seal_response_header(rk, riv, v_plain, auth_id_);
+            const auto resp_enc = seal_response_header(rk, resp_header_input{riv, v_plain, auth_id_});
 
             const auto resp_len_key = kdf(resp_key16, kdf_resp_len_key);
             const auto resp_len_iv = kdf(resp_iv16, kdf_resp_len_iv);
@@ -496,7 +498,7 @@ namespace psmtest::vmess
             const std::array<std::uint8_t, 2> resp_len_plain{
                 static_cast<std::uint8_t>(resp_enc.size() >> 8),
                 static_cast<std::uint8_t>(resp_enc.size() & 0xFF)};
-            const auto len_enc = detail::aes_gcm_seal(rlk, rliv, resp_len_plain, auth_id_);
+            const auto len_enc = detail::aes_gcm_seal(detail::seal_input{rlk, rliv, resp_len_plain, auth_id_});
 
             std::vector<std::uint8_t> resp;
             resp.reserve(len_enc.size() + resp_enc.size());
@@ -511,7 +513,8 @@ namespace psmtest::vmess
          * @details 块格式：[2B 长度密文 + 16B tag][载荷密文 + 16B tag]。
          * 解密失败（tag 校验）返回 bad_auth。
          */
-        [[nodiscard]] auto read_chunk() -> net::awaitable<error>
+        [[nodiscard]] auto read_chunk()
+        -> net::awaitable<error>
         {
             // 1. 读取 18 字节块头（长度密文 + 16 tag）
             std::array<std::uint8_t, 18> head{};
@@ -548,7 +551,8 @@ namespace psmtest::vmess
          * @param buf 目标缓冲区
          * @return true = 失败（EOF / 底层错误）
          */
-        [[nodiscard]] auto recv_exact(std::span<std::uint8_t> buf) -> net::awaitable<bool>
+        [[nodiscard]] auto recv_exact(std::span<std::uint8_t> buf)
+        -> net::awaitable<bool>
         {
             std::size_t done = 0;
             while (done < buf.size())
@@ -568,7 +572,7 @@ namespace psmtest::vmess
          * @return true = 失败
          */
         [[nodiscard]] auto send_bytes(std::span<const std::uint8_t> data) const
-            -> net::awaitable<bool>
+        -> net::awaitable<bool>
         {
             std::size_t done = 0;
             while (done < data.size())

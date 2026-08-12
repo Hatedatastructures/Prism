@@ -21,8 +21,9 @@ try {
             Write-Error "Prism exited early with code $($prism.ExitCode)"
             exit 1
         }
-        $listening = netstat -ano | Select-String "LISTENING" | Select-String ($prism.Id.ToString())
-        if ($listening) {
+        # 等待 QUIC gateway UDP 8081 就绪（netstat UDP 行无 LISTENING 标记，按进程 PID 匹配 UDP 行）
+        $udp = netstat -ano | Select-String "UDP" | Select-String "8081" | Select-String ($prism.Id.ToString())
+        if ($udp) {
             $ready = $true
             break
         }

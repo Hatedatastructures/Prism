@@ -59,7 +59,7 @@ namespace
         for (std::size_t i = 0; i < shadowtls::tls_session_id_sz - shadowtls::hmac_size; ++i)
             session_id[i] = static_cast<std::uint8_t>(i * 7 + 3);
         const auto handshake = std::span<const std::uint8_t>(hello).subspan(shadowtls::tls_hdrsize);
-        EXPECT_EQ(shadowtls::generate_session_id(password, handshake, session_id), error::none);
+        EXPECT_EQ(shadowtls::generate_session_id(shadowtls::session_id_input{password, handshake, session_id}), error::none);
         std::memcpy(hello.data() + 5 + shadowtls::session_id_start, session_id.data(),
                     shadowtls::tls_session_id_sz);
 
@@ -133,11 +133,12 @@ namespace
         // 帧编解码往返
         const std::string payload = "hello websocket";
         std::array<std::byte, 128> out{};
-        const auto n = ws::encode_frame(ws::opcode::binary, true,
-                                        std::span<const std::byte>(
-                                            reinterpret_cast<const std::byte *>(payload.data()),
-                                            payload.size()),
-                                        out);
+        const auto n = ws::encode_frame(
+            ws::frame_input{ws::opcode::binary, true,
+                            std::span<const std::byte>(
+                                reinterpret_cast<const std::byte *>(payload.data()),
+                                payload.size())},
+            out);
         EXPECT_GT(n, 0u);
 
         ws::frame_header hdr{};

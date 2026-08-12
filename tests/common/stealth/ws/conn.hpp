@@ -64,7 +64,7 @@ namespace psmtest::ws
          * @return 错误码；bad_auth = Accept 不匹配
          */
         [[nodiscard]] auto write_handshake(std::string_view key, std::string_view host)
-            -> net::awaitable<error>
+        -> net::awaitable<error>
         {
             std::string header;
             header.reserve(128 + host.size() + key.size());
@@ -75,8 +75,7 @@ namespace psmtest::ws
             header += "Sec-WebSocket-Key: " + std::string(key) + "\r\n";
             header += "Sec-WebSocket-Version: 13\r\n";
             header += "\r\n";
-            if (co_await send_bytes(std::span<const std::uint8_t>(
-                    reinterpret_cast<const std::uint8_t *>(header.data()), header.size())))
+            if (co_await send_bytes(as_u8_span(header)))
                 co_return error::io_error;
 
             // 等待 101 响应并校验 Accept
@@ -108,7 +107,8 @@ namespace psmtest::ws
          * @param key 输出客户端 Sec-WebSocket-Key
          * @return 错误码；bad_magic = 非 Upgrade 请求
          */
-        [[nodiscard]] auto read_handshake(std::string &key) -> net::awaitable<error>
+        [[nodiscard]] auto read_handshake(std::string &key)
+        -> net::awaitable<error>
         {
             std::array<std::uint8_t, 256> chunk{};
             std::string header;
@@ -139,8 +139,7 @@ namespace psmtest::ws
             resp += "Connection: Upgrade\r\n";
             resp += "Sec-WebSocket-Accept: " + accept + "\r\n";
             resp += "\r\n";
-            if (co_await send_bytes(std::span<const std::uint8_t>(
-                    reinterpret_cast<const std::uint8_t *>(resp.data()), resp.size())))
+            if (co_await send_bytes(as_u8_span(resp)))
                 co_return error::io_error;
             accept_ = accept;
             handshaken_ = true;
@@ -152,7 +151,7 @@ namespace psmtest::ws
          * @details 简化：直接透传底层数据（帧编解码由上层负责）。
          */
         [[nodiscard]] auto async_read_some(std::span<std::byte> buffer, std::error_code &ec)
-            -> net::awaitable<std::size_t> override
+        -> net::awaitable<std::size_t> override
         {
             if (!handshaken_)
             {
@@ -165,7 +164,7 @@ namespace psmtest::ws
         /// @brief 透传写入
         [[nodiscard]] auto async_write_some(std::span<const std::byte> buffer,
                                             std::error_code &ec)
-            -> net::awaitable<std::size_t> override
+        -> net::awaitable<std::size_t> override
         {
             if (!handshaken_)
             {
@@ -218,7 +217,7 @@ namespace psmtest::ws
          * @return true = 失败
          */
         [[nodiscard]] auto send_bytes(std::span<const std::uint8_t> data) const
-            -> net::awaitable<bool>
+        -> net::awaitable<bool>
         {
             std::size_t done = 0;
             while (done < data.size())

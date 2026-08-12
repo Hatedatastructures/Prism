@@ -13,6 +13,7 @@
 
 #pragma once
 
+#include <common/core/byte_span.hpp>
 #include <common/core/error.hpp>
 #include <common/core/transport/stream.hpp>
 #include <common/core/transmission.hpp>
@@ -195,8 +196,7 @@ namespace psmtest
         [[nodiscard]] auto async_write_some(std::span<const std::byte> buffer, std::error_code &ec)
             -> net::awaitable<std::size_t> override
         {
-            const auto err = co_await write_all(std::span<const std::uint8_t>(
-                reinterpret_cast<const std::uint8_t *>(buffer.data()), buffer.size()));
+            const auto err = co_await write_all(as_u8(buffer));
             if (err)
             {
                 ec = err;

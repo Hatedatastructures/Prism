@@ -40,7 +40,8 @@ namespace psmtest::reality
      * @param data 输入
      * @return base64url 字符串
      */
-    [[nodiscard]] inline auto base64url_encode(std::span<const std::uint8_t> data) -> std::string
+    [[nodiscard]] inline auto base64url_encode(std::span<const std::uint8_t> data)
+    -> std::string
     {
         static constexpr char table[] = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
         std::string out;
@@ -77,7 +78,8 @@ namespace psmtest::reality
      * @param s 输入
      * @return 解码字节
      */
-    [[nodiscard]] inline auto base64url_decode(std::string_view s) -> std::vector<std::uint8_t>
+    [[nodiscard]] inline auto base64url_decode(std::string_view s)
+    -> std::vector<std::uint8_t>
     {
         auto val = [](char c) -> int
         {
@@ -186,7 +188,8 @@ namespace psmtest::reality
         if (client_random.size() < 40)
             return true;
         auto hmac_sha256 = [](std::span<const std::uint8_t> key,
-                              std::span<const std::uint8_t> data) -> std::array<std::uint8_t, 32>
+                              std::span<const std::uint8_t> data)
+                                  -> std::array<std::uint8_t, 32>
         {
             std::array<std::uint8_t, 32> md{};
             unsigned int len = 0;
@@ -216,17 +219,38 @@ namespace psmtest::reality
      * @param out 输出 32 字节密文（16 + tag 16）
      * @return 成功返回 false
      */
-    [[nodiscard]] inline auto seal_session_id(std::span<const std::uint8_t> auth_key,
-                                              std::span<const std::uint8_t> client_random,
-                                              std::span<const std::uint8_t> plain,
-                                              std::span<const std::uint8_t> hello,
+    /// session_id 密封输入（auth_key + random + hello）
+    struct session_id_seal_input
+    {
+        std::span<const std::uint8_t> auth_key;      ///< 32 字节认证密钥
+        std::span<const std::uint8_t> client_random; ///< 客户端随机数（40 字节）
+        std::span<const std::uint8_t> plain;         ///< 明文（16 字节）
+        std::span<const std::uint8_t> hello;         ///< ClientHello 原始消息（AAD）
+    };
+
+    /// session_id 解析输入（auth_key + random + hello）
+    struct session_id_open_input
+    {
+        std::span<const std::uint8_t> auth_key;      ///< 32 字节认证密钥
+        std::span<const std::uint8_t> client_random; ///< 客户端随机数（40 字节）
+        std::span<const std::uint8_t> cipher;        ///< 32 字节密文（16 + tag 16）
+        std::span<const std::uint8_t> hello;         ///< ClientHello 原始消息（AAD）
+    };
+
+    /**
+     * @brief seal session_id（客户端侧，对齐 mihomo reality.go）
+     * @param in 密封输入
+     * @param out 输出 32 字节密文（16 + tag 16）
+     * @return 成功返回 false
+     */
+    [[nodiscard]] inline auto seal_session_id(const session_id_seal_input &in,
                                               std::array<std::uint8_t, session_id_auth_len> &out)
         -> bool
     {
-        if (plain.size() != 16 || client_random.size() < 40)
+        if (in.plain.size() != 16 || in.client_random.size() < 40)
             return true;
         // AAD：hello 且 session_id 区（偏移 39 起 32 字节）清零
-        std::vector<std::uint8_t> aad(hello.begin(), hello.end());
+        std::vector<std::uint8_t> aad(in.hello.begin(), in.hello.end());
         if (aad.size() >= 39 + 32)
             std::memset(aad.data() + 39, 0, 32);
 
@@ -234,10 +258,10 @@ namespace psmtest::reality
         if (!ctx)
             return true;
         int len = 0;
-        EVP_EncryptInit_ex(ctx, EVP_aes_256_gcm(), nullptr, auth_key.data(),
-                           client_random.data() + 20);
+        EVP_EncryptInit_ex(ctx, EVP_aes_256_gcm(), nullptr, in.auth_key.data(),
+                           in.client_random.data() + 20);
         EVP_EncryptUpdate(ctx, nullptr, &len, aad.data(), static_cast<int>(aad.size()));
-        EVP_EncryptUpdate(ctx, out.data(), &len, plain.data(), static_cast<int>(plain.size()));
+        EVP_EncryptUpdate(ctx, out.data(), &len, in.plain.data(), static_cast<int>(in.plain.size()));
         int out_len = len;
         EVP_EncryptFinal_ex(ctx, out.data() + out_len, &len);
         out_len += len;
@@ -248,22 +272,16 @@ namespace psmtest::reality
 
     /**
      * @brief open session_id（服务端侧）
-     * @param auth_key 32 字节认证密钥
-     * @param client_random 客户端随机数（40 字节，后 12 为 nonce）
-     * @param cipher 32 字节密文（16 + tag 16）
-     * @param hello ClientHello 原始消息（AAD）
+     * @param in 解析输入
      * @param out 输出 16 字节明文
      * @return 成功返回 false
      */
-    [[nodiscard]] inline auto open_session_id(std::span<const std::uint8_t> auth_key,
-                                              std::span<const std::uint8_t> client_random,
-                                              std::span<const std::uint8_t> cipher,
-                                              std::span<const std::uint8_t> hello,
+    [[nodiscard]] inline auto open_session_id(const session_id_open_input &in,
                                               std::array<std::uint8_t, 16> &out) -> bool
     {
-        if (cipher.size() != session_id_auth_len || client_random.size() < 40)
+        if (in.cipher.size() != session_id_auth_len || in.client_random.size() < 40)
             return true;
-        std::vector<std::uint8_t> aad(hello.begin(), hello.end());
+        std::vector<std::uint8_t> aad(in.hello.begin(), in.hello.end());
         if (aad.size() >= 39 + 32)
             std::memset(aad.data() + 39, 0, 32);
 
@@ -271,13 +289,13 @@ namespace psmtest::reality
         if (!ctx)
             return true;
         int len = 0;
-        EVP_DecryptInit_ex(ctx, EVP_aes_256_gcm(), nullptr, auth_key.data(),
-                           client_random.data() + 20);
+        EVP_DecryptInit_ex(ctx, EVP_aes_256_gcm(), nullptr, in.auth_key.data(),
+                           in.client_random.data() + 20);
         EVP_DecryptUpdate(ctx, nullptr, &len, aad.data(), static_cast<int>(aad.size()));
-        EVP_DecryptUpdate(ctx, out.data(), &len, cipher.data(), 16);
+        EVP_DecryptUpdate(ctx, out.data(), &len, in.cipher.data(), 16);
         int out_len = len;
         EVP_CIPHER_CTX_ctrl(ctx, EVP_CTRL_GCM_SET_TAG, 16,
-                            const_cast<std::uint8_t *>(cipher.data()) + 16);
+                            const_cast<std::uint8_t *>(in.cipher.data()) + 16);
         const auto ok = EVP_DecryptFinal_ex(ctx, out.data() + out_len, &len);
         EVP_CIPHER_CTX_free(ctx);
         return ok != 1;
@@ -304,7 +322,8 @@ namespace psmtest::reality
      * @param pub 公钥（32 字节）
      * @return base64url 字符串
      */
-    [[nodiscard]] inline auto encode_public_key(std::span<const std::uint8_t> pub) -> std::string
+    [[nodiscard]] inline auto encode_public_key(std::span<const std::uint8_t> pub)
+    -> std::string
     {
         return base64url_encode(pub);
     }

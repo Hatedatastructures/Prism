@@ -81,9 +81,10 @@ namespace psmtest::shadowsocks2022
          */
         [[nodiscard]] auto async_send_to(const ss::address &dest,
                                          std::span<const std::uint8_t> payload)
-            -> net::awaitable<error>
+        -> net::awaitable<error>
         {
-            const auto packet = ss::build_udp_packet(key_, ++packet_id_, dest, payload);
+            const auto packet = ss::build_udp_packet(ss::udp_build_input{
+                key_, ++packet_id_, &dest, payload});
             if (packet.empty())
                 co_return error::bad_length;
             std::error_code ec;
@@ -99,7 +100,7 @@ namespace psmtest::shadowsocks2022
          */
         [[nodiscard]] auto async_receive_from(ss::address &src,
                                               std::vector<std::uint8_t> &payload)
-            -> net::awaitable<error>
+        -> net::awaitable<error>
         {
             std::array<std::uint8_t, 64 * 1024> buf{};
             std::error_code ec;
@@ -109,13 +110,13 @@ namespace psmtest::shadowsocks2022
                 co_return error::io_error;
             if (n == 0)
                 co_return error::unexpected_eof;
-            co_return ss::parse_udp_packet(key_, std::span<const std::uint8_t>(buf.data(), n),
-                                           src, payload);
+            co_return ss::parse_udp_packet(ss::udp_parse_input{
+                key_, std::span<const std::uint8_t>(buf.data(), n), &src, &payload});
         }
 
         /// @brief 透传读取（底层数据报原样）
         [[nodiscard]] auto async_read_some(std::span<std::byte> buffer, std::error_code &ec)
-            -> net::awaitable<std::size_t> override
+        -> net::awaitable<std::size_t> override
         {
             co_return co_await next_layer_->async_read_some(buffer, ec);
         }
@@ -123,7 +124,7 @@ namespace psmtest::shadowsocks2022
         /// @brief 透传写入（底层数据报原样）
         [[nodiscard]] auto async_write_some(std::span<const std::byte> buffer,
                                             std::error_code &ec)
-            -> net::awaitable<std::size_t> override
+        -> net::awaitable<std::size_t> override
         {
             co_return co_await next_layer_->async_write_some(buffer, ec);
         }

@@ -28,7 +28,7 @@ namespace psmtest::gun
      * @return 写入字节数
      */
     [[nodiscard]] inline auto encode_varint(std::uint32_t value, std::span<std::uint8_t> out)
-        -> std::size_t
+    -> std::size_t
     {
         std::uint32_t v = value;
         std::size_t n = 0;
@@ -82,7 +82,7 @@ namespace psmtest::gun
      * @return 帧字节 [0x00][u32 BE len][0x0A][uvarint][payload]
      */
     [[nodiscard]] inline auto encode_frame(std::span<const std::uint8_t> payload)
-        -> std::vector<std::uint8_t>
+    -> std::vector<std::uint8_t>
     {
         std::array<std::uint8_t, max_varint_len> varint_buf{};
         const auto varint_len = encode_varint(static_cast<std::uint32_t>(payload.size()),

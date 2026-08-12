@@ -30,7 +30,8 @@ namespace psmtest::hysteria2
 {
 
     /// @brief 编码地址（ATYP + ADDR + PORT 2B BE）
-    [[nodiscard]] inline auto encode_address(const address &addr) -> std::vector<std::uint8_t>
+    [[nodiscard]] inline auto encode_address(const address &addr)
+    -> std::vector<std::uint8_t>
     {
         std::vector<std::uint8_t> out;
         out.push_back(static_cast<std::uint8_t>(addr.type));
@@ -127,7 +128,7 @@ namespace psmtest::hysteria2
 
     /// @brief 构造 TCP 帧
     [[nodiscard]] inline auto build_tcp(const address &dst, std::span<const std::uint8_t> payload)
-        -> std::vector<std::uint8_t>
+    -> std::vector<std::uint8_t>
     {
         std::vector<std::uint8_t> out;
         out.push_back(static_cast<std::uint8_t>(message::kind::tcp));
@@ -137,24 +138,34 @@ namespace psmtest::hysteria2
         return out;
     }
 
-    /// @brief 构造 UDP 帧
-    [[nodiscard]] inline auto build_udp(std::uint32_t session_id, std::uint32_t packet_id,
-                                        const address &dst, std::span<const std::uint8_t> payload)
-        -> std::vector<std::uint8_t>
+    /// UDP 帧构造输入（session_id + packet_id + dst + payload）
+    struct udp_frame_input
     {
+        std::uint32_t session_id{0};               ///< 会话 ID
+        std::uint32_t packet_id{0};                ///< 包 ID
+        const address *dst{nullptr};               ///< 目标地址
+        std::span<const std::uint8_t> payload;     ///< 载荷
+    };
+
+    /// @brief 构造 UDP 帧
+    [[nodiscard]] inline auto build_udp(const udp_frame_input &in)
+    -> std::vector<std::uint8_t>
+    {
+        if (!in.dst)
+            return {};
         std::vector<std::uint8_t> out;
         out.push_back(static_cast<std::uint8_t>(message::kind::udp));
-        out.push_back(static_cast<std::uint8_t>(session_id & 0xFF));
-        out.push_back(static_cast<std::uint8_t>((session_id >> 8) & 0xFF));
-        out.push_back(static_cast<std::uint8_t>((session_id >> 16) & 0xFF));
-        out.push_back(static_cast<std::uint8_t>((session_id >> 24) & 0xFF));
-        out.push_back(static_cast<std::uint8_t>(packet_id & 0xFF));
-        out.push_back(static_cast<std::uint8_t>((packet_id >> 8) & 0xFF));
-        out.push_back(static_cast<std::uint8_t>((packet_id >> 16) & 0xFF));
-        out.push_back(static_cast<std::uint8_t>((packet_id >> 24) & 0xFF));
-        const auto addr = encode_address(dst);
+        out.push_back(static_cast<std::uint8_t>(in.session_id & 0xFF));
+        out.push_back(static_cast<std::uint8_t>((in.session_id >> 8) & 0xFF));
+        out.push_back(static_cast<std::uint8_t>((in.session_id >> 16) & 0xFF));
+        out.push_back(static_cast<std::uint8_t>((in.session_id >> 24) & 0xFF));
+        out.push_back(static_cast<std::uint8_t>(in.packet_id & 0xFF));
+        out.push_back(static_cast<std::uint8_t>((in.packet_id >> 8) & 0xFF));
+        out.push_back(static_cast<std::uint8_t>((in.packet_id >> 16) & 0xFF));
+        out.push_back(static_cast<std::uint8_t>((in.packet_id >> 24) & 0xFF));
+        const auto addr = encode_address(*in.dst);
         out.insert(out.end(), addr.begin(), addr.end());
-        out.insert(out.end(), payload.begin(), payload.end());
+        out.insert(out.end(), in.payload.begin(), in.payload.end());
         return out;
     }
 
@@ -197,7 +208,8 @@ namespace psmtest::hysteria2
     // ==================== auth（认证请求）合并 ====================
 
     /// 认证请求（HTTP/3 HEADERS 帧，首字节 0x01）
-    [[nodiscard]] inline auto make_auth_request(std::string_view password) -> std::string
+    [[nodiscard]] inline auto make_auth_request(std::string_view password)
+    -> std::string
     {
         // QUIC HEADERS 帧：[Type 0x01][Length varint][HTTP/3 头块]
         // 简化头块：:method POST、:path /auth、authorization: <password>
@@ -222,10 +234,11 @@ namespace psmtest::hysteria2
         auto reset(const message &msg) -> void
         {
             if (msg.type == message::kind::udp)
-                wire_ = build_udp(msg.session_id, msg.packet_id, msg.dst,
-                                  std::span<const std::uint8_t>(
-                                      reinterpret_cast<const std::uint8_t *>(msg.payload.data()),
-                                      msg.payload.size()));
+                wire_ = build_udp(udp_frame_input{
+                    msg.session_id, msg.packet_id, &msg.dst,
+                    std::span<const std::uint8_t>(
+                        reinterpret_cast<const std::uint8_t *>(msg.payload.data()),
+                        msg.payload.size())});
             else
                 wire_ = build_tcp(msg.dst,
                                   std::span<const std::uint8_t>(

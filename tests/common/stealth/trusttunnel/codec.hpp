@@ -33,7 +33,7 @@ namespace psmtest::trusttunnel
      * @return "Basic base64(user:pass)"
      */
     [[nodiscard]] inline auto basic_auth(std::string_view user, std::string_view pass)
-        -> std::string
+    -> std::string
     {
         const std::string raw = std::string(user) + ":" + std::string(pass);
         std::string enc;

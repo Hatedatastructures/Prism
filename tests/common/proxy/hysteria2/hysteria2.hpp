@@ -72,7 +72,7 @@ namespace psmtest::hysteria2
      */
     [[nodiscard]] inline auto connect(shared_transmission upstream, const client_config &cfg,
                                       const address &target)
-        -> net::awaitable<std::pair<error, shared_conn>>
+    -> net::awaitable<std::pair<error, shared_conn>>
     {
         auto c = std::make_shared<conn>(std::move(upstream), cfg.password);
         const auto err = co_await c->write_handshake(target);
@@ -105,7 +105,7 @@ namespace psmtest::hysteria2
      * @return 错误码、解析的消息与协议连接（失败时连接为空）
      */
     [[nodiscard]] inline auto accept(shared_transmission upstream, const server_config &cfg)
-        -> net::awaitable<std::tuple<error, message, shared_conn>>
+    -> net::awaitable<std::tuple<error, message, shared_conn>>
     {
         auto c = std::make_shared<conn>(std::move(upstream), cfg.password);
         auto [err, req] = co_await c->read_handshake();

@@ -34,7 +34,8 @@ namespace psmtest::socks5
      * @param g 问候（版本 + 方法列表）
      * @return greeting 字节：[ver 1B][nmethods 1B][methods var]
      */
-    [[nodiscard]] inline auto build_greeting(const greeting &g) -> std::vector<std::uint8_t>
+    [[nodiscard]] inline auto build_greeting(const greeting &g)
+    -> std::vector<std::uint8_t>
     {
         std::vector<std::uint8_t> out;
         out.reserve(2 + g.methods.size());
@@ -72,7 +73,8 @@ namespace psmtest::socks5
      * @param m 方法选择（版本 + 方法）
      * @return 2 字节回复
      */
-    [[nodiscard]] inline auto build_method_reply(const method_reply &m) -> std::array<std::uint8_t, 2>
+    [[nodiscard]] inline auto build_method_reply(const method_reply &m)
+    -> std::array<std::uint8_t, 2>
     {
         return {m.ver, static_cast<std::uint8_t>(m.method)};
     }
@@ -100,7 +102,8 @@ namespace psmtest::socks5
      * @param addr 目标地址
      * @return 地址字节
      */
-    [[nodiscard]] inline auto encode_address(const address &addr) -> std::vector<std::uint8_t>
+    [[nodiscard]] inline auto encode_address(const address &addr)
+    -> std::vector<std::uint8_t>
     {
         std::vector<std::uint8_t> out;
         out.push_back(static_cast<std::uint8_t>(addr.type));
@@ -203,7 +206,8 @@ namespace psmtest::socks5
      * @param req 请求（命令 + 目标地址）
      * @return 请求字节：[ver][cmd][rsv][ATYP][ADDR][PORT]
      */
-    [[nodiscard]] inline auto build_request(const request &req) -> std::vector<std::uint8_t>
+    [[nodiscard]] inline auto build_request(const request &req)
+    -> std::vector<std::uint8_t>
     {
         std::vector<std::uint8_t> out;
         out.push_back(req.ver);
@@ -246,7 +250,8 @@ namespace psmtest::socks5
      * @param rep 响应（状态码 + 绑定地址）
      * @return 响应字节：[ver][code][rsv][ATYP][ADDR][PORT]
      */
-    [[nodiscard]] inline auto build_reply(const reply &rep) -> std::vector<std::uint8_t>
+    [[nodiscard]] inline auto build_reply(const reply &rep)
+    -> std::vector<std::uint8_t>
     {
         std::vector<std::uint8_t> out;
         out.push_back(rep.ver);
@@ -290,7 +295,7 @@ namespace psmtest::socks5
      */
     [[nodiscard]] inline auto build_udp_datagram(const address &target,
                                                  std::span<const std::uint8_t> payload)
-        -> std::vector<std::uint8_t>
+    -> std::vector<std::uint8_t>
     {
         std::vector<std::uint8_t> out;
         const auto addr = encode_address(target);
@@ -336,7 +341,7 @@ namespace psmtest::socks5
      * @return 认证请求字节：[ver 0x01][ulen][uname][plen][passwd]
      */
     [[nodiscard]] inline auto build_userpass(std::string_view user, std::string_view pass)
-        -> std::vector<std::uint8_t>
+    -> std::vector<std::uint8_t>
     {
         std::vector<std::uint8_t> out;
         out.reserve(2 + user.size() + 1 + pass.size());
@@ -653,7 +658,8 @@ namespace psmtest::socks5
          * @brief 提取未消耗的超读字节（所有权移交）
          * @return 剩余字节
          */
-        [[nodiscard]] auto take_remaining() -> std::vector<std::uint8_t>
+        [[nodiscard]] auto take_remaining()
+        -> std::vector<std::uint8_t>
         {
             if (!done_ || consumed_ >= buf_.size())
                 return {};
@@ -694,7 +700,7 @@ namespace psmtest::socks5
      * @details Beast 风格自由函数：循环 async_read_some → put，直到解析完成。
      */
     [[nodiscard]] inline auto async_read(shared_transmission transport, parser &p)
-        -> net::awaitable<error>
+    -> net::awaitable<error>
     {
         std::array<std::uint8_t, 512> buf{};
         while (!p.is_done())
@@ -722,7 +728,7 @@ namespace psmtest::socks5
      * @details Beast 风格自由函数：循环 get → async_write_some，直到输出完成。
      */
     [[nodiscard]] inline auto async_write(shared_transmission transport, serializer &s)
-        -> net::awaitable<error>
+    -> net::awaitable<error>
     {
         std::array<std::uint8_t, 512> buf{};
         while (!s.is_done())

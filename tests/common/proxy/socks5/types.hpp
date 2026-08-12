@@ -140,4 +140,38 @@ namespace psmtest::socks5
         address bind;
     };
 
+    /**
+     * @struct client_config
+     * @brief SOCKS5 客户端配置
+     * @details 控制客户端的行为：认证开关与凭据。构造后只读。
+     */
+    struct client_config
+    {
+        /// 是否启用用户名/密码认证（RFC 1929）
+        bool enable_auth = false;
+        /// 认证用户名（enable_auth 为 true 时生效）
+        std::string username;
+        /// 认证密码（enable_auth 为 true 时生效）
+        std::string password;
+    };
+
+    /**
+     * @struct server_config
+     * @brief SOCKS5 服务端配置
+     * @details 控制服务端的行为：命令开关与认证凭据。构造后只读。
+     */
+    struct server_config
+    {
+        /// 是否允许 CONNECT 命令（TCP 转发）
+        bool enable_tcp = true;
+        /// 是否允许 UDP_ASSOCIATE 命令（UDP 中继）
+        bool enable_udp = true;
+        /// 是否启用用户名/密码认证（RFC 1929）
+        bool enable_auth = false;
+        /// 认证用户名（enable_auth 为 true 时生效）
+        std::string username;
+        /// 认证密码（enable_auth 为 true 时生效）
+        std::string password;
+    };
+
 } // namespace psmtest::socks5

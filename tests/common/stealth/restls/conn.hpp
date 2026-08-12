@@ -65,7 +65,7 @@ namespace psmtest::restls
          * @details 客户端由密码派生 RestlsSecret，后续认证均以其为密钥。
          */
         [[nodiscard]] auto write_handshake(std::span<const std::uint8_t> server_random)
-            -> net::awaitable<error>
+        -> net::awaitable<error>
         {
             if (server_random.size() != 32)
                 co_return error::bad_length;
@@ -83,7 +83,7 @@ namespace psmtest::restls
          * 首个 TLS 记录实现服务端身份验证（测试库简化直接派生）。
          */
         [[nodiscard]] auto read_handshake(std::span<const std::uint8_t> server_random)
-            -> net::awaitable<error>
+        -> net::awaitable<error>
         {
             if (server_random.size() != 32)
                 co_return error::bad_length;
@@ -95,7 +95,7 @@ namespace psmtest::restls
 
         /// @brief 透传读取（数据面原样，mask 编解码由上层记录层负责）
         [[nodiscard]] auto async_read_some(std::span<std::byte> buffer, std::error_code &ec)
-            -> net::awaitable<std::size_t> override
+        -> net::awaitable<std::size_t> override
         {
             if (!handshaken_)
             {
@@ -108,7 +108,7 @@ namespace psmtest::restls
         /// @brief 透传写入（数据面原样）
         [[nodiscard]] auto async_write_some(std::span<const std::byte> buffer,
                                             std::error_code &ec)
-            -> net::awaitable<std::size_t> override
+        -> net::awaitable<std::size_t> override
         {
             if (!handshaken_)
             {

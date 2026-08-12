@@ -51,7 +51,7 @@ namespace psmtest::vmess
         /// HMAC-SHA256 单次
         [[nodiscard]] inline auto hmac_sha256(std::span<const std::uint8_t> key,
                                               std::span<const std::uint8_t> data)
-            -> std::array<std::uint8_t, 32>
+        -> std::array<std::uint8_t, 32>
         {
             std::array<std::uint8_t, 32> out{};
             unsigned int len = 0;
@@ -62,7 +62,7 @@ namespace psmtest::vmess
 
         /// MD5 摘要（16 字节）
         [[nodiscard]] inline auto md5(std::span<const std::uint8_t> data)
-            -> std::array<std::uint8_t, 16>
+        -> std::array<std::uint8_t, 16>
         {
             std::array<std::uint8_t, 16> out{};
             unsigned int len = 0;
@@ -72,7 +72,7 @@ namespace psmtest::vmess
 
         /// SHA-256 摘要（32 字节）
         [[nodiscard]] inline auto sha256(std::span<const std::uint8_t> data)
-            -> std::array<std::uint8_t, 32>
+        -> std::array<std::uint8_t, 32>
         {
             std::array<std::uint8_t, 32> out{};
             unsigned int len = 0;
@@ -82,7 +82,8 @@ namespace psmtest::vmess
 
         /// 路径转字节视图（支持 string_view / span / array）
         template <typename Path>
-        [[nodiscard]] inline auto as_bytes(const Path &path) -> std::span<const std::uint8_t>
+        [[nodiscard]] inline auto as_bytes(const Path &path)
+        -> std::span<const std::uint8_t>
         {
             if constexpr (std::is_convertible_v<Path, std::string_view>)
             {
@@ -97,7 +98,8 @@ namespace psmtest::vmess
 
         /// 路径填充到 64 字节块（对齐 Go hmac copyPad）
         [[nodiscard]] inline auto xor_pad(std::span<const std::uint8_t> path,
-                                          std::uint8_t mask) -> std::array<std::uint8_t, 64>
+                                          std::uint8_t mask)
+        -> std::array<std::uint8_t, 64>
         {
             std::array<std::uint8_t, 64> out{};
             const auto n = std::min(path.size(), out.size());
@@ -116,10 +118,11 @@ namespace psmtest::vmess
     /// @return 32 字节派生密钥
     template <typename... Path>
     [[nodiscard]] auto kdf(std::span<const std::uint8_t> key, const Path &...paths)
-        -> std::array<std::uint8_t, 32>
+    -> std::array<std::uint8_t, 32>
     {
         std::function<std::array<std::uint8_t, 32>(std::span<const std::uint8_t>)> h =
-            [](std::span<const std::uint8_t> msg) -> std::array<std::uint8_t, 32>
+            [](std::span<const std::uint8_t> msg)
+    -> std::array<std::uint8_t, 32>
         {
             return detail::hmac_sha256(detail::as_bytes(kdf_inner_marker), msg);
         };
@@ -152,7 +155,7 @@ namespace psmtest::vmess
     /// @param uuid 16 字节 UUID 原始字节
     /// @return 16 字节 cmdKey = MD5(uuid || uuid_salt)
     [[nodiscard]] inline auto cmd_key_from_uuid(std::span<const std::uint8_t, 16> uuid)
-        -> std::array<std::uint8_t, 16>
+    -> std::array<std::uint8_t, 16>
     {
         std::array<std::uint8_t, 16 + 36> input{};
         std::copy(uuid.begin(), uuid.end(), input.begin());
@@ -204,22 +207,37 @@ namespace psmtest::vmess
     namespace detail
     {
 
-        /// AES-128-GCM 加密（带 AAD）
-        [[nodiscard]] inline auto aes_gcm_seal(std::span<const std::uint8_t> key,
-                                               std::span<const std::uint8_t> nonce,
-                                               std::span<const std::uint8_t> plain,
-                                               std::span<const std::uint8_t> aad)
-            -> std::vector<std::uint8_t>
+        /// AES-GCM 加密输入（key + nonce + plain + aad）
+        struct seal_input
         {
-            std::vector<std::uint8_t> out(plain.size() + 16);
+            std::span<const std::uint8_t> key;    ///< 密钥
+            std::span<const std::uint8_t> nonce;  ///< nonce
+            std::span<const std::uint8_t> plain;  ///< 明文
+            std::span<const std::uint8_t> aad;    ///< 附加认证数据
+        };
+
+        /// AES-GCM 解密输入（key + nonce + cipher + aad）
+        struct open_input
+        {
+            std::span<const std::uint8_t> key;    ///< 密钥
+            std::span<const std::uint8_t> nonce;  ///< nonce
+            std::span<const std::uint8_t> cipher; ///< 密文 + tag
+            std::span<const std::uint8_t> aad;    ///< 附加认证数据
+        };
+
+        /// AES-128-GCM 加密（带 AAD）
+        [[nodiscard]] inline auto aes_gcm_seal(const seal_input &in)
+        -> std::vector<std::uint8_t>
+        {
+            std::vector<std::uint8_t> out(in.plain.size() + 16);
             EVP_CIPHER_CTX *ctx = EVP_CIPHER_CTX_new();
             if (!ctx)
                 return {};
             int len = 0;
-            EVP_EncryptInit_ex(ctx, EVP_aes_128_gcm(), nullptr, key.data(), nonce.data());
-            if (!aad.empty())
-                EVP_EncryptUpdate(ctx, nullptr, &len, aad.data(), static_cast<int>(aad.size()));
-            EVP_EncryptUpdate(ctx, out.data(), &len, plain.data(), static_cast<int>(plain.size()));
+            EVP_EncryptInit_ex(ctx, EVP_aes_128_gcm(), nullptr, in.key.data(), in.nonce.data());
+            if (!in.aad.empty())
+                EVP_EncryptUpdate(ctx, nullptr, &len, in.aad.data(), static_cast<int>(in.aad.size()));
+            EVP_EncryptUpdate(ctx, out.data(), &len, in.plain.data(), static_cast<int>(in.plain.size()));
             int out_len = len;
             EVP_EncryptFinal_ex(ctx, out.data() + out_len, &len);
             out_len += len;
@@ -230,26 +248,23 @@ namespace psmtest::vmess
         }
 
         /// AES-128-GCM 解密（带 AAD），失败返回空
-        [[nodiscard]] inline auto aes_gcm_open(std::span<const std::uint8_t> key,
-                                               std::span<const std::uint8_t> nonce,
-                                               std::span<const std::uint8_t> cipher,
-                                               std::span<const std::uint8_t> aad)
-            -> std::vector<std::uint8_t>
+        [[nodiscard]] inline auto aes_gcm_open(const open_input &in)
+        -> std::vector<std::uint8_t>
         {
-            if (cipher.size() < 16)
+            if (in.cipher.size() < 16)
                 return {};
-            std::vector<std::uint8_t> out(cipher.size() - 16);
+            std::vector<std::uint8_t> out(in.cipher.size() - 16);
             EVP_CIPHER_CTX *ctx = EVP_CIPHER_CTX_new();
             if (!ctx)
                 return {};
             int len = 0;
-            EVP_DecryptInit_ex(ctx, EVP_aes_128_gcm(), nullptr, key.data(), nonce.data());
-            if (!aad.empty())
-                EVP_DecryptUpdate(ctx, nullptr, &len, aad.data(), static_cast<int>(aad.size()));
-            EVP_DecryptUpdate(ctx, out.data(), &len, cipher.data(), static_cast<int>(cipher.size() - 16));
+            EVP_DecryptInit_ex(ctx, EVP_aes_128_gcm(), nullptr, in.key.data(), in.nonce.data());
+            if (!in.aad.empty())
+                EVP_DecryptUpdate(ctx, nullptr, &len, in.aad.data(), static_cast<int>(in.aad.size()));
+            EVP_DecryptUpdate(ctx, out.data(), &len, in.cipher.data(), static_cast<int>(in.cipher.size() - 16));
             int out_len = len;
             EVP_CIPHER_CTX_ctrl(ctx, EVP_CTRL_GCM_SET_TAG, 16,
-                                const_cast<std::uint8_t *>(cipher.data()) + cipher.size() - 16);
+                                const_cast<std::uint8_t *>(in.cipher.data()) + in.cipher.size() - 16);
             const auto ok = EVP_DecryptFinal_ex(ctx, out.data() + out_len, &len);
             out_len += len;
             EVP_CIPHER_CTX_free(ctx);
@@ -272,7 +287,8 @@ namespace psmtest::vmess
         }
 
         /// 时间戳编码（大端 8 字节）
-        [[nodiscard]] inline auto encode_timestamp(std::int64_t ts) -> std::array<std::uint8_t, 8>
+        [[nodiscard]] inline auto encode_timestamp(std::int64_t ts)
+        -> std::array<std::uint8_t, 8>
         {
             std::array<std::uint8_t, 8> out{};
             const auto u = static_cast<std::uint64_t>(ts);
@@ -289,7 +305,7 @@ namespace psmtest::vmess
     /// @return 16 字节 AuthID
     [[nodiscard]] inline auto create_auth_id(std::int64_t time_sec,
                                              std::span<const std::uint8_t, 4> random)
-        -> std::array<std::uint8_t, 16>
+    -> std::array<std::uint8_t, 16>
     {
         std::array<std::uint8_t, 12> input{};
         const auto ts = detail::encode_timestamp(time_sec);
@@ -308,19 +324,23 @@ namespace psmtest::vmess
         return out;
     }
 
+    /// 认证头密封输入（body + 时间戳 + 随机数）
+    struct auth_header_input
+    {
+        std::span<const std::uint8_t> body;   ///< 明文载荷（请求头）
+        std::int64_t time_sec{0};             ///< UTC 秒（AuthID 用）
+        std::span<const std::uint8_t, 4> random; ///< 4 字节随机数
+    };
+
     /// @brief 密封 AEAD 认证头（sealVMessAEADHeader）
     /// @param cmd_key 16 字节 cmdKey
-    /// @param body 明文载荷（请求头）
-    /// @param time_sec UTC 秒
-    /// @param random 4 字节随机数（AuthID 用）
+    /// @param in 输入（body + time_sec + random）
     /// @return 认证头字节（16 authID + 18 len + 8 nonce + hdr_enc）
     [[nodiscard]] inline auto seal_auth_header(std::span<const std::uint8_t, 16> cmd_key,
-                                               std::span<const std::uint8_t> body,
-                                               std::int64_t time_sec,
-                                               std::span<const std::uint8_t, 4> random)
-        -> std::vector<std::uint8_t>
+                                               const auth_header_input &in)
+    -> std::vector<std::uint8_t>
     {
-        const auto auth_id = create_auth_id(time_sec, random);
+        const auto auth_id = create_auth_id(in.time_sec, in.random);
         // 8 字节随机 nonce
         std::array<std::uint8_t, 8> nonce8{};
         {
@@ -333,20 +353,20 @@ namespace psmtest::vmess
 
         // 长度密文
         std::array<std::uint8_t, 2> len_plain{
-            static_cast<std::uint8_t>(body.size() >> 8),
-            static_cast<std::uint8_t>(body.size() & 0xFF)};
+            static_cast<std::uint8_t>(in.body.size() >> 8),
+            static_cast<std::uint8_t>(in.body.size() & 0xFF)};
         const auto len_key = kdf(cmd_key, kdf_header_len_key, auth_id, nonce8);
         const auto len_iv = kdf(cmd_key, kdf_header_len_iv, auth_id, nonce8);
-        const auto len_enc = detail::aes_gcm_seal(
+        const auto len_enc = detail::aes_gcm_seal(detail::seal_input{
             std::span<const std::uint8_t>(len_key.data(), 16),
-            std::span<const std::uint8_t>(len_iv.data(), 12), len_plain, auth_id);
+            std::span<const std::uint8_t>(len_iv.data(), 12), len_plain, auth_id});
 
         // 载荷密文
         const auto hdr_key = kdf(cmd_key, kdf_header_key, auth_id, nonce8);
         const auto hdr_iv = kdf(cmd_key, kdf_header_iv, auth_id, nonce8);
-        const auto hdr_enc = detail::aes_gcm_seal(
+        const auto hdr_enc = detail::aes_gcm_seal(detail::seal_input{
             std::span<const std::uint8_t>(hdr_key.data(), 16),
-            std::span<const std::uint8_t>(hdr_iv.data(), 12), body, auth_id);
+            std::span<const std::uint8_t>(hdr_iv.data(), 12), in.body, auth_id});
 
         std::vector<std::uint8_t> out;
         out.reserve(16 + len_enc.size() + 8 + hdr_enc.size());
@@ -374,46 +394,50 @@ namespace psmtest::vmess
 
         const auto len_key = kdf(cmd_key, kdf_header_len_key, auth_id, nonce8);
         const auto len_iv = kdf(cmd_key, kdf_header_len_iv, auth_id, nonce8);
-        const auto len_plain = detail::aes_gcm_open(
+        const auto len_plain = detail::aes_gcm_open(detail::open_input{
             std::span<const std::uint8_t>(len_key.data(), 16),
-            std::span<const std::uint8_t>(len_iv.data(), 12), len_enc, auth_id);
+            std::span<const std::uint8_t>(len_iv.data(), 12), len_enc, auth_id});
         if (len_plain.size() != 2)
             return error::bad_auth;
         const auto length = static_cast<std::size_t>(len_plain[0]) << 8 | len_plain[1];
 
         const auto hdr_key = kdf(cmd_key, kdf_header_key, auth_id, nonce8);
         const auto hdr_iv = kdf(cmd_key, kdf_header_iv, auth_id, nonce8);
-        const auto body = detail::aes_gcm_open(
+        const auto body = detail::aes_gcm_open(detail::open_input{
             std::span<const std::uint8_t>(hdr_key.data(), 16),
             std::span<const std::uint8_t>(hdr_iv.data(), 12),
-            header.subspan(16 + 18 + 8, length + 16), auth_id);
+            header.subspan(16 + 18 + 8, length + 16), auth_id});
         if (body.empty())
             return error::bad_auth;
         out = body;
         return error::none;
     }
 
+    /// 请求头附加元数据（IV + Key + V + Padding）
+    struct request_meta
+    {
+        std::span<const std::uint8_t, 16> iv; ///< 16 字节请求 IV（随机）
+        std::span<const std::uint8_t, 16> key; ///< 16 字节请求 Key（随机）
+        std::uint8_t v{0};                    ///< 响应验证字节（随机）
+        std::uint8_t p{0};                    ///< 填充长度（0-15，P 高 4 位）
+    };
+
     /// @brief 编码请求头明文（Xray/sing 请求头格式）
     /// @param hdr 请求头
-    /// @param iv 16 字节请求 IV（随机）
-    /// @param key 16 字节请求 Key（随机）
-    /// @param v 响应验证字节（随机）
-    /// @param p 填充长度（0-15，P 高 4 位）
+    /// @param meta 附加元数据（iv/key/v/p）
     /// @return 明文字节序列（含 FNV1a 校验）
     [[nodiscard]] inline auto build_request_header(const request_header &hdr,
-                                                   std::span<const std::uint8_t, 16> iv,
-                                                   std::span<const std::uint8_t, 16> key,
-                                                   std::uint8_t v, std::uint8_t p)
-        -> std::vector<std::uint8_t>
+                                                   const request_meta &meta)
+    -> std::vector<std::uint8_t>
     {
         std::vector<std::uint8_t> out;
         out.reserve(64 + hdr.target.host.size());
         out.push_back(hdr.version);
-        out.insert(out.end(), iv.begin(), iv.end());
-        out.insert(out.end(), key.begin(), key.end());
-        out.push_back(v);
+        out.insert(out.end(), meta.iv.begin(), meta.iv.end());
+        out.insert(out.end(), meta.key.begin(), meta.key.end());
+        out.push_back(meta.v);
         out.push_back(static_cast<std::uint8_t>(hdr.opt)); // OPT
-        out.push_back(static_cast<std::uint8_t>(((p & 0x0F) << 4) | static_cast<std::uint8_t>(hdr.sec)));
+        out.push_back(static_cast<std::uint8_t>(((meta.p & 0x0F) << 4) | static_cast<std::uint8_t>(hdr.sec)));
         out.push_back(hdr.reserved);
         out.push_back(static_cast<std::uint8_t>(hdr.cmd));
         out.push_back(static_cast<std::uint8_t>((hdr.target.port >> 8) & 0xFF));
@@ -462,7 +486,7 @@ namespace psmtest::vmess
                 break;
             }
         }
-        for (std::uint8_t i = 0; i < p; ++i)
+        for (std::uint8_t i = 0; i < meta.p; ++i)
             out.push_back(0);
         // FNV1a 校验（明文数据 + 填充）
         const auto hash = detail::fnv1a32(out);
@@ -473,27 +497,31 @@ namespace psmtest::vmess
         return out;
     }
 
+    /// 解析出的请求头元数据（IV + Key + V）
+    struct request_meta_out
+    {
+        std::array<std::uint8_t, 16> iv{}; ///< 请求 IV
+        std::array<std::uint8_t, 16> key{}; ///< 请求 Key
+        std::uint8_t v{0};                  ///< 响应验证字节
+    };
+
     /// @brief 解析请求头明文（校验 FNV1a）
     /// @param data 明文
     /// @param out 输出请求头
-    /// @param iv 输出请求 IV
-    /// @param key 输出请求 Key
-    /// @param v 输出响应验证字节
+    /// @param meta 输出元数据（iv/key/v）
     /// @return 错误码
     [[nodiscard]] inline auto parse_request_header(std::span<const std::uint8_t> data,
                                                    request_header &out,
-                                                   std::array<std::uint8_t, 16> &iv,
-                                                   std::array<std::uint8_t, 16> &key,
-                                                   std::uint8_t &v) -> error
+                                                   request_meta_out &meta) -> error
     {
         if (data.size() < 40) // 1+16+16+1+1+1+1+1+2+1 = 41
             return error::need_more;
         out.version = data[0];
         if (out.version != protocol_version)
             return error::bad_magic;
-        std::memcpy(iv.data(), data.data() + 1, 16);
-        std::memcpy(key.data(), data.data() + 17, 16);
-        v = data[33];
+        std::memcpy(meta.iv.data(), data.data() + 1, 16);
+        std::memcpy(meta.key.data(), data.data() + 17, 16);
+        meta.v = data[33];
         out.opt = data[34];
         out.sec = static_cast<security>(data[35] & 0x0F);
         out.reserved = data[36];
@@ -548,35 +576,43 @@ namespace psmtest::vmess
         return error::none;
     }
 
+    /// 响应头密封输入（IV + V + AuthID）
+    struct resp_header_input
+    {
+        std::span<const std::uint8_t, 12> iv;   ///< 12 字节响应 IV
+        std::span<const std::uint8_t, 4> v;     ///< 4 字节载荷（V + 随机 3 字节）
+        std::span<const std::uint8_t, 16> auth_id; ///< 16 字节认证 ID（AAD）
+    };
+
+    /// 响应头解析输入（IV + 密文 + AuthID）
+    struct resp_header_parse_input
+    {
+        std::span<const std::uint8_t, 12> iv;   ///< 12 字节响应 IV
+        std::span<const std::uint8_t> data;     ///< 响应头密文
+        std::span<const std::uint8_t, 16> auth_id; ///< 16 字节认证 ID（AAD）
+    };
+
     /// @brief 密封响应头（AEAD Resp Header，AAD = authID）
-    /// @param resp_key 16 字节响应密钥（KDF(respBodyKey, "AEAD Resp Header Key")）
-    /// @param resp_iv 12 字节响应 IV（KDF(respBodyKey, "AEAD Resp Header IV")）
-    /// @param v 4 字节载荷（V + 随机 3 字节）
-    /// @param auth_id 16 字节认证 ID（AAD）
+    /// @param resp_key 16 字节响应密钥
+    /// @param in 输入（iv + v + auth_id）
     /// @return 响应头密文（4 + 16 tag）
     [[nodiscard]] inline auto seal_response_header(std::span<const std::uint8_t, 16> resp_key,
-                                                   std::span<const std::uint8_t, 12> resp_iv,
-                                                   std::span<const std::uint8_t, 4> v,
-                                                   std::span<const std::uint8_t, 16> auth_id)
-        -> std::vector<std::uint8_t>
+                                                   const resp_header_input &in)
+    -> std::vector<std::uint8_t>
     {
-        return detail::aes_gcm_seal(resp_key, resp_iv, v, auth_id);
+        return detail::aes_gcm_seal(detail::seal_input{resp_key, in.iv, in.v, in.auth_id});
     }
 
     /// @brief 打开响应头
     /// @param resp_key 16 字节响应密钥
-    /// @param resp_iv 12 字节响应 IV
-    /// @param data 响应头密文
-    /// @param auth_id 16 字节认证 ID（AAD）
+    /// @param in 输入（iv + data + auth_id）
     /// @param out 输出响应头
     /// @return 错误码
     [[nodiscard]] inline auto open_response_header(std::span<const std::uint8_t, 16> resp_key,
-                                                   std::span<const std::uint8_t, 12> resp_iv,
-                                                   std::span<const std::uint8_t> data,
-                                                   std::span<const std::uint8_t, 16> auth_id,
+                                                   const resp_header_parse_input &in,
                                                    response_header &out) -> error
     {
-        const auto plain = detail::aes_gcm_open(resp_key, resp_iv, data, auth_id);
+        const auto plain = detail::aes_gcm_open(detail::open_input{resp_key, in.iv, in.data, in.auth_id});
         if (plain.size() < 4)
             return error::bad_auth;
         out.version = plain[0];
@@ -814,13 +850,13 @@ namespace psmtest::vmess
             hdr.reserved = 0;
             hdr.target = msg.dst;
             const auto body = build_request_header(
-                hdr, msg.request_nonce, msg.request_key, msg.resp_header, 0);
+                hdr, request_meta{msg.request_nonce, msg.request_key, msg.resp_header, 0});
 
             std::random_device rd;
             std::array<std::uint8_t, 4> random{};
             for (auto &b : random)
                 b = static_cast<std::uint8_t>(rd() & 0xFF);
-            wire_ = seal_auth_header(cmd_key, body, static_cast<std::int64_t>(time_sec), random);
+            wire_ = seal_auth_header(cmd_key, auth_header_input{body, static_cast<std::int64_t>(time_sec), random});
             offset_ = 0;
         }
 
@@ -890,7 +926,7 @@ namespace psmtest::vmess
             std::memcpy(lk.data(), len_key.data(), 16);
             std::array<std::uint8_t, 12> liv{};
             std::memcpy(liv.data(), len_iv.data(), 12);
-            const auto len_plain = detail::aes_gcm_open(lk, liv, len_enc, auth_id);
+            const auto len_plain = detail::aes_gcm_open(detail::open_input{lk, liv, len_enc, auth_id});
             if (len_plain.size() != 2)
             {
                 ec = make_error_code(error::auth_failed);
@@ -913,10 +949,8 @@ namespace psmtest::vmess
                 return 0;
             }
             request_header hdr{};
-            std::array<std::uint8_t, 16> iv{};
-            std::array<std::uint8_t, 16> key{};
-            std::uint8_t v = 0;
-            const auto perr = parse_request_header(body, hdr, iv, key, v);
+            request_meta_out meta{};
+            const auto perr = parse_request_header(body, hdr, meta);
             if (perr != error::none)
             {
                 ec = make_error_code(perr);
@@ -924,11 +958,11 @@ namespace psmtest::vmess
             }
 
             msg_.uuid = uuid_;
-            msg_.request_nonce = iv;
-            msg_.request_key = key;
+            msg_.request_nonce = meta.iv;
+            msg_.request_key = meta.key;
             msg_.cmd = static_cast<std::uint8_t>(hdr.cmd);
             msg_.dst = hdr.target;
-            msg_.resp_header = v;
+            msg_.resp_header = meta.v;
             done_ = true;
             return buf_.size();
         }
@@ -1058,7 +1092,7 @@ namespace psmtest::vmess
         std::memcpy(rk.data(), resp_key.data(), 16);
         std::array<std::uint8_t, 12> riv{};
         std::memcpy(riv.data(), resp_iv.data(), 12);
-        const auto resp_enc = seal_response_header(rk, riv, v_plain, auth_id);
+        const auto resp_enc = seal_response_header(rk, resp_header_input{riv, v_plain, auth_id});
 
         const auto resp_len_key = kdf(resp_key16, kdf_resp_len_key);
         const auto resp_len_iv = kdf(resp_iv16, kdf_resp_len_iv);
@@ -1069,7 +1103,7 @@ namespace psmtest::vmess
         const std::array<std::uint8_t, 2> resp_len_plain{
             static_cast<std::uint8_t>(resp_enc.size() >> 8),
             static_cast<std::uint8_t>(resp_enc.size() & 0xFF)};
-        const auto len_enc = detail::aes_gcm_seal(rlk, rliv, resp_len_plain, auth_id);
+        const auto len_enc = detail::aes_gcm_seal(detail::seal_input{rlk, rliv, resp_len_plain, auth_id});
 
         resp.clear();
         resp.reserve(len_enc.size() + resp_enc.size());

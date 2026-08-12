@@ -69,7 +69,7 @@ namespace psmtest::socks5
          * @details 握手阶段预读的剩余字节先被消费，清空后透传底层。
          */
         [[nodiscard]] auto async_read_some(std::span<std::byte> buffer, std::error_code &ec)
-            -> net::awaitable<std::size_t> override
+        -> net::awaitable<std::size_t> override
         {
             ec.clear();
             if (used_ > 0)
@@ -92,7 +92,7 @@ namespace psmtest::socks5
 
         /// @brief 异步写入（透传）
         [[nodiscard]] auto async_write_some(std::span<const std::byte> buffer, std::error_code &ec)
-            -> net::awaitable<std::size_t> override
+        -> net::awaitable<std::size_t> override
         {
             co_return co_await next_layer_->async_write_some(buffer, ec);
         }
@@ -139,11 +139,12 @@ namespace psmtest::socks5
          * @details 完整客户端流程（RFC 1928 + 1929）。成功后 BND
          * 地址可通过 bind_endpoint() 获取（UDP_ASSOCIATE 用）。
          */
-        [[nodiscard]] auto write_handshake(const request &req, bool enable_auth = false,
-                                           const std::string &username = {},
-                                           const std::string &password = {})
-            -> net::awaitable<error>
+        [[nodiscard]] auto write_handshake(const request &req, const client_config &cfg)
+        -> net::awaitable<error>
         {
+            const auto &enable_auth = cfg.enable_auth;
+            const auto &username = cfg.username;
+            const auto &password = cfg.password;
             // 1. 发送 greeting
             greeting g;
             g.ver = version;
@@ -205,12 +206,14 @@ namespace psmtest::socks5
          * @details 完整服务端流程（RFC 1928 + 1929）。失败时按协议
          * 发送对应错误响应。
          */
-        [[nodiscard]] auto read_handshake(bool enable_tcp = true, bool enable_udp = true,
-                                          bool enable_auth = false,
-                                          const std::string &username = {},
-                                          const std::string &password = {})
-            -> net::awaitable<std::pair<error, request>>
+        [[nodiscard]] auto read_handshake(const server_config &cfg)
+        -> net::awaitable<std::pair<error, request>>
         {
+            const auto &enable_tcp = cfg.enable_tcp;
+            const auto &enable_udp = cfg.enable_udp;
+            const auto &enable_auth = cfg.enable_auth;
+            const auto &username = cfg.username;
+            const auto &password = cfg.password;
             // 1. 方法协商：读取 greeting（2B 头 + 方法列表）
             std::array<std::uint8_t, 2> head{};
             if (co_await read_exact(std::span<std::uint8_t>(head)))
@@ -296,7 +299,8 @@ namespace psmtest::socks5
          * @param dst 目标缓冲区
          * @return true = 失败（EOF / 底层错误）
          */
-        [[nodiscard]] auto read_exact(std::span<std::uint8_t> dst) -> net::awaitable<bool>
+        [[nodiscard]] auto read_exact(std::span<std::uint8_t> dst)
+        -> net::awaitable<bool>
         {
             return read_exact_impl(dst);
         }
@@ -316,7 +320,8 @@ namespace psmtest::socks5
          * @return 认证结果
          */
         [[nodiscard]] auto userpass_auth(const std::string &username,
-                                         const std::string &password) -> net::awaitable<bool>
+                                         const std::string &password)
+        -> net::awaitable<bool>
         {
             std::array<std::uint8_t, 2> head{};
             if (co_await read_exact(std::span<std::uint8_t>(head)))
@@ -341,7 +346,7 @@ namespace psmtest::socks5
 
         /// @brief 发送响应（bind 空 = 0.0.0.0:0）
         [[nodiscard]] auto send_reply(reply_code code, const address &bind = {}) const
-            -> net::awaitable<error>
+        -> net::awaitable<error>
         {
             reply rep;
             rep.ver = version;
@@ -360,7 +365,8 @@ namespace psmtest::socks5
         }
 
         /// @brief 读取并解析请求（命令 + 地址）
-        [[nodiscard]] auto read_request(request &req) -> net::awaitable<error>
+        [[nodiscard]] auto read_request(request &req)
+        -> net::awaitable<error>
         {
             std::array<std::uint8_t, 4> head{};
             auto ec = co_await read_exact(std::span<std::uint8_t>(head));
@@ -376,7 +382,8 @@ namespace psmtest::socks5
         }
 
         /// @brief 读取响应（reply）
-        [[nodiscard]] auto read_reply(reply &rep) -> net::awaitable<error>
+        [[nodiscard]] auto read_reply(reply &rep)
+        -> net::awaitable<error>
         {
             std::array<std::uint8_t, 4> head{};
             if (co_await read_exact(std::span<std::uint8_t>(head)))
@@ -389,7 +396,8 @@ namespace psmtest::socks5
         }
 
         /// @brief 读取地址（ATYP + ADDR + PORT）
-        [[nodiscard]] auto read_address(address &addr) -> net::awaitable<error>
+        [[nodiscard]] auto read_address(address &addr)
+        -> net::awaitable<error>
         {
             switch (addr.type)
             {
@@ -437,7 +445,8 @@ namespace psmtest::socks5
          * @param dst 目标缓冲区
          * @return true = 失败（EOF / 底层错误）
          */
-        [[nodiscard]] auto read_exact_impl(std::span<std::uint8_t> dst) -> net::awaitable<bool>
+        [[nodiscard]] auto read_exact_impl(std::span<std::uint8_t> dst)
+        -> net::awaitable<bool>
         {
             std::size_t done = 0;
             while (done < dst.size())
@@ -478,7 +487,7 @@ namespace psmtest::socks5
          * @return true = 失败
          */
         [[nodiscard]] auto send_bytes(std::span<const std::uint8_t> data) const
-            -> net::awaitable<bool>
+        -> net::awaitable<bool>
         {
             std::size_t done = 0;
             while (done < data.size())

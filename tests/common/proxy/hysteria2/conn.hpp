@@ -43,8 +43,7 @@ namespace psmtest::hysteria2
      * transmission 接口透传 TCP 帧载荷，或通过 async_send_datagram
      * / async_receive_datagram 收发 UDP 数据报。
      */
-    class conn : public psmtest::transmission,
-                 public std::enable_shared_from_this<conn>
+    class conn : public psmtest::transmission, public std::enable_shared_from_this<conn>
     {
     public:
         /**
@@ -58,7 +57,8 @@ namespace psmtest::hysteria2
         }
 
         /// @brief 获取执行器（委托底层传输）
-        [[nodiscard]] auto executor() const -> net::any_io_executor override
+        [[nodiscard]] auto executor() const
+        -> net::any_io_executor override
         {
             return next_layer_->executor();
         }
@@ -70,12 +70,11 @@ namespace psmtest::hysteria2
          * @details 认证帧（make_auth_request）后紧跟 TCP 帧
          * （目标 + 空载荷），对齐 sing-hysteria2 客户端行为。
          */
-        [[nodiscard]] auto write_handshake(const address &target) -> net::awaitable<error>
+        [[nodiscard]] auto write_handshake(const address &target)
+        -> net::awaitable<error>
         {
             const auto auth = make_auth_request(password_);
-            if (co_await send_bytes(
-                    std::span<const std::uint8_t>(
-                        reinterpret_cast<const std::uint8_t *>(auth.data()), auth.size())))
+            if (co_await send_bytes(as_u8_span(auth)))
                 co_return error::io_error;
             const auto tcp = build_tcp(target, {});
             if (co_await send_bytes(tcp))
@@ -91,7 +90,8 @@ namespace psmtest::hysteria2
          * @details 读取认证帧（简化：仅校验 HEADERS 首字节 0x01），
          * 再读 TCP 目标帧解析地址与初始载荷。
          */
-        [[nodiscard]] auto read_handshake() -> net::awaitable<std::pair<error, message>>
+        [[nodiscard]] auto read_handshake()
+        -> net::awaitable<std::pair<error, message>>
         {
             // 1. 认证帧：HEADERS 类型 0x01 + 1B 长度 + 头块
             std::array<std::uint8_t, 2> auth_head{};
@@ -118,7 +118,8 @@ namespace psmtest::hysteria2
         }
 
         /// @brief 获取服务端握手解析的消息
-        [[nodiscard]] auto parsed() const -> const message &
+        [[nodiscard]] auto parsed() const
+        -> const message &
         {
             return parsed_;
         }
@@ -130,13 +131,12 @@ namespace psmtest::hysteria2
          * @return 错误码
          * @details 逐帧编解码（build_udp），session/packet id 递增。
          */
-        [[nodiscard]] auto async_send_datagram(const address &target,
-                                               std::span<const std::uint8_t> payload)
-            -> net::awaitable<error>
+        [[nodiscard]] auto async_send_datagram(const address &target, std::span<const std::uint8_t> payload)
+        -> net::awaitable<error>
         {
             if (!handshaken_)
                 co_return error::not_open;
-            const auto wire = build_udp(session_id_, ++packet_id_, target, payload);
+            const auto wire = build_udp(udp_frame_input{session_id_, ++packet_id_, &target, payload});
             co_return co_await send_bytes(wire) ? error::io_error : error::none;
         }
 
@@ -146,9 +146,8 @@ namespace psmtest::hysteria2
          * @param payload 输出载荷
          * @return 错误码
          */
-        [[nodiscard]] auto async_receive_datagram(address &target,
-                                                  std::vector<std::uint8_t> &payload)
-            -> net::awaitable<error>
+        [[nodiscard]] auto async_receive_datagram(address &target,std::vector<std::uint8_t> &payload)
+        -> net::awaitable<error>
         {
             if (!handshaken_)
                 co_return error::not_open;
@@ -165,7 +164,7 @@ namespace psmtest::hysteria2
 
         /// @brief 透传读取（握手后数据面为裸流）
         [[nodiscard]] auto async_read_some(std::span<std::byte> buffer, std::error_code &ec)
-            -> net::awaitable<std::size_t> override
+        -> net::awaitable<std::size_t> override
         {
             if (!handshaken_)
             {
@@ -176,9 +175,8 @@ namespace psmtest::hysteria2
         }
 
         /// @brief 透传写入（握手后数据面为裸流）
-        [[nodiscard]] auto async_write_some(std::span<const std::byte> buffer,
-                                            std::error_code &ec)
-            -> net::awaitable<std::size_t> override
+        [[nodiscard]] auto async_write_some(std::span<const std::byte> buffer, std::error_code &ec)
+        -> net::awaitable<std::size_t> override
         {
             if (!handshaken_)
             {
@@ -201,19 +199,22 @@ namespace psmtest::hysteria2
         }
 
         /// @brief 获取底层传输（装饰器链导航）
-        [[nodiscard]] auto next_layer() noexcept -> psmtest::transmission * override
+        [[nodiscard]] auto next_layer() noexcept ->
+            psmtest::transmission * override
         {
             return next_layer_.get();
         }
 
         /// @brief 获取底层传输（const 版本）
-        [[nodiscard]] auto next_layer() const noexcept -> const psmtest::transmission * override
+        [[nodiscard]] auto next_layer() const noexcept ->
+            const psmtest::transmission * override
         {
             return next_layer_.get();
         }
 
         /// @brief 释放底层传输所有权
-        [[nodiscard]] auto release() -> shared_transmission override
+        [[nodiscard]] auto release()
+        -> shared_transmission override
         {
             return std::move(next_layer_);
         }
@@ -226,7 +227,8 @@ namespace psmtest::hysteria2
          * @details 帧无长度字段：精确分段读取头部（Kind/id/地址），
          * 剩余一次读为载荷。
          */
-        [[nodiscard]] auto read_frame(message &msg) -> net::awaitable<error>
+        [[nodiscard]] auto read_frame(message &msg)
+        -> net::awaitable<error>
         {
             std::array<std::uint8_t, 1> kind{};
             if (co_await read_exact(std::span<std::uint8_t>(kind)))
@@ -237,6 +239,7 @@ namespace psmtest::hysteria2
                 std::array<std::uint8_t, 8> ids{};
                 if (co_await read_exact(std::span<std::uint8_t>(ids)))
                     co_return error::unexpected_eof;
+
                 msg.session_id = static_cast<std::uint32_t>(ids[0]) |
                                  static_cast<std::uint32_t>(ids[1]) << 8 |
                                  static_cast<std::uint32_t>(ids[2]) << 16 |
@@ -276,7 +279,8 @@ namespace psmtest::hysteria2
          * @param dst 目标缓冲区
          * @return true = 失败（EOF / 底层错误）
          */
-        [[nodiscard]] auto read_exact(std::span<std::uint8_t> dst) -> net::awaitable<bool>
+        [[nodiscard]] auto read_exact(std::span<std::uint8_t> dst)
+        -> net::awaitable<bool>
         {
             std::size_t done = 0;
             while (done < dst.size())
@@ -296,7 +300,7 @@ namespace psmtest::hysteria2
          * @return true = 失败
          */
         [[nodiscard]] auto send_bytes(std::span<const std::uint8_t> data) const
-            -> net::awaitable<bool>
+        -> net::awaitable<bool>
         {
             std::size_t done = 0;
             while (done < data.size())
@@ -315,7 +319,8 @@ namespace psmtest::hysteria2
          * @param addr 输出地址
          * @return 错误码
          */
-        [[nodiscard]] auto read_address_body(address &addr) -> net::awaitable<error>
+        [[nodiscard]] auto read_address_body(address &addr)
+        -> net::awaitable<error>
         {
             switch (addr.type)
             {

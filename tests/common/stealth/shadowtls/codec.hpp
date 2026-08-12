@@ -30,19 +30,26 @@
 namespace psmtest::shadowtls
 {
 
+    /// session_id 生成输入（password + client_hello + 输出 sid）
+    struct session_id_input
+    {
+        std::string_view password;             ///< 密码
+        std::span<const std::uint8_t> client_hello;  ///< 不含 TLS 头的握手数据
+        std::span<std::uint8_t, tls_session_id_sz> session_id; ///< 输出 sid（32B）
+    };
+
     /**
      * @brief 生成 session_id（客户端侧）
-     * @param password 密码
-     * @param client_hello 不含 TLS 头的握手数据
-     * @param session_id 输出 session_id（32 字节，末尾 4 字节为 HMAC）
+     * @param in 生成输入
+     * @return 错误码
      * @details 对齐 sing v3 generateSessionID：前 28 字节随机，
      * 后 4 字节 = HMAC-SHA1(password, hello[:sidStart] + sid + hello[sidEnd:])[:4]。
      */
-    [[nodiscard]] inline auto generate_session_id(std::string_view password,
-                                                  std::span<const std::uint8_t> client_hello,
-                                                  std::span<std::uint8_t, tls_session_id_sz> session_id)
-        -> error
+    [[nodiscard]] inline auto generate_session_id(const session_id_input &in) -> error
     {
+        const auto &password = in.password;
+        const auto &client_hello = in.client_hello;
+        auto &session_id = in.session_id;
         if (client_hello.size() < session_id_start + tls_session_id_sz)
             return error::bad_length;
 
@@ -110,28 +117,31 @@ namespace psmtest::shadowtls
         return CRYPTO_memcmp(md.data(), raw + client_hmac_offset, hmac_size) == 0;
     }
 
+    /// 帧 HMAC 输入（password + server_random + tag + payload）
+    struct frame_hmac_input
+    {
+        std::string_view password;                 ///< 密码
+        std::span<const std::uint8_t> server_random; ///< 32 字节 server random
+        char tag{'C'};                             ///< 标签（'C' 客户端 / 'S' 服务端）
+        std::span<const std::uint8_t> payload;     ///< 载荷
+    };
+
     /**
      * @brief 计算帧 HMAC（post-handshake 认证）
-     * @param password 密码
-     * @param server_random 32 字节 server random
-     * @param tag 标签（'C' 客户端 / 'S' 服务端）
-     * @param payload 载荷
+     * @param in 输入
      * @return 4 字节 HMAC
      */
-    [[nodiscard]] inline auto frame_hmac(std::string_view password,
-                                         std::span<const std::uint8_t> server_random,
-                                         char tag,
-                                         std::span<const std::uint8_t> payload)
-        -> std::array<std::uint8_t, hmac_size>
+    [[nodiscard]] inline auto frame_hmac(const frame_hmac_input &in)
+    -> std::array<std::uint8_t, hmac_size>
     {
         HMAC_CTX *ctx = HMAC_CTX_new();
         if (!ctx)
             return {};
-        HMAC_Init_ex(ctx, password.data(), static_cast<int>(password.size()), EVP_sha1(), nullptr);
-        HMAC_Update(ctx, server_random.data(), server_random.size());
-        const auto tag_byte = static_cast<std::uint8_t>(tag);
+        HMAC_Init_ex(ctx, in.password.data(), static_cast<int>(in.password.size()), EVP_sha1(), nullptr);
+        HMAC_Update(ctx, in.server_random.data(), in.server_random.size());
+        const auto tag_byte = static_cast<std::uint8_t>(in.tag);
         HMAC_Update(ctx, &tag_byte, 1);
-        HMAC_Update(ctx, payload.data(), payload.size());
+        HMAC_Update(ctx, in.payload.data(), in.payload.size());
         std::array<std::uint8_t, EVP_MAX_MD_SIZE> md{};
         std::uint32_t md_len = 0;
         HMAC_Final(ctx, md.data(), &md_len);
@@ -150,7 +160,7 @@ namespace psmtest::shadowtls
      */
     [[nodiscard]] inline auto kdf(std::string_view password,
                                   std::span<const std::uint8_t> server_random)
-        -> std::array<std::uint8_t, 32>
+    -> std::array<std::uint8_t, 32>
     {
         SHA256_CTX ctx;
         SHA256_Init(&ctx);

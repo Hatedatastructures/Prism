@@ -71,7 +71,7 @@ namespace psmtest::trusttunnel
          */
         [[nodiscard]] auto async_send_to(std::string_view host, std::uint16_t port,
                                          std::span<const std::uint8_t> payload)
-            -> net::awaitable<error>
+        -> net::awaitable<error>
         {
             // 简化：UDP 数据报带 1 字节长度 + 主机 + 2 字节端口 + 载荷透传
             std::vector<std::uint8_t> wire;
@@ -103,7 +103,7 @@ namespace psmtest::trusttunnel
          */
         [[nodiscard]] auto async_receive_from(std::string &host, std::uint16_t &port,
                                               std::vector<std::uint8_t> &payload)
-            -> net::awaitable<error>
+        -> net::awaitable<error>
         {
             std::array<std::uint8_t, 1> hlen{};
             std::size_t done = 0;
@@ -152,7 +152,7 @@ namespace psmtest::trusttunnel
 
         /// @brief 透传读取（底层原样）
         [[nodiscard]] auto async_read_some(std::span<std::byte> buffer, std::error_code &ec)
-            -> net::awaitable<std::size_t> override
+        -> net::awaitable<std::size_t> override
         {
             co_return co_await next_layer_->async_read_some(buffer, ec);
         }
@@ -160,7 +160,7 @@ namespace psmtest::trusttunnel
         /// @brief 透传写入（底层原样）
         [[nodiscard]] auto async_write_some(std::span<const std::byte> buffer,
                                             std::error_code &ec)
-            -> net::awaitable<std::size_t> override
+        -> net::awaitable<std::size_t> override
         {
             co_return co_await next_layer_->async_write_some(buffer, ec);
         }

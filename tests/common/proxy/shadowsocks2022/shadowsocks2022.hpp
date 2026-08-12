@@ -69,7 +69,7 @@ namespace psmtest::shadowsocks2022
 
     /// 密码派生 16 字节 PSK（测试库约定：SHA256 前 16 字节）
     [[nodiscard]] inline auto derive_psk(std::string_view password)
-        -> std::array<std::uint8_t, 16>
+    -> std::array<std::uint8_t, 16>
     {
         std::array<std::uint8_t, 32> hash{};
         unsigned int len = 0;
@@ -92,7 +92,7 @@ namespace psmtest::shadowsocks2022
      */
     [[nodiscard]] inline auto connect(shared_transmission upstream, const client_config &cfg,
                                       const ss::address &target)
-        -> net::awaitable<std::pair<error, shared_conn>>
+    -> net::awaitable<std::pair<error, shared_conn>>
     {
         auto c = std::make_shared<conn>(cfg.password);
         const auto err = co_await c->write_handshake(std::move(upstream), target);
@@ -125,7 +125,7 @@ namespace psmtest::shadowsocks2022
      * @return 错误码、解析的请求与协议连接（失败时连接为空）
      */
     [[nodiscard]] inline auto accept(shared_transmission upstream, const server_config &cfg)
-        -> net::awaitable<std::tuple<error, ss::message, shared_conn>>
+    -> net::awaitable<std::tuple<error, ss::message, shared_conn>>
     {
         auto c = std::make_shared<conn>(cfg.password);
         auto [err, req] = co_await c->read_handshake(std::move(upstream));

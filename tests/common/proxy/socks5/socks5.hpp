@@ -31,44 +31,6 @@ namespace psmtest::socks5
 {
 
     // =========================================================================
-    // 配置（客户端与服务端字段分开定义）
-    // =========================================================================
-
-    /**
-     * @struct client_config
-     * @brief SOCKS5 客户端配置
-     * @details 控制客户端的行为：认证开关与凭据。构造后只读。
-     */
-    struct client_config
-    {
-        /// 是否启用用户名/密码认证（RFC 1929）
-        bool enable_auth = false;
-        /// 认证用户名（enable_auth 为 true 时生效）
-        std::string username;
-        /// 认证密码（enable_auth 为 true 时生效）
-        std::string password;
-    };
-
-    /**
-     * @struct server_config
-     * @brief SOCKS5 服务端配置
-     * @details 控制服务端的行为：命令开关与认证凭据。构造后只读。
-     */
-    struct server_config
-    {
-        /// 是否允许 CONNECT 命令（TCP 转发）
-        bool enable_tcp = true;
-        /// 是否允许 UDP_ASSOCIATE 命令（UDP 中继）
-        bool enable_udp = true;
-        /// 是否启用用户名/密码认证（RFC 1929）
-        bool enable_auth = false;
-        /// 认证用户名（enable_auth 为 true 时生效）
-        std::string username;
-        /// 认证密码（enable_auth 为 true 时生效）
-        std::string password;
-    };
-
-    // =========================================================================
     // 工厂（自由函数，握手在内部完成）
     // =========================================================================
 
@@ -84,13 +46,13 @@ namespace psmtest::socks5
      */
     [[nodiscard]] inline auto connect(shared_transmission upstream, const client_config &cfg,
                                       const address &target, command cmd = command::connect)
-        -> net::awaitable<std::pair<error, shared_conn>>
+    -> net::awaitable<std::pair<error, shared_conn>>
     {
         request req;
         req.cmd = cmd;
         req.target = target;
         auto c = std::make_shared<conn>(std::move(upstream));
-        const auto err = co_await c->write_handshake(req, cfg.enable_auth, cfg.username, cfg.password);
+        const auto err = co_await c->write_handshake(req, cfg);
         co_return std::pair{err, err == error::none ? shared_conn(std::move(c))
                                                     : shared_conn{}};
     }
@@ -104,7 +66,7 @@ namespace psmtest::socks5
      */
     [[nodiscard]] inline auto connect_packet(shared_transmission upstream,
                                              const client_config &cfg, const address &target)
-        -> net::awaitable<std::pair<error, shared_dgram>>
+    -> net::awaitable<std::pair<error, shared_dgram>>
     {
         auto [err, conn] =
             co_await connect(std::move(upstream), cfg, target, command::udp_associate);
@@ -122,11 +84,10 @@ namespace psmtest::socks5
      * 完整握手（greeting/方法协商/认证/请求/响应）。
      */
     [[nodiscard]] inline auto accept(shared_transmission upstream, const server_config &cfg)
-        -> net::awaitable<std::tuple<error, request, shared_conn>>
+    -> net::awaitable<std::tuple<error, request, shared_conn>>
     {
         auto c = std::make_shared<conn>(std::move(upstream));
-        auto [err, req] = co_await c->read_handshake(cfg.enable_tcp, cfg.enable_udp,
-                                                     cfg.enable_auth, cfg.username, cfg.password);
+        auto [err, req] = co_await c->read_handshake(cfg);
         co_return std::tuple{err, std::move(req),
                              err == error::none ? shared_conn(std::move(c)) : shared_conn{}};
     }
@@ -138,7 +99,7 @@ namespace psmtest::socks5
      * @return 错误码、解析的请求与包连接（失败时连接为空）
      */
     [[nodiscard]] inline auto accept_packet(shared_transmission upstream, const server_config &cfg)
-        -> net::awaitable<std::tuple<error, request, shared_dgram>>
+    -> net::awaitable<std::tuple<error, request, shared_dgram>>
     {
         auto [err, req, conn] = co_await accept(std::move(upstream), cfg);
         if (err != error::none)

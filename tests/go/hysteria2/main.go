@@ -7,9 +7,12 @@ import (
 	"fmt"
 	"io"
 	"net"
+	"net/netip"
 	"os"
 	"time"
 
+	"github.com/metacubex/quic-go"
+	qtls "github.com/metacubex/sing-quic"
 	"github.com/metacubex/sing-quic/hysteria2"
 	"github.com/metacubex/tls"
 	M "github.com/metacubex/sing/common/metadata"
@@ -48,11 +51,44 @@ func main() {
 		ServerName:         "hysteria",
 	}
 
+	// QUIC 拨号器：sing-quic 无默认实现，必须显式提供
+	quicDialer := qtls.QuicDialerFunc(func(ctx context.Context, addr string, pDialer qtls.PacketDialer, tlsCfg *tls.Config, cfg *quic.Config, early bool) (net.PacketConn, *quic.Conn, error) {
+		addrPort, err := netip.ParseAddrPort(addr)
+		if err != nil {
+			return nil, nil, err
+		}
+		packetConn, err := pDialer.ListenPacket(ctx, "udp", "", addrPort)
+		if err != nil {
+			return nil, nil, err
+		}
+		transport := quic.Transport{Conn: packetConn}
+		transport.SetCreatedConn(true)
+		transport.SetSingleUse(true)
+		var quicConn *quic.Conn
+		if early {
+			quicConn, err = transport.DialEarly(ctx, net.UDPAddrFromAddrPort(addrPort), tlsCfg, cfg)
+		} else {
+			quicConn, err = transport.Dial(ctx, net.UDPAddrFromAddrPort(addrPort), tlsCfg, cfg)
+		}
+		if err != nil {
+			packetConn.Close()
+			return nil, nil, err
+		}
+		return packetConn, quicConn, nil
+	})
+
+	// 包监听器：sing-quic 要求提供，否则 packetDialer 为 nil
+	packetListener := qtls.PacketDialerFunc(func(ctx context.Context, network, address string, rAddrPort netip.AddrPort) (net.PacketConn, error) {
+		return net.ListenUDP(network, nil)
+	})
+
 	client, err := hysteria2.NewClient(hysteria2.ClientOptions{
-		Context:       context.Background(),
-		ServerAddress: M.ParseSocksaddr("127.0.0.1:8081"),
-		Password:      "hysteria2_password",
-		TLSConfig:     tlsConfig,
+		Context:        context.Background(),
+		ServerAddress:  M.ParseSocksaddr("127.0.0.1:8081"),
+		Password:       "hysteria2_password",
+		TLSConfig:      tlsConfig,
+		PacketListener: packetListener,
+		QuicDialer:     quicDialer,
 	})
 	if err != nil {
 		fmt.Printf("FAIL: NewClient: %v\n", err)

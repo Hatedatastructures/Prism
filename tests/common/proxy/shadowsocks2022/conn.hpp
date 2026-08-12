@@ -89,7 +89,7 @@ namespace psmtest::shadowsocks2022
          * @warning 未握手或已结束时返回 0 并置 ec；与数据报模式互斥
          */
         [[nodiscard]] auto async_read_some(std::span<std::byte> buffer, std::error_code &ec)
-            -> net::awaitable<std::size_t>
+        -> net::awaitable<std::size_t>
         {
             if (!handshaken_)
             {
@@ -131,7 +131,7 @@ namespace psmtest::shadowsocks2022
          * @warning 未握手时返回 0 并置 ec；与数据报模式互斥
          */
         [[nodiscard]] auto async_write_some(std::span<const std::byte> buffer, std::error_code &ec)
-            -> net::awaitable<std::size_t>
+        -> net::awaitable<std::size_t>
         {
             if (!handshaken_)
             {
@@ -221,7 +221,7 @@ namespace psmtest::shadowsocks2022
          * @warning 调用前必须确保 next_layer_ 已建立连接
          */
         [[nodiscard]] auto write_handshake(shared_transmission upstream, const ss::address &target)
-            -> net::awaitable<error>
+        -> net::awaitable<error>
         {
             next_layer_ = std::move(upstream);
             // 1. 生成随机 salt 并派生会话密钥
@@ -288,11 +288,12 @@ namespace psmtest::shadowsocks2022
          */
         [[nodiscard]] auto async_send_datagram(const ss::address &target,
                                                std::span<const std::uint8_t> payload)
-            -> net::awaitable<error>
+        -> net::awaitable<error>
         {
             if (!handshaken_)
                 co_return error::not_open;
-            const auto packet = ss::build_udp_packet(session_key_, ++udp_pkt_id_, target, payload);
+            const auto packet = ss::build_udp_packet(ss::udp_build_input{
+                session_key_, ++udp_pkt_id_, &target, payload});
             if (packet.empty())
                 co_return error::bad_length;
             co_return co_await send_bytes(packet) ? error::io_error : error::none;
@@ -311,7 +312,7 @@ namespace psmtest::shadowsocks2022
          * 同一会话不可混用
          */
         [[nodiscard]] auto async_receive_datagram(ss::address &target, std::vector<std::uint8_t> &payload)
-            -> net::awaitable<error>
+        -> net::awaitable<error>
         {
             if (!handshaken_)
                 co_return error::not_open;
@@ -387,7 +388,7 @@ namespace psmtest::shadowsocks2022
             packet.insert(packet.end(), addr_body.begin(), addr_body.end());
             packet.insert(packet.end(), port.begin(), port.end());
             packet.insert(packet.end(), udp_rx_.begin(), udp_rx_.begin() + static_cast<std::ptrdiff_t>(n));
-            co_return ss::parse_udp_packet(session_key_, packet, target, payload);
+            co_return ss::parse_udp_packet(ss::udp_parse_input{session_key_, packet, &target, &payload});
         }
 
         /**
@@ -398,7 +399,7 @@ namespace psmtest::shadowsocks2022
          * → 变长头地址解析），发送响应固定头并初始化发送侧编解码器。
          */
         [[nodiscard]] auto read_handshake(shared_transmission upstream)
-            -> net::awaitable<std::pair<error, ss::message>>
+        -> net::awaitable<std::pair<error, ss::message>>
         {
             next_layer_ = std::move(upstream);
             ss::message parsed;
@@ -428,7 +429,8 @@ namespace psmtest::shadowsocks2022
          * @param dst 目标缓冲区
          * @return true = 失败（EOF / 底层错误）
          */
-        [[nodiscard]] auto read_exact(std::span<std::uint8_t> dst) -> net::awaitable<bool>
+        [[nodiscard]] auto read_exact(std::span<std::uint8_t> dst)
+        -> net::awaitable<bool>
         {
             return recv_exact(dst);
         }
@@ -440,7 +442,7 @@ namespace psmtest::shadowsocks2022
          * @return PSK
          */
         [[nodiscard]] static auto derive_psk(std::string_view password)
-            -> std::array<std::uint8_t, 16>
+        -> std::array<std::uint8_t, 16>
         {
             std::array<std::uint8_t, 32> hash{};
             unsigned int len = 0;
@@ -456,7 +458,8 @@ namespace psmtest::shadowsocks2022
          * @details 块格式：[2B 长度密文 + 16B tag][载荷密文 + 16B tag]。
          * 解密失败（tag 校验）返回 bad_auth。
          */
-        [[nodiscard]] auto read_chunk() -> net::awaitable<error>
+        [[nodiscard]] auto read_chunk()
+        -> net::awaitable<error>
         {
             // 1. 读取 18 字节长度块
             std::array<std::uint8_t, ss::len_block_size> head{};
@@ -492,7 +495,8 @@ namespace psmtest::shadowsocks2022
          * @return 错误码
          * @details 响应编解码器同时作为发送侧数据编解码器（nonce 衔接）。
          */
-        [[nodiscard]] auto send_success() -> net::awaitable<error>
+        [[nodiscard]] auto send_success()
+        -> net::awaitable<error>
         {
             const auto time_sec = static_cast<std::uint64_t>(
                 std::chrono::duration_cast<std::chrono::seconds>(
@@ -515,7 +519,8 @@ namespace psmtest::shadowsocks2022
          * 类型/时间窗校验 → 变长头解密 + 地址解析。接收侧编解码器
          * 保留（nonce 与数据流衔接）。
          */
-        [[nodiscard]] auto read_request(ss::message &out) -> net::awaitable<error>
+        [[nodiscard]] auto read_request(ss::message &out)
+        -> net::awaitable<error>
         {
             // 1. 读取 salt（16 字节）
             std::array<std::uint8_t, 16> salt{};
@@ -570,7 +575,8 @@ namespace psmtest::shadowsocks2022
             co_return error::none;
         }
 
-        [[nodiscard]] auto recv_exact(std::span<std::uint8_t> buf) -> net::awaitable<bool>
+        [[nodiscard]] auto recv_exact(std::span<std::uint8_t> buf)
+        -> net::awaitable<bool>
         {
             std::size_t done = 0;
             while (done < buf.size())
@@ -591,7 +597,8 @@ namespace psmtest::shadowsocks2022
          * @details 与 recv_exact 等价，但数据来自 UDP 数据报的明文
          * 头部；读取逻辑与隧道 chunk 读取互不干扰。
          */
-        [[nodiscard]] auto udp_read_exact(std::span<std::uint8_t> buf) -> net::awaitable<bool>
+        [[nodiscard]] auto udp_read_exact(std::span<std::uint8_t> buf)
+        -> net::awaitable<bool>
         {
             std::size_t done = 0;
             while (done < buf.size())
@@ -630,7 +637,7 @@ namespace psmtest::shadowsocks2022
          * @return true = 失败
          */
         [[nodiscard]] auto send_bytes(std::span<const std::uint8_t> data) const
-            -> net::awaitable<bool>
+        -> net::awaitable<bool>
         {
             std::size_t done = 0;
             while (done < data.size())

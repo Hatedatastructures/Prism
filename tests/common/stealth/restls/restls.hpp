@@ -67,7 +67,7 @@ namespace psmtest::restls
      */
     [[nodiscard]] inline auto connect(shared_transmission upstream, const client_config &cfg,
                                       std::span<const std::uint8_t> server_random)
-        -> net::awaitable<std::pair<error, shared_conn>>
+    -> net::awaitable<std::pair<error, shared_conn>>
     {
         auto c = std::make_shared<conn>(std::move(upstream), cfg.password);
         const auto err = co_await c->write_handshake(server_random);
@@ -84,7 +84,7 @@ namespace psmtest::restls
      */
     [[nodiscard]] inline auto accept(shared_transmission upstream, const server_config &cfg,
                                      std::span<const std::uint8_t> server_random)
-        -> net::awaitable<std::pair<error, shared_conn>>
+    -> net::awaitable<std::pair<error, shared_conn>>
     {
         auto c = std::make_shared<conn>(std::move(upstream), cfg.password);
         const auto err = co_await c->read_handshake(server_random);

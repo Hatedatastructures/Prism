@@ -75,7 +75,7 @@ namespace psmtest::socks5
          */
         [[nodiscard]] auto async_send_to(const address &dest,
                                          std::span<const std::uint8_t> payload)
-            -> net::awaitable<error>
+        -> net::awaitable<error>
         {
             const auto wire = build_udp_datagram(dest, payload);
             std::size_t done = 0;
@@ -100,7 +100,7 @@ namespace psmtest::socks5
          * RSV(2) + FRAG(1) + ATYP + ADDR + PORT(2) + payload。
          */
         [[nodiscard]] auto async_receive_from(address &src, std::vector<std::uint8_t> &payload)
-            -> net::awaitable<error>
+        -> net::awaitable<error>
         {
             // 1. RSV(2) + FRAG(1)
             std::array<std::uint8_t, 3> head{};
@@ -137,7 +137,7 @@ namespace psmtest::socks5
 
         /// @brief 透传读取（底层流原样）
         [[nodiscard]] auto async_read_some(std::span<std::byte> buffer, std::error_code &ec)
-            -> net::awaitable<std::size_t> override
+        -> net::awaitable<std::size_t> override
         {
             co_return co_await next_layer_->async_read_some(buffer, ec);
         }
@@ -145,7 +145,7 @@ namespace psmtest::socks5
         /// @brief 透传写入（底层流原样）
         [[nodiscard]] auto async_write_some(std::span<const std::byte> buffer,
                                             std::error_code &ec)
-            -> net::awaitable<std::size_t> override
+        -> net::awaitable<std::size_t> override
         {
             co_return co_await next_layer_->async_write_some(buffer, ec);
         }
@@ -192,7 +192,8 @@ namespace psmtest::socks5
          * @param dst 目标缓冲区
          * @return true = 失败（EOF / 底层错误）
          */
-        [[nodiscard]] auto read_exact(std::span<std::uint8_t> dst) -> net::awaitable<bool>
+        [[nodiscard]] auto read_exact(std::span<std::uint8_t> dst)
+        -> net::awaitable<bool>
         {
             std::size_t done = 0;
             while (done < dst.size())
@@ -211,7 +212,8 @@ namespace psmtest::socks5
          * @param addr 输出地址
          * @return 错误码
          */
-        [[nodiscard]] auto read_address_body(address &addr) -> net::awaitable<error>
+        [[nodiscard]] auto read_address_body(address &addr)
+        -> net::awaitable<error>
         {
             switch (addr.type)
             {

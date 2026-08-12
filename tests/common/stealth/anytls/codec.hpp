@@ -31,7 +31,7 @@ namespace psmtest::anytls
      * @return SHA-256(password) 32 字节
      */
     [[nodiscard]] inline auto password_hash(std::string_view password)
-        -> std::array<std::uint8_t, password_hash_len>
+    -> std::array<std::uint8_t, password_hash_len>
     {
         std::array<std::uint8_t, password_hash_len> out{};
         unsigned int len = 0;

@@ -75,7 +75,7 @@ namespace psmtest::trusttunnel
      */
     [[nodiscard]] inline auto connect(shared_transmission upstream, const client_config &cfg,
                                       std::string_view target, std::uint16_t port)
-        -> net::awaitable<std::pair<error, shared_conn>>
+    -> net::awaitable<std::pair<error, shared_conn>>
     {
         auto c = std::make_shared<conn>(std::move(upstream), cfg.username, cfg.password);
         const auto err = co_await c->write_handshake(target, port);
@@ -93,7 +93,7 @@ namespace psmtest::trusttunnel
      */
     [[nodiscard]] inline auto connect_packet(shared_transmission upstream, const client_config &cfg,
                                              std::string_view target, std::uint16_t port)
-        -> net::awaitable<std::pair<error, shared_dgram>>
+    -> net::awaitable<std::pair<error, shared_dgram>>
     {
         auto [err, conn] = co_await connect(std::move(upstream), cfg, target, port);
         if (err != error::none)
@@ -108,7 +108,7 @@ namespace psmtest::trusttunnel
      * @return 错误码、解析的目标与协议连接（失败时连接为空）
      */
     [[nodiscard]] inline auto accept(shared_transmission upstream, const server_config &cfg)
-        -> net::awaitable<std::tuple<error, std::string, shared_conn>>
+    -> net::awaitable<std::tuple<error, std::string, shared_conn>>
     {
         auto c = std::make_shared<conn>(std::move(upstream), cfg.username, cfg.password);
         std::string target;
@@ -124,7 +124,7 @@ namespace psmtest::trusttunnel
      * @return 错误码、解析的目标与包连接（失败时连接为空）
      */
     [[nodiscard]] inline auto accept_packet(shared_transmission upstream, const server_config &cfg)
-        -> net::awaitable<std::tuple<error, std::string, shared_dgram>>
+    -> net::awaitable<std::tuple<error, std::string, shared_dgram>>
     {
         auto [err, target, conn] = co_await accept(std::move(upstream), cfg);
         if (err != error::none)

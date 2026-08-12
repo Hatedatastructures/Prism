@@ -66,7 +66,7 @@ namespace psmtest::vmess
          * @return 错误码
          */
         [[nodiscard]] auto async_send_to(std::span<const std::uint8_t> payload)
-            -> net::awaitable<error>
+        -> net::awaitable<error>
         {
             return async_send_datagram_impl(payload);
         }
@@ -77,14 +77,14 @@ namespace psmtest::vmess
          * @return 错误码
          */
         [[nodiscard]] auto async_receive_from(std::vector<std::uint8_t> &payload)
-            -> net::awaitable<error>
+        -> net::awaitable<error>
         {
             return async_receive_datagram_impl(payload);
         }
 
         /// @brief 透传读取（底层流原样）
         [[nodiscard]] auto async_read_some(std::span<std::byte> buffer, std::error_code &ec)
-            -> net::awaitable<std::size_t> override
+        -> net::awaitable<std::size_t> override
         {
             co_return co_await next_layer_->async_read_some(buffer, ec);
         }
@@ -92,7 +92,7 @@ namespace psmtest::vmess
         /// @brief 透传写入（底层流原样）
         [[nodiscard]] auto async_write_some(std::span<const std::byte> buffer,
                                             std::error_code &ec)
-            -> net::awaitable<std::size_t> override
+        -> net::awaitable<std::size_t> override
         {
             co_return co_await next_layer_->async_write_some(buffer, ec);
         }
@@ -136,7 +136,7 @@ namespace psmtest::vmess
     private:
         /// @brief 转调底层数据报发送（chunk 加密）
         [[nodiscard]] auto async_send_datagram_impl(std::span<const std::uint8_t> payload)
-            -> net::awaitable<error>
+        -> net::awaitable<error>
         {
             auto *c = dynamic_cast<conn *>(next_layer_.get());
             if (!c)
@@ -146,7 +146,7 @@ namespace psmtest::vmess
 
         /// @brief 转调底层数据报接收（chunk 解密）
         [[nodiscard]] auto async_receive_datagram_impl(std::vector<std::uint8_t> &payload)
-            -> net::awaitable<error>
+        -> net::awaitable<error>
         {
             auto *c = dynamic_cast<conn *>(next_layer_.get());
             if (!c)

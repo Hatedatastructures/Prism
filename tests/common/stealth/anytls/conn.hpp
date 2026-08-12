@@ -62,14 +62,14 @@ namespace psmtest::anytls
          * @param pad_len Padding 长度（默认 16）
          * @return 错误码
          */
-        [[nodiscard]] auto write_handshake(std::uint16_t pad_len = 16) -> net::awaitable<error>
+        [[nodiscard]] auto write_handshake(std::uint16_t pad_len = 16)
+        -> net::awaitable<error>
         {
             std::string frame;
             auto err = build_auth_frame(password_, pad_len, frame);
             if (err != error::none)
                 co_return err;
-            if (co_await send_bytes(std::span<const std::uint8_t>(
-                    reinterpret_cast<const std::uint8_t *>(frame.data()), frame.size())))
+            if (co_await send_bytes(as_u8_span(frame)))
                 co_return error::io_error;
             handshaken_ = true;
             co_return error::none;
@@ -79,7 +79,8 @@ namespace psmtest::anytls
          * @brief 服务端握手：读取并校验认证帧
          * @return 错误码；bad_auth = 密码哈希不匹配
          */
-        [[nodiscard]] auto read_handshake() -> net::awaitable<error>
+        [[nodiscard]] auto read_handshake()
+        -> net::awaitable<error>
         {
             // 头：hash(32) + pad_len(2 BE)
             std::array<std::uint8_t, auth_frame_hdrlen> head{};
@@ -103,7 +104,7 @@ namespace psmtest::anytls
 
         /// @brief 透传读取（数据面原样）
         [[nodiscard]] auto async_read_some(std::span<std::byte> buffer, std::error_code &ec)
-            -> net::awaitable<std::size_t> override
+        -> net::awaitable<std::size_t> override
         {
             if (!handshaken_)
             {
@@ -116,7 +117,7 @@ namespace psmtest::anytls
         /// @brief 透传写入（数据面原样）
         [[nodiscard]] auto async_write_some(std::span<const std::byte> buffer,
                                             std::error_code &ec)
-            -> net::awaitable<std::size_t> override
+        -> net::awaitable<std::size_t> override
         {
             if (!handshaken_)
             {
@@ -162,7 +163,8 @@ namespace psmtest::anytls
          * @param dst 目标缓冲区
          * @return true = 失败（EOF / 底层错误）
          */
-        [[nodiscard]] auto read_exact(std::span<std::uint8_t> dst) -> net::awaitable<bool>
+        [[nodiscard]] auto read_exact(std::span<std::uint8_t> dst)
+        -> net::awaitable<bool>
         {
             std::size_t done = 0;
             while (done < dst.size())
@@ -182,7 +184,7 @@ namespace psmtest::anytls
          * @return true = 失败
          */
         [[nodiscard]] auto send_bytes(std::span<const std::uint8_t> data) const
-            -> net::awaitable<bool>
+        -> net::awaitable<bool>
         {
             std::size_t done = 0;
             while (done < data.size())

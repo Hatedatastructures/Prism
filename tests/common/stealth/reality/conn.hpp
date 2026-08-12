@@ -34,6 +34,14 @@
 namespace psmtest::reality
 {
 
+    /// 握手参数（client_random + hello + short_id）
+    struct handshake_params
+    {
+        std::span<const std::uint8_t> client_random; ///< 客户端随机数（40 字节）
+        std::span<const std::uint8_t> hello;         ///< ClientHello 原始消息（AAD）
+        std::array<std::uint8_t, max_short_id_len> short_id{}; ///< 短 ID（8 字节）
+    };
+
     /**
      * @class conn
      * @brief Reality 会话连接（transmission 装饰器）
@@ -62,17 +70,16 @@ namespace psmtest::reality
         /**
          * @brief 客户端握手：派生 auth_key + seal session_id 并发送
          * @param peer_public_key 服务端公钥（32 字节）
-         * @param client_random 客户端随机数（40 字节）
-         * @param hello ClientHello 原始消息（AAD）
-         * @param short_id 短 ID（8 字节）
+         * @param params 握手参数（client_random + hello + short_id）
          * @return 错误码
          */
         [[nodiscard]] auto write_handshake(std::span<const std::uint8_t> peer_public_key,
-                                           std::span<const std::uint8_t> client_random,
-                                           std::span<const std::uint8_t> hello,
-                                           const std::array<std::uint8_t, max_short_id_len> &short_id)
-            -> net::awaitable<error>
+                                           const handshake_params &params)
+        -> net::awaitable<error>
         {
+            const auto &client_random = params.client_random;
+            const auto &hello = params.hello;
+            const auto &short_id = params.short_id;
             // X25519 共享密钥
             std::array<std::uint8_t, key_len> shared{};
             if (x25519_shared(private_key_, peer_public_key, shared))
@@ -92,7 +99,8 @@ namespace psmtest::reality
 
             // seal 并发送
             std::array<std::uint8_t, session_id_auth_len> sealed{};
-            if (seal_session_id(auth_key, client_random, plain, hello, sealed))
+            if (seal_session_id(session_id_seal_input{auth_key, client_random, plain, hello},
+                                sealed))
                 co_return error::kdf_error;
             session_id_ = sealed;
             if (co_await send_bytes(sealed))
@@ -107,17 +115,17 @@ namespace psmtest::reality
         /**
          * @brief 服务端握手：读取 session_id → 派生 auth_key → 校验
          * @param peer_public_key 客户端公钥（32 字节）
-         * @param client_random 客户端随机数（40 字节）
-         * @param hello ClientHello 原始消息（AAD）
+         * @param params 握手参数（client_random + hello）
          * @param short_id 输出短 ID（8 字节）
          * @return 错误码；bad_auth = 解密失败或版本不匹配
          */
         [[nodiscard]] auto read_handshake(std::span<const std::uint8_t> peer_public_key,
-                                          std::span<const std::uint8_t> client_random,
-                                          std::span<const std::uint8_t> hello,
+                                          const handshake_params &params,
                                           std::array<std::uint8_t, max_short_id_len> &short_id)
-            -> net::awaitable<error>
+        -> net::awaitable<error>
         {
+            const auto &client_random = params.client_random;
+            const auto &hello = params.hello;
             // 读取客户端 session_id 密文（32 字节）
             std::array<std::uint8_t, session_id_auth_len> session_id{};
             if (co_await read_exact(std::span<std::uint8_t>(session_id)))
@@ -134,7 +142,8 @@ namespace psmtest::reality
             auth_key_ = auth_key;
 
             std::array<std::uint8_t, 16> plain{};
-            if (open_session_id(auth_key, client_random, session_id, hello, plain))
+            if (open_session_id(session_id_open_input{auth_key, client_random, session_id, hello},
+                                plain))
                 co_return error::bad_auth;
             if (plain[0] != 0x01)
                 co_return error::bad_auth;
@@ -145,7 +154,7 @@ namespace psmtest::reality
 
         /// @brief 透传读取（数据面原样）
         [[nodiscard]] auto async_read_some(std::span<std::byte> buffer, std::error_code &ec)
-            -> net::awaitable<std::size_t> override
+        -> net::awaitable<std::size_t> override
         {
             if (!handshaken_)
             {
@@ -158,7 +167,7 @@ namespace psmtest::reality
         /// @brief 透传写入（数据面原样）
         [[nodiscard]] auto async_write_some(std::span<const std::byte> buffer,
                                             std::error_code &ec)
-            -> net::awaitable<std::size_t> override
+        -> net::awaitable<std::size_t> override
         {
             if (!handshaken_)
             {
@@ -222,7 +231,8 @@ namespace psmtest::reality
          * @param dst 目标缓冲区
          * @return true = 失败（EOF / 底层错误）
          */
-        [[nodiscard]] auto read_exact(std::span<std::uint8_t> dst) -> net::awaitable<bool>
+        [[nodiscard]] auto read_exact(std::span<std::uint8_t> dst)
+        -> net::awaitable<bool>
         {
             std::size_t done = 0;
             while (done < dst.size())
@@ -242,7 +252,7 @@ namespace psmtest::reality
          * @return true = 失败
          */
         [[nodiscard]] auto send_bytes(std::span<const std::uint8_t> data) const
-            -> net::awaitable<bool>
+        -> net::awaitable<bool>
         {
             std::size_t done = 0;
             while (done < data.size())

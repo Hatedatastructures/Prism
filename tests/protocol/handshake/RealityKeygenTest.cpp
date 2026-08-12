@@ -73,7 +73,8 @@ namespace
         plain[0] = 0x01;
         plain[8] = 0x42;
         std::array<std::uint8_t, 32> sealed{};
-        ASSERT_FALSE(reality::seal_session_id(auth_key, random, plain, hello, sealed));
+        ASSERT_FALSE(reality::seal_session_id(
+            reality::session_id_seal_input{auth_key, random, plain, hello}, sealed));
 
         // 服务端侧
         std::array<std::uint8_t, 32> shared2{};
@@ -81,7 +82,8 @@ namespace
         std::array<std::uint8_t, 32> auth_key2{};
         ASSERT_FALSE(reality::derive_auth_key(shared2, random, auth_key2));
         std::array<std::uint8_t, 16> opened{};
-        ASSERT_FALSE(reality::open_session_id(auth_key2, random, sealed, hello, opened));
+        ASSERT_FALSE(reality::open_session_id(
+            reality::session_id_open_input{auth_key2, random, sealed, hello}, opened));
         EXPECT_EQ(opened[0], 0x01);
         EXPECT_EQ(opened[8], 0x42);
     }

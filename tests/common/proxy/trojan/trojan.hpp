@@ -79,7 +79,7 @@ namespace psmtest::trojan
     [[nodiscard]] inline auto connect(shared_transmission upstream, const client_config &cfg,
                                       const address &target,
                                       command cmd = command::connect)
-        -> net::awaitable<std::pair<error, shared_conn>>
+    -> net::awaitable<std::pair<error, shared_conn>>
     {
         auto c = std::make_shared<conn>(std::move(upstream), cfg.password);
         const auto err = co_await c->write_handshake(target, cmd);
@@ -99,7 +99,7 @@ namespace psmtest::trojan
      */
     [[nodiscard]] inline auto connect_packet(shared_transmission upstream,
                                              const client_config &cfg, const address &target)
-        -> net::awaitable<std::pair<error, shared_dgram>>
+    -> net::awaitable<std::pair<error, shared_dgram>>
     {
         auto [err, conn] =
             co_await connect(std::move(upstream), cfg, target, command::udp_associate);
@@ -119,7 +119,7 @@ namespace psmtest::trojan
      * 响应，静默断开。
      */
     [[nodiscard]] inline auto accept(shared_transmission upstream, const server_config &cfg)
-        -> net::awaitable<std::tuple<error, request_header, shared_conn>>
+    -> net::awaitable<std::tuple<error, request_header, shared_conn>>
     {
         auto c = std::make_shared<conn>(std::move(upstream), cfg.password);
         auto [err, req] = co_await c->read_handshake(cfg.enable_tcp, cfg.enable_udp);
@@ -138,7 +138,7 @@ namespace psmtest::trojan
      */
     [[nodiscard]] inline auto accept_packet(shared_transmission upstream,
                                             const server_config &cfg)
-        -> net::awaitable<std::tuple<error, request_header, shared_dgram>>
+    -> net::awaitable<std::tuple<error, request_header, shared_dgram>>
     {
         auto [err, req, conn] = co_await accept(std::move(upstream), cfg);
         if (err != error::none)
