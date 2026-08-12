@@ -3,13 +3,13 @@
  * @brief Reality/Stealth/Mux Beast 风格组件测试
  */
 
-#include <common/reality/reality.hpp>
-#include <common/shadowtls/shadowtls.hpp>
-#include <common/restls/restls.hpp>
-#include <common/anytls/anytls.hpp>
-#include <common/trusttunnel/trusttunnel.hpp>
-#include <common/ws/ws.hpp>
-#include <common/gun/gun.hpp>
+#include <common/stealth/reality/reality.hpp>
+#include <common/stealth/shadowtls/shadowtls.hpp>
+#include <common/stealth/restls/restls.hpp>
+#include <common/stealth/anytls/anytls.hpp>
+#include <common/stealth/trusttunnel/trusttunnel.hpp>
+#include <common/stealth/ws/ws.hpp>
+#include <common/stealth/gun/gun.hpp>
 #include <common/mux/h2mux/session.hpp>
 #include <common/mux/smux/session.hpp>
 #include <common/mux/yamux/session.hpp>

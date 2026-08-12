@@ -19,7 +19,7 @@
 
 #include <common/core/transport/bench.hpp>
 #include <common/core/transport/memory_stream.hpp>
-#include <common/shadowsocks2022/shadowsocks2022.hpp>
+#include <common/proxy/shadowsocks2022/shadowsocks2022.hpp>
 
 namespace
 {

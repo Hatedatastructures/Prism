@@ -5,7 +5,7 @@
  *          错误处理（版本/命令/地址非法）。
  */
 
-#include <common/socks5/socks5.hpp>
+#include <common/proxy/socks5/socks5.hpp>
 
 #include <gtest/gtest.h>
 

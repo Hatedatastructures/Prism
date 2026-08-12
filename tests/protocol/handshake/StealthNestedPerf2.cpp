@@ -30,16 +30,16 @@
 #include <vector>
 
 #include <common/core/transport/socket_stream.hpp>
-#include <common/shadowtls/shadowtls.hpp>
-#include <common/restls/restls.hpp>
-#include <common/anytls/anytls.hpp>
-#include <common/trusttunnel/trusttunnel.hpp>
-#include <common/ws/ws.hpp>
-#include <common/gun/gun.hpp>
-#include <common/reality/reality.hpp>
-#include <common/vless/vless.hpp>
-#include <common/trojan/trojan.hpp>
-#include <common/socks5/socks5.hpp>
+#include <common/stealth/shadowtls/shadowtls.hpp>
+#include <common/stealth/restls/restls.hpp>
+#include <common/stealth/anytls/anytls.hpp>
+#include <common/stealth/trusttunnel/trusttunnel.hpp>
+#include <common/stealth/ws/ws.hpp>
+#include <common/stealth/gun/gun.hpp>
+#include <common/stealth/reality/reality.hpp>
+#include <common/proxy/vless/vless.hpp>
+#include <common/proxy/trojan/trojan.hpp>
+#include <common/proxy/socks5/socks5.hpp>
 
 namespace
 {
@@ -167,7 +167,7 @@ namespace
                     }
                     res->server_hash = h;
                     res->bytes = got;
-                    inner->close();
+                    // 不 close：数据已全收，client close 后自然 EOF 退出
                     server_done->store(true); },
                               net::detached);
 
@@ -191,7 +191,7 @@ namespace
                 std::uint64_t state = 0x9E3779B97F4A7C15ULL;
                 std::uint64_t ch = 14695981039346656037ULL;
                 std::size_t yield_cnt = 0;
-                while (sent < kTotal)
+                while (sent < kTotal && !server_done->load())
                 {
                     lcg_fill(buf, state);
                     std::error_code ec;
@@ -211,7 +211,7 @@ namespace
                 res->client_hash = ch;
                 res->mbps = static_cast<double>(sent) / (1024.0 * 1024.0) / (sec > 0 ? sec : 1e-9);
                 cli->close();
-                // 等服务端读完
+                // 等服务端读完（对齐 v3 的 post 等待方式）
                 while (!server_done->load() && !res->timeout)
                 {
                     co_await net::post(ioc.get_executor(), net::use_awaitable);
@@ -551,9 +551,10 @@ namespace
     inline auto make_trojan_inner() -> inner_trojan { return {}; }
     inline auto make_socks5_inner() -> inner_socks5 { return {}; }
 
-    // 每组合一个 TEST（gtest 隔离）
+    // 每组合一个 TEST（gtest 隔离，DISABLED 避免 ctest 连续进程启动的
+    // Winsock 竞态 SEGFAULT；聚合测试 AllHashInProcess 进程内串行验证）
 #define DEFINE_COMBO_TEST(TestName, FactoryVar, InnerExpr, Label)                         \
-    TEST(StealthNested2, TestName)                                                       \
+    TEST(StealthNested2, DISABLED_##TestName)                                            \
     {                                                                                    \
         auto stealth = FactoryVar;                                                       \
         auto inner = InnerExpr;                                                          \
@@ -564,6 +565,66 @@ namespace
                     Label, r.linked, r.hash_ok, r.mbps, r.bytes, r.timeout);             \
         EXPECT_TRUE(r.linked) << Label << " 联通失败";                                    \
         EXPECT_TRUE(r.hash_ok) << Label << " hash 不一致";                                \
+    }
+
+    // 聚合测试：进程内串行跑全部 24 组合（hash 一致性验证）
+    TEST(StealthNested2, AllHashInProcess)
+    {
+        int pass = 0;
+        int fail = 0;
+        auto run_one = [&](const char *label, auto stealth, auto inner)
+        {
+            using S = decltype(stealth);
+            using I = decltype(inner);
+            auto r = run_case(combo<S, I>{stealth, inner}, label);
+            std::printf("%-18s linked=%d hash_ok=%d mbps=%.1f bytes=%zu timeout=%d\n",
+                        label, r.linked, r.hash_ok, r.mbps, r.bytes, r.timeout);
+            if (r.linked && r.hash_ok)
+                ++pass;
+            else
+            {
+                ++fail;
+                EXPECT_TRUE(r.linked) << label << " 联通失败";
+                EXPECT_TRUE(r.hash_ok) << label << " hash 不一致";
+            }
+        };
+
+        shadowtls_factory st;
+        restls_factory rs;
+        anytls_factory at;
+        trusttunnel_factory tt;
+        ws_factory wf;
+        gun_factory gf;
+        reality_factory rf;
+        direct_factory df;
+
+        run_one("shadowtls+vless", st, make_vless_inner());
+        run_one("restls+vless", rs, make_vless_inner());
+        run_one("anytls+vless", at, make_vless_inner());
+        run_one("trusttunnel+vless", tt, make_vless_inner());
+        run_one("ws+vless", wf, make_vless_inner());
+        run_one("gun+vless", gf, make_vless_inner());
+        run_one("reality+vless", rf, make_vless_inner());
+        run_one("shadowtls+trojan", st, make_trojan_inner());
+        run_one("restls+trojan", rs, make_trojan_inner());
+        run_one("anytls+trojan", at, make_trojan_inner());
+        run_one("trusttunnel+trojan", tt, make_trojan_inner());
+        run_one("ws+trojan", wf, make_trojan_inner());
+        run_one("gun+trojan", gf, make_trojan_inner());
+        run_one("reality+trojan", rf, make_trojan_inner());
+        run_one("shadowtls+socks5", st, make_socks5_inner());
+        run_one("restls+socks5", rs, make_socks5_inner());
+        run_one("anytls+socks5", at, make_socks5_inner());
+        run_one("trusttunnel+socks5", tt, make_socks5_inner());
+        run_one("ws+socks5", wf, make_socks5_inner());
+        run_one("gun+socks5", gf, make_socks5_inner());
+        run_one("reality+socks5", rf, make_socks5_inner());
+        run_one("direct+vless", df, make_vless_inner());
+        run_one("direct+trojan", df, make_trojan_inner());
+        run_one("direct+socks5", df, make_socks5_inner());
+
+        std::printf("hash 验证: %d 组合通过, %d 失败\n", pass, fail);
+        EXPECT_EQ(fail, 0) << "存在失败的组合";
     }
 
     DEFINE_COMBO_TEST(ShadowTlsVless, shadowtls_factory{}, make_vless_inner(), "shadowtls+vless")

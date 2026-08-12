@@ -3,7 +3,7 @@
  * @brief VMess Beast 风格组件测试
  */
 
-#include <common/vmess/vmess.hpp>
+#include <common/proxy/vmess/vmess.hpp>
 
 #include <gtest/gtest.h>
 

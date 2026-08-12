@@ -3,8 +3,8 @@
  * @brief Trojan/VLESS Beast 风格组件测试
  */
 
-#include <common/trojan/trojan.hpp>
-#include <common/vless/vless.hpp>
+#include <common/proxy/trojan/trojan.hpp>
+#include <common/proxy/vless/vless.hpp>
 
 #include <gtest/gtest.h>
 

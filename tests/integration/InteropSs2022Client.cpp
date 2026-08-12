@@ -11,7 +11,7 @@
  * @param argv[2] echo 服务器端口（默认 19090，客户端直连 echo 验证转发）
  */
 
-#include <common/shadowsocks2022/codec.hpp>
+#include <common/proxy/shadowsocks2022/codec.hpp>
 
 #include <boost/asio.hpp>
 

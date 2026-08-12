@@ -17,7 +17,7 @@
 
 #include <common/core/transport/bench.hpp>
 #include <common/core/transport/memory_stream.hpp>
-#include <common/socks5/socks5.hpp>
+#include <common/proxy/socks5/socks5.hpp>
 
 namespace
 {

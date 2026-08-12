@@ -17,7 +17,7 @@
 
 #include <common/core/transport/bench.hpp>
 #include <common/core/transport/memory_stream.hpp>
-#include <common/hysteria2/hysteria2.hpp>
+#include <common/proxy/hysteria2/hysteria2.hpp>
 
 namespace
 {

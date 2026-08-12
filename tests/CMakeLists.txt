@@ -28,14 +28,17 @@ function(prism_add_test source_file)
     endif()
     # gtest_discover_tests 在构建后扫描可执行文件注册 GTest 用例，
     # 使用 PRE_TEST 模式延迟发现，避免 configure 阶段运行未构建的二进制
-    # ucrt64 编译的测试需要 ucrt64/bin 在 PATH 中才能加载 DLL，
-    # 通过 CMAKE_CROSSCOMPILING_EMULATOR 设置前缀命令注入 PATH
+    # ucrt64 编译的测试需要 ucrt64/bin 在 PATH 中才能加载 DLL。
+    # 不用 CROSSCOMPILING_EMULATOR 的 -E env（其 PATH 覆盖且无法包含
+    # System32，导致 socket 网络测试偶发访问冲突），改用 ENVIRONMENT
+    # 属性直接注入完整 PATH。
     if(MINGW)
         set_target_properties(${test_name} PROPERTIES
-            CROSSCOMPILING_EMULATOR "${CMAKE_COMMAND};-E;env;PATH=C:/msys64/ucrt64/bin")
+            CROSSCOMPILING_EMULATOR "")
     endif()
     gtest_discover_tests(${test_name}
         PROPERTIES TIMEOUT 30
+                   ENVIRONMENT "PATH=C:/msys64/ucrt64/bin;C:/Windows/System32;C:/Windows"
         DISCOVERY_MODE PRE_TEST)
 endfunction()
 

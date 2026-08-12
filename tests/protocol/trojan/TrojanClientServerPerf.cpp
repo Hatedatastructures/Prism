@@ -17,7 +17,7 @@
 
 #include <common/core/transport/bench.hpp>
 #include <common/core/transport/memory_stream.hpp>
-#include <common/trojan/trojan.hpp>
+#include <common/proxy/trojan/trojan.hpp>
 
 namespace
 {

@@ -5,7 +5,7 @@
 
 #include <gtest/gtest.h>
 
-#include <common/reality/reality.hpp>
+#include <common/stealth/reality/reality.hpp>
 
 #include <array>
 #include <cstdint>

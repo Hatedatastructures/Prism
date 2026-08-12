@@ -3,7 +3,7 @@
  * @brief SS2022 Beast 风格组件测试
  */
 
-#include <common/shadowsocks2022/shadowsocks2022.hpp>
+#include <common/proxy/shadowsocks2022/shadowsocks2022.hpp>
 
 #include <gtest/gtest.h>
 

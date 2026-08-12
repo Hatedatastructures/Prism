@@ -18,7 +18,7 @@
 
 #include <common/core/transport/bench.hpp>
 #include <common/core/transport/memory_stream.hpp>
-#include <common/vless/vless.hpp>
+#include <common/proxy/vless/vless.hpp>
 
 namespace
 {

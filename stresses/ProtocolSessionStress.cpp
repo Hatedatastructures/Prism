@@ -11,9 +11,9 @@
 
 #include <common/core/transport/bench.hpp>
 #include <common/core/transport/memory_stream.hpp>
-#include <common/trojan/trojan.hpp>
-#include <common/vless/vless.hpp>
-#include <common/shadowsocks2022/shadowsocks2022.hpp>
+#include <common/proxy/trojan/trojan.hpp>
+#include <common/proxy/vless/vless.hpp>
+#include <common/proxy/shadowsocks2022/shadowsocks2022.hpp>
 
 #include <boost/asio.hpp>
 

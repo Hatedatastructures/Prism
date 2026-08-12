@@ -17,7 +17,7 @@
 
 #include <common/core/transport/bench.hpp>
 #include <common/core/transport/memory_stream.hpp>
-#include <common/tuic/tuic.hpp>
+#include <common/proxy/tuic/tuic.hpp>
 
 namespace
 {

@@ -21,7 +21,7 @@
 
 #include <common/core/transport/bench.hpp>
 #include <common/core/transport/memory_stream.hpp>
-#include <common/vmess/vmess.hpp>
+#include <common/proxy/vmess/vmess.hpp>
 
 namespace
 {

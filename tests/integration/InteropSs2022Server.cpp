@@ -9,7 +9,7 @@
  * @param argv[1] 监听地址（默认 127.0.0.1:19080）
  */
 
-#include <common/shadowsocks2022/codec.hpp>
+#include <common/proxy/shadowsocks2022/codec.hpp>
 
 #include <boost/asio.hpp>
 

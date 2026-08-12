@@ -3,8 +3,8 @@
  * @brief Hysteria2/TUIC Beast 风格组件测试
  */
 
-#include <common/hysteria2/hysteria2.hpp>
-#include <common/tuic/tuic.hpp>
+#include <common/proxy/hysteria2/hysteria2.hpp>
+#include <common/proxy/tuic/tuic.hpp>
 
 #include <gtest/gtest.h>
 
